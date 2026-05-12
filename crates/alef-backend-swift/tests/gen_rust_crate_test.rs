@@ -23,6 +23,8 @@ fn make_field(name: &str, ty: TypeRef) -> FieldDef {
         core_wrapper: CoreWrapper::None,
         vec_inner_core_wrapper: CoreWrapper::None,
         newtype_wrapper: None,
+        serde_rename: None,
+        serde_flatten: false,
     }
 }
 
@@ -83,6 +85,7 @@ fn make_enum(name: &str, variants: Vec<&str>) -> EnumDef {
         doc: String::new(),
         cfg: None,
         serde_tag: None,
+        serde_untagged: false,
         serde_rename_all: None,
 
         is_copy: false,
@@ -114,6 +117,7 @@ fn cargo_toml_contains_swift_bridge_version() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -145,6 +149,7 @@ fn cargo_toml_contains_crate_name_and_version() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -171,6 +176,7 @@ fn cargo_toml_has_cdylib_and_staticlib() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -199,6 +205,7 @@ fn lib_rs_contains_bridge_module() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -234,6 +241,7 @@ fn lib_rs_has_extern_rust_block_per_type() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -271,6 +279,7 @@ fn lib_rs_type_has_constructor_and_getters() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -322,6 +331,7 @@ fn lib_rs_has_free_function_shim() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -368,6 +378,7 @@ fn lib_rs_async_function_blocks_on_tokio_runtime() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -420,6 +431,7 @@ fn lib_rs_result_function_has_map_err_chain() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -448,6 +460,7 @@ fn build_rs_calls_parse_bridges() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -476,6 +489,7 @@ fn emit_returns_three_files() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -508,6 +522,7 @@ fn lib_rs_has_generated_header_comment() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -535,6 +550,7 @@ fn lib_rs_has_wrapper_newtype_for_type() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -562,6 +578,7 @@ fn lib_rs_enum_extern_block_and_wrapper() {
         functions: vec![],
         enums: vec![make_enum("Status", vec!["Active", "Inactive"])],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -675,6 +692,7 @@ fn trait_bridge_sync_unit_methods_emits_box_type_and_trampolines() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let cfg = config_with_bridge("Validator");
@@ -739,6 +757,7 @@ fn trait_bridge_async_method_emits_block_on() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let cfg = config_with_bridge("Processor");
@@ -768,10 +787,10 @@ fn trait_bridge_async_method_emits_block_on() {
         "async trait method trampoline must call block_on: {}",
         lib.content
     );
-    // Result-returning method must have map_err.
+    // Result-returning method must return a JSON envelope for swift-bridge transport.
     assert!(
-        lib.content.contains("map_err(|e| e.to_string())"),
-        "async Result trampoline must have map_err: {}",
+        lib.content.contains(r#"format!("{{\"ok\": {}}}""#) && lib.content.contains(r#"format!("{{\"err\": {}}}""#),
+        "async Result trampoline must emit JSON envelope: {}",
         lib.content
     );
 }
@@ -798,6 +817,7 @@ fn cargo_toml_has_license_field() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = gen_rust_crate::emit(&api, &config).unwrap();
@@ -819,6 +839,7 @@ fn cargo_toml_license_defaults_to_mit_when_scaffold_absent() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -844,6 +865,7 @@ fn cargo_toml_includes_serde_json_dep() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -879,6 +901,8 @@ fn cargo_toml_serde_json_dep_present_when_has_serde_type_with_vec_field() {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         }],
         methods: vec![],
         is_opaque: false,
@@ -902,6 +926,7 @@ fn cargo_toml_serde_json_dep_present_when_has_serde_type_with_vec_field() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -919,5 +944,119 @@ fn cargo_toml_serde_json_dep_present_when_has_serde_type_with_vec_field() {
         cargo.content.contains("serde_json"),
         "Cargo.toml must list serde_json when lib.rs emits serde_json calls; got:\n{}",
         cargo.content
+    );
+}
+
+// ---------------------------------------------------------------------------
+// gen_unregistration_fn / gen_clear_fn tests
+// ---------------------------------------------------------------------------
+
+fn config_with_full_bridge(
+    trait_name: &str,
+    unregister_fn: Option<&str>,
+    clear_fn: Option<&str>,
+) -> ResolvedCrateConfig {
+    let mut cfg = make_config();
+    cfg.trait_bridges = vec![TraitBridgeConfig {
+        trait_name: trait_name.to_string(),
+        super_trait: None,
+        registry_getter: Some("demo::plugins::registry::get_test_registry".to_string()),
+        register_fn: Some("register_test_plugin".to_string()),
+        unregister_fn: unregister_fn.map(str::to_string),
+        clear_fn: clear_fn.map(str::to_string),
+        type_alias: None,
+        param_name: None,
+        register_extra_args: None,
+        exclude_languages: vec![],
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
+    }];
+    cfg
+}
+
+fn make_minimal_trait_api(trait_name: &str) -> ApiSurface {
+    let trait_def = make_trait_type(trait_name, &format!("demo::{trait_name}"), vec![]);
+    ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_def],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    }
+}
+
+/// When `unregister_fn` and `clear_fn` are both configured, the generated lib.rs
+/// must contain both functions with the configured names and the correct signatures.
+#[test]
+fn trait_bridge_unregister_and_clear_fns_emitted_when_both_configured() {
+    let api = make_minimal_trait_api("Analyzer");
+    let cfg = config_with_full_bridge("Analyzer", Some("unregister_analyzer"), Some("clear_analyzers"));
+
+    let files = gen_rust_crate::emit(&api, &cfg).unwrap();
+    let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+    // unregister_fn must be present with the configured name and String arg.
+    assert!(
+        lib.content
+            .contains("pub fn unregister_analyzer(name: String) -> Result<(), String>"),
+        "lib.rs must contain unregister_analyzer signature; got:\n{}",
+        lib.content
+    );
+    // unregister body must call the registry getter.
+    assert!(
+        lib.content.contains("demo::plugins::registry::get_test_registry()"),
+        "unregister_analyzer body must call registry getter; got:\n{}",
+        lib.content
+    );
+
+    // clear_fn must be present with the configured name and no args.
+    assert!(
+        lib.content.contains("pub fn clear_analyzers() -> Result<(), String>"),
+        "lib.rs must contain clear_analyzers signature; got:\n{}",
+        lib.content
+    );
+    // clear body must also call the registry getter.
+    assert!(
+        lib.content.contains("pub fn clear_analyzers() -> Result<(), String>"),
+        "clear_analyzers body must be emitted; got:\n{}",
+        lib.content
+    );
+
+    // Both names must appear in the extern "Rust" block for swift-bridge visibility.
+    assert!(
+        lib.content
+            .contains("fn unregister_analyzer(name: String) -> Result<(), String>;"),
+        "extern Rust block must declare unregister_analyzer; got:\n{}",
+        lib.content
+    );
+    assert!(
+        lib.content.contains("fn clear_analyzers() -> Result<(), String>;"),
+        "extern Rust block must declare clear_analyzers; got:\n{}",
+        lib.content
+    );
+}
+
+/// When `unregister_fn` and `clear_fn` are both `None`, neither function must
+/// appear in the generated lib.rs.
+#[test]
+fn trait_bridge_no_unregister_or_clear_when_both_none() {
+    let api = make_minimal_trait_api("Analyzer");
+    let cfg = config_with_full_bridge("Analyzer", None, None);
+
+    let files = gen_rust_crate::emit(&api, &cfg).unwrap();
+    let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+    assert!(
+        !lib.content.contains("unregister_"),
+        "lib.rs must not emit any unregister fn when unregister_fn is None; got:\n{}",
+        lib.content
+    );
+    assert!(
+        !lib.content.contains("clear_"),
+        "lib.rs must not emit any clear fn when clear_fn is None; got:\n{}",
+        lib.content
     );
 }

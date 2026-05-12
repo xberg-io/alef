@@ -1,0 +1,37 @@
+fn {{ method_name }}({{ sig }}) -> {{ ret_ty }} {
+    Python::attach(|py| {
+        let obj = self.python_obj.bind(py);
+        if !obj.hasattr("{{ method_name }}").unwrap_or(false) {
+            return {{ ret_ty }}::Continue;
+        }
+
+        match {{ py_call }} {
+            Err(_) => {{ ret_ty }}::Continue,
+            Ok(result) => {
+                if let Ok(s) = result.extract::<String>() {
+                    match s.to_lowercase().as_str() {
+                        "continue" => {{ ret_ty }}::Continue,
+                        "skip" => {{ ret_ty }}::Skip,
+                        "preserve_html" | "preservehtml" => {{ ret_ty }}::PreserveHtml,
+                        _ => {{ ret_ty }}::Custom(s),
+                    }
+                } else if result.is_none() {
+                    {{ ret_ty }}::Continue
+                } else {
+                    let py_dict = result.downcast::<pyo3::types::PyDict>();
+                    if let Ok(d) = py_dict {
+                        if let Some(v) = d.get_item("custom").ok().flatten() {
+                            {{ ret_ty }}::Custom(v.extract::<String>().unwrap_or_default())
+                        } else if let Some(v) = d.get_item("error").ok().flatten() {
+                            {{ ret_ty }}::Error(v.extract::<String>().unwrap_or_default())
+                        } else {
+                            {{ ret_ty }}::Continue
+                        }
+                    } else {
+                        {{ ret_ty }}::Continue
+                    }
+                }
+            }
+        }
+    })
+}

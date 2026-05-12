@@ -1,0 +1,6 @@
+let {{ options_name }}_core: Option<{{ core_import }}::ConversionOptions> = {{ options_name }}.map(|mut o| {
+    o.visitor = None;
+    let mut result: {{ core_import }}::ConversionOptions = o.into();
+    result.visitor = visitor_handle.clone();
+    result
+});

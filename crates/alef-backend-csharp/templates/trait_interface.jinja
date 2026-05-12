@@ -1,0 +1,24 @@
+/// <summary>
+/// Bridge interface for {{ trait_pascal }} trait implementation via native FFI
+/// </summary>
+public interface I{{ trait_pascal }} {
+{% if has_super_trait %}
+
+    /// <summary>Get the plugin name.</summary>
+    string Name { get; }
+
+    /// <summary>Get the plugin version.</summary>
+    string Version { get; }
+
+    /// <summary>Initialize the plugin.</summary>
+    void Initialize();
+
+    /// <summary>Shut down the plugin.</summary>
+    void Shutdown();
+{% endif %}
+{% for method in methods %}
+
+    /// <summary>{{ method.name }}</summary>
+    {{ method.return_type }} {{ method.method_name }}({{ method.params_sig }});
+{% endfor %}
+}

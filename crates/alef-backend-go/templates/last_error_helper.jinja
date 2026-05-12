@@ -1,0 +1,10 @@
+// lastError retrieves the last error from the FFI layer.
+func lastError() error {
+	code := int32(C.{{ ffi_prefix }}_last_error_code())
+	if code == 0 {
+		return nil
+	}
+	ctx := C.{{ ffi_prefix }}_last_error_context()
+	message := C.GoString(ctx)
+	return fmt.Errorf("[%d] %s", code, message)
+}

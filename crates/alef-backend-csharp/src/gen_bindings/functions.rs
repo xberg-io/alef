@@ -1,11 +1,11 @@
 //! C# NativeMethods (P/Invoke) code generation.
 
-use super::{csharp_file_header, is_bridge_param, pinvoke_param_type, pinvoke_return_type};
+use super::{StreamingMethodMeta, is_bridge_param, pinvoke_param_type, pinvoke_return_type};
 use alef_codegen::naming::to_csharp_name;
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, FunctionDef, MethodDef, TypeRef};
 use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn gen_native_methods(
@@ -18,16 +18,20 @@ pub(super) fn gen_native_methods(
     has_visitor_callbacks: bool,
     trait_bridges: &[TraitBridgeConfig],
     streaming_methods: &HashSet<String>,
+    streaming_methods_meta: &HashMap<String, StreamingMethodMeta>,
     exclude_functions: &HashSet<String>,
 ) -> String {
-    let mut out = csharp_file_header();
-    out.push_str("using System;\n");
-    out.push_str("using System.Runtime.InteropServices;\n\n");
+    use crate::template_env::render;
+    use minijinja::Value;
 
-    out.push_str(&format!("namespace {};\n\n", namespace));
-
-    out.push_str("internal static partial class NativeMethods\n{\n");
-    out.push_str(&format!("    private const string LibName = \"{}\";\n\n", lib_name));
+    let mut out = render(
+        "native_methods_header.jinja",
+        Value::from_serialize(serde_json::json!({
+            "namespace": namespace,
+            "lib_name": lib_name,
+        })),
+    );
+    out.push('\n');
 
     // Track emitted C entry-point names to avoid duplicates when the same FFI
     // function appears both as a free function and as a type method.
@@ -61,6 +65,19 @@ pub(super) fn gen_native_methods(
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         for method in &typ.methods {
             if streaming_methods.contains(&method.name) {
+                // Streaming methods have no plain P/Invoke entry but the request payload still
+                // needs `from_json` / `free`, and the item type needs `to_json` / `free`, so
+                // the wrapper can serialize the request and deserialize each chunk.
+                for param in &method.params {
+                    if let TypeRef::Named(name) = &param.ty {
+                        opaque_param_types.insert(name.clone());
+                    }
+                }
+                if let Some(meta) = streaming_methods_meta.get(&method.name) {
+                    if !enum_names.contains(&meta.item_type) {
+                        opaque_return_types.insert(meta.item_type.clone());
+                    }
+                }
                 continue;
             }
             for param in &method.params {
@@ -94,10 +111,15 @@ pub(super) fn gen_native_methods(
         let free_entry = format!("{prefix}_{snake}_free");
         let free_cs = format!("{}Free", type_name.to_pascal_case());
         if emitted.insert(free_entry.clone()) {
-            out.push_str(&format!(
-                "    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{free_entry}\")]\n"
+            out.push_str(&render(
+                "dll_import_attr.jinja",
+                minijinja::context! { entry_point => &free_entry },
             ));
-            out.push_str(&format!("    internal static extern void {free_cs}(IntPtr ptr);\n\n"));
+            out.push_str(&render(
+                "extern_void_ptr.jinja",
+                minijinja::context! { cs_name => &free_cs },
+            ));
+            out.push('\n');
         }
     }
 
@@ -111,21 +133,29 @@ pub(super) fn gen_native_methods(
             let from_json_entry = format!("{prefix}_{snake}_from_json");
             let from_json_cs = format!("{}FromJson", type_name.to_pascal_case());
             if emitted.insert(from_json_entry.clone()) {
-                out.push_str(&format!(
-                    "    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{from_json_entry}\")]\n"
+                out.push_str(&render(
+                    "dll_import_attr.jinja",
+                    minijinja::context! { entry_point => &from_json_entry },
                 ));
-                out.push_str(&format!(
-                    "    internal static extern IntPtr {from_json_cs}([MarshalAs(UnmanagedType.LPStr)] string json);\n\n"
+                out.push_str(&render(
+                    "extern_ptr_from_json.jinja",
+                    minijinja::context! { cs_name => &from_json_cs },
                 ));
+                out.push('\n');
             }
         }
         let free_entry = format!("{prefix}_{snake}_free");
         let free_cs = format!("{}Free", type_name.to_pascal_case());
         if emitted.insert(free_entry.clone()) {
-            out.push_str(&format!(
-                "    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{free_entry}\")]\n"
+            out.push_str(&render(
+                "dll_import_attr.jinja",
+                minijinja::context! { entry_point => &free_entry },
             ));
-            out.push_str(&format!("    internal static extern void {free_cs}(IntPtr ptr);\n\n"));
+            out.push_str(&render(
+                "extern_void_ptr.jinja",
+                minijinja::context! { cs_name => &free_cs },
+            ));
+            out.push('\n');
         }
     }
 
@@ -139,21 +169,29 @@ pub(super) fn gen_native_methods(
             let to_json_entry = format!("{prefix}_{snake}_to_json");
             let to_json_cs = format!("{}ToJson", type_name.to_pascal_case());
             if emitted.insert(to_json_entry.clone()) {
-                out.push_str(&format!(
-                    "    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{to_json_entry}\")]\n"
+                out.push_str(&render(
+                    "dll_import_attr.jinja",
+                    minijinja::context! { entry_point => &to_json_entry },
                 ));
-                out.push_str(&format!(
-                    "    internal static extern IntPtr {to_json_cs}(IntPtr ptr);\n\n"
+                out.push_str(&render(
+                    "extern_ptr_to_json.jinja",
+                    minijinja::context! { cs_name => &to_json_cs },
                 ));
+                out.push('\n');
             }
         }
         let free_entry = format!("{prefix}_{snake}_free");
         let free_cs = format!("{}Free", type_name.to_pascal_case());
         if emitted.insert(free_entry.clone()) {
-            out.push_str(&format!(
-                "    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{free_entry}\")]\n"
+            out.push_str(&render(
+                "dll_import_attr.jinja",
+                minijinja::context! { entry_point => &free_entry },
             ));
-            out.push_str(&format!("    internal static extern void {free_cs}(IntPtr ptr);\n\n"));
+            out.push_str(&render(
+                "extern_void_ptr.jinja",
+                minijinja::context! { cs_name => &free_cs },
+            ));
+            out.push('\n');
         }
     }
 
@@ -171,7 +209,8 @@ pub(super) fn gen_native_methods(
     }
 
     // Generate P/Invoke declarations for type methods.
-    // Skip streaming adapter methods — their FFI signature uses callbacks that P/Invoke can't call.
+    // Skip streaming adapter methods — the callback-based variant cannot be called from
+    // P/Invoke; streaming is exposed instead via the iterator-handle entry points emitted below.
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         let type_snake = typ.name.to_snake_case();
         for method in &typ.methods {
@@ -189,21 +228,104 @@ pub(super) fn gen_native_methods(
         }
     }
 
+    // Emit P/Invoke declarations for streaming iterator-handle entry points:
+    //   {prefix}_{owner_snake}_{name}_start(client*, req*) -> stream handle (IntPtr)
+    //   {prefix}_{owner_snake}_{name}_next(handle*)        -> chunk pointer or IntPtr.Zero
+    //   {prefix}_{owner_snake}_{name}_free(handle*)        -> void
+    for typ in api.types.iter().filter(|typ| !typ.is_trait) {
+        let type_snake = typ.name.to_snake_case();
+        for method in &typ.methods {
+            if !streaming_methods.contains(&method.name) {
+                continue;
+            }
+            let cs_type = typ.name.to_pascal_case();
+            let cs_method = to_csharp_name(&method.name);
+
+            let start_entry = format!("{}_{}_{}_start", prefix, type_snake, method.name.to_lowercase());
+            let start_cs = format!("{cs_type}{cs_method}Start");
+            if emitted.insert(start_entry.clone()) {
+                out.push_str(&render(
+                    "dll_import_attr.jinja",
+                    minijinja::context! { entry_point => &start_entry },
+                ));
+                out.push_str(&render(
+                    "streaming_pinvoke_declaration.jinja",
+                    minijinja::context! {
+                        return_type => "IntPtr",
+                        cs_name => &start_cs,
+                        params => "IntPtr client, IntPtr req",
+                    },
+                ));
+                out.push('\n');
+            }
+
+            let next_entry = format!("{}_{}_{}_next", prefix, type_snake, method.name.to_lowercase());
+            let next_cs = format!("{cs_type}{cs_method}Next");
+            if emitted.insert(next_entry.clone()) {
+                out.push_str(&render(
+                    "dll_import_attr.jinja",
+                    minijinja::context! { entry_point => &next_entry },
+                ));
+                out.push_str(&render(
+                    "streaming_pinvoke_declaration.jinja",
+                    minijinja::context! {
+                        return_type => "IntPtr",
+                        cs_name => &next_cs,
+                        params => "IntPtr handle",
+                    },
+                ));
+                out.push('\n');
+            }
+
+            let free_entry = format!("{}_{}_{}_free", prefix, type_snake, method.name.to_lowercase());
+            let free_cs = format!("{cs_type}{cs_method}Free");
+            if emitted.insert(free_entry.clone()) {
+                out.push_str(&render(
+                    "dll_import_attr.jinja",
+                    minijinja::context! { entry_point => &free_entry },
+                ));
+                out.push_str(&render(
+                    "streaming_pinvoke_declaration.jinja",
+                    minijinja::context! {
+                        return_type => "void",
+                        cs_name => &free_cs,
+                        params => "IntPtr handle",
+                    },
+                ));
+                out.push('\n');
+            }
+        }
+    }
+    let _ = streaming_methods_meta;
+
     // Add error handling functions with PascalCase names
-    out.push_str(&format!(
-        "    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{prefix}_last_error_code\")]\n"
+    let last_error_code_entry = format!("{prefix}_last_error_code");
+    out.push_str(&render(
+        "dll_import_attr.jinja",
+        minijinja::context! { entry_point => &last_error_code_entry },
     ));
     out.push_str("    internal static extern int LastErrorCode();\n\n");
 
-    out.push_str(&format!(
-        "    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{prefix}_last_error_context\")]\n"
+    let last_error_context_entry = format!("{prefix}_last_error_context");
+    out.push_str(&render(
+        "dll_import_attr.jinja",
+        minijinja::context! { entry_point => &last_error_context_entry },
     ));
     out.push_str("    internal static extern IntPtr LastErrorContext();\n\n");
 
-    out.push_str(&format!(
-        "    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{prefix}_free_string\")]\n"
+    let free_string_entry = format!("{prefix}_free_string");
+    out.push_str(&render(
+        "dll_import_attr.jinja",
+        minijinja::context! { entry_point => &free_string_entry },
     ));
-    out.push_str("    internal static extern void FreeString(IntPtr ptr);\n");
+    out.push_str("    internal static extern void FreeString(IntPtr ptr);\n\n");
+
+    let free_bytes_entry = format!("{prefix}_free_bytes");
+    out.push_str(&render(
+        "dll_import_attr.jinja",
+        minijinja::context! { entry_point => &free_bytes_entry },
+    ));
+    out.push_str("    internal static extern void FreeBytes(IntPtr ptr, UIntPtr len, UIntPtr cap);\n");
 
     // Inject visitor create/free/convert P/Invoke declarations when a bridge is configured.
     if has_visitor_callbacks {
@@ -254,46 +376,83 @@ pub(super) fn gen_native_methods(
     out
 }
 
+/// Returns true when a function returns `Result<Vec<u8>>` — uses the out-param
+/// convention: `(args..., out IntPtr, out UIntPtr, out UIntPtr) -> int`.
+pub(super) fn is_bytes_result_func(func: &FunctionDef) -> bool {
+    func.error_type.is_some() && matches!(func.return_type, TypeRef::Bytes)
+}
+
+/// Same check for MethodDef.
+pub(super) fn is_bytes_result_method(method: &MethodDef) -> bool {
+    method.error_type.is_some() && matches!(method.return_type, TypeRef::Bytes)
+}
+
 pub(super) fn gen_pinvoke_for_func(
     c_name: &str,
     func: &FunctionDef,
     bridge_param_names: &HashSet<String>,
     bridge_type_aliases: &HashSet<String>,
 ) -> String {
+    use crate::template_env::render;
+
     let cs_name = to_csharp_name(&func.name);
-    let mut out =
-        format!("    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{c_name}\")]\n");
+    let is_bytes_result = is_bytes_result_func(func);
+
+    let mut out = render("dll_import_attr.jinja", minijinja::context! { entry_point => c_name });
     out.push_str("    internal static extern ");
 
-    // Return type — use the correct P/Invoke type for each kind.
-    out.push_str(pinvoke_return_type(&func.return_type));
+    // Result<Vec<u8>> returns an i32 error code; output bytes come via out-params.
+    if is_bytes_result {
+        out.push_str("int");
+    } else {
+        out.push_str(pinvoke_return_type(&func.return_type));
+    }
 
-    out.push_str(&format!(" {}(", cs_name));
+    out.push(' ');
+    out.push_str(&cs_name);
+    out.push('(');
 
-    // Filter bridge params — they are not visible in P/Invoke declarations; the wrapper
-    // passes IntPtr.Zero directly when calling the visitor-less FFI entry point.
+    // Filter bridge params — they are not visible in P/Invoke declarations.
     let visible_params: Vec<_> = func
         .params
         .iter()
         .filter(|p| !is_bridge_param(p, bridge_param_names, bridge_type_aliases))
         .collect();
 
-    if visible_params.is_empty() {
+    // For bytes_result: always need params block for the three out-params.
+    if visible_params.is_empty() && !is_bytes_result {
         out.push_str(");\n\n");
     } else {
         out.push('\n');
-        for (i, param) in visible_params.iter().enumerate() {
+        for param in visible_params.iter() {
             out.push_str("        ");
             let pinvoke_ty = pinvoke_param_type(&param.ty);
             if pinvoke_ty == "string" {
                 out.push_str("[MarshalAs(UnmanagedType.LPStr)] ");
             }
             let param_name = param.name.to_lower_camel_case();
-            out.push_str(&format!("{pinvoke_ty} {param_name}"));
-
-            if i < visible_params.len() - 1 {
-                out.push(',');
+            out.push_str(
+                render("pinvoke_param.jinja", minijinja::context! { pinvoke_ty, param_name }).trim_end_matches('\n'),
+            );
+            out.push_str(",\n");
+            // For byte-slice input parameters, emit the length parameter immediately after.
+            if matches!(param.ty, TypeRef::Bytes) {
+                let len_param_name = format!("{param_name}Len");
+                out.push_str(&render(
+                    "pinvoke_bytes_len_param.jinja",
+                    minijinja::context! { len_param_name },
+                ));
             }
+        }
+        if is_bytes_result {
+            // Three trailing out-params for the byte-buffer out-param convention.
+            out.push_str("        out IntPtr outPtr,\n");
+            out.push_str("        out UIntPtr outLen,\n");
+            out.push_str("        out UIntPtr outCap\n");
+        } else {
+            // Remove trailing comma from the last regular param.
+            let trim_len = ",\n".len();
+            out.truncate(out.len() - trim_len);
             out.push('\n');
         }
         out.push_str("    );\n\n");
@@ -303,39 +462,34 @@ pub(super) fn gen_pinvoke_for_func(
 }
 
 pub(super) fn gen_pinvoke_for_method(c_name: &str, cs_name: &str, method: &MethodDef) -> String {
-    let mut out =
-        format!("    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{c_name}\")]\n");
+    use crate::template_env::render;
+
+    let is_bytes_result = is_bytes_result_method(method);
+
+    let mut out = render("dll_import_attr.jinja", minijinja::context! { entry_point => c_name });
     out.push_str("    internal static extern ");
 
-    // Return type — use the correct P/Invoke type for each kind.
-    out.push_str(pinvoke_return_type(&method.return_type));
+    // Result<Vec<u8>> returns an i32 error code; output bytes come via out-params.
+    if is_bytes_result {
+        out.push_str("int");
+    } else {
+        out.push_str(pinvoke_return_type(&method.return_type));
+    }
 
-    out.push_str(&format!(" {}(", cs_name));
+    out.push(' ');
+    out.push_str(cs_name);
+    out.push('(');
 
-    // Non-static methods take the receiver as the first FFI parameter (the
-    // generated extern "C" fn signature is `fn (this: *const T, ...)`). Prepend
-    // an `IntPtr handle` here so the P/Invoke signature matches; without this
-    // the C# wrapper falls one argument short and the runtime throws
-    // EntryPointNotFoundException / the C# compiler rejects the call site.
+    // Non-static methods take the receiver as the first FFI parameter.
     let has_receiver = !method.is_static && method.receiver.is_some();
 
-    if !has_receiver && method.params.is_empty() {
+    let needs_params = has_receiver || !method.params.is_empty() || is_bytes_result;
+    if !needs_params {
         out.push_str(");\n\n");
     } else {
         out.push('\n');
-        let total = if has_receiver {
-            method.params.len() + 1
-        } else {
-            method.params.len()
-        };
-        let mut idx = 0usize;
         if has_receiver {
-            out.push_str("        IntPtr handle");
-            if total > 1 {
-                out.push(',');
-            }
-            out.push('\n');
-            idx += 1;
+            out.push_str("        IntPtr handle,\n");
         }
         for param in method.params.iter() {
             out.push_str("        ");
@@ -344,13 +498,29 @@ pub(super) fn gen_pinvoke_for_method(c_name: &str, cs_name: &str, method: &Metho
                 out.push_str("[MarshalAs(UnmanagedType.LPStr)] ");
             }
             let param_name = param.name.to_lower_camel_case();
-            out.push_str(&format!("{pinvoke_ty} {param_name}"));
-
-            if idx < total - 1 {
-                out.push(',');
+            out.push_str(
+                render("pinvoke_param.jinja", minijinja::context! { pinvoke_ty, param_name }).trim_end_matches('\n'),
+            );
+            out.push_str(",\n");
+            // For byte-slice input parameters, emit the length parameter immediately after.
+            if matches!(param.ty, TypeRef::Bytes) {
+                let len_param_name = format!("{param_name}Len");
+                out.push_str(&render(
+                    "pinvoke_bytes_len_param.jinja",
+                    minijinja::context! { len_param_name },
+                ));
             }
+        }
+        if is_bytes_result {
+            // Three trailing out-params for the byte-buffer out-param convention.
+            out.push_str("        out IntPtr outPtr,\n");
+            out.push_str("        out UIntPtr outLen,\n");
+            out.push_str("        out UIntPtr outCap\n");
+        } else {
+            // Remove trailing comma from the last param.
+            let trim_len = ",\n".len();
+            out.truncate(out.len() - trim_len);
             out.push('\n');
-            idx += 1;
         }
         out.push_str("    );\n\n");
     }

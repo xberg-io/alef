@@ -1,0 +1,47 @@
+{#- PHP test file template for PHPUnit
+
+   Context variables:
+   - header: file header comment
+   - namespace: PHP namespace (e.g., "Kreuzberg\E2e")
+   - class_name: class name (e.g., "Kreuzberg")
+   - test_class: test class name (e.g., "BasicTest")
+   - category: category name from fixture group
+   - imports_use: list of use statements (e.g., "use Namespace\ClassName;")
+   - has_http_tests: boolean
+   - http_client_property: string containing HTTP client setUp() method (or empty)
+   - fixtures_body: string containing all rendered test methods
+#}
+<?php
+{{ header }}
+
+declare(strict_types=1);
+
+namespace {{ namespace }}\E2e;
+
+use PHPUnit\Framework\TestCase;
+use {{ namespace }}\{{ class_name }};
+{%- if imports_use %}
+{%- for use_stmt in imports_use %}
+{{ use_stmt }}
+{%- endfor %}
+{%- endif %}
+{%- if has_http_tests %}
+use GuzzleHttp\Client;
+{%- endif %}
+
+/** E2e tests for category: {{ category }}. */
+final class {{ test_class }} extends TestCase
+{
+{%- if has_http_tests %}
+    private Client $httpClient;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $baseUrl = (string)(getenv('MOCK_SERVER_URL') ?: 'http://localhost:8080');
+        $this->httpClient = new Client(['base_uri' => $baseUrl, 'http_errors' => false, 'decode_content' => false, 'allow_redirects' => false]);
+    }
+{%- endif %}
+
+{{ fixtures_body }}
+}

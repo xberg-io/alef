@@ -1,0 +1,7 @@
+    /// Optional destructor: called once with `user_data` when the bridge is dropped.
+    pub free_user_data: Option<unsafe extern "C" fn(*mut std::ffi::c_void)>,
+}
+
+// SAFETY: all fields are function pointers and free_user_data, which are Send + Sync.
+unsafe impl Send for {{ vtable_name }} {}
+unsafe impl Sync for {{ vtable_name }} {}

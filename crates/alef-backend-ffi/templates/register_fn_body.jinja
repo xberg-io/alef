@@ -1,0 +1,23 @@
+
+    // SAFETY: name is non-null (checked above); it points to a valid C string.
+    let plugin_name = match unsafe { std::ffi::CStr::from_ptr(name) }.to_str() {
+        Ok(s) => s.to_owned(),
+        Err(_) => {
+            ffi_set_out_error(out_error, "name is not valid UTF-8");
+            return 1;
+        }
+    };
+
+    // SAFETY: vtable and user_data validity is the caller's responsibility.
+    let bridge = unsafe { {{ bridge_name }}::new(plugin_name, vtable, user_data) };
+    let arc: Arc<dyn {{ trait_path }}> = Arc::new(bridge);
+
+    let registry = {{ registry_getter }}();
+    let mut registry = registry.write();
+
+    if let Err(e) = {{ register_call }} {
+        ffi_set_out_error(out_error, &e.to_string());
+        return 1;
+    }
+    0
+}

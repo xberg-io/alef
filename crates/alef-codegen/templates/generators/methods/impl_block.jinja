@@ -1,0 +1,6 @@
+{%- if block_attr %}
+#[{{ block_attr }}]
+{%- endif %}
+impl {{ prefixed_name }} {
+{{ content }}
+}

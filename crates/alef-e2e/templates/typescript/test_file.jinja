@@ -1,0 +1,29 @@
+{#- TypeScript test file template
+
+   Context variables:
+   - header: file header comment
+   - import_vitest: import line for vitest (with or without beforeAll/afterAll)
+   - import_modules: main import line for functions/types from package
+   - import_node_fs: import for fs utilities (or empty string)
+   - helper_functions: string containing helper functions (_alefE2eText, _alefE2eItemTexts)
+   - category: test category/describe block name
+   - cache_isolation_setup: beforeAll/afterAll setup code (or empty string)
+   - fixtures_body: string containing all rendered test cases (it() blocks)
+#}
+{{ header }}
+{{ import_vitest }}
+{%- if import_modules %}
+{{ import_modules }}
+{%- endif %}
+{%- if import_node_fs %}
+{{ import_node_fs }}
+{%- endif %}
+
+{{ helper_functions }}
+
+describe('{{ category }}', () => {
+{%- if cache_isolation_setup %}
+{{ cache_isolation_setup }}
+{%- endif %}
+{{ fixtures_body }}
+});

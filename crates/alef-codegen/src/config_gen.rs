@@ -25,221 +25,140 @@ fn use_unwrap_or_default(field: &FieldDef) -> bool {
 /// Generate a PyO3 `#[new]` constructor with kwargs for a type with `has_default`.
 /// All fields become keyword args with their defaults in `#[pyo3(signature = (...))]`.
 pub fn gen_pyo3_kwargs_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
-    let mut lines = Vec::new();
-    lines.push("#[new]".to_string());
+    let signature_defaults = typ
+        .fields
+        .iter()
+        .map(|field| format!("{}={}", field.name, default_value_for_field(field, "python")))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let fields: Vec<_> = typ
+        .fields
+        .iter()
+        .map(|field| {
+            minijinja::context! {
+                name => field.name.clone(),
+                type => type_mapper(&field.ty),
+            }
+        })
+        .collect();
 
-    // Build the signature line with defaults
-    let mut sig_parts = Vec::new();
-    for field in &typ.fields {
-        let default_str = default_value_for_field(field, "python");
-        sig_parts.push(format!("{}={}", field.name, default_str));
-    }
-    let signature = format!("#[pyo3(signature = ({}))]", sig_parts.join(", "));
-    lines.push(signature);
-
-    // Function signature
-    lines.push("fn new(".to_string());
-    for (i, field) in typ.fields.iter().enumerate() {
-        let type_str = type_mapper(&field.ty);
-        let comma = if i < typ.fields.len() - 1 { "," } else { "" };
-        lines.push(format!("    {}: {}{}", field.name, type_str, comma));
-    }
-    lines.push(") -> Self {".to_string());
-
-    // Body
-    lines.push("    Self {".to_string());
-    for field in &typ.fields {
-        lines.push(format!("        {},", field.name));
-    }
-    lines.push("    }".to_string());
-    lines.push("}".to_string());
-
-    lines.join("\n")
+    crate::template_env::render(
+        "config_gen/pyo3_kwargs_constructor.jinja",
+        minijinja::context! {
+            signature_defaults => signature_defaults,
+            fields => fields,
+        },
+    )
+    .trim_end_matches('\n')
+    .to_string()
 }
 
 /// Generate NAPI constructor that applies defaults for missing optional fields.
 pub fn gen_napi_defaults_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
-    let mut lines = Vec::new();
-    lines.push("pub fn new(mut env: napi::Env, obj: napi::Object) -> napi::Result<Self> {".to_string());
+    let fields: Vec<_> = typ
+        .fields
+        .iter()
+        .map(|field| {
+            minijinja::context! {
+                name => field.name.clone(),
+                type => type_mapper(&field.ty),
+                default => default_value_for_field(field, "rust"),
+            }
+        })
+        .collect();
 
-    // Field assignments with defaults
-    for field in &typ.fields {
-        let type_str = type_mapper(&field.ty);
-        let default_str = default_value_for_field(field, "rust");
-        lines.push(format!(
-            "    let {}: {} = obj.get(\"{}\").unwrap_or({})?;",
-            field.name, type_str, field.name, default_str
-        ));
-    }
-
-    lines.push("    Ok(Self {".to_string());
-    for field in &typ.fields {
-        lines.push(format!("        {},", field.name));
-    }
-    lines.push("    })".to_string());
-    lines.push("}".to_string());
-
-    lines.join("\n")
+    crate::template_env::render(
+        "config_gen/napi_defaults_constructor.jinja",
+        minijinja::context! {
+            fields => fields,
+        },
+    )
+    .trim_end_matches('\n')
+    .to_string()
 }
 
 /// Generate Go functional options pattern for a type with `has_default`.
 /// Returns: type definition + Option type + WithField functions + NewConfig constructor
 pub fn gen_go_functional_options(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
-    let mut lines = Vec::new();
+    let fields: Vec<_> = typ
+        .fields
+        .iter()
+        .filter(|field| !is_tuple_field(field))
+        .map(|field| {
+            minijinja::context! {
+                name => field.name.clone(),
+                pascal_name => field.name.to_pascal_case(),
+                field_name => field.name.to_pascal_case(),
+                go_type => type_mapper(&field.ty),
+                default => default_value_for_field(field, "go"),
+            }
+        })
+        .collect();
 
-    // Type definition
-    lines.push(format!("// {} is a configuration type.", typ.name));
-    lines.push(format!("type {} struct {{", typ.name));
-    for field in &typ.fields {
-        if is_tuple_field(field) {
-            continue;
-        }
-        let go_type = type_mapper(&field.ty);
-        lines.push(format!("    {} {}", field.name.to_pascal_case(), go_type));
-    }
-    lines.push("}".to_string());
-    lines.push("".to_string());
-
-    // Option function type
-    lines.push(format!(
-        "// {}Option is a functional option for {}.",
-        typ.name, typ.name
-    ));
-    lines.push(format!("type {}Option func(*{})", typ.name, typ.name));
-    lines.push("".to_string());
-
-    // WithField functions
-    for field in &typ.fields {
-        if is_tuple_field(field) {
-            continue;
-        }
-        let option_name = format!("With{}{}", typ.name, field.name.to_pascal_case());
-        let go_type = type_mapper(&field.ty);
-        lines.push(format!("// {} sets the {}.", option_name, field.name));
-        lines.push(format!("func {}(val {}) {}Option {{", option_name, go_type, typ.name));
-        lines.push(format!("    return func(c *{}) {{", typ.name));
-        lines.push(format!("        c.{} = val", field.name.to_pascal_case()));
-        lines.push("    }".to_string());
-        lines.push("}".to_string());
-        lines.push("".to_string());
-    }
-
-    // New constructor
-    lines.push(format!(
-        "// New{} creates a new {} with default values and applies options.",
-        typ.name, typ.name
-    ));
-    lines.push(format!(
-        "func New{}(opts ...{}Option) *{} {{",
-        typ.name, typ.name, typ.name
-    ));
-    lines.push(format!("    c := &{} {{", typ.name));
-    for field in &typ.fields {
-        if is_tuple_field(field) {
-            continue;
-        }
-        let default_str = default_value_for_field(field, "go");
-        lines.push(format!("        {}: {},", field.name.to_pascal_case(), default_str));
-    }
-    lines.push("    }".to_string());
-    lines.push("    for _, opt := range opts {".to_string());
-    lines.push("        opt(c)".to_string());
-    lines.push("    }".to_string());
-    lines.push("    return c".to_string());
-    lines.push("}".to_string());
-
-    lines.join("\n")
+    crate::template_env::render(
+        "config_gen/go_functional_options.jinja",
+        minijinja::context! {
+            type_name => typ.name.clone(),
+            fields => fields,
+        },
+    )
+    .trim_end_matches('\n')
+    .to_string()
 }
 
 /// Generate Java builder pattern for a type with `has_default`.
 /// Returns: Builder inner class with withField methods + build() method
 pub fn gen_java_builder(typ: &TypeDef, package: &str, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
-    let mut lines = Vec::new();
+    let fields: Vec<_> = typ
+        .fields
+        .iter()
+        .map(|field| {
+            minijinja::context! {
+                name_lower => field.name.to_lowercase(),
+                type => type_mapper(&field.ty),
+                default => default_value_for_field(field, "java"),
+                method_name => format!("with{}", field.name.to_pascal_case()),
+            }
+        })
+        .collect();
 
-    lines.push(format!(
-        "// DO NOT EDIT - auto-generated by alef\npackage {};\n",
-        package
-    ));
-    lines.push("/// Builder for creating instances of {} with sensible defaults".to_string());
-    lines.push(format!("public class {}Builder {{", typ.name));
-
-    // Fields
-    for field in &typ.fields {
-        let java_type = type_mapper(&field.ty);
-        lines.push(format!("    private {} {};", java_type, field.name.to_lowercase()));
-    }
-    lines.push("".to_string());
-
-    // Constructor
-    lines.push(format!("    public {}Builder() {{", typ.name));
-    for field in &typ.fields {
-        let default_str = default_value_for_field(field, "java");
-        lines.push(format!("        this.{} = {};", field.name.to_lowercase(), default_str));
-    }
-    lines.push("    }".to_string());
-    lines.push("".to_string());
-
-    // withField methods
-    for field in &typ.fields {
-        let java_type = type_mapper(&field.ty);
-        let method_name = format!("with{}", field.name.to_pascal_case());
-        lines.push(format!(
-            "    public {}Builder {}({} value) {{",
-            typ.name, method_name, java_type
-        ));
-        lines.push(format!("        this.{} = value;", field.name.to_lowercase()));
-        lines.push("        return this;".to_string());
-        lines.push("    }".to_string());
-        lines.push("".to_string());
-    }
-
-    // build() method
-    lines.push(format!("    public {} build() {{", typ.name));
-    lines.push(format!("        return new {}(", typ.name));
-    for (i, field) in typ.fields.iter().enumerate() {
-        let comma = if i < typ.fields.len() - 1 { "," } else { "" };
-        lines.push(format!("            this.{}{}", field.name.to_lowercase(), comma));
-    }
-    lines.push("        );".to_string());
-    lines.push("    }".to_string());
-    lines.push("}".to_string());
-
-    lines.join("\n")
+    crate::template_env::render(
+        "config_gen/java_builder.jinja",
+        minijinja::context! {
+            package => package,
+            type_name => typ.name.clone(),
+            fields => fields,
+        },
+    )
+    .trim_end_matches('\n')
+    .to_string()
 }
 
 /// Generate C# record with init properties for a type with `has_default`.
 pub fn gen_csharp_record(typ: &TypeDef, namespace: &str, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
-    let mut lines = Vec::new();
+    let fields: Vec<_> = typ
+        .fields
+        .iter()
+        .filter(|field| !is_tuple_field(field))
+        .map(|field| {
+            minijinja::context! {
+                type => type_mapper(&field.ty),
+                name_pascal => field.name.to_pascal_case(),
+                default => default_value_for_field(field, "csharp"),
+            }
+        })
+        .collect();
 
-    lines.push("// This file is auto-generated by alef. DO NOT EDIT.".to_string());
-    lines.push("using System;".to_string());
-    lines.push("".to_string());
-    lines.push(format!("namespace {};\n", namespace));
-
-    lines.push(format!("/// Configuration record: {}", typ.name));
-    lines.push(format!("public record {} {{", typ.name));
-
-    for field in &typ.fields {
-        // Skip tuple struct internals (e.g., _0, _1, etc.)
-        if field.name.starts_with('_') && field.name[1..].chars().all(|c| c.is_ascii_digit())
-            || field.name.chars().next().is_none_or(|c| c.is_ascii_digit())
-        {
-            continue;
-        }
-
-        let cs_type = type_mapper(&field.ty);
-        let default_str = default_value_for_field(field, "csharp");
-        lines.push(format!(
-            "    public {} {} {{ get; init; }} = {};",
-            cs_type,
-            field.name.to_pascal_case(),
-            default_str
-        ));
-    }
-
-    lines.push("}".to_string());
-
-    lines.join("\n")
+    crate::template_env::render(
+        "config_gen/csharp_record.jinja",
+        minijinja::context! {
+            namespace => namespace,
+            type_name => typ.name.clone(),
+            fields => fields,
+        },
+    )
+    .trim_end_matches('\n')
+    .to_string()
 }
 
 /// Get a language-appropriate default value string for a field.
@@ -569,11 +488,12 @@ const MAGNUS_MAX_ARITY: usize = 15;
 /// For types with >15 fields (exceeding Magnus arity limit), generates a hash-based constructor
 /// using `RHash` that extracts fields by name, applying defaults for missing keys.
 pub fn gen_magnus_kwargs_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
-    if typ.fields.len() > MAGNUS_MAX_ARITY {
-        gen_magnus_hash_constructor(typ, type_mapper)
-    } else {
-        gen_magnus_positional_constructor(typ, type_mapper)
-    }
+    // Always use the hash-based constructor so Ruby callers can pass keyword args
+    // (`Type.new(field1: ..., field2: ...)`) regardless of field count. Magnus
+    // function! macro caps arity at 15, but the hash form uses variadic arity (-1)
+    // and works for any number of fields.
+    let _ = MAGNUS_MAX_ARITY;
+    gen_magnus_hash_constructor(typ, type_mapper)
 }
 
 /// Wrap a type string for use as a type-path prefix in Rust.
@@ -593,76 +513,66 @@ fn as_type_path_prefix(type_str: &str) -> String {
 /// Generate a hash-based Magnus constructor for types with many fields.
 /// Accepts `(kwargs: RHash)` and extracts each field by symbol name, applying defaults.
 fn gen_magnus_hash_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
-    use std::fmt::Write;
-    let mut out = String::with_capacity(1024);
+    let fields: Vec<_> = typ
+        .fields
+        .iter()
+        .map(|field| {
+            let is_optional = field_is_optional_in_rust(field);
+            // Use inner type for try_convert, since the hash value is T, not Option<T>.
+            // When field.ty is already Optional(T) and field.optional is true, strip one layer so we
+            // call <T>::try_convert, not <Option<T>>::try_convert (which would yield Option<Option<T>>).
+            let effective_inner_ty = match &field.ty {
+                TypeRef::Optional(inner) if is_optional => inner.as_ref(),
+                ty => ty,
+            };
+            let inner_type = type_mapper(effective_inner_ty);
+            let type_prefix = as_type_path_prefix(&inner_type);
 
-    // Hash-based constructor accepts 0 or 1 arguments using scan_args
-    writeln!(out, "fn new(args: &[magnus::Value]) -> Result<Self, magnus::Error> {{").ok();
-    writeln!(out, "    let ruby = unsafe {{ magnus::Ruby::get_unchecked() }};").ok();
-    writeln!(
-        out,
-        "    let args = magnus::scan_args::scan_args::<(), (Option<magnus::RHash>,), (), (), (), ()>(args)?;"
-    )
-    .ok();
-    writeln!(out, "    let (kwargs_opt,) = args.optional;").ok();
-    writeln!(out, "    let kwargs = kwargs_opt.unwrap_or_else(|| ruby.hash_new());").ok();
-    writeln!(out, "    Ok(Self {{").ok();
-
-    for field in &typ.fields {
-        let is_optional = field_is_optional_in_rust(field);
-        // Use inner type for try_convert, since the hash value is T, not Option<T>.
-        // When field.ty is already Optional(T) and field.optional is true, strip one layer so we
-        // call <T>::try_convert, not <Option<T>>::try_convert (which would yield Option<Option<T>>).
-        let effective_inner_ty = match &field.ty {
-            TypeRef::Optional(inner) if is_optional => inner.as_ref(),
-            ty => ty,
-        };
-        let inner_type = type_mapper(effective_inner_ty);
-        let type_prefix = as_type_path_prefix(&inner_type);
-        if is_optional {
-            // Field is Option<T>: extract from hash, wrap in Some, default to None
-            writeln!(
-                out,
-                "        {name}: kwargs.get(ruby.to_symbol(\"{name}\")).and_then(|v| {type_prefix}::try_convert(v).ok()),",
-                name = field.name,
-                type_prefix = type_prefix,
-            ).ok();
-        } else if use_unwrap_or_default(field) {
-            writeln!(
-                out,
-                "        {name}: kwargs.get(ruby.to_symbol(\"{name}\")).and_then(|v| {type_prefix}::try_convert(v).ok()).unwrap_or_default(),",
-                name = field.name,
-                type_prefix = type_prefix,
-            ).ok();
-        } else {
-            // When the binding maps the field type to String (e.g. an excluded enum), but the
-            // original default is an EnumVariant, `default_value_for_field` would emit
-            // `TypeName::Variant` which is invalid for a `String` field. Fall back to the
-            // string-literal form in that case.
-            let default_str = if inner_type == "String" {
-                if let Some(DefaultValue::EnumVariant(variant)) = &field.typed_default {
-                    use heck::ToSnakeCase;
-                    format!("\"{}\".to_string()", variant.to_snake_case())
+            let assignment = if is_optional {
+                // Field is Option<T>: extract from hash, wrap in Some, default to None
+                format!(
+                    "kwargs.get(ruby.to_symbol(\"{}\")).and_then(|v| {}::try_convert(v).ok()),",
+                    field.name, type_prefix
+                )
+            } else if use_unwrap_or_default(field) {
+                format!(
+                    "kwargs.get(ruby.to_symbol(\"{}\")).and_then(|v| {}::try_convert(v).ok()).unwrap_or_default(),",
+                    field.name, type_prefix
+                )
+            } else {
+                // When the binding maps the field type to String (e.g. an excluded enum), but the
+                // original default is an EnumVariant, `default_value_for_field` would emit
+                // `TypeName::Variant` which is invalid for a `String` field. Fall back to the
+                // string-literal form in that case.
+                let default_str = if inner_type == "String" {
+                    if let Some(DefaultValue::EnumVariant(variant)) = &field.typed_default {
+                        use heck::ToSnakeCase;
+                        format!("\"{}\".to_string()", variant.to_snake_case())
+                    } else {
+                        default_value_for_field(field, "rust")
+                    }
                 } else {
                     default_value_for_field(field, "rust")
-                }
-            } else {
-                default_value_for_field(field, "rust")
+                };
+                format!(
+                    "kwargs.get(ruby.to_symbol(\"{}\")).and_then(|v| {}::try_convert(v).ok()).unwrap_or({}),",
+                    field.name, type_prefix, default_str
+                )
             };
-            writeln!(
-                out,
-                "        {name}: kwargs.get(ruby.to_symbol(\"{name}\")).and_then(|v| {type_prefix}::try_convert(v).ok()).unwrap_or({default}),",
-                name = field.name,
-                type_prefix = type_prefix,
-                default = default_str,
-            ).ok();
-        }
-    }
 
-    writeln!(out, "    }})").ok();
-    writeln!(out, "}}").ok();
+            minijinja::context! {
+                name => field.name.clone(),
+                assignment => assignment,
+            }
+        })
+        .collect();
 
-    out
+    crate::template_env::render(
+        "config_gen/magnus_hash_constructor.jinja",
+        minijinja::context! {
+            fields => fields,
+        },
+    )
 }
 
 /// Returns true if the generated Rust field type is already `Option<T>`.
@@ -675,104 +585,98 @@ fn field_is_optional_in_rust(field: &FieldDef) -> bool {
 
 /// Generate a positional Magnus constructor for types with <=15 fields.
 /// Uses `Option<T>` parameters and applies defaults in the body.
+///
+/// Currently unused — `gen_magnus_kwargs_constructor` always delegates to the
+/// hash-based form because Magnus's `function!` arity cap (15) doesn't apply to
+/// variadic `(-1)` arity. Kept for reference / potential future revival.
+#[allow(dead_code)]
 fn gen_magnus_positional_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
-    use std::fmt::Write;
-    let mut out = String::with_capacity(512);
-
-    writeln!(out, "fn new(").ok();
-
-    // All params are Option<T> so Ruby users can pass nil for any field.
-    // If the Rust field type is already Option<T> (via optional:true or TypeRef::Optional),
-    // use that type directly (avoids Option<Option<T>>).
-    for (i, field) in typ.fields.iter().enumerate() {
-        let comma = if i < typ.fields.len() - 1 { "," } else { "" };
-        let is_optional = field_is_optional_in_rust(field);
-        if is_optional {
-            // Strip one Optional wrapper when ty is Optional(T) AND field is marked optional,
-            // to avoid emitting Option<Option<T>>. The param represents Option<inner>, not
-            // Option<Option<inner>>.
-            let effective_inner_ty = match &field.ty {
-                TypeRef::Optional(inner) => inner.as_ref(),
-                ty => ty,
+    let fields: Vec<_> = typ
+        .fields
+        .iter()
+        .map(|field| {
+            // All params are Option<T> so Ruby users can pass nil for any field.
+            // If the Rust field type is already Option<T> (via optional:true or TypeRef::Optional),
+            // use that type directly (avoids Option<Option<T>>).
+            let is_optional = field_is_optional_in_rust(field);
+            let param_type = if is_optional {
+                // Strip one Optional wrapper when ty is Optional(T) AND field is marked optional,
+                // to avoid emitting Option<Option<T>>. The param represents Option<inner>, not
+                // Option<Option<inner>>.
+                let effective_inner_ty = match &field.ty {
+                    TypeRef::Optional(inner) => inner.as_ref(),
+                    ty => ty,
+                };
+                let inner_type = type_mapper(effective_inner_ty);
+                format!("Option<{}>", inner_type)
+            } else {
+                let field_type = type_mapper(&field.ty);
+                format!("Option<{}>", field_type)
             };
-            let inner_type = type_mapper(effective_inner_ty);
-            writeln!(out, "    {}: Option<{}>{}", field.name, inner_type, comma).ok();
-        } else {
-            let field_type = type_mapper(&field.ty);
-            writeln!(out, "    {}: Option<{}>{}", field.name, field_type, comma).ok();
-        }
-    }
 
-    writeln!(out, ") -> Self {{").ok();
-    writeln!(out, "    Self {{").ok();
+            let assignment = if is_optional {
+                // The Rust field is Option<T>; param is Option<T>; assign directly.
+                field.name.clone()
+            } else if use_unwrap_or_default(field) {
+                format!("{}.unwrap_or_default()", field.name)
+            } else {
+                let default_str = default_value_for_field(field, "rust");
+                format!("{}.unwrap_or({})", field.name, default_str)
+            };
 
-    for field in &typ.fields {
-        let is_optional = field_is_optional_in_rust(field);
-        if is_optional {
-            // The Rust field is Option<T>; param is Option<T>; assign directly.
-            writeln!(out, "        {},", field.name).ok();
-        } else if use_unwrap_or_default(field) {
-            writeln!(out, "        {}: {}.unwrap_or_default(),", field.name, field.name).ok();
-        } else {
-            let default_str = default_value_for_field(field, "rust");
-            writeln!(
-                out,
-                "        {}: {}.unwrap_or({}),",
-                field.name, field.name, default_str
-            )
-            .ok();
-        }
-    }
+            minijinja::context! {
+                name => field.name.clone(),
+                param_type => param_type,
+                assignment => assignment,
+            }
+        })
+        .collect();
 
-    writeln!(out, "    }}").ok();
-    writeln!(out, "}}").ok();
-
-    out
+    crate::template_env::render(
+        "config_gen/magnus_positional_constructor.jinja",
+        minijinja::context! {
+            fields => fields,
+        },
+    )
 }
 
 /// Generate a PHP kwargs constructor for a type with `has_default`.
 /// All fields become `Option<T>` parameters so PHP users can omit any field.
 /// Assignments wrap non-Optional fields in `Some()` and apply defaults.
 pub fn gen_php_kwargs_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
-    use std::fmt::Write;
-    let mut out = String::with_capacity(512);
+    let fields: Vec<_> = typ
+        .fields
+        .iter()
+        .map(|field| {
+            let mapped = type_mapper(&field.ty);
+            let is_optional_field = field.optional || matches!(&field.ty, TypeRef::Optional(_));
 
-    writeln!(out, "pub fn __construct(").ok();
+            let assignment = if is_optional_field {
+                // Struct field is Option<T>, param is Option<T> — pass through directly
+                field.name.clone()
+            } else if use_unwrap_or_default(field) {
+                // Struct field is T, param is Option<T> — unwrap with type's default
+                format!("{}.unwrap_or_default()", field.name)
+            } else {
+                // Struct field is T, param is Option<T> — unwrap with explicit default
+                let default_str = default_value_for_field(field, "rust");
+                format!("{}.unwrap_or({})", field.name, default_str)
+            };
 
-    // All params are Option<MappedType> — PHP users can omit any field
-    for (i, field) in typ.fields.iter().enumerate() {
-        let mapped = type_mapper(&field.ty);
-        let comma = if i < typ.fields.len() - 1 { "," } else { "" };
-        writeln!(out, "    {}: Option<{}>{}", field.name, mapped, comma).ok();
-    }
+            minijinja::context! {
+                name => field.name.clone(),
+                ty => mapped,
+                assignment => assignment,
+            }
+        })
+        .collect();
 
-    writeln!(out, ") -> Self {{").ok();
-    writeln!(out, "    Self {{").ok();
-
-    for field in &typ.fields {
-        let is_optional_field = field.optional || matches!(&field.ty, TypeRef::Optional(_));
-        if is_optional_field {
-            // Struct field is Option<T>, param is Option<T> — pass through directly
-            writeln!(out, "        {},", field.name).ok();
-        } else if use_unwrap_or_default(field) {
-            // Struct field is T, param is Option<T> — unwrap with type's default
-            writeln!(out, "        {}: {}.unwrap_or_default(),", field.name, field.name).ok();
-        } else {
-            // Struct field is T, param is Option<T> — unwrap with explicit default
-            let default_str = default_value_for_field(field, "rust");
-            writeln!(
-                out,
-                "        {}: {}.unwrap_or({}),",
-                field.name, field.name, default_str
-            )
-            .ok();
-        }
-    }
-
-    writeln!(out, "    }}").ok();
-    writeln!(out, "}}").ok();
-
-    out
+    crate::template_env::render(
+        "config_gen/php_kwargs_constructor.jinja",
+        minijinja::context! {
+            fields => fields,
+        },
+    )
 }
 
 /// Generate a Rustler (Elixir) kwargs constructor for a type with `has_default`.
@@ -783,136 +687,100 @@ pub fn gen_rustler_kwargs_constructor_with_exclude(
     _type_mapper: &dyn Fn(&TypeRef) -> String,
     exclude_fields: &std::collections::HashSet<String>,
 ) -> String {
-    use std::fmt::Write;
-    let mut out = String::with_capacity(512);
-
-    writeln!(
-        out,
-        "pub fn new(opts: std::collections::HashMap<String, rustler::Term>) -> Self {{"
-    )
-    .ok();
-    writeln!(out, "    Self {{").ok();
-
-    for field in &typ.fields {
-        if exclude_fields.contains(&field.name) {
-            continue;
-        }
-        if field.optional {
-            writeln!(
-                out,
-                "        {}: opts.get(\"{}\").and_then(|t| t.decode().ok()),",
-                field.name, field.name
-            )
-            .ok();
-        } else if use_unwrap_or_default(field) {
-            writeln!(
-                out,
-                "        {}: opts.get(\"{}\").and_then(|t| t.decode().ok()).unwrap_or_default(),",
-                field.name, field.name
-            )
-            .ok();
-        } else {
-            let default_str = default_value_for_field(field, "rust");
-            let is_enum_variant_default = default_str.contains("::") || default_str.starts_with("\"");
-
-            if (is_enum_variant_default && matches!(&field.ty, TypeRef::String | TypeRef::Char))
-                || matches!(&field.ty, TypeRef::Named(_))
-            {
-                writeln!(
-                    out,
-                    "        {}: opts.get(\"{}\").and_then(|t| t.decode().ok()).unwrap_or_default(),",
-                    field.name, field.name
+    // Pre-compute field assignments (same logic as gen_rustler_kwargs_constructor but with exclusion)
+    let fields: Vec<_> = typ
+        .fields
+        .iter()
+        .filter(|f| !exclude_fields.contains(&f.name))
+        .map(|field| {
+            let assignment = if field.optional {
+                format!("opts.get(\"{}\").and_then(|t| t.decode().ok()),", field.name)
+            } else if use_unwrap_or_default(field) {
+                format!(
+                    "opts.get(\"{}\").and_then(|t| t.decode().ok()).unwrap_or_default(),",
+                    field.name
                 )
-                .ok();
             } else {
-                writeln!(
-                    out,
-                    "        {}: opts.get(\"{}\").and_then(|t| t.decode().ok()).unwrap_or({}),",
-                    field.name, field.name, default_str
-                )
-                .ok();
+                let default_str = default_value_for_field(field, "rust");
+                let is_enum_variant_default = default_str.contains("::") || default_str.starts_with("\"");
+
+                if (is_enum_variant_default && matches!(&field.ty, TypeRef::String | TypeRef::Char))
+                    || matches!(&field.ty, TypeRef::Named(_))
+                {
+                    format!(
+                        "opts.get(\"{}\").and_then(|t| t.decode().ok()).unwrap_or_default(),",
+                        field.name
+                    )
+                } else {
+                    format!(
+                        "opts.get(\"{}\").and_then(|t| t.decode().ok()).unwrap_or({}),",
+                        field.name, default_str
+                    )
+                }
+            };
+
+            minijinja::context! {
+                name => field.name.clone(),
+                assignment => assignment,
             }
-        }
-    }
+        })
+        .collect();
 
-    writeln!(out, "    }}").ok();
-    writeln!(out, "}}").ok();
-
-    out
+    crate::template_env::render(
+        "config_gen/rustler_kwargs_constructor.jinja",
+        minijinja::context! {
+            fields => fields,
+        },
+    )
 }
 
 /// Generate a Rustler (Elixir) kwargs constructor for a type with `has_default`.
 /// Accepts keyword list or map, applies defaults for missing fields.
 pub fn gen_rustler_kwargs_constructor(typ: &TypeDef, _type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
-    use std::fmt::Write;
-    let mut out = String::with_capacity(512);
-
-    // NifStruct already handles keyword list conversion, but we generate
-    // an explicit constructor wrapper that applies defaults.
-    writeln!(
-        out,
-        "pub fn new(opts: std::collections::HashMap<String, rustler::Term>) -> Self {{"
-    )
-    .ok();
-    writeln!(out, "    Self {{").ok();
-
-    // Field assignments with defaults from opts.
-    // Optional fields (Option<T>) need special handling: decode the inner type
-    // directly so we get Option<T> from and_then, with no unwrap_or needed.
-    for field in &typ.fields {
-        if field.optional {
-            // Field type is Option<T>. Decode inner T from the Term, yielding Option<T>.
-            writeln!(
-                out,
-                "        {}: opts.get(\"{}\").and_then(|t| t.decode().ok()),",
-                field.name, field.name
-            )
-            .ok();
-        } else if use_unwrap_or_default(field) {
-            writeln!(
-                out,
-                "        {}: opts.get(\"{}\").and_then(|t| t.decode().ok()).unwrap_or_default(),",
-                field.name, field.name
-            )
-            .ok();
-        } else {
-            let default_str = default_value_for_field(field, "rust");
-            // Check if the default value looks like an enum variant (e.g., "OutputFormat::Plain")
-            // which wouldn't work for String types. If so, use unwrap_or_default() instead.
-            let is_enum_variant_default = default_str.contains("::") || default_str.starts_with("\"");
-
-            if is_enum_variant_default && matches!(&field.ty, TypeRef::String | TypeRef::Char) {
-                // Use default for String types with enum-like defaults
-                writeln!(
-                    out,
-                    "        {}: opts.get(\"{}\").and_then(|t| t.decode().ok()).unwrap_or_default(),",
-                    field.name, field.name
+    // Pre-compute field assignments
+    let fields: Vec<_> = typ
+        .fields
+        .iter()
+        .map(|field| {
+            let assignment = if field.optional {
+                format!("opts.get(\"{}\").and_then(|t| t.decode().ok()),", field.name)
+            } else if use_unwrap_or_default(field) {
+                format!(
+                    "opts.get(\"{}\").and_then(|t| t.decode().ok()).unwrap_or_default(),",
+                    field.name
                 )
-                .ok();
-            } else if matches!(&field.ty, TypeRef::Named(_)) {
-                // For other Named types, use unwrap_or_default() since the binding type may differ
-                // from the core type (e.g., excluded enums become String).
-                writeln!(
-                    out,
-                    "        {}: opts.get(\"{}\").and_then(|t| t.decode().ok()).unwrap_or_default(),",
-                    field.name, field.name
-                )
-                .ok();
             } else {
-                writeln!(
-                    out,
-                    "        {}: opts.get(\"{}\").and_then(|t| t.decode().ok()).unwrap_or({}),",
-                    field.name, field.name, default_str
-                )
-                .ok();
+                let default_str = default_value_for_field(field, "rust");
+                let is_enum_variant_default = default_str.contains("::") || default_str.starts_with("\"");
+
+                let unwrap_default = (is_enum_variant_default && matches!(&field.ty, TypeRef::String | TypeRef::Char))
+                    || matches!(&field.ty, TypeRef::Named(_));
+                if unwrap_default {
+                    format!(
+                        "opts.get(\"{}\").and_then(|t| t.decode().ok()).unwrap_or_default(),",
+                        field.name
+                    )
+                } else {
+                    format!(
+                        "opts.get(\"{}\").and_then(|t| t.decode().ok()).unwrap_or({}),",
+                        field.name, default_str
+                    )
+                }
+            };
+
+            minijinja::context! {
+                name => field.name.clone(),
+                assignment => assignment,
             }
-        }
-    }
+        })
+        .collect();
 
-    writeln!(out, "    }}").ok();
-    writeln!(out, "}}").ok();
-
-    out
+    crate::template_env::render(
+        "config_gen/rustler_kwargs_constructor.jinja",
+        minijinja::context! {
+            fields => fields,
+        },
+    )
 }
 
 /// Generate an extendr (R) kwargs constructor for a type with `has_default`.
@@ -934,24 +802,10 @@ pub fn gen_extendr_kwargs_constructor(
     type_mapper: &dyn Fn(&TypeRef) -> String,
     enum_names: &ahash::AHashSet<String>,
 ) -> String {
-    use std::fmt::Write;
-    let mut out = String::with_capacity(512);
-
-    writeln!(out, "#[extendr]").ok();
-    writeln!(out, "pub fn new_{}(", typ.name.to_lowercase()).ok();
-
-    // Add all fields as Option<T> parameters — extendr passes NULL → None which lets
-    // each field fall through to the struct's Default value when omitted.
-    // Fields whose inner type is a binding enum use Option<String> because extendr has
-    // no TryFrom<&Robj> impl for enum types; the string is parsed back in the body.
-    // Fields that are non-opaque, non-enum named types (structs) are mapped to Robj
-    // since extendr cannot convert Option<SomeStruct> from R automatically.
+    // Helper predicates to classify field types
     let is_named_enum = |ty: &TypeRef| -> bool { matches!(ty, TypeRef::Named(n) if enum_names.contains(n.as_str())) };
-    let is_named_struct = |ty: &TypeRef| -> bool {
-        // A bare Named type that is not an enum — treated as Robj in params since
-        // extendr only generates TryFrom<&Robj> for &Foo (reference), not for Foo (owned).
-        matches!(ty, TypeRef::Named(n) if !enum_names.contains(n.as_str()))
-    };
+    let is_named_struct =
+        |ty: &TypeRef| -> bool { matches!(ty, TypeRef::Named(n) if !enum_names.contains(n.as_str())) };
     let is_optional_named_struct = |ty: &TypeRef| -> bool {
         if let TypeRef::Optional(inner) = ty {
             is_named_struct(inner)
@@ -959,91 +813,74 @@ pub fn gen_extendr_kwargs_constructor(
             false
         }
     };
-    // Returns true if the field type is already Optional (TypeRef::Optional or has field.optional=true
-    // with a type that the mapper wraps in Option<>). Used to prevent double-wrapping.
     let ty_is_optional = |ty: &TypeRef| -> bool { matches!(ty, TypeRef::Optional(_)) };
 
-    // Pre-collect emittable fields (skip struct-typed fields that extendr cannot convert).
-    let emittable_fields: Vec<&FieldDef> = typ
+    // Pre-collect emittable fields (skip struct-typed fields that extendr cannot convert)
+    let emittable_fields: Vec<_> = typ
         .fields
         .iter()
         .filter(|f| !is_named_struct(&f.ty) && !is_optional_named_struct(&f.ty))
+        .map(|field| {
+            let param_type = if is_named_enum(&field.ty) {
+                "Option<String>".to_string()
+            } else if ty_is_optional(&field.ty) {
+                type_mapper(&field.ty)
+            } else {
+                format!("Option<{}>", type_mapper(&field.ty))
+            };
+
+            minijinja::context! {
+                name => field.name.clone(),
+                type => param_type,
+            }
+        })
         .collect();
 
-    for (i, field) in emittable_fields.iter().enumerate() {
-        let comma = if i < emittable_fields.len() - 1 { "," } else { "" };
-        if is_named_enum(&field.ty) {
-            // Enum fields: use Option<String> — parsed back via serde_json in the body.
-            writeln!(out, "    {}: Option<String>{}", field.name, comma).ok();
-        } else if ty_is_optional(&field.ty) {
-            // Already Optional type: type_mapper emits "Option<T>", so don't double-wrap.
-            // The param is the same type as the field (no extra Option wrapper needed for kwargs).
-            let param_type = type_mapper(&field.ty);
-            writeln!(out, "    {}: {}{}", field.name, param_type, comma).ok();
-        } else {
-            let param_type = type_mapper(&field.ty);
-            writeln!(out, "    {}: Option<{}>{}", field.name, param_type, comma).ok();
-        }
-    }
-
-    writeln!(out, ") -> {} {{", typ.name).ok();
-    // Use the type's Default impl as a base so unspecified fields keep their natural
-    // defaults rather than `Default::default()` for each individual field type (which
-    // would, for example, give an empty String for fields whose true default is
-    // `"utf-8"`).  Then overlay any caller-provided values.
-    writeln!(out, "    let mut __out = <{}>::default();", typ.name).ok();
-    for field in &typ.fields {
-        // Skip struct-typed fields — they were omitted from the parameter list and
-        // will keep their Default value from __out.
-        if is_named_struct(&field.ty) || is_optional_named_struct(&field.ty) {
-            continue;
-        }
-        if is_named_enum(&field.ty) {
-            // Enum field via String: parse with serde_json, fall back to Default on error.
-            if field.optional {
-                writeln!(
-                    out,
-                    "    if let Some(v) = {name} {{ __out.{name} = serde_json::from_str(&format!(\"\\\"{{v}}\\\"\")).ok(); }}",
-                    name = field.name
+    // Pre-compute body assignments for all fields
+    let body_assignments: Vec<_> = typ
+        .fields
+        .iter()
+        .filter(|f| !is_named_struct(&f.ty) && !is_optional_named_struct(&f.ty))
+        .map(|field| {
+            let code = if is_named_enum(&field.ty) {
+                if field.optional {
+                    format!(
+                        "if let Some(v) = {} {{ __out.{} = serde_json::from_str(&format!(\"\\\"{{v}}\\\"\")).ok(); }}",
+                        field.name, field.name
+                    )
+                } else {
+                    format!(
+                        "if let Some(v) = {} {{ if let Ok(parsed) = serde_json::from_str(&format!(\"\\\"{{v}}\\\"\")) {{ __out.{} = parsed; }} }}",
+                        field.name, field.name
+                    )
+                }
+            } else if ty_is_optional(&field.ty) || field.optional {
+                format!(
+                    "if let Some(v) = {} {{ __out.{} = Some(v); }}",
+                    field.name, field.name
                 )
-                .ok();
             } else {
-                writeln!(
-                    out,
-                    "    if let Some(v) = {name} {{ if let Ok(parsed) = serde_json::from_str(&format!(\"\\\"{{v}}\\\"\")) {{ __out.{name} = parsed; }} }}",
-                    name = field.name
+                format!(
+                    "if let Some(v) = {} {{ __out.{} = v; }}",
+                    field.name, field.name
                 )
-                .ok();
-            }
-        } else if ty_is_optional(&field.ty) {
-            // Already Optional: param IS Option<inner>, assign through Some on match.
-            writeln!(
-                out,
-                "    if let Some(v) = {name} {{ __out.{name} = Some(v); }}",
-                name = field.name
-            )
-            .ok();
-        } else if field.optional {
-            // Optional flag set but type is plain T: wrap with Some.
-            writeln!(
-                out,
-                "    if let Some(v) = {name} {{ __out.{name} = Some(v); }}",
-                name = field.name
-            )
-            .ok();
-        } else {
-            writeln!(
-                out,
-                "    if let Some(v) = {name} {{ __out.{name} = v; }}",
-                name = field.name
-            )
-            .ok();
-        }
-    }
-    writeln!(out, "    __out").ok();
-    writeln!(out, "}}").ok();
+            };
 
-    out
+            minijinja::context! {
+                code => code,
+            }
+        })
+        .collect();
+
+    crate::template_env::render(
+        "config_gen/extendr_kwargs_constructor.jinja",
+        minijinja::context! {
+            type_name => typ.name.clone(),
+            type_name_lower => typ.name.to_lowercase(),
+            params => emittable_fields,
+            body_assignments => body_assignments,
+        },
+    )
 }
 
 #[cfg(test)]
@@ -1071,6 +908,8 @@ mod tests {
                     core_wrapper: CoreWrapper::None,
                     vec_inner_core_wrapper: CoreWrapper::None,
                     newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
                 },
                 FieldDef {
                     name: "enabled".to_string(),
@@ -1086,6 +925,8 @@ mod tests {
                     core_wrapper: CoreWrapper::None,
                     vec_inner_core_wrapper: CoreWrapper::None,
                     newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
                 },
                 FieldDef {
                     name: "name".to_string(),
@@ -1101,6 +942,8 @@ mod tests {
                     core_wrapper: CoreWrapper::None,
                     vec_inner_core_wrapper: CoreWrapper::None,
                     newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
                 },
             ],
             methods: vec![],
@@ -1135,6 +978,8 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         };
         assert_eq!(default_value_for_field(&field, "python"), "True");
     }
@@ -1155,6 +1000,8 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         };
         assert_eq!(default_value_for_field(&field, "go"), "false");
     }
@@ -1175,6 +1022,8 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         };
         assert_eq!(default_value_for_field(&field, "python"), "\"hello\"");
         assert_eq!(default_value_for_field(&field, "java"), "\"hello\"");
@@ -1196,6 +1045,8 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         };
         let result = default_value_for_field(&field, "python");
         assert_eq!(result, "42");
@@ -1217,6 +1068,8 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         };
         assert_eq!(default_value_for_field(&field, "python"), "None");
         assert_eq!(default_value_for_field(&field, "go"), "nil");
@@ -1240,6 +1093,8 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         };
         assert_eq!(default_value_for_field(&field, "python"), "\"custom\"");
     }
@@ -1355,6 +1210,8 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         };
         let result = default_value_for_field(&field, "python");
         assert!(result.contains("1.5"));
@@ -1376,6 +1233,8 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         };
         // Should fall back to type-based zero value
         assert_eq!(default_value_for_field(&field, "python"), "0");
@@ -1397,6 +1256,8 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         }
     }
 
@@ -1436,6 +1297,8 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         };
         assert_eq!(default_value_for_field(&field, "ruby"), "true");
         assert_eq!(default_value_for_field(&field, "php"), "true");
@@ -1460,6 +1323,8 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         };
         assert_eq!(default_value_for_field(&field, "r"), "FALSE");
     }
@@ -1480,6 +1345,8 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         };
         assert_eq!(default_value_for_field(&field, "rust"), "\"hello\".to_string()");
     }
@@ -1500,6 +1367,8 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         };
         assert_eq!(default_value_for_field(&field, "python"), "\"say \\\"hi\\\"\"");
     }
@@ -1521,6 +1390,8 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         };
         let result = default_value_for_field(&field, "python");
         assert!(result.contains('.'), "whole-number float should contain '.': {result}");
@@ -1542,6 +1413,8 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         };
         assert_eq!(default_value_for_field(&field, "python"), "OutputFormat.JSON_OUTPUT");
         assert_eq!(default_value_for_field(&field, "ruby"), "OutputFormat::JsonOutput");
@@ -1569,6 +1442,8 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         };
         assert_eq!(default_value_for_field(&field, "python"), "[]");
         assert_eq!(default_value_for_field(&field, "ruby"), "[]");
@@ -1596,6 +1471,8 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         };
         assert_eq!(default_value_for_field(&field, "python"), "{}");
         assert_eq!(default_value_for_field(&field, "go"), "nil");
@@ -1619,6 +1496,8 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         };
         assert_eq!(default_value_for_field(&field, "python"), "False");
         assert_eq!(default_value_for_field(&field, "ruby"), "false");
@@ -1641,6 +1520,8 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         };
         assert_eq!(default_value_for_field(&field, "python"), "0.0");
     }
@@ -1661,6 +1542,8 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         };
         assert_eq!(default_value_for_field(&field, "rust"), "String::new()");
         assert_eq!(default_value_for_field(&field, "python"), "\"\"");
@@ -1682,6 +1565,8 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         };
         assert_eq!(default_value_for_field(&field, "python"), "b\"\"");
         assert_eq!(default_value_for_field(&field, "go"), "[]byte{}");
@@ -1704,6 +1589,8 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         };
         assert_eq!(default_value_for_field(&field, "python"), "{}");
         assert_eq!(default_value_for_field(&field, "ruby"), "{}");
@@ -1728,6 +1615,8 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         };
         assert_eq!(default_value_for_field(&field, "ruby"), "nil");
         assert_eq!(default_value_for_field(&field, "php"), "null");
@@ -1870,7 +1759,7 @@ mod tests {
     #[test]
     fn test_gen_magnus_kwargs_constructor_positional_basic() {
         let typ = make_test_type();
-        let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
+        let output = gen_magnus_positional_constructor(&typ, &simple_type_mapper);
 
         assert!(output.contains("fn new("), "should have fn new");
         // All params are Option<T>
@@ -1913,8 +1802,10 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         });
-        let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
+        let output = gen_magnus_positional_constructor(&typ, &simple_type_mapper);
         // Optional field param is Option<String> and assigned directly
         assert!(output.contains("extra,"), "optional field should be assigned directly");
         assert!(!output.contains("extra.unwrap"), "optional field should not use unwrap");
@@ -1938,8 +1829,10 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         });
-        let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
+        let output = gen_magnus_positional_constructor(&typ, &simple_type_mapper);
         assert!(
             output.contains("count: count.unwrap_or_default(),"),
             "plain primitive with no default should use unwrap_or_default"
@@ -1964,6 +1857,8 @@ mod tests {
                 core_wrapper: CoreWrapper::None,
                 vec_inner_core_wrapper: CoreWrapper::None,
                 newtype_wrapper: None,
+                serde_rename: None,
+                serde_flatten: false,
             })
             .collect();
         // Make one field optional to exercise that branch in the hash constructor
@@ -2064,6 +1959,8 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         });
         let output = gen_php_kwargs_constructor(&typ, &simple_type_mapper);
         assert!(
@@ -2090,6 +1987,8 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         });
         let output = gen_php_kwargs_constructor(&typ, &simple_type_mapper);
         assert!(
@@ -2141,6 +2040,8 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         });
         let output = gen_rustler_kwargs_constructor(&typ, &simple_type_mapper);
         assert!(
@@ -2166,6 +2067,8 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         });
         let output = gen_rustler_kwargs_constructor(&typ, &simple_type_mapper);
         assert!(
@@ -2200,6 +2103,8 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         });
         let output2 = gen_rustler_kwargs_constructor(&typ, &simple_type_mapper);
         assert!(
@@ -2290,6 +2195,8 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         });
         let output = gen_go_functional_options(&typ, &simple_type_mapper);
         assert!(
@@ -2324,6 +2231,8 @@ mod tests {
                 core_wrapper: CoreWrapper::None,
                 vec_inner_core_wrapper: CoreWrapper::None,
                 newtype_wrapper: None,
+                serde_rename: None,
+                serde_flatten: false,
             })
             .collect();
         let typ = TypeDef {
@@ -2378,6 +2287,8 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         };
         // Build a large type (>15 fields) so the hash constructor is used
         let mut fields: Vec<FieldDef> = (0..15)
@@ -2395,6 +2306,8 @@ mod tests {
                 core_wrapper: CoreWrapper::None,
                 vec_inner_core_wrapper: CoreWrapper::None,
                 newtype_wrapper: None,
+                serde_rename: None,
+                serde_flatten: false,
             })
             .collect();
         fields.push(field);
@@ -2448,6 +2361,8 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         };
         let typ = TypeDef {
             name: "SmallUpdate".to_string(),
@@ -2468,7 +2383,7 @@ mod tests {
             has_serde: false,
             super_traits: vec![],
         };
-        let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
+        let output = gen_magnus_positional_constructor(&typ, &simple_type_mapper);
         // simple_type_mapper maps Usize → "i64", so Optional(Usize) → "Option<i64>"
         // The param must be Option<i64>, never Option<Option<i64>>.
         assert!(

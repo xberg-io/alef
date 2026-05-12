@@ -1,0 +1,8 @@
+func decodeCellsJSON(cells *C.char) []string {
+	if cells == nil {
+		return nil
+	}
+	var result []string
+	_ = json.Unmarshal([]byte(C.GoString(cells)), &result)
+	return result
+}

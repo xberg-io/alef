@@ -1,0 +1,5 @@
+let {{ param_name }}_core: {{ core_path }} = if {{ param_name }}.is_undefined() {
+        {{ core_path }}::default()
+    } else {
+        serde_wasm_bindgen::from_value::<{{ core_path }}>({{ param_name }}){{ err_conv }}?
+    };

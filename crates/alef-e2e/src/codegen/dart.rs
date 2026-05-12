@@ -4,6 +4,7 @@
 //! HTTP fixtures hit the mock server at `MOCK_SERVER_URL/fixtures/<id>`.
 //! Non-HTTP fixtures without a dart-specific call override emit a skip stub.
 
+use crate::codegen::resolve_field;
 use crate::config::E2eConfig;
 use crate::escape::sanitize_filename;
 use crate::fixture::{Fixture, FixtureGroup, HttpFixture, ValidationErrorExpectation};
@@ -28,6 +29,7 @@ impl E2eCodegen for DartE2eCodegen {
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
         config: &ResolvedCrateConfig,
+        _type_defs: &[alef_core::ir::TypeDef],
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
         let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
@@ -77,6 +79,8 @@ impl E2eCodegen for DartE2eCodegen {
         let test_base = output_base.join("test");
 
         // One test file per fixture group.
+        let bridge_class = config.dart_bridge_class_name();
+
         for group in groups {
             let active: Vec<&Fixture> = group
                 .fixtures
@@ -89,7 +93,7 @@ impl E2eCodegen for DartE2eCodegen {
             }
 
             let filename = format!("{}_test.dart", sanitize_filename(&group.category));
-            let content = render_test_file(&group.category, &active, e2e_config, lang);
+            let content = render_test_file(&group.category, &active, e2e_config, lang, &pkg_name, &bridge_class);
             files.push(GeneratedFile {
                 path: test_base.join(filename),
                 content,
@@ -127,13 +131,14 @@ fn render_pubspec(
         }
     };
 
+    let sdk = alef_core::template_versions::toolchain::DART_SDK_CONSTRAINT;
     format!(
         r#"name: e2e_dart
 version: 0.1.0
 publish_to: none
 
 environment:
-  sdk: ">=3.0.0 <4.0.0"
+  sdk: "{sdk}"
 
 dependencies:
 {dep_block}
@@ -145,17 +150,69 @@ dev_dependencies:
     )
 }
 
-fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfig, lang: &str) -> String {
+fn render_test_file(
+    category: &str,
+    fixtures: &[&Fixture],
+    e2e_config: &E2eConfig,
+    lang: &str,
+    pkg_name: &str,
+    bridge_class: &str,
+) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
 
     // Check if any fixture needs the http package (HTTP server tests).
     let has_http_fixtures = fixtures.iter().any(|f| f.is_http_test());
 
+    // Check if any fixture needs Uint8List.fromList (batch item byte arrays).
+    let has_batch_byte_items = fixtures.iter().any(|f| {
+        let call_config = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
+        call_config.args.iter().any(|a| {
+            a.element_type.as_deref() == Some("BatchBytesItem") && resolve_field(&f.input, &a.field).is_array()
+        })
+    });
+
+    // Detect whether any fixture uses file_path or bytes args — if so, setUpAll must chdir
+    // to the test_documents directory so that relative paths like "docx/fake.docx" resolve.
+    // Mirrors the Ruby/Python conftest and Swift setUp patterns.
+    let needs_chdir = fixtures.iter().any(|f| {
+        if f.is_http_test() {
+            return false;
+        }
+        let call_config = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
+        call_config
+            .args
+            .iter()
+            .any(|a| a.arg_type == "file_path" || a.arg_type == "bytes")
+    });
+
+    // Detect whether any non-HTTP fixture uses a handle arg — if so we need dart:convert
+    // to call jsonDecode when building the engine config from a JSON string.
+    let has_handle_args = fixtures.iter().any(|f| {
+        if f.is_http_test() {
+            return false;
+        }
+        let call_config = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
+        call_config.args.iter().any(|a| a.arg_type == "handle")
+    });
+
     let _ = writeln!(out, "import 'package:test/test.dart';");
     let _ = writeln!(out, "import 'dart:io';");
+    if has_batch_byte_items {
+        let _ = writeln!(out, "import 'dart:typed_data';");
+    }
+    let _ = writeln!(out, "import 'package:{pkg_name}/{pkg_name}.dart';");
+    // RustLib is the flutter_rust_bridge entrypoint; must be initialized before any FRB call.
+    // It lives in the FRB-generated frb_generated.dart inside `{pkg_name}_bridge_generated/`.
+    let _ = writeln!(
+        out,
+        "import 'package:{pkg_name}/src/{pkg_name}_bridge_generated/frb_generated.dart' show RustLib;"
+    );
     if has_http_fixtures {
         let _ = writeln!(out, "import 'dart:async';");
+    }
+    // dart:convert provides jsonDecode for handle-arg engine construction and HTTP response parsing.
+    if has_http_fixtures || has_handle_args {
         let _ = writeln!(out, "import 'dart:convert';");
     }
     let _ = writeln!(out);
@@ -207,6 +264,26 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
     let _ = writeln!(out, "// E2e tests for category: {category}");
     let _ = writeln!(out, "void main() {{");
 
+    // Emit setUpAll to initialize the flutter_rust_bridge before any test runs and,
+    // when fixtures load files by path, chdir to test_documents so that relative
+    // paths like "docx/fake.docx" resolve correctly.
+    //
+    // The test_documents directory lives two levels above e2e/dart/ (at the repo root).
+    // The FIXTURES_DIR environment variable can override this for CI environments.
+    let _ = writeln!(out, "  setUpAll(() async {{");
+    let _ = writeln!(out, "    await RustLib.init();");
+    if needs_chdir {
+        let test_docs_path = e2e_config.test_documents_relative_from(0);
+        let _ = writeln!(
+            out,
+            "    final _testDocs = Platform.environment['FIXTURES_DIR'] ?? '{test_docs_path}';"
+        );
+        let _ = writeln!(out, "    final _dir = Directory(_testDocs);");
+        let _ = writeln!(out, "    if (_dir.existsSync()) Directory.current = _dir;");
+    }
+    let _ = writeln!(out, "  }});");
+    let _ = writeln!(out);
+
     // Close the shared client after all tests in this file complete.
     if has_http_fixtures {
         let _ = writeln!(out, "  tearDownAll(() => _httpClient.close());");
@@ -214,53 +291,434 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
     }
 
     for fixture in fixtures {
-        render_test_case(&mut out, fixture, e2e_config, lang);
+        render_test_case(&mut out, fixture, e2e_config, lang, bridge_class);
     }
 
     let _ = writeln!(out, "}}");
     out
 }
 
-fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig, lang: &str) {
+fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig, lang: &str, bridge_class: &str) {
     // HTTP fixtures: hit the mock server.
     if let Some(http) = &fixture.http {
         render_http_test_case(out, fixture, http);
         return;
     }
 
-    // Non-HTTP fixtures: check if there is a dart-specific call override.
-    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    // Non-HTTP fixtures: render a call-based test using the resolved call config.
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
     let call_overrides = call_config.overrides.get(lang);
-
-    if call_overrides.is_none() {
-        // No dart-specific call override — emit a skip stub.
-        render_skip_stub(out, fixture);
-        return;
-    }
-
-    // Has a dart call override — render a call-based test.
-    let function_name = call_overrides
+    let mut function_name = call_overrides
         .and_then(|o| o.function.as_ref())
         .cloned()
         .unwrap_or_else(|| call_config.function.clone());
+    // Convert snake_case function names to camelCase for Dart conventions.
+    function_name = function_name
+        .split('_')
+        .enumerate()
+        .map(|(i, part)| {
+            if i == 0 {
+                part.to_string()
+            } else {
+                let mut chars = part.chars();
+                match chars.next() {
+                    None => String::new(),
+                    Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                }
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("");
     let result_var = &call_config.result_var;
     let description = escape_dart(&fixture.description);
-    let is_async = call_config.r#async;
+    let fixture_id = &fixture.id;
+    // `is_async` retained for future use (e.g. non-FRB backends); unused with FRB since
+    // all wrappers return Future<T>.
+    let _is_async = call_overrides.and_then(|o| o.r#async).unwrap_or(call_config.r#async);
 
-    if is_async {
-        let _ = writeln!(out, "  test('{description}', () async {{");
-    } else {
-        let _ = writeln!(out, "  test('{description}', () {{");
+    let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
+
+    // Resolve options_type and options_via from per-fixture → per-call → default.
+    // These drive how `json_object` args are constructed:
+    //   options_via = "from_json" — call `createTypeNameFromJson(json: r'...')` bridge
+    //                               helper and pass the result as a named parameter `req:`.
+    //   All other values (or absent) — existing behaviour (batch arrays, config objects,
+    //   generic JSON arrays, or nothing).
+    let options_type: Option<&str> = call_overrides.and_then(|o| o.options_type.as_deref());
+    let options_via: &str = call_overrides
+        .and_then(|o| o.options_via.as_deref())
+        .unwrap_or("kwargs");
+
+    // Build argument list from fixture.input and call_config.args.
+    // Use `resolve_field` (respects the `field` path like "input.data") rather than
+    // looking up by `arg_def.name` directly — the name and the field key may differ.
+    //
+    // For `extract_file_sync` / `extract_file` fixtures that omit `mime_type`,
+    // derive the MIME from the path extension so `extractBytesSync`/`extractBytes`
+    // can be called (both require an explicit MIME type).
+    let file_path_for_mime: Option<&str> = call_config
+        .args
+        .iter()
+        .find(|a| a.arg_type == "file_path")
+        .and_then(|a| resolve_field(&fixture.input, &a.field).as_str());
+
+    // Detect whether this call converts a file_path arg to bytes at test-run time.
+    // Dart cannot pass OS-level file paths through the FRB bridge — the idiomatic API
+    // is always bytes. When a file_path arg is present (and no caller-supplied dart
+    // function override has already been applied), remap the function name:
+    //   extractFile      → extractBytes
+    //   extractFileSync  → extractBytesSync
+    let has_file_path_arg = call_config.args.iter().any(|a| a.arg_type == "file_path");
+    // Apply the remap only when no per-fixture dart override has already specified the
+    // function — if the fixture author set a dart-specific function name we trust it.
+    let caller_supplied_override = call_overrides.and_then(|o| o.function.as_ref()).is_some();
+    if has_file_path_arg && !caller_supplied_override {
+        function_name = match function_name.as_str() {
+            "extractFile" => "extractBytes".to_string(),
+            "extractFileSync" => "extractBytesSync".to_string(),
+            other => other.to_string(),
+        };
     }
 
-    if is_async {
-        let _ = writeln!(out, "    final {result_var} = await {function_name}();");
+    // setup_lines holds per-test statements that must precede the main call:
+    // engine construction (handle args) and URL building (mock_url args).
+    let mut setup_lines: Vec<String> = Vec::new();
+    let mut args = Vec::new();
+
+    for arg_def in &call_config.args {
+        match arg_def.arg_type.as_str() {
+            "mock_url" => {
+                let name = arg_def.name.clone();
+                if fixture.has_host_root_route() {
+                    let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
+                    setup_lines.push(format!(
+                        r#"final {name} = Platform.environment["{env_key}"] ?? (Platform.environment["MOCK_SERVER_URL"]! + "/fixtures/{fixture_id}");"#
+                    ));
+                } else {
+                    setup_lines.push(format!(
+                        r#"final {name} = "${{Platform.environment["MOCK_SERVER_URL"] ?? "http://localhost:8080"}}/fixtures/{fixture_id}";"#
+                    ));
+                }
+                args.push(name);
+                continue;
+            }
+            "handle" => {
+                let name = arg_def.name.clone();
+                let field = arg_def.field.strip_prefix("input.").unwrap_or(&arg_def.field);
+                let config_value = fixture.input.get(field).cloned().unwrap_or(serde_json::Value::Null);
+                // Derive the create-function name: "engine" → "createEngine".
+                let create_fn = {
+                    let mut chars = name.chars();
+                    let pascal = match chars.next() {
+                        None => String::new(),
+                        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                    };
+                    format!("create{pascal}")
+                };
+                if config_value.is_null()
+                    || config_value.is_object() && config_value.as_object().is_some_and(|o| o.is_empty())
+                {
+                    setup_lines.push(format!("final {name} = await {bridge_class}.{create_fn}(null);"));
+                } else {
+                    let json_str = serde_json::to_string(&config_value).unwrap_or_default();
+                    let config_var = format!("{name}Config");
+                    setup_lines.push(format!(
+                        "final {config_var} = CrawlConfig.fromJson(jsonDecode(r'{json_str}') as Map<String, dynamic>);"
+                    ));
+                    setup_lines.push(format!(
+                        "final {name} = await {bridge_class}.{create_fn}({config_var});"
+                    ));
+                }
+                args.push(name);
+                continue;
+            }
+            _ => {}
+        }
+
+        let arg_value = resolve_field(&fixture.input, &arg_def.field);
+        match arg_def.arg_type.as_str() {
+            "bytes" | "file_path" => {
+                // `bytes`: value is a file path string; load file contents at test-run time.
+                // `file_path`: also loaded as bytes for dart — extractBytes/extractBytesSync is
+                // the idiomatic Dart API since the Dart runtime cannot pass OS-level file paths
+                // through the FFI bridge.
+                if let serde_json::Value::String(file_path) = arg_value {
+                    args.push(format!("File('{}').readAsBytesSync()", file_path));
+                }
+            }
+            "string" => {
+                // FRB generates all bridge method parameters as named (`{required T name}`)
+                // in Dart, so string args must be passed as `paramName: 'value'`.
+                // Convert the arg name from snake_case to camelCase for the Dart named param.
+                let dart_param_name = snake_to_camel(&arg_def.name);
+                match arg_value {
+                    serde_json::Value::String(s) => {
+                        args.push(format!("{dart_param_name}: '{}'", escape_dart(s)));
+                    }
+                    serde_json::Value::Null
+                        if arg_def.optional
+                        // Optional string absent from fixture — try to infer MIME from path
+                        // when the arg name looks like a MIME-type parameter.
+                        && arg_def.name == "mime_type" =>
+                    {
+                        let inferred = file_path_for_mime
+                            .and_then(mime_from_extension)
+                            .unwrap_or("application/octet-stream");
+                        args.push(format!("{dart_param_name}: '{inferred}'"));
+                    }
+                    // Other optional strings with null value are omitted.
+                    _ => {}
+                }
+            }
+            "json_object" => {
+                // Handle batch item arrays (BatchBytesItem / BatchFileItem).
+                if let Some(elem_type) = &arg_def.element_type {
+                    if (elem_type == "BatchBytesItem" || elem_type == "BatchFileItem") && arg_value.is_array() {
+                        let dart_items = emit_dart_batch_item_array(arg_value, elem_type);
+                        args.push(dart_items);
+                    }
+                } else if options_via == "from_json" {
+                    // `from_json` path: construct a typed mirror-struct via the generated
+                    // `create<TypeName>FromJson(json: '...')` bridge helper, then pass it
+                    // as the named FRB parameter `req: _var`.
+                    //
+                    // The helper is generated by `emit_from_json_fn` in the dart bridge-crate
+                    // generator and made available as a top-level function via the exported
+                    // `liter_llm_bridge_generated/lib.dart`. The parameter name used in the
+                    // bridge method call is always `req:` for single-request-object methods
+                    // (derived from the Rust IR param name).
+                    if let Some(opts_type) = options_type {
+                        if !arg_value.is_null() {
+                            let json_str = serde_json::to_string(&arg_value).unwrap_or_default();
+                            // Escape for Dart single-quoted string literal (handles embedded quotes,
+                            // backslashes, and interpolation markers).
+                            let escaped_json = escape_dart(&json_str);
+                            let var_name = format!("_{}", arg_def.name);
+                            let dart_fn = type_name_to_create_from_json_dart(opts_type);
+                            setup_lines.push(format!(
+                                "final {var_name} = await {dart_fn}(json: '{escaped_json}');"
+                            ));
+                            // FRB bridge method param name is `req` for all single-request methods.
+                            // Use `req:` as the named argument label.
+                            args.push(format!("req: {var_name}"));
+                        }
+                    }
+                } else if arg_def.name == "config" {
+                    if let serde_json::Value::Object(map) = &arg_value {
+                        // Fixture provides config overrides — build an ExtractionConfig constructor
+                        // with defaults, overriding only the fields present in the fixture JSON.
+                        // This handles error-triggering configs like {force_ocr:true, disable_ocr:true}.
+                        if !map.is_empty() {
+                            args.push(emit_extraction_config_dart(map));
+                        }
+                    }
+                    // If config is null/absent, the wrapper supplies the default ExtractionConfig.
+                } else if arg_value.is_array() {
+                    // Generic JSON array (e.g. batch_urls: ["/page1", "/page2"]).
+                    // Decode via jsonDecode and cast to List<String> at test-run time.
+                    let json_str = serde_json::to_string(&arg_value).unwrap_or_default();
+                    let var_name = arg_def.name.clone();
+                    setup_lines.push(format!(
+                        "final {var_name} = (jsonDecode(r'{json_str}') as List<dynamic>).cast<String>();"
+                    ));
+                    args.push(var_name);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Resolve client_factory: when set, tests create a client instance and call
+    // methods on it rather than using static bridge-class calls. This mirrors the
+    // go/python/zig pattern for stateful clients (e.g. liter-llm).
+    let client_factory: Option<&str> = call_overrides.and_then(|o| o.client_factory.as_deref()).or_else(|| {
+        e2e_config
+            .call
+            .overrides
+            .get(lang)
+            .and_then(|o| o.client_factory.as_deref())
+    });
+
+    // Convert factory name to camelCase (same rule as function_name above).
+    let client_factory_camel: Option<String> = client_factory.map(|f| {
+        f.split('_')
+            .enumerate()
+            .map(|(i, part)| {
+                if i == 0 {
+                    part.to_string()
+                } else {
+                    let mut chars = part.chars();
+                    match chars.next() {
+                        None => String::new(),
+                        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                    }
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("")
+    });
+
+    // All bridge methods return Future<T> because FRB v2 wraps every Rust
+    // function as async in Dart — even "sync" Rust functions. Always emit an async
+    // test body and await the call so the test framework waits for the future.
+    let _ = writeln!(out, "  test('{description}', () async {{");
+
+    let args_str = args.join(", ");
+    let receiver_class = call_overrides
+        .and_then(|o| o.class.as_ref())
+        .cloned()
+        .unwrap_or_else(|| bridge_class.to_string());
+
+    // When client_factory is set, determine the mock URL and emit client instantiation.
+    // The mock URL derivation follows the same has_host_root_route / plain-fixture split
+    // used by the mock_url arg handler above.
+    let (receiver, extra_setup): (String, Option<String>) = if let Some(factory) = &client_factory_camel {
+        let has_mock_url = call_config.args.iter().any(|a| a.arg_type == "mock_url");
+        let mock_url_setup = if !has_mock_url {
+            // No explicit mock_url arg — derive the URL inline.
+            if fixture.has_host_root_route() {
+                let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
+                Some(format!(
+                    "final _mockUrl = Platform.environment[\"{env_key}\"] ?? (Platform.environment[\"MOCK_SERVER_URL\"]! + \"/fixtures/{fixture_id}\");"
+                ))
+            } else {
+                Some(format!(
+                    r#"final _mockUrl = "${{Platform.environment["MOCK_SERVER_URL"] ?? "http://localhost:8080"}}/fixtures/{fixture_id}";"#
+                ))
+            }
+        } else {
+            None
+        };
+        let url_expr = if has_mock_url {
+            // A mock_url arg was emitted into setup_lines already — reuse the variable name
+            // from the first mock_url arg definition so we don't duplicate the URL.
+            call_config
+                .args
+                .iter()
+                .find(|a| a.arg_type == "mock_url")
+                .map(|a| a.name.clone())
+                .unwrap_or_else(|| "_mockUrl".to_string())
+        } else {
+            "_mockUrl".to_string()
+        };
+        let create_line = format!("final _client = await {receiver_class}.{factory}('test-key', baseUrl: {url_expr});");
+        let full_setup = if let Some(url_line) = mock_url_setup {
+            Some(format!("{url_line}\n    {create_line}"))
+        } else {
+            Some(create_line)
+        };
+        ("_client".to_string(), full_setup)
     } else {
-        let _ = writeln!(out, "    final {result_var} = {function_name}();");
+        (receiver_class.clone(), None)
+    };
+
+    if expects_error && (!setup_lines.is_empty() || extra_setup.is_some()) {
+        // Wrap setup + call in an async lambda so any exception at any step is caught.
+        // flutter_rust_bridge 2.x decodes Rust errors as raw String values (not Exception
+        // subtypes), so throwsException will not match. Use throwsA(anything) instead.
+        let _ = writeln!(out, "    await expectLater(() async {{");
+        for line in &setup_lines {
+            let _ = writeln!(out, "      {line}");
+        }
+        if let Some(extra) = &extra_setup {
+            for line in extra.lines() {
+                let _ = writeln!(out, "      {line}");
+            }
+        }
+        let _ = writeln!(out, "      return {receiver}.{function_name}({args_str});");
+        let _ = writeln!(out, "    }}(), throwsA(anything));");
+    } else if expects_error {
+        // No setup lines, direct call — same throwsA(anything) rationale as above.
+        if let Some(extra) = &extra_setup {
+            for line in extra.lines() {
+                let _ = writeln!(out, "    {line}");
+            }
+        }
+        let _ = writeln!(
+            out,
+            "    await expectLater({receiver}.{function_name}({args_str}), throwsA(anything));"
+        );
+    } else {
+        for line in &setup_lines {
+            let _ = writeln!(out, "    {line}");
+        }
+        if let Some(extra) = &extra_setup {
+            for line in extra.lines() {
+                let _ = writeln!(out, "    {line}");
+            }
+        }
+        let _ = writeln!(
+            out,
+            "    final {result_var} = await {receiver}.{function_name}({args_str});"
+        );
     }
 
     let _ = writeln!(out, "  }});");
     let _ = writeln!(out);
+}
+
+/// Converts a snake_case JSON key to Dart camelCase.
+fn snake_to_camel(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut next_upper = false;
+    for ch in s.chars() {
+        if ch == '_' {
+            next_upper = true;
+        } else if next_upper {
+            result.extend(ch.to_uppercase());
+            next_upper = false;
+        } else {
+            result.push(ch);
+        }
+    }
+    result
+}
+
+/// Emits a Dart `ExtractionConfig(...)` constructor with default values, overriding
+/// fields present in `overrides` (from fixture JSON, snake_case keys).
+///
+/// Only simple scalar overrides (bool, int) are supported. Complex nested types
+/// (ocr, chunking, etc.) are left at their defaults (null).
+fn emit_extraction_config_dart(overrides: &serde_json::Map<String, serde_json::Value>) -> String {
+    // Collect scalar overrides; convert keys to camelCase.
+    let mut field_overrides: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for (key, val) in overrides {
+        let camel = snake_to_camel(key);
+        let dart_val = match val {
+            serde_json::Value::Bool(b) => {
+                if *b {
+                    "true".to_string()
+                } else {
+                    "false".to_string()
+                }
+            }
+            serde_json::Value::Number(n) => n.to_string(),
+            serde_json::Value::String(s) => format!("'{s}'"),
+            _ => continue, // skip complex nested objects
+        };
+        field_overrides.insert(camel, dart_val);
+    }
+
+    let use_cache = field_overrides.remove("useCache").unwrap_or_else(|| "true".to_string());
+    let enable_quality_processing = field_overrides
+        .remove("enableQualityProcessing")
+        .unwrap_or_else(|| "true".to_string());
+    let force_ocr = field_overrides
+        .remove("forceOcr")
+        .unwrap_or_else(|| "false".to_string());
+    let disable_ocr = field_overrides
+        .remove("disableOcr")
+        .unwrap_or_else(|| "false".to_string());
+    let include_document_structure = field_overrides
+        .remove("includeDocumentStructure")
+        .unwrap_or_else(|| "false".to_string());
+    let max_archive_depth = field_overrides
+        .remove("maxArchiveDepth")
+        .unwrap_or_else(|| "3".to_string());
+
+    format!(
+        "ExtractionConfig(useCache: {use_cache}, enableQualityProcessing: {enable_quality_processing}, forceOcr: {force_ocr}, disableOcr: {disable_ocr}, resultFormat: ResultFormat.unified, outputFormat: OutputFormat.plain(), includeDocumentStructure: {include_document_structure}, maxArchiveDepth: {max_archive_depth})"
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -580,17 +1038,81 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture, http: &HttpFixture
     client::http_call::render_http_test(out, &DartTestClientRenderer::new(is_redirect), fixture);
 }
 
-/// Emit a compilable skip stub for non-HTTP fixtures without a dart call override.
-fn render_skip_stub(out: &mut String, fixture: &Fixture) {
-    let description = escape_dart(&fixture.description);
-    let fixture_id = &fixture.id;
-    let _ = writeln!(out, "  test('{description}', () {{");
-    let _ = writeln!(
-        out,
-        "    markTestSkipped('TODO: implement Dart e2e test for fixture \\'{fixture_id}\\'');"
-    );
-    let _ = writeln!(out, "  }});");
-    let _ = writeln!(out);
+/// Infer a MIME type from a file path extension.
+///
+/// Returns `None` when the extension is unknown so the caller can supply a fallback.
+/// Used in dart e2e tests when a fixture omits `mime_type` but uses a `file_path` arg.
+fn mime_from_extension(path: &str) -> Option<&'static str> {
+    let ext = path.rsplit('.').next()?;
+    match ext.to_lowercase().as_str() {
+        "docx" => Some("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+        "xlsx" => Some("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+        "pptx" => Some("application/vnd.openxmlformats-officedocument.presentationml.presentation"),
+        "pdf" => Some("application/pdf"),
+        "txt" | "text" => Some("text/plain"),
+        "html" | "htm" => Some("text/html"),
+        "json" => Some("application/json"),
+        "xml" => Some("application/xml"),
+        "csv" => Some("text/csv"),
+        "md" | "markdown" => Some("text/markdown"),
+        "png" => Some("image/png"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "gif" => Some("image/gif"),
+        "zip" => Some("application/zip"),
+        "odt" => Some("application/vnd.oasis.opendocument.text"),
+        "ods" => Some("application/vnd.oasis.opendocument.spreadsheet"),
+        "odp" => Some("application/vnd.oasis.opendocument.presentation"),
+        "rtf" => Some("application/rtf"),
+        "epub" => Some("application/epub+zip"),
+        "msg" => Some("application/vnd.ms-outlook"),
+        "eml" => Some("message/rfc822"),
+        _ => None,
+    }
+}
+
+/// Emit Dart constructors for a batch item array (`BatchBytesItem` or `BatchFileItem`).
+///
+/// Returns a Dart list literal like:
+/// ```dart
+/// [BatchBytesItem(content: Uint8List.fromList([72, 101, ...]), mimeType: 'text/plain')]
+/// ```
+fn emit_dart_batch_item_array(arr: &serde_json::Value, elem_type: &str) -> String {
+    let items: Vec<String> = arr
+        .as_array()
+        .map(|a| a.as_slice())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|item| {
+            let obj = item.as_object()?;
+            match elem_type {
+                "BatchBytesItem" => {
+                    let content_bytes = obj
+                        .get("content")
+                        .and_then(|v| v.as_array())
+                        .map(|arr| {
+                            let nums: Vec<String> =
+                                arr.iter().filter_map(|v| v.as_u64().map(|n| n.to_string())).collect();
+                            format!("Uint8List.fromList([{}])", nums.join(", "))
+                        })
+                        .unwrap_or_else(|| "Uint8List(0)".to_string());
+                    let mime_type = obj
+                        .get("mime_type")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("application/octet-stream");
+                    Some(format!(
+                        "BatchBytesItem(content: {content_bytes}, mimeType: '{}')",
+                        escape_dart(mime_type)
+                    ))
+                }
+                "BatchFileItem" => {
+                    let path = obj.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                    Some(format!("BatchFileItem(path: '{}')", escape_dart(path)))
+                }
+                _ => None,
+            }
+        })
+        .collect();
+    format!("[{}]", items.join(", "))
 }
 
 /// Escape a string for embedding in a Dart single-quoted string literal.
@@ -601,4 +1123,46 @@ fn escape_dart(s: &str) -> String {
         .replace('\r', "\\r")
         .replace('\t', "\\t")
         .replace('$', "\\$")
+}
+
+/// Derive the Dart top-level helper function name for constructing a mirror type from JSON.
+///
+/// The alef dart bridge-crate generator emits a Rust free function
+/// `create_<snake_type>_from_json(json: String)` for each non-opaque mirror struct.
+/// FRB generates the corresponding Dart function as `createTypeNameFromJson` (camelCase).
+///
+/// Example: `"ChatCompletionRequest"` → `"createChatCompletionRequestFromJson"`.
+fn type_name_to_create_from_json_dart(type_name: &str) -> String {
+    // Convert PascalCase type name to snake_case.
+    let mut snake = String::with_capacity(type_name.len() + 8);
+    for (i, ch) in type_name.char_indices() {
+        if ch.is_uppercase() {
+            if i > 0 {
+                snake.push('_');
+            }
+            snake.extend(ch.to_lowercase());
+        } else {
+            snake.push(ch);
+        }
+    }
+    // snake is now e.g. "chat_completion_request"
+    // Full Rust function name: "create_chat_completion_request_from_json"
+    let rust_fn = format!("create_{snake}_from_json");
+    // Convert to Dart camelCase: "createChatCompletionRequestFromJson"
+    rust_fn
+        .split('_')
+        .enumerate()
+        .map(|(i, part)| {
+            if i == 0 {
+                part.to_string()
+            } else {
+                let mut chars = part.chars();
+                match chars.next() {
+                    None => String::new(),
+                    Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                }
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("")
 }

@@ -1,0 +1,11 @@
+fn new(
+{% for field in fields -%}
+    {{ field.name }}: {{ field.param_type }}{{ "," if not loop.last else "" }}
+{% endfor -%}
+) -> Self {
+    Self {
+{% for field in fields -%}
+        {{ field.name }}: {{ field.assignment }},
+{% endfor -%}
+    }
+}

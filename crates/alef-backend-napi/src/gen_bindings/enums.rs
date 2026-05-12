@@ -3,11 +3,42 @@
 use crate::type_map::NapiMapper;
 use alef_core::ir::{EnumDef, TypeRef};
 
+/// Collect synthesized variant-data field names emitted on the binding struct for tagged enums
+/// where a variant carries a single-tuple Named field. These are the per-variant optional
+/// properties (e.g. `excel: Option<JsExcelMetadata>`) added on top of the discriminator and
+/// shared variant fields, enabling direct property access in TypeScript.
+pub(super) fn variant_data_field_names(enum_def: &EnumDef) -> Vec<String> {
+    let mut names = Vec::new();
+    for v in &enum_def.variants {
+        if v.fields.len() != 1 {
+            continue;
+        }
+        let field = &v.fields[0];
+        let is_tuple = field
+            .name
+            .strip_prefix('_')
+            .is_some_and(|s| s.chars().all(|c| c.is_ascii_digit()));
+        if !is_tuple {
+            continue;
+        }
+        if matches!(&field.ty, TypeRef::Named(_)) {
+            names.push(alef_codegen::naming::to_python_name(&v.name));
+        }
+    }
+    names
+}
+
 pub(super) fn gen_enum(enum_def: &EnumDef, prefix: &str, has_serde: bool) -> String {
-    let is_tagged_data_enum = enum_def.serde_tag.is_some() && enum_def.variants.iter().any(|v| !v.fields.is_empty());
+    let has_data_variants = enum_def.variants.iter().any(|v| !v.fields.is_empty());
+    let is_tagged_data_enum = enum_def.serde_tag.is_some() && has_data_variants;
+    let is_untagged_data_enum = enum_def.serde_untagged && has_data_variants;
 
     if is_tagged_data_enum {
         return gen_tagged_enum_as_object(enum_def, prefix, has_serde);
+    }
+
+    if is_untagged_data_enum {
+        return gen_untagged_data_enum_as_value_wrapper(enum_def, prefix);
     }
 
     // Simple string enum
@@ -39,6 +70,9 @@ pub(super) fn gen_enum(enum_def: &EnumDef, prefix: &str, has_serde: bool) -> Str
     ];
 
     for variant in &enum_def.variants {
+        if let Some(rename) = variant.serde_rename.as_deref() {
+            lines.push(format!("    #[napi(value = \"{rename}\")]"));
+        }
         lines.push(format!("    {},", variant.name));
     }
 
@@ -54,6 +88,42 @@ pub(super) fn gen_enum(enum_def: &EnumDef, prefix: &str, has_serde: bool) -> Str
     }
 
     lines.join("\n")
+}
+
+/// Generate an untagged data enum as a thin wrapper around `serde_json::Value`.
+///
+/// `#[serde(untagged)]` enums (e.g. `enum Input { Single(String), Multiple(Vec<String>) }`)
+/// can't be expressed as a `#[napi(string_enum)]` because that loses the inner data.
+/// JS users want to pass either shape directly (`"hi"` or `["a", "b"]`), so we wrap the
+/// value through `serde_json::Value` (napi-rs's `serde-json` feature provides FromNapiValue/
+/// ToNapiValue for it) and bridge to/from the core enum via serde.
+pub(super) fn gen_untagged_data_enum_as_value_wrapper(enum_def: &EnumDef, prefix: &str) -> String {
+    let name = format!("{prefix}{}", enum_def.name);
+    format!(
+        "#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]\n\
+         #[serde(transparent)]\n\
+         pub struct {name}(pub serde_json::Value);\n\
+         \n\
+         impl napi::bindgen_prelude::TypeName for {name} {{\n    \
+             fn type_name() -> &'static str {{ \"{name}\" }}\n    \
+             fn value_type() -> napi::ValueType {{ napi::ValueType::Unknown }}\n\
+         }}\n\
+         \n\
+         impl napi::bindgen_prelude::FromNapiValue for {name} {{\n    \
+             unsafe fn from_napi_value(env: napi::sys::napi_env, val: napi::sys::napi_value) -> napi::Result<Self> {{\n        \
+                 let v: serde_json::Value = unsafe {{ napi::bindgen_prelude::FromNapiValue::from_napi_value(env, val)? }};\n        \
+                 Ok(Self(v))\n    \
+             }}\n\
+         }}\n\
+         \n\
+         impl napi::bindgen_prelude::ToNapiValue for {name} {{\n    \
+             unsafe fn to_napi_value(env: napi::sys::napi_env, val: Self) -> napi::Result<napi::sys::napi_value> {{\n        \
+                 unsafe {{ napi::bindgen_prelude::ToNapiValue::to_napi_value(env, val.0) }}\n    \
+             }}\n\
+         }}\n\
+         \n\
+         impl napi::bindgen_prelude::ValidateNapiValue for {name} {{}}\n"
+    )
 }
 
 /// Generate a tagged enum as a flattened `#[napi(object)]` struct.
@@ -119,25 +189,54 @@ pub(super) fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str, has_se
         }
     }
 
+    // For tagged enums with variants having single-tuple Named fields, add explicit variant-specific
+    // properties (not via getters, which NAPI-RS doesn't generate .d.ts for) to enable direct property access.
+    enum_def.variants.iter().for_each(|v| {
+        if v.fields.len() != 1 {
+            return;
+        }
+        let field = &v.fields[0];
+        let is_tuple = field
+            .name
+            .strip_prefix('_')
+            .is_some_and(|s| s.chars().all(|c| c.is_ascii_digit()));
+        if !is_tuple {
+            return;
+        }
+        if let TypeRef::Named(inner_type_name) = &field.ty {
+            let variant_name_snake = alef_codegen::naming::to_python_name(&v.name);
+            let binding_type = format!("{prefix}{inner_type_name}");
+            let js_name = alef_codegen::naming::to_node_name(&v.name);
+            if js_name != variant_name_snake {
+                lines.push(format!("    #[napi(js_name = \"{js_name}\")]"));
+            }
+            lines.push(format!("    pub {variant_name_snake}: Option<{binding_type}>,"));
+        }
+    });
+
     lines.push("}".to_string());
 
-    // Default impl
+    // Default impl — must include both shared variant fields and the synthesized variant-data
+    // properties so the struct literal is complete.
+    let synth_fields = variant_data_field_names(enum_def);
+    let default_inits: Vec<String> = seen_fields
+        .iter()
+        .cloned()
+        .chain(synth_fields.iter().cloned())
+        .map(|f| format!("{f}: None"))
+        .collect();
     lines.push(String::new());
     lines.push("#[allow(clippy::derivable_impls)]".to_string());
     lines.push(format!("impl Default for {prefix}{} {{", enum_def.name));
     lines.push(format!(
         "    fn default() -> Self {{ Self {{ {tag_field}_tag: String::new(), {} }} }}",
-        seen_fields
-            .iter()
-            .map(|f| format!("{f}: None"))
-            .collect::<Vec<_>>()
-            .join(", ")
+        default_inits.join(", ")
     ));
     lines.push("}".to_string());
 
     // For tagged enums where every non-empty variant is a single-tuple Named field, emit a
     // #[napi] impl block with per-variant getters so callers can do `.excel.sheetCount` etc.
-    let tuple_named_variants: Vec<(&alef_core::ir::EnumVariant, &str)> = enum_def
+    let _tuple_named_variants: Vec<(&alef_core::ir::EnumVariant, &str)> = enum_def
         .variants
         .iter()
         .filter_map(|v| {
@@ -159,46 +258,6 @@ pub(super) fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str, has_se
             }
         })
         .collect();
-
-    let has_data_variants = enum_def.variants.iter().any(|v| !v.fields.is_empty());
-    if has_data_variants && !tuple_named_variants.is_empty() {
-        lines.push(String::new());
-        lines.push("#[napi]".to_string());
-        lines.push(format!("impl {prefix}{} {{", enum_def.name));
-
-        for (variant, inner_type_name) in &tuple_named_variants {
-            // Snake_case for the Rust method name; lowercase for the serde tag discriminator.
-            let variant_name_snake = alef_codegen::naming::to_python_name(&variant.name);
-            let variant_name_lower = variant.name.to_lowercase();
-            // Discriminator: explicit serde_rename, or lowercased variant name (mirrors methods.rs)
-            let discriminator = variant
-                .serde_rename
-                .as_deref()
-                .unwrap_or(&variant_name_lower)
-                .to_string();
-            let js_method_name = alef_codegen::naming::to_node_name(&variant.name);
-            let binding_type = format!("{prefix}{inner_type_name}");
-
-            lines.push(String::new());
-            if js_method_name != variant_name_snake {
-                lines.push(format!("    #[napi(getter, js_name = \"{js_method_name}\")]"));
-            } else {
-                lines.push("    #[napi(getter)]".to_string());
-            }
-            lines.push(format!(
-                "    pub fn {variant_name_snake}(&self) -> Option<{binding_type}> {{"
-            ));
-            lines.push(format!(
-                "        if self.{tag_field}_tag != \"{discriminator}\" {{ return None; }}"
-            ));
-            lines.push(format!(
-                "        self._0.as_ref().and_then(|s| serde_json::from_str::<{binding_type}>(s).ok())"
-            ));
-            lines.push("    }".to_string());
-        }
-
-        lines.push("}".to_string());
-    }
 
     lines.join("\n")
 }
@@ -289,6 +348,7 @@ mod tests {
             is_copy: true,
             has_serde: false,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
         }
     }

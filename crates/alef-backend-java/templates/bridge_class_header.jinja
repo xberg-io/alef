@@ -1,0 +1,35 @@
+package {{ package }};
+
+import java.lang.foreign.Arena;
+import java.lang.foreign.FunctionDescriptor;
+import java.lang.foreign.Linker;
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
+{% if needs_list_import %}import java.util.List;
+{% endif %}{% if needs_map_import %}import java.util.Map;
+{% endif %}import java.util.concurrent.ConcurrentHashMap;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+/**
+ * Allocates Panama FFM upcall stubs for an I{{ trait_pascal }} implementation,
+ * assembles the C vtable in native memory, and provides static
+ * register{{ trait_pascal }}/unregister{{ trait_pascal }} helpers.
+ */
+public final class {{ bridge_class }} implements AutoCloseable {
+
+    private static final Linker LINKER = Linker.nativeLinker();
+    private static final MethodHandles.Lookup LOOKUP = MethodHandles.lookup();
+    private static final ObjectMapper JSON = new ObjectMapper();
+
+    /** Live registry — keeps Arenas and upcall stubs alive past the register call. */
+    private static final ConcurrentHashMap<String, {{ bridge_class }}>
+            {{ registry_field }} = new ConcurrentHashMap<>();
+
+    // C vtable: {{ num_vtable_fields }} fields ({{ num_super_slots }} plugin methods + {{ num_methods }} trait methods + free_user_data)
+    private static final long VTABLE_SIZE = (long) ValueLayout.ADDRESS.byteSize() * {{ num_vtable_fields }}L;
+
+    private final Arena arena;
+    private final MemorySegment vtable;
+    private final I{{ trait_pascal }} impl;

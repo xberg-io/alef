@@ -10,58 +10,75 @@ use crate::fixture::Fixture;
 
 /// Emit mock server setup lines into a test function body.
 ///
-/// Builds `MockRoute` objects from the fixture's `mock_response` and starts
-/// the server.  The resulting `mock_server` variable is in scope for the rest
-/// of the test function.
+/// Builds `MockRoute` objects from the fixture's `mock_response` (single-response schema)
+/// or `input.mock_responses` (array schema for multiple responses per fixture).
+/// The resulting `mock_server` variable is in scope for the rest of the test function.
 pub fn render_mock_server_setup(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig) {
-    let mock = match fixture.mock_response.as_ref() {
-        Some(m) => m,
-        None => return,
-    };
+    // Try array schema first: input.mock_responses
+    let mut routes = Vec::new();
 
-    // Resolve the HTTP path and method from the call config.
-    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
-    let path = call_config.path.as_deref().unwrap_or("/");
-    let method = call_config.method.as_deref().unwrap_or("POST");
+    if let Some(mock_responses) = fixture.input.get("mock_responses").and_then(|v| v.as_array()) {
+        // Array schema: input.mock_responses[{ path, status_code, headers, body_inline, ... }]
+        let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+        let default_path = call_config.path.as_deref().unwrap_or("/");
+        let default_method = call_config.method.as_deref().unwrap_or("POST");
 
-    let status = mock.status;
+        for response in mock_responses {
+            if let Ok(obj) = serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(response.clone()) {
+                let path = obj
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(default_path)
+                    .to_string();
+                let method = obj
+                    .get("method")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(default_method)
+                    .to_string();
+                let status: u16 = obj.get("status_code").and_then(|v| v.as_u64()).unwrap_or(200) as u16;
 
-    // Render headers map as a Vec<(String, String)> literal for stable iteration order.
-    let mut header_entries: Vec<(&String, &String)> = mock.headers.iter().collect();
-    header_entries.sort_by(|a, b| a.0.cmp(b.0));
-    let render_headers = |out: &mut String| {
-        let _ = writeln!(out, "        headers: vec![");
-        for (name, value) in &header_entries {
-            let n = rust_raw_string(name);
-            let v = rust_raw_string(value);
-            let _ = writeln!(out, "            ({n}.to_string(), {v}.to_string()),");
+                let headers: Vec<(String, String)> = obj
+                    .get("headers")
+                    .and_then(|v| v.as_object())
+                    .map(|h| {
+                        let mut entries: Vec<_> = h
+                            .iter()
+                            .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_string()))
+                            .collect();
+                        entries.sort_by(|a, b| a.0.cmp(&b.0));
+                        entries
+                    })
+                    .unwrap_or_default();
+
+                let body_str = if let Some(body_inline) = obj.get("body_inline").and_then(|v| v.as_str()) {
+                    rust_raw_string(body_inline)
+                } else {
+                    // Note: body_file support would require fixture-dir context at codegen time.
+                    // For now, we emit a placeholder; the standalone binary handles body_file.
+                    rust_raw_string("{}")
+                };
+
+                let delay_ms = obj.get("delay_ms").and_then(|v| v.as_u64());
+
+                routes.push((path, method, status, body_str, headers, delay_ms));
+            }
         }
-        let _ = writeln!(out, "        ],");
-    };
+    } else if let Some(mock) = fixture.mock_response.as_ref() {
+        // Single-response schema: mock_response { status, body, stream_chunks, headers }
+        let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+        let path = call_config.path.as_deref().unwrap_or("/");
+        let method = call_config.method.as_deref().unwrap_or("POST");
 
-    if let Some(chunks) = &mock.stream_chunks {
-        // Streaming SSE response.
-        let _ = writeln!(out, "    let mock_route = MockRoute {{");
-        let _ = writeln!(out, "        path: \"{path}\",");
-        let _ = writeln!(out, "        method: \"{method}\",");
-        let _ = writeln!(out, "        status: {status},");
-        let _ = writeln!(out, "        body: String::new(),");
-        let _ = writeln!(out, "        stream_chunks: vec![");
-        for chunk in chunks {
-            let chunk_str = match chunk {
-                serde_json::Value::String(s) => rust_raw_string(s),
-                other => {
-                    let s = serde_json::to_string(other).unwrap_or_default();
-                    rust_raw_string(&s)
-                }
-            };
-            let _ = writeln!(out, "            {chunk_str}.to_string(),");
-        }
-        let _ = writeln!(out, "        ],");
-        render_headers(out);
-        let _ = writeln!(out, "    }};");
-    } else {
-        // Non-streaming JSON response.
+        let status = mock.status;
+
+        // Render headers map as a Vec<(String, String)> literal for stable iteration order.
+        let mut header_entries: Vec<(&String, &String)> = mock.headers.iter().collect();
+        header_entries.sort_by(|a, b| a.0.cmp(b.0));
+        let header_tuples: Vec<(String, String)> = header_entries
+            .into_iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+
         let body_str = match &mock.body {
             Some(b) => {
                 let s = serde_json::to_string(b).unwrap_or_default();
@@ -69,17 +86,101 @@ pub fn render_mock_server_setup(out: &mut String, fixture: &Fixture, e2e_config:
             }
             None => rust_raw_string("{}"),
         };
+
+        // Handle streaming separately within the single-response case.
+        if let Some(chunks) = &mock.stream_chunks {
+            // Streaming SSE response.
+            let _ = writeln!(out, "    let mock_route = MockRoute {{");
+            let _ = writeln!(out, "        path: \"{path}\",");
+            let _ = writeln!(out, "        method: \"{method}\",");
+            let _ = writeln!(out, "        status: {status},");
+            let _ = writeln!(out, "        body: String::new(),");
+            let _ = writeln!(out, "        stream_chunks: vec![");
+            for chunk in chunks {
+                let chunk_str = match chunk {
+                    serde_json::Value::String(s) => rust_raw_string(s),
+                    other => {
+                        let s = serde_json::to_string(other).unwrap_or_default();
+                        rust_raw_string(&s)
+                    }
+                };
+                let _ = writeln!(out, "            {chunk_str}.to_string(),");
+            }
+            let _ = writeln!(out, "        ],");
+            let _ = writeln!(out, "        headers: vec![");
+            for (name, value) in &header_tuples {
+                let n = rust_raw_string(name);
+                let v = rust_raw_string(value);
+                let _ = writeln!(out, "            ({n}.to_string(), {v}.to_string()),");
+            }
+            let _ = writeln!(out, "        ],");
+            let _ = writeln!(out, "        delay_ms: None,");
+            let _ = writeln!(out, "    }};");
+            let _ = writeln!(out, "    let mock_server = MockServer::start(vec![mock_route]).await;");
+            return;
+        }
+
+        routes.push((
+            path.to_string(),
+            method.to_string(),
+            status,
+            body_str,
+            header_tuples,
+            None,
+        ));
+    } else {
+        return;
+    }
+
+    // Emit all routes (array schema produces multiple; single schema produces one).
+    if routes.len() == 1 {
+        let (path, method, status, body_str, header_entries, delay_ms) = routes.pop().unwrap();
+        let delay_literal = match delay_ms {
+            Some(ms) => format!("Some({ms})"),
+            None => "None".to_string(),
+        };
         let _ = writeln!(out, "    let mock_route = MockRoute {{");
         let _ = writeln!(out, "        path: \"{path}\",");
         let _ = writeln!(out, "        method: \"{method}\",");
         let _ = writeln!(out, "        status: {status},");
         let _ = writeln!(out, "        body: {body_str}.to_string(),");
         let _ = writeln!(out, "        stream_chunks: vec![],");
-        render_headers(out);
+        let _ = writeln!(out, "        headers: vec![");
+        for (name, value) in &header_entries {
+            let n = rust_raw_string(name);
+            let v = rust_raw_string(value);
+            let _ = writeln!(out, "            ({n}.to_string(), {v}.to_string()),");
+        }
+        let _ = writeln!(out, "        ],");
+        let _ = writeln!(out, "        delay_ms: {delay_literal},");
         let _ = writeln!(out, "    }};");
+        let _ = writeln!(out, "    let mock_server = MockServer::start(vec![mock_route]).await;");
+    } else {
+        // Multiple routes from array schema.
+        let _ = writeln!(out, "    let mut mock_routes = vec![];");
+        for (path, method, status, body_str, header_entries, delay_ms) in routes {
+            let delay_literal = match delay_ms {
+                Some(ms) => format!("Some({ms})"),
+                None => "None".to_string(),
+            };
+            let _ = writeln!(out, "    mock_routes.push(MockRoute {{");
+            let _ = writeln!(out, "        path: \"{path}\",");
+            let _ = writeln!(out, "        method: \"{method}\",");
+            let _ = writeln!(out, "        status: {status},");
+            let _ = writeln!(out, "        body: {body_str}.to_string(),");
+            let _ = writeln!(out, "        stream_chunks: vec![],");
+            let _ = writeln!(out, "        headers: vec![");
+            for (name, value) in &header_entries {
+                let n = rust_raw_string(name);
+                let v = rust_raw_string(value);
+                let _ = writeln!(out, "            ({n}.to_string(), {v}.to_string()),");
+            }
+            let _ = writeln!(out, "        ],");
+            let _ = writeln!(out, "        delay_ms: {delay_literal},");
+            let _ = writeln!(out, "    }});");
+        }
+        let _ = writeln!(out, "    let mock_server = MockServer::start(mock_routes).await;");
     }
-
-    let _ = writeln!(out, "    let mock_server = MockServer::start(vec![mock_route]).await;");
 }
 
 /// Generate the complete `mock_server.rs` module source.
@@ -118,6 +219,9 @@ pub struct MockRoute {
     /// Response headers to apply (name, value) pairs.
     /// Multiple entries with the same name produce multiple header lines.
     pub headers: Vec<(String, String)>,
+    /// Optional artificial response delay in milliseconds. Used by timeout-error
+    /// fixtures to force a client-side request timeout.
+    pub delay_ms: Option<u64>,
 }
 
 struct ServerState {
@@ -176,6 +280,9 @@ async fn handle_request(State(state): State<Arc<ServerState>>, req: Request<Body
             || (path.starts_with(route.path)
                 && path.as_bytes().get(route.path.len()) == Some(&b'/'));
         if path_matches && route.method.to_uppercase() == method {
+            if let Some(delay_ms) = route.delay_ms {
+                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+            }
             let status =
                 StatusCode::from_u16(route.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
 
@@ -218,6 +325,122 @@ async fn handle_request(State(state): State<Arc<ServerState>>, req: Request<Body
 "#
 }
 
+/// Generate the `tests/common.rs` module for Rust e2e tests.
+///
+/// The module spawns the standalone mock-server binary once per test process
+/// and exposes it via `mock_server_url()` which reads the `MOCK_SERVER_URL` env var.
+/// This allows tests that use mock_url arguments to access the server dynamically
+/// without panicking on unset env vars.
+///
+/// The module:
+/// - Spawns `target/release/mock-server` with the fixtures directory as an argument
+/// - Reads stdout lines looking for `MOCK_SERVER_URL=http://...` and `MOCK_SERVERS={...}`
+/// - Sets environment variables: `MOCK_SERVER_URL` and `MOCK_SERVER_<FIXTURE_ID>` for each entry
+/// - Drains remaining stdout in a background thread to prevent blocking
+/// - Uses `OnceLock` to ensure the server is spawned exactly once
+pub fn render_common_module() -> String {
+    hash::header(CommentStyle::DoubleSlash)
+        + r#"//
+// Auto-spawned mock server setup for e2e tests.
+// This module is auto-generated and should not be edited manually.
+
+use std::sync::OnceLock;
+
+static MOCK_SERVER_URL: OnceLock<String> = OnceLock::new();
+
+/// Get the mock server URL, spawning the server if not already running.
+///
+/// The server is spawned once per test process and reused by all tests.
+/// On first call, this function:
+/// - Spawns the `target/release/mock-server` binary
+/// - Reads `MOCK_SERVER_URL=http://...` from its stdout
+/// - Parses `MOCK_SERVERS={...}` JSON and sets env vars for per-fixture servers
+/// - Sets `MOCK_SERVER_URL` env var globally
+/// - Drains remaining stdout in a background thread
+///
+/// Subsequent calls return the cached URL without spawning again.
+pub fn mock_server_url() -> &'static str {
+    MOCK_SERVER_URL.get_or_init(|| {
+        let mock_server_bin = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/target/release/mock-server"
+        );
+        let fixtures_dir = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../fixtures"
+        );
+
+        // Spawn the mock-server binary with fixtures directory as argument.
+        let mut child = std::process::Command::new(mock_server_bin)
+            .arg(fixtures_dir)
+            .stdout(std::process::Stdio::piped())
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .expect("Failed to spawn mock-server binary");
+
+        let stdout = child.stdout.take().expect("Failed to get stdout");
+        let stdin = child.stdin.take().expect("Failed to get stdin");
+
+        let mut url = String::new();
+        let mut line_buffer = String::new();
+        let mut line_count = 0;
+
+        // Read startup lines from the mock server.
+        // Expected: MOCK_SERVER_URL=http://... then MOCK_SERVERS={...json...}
+        // We read up to 16 lines total to accommodate noisy stderr before the markers.
+        use std::io::BufRead;
+        let mut reader = std::io::BufReader::new(stdout);
+
+        while line_count < 16 {
+            line_buffer.clear();
+            match reader.read_line(&mut line_buffer) {
+                Ok(0) => break,  // EOF
+                Ok(_) => {
+                    let line = line_buffer.trim();
+                    if line.starts_with("MOCK_SERVER_URL=") {
+                        url = line.strip_prefix("MOCK_SERVER_URL=")
+                            .unwrap_or("")
+                            .to_string();
+                    } else if line.starts_with("MOCK_SERVERS=") {
+                        let json_str = line.strip_prefix("MOCK_SERVERS=")
+                            .unwrap_or("{}");
+                        // Parse the JSON map and set env vars for each entry.
+                        if let Ok(servers) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(json_str) {
+                            for (fid, furl) in servers {
+                                if let serde_json::Value::String(url_str) = furl {
+                                    let env_key = format!("MOCK_SERVER_{}", fid.to_uppercase());
+                                    std::env::set_var(&env_key, &url_str);
+                                }
+                            }
+                        }
+                        std::env::set_var("MOCK_SERVERS", json_str);
+                        // We have seen both lines; stop reading.
+                        break;
+                    }
+                    line_count += 1;
+                }
+                Err(_) => break,
+            }
+        }
+
+        // Set the main URL env var globally.
+        std::env::set_var("MOCK_SERVER_URL", &url);
+
+        // Drain remaining stdout in a background thread to prevent the server from blocking.
+        std::thread::spawn(move || {
+            let _ = std::io::copy(&mut reader.into_inner(), &mut std::io::sink());
+        });
+
+        // Close stdin to signal the mock-server that the parent is alive.
+        drop(stdin);
+
+        // Return the URL for this process.
+        url
+    }).as_str()
+}
+"#
+}
+
 /// Generate the `src/main.rs` for the standalone mock server binary.
 ///
 /// The binary:
@@ -226,6 +449,9 @@ async fn handle_request(State(state): State<Arc<ServerState>>, req: Request<Body
 ///   `/fixtures/{fixture_id}` returning the configured status/body/SSE chunks.
 /// - Binds to `127.0.0.1:0` (random port), prints `MOCK_SERVER_URL=http://...`
 ///   to stdout, then waits until stdin is closed for clean teardown.
+/// - Fixtures that declare host-root paths (`/robots.txt`, `/sitemap.*`, etc.) get their
+///   own dedicated listener so the crawler can fetch them from the host root.  A second
+///   line `MOCK_SERVERS={...}` (sorted JSON object) maps fixture_id → base URL for those.
 ///
 /// This binary is intended for cross-language e2e suites (WASM, Node) that
 /// spawn it as a child process and read the URL from its stdout.
@@ -239,6 +465,7 @@ pub fn render_mock_server_binary() -> String {
 //   fixtures-dir defaults to "../../fixtures"
 //
 // Prints `MOCK_SERVER_URL=http://127.0.0.1:<port>` to stdout once listening,
+// then optionally `MOCK_SERVERS={...}` with per-fixture URLs for host-root fixtures,
 // then blocks until stdin is closed (parent process exit triggers cleanup).
 
 use std::collections::HashMap;
@@ -271,6 +498,10 @@ struct MockResponse {
     stream_chunks: Option<Vec<serde_json::Value>>,
     #[serde(default)]
     headers: HashMap<String, String>,
+    /// Optional artificial delay (milliseconds) applied before sending the response.
+    /// Used by timeout-error fixtures to force the client request to time out.
+    #[serde(default)]
+    delay_ms: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -294,6 +525,29 @@ struct Fixture {
     mock_response: Option<MockResponse>,
     #[serde(default)]
     http: Option<HttpFixture>,
+    /// Array-form fixture schema. `input.mock_responses[i] = { path?, status_code, headers, body_inline | body_file }`.
+    /// Used by kreuzcrawl-style fixtures that mock multiple URLs per fixture (e.g. a page +
+    /// `/robots.txt` + `/sitemap.xml`).
+    #[serde(default)]
+    input: Option<serde_json::Value>,
+}
+
+/// A single resolved mock response with its serving path and whether it is a host-root path.
+struct ResolvedRoute {
+    /// The namespaced path under which this route is registered in the shared server,
+    /// e.g. `/fixtures/robots_disallow_path` or `/fixtures/robots_disallow_path/assets/style.css`.
+    path: String,
+    /// The original fixture-declared path (before namespacing), e.g. `/robots.txt` or `/assets/style.css`.
+    original_path: String,
+    response: MockResponse,
+    /// Body bytes (pre-loaded from body_file or body_inline).
+    body_bytes: Vec<u8>,
+}
+
+/// Returns true for paths that the crawler fetches from the host root rather than
+/// under a fixture-namespaced prefix.  These require a dedicated per-fixture listener.
+fn is_host_root_path(path: &str) -> bool {
+    path.starts_with("/robots") || path.starts_with("/sitemap")
 }
 
 impl Fixture {
@@ -305,6 +559,7 @@ impl Fixture {
                 body: mock.body.clone(),
                 stream_chunks: mock.stream_chunks.clone(),
                 headers: mock.headers.clone(),
+                delay_ms: mock.delay_ms,
             });
         }
         if let Some(http) = &self.http {
@@ -313,9 +568,123 @@ impl Fixture {
                 body: http.expected_response.body.clone(),
                 stream_chunks: None,
                 headers: http.expected_response.headers.clone(),
+                delay_ms: None,
             });
         }
         None
+    }
+
+    /// Resolve every mock response this fixture defines.
+    ///
+    /// Returns single-element output for the legacy `mock_response` / `http` schemas, and one
+    /// element per array entry for the kreuzcrawl-style `input.mock_responses` schema. For the
+    /// array schema, each element may declare its own `path` (defaulting to `/fixtures/{id}`),
+    /// and the body source can be either `body_inline` (string) or `body_file` (path relative
+    /// to the fixtures dir, loaded at startup).
+    ///
+    /// Paths that are NOT host-root paths (e.g. `/robots.txt`, `/sitemap.xml`) are namespaced
+    /// under `/fixtures/{id}` so that fixtures sharing common paths (like `/`, `/a`, `/b`) do
+    /// not collide in the shared route table.
+    fn as_routes(&self, fixtures_dir: &Path) -> Vec<ResolvedRoute> {
+        let mut routes = Vec::new();
+        let default_path = format!("/fixtures/{}", self.id);
+
+        if let Some(mock) = self.as_mock_response() {
+            let body_bytes = mock
+                .body
+                .as_ref()
+                .map(|b| match b {
+                    serde_json::Value::String(s) => s.as_bytes().to_vec(),
+                    other => serde_json::to_string(other).unwrap_or_default().into_bytes(),
+                })
+                .unwrap_or_default();
+            routes.push(ResolvedRoute {
+                path: default_path.clone(),
+                original_path: default_path.clone(),
+                response: mock,
+                body_bytes,
+            });
+        }
+
+        if let Some(input) = &self.input {
+            if let Some(arr) = input.get("mock_responses").and_then(|v| v.as_array()) {
+                for entry in arr {
+                    let original_path = entry
+                        .get("path")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("/")
+                        .to_string();
+
+                    // Namespace under /fixtures/<id> unless this is a host-root path.
+                    let namespaced_path = if is_host_root_path(&original_path) {
+                        original_path.clone()
+                    } else if original_path == "/" {
+                        format!("/fixtures/{}", self.id)
+                    } else {
+                        format!("/fixtures/{}{}", self.id, original_path)
+                    };
+
+                    let status: u16 = entry.get("status_code").and_then(|v| v.as_u64()).unwrap_or(200) as u16;
+                    let headers: HashMap<String, String> = entry
+                        .get("headers")
+                        .and_then(|v| v.as_object())
+                        .map(|h| {
+                            h.iter()
+                                .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_string()))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+
+                    // Load body bytes — use read() not read_to_string() to support binary files.
+                    let body_bytes: Vec<u8> = if let Some(inline) = entry.get("body_inline").and_then(|v| v.as_str()) {
+                        inline.as_bytes().to_vec()
+                    } else if let Some(file) = entry.get("body_file").and_then(|v| v.as_str()) {
+                        // body_file is resolved relative to `<fixtures>/responses/` first,
+                        // falling back to `<fixtures>/` for projects that store body assets at
+                        // the fixtures root rather than under a `responses/` subdir.
+                        let candidates = [fixtures_dir.join("responses").join(file), fixtures_dir.join(file)];
+                        let mut loaded = None;
+                        for abs in &candidates {
+                            if let Ok(bytes) = std::fs::read(abs) {
+                                loaded = Some(bytes);
+                                break;
+                            }
+                        }
+                        match loaded {
+                            Some(b) => b,
+                            None => {
+                                eprintln!(
+                                    "warning: cannot read body_file {} (tried {} and {})",
+                                    file,
+                                    candidates[0].display(),
+                                    candidates[1].display()
+                                );
+                                Vec::new()
+                            }
+                        }
+                    } else {
+                        Vec::new()
+                    };
+
+                    let delay_ms = entry.get("delay_ms").and_then(|v| v.as_u64());
+
+                    routes.push(ResolvedRoute {
+                        path: namespaced_path,
+                        original_path,
+                        response: MockResponse {
+                            status,
+                            body: None,
+                            stream_chunks: None,
+                            headers,
+                            delay_ms,
+                        },
+                        body_bytes,
+                    });
+                }
+            }
+        }
+
+        routes
     }
 }
 
@@ -326,9 +695,14 @@ impl Fixture {
 #[derive(Clone, Debug)]
 struct MockRoute {
     status: u16,
-    body: String,
+    body: Vec<u8>,
     stream_chunks: Vec<String>,
     headers: Vec<(String, String)>,
+    /// Optional artificial delay applied before the handler returns. When set,
+    /// the handler `tokio::time::sleep`s for this many milliseconds before
+    /// constructing the response — used by timeout-error fixtures to force
+    /// client-side request timeouts.
+    delay_ms: Option<u64>,
 }
 
 type RouteTable = Arc<HashMap<String, MockRoute>>;
@@ -342,6 +716,9 @@ async fn handle_request(State(routes): State<RouteTable>, req: Request<Body>) ->
 
     // Try exact match first
     if let Some(route) = routes.get(&path) {
+        if let Some(delay_ms) = route.delay_ms {
+            tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+        }
         return serve_route(route);
     }
 
@@ -349,6 +726,9 @@ async fn handle_request(State(routes): State<RouteTable>, req: Request<Body>) ->
     // This allows /fixtures/basic_chat/v1/chat/completions to match /fixtures/basic_chat
     for (route_path, route) in routes.iter() {
         if path.starts_with(route_path) && (path.len() == route_path.len() || path.as_bytes()[route_path.len()] == b'/') {
+            if let Some(delay_ms) = route.delay_ms {
+                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+            }
             return serve_route(route);
         }
     }
@@ -383,16 +763,14 @@ fn serve_route(route: &MockRoute) -> Response {
     }
 
     // Only set the default content-type if the fixture does not override it.
-    // Use application/json when the body looks like JSON (starts with { or [),
-    // otherwise fall back to text/plain to avoid clients failing JSON-decode.
+    // Inspect the first non-whitespace byte to detect JSON vs binary vs plain text.
     let has_content_type = route.headers.iter().any(|(k, _)| k.to_lowercase() == "content-type");
     let mut builder = Response::builder().status(status);
     if !has_content_type {
-        let trimmed = route.body.trim_start();
-        let default_ct = if trimmed.starts_with('{') || trimmed.starts_with('[') {
-            "application/json"
-        } else {
-            "text/plain"
+        let first_nonws = route.body.iter().find(|&&b| b != b' ' && b != b'\t' && b != b'\n' && b != b'\r');
+        let default_ct = match first_nonws {
+            Some(&b'{') | Some(&b'[') => "application/json",
+            _ => "text/plain",
         };
         builder = builder.header("content-type", default_ct);
     }
@@ -449,13 +827,27 @@ fn rand_u48() -> u64 {
 // Fixture loading
 // ---------------------------------------------------------------------------
 
-fn load_routes(fixtures_dir: &Path) -> HashMap<String, MockRoute> {
-    let mut routes = HashMap::new();
-    load_routes_recursive(fixtures_dir, &mut routes);
-    routes
+/// Intermediate fixture-loading result: shared route table plus per-fixture host-root data.
+struct LoadedRoutes {
+    /// Routes namespaced under /fixtures/<id> for the shared listener.
+    shared: HashMap<String, MockRoute>,
+    /// For each fixture that has host-root routes: fixture_id → route table at host root.
+    per_fixture: HashMap<String, HashMap<String, MockRoute>>,
 }
 
-fn load_routes_recursive(dir: &Path, routes: &mut HashMap<String, MockRoute>) {
+fn load_routes(fixtures_dir: &Path) -> LoadedRoutes {
+    let mut shared = HashMap::new();
+    let mut per_fixture: HashMap<String, HashMap<String, MockRoute>> = HashMap::new();
+    load_routes_recursive(fixtures_dir, fixtures_dir, &mut shared, &mut per_fixture);
+    LoadedRoutes { shared, per_fixture }
+}
+
+fn load_routes_recursive(
+    dir: &Path,
+    fixtures_root: &Path,
+    shared: &mut HashMap<String, MockRoute>,
+    per_fixture: &mut HashMap<String, HashMap<String, MockRoute>>,
+) {
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
         Err(err) => {
@@ -469,7 +861,7 @@ fn load_routes_recursive(dir: &Path, routes: &mut HashMap<String, MockRoute>) {
 
     for path in paths {
         if path.is_dir() {
-            load_routes_recursive(&path, routes);
+            load_routes_recursive(&path, fixtures_root, shared, per_fixture);
         } else if path.extension().is_some_and(|ext| ext == "json") {
             let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
             if filename == "schema.json" || filename.starts_with('_') {
@@ -501,20 +893,48 @@ fn load_routes_recursive(dir: &Path, routes: &mut HashMap<String, MockRoute>) {
             };
 
             for fixture in fixtures {
-                if let Some(mock) = fixture.as_mock_response() {
-                    let route_path = format!("/fixtures/{}", fixture.id);
-                    let body = mock
-                        .body
-                        .as_ref()
-                        .map(|b| match b {
-                            // Plain strings (e.g. text/plain bodies) are stored as JSON strings in
-                            // fixtures. Return the raw value so clients receive the string itself,
-                            // not its JSON-encoded form with extra surrounding quotes.
-                            serde_json::Value::String(s) => s.clone(),
-                            other => serde_json::to_string(other).unwrap_or_default(),
+                let resolved_routes = fixture.as_routes(fixtures_root);
+                // A fixture needs host-root routing if either:
+                //  1. it serves a path the crawler fetches at host root (/robots*, /sitemap*), OR
+                //  2. it returns a 3xx Location header pointing to a host-root path inside the
+                //     same fixture (the engine resolves the Location against the host, not the
+                //     /fixtures/<id>/ namespace, so host-root serving is required for the
+                //     follow-up GET to hit the correct route).
+                let has_intra_fixture_redirect = resolved_routes.iter().any(|r| {
+                    // 3xx with relative Location header
+                    let location_redirect = (300..400).contains(&r.response.status)
+                        && r.response.headers.iter().any(|(name, value)| {
+                            name.eq_ignore_ascii_case("location") && value.starts_with('/')
+                        });
+                    // Refresh header with url=/...
+                    let refresh_redirect = r.response.headers.iter().any(|(name, value)| {
+                        if !name.eq_ignore_ascii_case("refresh") {
+                            return false;
+                        }
+                        let lower = value.to_ascii_lowercase();
+                        lower
+                            .find("url=")
+                            .map(|idx| value[idx + 4..].trim_start().starts_with('/'))
+                            .unwrap_or(false)
+                    });
+                    // HTML meta-refresh tag pointing to /...
+                    let body_lower_lossy = String::from_utf8_lossy(&r.body_bytes).to_ascii_lowercase();
+                    let meta_refresh = body_lower_lossy
+                        .split("http-equiv=\"refresh\"")
+                        .nth(1)
+                        .and_then(|s| s.split("content=").nth(1))
+                        .map(|s| {
+                            let trimmed = s.trim_start_matches(['"', '\'']);
+                            trimmed.contains("url=/")
                         })
-                        .unwrap_or_default();
-                    let stream_chunks = mock
+                        .unwrap_or(false);
+                    location_redirect || refresh_redirect || meta_refresh
+                });
+                let has_host_root = has_intra_fixture_redirect
+                    || resolved_routes.iter().any(|r| is_host_root_path(&r.original_path));
+
+                for resolved in resolved_routes {
+                    let stream_chunks = resolved.response
                         .stream_chunks
                         .unwrap_or_default()
                         .into_iter()
@@ -523,10 +943,28 @@ fn load_routes_recursive(dir: &Path, routes: &mut HashMap<String, MockRoute>) {
                             other => serde_json::to_string(&other).unwrap_or_default(),
                         })
                         .collect();
-                    let mut headers: Vec<(String, String)> =
-                        mock.headers.into_iter().collect();
+                    let mut headers: Vec<(String, String)> = resolved.response.headers.into_iter().collect();
                     headers.sort_by(|a, b| a.0.cmp(&b.0));
-                    routes.insert(route_path, MockRoute { status: mock.status, body, stream_chunks, headers });
+
+                    let mock_route = MockRoute {
+                        status: resolved.response.status,
+                        body: resolved.body_bytes,
+                        stream_chunks,
+                        headers,
+                        delay_ms: resolved.response.delay_ms,
+                    };
+
+                    // Always insert into the shared namespaced table.
+                    shared.insert(resolved.path.clone(), mock_route.clone());
+
+                    // For fixtures with host-root routes, also build a per-fixture table
+                    // where routes are mounted at their original (un-namespaced) paths.
+                    if has_host_root {
+                        per_fixture
+                            .entry(fixture.id.clone())
+                            .or_default()
+                            .insert(resolved.original_path.clone(), mock_route);
+                    }
                 }
             }
         }
@@ -542,26 +980,60 @@ async fn main() {
     let fixtures_dir_arg = std::env::args().nth(1).unwrap_or_else(|| "../../fixtures".to_string());
     let fixtures_dir = Path::new(&fixtures_dir_arg);
 
-    let routes = load_routes(fixtures_dir);
-    eprintln!("mock-server: loaded {} routes from {}", routes.len(), fixtures_dir.display());
+    let loaded = load_routes(fixtures_dir);
+    eprintln!("mock-server: loaded {} shared routes from {}", loaded.shared.len(), fixtures_dir.display());
 
-    let route_table: RouteTable = Arc::new(routes);
-    let app = Router::new().fallback(handle_request).with_state(route_table);
+    // Shared namespaced server.
+    let shared_table: RouteTable = Arc::new(loaded.shared);
+    let shared_app = Router::new().fallback(handle_request).with_state(shared_table);
 
-    let listener = TcpListener::bind("127.0.0.1:0")
+    let shared_listener = TcpListener::bind("127.0.0.1:0")
         .await
-        .expect("mock-server: failed to bind port");
-    let addr: SocketAddr = listener.local_addr().expect("mock-server: failed to get local addr");
+        .expect("mock-server: failed to bind shared port");
+    let shared_addr: SocketAddr = shared_listener.local_addr().expect("mock-server: failed to get shared local addr");
 
-    // Print the URL so the parent process can read it.
-    println!("MOCK_SERVER_URL=http://{addr}");
+    // Per-fixture listeners for host-root routes (robots.txt, sitemap.xml, etc.).
+    // Sorted by fixture_id for deterministic output.
+    let mut fixture_ids: Vec<String> = loaded.per_fixture.keys().cloned().collect();
+    fixture_ids.sort();
+
+    let mut fixture_urls: HashMap<String, String> = HashMap::new();
+    for fixture_id in &fixture_ids {
+        let routes = loaded.per_fixture[fixture_id].clone();
+        eprintln!("mock-server: fixture {} has {} host-root routes", fixture_id, routes.len());
+        let table: RouteTable = Arc::new(routes);
+        let app = Router::new().fallback(handle_request).with_state(table);
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("mock-server: failed to bind per-fixture port");
+        let addr: SocketAddr = listener.local_addr().expect("mock-server: failed to get per-fixture local addr");
+        fixture_urls.insert(fixture_id.clone(), format!("http://{addr}"));
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("mock-server: per-fixture server error");
+        });
+    }
+
+    // Print the shared URL so the parent process can read it.
+    println!("MOCK_SERVER_URL=http://{shared_addr}");
+
+    // Always print MOCK_SERVERS=... (empty `{}` when there are no host-root
+    // fixtures) so parent parsers — which read until they see this sentinel
+    // line — never block on a readline that never comes.
+    let mut sorted_pairs: Vec<(&String, &String)> = fixture_urls.iter().collect();
+    sorted_pairs.sort_by_key(|(k, _)| k.as_str());
+    let json_entries: Vec<String> = sorted_pairs
+        .iter()
+        .map(|(k, v)| format!("\"{}\":\"{}\"", k, v))
+        .collect();
+    println!("MOCK_SERVERS={{{}}}", json_entries.join(","));
+
     // Flush stdout explicitly so the parent does not block waiting.
     use std::io::Write;
     std::io::stdout().flush().expect("mock-server: failed to flush stdout");
 
-    // Spawn the server in the background.
+    // Spawn the shared server in the background.
     tokio::spawn(async move {
-        axum::serve(listener, app).await.expect("mock-server: server error");
+        axum::serve(shared_listener, shared_app).await.expect("mock-server: shared server error");
     });
 
     // Block until stdin is closed — the parent process controls lifetime.
@@ -588,5 +1060,15 @@ mod tests {
         let out = render_mock_server_binary();
         assert!(out.contains("async fn main()"));
         assert!(out.contains("MOCK_SERVER_URL=http://"));
+    }
+
+    #[test]
+    fn render_common_module_has_expected_symbols() {
+        let src = render_common_module();
+        assert!(src.contains("pub fn mock_server_url"), "missing mock_server_url");
+        assert!(src.contains("OnceLock"), "missing OnceLock");
+        assert!(src.contains("MOCK_SERVER_URL"), "missing MOCK_SERVER_URL");
+        assert!(src.contains("MOCK_SERVERS"), "missing MOCK_SERVERS");
+        assert!(src.contains("serde_json"), "missing serde_json parsing");
     }
 }

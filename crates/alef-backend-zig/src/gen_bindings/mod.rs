@@ -1,5 +1,5 @@
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
-use alef_core::config::{Language, ResolvedCrateConfig, resolve_output_dir};
+use alef_core::config::{AdapterPattern, Language, ResolvedCrateConfig, resolve_output_dir};
 use alef_core::ir::ApiSurface;
 use std::path::PathBuf;
 
@@ -8,11 +8,13 @@ use crate::trait_bridge::emit_trait_bridge;
 mod errors;
 mod functions;
 mod helpers;
+mod opaque_handles;
 mod types;
 
 use errors::emit_error_set;
 use functions::emit_function;
 use helpers::emit_helpers;
+use opaque_handles::emit_opaque_handle;
 use types::{emit_enum, emit_type};
 
 fn zig_module_name(crate_name: &str) -> String {
@@ -33,7 +35,7 @@ impl Backend for ZigBackend {
     fn capabilities(&self) -> Capabilities {
         Capabilities {
             supports_async: false,
-            supports_classes: false,
+            supports_classes: true,
             supports_enums: true,
             supports_option: true,
             supports_result: true,
@@ -71,7 +73,13 @@ impl Backend for ZigBackend {
         }
         content.push('\n');
         content.push_str("const std = @import(\"std\");\n");
-        content.push_str(&format!("pub const c = @cImport(@cInclude(\"{header}\"));\n\n"));
+        content.push_str(&crate::template_env::render(
+            "c_import.jinja",
+            minijinja::context! {
+                header => header,
+            },
+        ));
+        content.push('\n');
 
         // Emit helper wrappers for FFI error introspection and string ownership.
         emit_helpers(&prefix, &mut content);
@@ -82,7 +90,11 @@ impl Backend for ZigBackend {
             content.push('\n');
         }
 
-        for ty in api.types.iter().filter(|t| !exclude_types.contains(t.name.as_str())) {
+        for ty in api
+            .types
+            .iter()
+            .filter(|t| !exclude_types.contains(t.name.as_str()) && !t.is_opaque && t.has_serde)
+        {
             emit_type(ty, &mut content);
             content.push('\n');
         }
@@ -105,6 +117,45 @@ impl Backend for ZigBackend {
         for en in &api.enums {
             top_level_names.insert(en.name.clone());
         }
+        // Set of struct (non-enum, non-trait) type names. Function parameters
+        // typed as `Named(name)` where `name ∈ struct_names` are passed across
+        // the FFI as opaque handles via JSON, since cbindgen emits them as
+        // opaque types in the generated header.
+        let struct_names: std::collections::HashSet<String> = api
+            .types
+            .iter()
+            .filter(|t| !t.is_trait && !t.is_opaque && t.has_serde)
+            .map(|t| t.name.clone())
+            .collect();
+        // For opaque handle types (is_opaque = true or has_serde = false), find the
+        // creator function in api.functions that returns that type. The map stores:
+        //   opaque_type_name -> (creator_fn_name, config_type_snake_case)
+        // Used by emit_function to generate create+use+free patterns for handle params.
+        let opaque_creator_map: std::collections::HashMap<String, (String, String)> = {
+            let mut map = std::collections::HashMap::new();
+            for opaque_ty in api
+                .types
+                .iter()
+                .filter(|t| !t.is_trait && (t.is_opaque || !t.has_serde))
+            {
+                if let Some(creator) = api
+                    .functions
+                    .iter()
+                    .find(|f| matches!(&f.return_type, alef_core::ir::TypeRef::Named(n) if n == &opaque_ty.name))
+                {
+                    if let Some(config_param) = creator.params.first() {
+                        if let Some(config_name) = functions::opaque_type_name_inner(&config_param.ty) {
+                            map.insert(
+                                opaque_ty.name.clone(),
+                                (creator.name.clone(), heck::AsSnakeCase(config_name).to_string()),
+                            );
+                        }
+                    }
+                }
+            }
+            map
+        };
+
         // Functions matching `register_{trait_snake}` / `unregister_{trait_snake}` for
         // any configured trait bridge are emitted by `emit_trait_bridge` with a
         // proper vtable signature. Skip the regular C-FFI shim to avoid duplicate
@@ -125,15 +176,20 @@ impl Backend for ZigBackend {
             .functions
             .iter()
             .filter(|f| !exclude_functions.contains(f.name.as_str()))
+            .filter(|f| !f.is_async)
         {
-            // Async functions are not supported — skip silently.
-            if f.is_async {
-                continue;
-            }
             if trait_bridge_fn_names.contains(&f.name) {
                 continue;
             }
-            emit_function(f, &prefix, &declared_errors, &top_level_names, &mut content);
+            emit_function(
+                f,
+                &prefix,
+                &declared_errors,
+                &top_level_names,
+                &struct_names,
+                &opaque_creator_map,
+                &mut content,
+            );
             content.push('\n');
         }
 
@@ -148,6 +204,38 @@ impl Backend for ZigBackend {
                 emit_trait_bridge(&prefix, bridge_cfg, trait_def, &mut content);
                 content.push('\n');
             }
+        }
+
+        // Build a map of method_name -> item_type for Streaming adapters.
+        // Used by emit_opaque_handle to emit iterator-based bodies instead of
+        // the generic method wrapper (which would call the callback-based C symbol
+        // with the wrong argument count).
+        let streaming_item_types: std::collections::HashMap<String, String> = config
+            .adapters
+            .iter()
+            .filter(|a| matches!(a.pattern, AdapterPattern::Streaming))
+            .filter_map(|a| a.item_type.as_ref().map(|item| (a.name.clone(), item.clone())))
+            .collect();
+
+        // Emit Zig struct wrappers for opaque handle types that have methods.
+        // These types are pointer-wrapped C handles; they are not JSON-serializable
+        // and require method dispatch via the FFI symbol naming convention
+        // `{prefix}_{snake_type}_{snake_method}`.
+        for ty in api
+            .types
+            .iter()
+            .filter(|t| !t.is_trait && (t.is_opaque || !t.has_serde) && !t.methods.is_empty())
+            .filter(|t| !exclude_types.contains(t.name.as_str()))
+        {
+            emit_opaque_handle(
+                ty,
+                &prefix,
+                &declared_errors,
+                &struct_names,
+                &streaming_item_types,
+                &mut content,
+            );
+            content.push('\n');
         }
 
         let dir = resolve_output_dir(None, &config.name, "packages/zig/src");

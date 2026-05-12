@@ -1,0 +1,7 @@
+#[napi(js_name = "{{ camel_fn_name }}")]
+pub fn _alef_{{ unregister_fn }}(name: String) -> napi::Result<()> {
+    {{ host_path }}(&name).map_err(|e| napi::Error::new(
+        napi::Status::GenericFailure,
+        format!("{}", e),
+    ))
+}

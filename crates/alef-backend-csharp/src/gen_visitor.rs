@@ -15,7 +15,6 @@
 ///   struct, calls `htm_visitor_create`, `htm_convert_with_visitor`, deserialises JSON.
 use alef_core::hash::{self, CommentStyle};
 use heck::ToSnakeCase;
-use std::fmt::Write;
 
 // ---------------------------------------------------------------------------
 // Callback specification table
@@ -639,9 +638,8 @@ pub fn gen_native_methods_visitor(
     trait_name: &str,
     options_field: &str,
 ) -> String {
-    let mut out = String::with_capacity(512);
-    writeln!(out).ok();
-    writeln!(out, "    // Visitor FFI (HtmlVisitorBridge)").ok();
+    use crate::template_env::render;
+    use minijinja::Value;
 
     // Generate function names:
     // htm_htm_html_visitor_bridge_new, htm_htm_html_visitor_bridge_free, htm_options_set_visitor
@@ -651,40 +649,15 @@ pub fn gen_native_methods_visitor(
     let fn_bridge_free = format!("{prefix}_{bridge_snake}_free");
     let fn_options_set = format!("{prefix}_options_set_{options_field}");
 
-    writeln!(
-        out,
-        "    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{fn_bridge_new}\")]"
-    )
-    .ok();
-    writeln!(
-        out,
-        "    internal static extern IntPtr HtmlVisitorBridgeNew(IntPtr vtable, IntPtr userData);"
-    )
-    .ok();
-    writeln!(out).ok();
-
-    writeln!(
-        out,
-        "    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{fn_bridge_free}\")]"
-    )
-    .ok();
-    writeln!(
-        out,
-        "    internal static extern void HtmlVisitorBridgeFree(IntPtr bridge);"
-    )
-    .ok();
-    writeln!(out).ok();
-
-    writeln!(
-        out,
-        "    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{fn_options_set}\")]"
-    )
-    .ok();
-    writeln!(
-        out,
-        "    internal static extern int ConversionOptionsSetVisitor(IntPtr options, IntPtr visitor);"
-    )
-    .ok();
+    let mut out = String::from("\n");
+    out.push_str(&render(
+        "native_methods_visitor.jinja",
+        Value::from_serialize(serde_json::json!({
+            "fn_bridge_new": fn_bridge_new,
+            "fn_bridge_free": fn_bridge_free,
+            "fn_options_set": fn_options_set,
+        })),
+    ));
 
     let _ = namespace;
     let _ = lib_name;
@@ -706,90 +679,84 @@ pub fn gen_convert_with_visitor_method(exception_name: &str, prefix: &str) -> St
 // ---------------------------------------------------------------------------
 
 fn gen_node_context(namespace: &str) -> String {
+    use crate::template_env::render;
+    use minijinja::Value;
+
     let mut out = String::with_capacity(1024);
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
-    writeln!(out, "#nullable enable").ok();
-    writeln!(out).ok();
-    writeln!(out, "using System;").ok();
-    writeln!(out).ok();
-    writeln!(out, "namespace {namespace};").ok();
-    writeln!(out).ok();
-    writeln!(out, "/// <summary>Context passed to every visitor callback.</summary>").ok();
-    writeln!(out, "public record NodeContext(").ok();
-    writeln!(out, "    /// <summary>Coarse-grained node type tag.</summary>").ok();
-    writeln!(out, "    NodeType NodeType,").ok();
-    writeln!(out, "    /// <summary>HTML element tag name (e.g. \"div\").</summary>").ok();
-    writeln!(out, "    string TagName,").ok();
-    writeln!(out, "    /// <summary>DOM depth (0 = root).</summary>").ok();
-    writeln!(out, "    ulong Depth,").ok();
-    writeln!(out, "    /// <summary>0-based sibling index.</summary>").ok();
-    writeln!(out, "    ulong IndexInParent,").ok();
-    writeln!(
-        out,
-        "    /// <summary>Parent element tag name, or null at the root.</summary>"
-    )
-    .ok();
-    writeln!(out, "    string? ParentTag,").ok();
-    writeln!(
-        out,
-        "    /// <summary>True when this element is treated as inline.</summary>"
-    )
-    .ok();
-    writeln!(out, "    bool IsInline").ok();
-    writeln!(out, ");").ok();
+    out.push_str("#nullable enable\n");
+    out.push('\n');
+    out.push_str("using System;\n");
+    out.push('\n');
+    out.push_str(&render(
+        "namespace_decl.jinja",
+        Value::from_serialize(serde_json::json!({
+            "namespace": namespace,
+        })),
+    ));
+    out.push_str("/// <summary>Context passed to every visitor callback.</summary>\n");
+    out.push_str("public record NodeContext(\n");
+    out.push_str("    /// <summary>Coarse-grained node type tag.</summary>\n");
+    out.push_str("    NodeType NodeType,\n");
+    out.push_str("    /// <summary>HTML element tag name (e.g. \"div\").</summary>\n");
+    out.push_str("    string TagName,\n");
+    out.push_str("    /// <summary>DOM depth (0 = root).</summary>\n");
+    out.push_str("    ulong Depth,\n");
+    out.push_str("    /// <summary>0-based sibling index.</summary>\n");
+    out.push_str("    ulong IndexInParent,\n");
+    out.push_str("    /// <summary>Parent element tag name, or null at the root.</summary>\n");
+    out.push_str("    string? ParentTag,\n");
+    out.push_str("    /// <summary>True when this element is treated as inline.</summary>\n");
+    out.push_str("    bool IsInline\n");
+    out.push_str(");\n");
     out
 }
 
 fn gen_visit_result(namespace: &str) -> String {
+    use crate::template_env::render;
+    use minijinja::Value;
+
     let mut out = String::with_capacity(2048);
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
-    writeln!(out, "#nullable enable").ok();
-    writeln!(out).ok();
-    writeln!(out, "using System;").ok();
-    writeln!(out).ok();
-    writeln!(out, "namespace {namespace};").ok();
-    writeln!(out).ok();
-    writeln!(
-        out,
-        "/// <summary>Controls how the visitor affects the conversion pipeline.</summary>"
-    )
-    .ok();
-    writeln!(out, "public abstract record VisitResult").ok();
-    writeln!(out, "{{").ok();
-    writeln!(out, "    private VisitResult() {{}}").ok();
-    writeln!(out).ok();
-    writeln!(out, "    /// <summary>Proceed with default conversion.</summary>").ok();
-    writeln!(out, "    public sealed record Continue : VisitResult;").ok();
-    writeln!(out).ok();
-    writeln!(
-        out,
-        "    /// <summary>Omit this element from output entirely.</summary>"
-    )
-    .ok();
-    writeln!(out, "    public sealed record Skip : VisitResult;").ok();
-    writeln!(out).ok();
-    writeln!(out, "    /// <summary>Keep original HTML verbatim.</summary>").ok();
-    writeln!(out, "    public sealed record PreserveHtml : VisitResult;").ok();
-    writeln!(out).ok();
-    writeln!(out, "    /// <summary>Replace with custom Markdown.</summary>").ok();
-    writeln!(out, "    public sealed record Custom(string Markdown) : VisitResult;").ok();
-    writeln!(out).ok();
-    writeln!(
-        out,
-        "    /// <summary>Abort conversion with an error message.</summary>"
-    )
-    .ok();
-    writeln!(out, "    public sealed record Error(string Message) : VisitResult;").ok();
-    writeln!(out).ok();
-    writeln!(out, "    internal string ToFfiJson() => this switch {{").ok();
-    writeln!(out, "        VisitResult.Continue => \"\\\"Continue\\\"\",").ok();
-    writeln!(out, "        VisitResult.Skip => \"\\\"Skip\\\"\",").ok();
-    writeln!(out, "        VisitResult.PreserveHtml => \"\\\"PreserveHtml\\\"\",").ok();
-    writeln!(out, "        VisitResult.Custom c => \"{{\\\"Custom\\\":\" + System.Text.Json.JsonSerializer.Serialize(c.Markdown) + \"}}\",").ok();
-    writeln!(out, "        VisitResult.Error e => \"{{\\\"Error\\\":\" + System.Text.Json.JsonSerializer.Serialize(e.Message) + \"}}\",").ok();
-    writeln!(out, "        _ => \"\\\"Continue\\\"\"").ok();
-    writeln!(out, "    }};").ok();
-    writeln!(out, "}}").ok();
+    out.push_str("#nullable enable\n");
+    out.push('\n');
+    out.push_str("using System;\n");
+    out.push('\n');
+    out.push_str(&render(
+        "namespace_decl.jinja",
+        Value::from_serialize(serde_json::json!({
+            "namespace": namespace,
+        })),
+    ));
+    out.push_str("/// <summary>Controls how the visitor affects the conversion pipeline.</summary>\n");
+    out.push_str("public abstract record VisitResult\n");
+    out.push_str("{\n");
+    out.push_str("    private VisitResult() {}\n");
+    out.push('\n');
+    out.push_str("    /// <summary>Proceed with default conversion.</summary>\n");
+    out.push_str("    public sealed record Continue : VisitResult;\n");
+    out.push('\n');
+    out.push_str("    /// <summary>Omit this element from output entirely.</summary>\n");
+    out.push_str("    public sealed record Skip : VisitResult;\n");
+    out.push('\n');
+    out.push_str("    /// <summary>Keep original HTML verbatim.</summary>\n");
+    out.push_str("    public sealed record PreserveHtml : VisitResult;\n");
+    out.push('\n');
+    out.push_str("    /// <summary>Replace with custom Markdown.</summary>\n");
+    out.push_str("    public sealed record Custom(string Markdown) : VisitResult;\n");
+    out.push('\n');
+    out.push_str("    /// <summary>Abort conversion with an error message.</summary>\n");
+    out.push_str("    public sealed record Error(string Message) : VisitResult;\n");
+    out.push('\n');
+    out.push_str("    internal string ToFfiJson() => this switch {\n");
+    out.push_str("        VisitResult.Continue => \"\\\"Continue\\\"\",\n");
+    out.push_str("        VisitResult.Skip => \"\\\"Skip\\\"\",\n");
+    out.push_str("        VisitResult.PreserveHtml => \"\\\"PreserveHtml\\\"\",\n");
+    out.push_str("        VisitResult.Custom c => \"{{\\\"Custom\\\":\" + System.Text.Json.JsonSerializer.Serialize(c.Markdown) + \"}}\",\n");
+    out.push_str("        VisitResult.Error e => \"{{\\\"Error\\\":\" + System.Text.Json.JsonSerializer.Serialize(e.Message) + \"}}\",\n");
+    out.push_str("        _ => \"\\\"Continue\\\"\"\n");
+    out.push_str("    };\n");
+    out.push_str("}\n");
     out
 }
 

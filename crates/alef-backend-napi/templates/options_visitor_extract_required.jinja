@@ -1,0 +1,4 @@
+let visitor_handle = {{ options_name }}.visitor.clone().map(|v| {
+    let bridge = {{ struct_name }}::new(v);
+    std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {{ handle_path }}
+});

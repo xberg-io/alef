@@ -1,0 +1,5 @@
+
+    static final MethodHandle {{ handle_name }} = LINKER.downcallHandle(
+        LIB.find("{{ ffi_name }}").orElseThrow(),
+        FunctionDescriptor.ofVoid(ValueLayout.ADDRESS)
+    );

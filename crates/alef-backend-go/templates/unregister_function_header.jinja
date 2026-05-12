@@ -1,0 +1,4 @@
+// Unregister{{ name }} unregisters a {{ name }} implementation.
+func Unregister{{ name }}(name string) error {
+	cName := C.CString(name)
+	defer C.free(unsafe.Pointer(cName))

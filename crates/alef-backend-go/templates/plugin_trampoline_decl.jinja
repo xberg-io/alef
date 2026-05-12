@@ -1,0 +1,3 @@
+{% if method == "Initialize" or method == "Shutdown" %}extern int32_t go{{ pascal }}{{ method }}(void*, char**);
+{% else %}extern int32_t go{{ pascal }}{{ method }}(void*, char**, char**);
+{% endif %}

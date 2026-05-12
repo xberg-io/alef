@@ -14,13 +14,12 @@ pub(super) fn emit_rustdoc(doc: &str) -> String {
     if doc.is_empty() {
         return String::new();
     }
-    let mut out = String::new();
-    for line in doc.lines() {
-        out.push_str("/// ");
-        out.push_str(line);
-        out.push('\n');
-    }
-    out
+    crate::template_env::render(
+        "rustdoc",
+        minijinja::context! {
+            lines => doc.lines().collect::<Vec<_>>(),
+        },
+    )
 }
 
 /// Convert a `TypeRef` to its concrete Rust type string for use in serde deserialization
@@ -153,22 +152,25 @@ pub(super) fn gen_function(
                         let core_path = format!("{}::{}", core_import, name);
                         let err_conv = ".map_err(|e| JsValue::from_str(&e.to_string()))";
                         if p.optional {
-                            serde_bindings.push_str(&format!(
-                                "let {n}_core: Option<{core_path}> = {n}.map(|v| \
-                                 serde_wasm_bindgen::from_value::<{core_path}>(v){err_conv})\
-                                 .transpose()?;\n    ",
-                                n = p.name,
-                                core_path = core_path,
-                                err_conv = err_conv,
+                            serde_bindings.push_str(&crate::template_env::render(
+                                "serde_named_optional",
+                                minijinja::context! {
+                                    param_name => &p.name,
+                                    core_path => &core_path,
+                                    err_conv => &err_conv,
+                                },
                             ));
+                            serde_bindings.push_str("    ");
                         } else {
-                            serde_bindings.push_str(&format!(
-                                "let {n}_core: {core_path} = \
-                                 serde_wasm_bindgen::from_value::<{core_path}>({n}){err_conv}?;\n    ",
-                                n = p.name,
-                                core_path = core_path,
-                                err_conv = err_conv,
+                            serde_bindings.push_str(&crate::template_env::render(
+                                "serde_named_required",
+                                minijinja::context! {
+                                    param_name => &p.name,
+                                    core_path => &core_path,
+                                    err_conv => &err_conv,
+                                },
                             ));
+                            serde_bindings.push_str("    ");
                         }
                     }
                 }
@@ -252,19 +254,27 @@ pub(super) fn gen_function(
                 };
                 let core_ty = format!("Vec<Vec<{elem_ty}>>");
                 if p.optional {
-                    let_bindings.push_str(&format!(
-                        "let {n}: Option<{core_ty}> = {n}.map(|v| \
-                         serde_wasm_bindgen::from_value::<{core_ty}>(v)\
-                         .expect(\"deserialize {n}\")) ;\n    ",
-                        n = p.name,
+                    let err_conv = format!(".expect(\"deserialize {}\")", p.name);
+                    let_bindings.push_str(&crate::template_env::render(
+                        "serde_vec_nested_optional",
+                        minijinja::context! {
+                            param_name => &p.name,
+                            core_ty => &core_ty,
+                            err_conv => &err_conv,
+                        },
                     ));
+                    let_bindings.push_str("    ");
                 } else {
-                    let_bindings.push_str(&format!(
-                        "let {n}: {core_ty} = \
-                         serde_wasm_bindgen::from_value::<{core_ty}>({n})\
-                         .expect(\"deserialize {n}\");\n    ",
-                        n = p.name,
+                    let err_conv = format!(".expect(\"deserialize {}\")", p.name);
+                    let_bindings.push_str(&crate::template_env::render(
+                        "serde_vec_nested_required",
+                        minijinja::context! {
+                            param_name => &p.name,
+                            core_ty => &core_ty,
+                            err_conv => &err_conv,
+                        },
                     ));
+                    let_bindings.push_str("    ");
                 }
             }
         }
@@ -359,22 +369,25 @@ pub(super) fn gen_function(
                     let core_path = format!("{}::{}", core_import, name);
                     let err_conv = ".map_err(|e| JsValue::from_str(&e.to_string()))";
                     if p.optional {
-                        serde_bindings.push_str(&format!(
-                            "let {n}_core: Option<{core_path}> = {n}.map(|v| \
-                             serde_wasm_bindgen::from_value::<{core_path}>(v){err_conv})\
-                             .transpose()?;\n    ",
-                            n = p.name,
-                            core_path = core_path,
-                            err_conv = err_conv,
+                        serde_bindings.push_str(&crate::template_env::render(
+                            "serde_named_optional",
+                            minijinja::context! {
+                                param_name => &p.name,
+                                core_path => &core_path,
+                                err_conv => &err_conv,
+                            },
                         ));
+                        serde_bindings.push_str("    ");
                     } else {
-                        serde_bindings.push_str(&format!(
-                            "let {n}_core: {core_path} = \
-                             serde_wasm_bindgen::from_value::<{core_path}>({n}){err_conv}?;\n    ",
-                            n = p.name,
-                            core_path = core_path,
-                            err_conv = err_conv,
+                        serde_bindings.push_str(&crate::template_env::render(
+                            "serde_named_required",
+                            minijinja::context! {
+                                param_name => &p.name,
+                                core_path => &core_path,
+                                err_conv => &err_conv,
+                            },
                         ));
+                        serde_bindings.push_str("    ");
                     }
                 }
                 TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => {
@@ -386,25 +399,25 @@ pub(super) fn gen_function(
                     let core_path = format!("{}::{}", core_import, inner_name);
                     let err_conv = ".map_err(|e| JsValue::from_str(&e.to_string()))";
                     if p.optional {
-                        serde_bindings.push_str(&format!(
-                            "let {n}_core: Option<Vec<{core_path}>> = {n}.map(|strings| {{\n    \
-                             strings.into_iter()\n    \
-                             .map(|s| serde_json::from_str::<{core_path}>(&s){err_conv})\n    \
-                             .collect::<Result<Vec<_>, _>>()\n    \
-                             }}).transpose()?;\n    ",
-                            n = p.name,
-                            core_path = core_path,
-                            err_conv = err_conv,
+                        serde_bindings.push_str(&crate::template_env::render(
+                            "serde_vec_named_optional",
+                            minijinja::context! {
+                                param_name => &p.name,
+                                core_path => &core_path,
+                                err_conv => &err_conv,
+                            },
                         ));
+                        serde_bindings.push_str("    ");
                     } else {
-                        serde_bindings.push_str(&format!(
-                            "let {n}_core: Vec<{core_path}> = {n}.into_iter()\n    \
-                             .map(|s| serde_json::from_str::<{core_path}>(&s){err_conv})\n    \
-                             .collect::<Result<Vec<_>, _>>()?;\n    ",
-                            n = p.name,
-                            core_path = core_path,
-                            err_conv = err_conv,
+                        serde_bindings.push_str(&crate::template_env::render(
+                            "serde_vec_named_required",
+                            minijinja::context! {
+                                param_name => &p.name,
+                                core_path => &core_path,
+                                err_conv => &err_conv,
+                            },
                         ));
+                        serde_bindings.push_str("    ");
                     }
                 }
                 TypeRef::Vec(inner)
@@ -415,23 +428,23 @@ pub(super) fn gen_function(
                     // Sanitized Vec<tuple>: binding accepts Vec<String> (JSON-encoded tuple items).
                     let err_conv = ".map_err(|e| JsValue::from_str(&e.to_string()))";
                     if p.optional {
-                        serde_bindings.push_str(&format!(
-                            "let {n}_core: Option<Vec<_>> = {n}.map(|strs| {{\n    \
-                             strs.into_iter()\n    \
-                             .map(|s| serde_json::from_str(&s){err_conv})\n    \
-                             .collect::<Result<Vec<_>, _>>()\n    \
-                             }}).transpose()?;\n    ",
-                            n = p.name,
-                            err_conv = err_conv,
+                        serde_bindings.push_str(&crate::template_env::render(
+                            "serde_vec_tuple_optional",
+                            minijinja::context! {
+                                param_name => &p.name,
+                                err_conv => &err_conv,
+                            },
                         ));
+                        serde_bindings.push_str("    ");
                     } else {
-                        serde_bindings.push_str(&format!(
-                            "let {n}_core: Vec<_> = {n}.into_iter()\n    \
-                             .map(|s| serde_json::from_str(&s){err_conv})\n    \
-                             .collect::<Result<Vec<_>, _>>()?;\n    ",
-                            n = p.name,
-                            err_conv = err_conv,
+                        serde_bindings.push_str(&crate::template_env::render(
+                            "serde_vec_tuple_required",
+                            minijinja::context! {
+                                param_name => &p.name,
+                                err_conv => &err_conv,
+                            },
                         ));
+                        serde_bindings.push_str("    ");
                     }
                 }
                 TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref => {
@@ -439,15 +452,21 @@ pub(super) fn gen_function(
                     // gen_call_args_with_let_bindings emits `&{name}_refs`, so we must create
                     // the intermediate Vec<&str> binding here.
                     if p.optional {
-                        serde_bindings.push_str(&format!(
-                            "let {n}_refs: Vec<&str> = {n}.as_ref().map(|v| v.iter().map(|s| s.as_str()).collect()).unwrap_or_default();\n    ",
-                            n = p.name,
+                        serde_bindings.push_str(&crate::template_env::render(
+                            "serde_vec_string_refs_optional",
+                            minijinja::context! {
+                                param_name => &p.name,
+                            },
                         ));
+                        serde_bindings.push_str("    ");
                     } else {
-                        serde_bindings.push_str(&format!(
-                            "let {n}_refs: Vec<&str> = {n}.iter().map(|s| s.as_str()).collect();\n    ",
-                            n = p.name,
+                        serde_bindings.push_str(&crate::template_env::render(
+                            "serde_vec_string_refs_required",
+                            minijinja::context! {
+                                param_name => &p.name,
+                            },
                         ));
+                        serde_bindings.push_str("    ");
                     }
                 }
                 TypeRef::Vec(outer_inner) if matches!(outer_inner.as_ref(), TypeRef::Vec(_)) => {
@@ -463,22 +482,25 @@ pub(super) fn gen_function(
                     let core_ty = format!("Vec<Vec<{elem_ty}>>");
                     let err_conv = ".map_err(|e| JsValue::from_str(&e.to_string()))";
                     if p.optional {
-                        serde_bindings.push_str(&format!(
-                            "let {n}: Option<{core_ty}> = {n}.map(|v| \
-                             serde_wasm_bindgen::from_value::<{core_ty}>(v){err_conv})\
-                             .transpose()?;\n    ",
-                            n = p.name,
-                            core_ty = core_ty,
-                            err_conv = err_conv,
+                        serde_bindings.push_str(&crate::template_env::render(
+                            "serde_vec_nested_optional",
+                            minijinja::context! {
+                                param_name => &p.name,
+                                core_ty => &core_ty,
+                                err_conv => &err_conv,
+                            },
                         ));
+                        serde_bindings.push_str("    ");
                     } else {
-                        serde_bindings.push_str(&format!(
-                            "let {n}: {core_ty} = \
-                             serde_wasm_bindgen::from_value::<{core_ty}>({n}){err_conv}?;\n    ",
-                            n = p.name,
-                            core_ty = core_ty,
-                            err_conv = err_conv,
+                        serde_bindings.push_str(&crate::template_env::render(
+                            "serde_vec_nested_required",
+                            minijinja::context! {
+                                param_name => &p.name,
+                                core_ty => &core_ty,
+                                err_conv => &err_conv,
+                            },
                         ));
+                        serde_bindings.push_str("    ");
                     }
                 }
                 _ => {}

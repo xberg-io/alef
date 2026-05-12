@@ -1,0 +1,7 @@
+// Error types
+{% for variant_name in variant_names %}
+pyo3::create_exception!({{ module_name }}, {{ variant_name }}, pyo3::exceptions::PyException);
+{% endfor %}
+{% if include_base %}
+pyo3::create_exception!({{ module_name }}, {{ error_name }}, pyo3::exceptions::PyException);
+{% endif %}

@@ -48,6 +48,8 @@ fn test_generated_code_example() {
                     core_wrapper: alef_core::ir::CoreWrapper::None,
                     vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                     newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
                 },
                 FieldDef {
                     name: "timeout".to_string(),
@@ -63,6 +65,8 @@ fn test_generated_code_example() {
                     core_wrapper: alef_core::ir::CoreWrapper::None,
                     vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                     newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
                 },
             ],
             methods: vec![],
@@ -147,9 +151,11 @@ fn test_generated_code_example() {
             is_copy: false,
             has_serde: false,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_kreuzberg_config();

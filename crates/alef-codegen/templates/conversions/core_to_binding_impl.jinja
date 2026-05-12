@@ -1,0 +1,14 @@
+#[allow(clippy::redundant_closure, clippy::useless_conversion)]
+impl From<{{ core_path }}> for {{ binding_name }} {
+    fn from(val: {{ core_path }}) -> Self {
+        {%- if is_newtype %}
+        Self { _0: {{ newtype_inner_expr }} }
+        {%- else %}
+        Self {
+            {%- for field in fields %}
+            {{ field }},
+            {%- endfor %}
+        }
+        {%- endif %}
+    }
+}

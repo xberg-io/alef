@@ -3,6 +3,7 @@ use heck::ToLowerCamelCase;
 use std::collections::BTreeSet;
 
 use super::render_type::render_type;
+use crate::template_env;
 
 /// Emit the content of `packages/dart/lib/src/traits.dart` — one `abstract class`
 /// per configured trait bridge name found in the API surface.
@@ -34,33 +35,61 @@ fn emit_trait_abstract_class(trait_def: &TypeDef, out: &mut String, imports: &mu
     let own_methods: Vec<&MethodDef> = trait_def.methods.iter().filter(|m| m.trait_source.is_none()).collect();
 
     // Doc comment: registration pattern.
-    out.push_str(&format!("/// Abstract class for the `{trait_name}` Rust trait.\n"));
-    out.push_str("///\n");
-    out.push_str("/// Implement this class and register your implementation via:\n");
-    out.push_str("/// ```dart\n");
-    out.push_str(&format!("/// class My{trait_name} implements {trait_name} {{\n"));
+    out.push_str(&template_env::render(
+        "abstract_class_doc_comment.jinja",
+        minijinja::context! {
+            trait_name => trait_name.as_str(),
+        },
+    ));
+    out.push_str(&template_env::render(
+        "abstract_class_doc_code_start.jinja",
+        minijinja::context! {},
+    ));
+    out.push_str(&template_env::render(
+        "abstract_class_doc_code_impl.jinja",
+        minijinja::context! {
+            trait_name => trait_name.as_str(),
+        },
+    ));
     for method in &own_methods {
         let method_camel = method.name.to_lower_camel_case();
         out.push_str("///   @override\n");
-        out.push_str(&format!(
-            "///   Future<{}> {}(...) async {{ ... }}\n",
-            dart_return_type_str(&method.return_type, imports),
-            method_camel,
+        out.push_str(&template_env::render(
+            "abstract_class_method_doc_line.jinja",
+            minijinja::context! {
+                return_type => dart_return_type_str(&method.return_type, imports),
+                method_camel => method_camel.as_str(),
+            },
         ));
     }
     out.push_str("/// }\n");
     out.push_str("///\n");
-    out.push_str(&format!("/// final impl = create{trait_name}DartImpl(\n"));
+    out.push_str(&template_env::render(
+        "abstract_class_doc_code_create.jinja",
+        minijinja::context! {
+            trait_name => trait_name.as_str(),
+        },
+    ));
     for method in &own_methods {
         let method_camel = method.name.to_lower_camel_case();
-        out.push_str(&format!(
-            "///   {method_camel}: (...) => myInstance.{method_camel}(...),\n"
+        out.push_str(&template_env::render(
+            "trait_method_doc_field.jinja",
+            minijinja::context! {
+                method_camel => method_camel.as_str(),
+            },
         ));
     }
-    out.push_str("/// );\n");
-    out.push_str("/// ```\n");
+    out.push_str(&template_env::render(
+        "abstract_class_doc_code_end.jinja",
+        minijinja::context! {},
+    ));
 
-    out.push_str(&format!("abstract class {trait_name} {{\n"));
+    out.push_str(&template_env::render(
+        "abstract_class_header.jinja",
+        minijinja::context! {
+            trait_name => trait_name.as_str(),
+        },
+    ));
 
     for method in &own_methods {
         emit_abstract_method(method, out, imports);
@@ -72,14 +101,22 @@ fn emit_trait_abstract_class(trait_def: &TypeDef, out: &mut String, imports: &mu
 /// Emit one abstract method declaration inside an abstract class.
 fn emit_abstract_method(method: &MethodDef, out: &mut String, imports: &mut BTreeSet<String>) {
     if !method.doc.is_empty() {
-        for line in method.doc.lines() {
-            out.push_str("  /// ");
-            out.push_str(line);
-            out.push('\n');
-        }
+        let doc_lines: Vec<String> = method.doc.lines().map(ToString::to_string).collect();
+        out.push_str(&template_env::render(
+            "doc_comment.jinja",
+            minijinja::context! {
+                indent => "  ",
+                lines => doc_lines,
+            },
+        ));
     }
     if let Some(ref error_ty) = method.error_type {
-        out.push_str(&format!("  /// throws {error_ty} on failure\n"));
+        out.push_str(&template_env::render(
+            "function_throws_annotation.jinja",
+            minijinja::context! {
+                error_ty => error_ty.as_str(),
+            },
+        ));
     }
 
     let method_camel = method.name.to_lower_camel_case();
@@ -106,7 +143,14 @@ fn emit_abstract_method(method: &MethodDef, out: &mut String, imports: &mut BTre
         })
         .collect();
 
-    out.push_str(&format!("  {return_ty} {}({});\n", method_camel, params.join(", ")));
+    out.push_str(&template_env::render(
+        "abstract_method_declaration.jinja",
+        minijinja::context! {
+            return_ty => return_ty,
+            method_camel => method_camel.as_str(),
+            params => params.join(", "),
+        },
+    ));
 }
 
 /// Render the inner Dart type for a return type (the `T` in `Future<T>`).

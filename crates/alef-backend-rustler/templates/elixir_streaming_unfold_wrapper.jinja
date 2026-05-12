@@ -1,0 +1,17 @@
+  @doc "Streaming `{{ core_path }}` — returns an `Enumerable` of decoded chunk maps."
+  def {{ stream_fn }}(client, {{ req_param }}) do
+    case {{ native_mod }}.{{ start_fn }}(client, {{ req_param }}) do
+      {:ok, handle} ->
+        stream =
+          Stream.unfold(handle, fn h ->
+            case {{ native_mod }}.{{ next_fn }}(h) do
+              {:ok, nil} -> nil
+              {:ok, chunk_json} -> {Jason.decode!(chunk_json), h}
+              {:error, _} -> nil
+            end
+          end)
+        {:ok, stream}
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end

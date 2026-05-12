@@ -1,0 +1,26 @@
+{#- Ruby visitor method template
+
+   Context variables:
+   - method_name: visitor method name
+   - params: parameter list
+   - action_type: "skip", "continue", "preserve_html", "custom", "custom_template"
+   - action_value: escaped string value (for custom)
+   - action_template: escaped template string (for custom_template)
+#}
+  def {{ method_name }}({{ params }})
+{% if action_type == "skip" %}
+    'skip'
+{% elif action_type == "continue" %}
+    'continue'
+{% elif action_type == "preserve_html" %}
+    'preserve_html'
+{% elif action_type == "custom" %}
+    { custom: {{ action_value }} }
+{% elif action_type == "custom_template" %}
+{% if return_form == "bare_string" %}
+    {{ action_value }}
+{% else %}
+    { custom: {{ action_value }} }
+{% endif %}
+{% endif %}
+  end

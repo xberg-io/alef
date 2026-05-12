@@ -1,0 +1,11 @@
+{#- PHP HTTP 101 test skip template
+
+   Context variables:
+   - method_name: test method name (snake_case)
+   - description: fixture description
+#}
+    /** {{ description }} */
+    public function test_{{ method_name }}(): void
+    {
+        $this->markTestSkipped('HTTP 101 WebSocket upgrade cannot be tested via Guzzle HTTP client');
+    }

@@ -1,0 +1,19 @@
+        var rc = NativeMethods.{{ native_method_name }}(
+{{ args_block }}            out var outPtr,
+            out var outLen,
+            out var outCap
+        );
+        try
+        {
+            if (rc != 0)
+            {
+                throw GetLastError();
+            }
+            var result = new byte[(int)outLen];
+            Marshal.Copy(outPtr, result, 0, (int)outLen);
+            NativeMethods.FreeBytes(outPtr, outLen, outCap);
+            return result;
+        }
+        finally
+        {
+{{ cleanup_block }}        }

@@ -1,0 +1,3 @@
+		if err := json.Unmarshal([]byte(C.GoString(jsonPtr)), &result); err != nil {
+			return nil, fmt.Errorf("failed to decode {{ type_name }}: %w", err)
+		}

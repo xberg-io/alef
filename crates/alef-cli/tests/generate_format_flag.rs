@@ -1,7 +1,6 @@
 /// Integration tests verifying the format flag plumbing for `alef generate` and `alef all`.
 ///
-/// `alef generate` uses `--format` (opt-in: formatters are off by default).
-/// `alef all`     uses `--no-format` (opt-out: formatters run by default).
+/// Both `alef generate` and `alef all` use `--format` (opt-in: formatters are off by default).
 ///
 /// These tests exercise only the CLI flag plumbing: they confirm the binary
 /// exposes the right flags and that the help text is consistent.  Full
@@ -51,9 +50,9 @@ fn generate_help_shows_format_flag() {
     );
 }
 
-/// `alef all --help` must list `--no-format` (opt-out: formatters run by default).
+/// `alef all --help` must list `--format` (opt-in: formatters are off by default).
 #[test]
-fn all_help_shows_no_format_flag() {
+fn all_help_shows_format_flag() {
     let output = Command::new(alef_binary())
         .args(["all", "--help"])
         .output()
@@ -64,14 +63,12 @@ fn all_help_shows_no_format_flag() {
     let combined = format!("{stdout}{stderr}");
 
     assert!(
-        combined.contains("--no-format"),
-        "`alef all --help` must list --no-format flag; got:\n{combined}"
+        combined.contains("  --format"),
+        "`alef all --help` must list --format flag; got:\n{combined}"
     );
-    // `all` must not expose the opt-in `--format` flag (it uses the inverted default).
-    // Check for the standalone flag line to avoid matching "--no-format" substrings.
     assert!(
-        !combined.contains("  --format"),
-        "`alef all --help` must not list --format (opt-in); got:\n{combined}"
+        !combined.contains("--no-format"),
+        "`alef all --help` must not list --no-format; got:\n{combined}"
     );
 }
 
@@ -95,16 +92,18 @@ fn generate_accepts_format_flag() {
     );
 }
 
-/// `alef all --format` must be rejected by clap (unknown argument, exit code 2).
+/// `alef all --format` must be accepted by clap (opt-in formatter flag).
 #[test]
-fn all_rejects_format_flag() {
+fn all_accepts_format_flag() {
     let output = Command::new(alef_binary())
         .args(["all", "--format"])
         .output()
         .expect("failed to spawn alef");
 
-    assert!(
-        !output.status.success(),
-        "alef all --format must exit non-zero; it was accepted unexpectedly"
+    // Exit code 2 is clap's "unknown argument" error.
+    assert_ne!(
+        output.status.code(),
+        Some(2),
+        "alef all --format must be accepted by clap (not an unknown argument); got exit code 2"
     );
 }

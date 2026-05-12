@@ -1,0 +1,10 @@
+{%- if has_async_methods %}
+{%- if async_trait_is_send %}
+#[async_trait::async_trait]
+{%- else %}
+#[async_trait::async_trait(?Send)]
+{%- endif %}
+{%- endif %}
+impl {{ trait_path }} for {{ wrapper_name }} {
+{{ methods_code }}
+}

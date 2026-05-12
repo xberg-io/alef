@@ -21,6 +21,8 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
         core_wrapper: CoreWrapper::None,
         vec_inner_core_wrapper: CoreWrapper::None,
         newtype_wrapper: None,
+        serde_rename: None,
+        serde_flatten: false,
     }
 }
 
@@ -112,6 +114,7 @@ fn make_basic_api() -> ApiSurface {
             is_copy: false,
             has_serde: false,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
         }],
         errors: vec![ErrorDef {
@@ -140,6 +143,7 @@ fn make_basic_api() -> ApiSurface {
             ],
             doc: "Errors emitted by demo operations.".to_string(),
         }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     }
 }
 

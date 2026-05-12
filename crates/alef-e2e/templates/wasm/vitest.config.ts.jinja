@@ -1,0 +1,12 @@
+{{ header }}import { defineConfig } from 'vitest/config';
+import wasm from 'vite-plugin-wasm';
+
+export default defineConfig({
+  plugins: [wasm()],
+  test: {
+    include: ['tests/**/*.test.ts'],
+    testTimeout: 30000,
+{% if with_global_setup %}    globalSetup: './globalSetup.ts',
+{% endif %}{% if with_file_setup %}    setupFiles: ['./setup.ts'],
+{% endif %}  },
+});

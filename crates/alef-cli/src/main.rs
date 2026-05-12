@@ -186,9 +186,9 @@ enum Commands {
         /// Ignore cache.
         #[arg(long)]
         clean: bool,
-        /// Skip post-generation formatters (formatters run by default).
+        /// Run post-generation formatters on emitted files (off by default).
         #[arg(long)]
-        no_format: bool,
+        format: bool,
     },
     /// Initialize a new alef.toml config.
     Init {
@@ -1113,7 +1113,7 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
-        Commands::All { clean, no_format } => {
+        Commands::All { clean, format } => {
             let (workspace, resolved) = load_config(config_path)?;
             version_pin::check_alef_toml_version(&workspace)?;
             let crates_to_process = dispatch::select_crates(&resolved, &cli.crate_filter)?;
@@ -1294,7 +1294,7 @@ fn main() -> Result<()> {
                     }
 
                     eprintln!("Generating e2e test suites...");
-                    let files = alef_e2e::generate_e2e(resolved_cfg, e2e_config, None)?;
+                    let files = alef_e2e::generate_e2e(resolved_cfg, e2e_config, None, &api.types)?;
                     e2e_count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, clean)?;
                     alef_e2e::format::run_formatters(&files, e2e_config);
                     for file in &files {
@@ -1326,7 +1326,7 @@ fn main() -> Result<()> {
                 //  2. `fmt_post_generate` runs any extra repo-configured
                 //     `[lint.<lang>].format` commands (linters, custom passes).
                 // Both are scoped to languages that actually regenerated this run.
-                if !no_format && !changed_languages.is_empty() {
+                if format && !changed_languages.is_empty() {
                     eprintln!("Formatting generated files...");
                     // Include stubs in the format pass so that languages where only
                     // stubs changed (no bindings written) still trigger their formatter.
@@ -1472,7 +1472,7 @@ fn main() -> Result<()> {
                             this_e2e_config
                         };
                         let languages = lang.as_deref();
-                        let files = alef_e2e::generate_e2e(e2e_crate, e2e_ref, languages)?;
+                        let files = alef_e2e::generate_e2e(e2e_crate, e2e_ref, languages, &api.types)?;
                         let sources_hash = cache::sources_hash(&e2e_crate.sources)?;
                         let count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true)?;
 

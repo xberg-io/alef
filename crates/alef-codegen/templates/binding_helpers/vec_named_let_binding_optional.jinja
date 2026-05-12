@@ -1,0 +1,1 @@
+let {{ name }}_core: Option<Vec<_>> = {{ name }}.as_ref().map(|v| v.iter().map(|x| x.clone().into()).collect());

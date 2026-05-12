@@ -1,0 +1,7 @@
+{%- for line in doc_lines %}
+{%- if line %}
+    /// {{ line }}
+{%- else %}
+    ///
+{%- endif %}
+{%- endfor -%}

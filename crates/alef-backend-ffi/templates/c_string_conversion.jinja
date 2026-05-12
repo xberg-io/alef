@@ -1,0 +1,4 @@
+{{ indent }}match CString::new({{ expr }}) {
+{{ indent }}    Ok(cs) => cs.into_raw(),
+{{ indent }}    Err(_) => std::ptr::null_mut(),
+{{ indent }}}

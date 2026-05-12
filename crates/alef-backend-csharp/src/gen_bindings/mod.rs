@@ -3,8 +3,20 @@ use alef_core::config::{AdapterPattern, Language, ResolvedCrateConfig, resolve_o
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{ApiSurface, FieldDef, TypeRef};
 use heck::ToPascalCase;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+
+/// Metadata for a streaming adapter, used to drive emission of an
+/// `IAsyncEnumerable<Item>` method over the FFI iterator-handle protocol
+/// (`_start` / `_next` / `_free`).
+#[derive(Debug, Clone)]
+pub(super) struct StreamingMethodMeta {
+    /// Owner type (e.g. `DefaultClient`). Retained for future routing decisions even when the
+    /// current emitter derives the receiver type from the enclosing class.
+    #[allow(dead_code)]
+    pub owner_type: String,
+    pub item_type: String,
+}
 
 pub(super) mod enums;
 pub(super) mod errors;
@@ -58,13 +70,25 @@ impl Backend for CsharpBackend {
         // Only emit ConvertWithVisitor method if visitor_callbacks is explicitly enabled in FFI config
         let has_visitor_callbacks = config.ffi.as_ref().map(|f| f.visitor_callbacks).unwrap_or(false);
 
-        // Streaming adapter methods use a callback-based C signature that P/Invoke can't call
-        // directly. Skip them in all generated method loops.
+        // Streaming adapter methods are emitted via the iterator-handle FFI protocol
+        // (`{prefix}_{owner}_{name}_start` / `_next` / `_free`) — not as direct P/Invoke calls
+        // of the callback-based variant. The set is still used to skip the default
+        // method-emission path; the parallel meta map drives the `IAsyncEnumerable` emitters.
         let streaming_methods: HashSet<String> = config
             .adapters
             .iter()
             .filter(|a| matches!(a.pattern, AdapterPattern::Streaming))
             .map(|a| a.name.clone())
+            .collect();
+        let streaming_methods_meta: HashMap<String, StreamingMethodMeta> = config
+            .adapters
+            .iter()
+            .filter(|a| matches!(a.pattern, AdapterPattern::Streaming))
+            .filter_map(|a| {
+                let owner_type = a.owner_type.clone()?;
+                let item_type = a.item_type.clone()?;
+                Some((a.name.clone(), StreamingMethodMeta { owner_type, item_type }))
+            })
             .collect();
 
         // Functions explicitly excluded from C# bindings (e.g., not present in the C FFI layer).
@@ -96,6 +120,7 @@ impl Backend for CsharpBackend {
                 has_visitor_callbacks,
                 &config.trait_bridges,
                 &streaming_methods,
+                &streaming_methods_meta,
                 &exclude_functions,
             )),
             generated_header: true,
@@ -149,6 +174,7 @@ impl Backend for CsharpBackend {
                 &bridge_type_aliases,
                 has_visitor_callbacks,
                 &streaming_methods,
+                &streaming_methods_meta,
                 &exclude_functions,
             )),
             generated_header: true,
@@ -222,6 +248,7 @@ impl Backend for CsharpBackend {
                         &exception_class_name,
                         &enum_names,
                         &streaming_methods,
+                        &streaming_methods_meta,
                         &all_opaque_type_names,
                     )),
                     generated_header: true,
@@ -229,16 +256,10 @@ impl Backend for CsharpBackend {
             }
         }
 
-        // Collect complex enums (enums with data variants and no serde tag) — these can't be
-        // simple C# enums and should be represented as JsonElement for flexible deserialization.
-        // Tagged unions (serde_tag is set) are now generated as proper abstract records
-        // and can be deserialized as their concrete types, so they are NOT complex_enums.
-        let complex_enums: HashSet<String> = api
-            .enums
-            .iter()
-            .filter(|e| e.serde_tag.is_none() && e.variants.iter().any(|v| !v.fields.is_empty()))
-            .map(|e| e.name.to_pascal_case())
-            .collect();
+        // Untagged unions with data variants now emit as JsonElement-wrapper classes
+        // (see gen_untagged_wrapper). The set is intentionally empty so record fields
+        // keep their wrapper-class type instead of being downcast to JsonElement.
+        let complex_enums: HashSet<String> = HashSet::new();
 
         // Collect enums that require a custom JsonConverter (non-standard serialized names only).
         // Tagged unions are generated as abstract records with [JsonPolymorphic] and do NOT need
@@ -253,6 +274,17 @@ impl Backend for CsharpBackend {
                 let is_tagged_union = e.serde_tag.is_some() && e.variants.iter().any(|v| !v.fields.is_empty());
                 if is_tagged_union {
                     return false;
+                }
+                // Enums whose `serde_rename_all` is something other than snake_case
+                // (e.g. "kebab-case" for `FilePurpose::FineTune` → `"fine-tune"`)
+                // need a custom converter — `JsonStringEnumConverter(SnakeCaseLower)`
+                // would write `"fine_tune"` instead.
+                let rename_all_differs = matches!(
+                    e.serde_rename_all.as_deref(),
+                    Some("kebab-case") | Some("SCREAMING-KEBAB-CASE") | Some("camelCase") | Some("PascalCase")
+                );
+                if rename_all_differs {
+                    return true;
                 }
                 // Enums with non-standard variant names need a custom converter
                 e.variants.iter().any(|v| {
@@ -295,6 +327,7 @@ impl Backend for CsharpBackend {
                         &custom_converter_enums,
                         &lang_rename_all,
                         &bridge_type_aliases,
+                        &exception_class_name,
                     )),
                     generated_header: true,
                 });
@@ -315,10 +348,24 @@ impl Backend for CsharpBackend {
             });
         }
 
+        // 7. Generate ByteArrayToIntArrayConverter if any non-opaque type has non-optional Bytes fields.
+        // Non-optional byte[] fields must be serialized as JSON int arrays, not base64 strings.
+        let needs_byte_array_converter = api
+            .types
+            .iter()
+            .any(|t| !t.is_opaque && t.fields.iter().any(|f| !f.optional && matches!(f.ty, TypeRef::Bytes)));
+        if needs_byte_array_converter {
+            files.push(GeneratedFile {
+                path: base_path.join("ByteArrayToIntArrayConverter.cs"),
+                content: types::gen_byte_array_to_int_array_converter(&namespace),
+                generated_header: true,
+            });
+        }
+
         // Build adapter body map (consumed by generators via body substitution)
         let _adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::Csharp)?;
 
-        // 7. Generate Directory.Build.props at the package root (always overwritten).
+        // 8. Generate Directory.Build.props at the package root (always overwritten).
         // This file enables Nullable=enable and latest LangVersion for all C# projects
         // in the packages/csharp hierarchy without requiring per-csproj configuration.
         files.push(GeneratedFile {
@@ -579,11 +626,30 @@ pub(super) fn native_call_arg(
         }
         ty => {
             if optional {
-                // For optional primitive types (e.g. ulong?, uint?), use GetValueOrDefault()
-                // to safely unwrap with a default of 0 if null. String/Char/Path/Json are
-                // reference types so `!` is correct for those.
-                let needs_value_unwrap = matches!(ty, TypeRef::Primitive(_) | TypeRef::Duration);
-                if needs_value_unwrap {
+                // For optional primitive types (e.g. ulong?, uint?), pass the FFI's
+                // None sentinel when the value is null. The FFI shim decodes
+                // `{prim}::MAX` (and NAN for floats) as None — passing 0 collides with
+                // a legitimate zero from the caller, e.g. timeout_secs=0 = "no timeout"
+                // would be silently treated as "unset" without this. Mirrors the
+                // `alef-backend-ffi` `param_optional_numeric_conversion` decoder.
+                // String/Char/Path/Json are reference types so `!` is correct for those.
+                if let TypeRef::Primitive(prim) = ty {
+                    use alef_core::ir::PrimitiveType;
+                    let sentinel = match prim {
+                        PrimitiveType::U8 => "byte.MaxValue",
+                        PrimitiveType::U16 => "ushort.MaxValue",
+                        PrimitiveType::U32 => "uint.MaxValue",
+                        PrimitiveType::U64 | PrimitiveType::Usize => "ulong.MaxValue",
+                        PrimitiveType::I8 => "sbyte.MaxValue",
+                        PrimitiveType::I16 => "short.MaxValue",
+                        PrimitiveType::I32 => "int.MaxValue",
+                        PrimitiveType::I64 | PrimitiveType::Isize => "long.MaxValue",
+                        PrimitiveType::F32 => "float.NaN",
+                        PrimitiveType::F64 => "double.NaN",
+                        PrimitiveType::Bool => unreachable!("handled above"),
+                    };
+                    format!("{param_name} ?? {sentinel}")
+                } else if matches!(ty, TypeRef::Duration) {
                     format!("{param_name}.GetValueOrDefault()")
                 } else {
                     format!("{param_name}!")
@@ -604,6 +670,7 @@ pub(super) fn emit_named_param_setup(
     params: &[alef_core::ir::ParamDef],
     indent: &str,
     true_opaque_types: &HashSet<String>,
+    exception_name: &str,
 ) {
     for param in params {
         let param_name = param.name.to_lower_camel_case();
@@ -618,32 +685,64 @@ pub(super) fn emit_named_param_setup(
                     continue;
                 }
                 let from_json_method = format!("{}FromJson", type_name.to_pascal_case());
-                if param.optional {
-                    out.push_str(&format!(
-                        "{indent}var {json_var} = {param_name} != null ? JsonSerializer.Serialize({param_name}, JsonOptions) : \"null\";\n"
+
+                // Config parameters: always treat as optional and default null to new instance
+                let is_config_param = param.name == "config";
+                let param_to_serialize = if is_config_param {
+                    let type_pascal = type_name.to_pascal_case();
+                    format!("({} ?? new {}())", param_name, type_pascal)
+                } else {
+                    param_name.to_string()
+                };
+
+                if param.optional && !is_config_param {
+                    // Optional Named param: pass IntPtr.Zero through to native when the
+                    // C# arg is null instead of round-tripping `"null"` through FromJson
+                    // which would error with "invalid type: null, expected struct T".
+                    out.push_str(&crate::template_env::render(
+                        "named_param_handle_from_json_optional.jinja",
+                        minijinja::context! {
+                            indent,
+                            handle_var => &handle_var,
+                            from_json_method => &from_json_method,
+                            json_var => &json_var,
+                            param_name => &param_name,
+                            exception_name => exception_name,
+                        },
                     ));
                 } else {
-                    out.push_str(&format!(
-                        "{indent}var {json_var} = JsonSerializer.Serialize({param_name}, JsonOptions);\n"
+                    out.push_str(&crate::template_env::render(
+                        "named_param_json_serialize.jinja",
+                        minijinja::context! { indent, json_var => &json_var, param_name => &param_to_serialize },
+                    ));
+                    out.push_str(&crate::template_env::render(
+                        "named_param_handle_from_json.jinja",
+                        minijinja::context! {
+                            indent,
+                            handle_var => &handle_var,
+                            from_json_method => &from_json_method,
+                            json_var => &json_var,
+                            exception_name => exception_name,
+                        },
                     ));
                 }
-                out.push_str(&format!(
-                    "{indent}var {handle_var} = NativeMethods.{from_json_method}({json_var});\n"
-                ));
             }
             TypeRef::Vec(_) | TypeRef::Map(_, _) => {
                 // Vec/Map: serialize to JSON string, marshal to native pointer
-                out.push_str(&format!(
-                    "{indent}var {json_var} = JsonSerializer.Serialize({param_name}, JsonOptions);\n"
+                out.push_str(&crate::template_env::render(
+                    "named_param_json_serialize.jinja",
+                    minijinja::context! { indent, json_var => &json_var, param_name => &param_name },
                 ));
-                out.push_str(&format!(
-                    "{indent}var {handle_var} = Marshal.StringToHGlobalAnsi({json_var});\n"
+                out.push_str(&crate::template_env::render(
+                    "named_param_handle_string.jinja",
+                    minijinja::context! { indent, handle_var => &handle_var, json_var => &json_var },
                 ));
             }
             TypeRef::Bytes => {
                 // byte[]: pin the managed array and pass pointer to native
-                out.push_str(&format!(
-                    "{indent}var {handle_var} = GCHandle.Alloc({param_name}, GCHandleType.Pinned);\n"
+                out.push_str(&crate::template_env::render(
+                    "named_param_handle_pin.jinja",
+                    minijinja::context! { indent, handle_var => &handle_var, param_name => &param_name },
                 ));
             }
             _ => {}
@@ -670,13 +769,22 @@ pub(super) fn emit_named_param_teardown(
                     continue;
                 }
                 let free_method = format!("{}Free", type_name.to_pascal_case());
-                out.push_str(&format!("        NativeMethods.{free_method}({handle_var});\n"));
+                out.push_str(&crate::template_env::render(
+                    "named_param_teardown_free.jinja",
+                    minijinja::context! { indent => "        ", free_method => &free_method, handle_var => &handle_var },
+                ));
             }
             TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-                out.push_str(&format!("        Marshal.FreeHGlobal({handle_var});\n"));
+                out.push_str(&crate::template_env::render(
+                    "named_param_teardown_hglobal.jinja",
+                    minijinja::context! { indent => "        ", handle_var => &handle_var },
+                ));
             }
             TypeRef::Bytes => {
-                out.push_str(&format!("        {handle_var}.Free();\n"));
+                out.push_str(&crate::template_env::render(
+                    "named_param_teardown_gchandle.jinja",
+                    minijinja::context! { indent => "        ", handle_var => &handle_var },
+                ));
             }
             _ => {}
         }
@@ -700,13 +808,22 @@ pub(super) fn emit_named_param_teardown_indented(
                     continue;
                 }
                 let free_method = format!("{}Free", type_name.to_pascal_case());
-                out.push_str(&format!("{indent}NativeMethods.{free_method}({handle_var});\n"));
+                out.push_str(&crate::template_env::render(
+                    "named_param_teardown_free.jinja",
+                    minijinja::context! { indent, free_method => &free_method, handle_var => &handle_var },
+                ));
             }
             TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-                out.push_str(&format!("{indent}Marshal.FreeHGlobal({handle_var});\n"));
+                out.push_str(&crate::template_env::render(
+                    "named_param_teardown_hglobal.jinja",
+                    minijinja::context! { indent, handle_var => &handle_var },
+                ));
             }
             TypeRef::Bytes => {
-                out.push_str(&format!("{indent}{handle_var}.Free();\n"));
+                out.push_str(&crate::template_env::render(
+                    "named_param_teardown_gchandle.jinja",
+                    minijinja::context! { indent, handle_var => &handle_var },
+                ));
             }
             _ => {}
         }

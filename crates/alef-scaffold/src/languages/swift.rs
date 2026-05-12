@@ -28,6 +28,21 @@ pub(crate) fn scaffold_swift(_api: &ApiSurface, config: &ResolvedCrateConfig) ->
     // (RustStr, RustString, etc.) without import statements. SwiftPM's mixed-target
     // rules require those types to be exported from a separate C target so that
     // `import RustBridgeC` at the top of the generated Swift files brings them in scope.
+    //
+    // Linking the Rust staticlib: SwiftPM cannot drive Cargo, so the consumer must run
+    // `cargo build -p {binding_crate}` first. We then declare `linkerSettings` on
+    // RustBridge that pass `-L<repo>/target/{release,debug}` and `-l{binding_underscore}`
+    // to the linker. The `-L` paths are relative to the package root (`packages/swift`).
+    // Both `release` and `debug` are listed so either Cargo profile produces a runnable
+    // `swift test`. macOS Frameworks (Security, CoreFoundation, SystemConfiguration) are
+    // linked because the Rust binding pulls in `ureq` / `rustls-platform-verifier` /
+    // `keyring`-style deps that reference them on macOS targets.
+    //
+    // `.unsafeFlags` prevents this package from being used as a `.package(url: ...)`
+    // dependency by other packages. That is acceptable: the canonical distribution
+    // channel for Apple platforms is a pre-built XCFramework (see xcframework/BUILDING.md
+    // in the published archive). The linkerSettings here only support the in-tree
+    // `swift test` workflow.
     let package_swift = format!(
         r#"// swift-tools-version: 6.0
 import PackageDescription
@@ -55,12 +70,24 @@ let package = Package(
         ),
         // RustBridge: Swift wrapper around the Rust static library.
         // Depends on RustBridgeC so the generated Swift files can use the C types.
-        // Note: link the Rust static library by setting LIBRARY_SEARCH_PATHS in your
-        // build system rather than unsafeFlags here (unsafeFlags prevents use as a dep).
+        // linkerSettings wire the Rust staticlib (lib{binding_underscore}.a) produced by
+        // `cargo build -p {binding_crate}` so `swift build` / `swift test` can resolve
+        // the `__swift_bridge__$*` C symbols. Both target/release and target/debug are
+        // searched so either cargo profile works.
         .target(
             name: "RustBridge",
             dependencies: ["RustBridgeC"],
-            path: "Sources/RustBridge"
+            path: "Sources/RustBridge",
+            linkerSettings: [
+                .unsafeFlags([
+                    "-L../../target/release",
+                    "-L../../target/debug",
+                ]),
+                .linkedLibrary("{binding_underscore}"),
+                .linkedFramework("Security", .when(platforms: [.macOS, .iOS])),
+                .linkedFramework("CoreFoundation", .when(platforms: [.macOS, .iOS])),
+                .linkedFramework("SystemConfiguration", .when(platforms: [.macOS])),
+            ]
         ),
         .target(name: "{module}", dependencies: ["RustBridge"], path: "Sources/{module}"),
         .testTarget(name: "{module}Tests", dependencies: ["{module}"], path: "Tests/{module}Tests"),
@@ -71,6 +98,7 @@ let package = Package(
         min_macos = min_macos_major,
         min_ios = min_ios_major,
         binding_crate = binding_crate_name,
+        binding_underscore = binding_crate_underscore,
     );
 
     let gitignore = ".build/\nPackages/\nxcuserdata/\nDerivedData/\n.swiftpm/\n*.xcodeproj\n";
@@ -160,10 +188,13 @@ OUT=$(ls -dt target/debug/build/{binding_crate}-*/out 2>/dev/null | head -1)
 cat "$OUT/SwiftBridgeCore.h" "$OUT/{binding_crate}/{binding_crate}.h" \
     > packages/swift/Sources/RustBridgeC/RustBridgeC.h
 
-# Copy Swift bridge files, prepending "import RustBridgeC" so they see the C types
-printf "import RustBridgeC\n$(cat "$OUT/SwiftBridgeCore.swift")" \
+# Copy Swift bridge files, prepending "import RustBridgeC" so they see the C types.
+# Use `{{ echo ...; cat ...; }}` rather than `printf "...$(cat)..."` because printf
+# interprets `%` and `\` sequences in its format string, which would corrupt the
+# generated Swift sources.
+{{ echo "import RustBridgeC"; cat "$OUT/SwiftBridgeCore.swift"; }} \
     > packages/swift/Sources/RustBridge/SwiftBridgeCore.swift
-printf "import RustBridgeC\n$(cat "$OUT/{binding_crate}/{binding_crate}.swift")" \
+{{ echo "import RustBridgeC"; cat "$OUT/{binding_crate}/{binding_crate}.swift"; }} \
     > packages/swift/Sources/RustBridge/{binding_crate}.swift
 ```
 
@@ -188,9 +219,9 @@ OUT=$(ls -dt target/release/build/{binding_crate}-*/out 2>/dev/null | head -1)
 
 cat "$OUT/SwiftBridgeCore.h" "$OUT/{binding_crate}/{binding_crate}.h" \
     > packages/swift/Sources/RustBridgeC/RustBridgeC.h
-printf "import RustBridgeC\n$(cat "$OUT/SwiftBridgeCore.swift")" \
+{{ echo "import RustBridgeC"; cat "$OUT/SwiftBridgeCore.swift"; }} \
     > packages/swift/Sources/RustBridge/SwiftBridgeCore.swift
-printf "import RustBridgeC\n$(cat "$OUT/{binding_crate}/{binding_crate}.swift")" \
+{{ echo "import RustBridgeC"; cat "$OUT/{binding_crate}/{binding_crate}.swift"; }} \
     > packages/swift/Sources/RustBridge/{binding_crate}.swift
 
 swift build --package-path packages/swift --configuration release
@@ -259,7 +290,8 @@ struct Demo {{
         module = module,
     );
 
-    let github_workflow = r#"name: Swift
+    let github_workflow = format!(
+        r#"name: Swift
 
 on:
   push:
@@ -270,21 +302,32 @@ on:
 jobs:
   test:
     runs-on: macos-latest
-    defaults:
-      run:
-        working-directory: packages/swift
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Swift
-        uses: swift-actions/setup-swift@v2
-        with:
-          swift-version: "5.10"
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Show Swift version
+        run: swift --version
+      - name: Build {binding_crate} Rust crate
+        run: cargo build -p {binding_crate}
+      - name: Copy swift-bridge generated sources
+        run: |
+          OUT=$(ls -dt target/debug/build/{binding_crate}-*/out 2>/dev/null | head -1)
+          cat "$OUT/SwiftBridgeCore.h" "$OUT/{binding_crate}/{binding_crate}.h" \
+              > packages/swift/Sources/RustBridgeC/RustBridgeC.h
+          {{ echo "import RustBridgeC"; cat "$OUT/SwiftBridgeCore.swift"; }} \
+              > packages/swift/Sources/RustBridge/SwiftBridgeCore.swift
+          {{ echo "import RustBridgeC"; cat "$OUT/{binding_crate}/{binding_crate}.swift"; }} \
+              > packages/swift/Sources/RustBridge/{binding_crate}.swift
       - name: Build Swift package
+        working-directory: packages/swift
         run: swift build
       - name: Run tests
+        working-directory: packages/swift
         run: swift test
-"#
-    .to_string();
+"#,
+        binding_crate = binding_crate_name,
+    );
 
     Ok(vec![
         GeneratedFile {

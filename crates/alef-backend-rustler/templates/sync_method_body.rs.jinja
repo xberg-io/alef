@@ -1,0 +1,38 @@
+{%- for param in clone_params %}
+let {{ param.name }} = {{ param.name }}.clone();
+{%- endfor %}
+
+let reply_id = TRAIT_REPLY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+let (tx, rx) = tokio::sync::oneshot::channel::<Result<String, String>>();
+TRAIT_REPLY_CHANNELS.lock().unwrap().insert(reply_id, tx);
+
+let pid = self.inner;
+
+let args_json = {
+    let mut args = serde_json::Map::new();
+{%- for param in params %}
+    args.insert("{{ param.name }}".to_string(), {{ param.json_expr }});
+{%- endfor %}
+    serde_json::Value::Object(args).to_string()
+};
+
+let method = "{{ method_name }}";
+
+tokio::task::spawn_blocking(move || {
+    let mut env = rustler::OwnedEnv::new();
+    let _ = env.send_and_clear(&pid, |env| {
+        (rustler::types::atom::Atom::from_str(env, "trait_call").unwrap(),\
+         method, args_json.as_str(), reply_id).encode(env)
+    });
+});
+
+match rx.blocking_recv() {
+{%- if has_error %}
+    Ok(Ok(json)) => serde_json::from_str(&json).map_err(|_e| {{ error_deser }}),
+    Ok(Err(msg)) => Err({{ error_msg }}),
+    Err(_) => Err({{ error_closed }}),
+{%- else %}
+    Ok(Ok(json)) => serde_json::from_str(&json).unwrap_or_default(),
+    _ => Default::default()
+{%- endif %}
+}

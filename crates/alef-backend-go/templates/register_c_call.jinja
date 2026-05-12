@@ -1,0 +1,23 @@
+	// Call C registration
+	cName := C.CString(impl.Name())
+	defer C.free(unsafe.Pointer(cName))
+
+	var cErr *C.char
+	rc := C.{{ c_function }}(
+		cName,
+		vtable,
+		unsafe.Pointer(uintptr(handle)),
+		&cErr,
+	)
+
+	if rc != 0 {
+		msg := "failed to register {{ trait_name }}"
+		if cErr != nil {
+			msg = C.GoString(cErr)
+			C.free(unsafe.Pointer(cErr))
+		}
+		handle.Delete()
+		return fmt.Errorf("%s", msg)
+	}
+
+	return nil

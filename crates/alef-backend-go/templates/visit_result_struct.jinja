@@ -1,0 +1,7 @@
+// VisitResult controls conversion flow from a visitor callback.
+type VisitResult struct {
+	// Code is the numeric visit-result code (0=Continue, 1=Skip, 2=PreserveHTML, 3=Custom, 4=Error).
+	Code int32
+	// Custom is non-nil only for Custom (3) and Error (4) codes.
+	Custom *string
+}

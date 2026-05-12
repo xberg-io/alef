@@ -31,7 +31,7 @@ pub enum DefaultValue {
 }
 
 /// Complete API surface extracted from a Rust crate's public interface.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ApiSurface {
     pub crate_name: String,
     pub version: String,
@@ -39,6 +39,12 @@ pub struct ApiSurface {
     pub functions: Vec<FunctionDef>,
     pub enums: Vec<EnumDef>,
     pub errors: Vec<ErrorDef>,
+    /// Type names → fully qualified rust_paths for types that were extracted but
+    /// then excluded from the public binding surface. Preserved so trait_bridge
+    /// codegen can still reference them by qualified path when they appear in
+    /// trait method signatures (e.g. `Renderer::render(&InternalDocument)`).
+    #[serde(default)]
+    pub excluded_type_paths: std::collections::HashMap<String, String>,
 }
 
 /// A public struct exposed to bindings.
@@ -133,6 +139,18 @@ pub struct FieldDef {
     /// (e.g. `my_crate::NodeIndex(val.field)`) and core→binding codegen must unwrap (`.0`).
     #[serde(default)]
     pub newtype_wrapper: Option<String>,
+    /// Explicit `#[serde(rename = "...")]` on this field, if any. Preserved so binding
+    /// structs that mirror the core struct can serialize/deserialize using the same wire
+    /// names (e.g. core `tool_type` with `#[serde(rename = "type")]` round-trips as `"type"`).
+    #[serde(default)]
+    pub serde_rename: Option<String>,
+    /// True when the field carries `#[serde(flatten)]`. Backends use this to emit
+    /// language-native flatten support: Jackson `@JsonAnyGetter`/`@JsonAnySetter`
+    /// in Java, `[JsonExtensionData]` in C# — both keyed `Map<String, Object>` /
+    /// `Dictionary<string, JsonElement>` so unknown sibling fields land under the
+    /// flattened bag instead of being rejected.
+    #[serde(default)]
+    pub serde_flatten: bool,
 }
 
 /// A method on a public struct.
@@ -274,6 +292,11 @@ pub struct EnumDef {
     /// Serde tag property name for internally tagged enums (from `#[serde(tag = "...")]`)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub serde_tag: Option<String>,
+    /// True when the enum has `#[serde(untagged)]`.
+    /// Absence of `serde_tag` does NOT imply untagged — it means externally-tagged (the serde
+    /// default). Only set this when the attribute is explicitly present on the Rust type.
+    #[serde(default)]
+    pub serde_untagged: bool,
     /// Serde rename strategy for enum variants (from `#[serde(rename_all = "...")]`)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub serde_rename_all: Option<String>,

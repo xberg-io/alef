@@ -1,0 +1,7 @@
+// {{ go_type_name }} is a structured error type.
+type {{ go_type_name }} struct {
+	Code    string
+	Message string
+}
+
+func (e *{{ go_type_name }}) Error() string { return e.Message }

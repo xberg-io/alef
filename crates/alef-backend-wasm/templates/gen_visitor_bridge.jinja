@@ -1,0 +1,43 @@
+fn nodecontext_to_js_value(
+    ctx: &{{ core_crate }}::visitor::NodeContext,
+) -> wasm_bindgen::JsValue {
+    let obj = js_sys::Object::new();
+    js_sys::Reflect::set(&obj, &wasm_bindgen::JsValue::from_str("nodeType"), &wasm_bindgen::JsValue::from_str(&format!("{:?}", ctx.node_type))).ok();
+    js_sys::Reflect::set(&obj, &wasm_bindgen::JsValue::from_str("tagName"), &wasm_bindgen::JsValue::from_str(&ctx.tag_name)).ok();
+    js_sys::Reflect::set(&obj, &wasm_bindgen::JsValue::from_str("depth"), &wasm_bindgen::JsValue::from_f64(ctx.depth as f64)).ok();
+    js_sys::Reflect::set(&obj, &wasm_bindgen::JsValue::from_str("indexInParent"), &wasm_bindgen::JsValue::from_f64(ctx.index_in_parent as f64)).ok();
+    js_sys::Reflect::set(&obj, &wasm_bindgen::JsValue::from_str("isInline"), &wasm_bindgen::JsValue::from_bool(ctx.is_inline)).ok();
+    let parent_tag_val = match &ctx.parent_tag {
+        Some(s) => wasm_bindgen::JsValue::from_str(s),
+        None => wasm_bindgen::JsValue::null(),
+    };
+    js_sys::Reflect::set(&obj, &wasm_bindgen::JsValue::from_str("parentTag"), &parent_tag_val).ok();
+    let attrs = js_sys::Object::new();
+    for (k, v) in &ctx.attributes {
+        js_sys::Reflect::set(&attrs, &wasm_bindgen::JsValue::from_str(k), &wasm_bindgen::JsValue::from_str(v)).ok();
+    }
+    js_sys::Reflect::set(&obj, &wasm_bindgen::JsValue::from_str("attributes"), &attrs).ok();
+    obj.into()
+}
+
+pub struct {{ struct_name }} {
+    js_obj: wasm_bindgen::JsValue,
+}
+
+impl std::fmt::Debug for {{ struct_name }} {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{{ struct_name }}")
+    }
+}
+
+impl {{ struct_name }} {
+    pub fn new(js_obj: wasm_bindgen::JsValue) -> Self {
+        Self { js_obj }
+    }
+}
+
+impl {{ trait_path }} for {{ struct_name }} {
+{%- for method in methods %}
+    {{ method.code }}
+{%- endfor %}
+}

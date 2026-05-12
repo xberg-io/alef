@@ -1,0 +1,14 @@
+{
+  "name": "{{ e2e_pkg_name }}",
+  "description": "E2e tests for PHP bindings",
+  "type": "project",
+{{ require_section }}{{ autoload_section }}
+  "autoload-dev": {
+    "psr-4": {
+      "{{ e2e_autoload_ns }}": "tests/"
+    }
+  },
+  "scripts": {
+    "test": "php run_tests.php"
+  }
+}

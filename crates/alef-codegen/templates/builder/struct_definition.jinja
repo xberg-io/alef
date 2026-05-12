@@ -1,0 +1,17 @@
+{%- if derives %}
+#[derive({{ derives | join(", ") }})]
+{%- endif %}
+{%- for attr in attrs %}
+#[{{ attr }}]
+{%- endfor %}
+{{ visibility }} struct {{ name }} {
+{%- for name, ty, attrs, doc in fields %}
+{%- if doc %}
+    /// {{ doc.replace('\n', '\n    /// ') }}
+{%- endif %}
+{%- for attr in attrs %}
+    #[{{ attr }}]
+{%- endfor %}
+    pub {{ name }}: {{ ty }},
+{%- endfor %}
+}

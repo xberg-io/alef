@@ -10,7 +10,16 @@
 //! `c.{prefix}_register_{trait_snake}` — the symbol exposed by the
 //! `kreuzberg-ffi` C layer (pattern: `{crate_prefix}_register_{trait_snake}`).
 //! If the actual symbol differs, override the generated call site.
+//!
+//! # `TraitBridgeGenerator` implementation
+//!
+//! [`ZigTraitBridgeGenerator`] implements the shared [`TraitBridgeGenerator`]
+//! trait so that the shared codegen driver can invoke the Zig-specific
+//! `gen_unregistration_fn` and `gen_clear_fn` overrides.  The other required
+//! methods are stubs — Zig code is produced through the standalone
+//! [`emit_trait_bridge`] free function, not the shared driver.
 
+use alef_codegen::generators::trait_bridge::{TraitBridgeGenerator, TraitBridgeSpec};
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{MethodDef, TypeDef, TypeRef};
 use heck::ToSnakeCase;
@@ -106,68 +115,45 @@ fn vtable_c_params(method: &MethodDef) -> Vec<(String, String)> {
 pub fn emit_make_vtable(trait_name: &str, has_super_trait: bool, trait_def: &TypeDef, out: &mut String) {
     let snake = trait_snake(trait_name);
 
-    out.push_str(&format!(
-        "/// Build an `I{trait_name}` vtable for a concrete Zig type `T`.\n"
+    out.push_str(&crate::template_env::render(
+        "vtable_header_doc.jinja",
+        minijinja::context! {
+            trait_name => trait_name,
+            snake => &snake,
+        },
     ));
-    out.push_str("///\n");
-    out.push_str(&format!(
-        "/// `T` must implement every method of `{trait_name}` as a plain Zig function.\n"
+    out.push_str(&crate::template_env::render(
+        "vtable_impl_method.jinja",
+        minijinja::context! {
+            snake => &snake,
+            trait_name => trait_name,
+        },
     ));
-    out.push_str("/// Each slot is wrapped in a `callconv(.C)` thunk that casts `user_data`\n");
-    out.push_str("/// back to `*T` and forwards the call.\n");
-    out.push_str("///\n");
-    out.push_str("/// # Usage\n");
-    out.push_str("/// ```zig\n");
-    out.push_str(&format!(
-        "/// const vtable = make_{snake}_vtable(MyType, &my_instance);\n"
+    out.push_str(&crate::template_env::render(
+        "vtable_make_fn_header.jinja",
+        minijinja::context! {
+            trait_name => trait_name,
+        },
     ));
-    out.push_str(&format!(
-        "/// _ = register_{snake}(\"my-impl\", vtable, &my_instance, &out_error);\n"
-    ));
-    out.push_str("/// ```\n");
-    out.push_str(&format!(
-        "pub fn make_{snake}_vtable(comptime T: type, instance: *T) I{trait_name} {{\n"
-    ));
-    out.push_str("    _ = instance; // instance is passed as user_data by the caller\n");
-    out.push_str(&format!("    return I{trait_name}{{\n"));
 
     // Lifecycle stubs when super_trait is present
     if has_super_trait {
-        out.push_str("        .name_fn = struct {\n");
-        out.push_str("            fn thunk(user_data: ?*anyopaque, out_name: ?*?[*c]u8) callconv(.C) void {\n");
-        out.push_str("                _ = user_data;\n");
-        out.push_str("                _ = out_name;\n");
-        out.push_str("                unreachable; // override .name_fn in the returned vtable\n");
-        out.push_str("            }\n");
-        out.push_str("        }.thunk,\n");
-        out.push('\n');
-
-        out.push_str("        .version_fn = struct {\n");
-        out.push_str("            fn thunk(user_data: ?*anyopaque, out_version: ?*?[*c]u8) callconv(.C) void {\n");
-        out.push_str("                _ = user_data;\n");
-        out.push_str("                _ = out_version;\n");
-        out.push_str("                unreachable; // override .version_fn in the returned vtable\n");
-        out.push_str("            }\n");
-        out.push_str("        }.thunk,\n");
-        out.push('\n');
-
-        out.push_str("        .initialize_fn = struct {\n");
-        out.push_str("            fn thunk(user_data: ?*anyopaque, out_error: ?*?[*c]u8) callconv(.C) i32 {\n");
-        out.push_str("                _ = user_data;\n");
-        out.push_str("                _ = out_error;\n");
-        out.push_str("                return 0;\n");
-        out.push_str("            }\n");
-        out.push_str("        }.thunk,\n");
-        out.push('\n');
-
-        out.push_str("        .shutdown_fn = struct {\n");
-        out.push_str("            fn thunk(user_data: ?*anyopaque, out_error: ?*?[*c]u8) callconv(.C) i32 {\n");
-        out.push_str("                _ = user_data;\n");
-        out.push_str("                _ = out_error;\n");
-        out.push_str("                return 0;\n");
-        out.push_str("            }\n");
-        out.push_str("        }.thunk,\n");
-        out.push('\n');
+        out.push_str(&crate::template_env::render(
+            "vtable_field_name_fn.jinja",
+            minijinja::context! {},
+        ));
+        out.push_str(&crate::template_env::render(
+            "vtable_field_version_fn.jinja",
+            minijinja::context! {},
+        ));
+        out.push_str(&crate::template_env::render(
+            "vtable_field_initialize_fn.jinja",
+            minijinja::context! {},
+        ));
+        out.push_str(&crate::template_env::render(
+            "vtable_field_shutdown_fn.jinja",
+            minijinja::context! {},
+        ));
     }
 
     // Per-method thunks
@@ -183,8 +169,14 @@ pub fn emit_make_vtable(trait_name: &str, has_super_trait: bool, trait_def: &Typ
             .collect::<Vec<_>>()
             .join(", ");
 
-        out.push_str(&format!("        .{method_snake} = struct {{\n"));
-        out.push_str(&format!("            fn thunk({params_str}) callconv(.C) {ret} {{\n"));
+        out.push_str(&crate::template_env::render(
+            "vtable_instance_field.jinja",
+            minijinja::context! {
+                method_snake => &method_snake,
+                params_str => &params_str,
+                ret => &ret,
+            },
+        ));
 
         // Cast user_data to *T
         out.push_str("                const self: *T = @ptrCast(@alignCast(ud));\n");
@@ -193,9 +185,13 @@ pub fn emit_make_vtable(trait_name: &str, has_super_trait: bool, trait_def: &Typ
         let mut call_args: Vec<String> = Vec::new();
         for p in &method.params {
             if matches!(p.ty, TypeRef::Bytes) {
-                out.push_str(&format!(
-                    "                const {}_slice = {}_ptr[0..{}_len];\n",
-                    p.name, p.name, p.name
+                out.push_str(&crate::template_env::render(
+                    "thunk_bytes_slice.jinja",
+                    minijinja::context! {
+                        slice_name => format!("{}_slice", p.name),
+                        ptr_name => format!("{}_ptr", p.name),
+                        len_name => format!("{}_len", p.name),
+                    },
                 ));
                 call_args.push(format!("{}_slice", p.name));
             } else {
@@ -217,8 +213,13 @@ pub fn emit_make_vtable(trait_name: &str, has_super_trait: bool, trait_def: &Typ
         if method.error_type.is_some() {
             // Fallible method: call returns error union, write out_result/out_error
             let has_result_out = !matches!(method.return_type, TypeRef::Unit);
-            out.push_str(&format!(
-                "                if (self.{method_snake}({args_str})) |{ok_binding}| {{\n"
+            out.push_str(&crate::template_env::render(
+                "thunk_fn_signature.jinja",
+                minijinja::context! {
+                    method_snake => &method_snake,
+                    args_str => &args_str,
+                    ok_binding => &ok_binding,
+                },
             ));
             // Write result via out_result pointer — for complex types this is unreachable.
             // `unreachable` diverges, so any code after it (including `return 0;`) would
@@ -228,21 +229,32 @@ pub fn emit_make_vtable(trait_name: &str, has_super_trait: bool, trait_def: &Typ
             if has_result_out {
                 match &method.return_type {
                     TypeRef::Primitive(_) | TypeRef::Unit => {
-                        out.push_str(&format!(
-                            "                    if (out_result) |ptr| ptr.* = {ok_binding};\n"
+                        out.push_str(&crate::template_env::render(
+                            "thunk_result_assign.jinja",
+                            minijinja::context! {
+                                ok_binding => &ok_binding,
+                            },
                         ));
                     }
                     _ => {
                         // String/Bytes/complex: cannot safely convert without allocator context
-                        out.push_str(&format!(
-                            "                    _ = {ok_binding}; _ = out_result; unreachable; // complex return: implement manually\n"
+                        out.push_str(&crate::template_env::render(
+                            "thunk_if_fallible.jinja",
+                            minijinja::context! {
+                                ok_binding => &ok_binding,
+                            },
                         ));
                         success_path_diverges = true;
                     }
                 }
             } else {
                 // Unit return on success — discard the captured Void to silence unused-variable.
-                out.push_str(&format!("                    _ = {ok_binding};\n"));
+                out.push_str(&crate::template_env::render(
+                    "thunk_if_ok_result.jinja",
+                    minijinja::context! {
+                        ok_binding => &ok_binding,
+                    },
+                ));
             }
             if !success_path_diverges {
                 out.push_str("                    return 0;\n");
@@ -262,14 +274,32 @@ pub fn emit_make_vtable(trait_name: &str, has_super_trait: bool, trait_def: &Typ
             }
             match &method.return_type {
                 TypeRef::Unit => {
-                    out.push_str(&format!("                self.{method_snake}({args_str});\n"));
+                    out.push_str(&crate::template_env::render(
+                        "thunk_if_error.jinja",
+                        minijinja::context! {
+                            method_snake => &method_snake,
+                            args_str => &args_str,
+                        },
+                    ));
                 }
                 TypeRef::Primitive(_) => {
-                    out.push_str(&format!("                return self.{method_snake}({args_str});\n"));
+                    out.push_str(&crate::template_env::render(
+                        "thunk_infallible_return.jinja",
+                        minijinja::context! {
+                            method_snake => &method_snake,
+                            args_str => &args_str,
+                        },
+                    ));
                 }
                 _ => {
                     // Non-unit infallible non-primitive: pass through (e.g., [*c]const u8)
-                    out.push_str(&format!("                return self.{method_snake}({args_str});\n"));
+                    out.push_str(&crate::template_env::render(
+                        "thunk_infallible_return.jinja",
+                        minijinja::context! {
+                            method_snake => &method_snake,
+                            args_str => &args_str,
+                        },
+                    ));
                 }
             }
         }
@@ -280,11 +310,10 @@ pub fn emit_make_vtable(trait_name: &str, has_super_trait: bool, trait_def: &Typ
     }
 
     // free_user_data stub — does nothing by default; caller overrides if needed
-    out.push_str("        .free_user_data = struct {\n");
-    out.push_str("            fn thunk(user_data: ?*anyopaque) callconv(.C) void {\n");
-    out.push_str("                _ = user_data;\n");
-    out.push_str("            }\n");
-    out.push_str("        }.thunk,\n");
+    out.push_str(&crate::template_env::render(
+        "vtable_free_user_data.jinja",
+        minijinja::context! {},
+    ));
 
     out.push_str("    };\n");
     out.push_str("}\n");
@@ -304,14 +333,19 @@ pub fn emit_trait_bridge(prefix: &str, bridge_cfg: &TraitBridgeConfig, trait_def
     // -------------------------------------------------------------------------
     // Vtable struct: I{Trait}
     // -------------------------------------------------------------------------
-    out.push_str(&format!(
-        "/// Vtable for a Zig implementation of the `{trait_name}` trait.\n"
+    out.push_str(&crate::template_env::render(
+        "trait_vtable_header.jinja",
+        minijinja::context! {
+            trait_name => trait_name,
+            snake => &snake,
+        },
     ));
-    out.push_str("/// Fill each function pointer, then pass this struct to the corresponding\n");
-    out.push_str(&format!(
-        "/// `register_{snake}` function to register your implementation.\n"
+    out.push_str(&crate::template_env::render(
+        "trait_struct_header.jinja",
+        minijinja::context! {
+            trait_name => trait_name,
+        },
     ));
-    out.push_str(&format!("pub const I{trait_name} = extern struct {{\n"));
 
     // Plugin lifecycle slots — always present when a super_trait is configured.
     if has_super_trait {
@@ -343,9 +377,12 @@ pub fn emit_trait_bridge(prefix: &str, bridge_cfg: &TraitBridgeConfig, trait_def
     // Trait method slots
     for method in &trait_def.methods {
         if !method.doc.is_empty() {
-            for line in method.doc.lines() {
-                out.push_str(&format!("    /// {line}\n"));
-            }
+            out.push_str(&crate::template_env::render(
+                "trait_method_doc_lines.jinja",
+                minijinja::context! {
+                    method_doc_lines => method.doc.lines().collect::<Vec<_>>(),
+                },
+            ));
         }
 
         let ret = vtable_return_type(method);
@@ -376,10 +413,14 @@ pub fn emit_trait_bridge(prefix: &str, bridge_cfg: &TraitBridgeConfig, trait_def
         }
 
         let params_str = params.join(", ");
-        out.push_str(&format!(
-            "    {method_snake}: ?*const fn ({params_str}) callconv(.C) {ret} = null,\n"
+        out.push_str(&crate::template_env::render(
+            "trait_method_signature.jinja",
+            minijinja::context! {
+                method_snake => &method_snake,
+                params_str => &params_str,
+                ret => &ret,
+            },
         ));
-        out.push('\n');
     }
 
     // free_user_data — always last; called by Rust Drop to release the Zig-side handle.
@@ -396,20 +437,25 @@ pub fn emit_trait_bridge(prefix: &str, bridge_cfg: &TraitBridgeConfig, trait_def
     let c_register = format!("c.{prefix}_register_{snake}");
     let c_unregister = format!("c.{prefix}_unregister_{snake}");
 
-    out.push_str(&format!(
-        "/// Register a `{trait_name}` implementation with the Rust runtime.\n"
+    out.push_str(&crate::template_env::render(
+        "register_fn_doc1.jinja",
+        minijinja::context! {
+            trait_name => trait_name,
+            snake => &snake,
+        },
     ));
-    out.push_str("///\n");
-    out.push_str("/// `name`     — null-terminated plugin name.\n");
-    out.push_str("/// `vtable`   — filled `I{trait_name}` struct with all required function pointers.\n");
-    out.push_str("/// `user_data`— opaque pointer passed back as the first argument of every vtable call.\n");
-    out.push_str("///\n");
-    out.push_str("/// Returns 0 on success; non-zero on failure (error text written to `out_error`).\n");
-    out.push_str(&format!(
-        "pub fn register_{snake}(name: [*c]const u8, vtable: I{trait_name}, user_data: ?*anyopaque, out_error: ?*?[*c]u8) i32 {{\n"
+    out.push_str(&crate::template_env::render(
+        "register_fn_signature.jinja",
+        minijinja::context! {
+            snake => &snake,
+            trait_name => trait_name,
+        },
     ));
-    out.push_str(&format!(
-        "    return {c_register}(name, vtable, user_data, out_error);\n"
+    out.push_str(&crate::template_env::render(
+        "register_fn_body.jinja",
+        minijinja::context! {
+            c_register => &c_register,
+        },
     ));
     out.push_str("}\n");
     out.push('\n');
@@ -417,15 +463,24 @@ pub fn emit_trait_bridge(prefix: &str, bridge_cfg: &TraitBridgeConfig, trait_def
     // -------------------------------------------------------------------------
     // Unregistration shim: unregister_{trait_snake}
     // -------------------------------------------------------------------------
-    out.push_str(&format!(
-        "/// Unregister a previously registered `{trait_name}` implementation by name.\n"
+    out.push_str(&crate::template_env::render(
+        "unregister_fn_doc.jinja",
+        minijinja::context! {
+            trait_name => trait_name,
+        },
     ));
-    out.push_str("///\n");
-    out.push_str("/// Returns 0 on success; non-zero on failure.\n");
-    out.push_str(&format!(
-        "pub fn unregister_{snake}(name: [*c]const u8, out_error: ?*?[*c]u8) i32 {{\n"
+    out.push_str(&crate::template_env::render(
+        "unregister_fn_signature.jinja",
+        minijinja::context! {
+            snake => &snake,
+        },
     ));
-    out.push_str(&format!("    return {c_unregister}(name, out_error);\n"));
+    out.push_str(&crate::template_env::render(
+        "unregister_fn_body.jinja",
+        minijinja::context! {
+            c_unregister => &c_unregister,
+        },
+    ));
     out.push_str("}\n");
     out.push('\n');
 
@@ -433,6 +488,131 @@ pub fn emit_trait_bridge(prefix: &str, bridge_cfg: &TraitBridgeConfig, trait_def
     // Comptime vtable builder: make_{trait_snake}_vtable
     // -------------------------------------------------------------------------
     emit_make_vtable(trait_name, has_super_trait, trait_def, out);
+}
+
+// ---------------------------------------------------------------------------
+// TraitBridgeGenerator implementation for the Zig backend
+// ---------------------------------------------------------------------------
+
+/// Zig-specific [`TraitBridgeGenerator`] implementation.
+///
+/// Carries the FFI symbol prefix (e.g., `"kreuzberg"`) used when deriving the
+/// C symbol for `unregister_*` and `clear_*` wrappers.
+///
+/// The required trait methods that produce *Rust* source (`gen_sync_method_body`,
+/// `gen_async_method_body`, `gen_constructor`, `gen_registration_fn`) return
+/// empty strings because Zig bridge code is produced by the standalone
+/// [`emit_trait_bridge`] free function, not the shared driver.
+pub struct ZigTraitBridgeGenerator {
+    /// FFI symbol prefix (e.g., `"kreuzberg"`).
+    pub prefix: String,
+}
+
+impl ZigTraitBridgeGenerator {
+    /// Construct a new generator for the given FFI symbol prefix.
+    pub fn new(prefix: impl Into<String>) -> Self {
+        Self { prefix: prefix.into() }
+    }
+}
+
+impl TraitBridgeGenerator for ZigTraitBridgeGenerator {
+    // ------------------------------------------------------------------
+    // Stub methods — Zig bridge code is emitted by `emit_trait_bridge`.
+    // ------------------------------------------------------------------
+
+    fn foreign_object_type(&self) -> &str {
+        ""
+    }
+
+    fn bridge_imports(&self) -> Vec<String> {
+        Vec::new()
+    }
+
+    fn gen_sync_method_body(&self, _method: &MethodDef, _spec: &TraitBridgeSpec) -> String {
+        String::new()
+    }
+
+    fn gen_async_method_body(&self, _method: &MethodDef, _spec: &TraitBridgeSpec) -> String {
+        String::new()
+    }
+
+    fn gen_constructor(&self, _spec: &TraitBridgeSpec) -> String {
+        String::new()
+    }
+
+    fn gen_registration_fn(&self, _spec: &TraitBridgeSpec) -> String {
+        String::new()
+    }
+
+    // ------------------------------------------------------------------
+    // Zig-specific overrides
+    // ------------------------------------------------------------------
+
+    /// Emit a Zig wrapper that calls `c.{prefix}_{unregister_fn}(name, out_error)`.
+    ///
+    /// Returns an empty string when `spec.bridge_config.unregister_fn` is `None`.
+    fn gen_unregistration_fn(&self, spec: &TraitBridgeSpec) -> String {
+        let Some(unregister_fn) = spec.bridge_config.unregister_fn.as_deref() else {
+            return String::new();
+        };
+        let c_unregister = format!("c.{}_{}", self.prefix, unregister_fn);
+
+        let mut out = String::new();
+        out.push_str(&crate::template_env::render(
+            "unregister_fn_doc.jinja",
+            minijinja::context! {
+                trait_name => spec.trait_def.name.as_str(),
+            },
+        ));
+        // Emit the signature directly: the configured `unregister_fn` is the
+        // complete Zig function name, not just the trait-snake suffix.
+        out.push_str(&crate::template_env::render(
+            "unregister_fn_configured_signature.jinja",
+            minijinja::context! {
+                unregister_fn => unregister_fn,
+            },
+        ));
+        out.push_str(&crate::template_env::render(
+            "unregister_fn_body.jinja",
+            minijinja::context! {
+                c_unregister => &c_unregister,
+            },
+        ));
+        out.push_str("}\n");
+        out
+    }
+
+    /// Emit a Zig wrapper that calls `c.{prefix}_{clear_fn}(out_error)`.
+    ///
+    /// Returns an empty string when `spec.bridge_config.clear_fn` is `None`.
+    fn gen_clear_fn(&self, spec: &TraitBridgeSpec) -> String {
+        let Some(clear_fn) = spec.bridge_config.clear_fn.as_deref() else {
+            return String::new();
+        };
+        let c_clear = format!("c.{}_{}", self.prefix, clear_fn);
+
+        let mut out = String::new();
+        out.push_str(&crate::template_env::render(
+            "clear_fn_doc.jinja",
+            minijinja::context! {
+                trait_name => spec.trait_def.name.as_str(),
+            },
+        ));
+        out.push_str(&crate::template_env::render(
+            "clear_fn_signature.jinja",
+            minijinja::context! {
+                clear_fn => clear_fn,
+            },
+        ));
+        out.push_str(&crate::template_env::render(
+            "clear_fn_body.jinja",
+            minijinja::context! {
+                c_clear => &c_clear,
+            },
+        ));
+        out.push_str("}\n");
+        out
+    }
 }
 
 #[cfg(test)]
@@ -769,6 +949,143 @@ mod tests {
         assert!(
             out.contains("return self.count()"),
             "primitive return must be forwarded directly: {out}"
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // ZigTraitBridgeGenerator tests
+    // -----------------------------------------------------------------
+
+    fn make_spec<'a>(trait_def: &'a TypeDef, bridge_cfg: &'a TraitBridgeConfig) -> TraitBridgeSpec<'a> {
+        use alef_codegen::generators::trait_bridge::TraitBridgeSpec;
+        use std::collections::HashMap;
+        TraitBridgeSpec {
+            trait_def,
+            bridge_config: bridge_cfg,
+            core_import: "kreuzberg",
+            wrapper_prefix: "Zig",
+            type_paths: HashMap::new(),
+            error_type: "KreuzbergError".to_string(),
+            error_constructor: "KreuzbergError::msg({msg})".to_string(),
+        }
+    }
+
+    #[test]
+    fn gen_unregistration_fn_emits_wrapper_when_configured() {
+        let trait_def = make_trait_def("OcrBackend", vec![]);
+        let mut bridge_cfg = make_bridge_cfg("OcrBackend", None);
+        bridge_cfg.unregister_fn = Some("unregister_ocr_backend".to_string());
+
+        let generator = ZigTraitBridgeGenerator::new("kreuzberg");
+        let spec = make_spec(&trait_def, &bridge_cfg);
+        let out = generator.gen_unregistration_fn(&spec);
+
+        assert!(!out.is_empty(), "expected non-empty output when unregister_fn is set");
+        assert!(
+            out.contains("pub fn unregister_ocr_backend("),
+            "wrong function name: {out}"
+        );
+        assert!(
+            out.contains("c.kreuzberg_unregister_ocr_backend("),
+            "wrong C symbol: {out}"
+        );
+        assert!(
+            out.contains("out_error: ?*?[*c]u8") || out.contains("out_error"),
+            "missing out_error param: {out}"
+        );
+        assert!(out.contains("return "), "missing return statement: {out}");
+        assert!(out.ends_with("}\n"), "missing closing brace: {out}");
+    }
+
+    #[test]
+    fn gen_unregistration_fn_returns_empty_when_not_configured() {
+        let trait_def = make_trait_def("OcrBackend", vec![]);
+        let bridge_cfg = make_bridge_cfg("OcrBackend", None); // unregister_fn is None
+
+        let generator = ZigTraitBridgeGenerator::new("kreuzberg");
+        let spec = make_spec(&trait_def, &bridge_cfg);
+        let out = generator.gen_unregistration_fn(&spec);
+
+        assert!(
+            out.is_empty(),
+            "expected empty output when unregister_fn is None, got: {out}"
+        );
+    }
+
+    #[test]
+    fn gen_clear_fn_emits_wrapper_when_configured() {
+        let trait_def = make_trait_def("OcrBackend", vec![]);
+        let mut bridge_cfg = make_bridge_cfg("OcrBackend", None);
+        bridge_cfg.clear_fn = Some("clear_ocr_backends".to_string());
+
+        let generator = ZigTraitBridgeGenerator::new("kreuzberg");
+        let spec = make_spec(&trait_def, &bridge_cfg);
+        let out = generator.gen_clear_fn(&spec);
+
+        assert!(!out.is_empty(), "expected non-empty output when clear_fn is set");
+        assert!(out.contains("pub fn clear_ocr_backends("), "wrong function name: {out}");
+        assert!(out.contains("c.kreuzberg_clear_ocr_backends("), "wrong C symbol: {out}");
+        assert!(
+            out.contains("out_error: ?*?[*c]u8") || out.contains("out_error"),
+            "missing out_error param: {out}"
+        );
+        assert!(out.contains("return "), "missing return statement: {out}");
+        assert!(out.ends_with("}\n"), "missing closing brace: {out}");
+    }
+
+    #[test]
+    fn gen_clear_fn_returns_empty_when_not_configured() {
+        let trait_def = make_trait_def("OcrBackend", vec![]);
+        let bridge_cfg = make_bridge_cfg("OcrBackend", None); // clear_fn is None
+
+        let generator = ZigTraitBridgeGenerator::new("kreuzberg");
+        let spec = make_spec(&trait_def, &bridge_cfg);
+        let out = generator.gen_clear_fn(&spec);
+
+        assert!(
+            out.is_empty(),
+            "expected empty output when clear_fn is None, got: {out}"
+        );
+    }
+
+    #[test]
+    fn gen_unregistration_fn_uses_snake_case_function_name_verbatim() {
+        // The configured `unregister_fn` name is used as-is (not re-derived from the trait).
+        let trait_def = make_trait_def("DocumentExtractor", vec![]);
+        let mut bridge_cfg = make_bridge_cfg("DocumentExtractor", None);
+        bridge_cfg.unregister_fn = Some("unregister_extractor".to_string());
+
+        let generator = ZigTraitBridgeGenerator::new("demo");
+        let spec = make_spec(&trait_def, &bridge_cfg);
+        let out = generator.gen_unregistration_fn(&spec);
+
+        assert!(
+            out.contains("pub fn unregister_extractor("),
+            "must use configured fn name verbatim: {out}"
+        );
+        assert!(
+            out.contains("c.demo_unregister_extractor("),
+            "must use configured fn name in C symbol: {out}"
+        );
+    }
+
+    #[test]
+    fn gen_clear_fn_uses_configured_fn_name_verbatim() {
+        let trait_def = make_trait_def("DocumentExtractor", vec![]);
+        let mut bridge_cfg = make_bridge_cfg("DocumentExtractor", None);
+        bridge_cfg.clear_fn = Some("clear_all_extractors".to_string());
+
+        let generator = ZigTraitBridgeGenerator::new("demo");
+        let spec = make_spec(&trait_def, &bridge_cfg);
+        let out = generator.gen_clear_fn(&spec);
+
+        assert!(
+            out.contains("pub fn clear_all_extractors("),
+            "must use configured fn name verbatim: {out}"
+        );
+        assert!(
+            out.contains("c.demo_clear_all_extractors("),
+            "must use configured fn name in C symbol: {out}"
         );
     }
 }

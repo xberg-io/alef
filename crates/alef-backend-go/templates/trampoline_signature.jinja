@@ -1,0 +1,5 @@
+func {{ name }}(
+{% for param in params %}
+	{{ param }},
+{% endfor %}
+) C.int32_t {

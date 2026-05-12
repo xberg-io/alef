@@ -1,0 +1,14 @@
+{%- if doc_comment %}
+{{ doc_comment }}
+{% endif -%}
+/// # Safety
+/// `client` and `request_json` must be non-null valid pointers. `callback` must be a valid function pointer. `user_data` is forwarded as-is; ownership stays with the caller.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn {{ fn_name }}(
+    client: *const {{ qualified }},
+    request_json: *const std::ffi::c_char,
+    callback: LiterLlmStreamCallback,
+    user_data: *mut std::ffi::c_void,
+) -> i32 {
+{{ body_indented }}
+}

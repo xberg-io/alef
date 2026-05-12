@@ -1,0 +1,6 @@
+{% if doc_lines %}
+{% for line in doc_lines %}
+	// {{ line }}
+{% endfor %}
+{% endif %}
+	{{ field_name }} {{ field_type }} `{{ json_tag }}`

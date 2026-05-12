@@ -6,6 +6,7 @@ pub(super) fn emit_error_helpers(
     error_context_symbol: &str,
     out: &mut String,
 ) {
+    use crate::template_env;
     // free_string lookup
     out.push_str("/// Free a string allocated by the FFI layer.\n");
     out.push_str("/// The pointer must have been returned by a `");
@@ -14,8 +15,11 @@ pub(super) fn emit_error_helpers(
     out.push_str("typedef _FreeStringNative = Void Function(Pointer<Char> ptr);\n");
     out.push_str("typedef _FreeStringDart = void Function(Pointer<Char> ptr);\n");
     out.push_str("final void Function(Pointer<Char>) _freeString =\n");
-    out.push_str(&format!(
-        "    _lib.lookupFunction<_FreeStringNative, _FreeStringDart>('{free_symbol}');\n\n"
+    out.push_str(&template_env::render(
+        "ffi_free_string_lookup.jinja",
+        minijinja::context! {
+            free_symbol => free_symbol,
+        },
     ));
 
     // last_error_code lookup
@@ -23,8 +27,11 @@ pub(super) fn emit_error_helpers(
     out.push_str("typedef _LastErrorCodeNative = Int32 Function();\n");
     out.push_str("typedef _LastErrorCodeDart = int Function();\n");
     out.push_str("final int Function() _lastErrorCode =\n");
-    out.push_str(&format!(
-        "    _lib.lookupFunction<_LastErrorCodeNative, _LastErrorCodeDart>('{error_code_symbol}');\n\n"
+    out.push_str(&template_env::render(
+        "ffi_last_error_code_lookup.jinja",
+        minijinja::context! {
+            error_code_symbol => error_code_symbol,
+        },
     ));
 
     // last_error_context lookup
@@ -32,8 +39,11 @@ pub(super) fn emit_error_helpers(
     out.push_str("typedef _LastErrorContextNative = Pointer<Utf8> Function();\n");
     out.push_str("typedef _LastErrorContextDart = Pointer<Utf8> Function();\n");
     out.push_str("final Pointer<Utf8> Function() _lastErrorContext =\n");
-    out.push_str(&format!(
-        "    _lib.lookupFunction<_LastErrorContextNative, _LastErrorContextDart>('{error_context_symbol}');\n\n"
+    out.push_str(&template_env::render(
+        "ffi_last_error_context_lookup.jinja",
+        minijinja::context! {
+            error_context_symbol => error_context_symbol,
+        },
     ));
 
     // _checkError helper

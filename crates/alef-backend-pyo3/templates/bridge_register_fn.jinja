@@ -1,0 +1,3 @@
+def {{ register_fn }}(backend: object) -> None:
+    """Register a {{ register_fn }} backend."""
+    return _rust.{{ register_fn }}(backend=backend)

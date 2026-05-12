@@ -1,0 +1,7 @@
+/// Register a `{{ trait_name }}` implementation with the Rust runtime.
+///
+/// `name`     — null-terminated plugin name.
+/// `vtable`   — filled `I{{ trait_name }}` struct with all required function pointers.
+/// `user_data`— opaque pointer passed back as the first argument of every vtable call.
+///
+/// Returns 0 on success; non-zero on failure (error text written to `out_error`).

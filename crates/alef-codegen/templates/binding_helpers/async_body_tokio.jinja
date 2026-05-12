@@ -1,0 +1,4 @@
+let rt = {{ rt_new }};
+        {% if has_error %}{% if is_opaque %}let result = rt.block_on(async { {{ core_call }}.await.map_err(|e| e.into()) })?;
+        {{ return_wrap }}{% else %}rt.block_on(async { {{ core_call }}.await.map_err(|e| e.into()) }}){% endif %}{% else %}{% if is_opaque %}{% if is_unit_return %}rt.block_on(async { {{ core_call }}.await }});{% else %}let result = rt.block_on(async { {{ core_call }}.await }});
+        {{ return_wrap }}{% endif %}{% else %}rt.block_on(async { {{ core_call }}.await }}){% endif %}{% endif %}

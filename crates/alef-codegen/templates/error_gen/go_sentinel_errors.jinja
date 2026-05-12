@@ -1,0 +1,6 @@
+var (
+{%- for const_name, msg in sentinels %}
+	// {{ const_name }} is returned when {{ msg }}.
+	{{ const_name }} = errors.New("{{ msg }}")
+{%- endfor %}
+)

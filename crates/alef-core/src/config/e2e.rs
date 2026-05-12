@@ -56,7 +56,7 @@ fn default_test_apps_dir() -> String {
 }
 
 /// Root e2e configuration from `[e2e]` section of alef.toml.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct E2eConfig {
     /// Directory containing fixture JSON files (default: "fixtures").
     #[serde(default = "default_fixtures_dir")]
@@ -64,6 +64,18 @@ pub struct E2eConfig {
     /// Output directory for generated e2e test projects (default: "e2e").
     #[serde(default = "default_output_dir")]
     pub output: String,
+    /// Repo-root-relative directory holding binary file fixtures referenced by
+    /// `file_path` / `bytes` fixture args (default: "test_documents").
+    ///
+    /// Backends that emit chdir / setup hooks for file-based fixtures resolve
+    /// the relative path from the test-emission directory via
+    /// [`E2eConfig::test_documents_relative_from`]. The default matches the
+    /// kreuzberg convention; downstream crates whose fixtures don't reference
+    /// files (e.g. liter-llm, which uses pure mock-server fixtures) can leave
+    /// the default in place — backends conditionally emit the setup only when
+    /// fixtures actually need it.
+    #[serde(default = "default_test_documents_dir")]
+    pub test_documents_dir: String,
     /// Languages to generate e2e tests for. Defaults to top-level `languages` list.
     #[serde(default)]
     pub languages: Vec<String>,
@@ -108,6 +120,25 @@ pub struct E2eConfig {
     /// `batch.completed_count` on a `ScrapeResult`).
     #[serde(default)]
     pub result_fields: HashSet<String>,
+    /// Fixture categories excluded from cross-language e2e codegen.
+    ///
+    /// Fixtures whose resolved category matches an entry in this set are
+    /// skipped by every per-language e2e generator — no test is emitted at
+    /// all (no skip directive, no commented-out body). The fixture files stay
+    /// on disk and remain available to Rust integration tests inside the
+    /// consumer crate's own `tests/` directory.
+    ///
+    /// Use this to keep fixtures that exercise internal middleware (cache,
+    /// proxy, budget, hooks, etc.) out of bindings whose public surface does
+    /// not expose those layers.
+    ///
+    /// Example:
+    /// ```toml
+    /// [e2e]
+    /// exclude_categories = ["cache", "proxy", "budget", "hooks"]
+    /// ```
+    #[serde(default)]
+    pub exclude_categories: HashSet<String>,
     /// C FFI accessor type chain: maps `"{parent_snake_type}.{field}"` to the
     /// PascalCase return type name (without prefix).
     ///
@@ -162,6 +193,29 @@ impl E2eConfig {
         }
     }
 
+    /// Resolve the call config for a fixture, applying `select_when` auto-routing.
+    ///
+    /// When the fixture has an explicit `call` name, that named config is returned
+    /// (same as [`resolve_call`]).  When the fixture has no explicit call, the method
+    /// scans named calls for a [`SelectWhen`] condition that matches the fixture input
+    /// and returns the first match.  If no condition matches, it falls back to the
+    /// default `[e2e.call]`.
+    pub fn resolve_call_for_fixture(&self, call_name: Option<&str>, fixture_input: &serde_json::Value) -> &CallConfig {
+        if let Some(name) = call_name {
+            return self.calls.get(name).unwrap_or(&self.call);
+        }
+        // Auto-route by select_when condition.
+        for call_config in self.calls.values() {
+            if let Some(SelectWhen::InputHas(key)) = &call_config.select_when {
+                let val = fixture_input.get(key.as_str()).unwrap_or(&serde_json::Value::Null);
+                if !val.is_null() {
+                    return call_config;
+                }
+            }
+        }
+        &self.call
+    }
+
     /// Resolve the effective package reference for a language.
     ///
     /// In registry mode, entries from `[e2e.registry.packages]` are merged on
@@ -196,6 +250,28 @@ impl E2eConfig {
             &self.output
         }
     }
+
+    /// Relative path from a backend's emission directory to the
+    /// `test_documents_dir` at the repo root.
+    ///
+    /// `emission_depth` counts the number of additional `../` segments needed
+    /// to reach `<output>/<lang>/` from where the file is being emitted:
+    ///
+    /// * `0` — emitted directly at `e2e/<lang>/` (e.g. dart, zig `build.zig`)
+    /// * `1` — emitted at `e2e/<lang>/<sub>/` (e.g. ruby `spec/`, R `tests/`)
+    /// * `2` — emitted at `e2e/<lang>/<sub1>/<sub2>/`
+    ///
+    /// The base prefix is two segments above `<output>/<lang>/` (i.e.
+    /// `../../`), matching the canonical layout where `<output>` (default
+    /// `"e2e"`) sits at the repo root next to the configured
+    /// `test_documents_dir`.
+    pub fn test_documents_relative_from(&self, emission_depth: usize) -> String {
+        let mut up = String::from("../../");
+        for _ in 0..emission_depth {
+            up.push_str("../");
+        }
+        format!("{up}{}", self.test_documents_dir)
+    }
 }
 
 fn default_fixtures_dir() -> String {
@@ -204,6 +280,42 @@ fn default_fixtures_dir() -> String {
 
 fn default_output_dir() -> String {
     "e2e".to_string()
+}
+
+fn default_test_documents_dir() -> String {
+    "test_documents".to_string()
+}
+
+/// Hand-rolled `Default` so the `test_documents_dir` field receives its
+/// `default_test_documents_dir()` value (`"test_documents"`) when callers use
+/// `..Default::default()` to construct an `E2eConfig` literally rather than
+/// going through `serde::Deserialize`. Without this, `derive(Default)` would
+/// fall back to `String::default()` (i.e. the empty string), and any backend
+/// computing `test_documents_relative_from(0)` would emit `"../../"` (no dir
+/// component), breaking generated chdir hooks.
+impl Default for E2eConfig {
+    fn default() -> Self {
+        Self {
+            fixtures: default_fixtures_dir(),
+            output: default_output_dir(),
+            test_documents_dir: default_test_documents_dir(),
+            languages: Vec::new(),
+            call: CallConfig::default(),
+            calls: HashMap::new(),
+            packages: HashMap::new(),
+            format: HashMap::new(),
+            fields: HashMap::new(),
+            fields_optional: HashSet::new(),
+            fields_array: HashSet::new(),
+            fields_method_calls: HashSet::new(),
+            result_fields: HashSet::new(),
+            exclude_categories: HashSet::new(),
+            fields_c_types: HashMap::new(),
+            fields_enum: HashSet::new(),
+            dep_mode: DependencyMode::default(),
+            registry: RegistryConfig::default(),
+        }
+    }
 }
 
 /// Configuration for the function call in each test.
@@ -284,6 +396,19 @@ pub struct CallConfig {
     /// When `true`, the function returns `Option<T>`.
     #[serde(default)]
     pub result_is_option: bool,
+    /// Automatic fixture-routing condition.
+    ///
+    /// When set, a fixture whose `call` field is `None` is routed to this named call config
+    /// if the condition is satisfied.  This avoids the need to tag every fixture with
+    /// `"call": "batch_scrape"` when the fixture shape already identifies the call.
+    ///
+    /// Example (`alef.toml`):
+    /// ```toml
+    /// [e2e.calls.batch_scrape]
+    /// select_when = { input_has = "batch_urls" }
+    /// ```
+    #[serde(default)]
+    pub select_when: Option<SelectWhen>,
 }
 
 fn default_result_var() -> String {
@@ -292,6 +417,23 @@ fn default_result_var() -> String {
 
 fn default_returns_result() -> bool {
     false
+}
+
+/// Condition for auto-selecting a named call config when the fixture matches.
+///
+/// When a fixture does not specify `"call"`, the codegen normally uses the default
+/// `[e2e.call]`.  A `SelectWhen` condition on a named call allows automatic routing
+/// based on the fixture's input shape:
+///
+/// ```toml
+/// [e2e.calls.batch_scrape]
+/// select_when = { input_has = "batch_urls" }
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SelectWhen {
+    /// Select this call when the fixture input contains the named key with a non-null value.
+    InputHas(String),
 }
 
 /// Maps a fixture input field to a function argument.
@@ -400,6 +542,11 @@ pub struct CallOverride {
     /// The generator imports these types and maps string values to enum constants.
     #[serde(default)]
     pub enum_fields: HashMap<String, String>,
+    /// Maps result-type field names to their enum type names for assertion routing.
+    /// Per-call so e.g. `BatchObject.status` (enum) and `ResponseObject.status` (string)
+    /// can be disambiguated.
+    #[serde(default)]
+    pub assert_enum_fields: HashMap<String, String>,
     /// Module to import enum types from (if different from the main module).
     /// E.g., "html_to_markdown._html_to_markdown" for PyO3 native enums.
     #[serde(default)]
@@ -448,6 +595,14 @@ pub struct CallOverride {
     /// implied — only the JSON parse wrapper is suppressed). (R generator only.)
     #[serde(default)]
     pub result_is_r_list: bool,
+    /// When `true`, the Zig generator treats the result as a `[]u8` JSON string
+    /// representing a struct value (e.g., `ExtractionResult` serialized via the
+    /// FFI `_to_json` helper). The generator parses the JSON with
+    /// `std.json.parseFromSlice(std.json.Value, ...)` before emitting field
+    /// assertions, traversing the dynamic JSON object for each field path.
+    /// (Zig generator only.)
+    #[serde(default)]
+    pub result_is_json_struct: bool,
     /// When `true`, the Rust generator wraps the `json_object` argument expression
     /// in `Some(...).clone()` to match an owned `Option<T>` parameter slot rather
     /// than passing `&options`. (Rust generator only.)
@@ -535,6 +690,23 @@ pub struct CallOverride {
     /// ```
     #[serde(default)]
     pub client_factory: Option<String>,
+    /// Verbatim trailing arguments appended after the fixed `("test-key", ...)` pair
+    /// when calling the `client_factory` function.
+    ///
+    /// Use this when the factory function takes additional positional parameters
+    /// beyond the API key and optional base URL that the generator would otherwise
+    /// emit.  Each element is emitted verbatim, separated by `, `.
+    ///
+    /// Example — Gleam `create_client` takes five positional arguments:
+    /// `(api_key, base_url, timeout_secs, max_retries, model_hint)`.  Set:
+    /// ```toml
+    /// [e2e.call.overrides.gleam]
+    /// client_factory = "create_client"
+    /// client_factory_trailing_args = ["option.None", "option.None", "option.None"]
+    /// ```
+    /// to produce `create_client("test-key", option.Some(url), option.None, option.None, option.None)`.
+    #[serde(default)]
+    pub client_factory_trailing_args: Vec<String>,
     /// Fields on the options object that require `BigInt()` wrapping (WASM only).
     ///
     /// `wasm_bindgen` maps Rust `u64`/`i64` to JavaScript `BigInt`. Numeric
@@ -629,6 +801,25 @@ pub struct CallOverride {
     /// Defaults to `{prefix}_free_string` when unset and `raw_c_result_type == "char*"`.
     #[serde(default)]
     pub c_free_fn: Option<String>,
+    /// C FFI engine factory pattern (C only).
+    ///
+    /// When set, the C generator wraps each test call in a
+    /// `{prefix}_create_engine(config)` / `{prefix}_crawl_engine_handle_free(engine)`
+    /// prologue/epilogue using the named config type as the "arg 0" handle type.
+    ///
+    /// The value is the PascalCase config type name (without prefix), e.g.
+    /// `"CrawlConfig"`. The generator will emit:
+    /// ```c
+    /// KCRAWLCrawlConfig* config_handle = kcrawl_crawl_config_from_json("{json}");
+    /// KCRAWLCrawlEngineHandle* engine = kcrawl_create_engine(config_handle);
+    /// kcrawl_crawl_config_free(config_handle);
+    /// KCRAWLScrapeResult* result = kcrawl_scrape(engine, url);
+    /// // ... assertions ...
+    /// kcrawl_scrape_result_free(result);
+    /// kcrawl_crawl_engine_handle_free(engine);
+    /// ```
+    #[serde(default)]
+    pub c_engine_factory: Option<String>,
     /// Fields in a `json_object` arg that must be wrapped in `java.nio.file.Path.of()`
     /// (Java generator only).
     ///
@@ -636,6 +827,39 @@ pub struct CallOverride {
     /// receives `java.nio.file.Path.of("/tmp/dir")` instead of a plain string.
     #[serde(default)]
     pub path_fields: Vec<String>,
+    /// Trait name for the visitor pattern (Rust e2e tests only).
+    ///
+    /// When a fixture declares a `visitor` block, the Rust e2e generator emits
+    /// `impl <trait_name> for _TestVisitor { ... }` and imports the trait from
+    /// `{module}::visitor`. When unset, no visitor block is emitted and fixtures
+    /// that declare a visitor will cause a codegen error.
+    ///
+    /// E.g., `"HtmlVisitor"` generates:
+    /// ```rust,ignore
+    /// use html_to_markdown_rs::visitor::{HtmlVisitor, NodeContext, VisitResult};
+    /// // ...
+    /// impl HtmlVisitor for _TestVisitor { ... }
+    /// ```
+    #[serde(default)]
+    pub visitor_trait: Option<String>,
+    /// Maps result field paths to their wasm-bindgen enum class names.
+    ///
+    /// wasm-bindgen exposes Rust enums as numeric discriminants in JavaScript
+    /// (`WasmFinishReason.Stop === 0`), not string variants. When an `equals`
+    /// assertion targets a field listed here, the WASM generator emits
+    /// `expect(result.choices[0].finishReason).toBe(WasmFinishReason.Stop)`
+    /// instead of attempting `(value ?? "").trim()`.
+    ///
+    /// The fixture's expected string value is converted to PascalCase to look
+    /// up the variant (e.g. `"tool_calls"` -> `ToolCalls`).
+    ///
+    /// Example:
+    /// ```toml
+    /// [e2e.calls.chat.overrides.wasm]
+    /// result_enum_fields = { "choices[0].finish_reason" = "WasmFinishReason", "status" = "WasmBatchStatus" }
+    /// ```
+    #[serde(default)]
+    pub result_enum_fields: HashMap<String, String>,
 }
 
 fn default_true() -> bool {
@@ -657,4 +881,54 @@ pub struct PackageRef {
     /// Package version (e.g., for go.mod require directives).
     #[serde(default)]
     pub version: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn empty_e2e_with_test_documents(dir: &str) -> E2eConfig {
+        E2eConfig {
+            test_documents_dir: dir.to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_documents_dir_default_is_test_documents() {
+        let cfg: E2eConfig = toml::from_str("[call]\nfunction = \"f\"\n").expect("minimal TOML must deserialize");
+        assert_eq!(cfg.test_documents_dir, "test_documents");
+    }
+
+    #[test]
+    fn test_documents_dir_explicit_override_wins() {
+        let cfg: E2eConfig = toml::from_str("test_documents_dir = \"fixture_files\"\n[call]\nfunction = \"f\"\n")
+            .expect("explicit override must deserialize");
+        assert_eq!(cfg.test_documents_dir, "fixture_files");
+    }
+
+    #[test]
+    fn test_documents_relative_from_at_lang_root_returns_two_dots_up() {
+        let cfg = empty_e2e_with_test_documents("test_documents");
+        assert_eq!(cfg.test_documents_relative_from(0), "../../test_documents");
+    }
+
+    #[test]
+    fn test_documents_relative_from_at_spec_depth_returns_three_dots_up() {
+        let cfg = empty_e2e_with_test_documents("test_documents");
+        assert_eq!(cfg.test_documents_relative_from(1), "../../../test_documents");
+    }
+
+    #[test]
+    fn test_documents_relative_from_at_two_subdirs_deep_returns_four_dots_up() {
+        let cfg = empty_e2e_with_test_documents("test_documents");
+        assert_eq!(cfg.test_documents_relative_from(2), "../../../../test_documents");
+    }
+
+    #[test]
+    fn test_documents_relative_uses_configured_dir_name() {
+        let cfg = empty_e2e_with_test_documents("fixture_files");
+        assert_eq!(cfg.test_documents_relative_from(0), "../../fixture_files");
+        assert_eq!(cfg.test_documents_relative_from(1), "../../../fixture_files");
+    }
 }

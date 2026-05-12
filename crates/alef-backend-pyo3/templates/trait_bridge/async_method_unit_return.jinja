@@ -1,0 +1,23 @@
+let python_obj = Python::attach(|py| self.inner.clone_ref(py));
+let cached_name = self.cached_name.clone();
+
+{{ param_cloning }}
+
+tokio::task::spawn_blocking(move || {
+    Python::attach(|py| {
+        let obj = python_obj.bind(py);
+
+        {{ call }}
+            .map(|_| ())
+            .map_err(|e| {{ core_import }}::KreuzbergError::Plugin {
+                message: format!("Plugin '{}' method '{{ method_name }}' failed: {}", cached_name, e),
+                plugin_name: cached_name.clone(),
+            })
+    })
+})
+.await
+.map_err(|e| {{ core_import }}::KreuzbergError::Plugin {
+    message: format!("spawn_blocking failed: {}", e),
+    plugin_name: self.cached_name.clone(),
+})
+.flatten()

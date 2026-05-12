@@ -1,0 +1,22 @@
+{#- C# visitor method template
+
+   Context variables:
+   - camel_method: visitor method name in camelCase
+   - params: C# parameter list as string
+   - action_type: "skip", "continue", "preserve_html", "custom", or "custom_template"
+   - action_value: custom output or template string (for custom/custom_template)
+#}
+        public VisitResult {{ camel_method }}({{ params }})
+        {
+{% if action_type == "skip" %}
+            return new VisitResult.Skip();
+{% elif action_type == "continue" %}
+            return new VisitResult.Continue();
+{% elif action_type == "preserve_html" %}
+            return new VisitResult.PreserveHtml();
+{% elif action_type == "custom" %}
+            return new VisitResult.Custom("{{ action_value }}");
+{% elif action_type == "custom_template" %}
+            return new VisitResult.Custom($"{{ action_value }}");
+{% endif %}
+        }

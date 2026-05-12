@@ -1,0 +1,2 @@
+{{ result_handling }}
+            {% if needs_ok_wrapper %}Ok({{ ok_expr }}){% else %}{{ return_wrap }}{% endif %}

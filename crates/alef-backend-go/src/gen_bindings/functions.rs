@@ -2,10 +2,9 @@ use super::methods::gen_param_to_c;
 use super::types::{emit_type_doc, go_return_expr};
 use crate::type_map::{go_optional_type, go_type};
 use alef_codegen::naming::{go_param_name, to_go_name};
-use alef_core::ir::{FunctionDef, ParamDef, TypeRef};
+use alef_core::ir::{FunctionDef, MethodDef, ParamDef, TypeRef};
 use heck::ToSnakeCase;
 use std::collections::HashSet;
-use std::fmt::Write;
 
 /// Returns true if any parameter in the list requires JSON marshaling (non-opaque Named, Vec, or Map).
 ///
@@ -44,6 +43,18 @@ pub(super) fn is_bridge_param(
     type_name.is_some_and(|n| bridge_type_aliases.contains(n))
 }
 
+/// Returns true when the function returns `Result<Vec<u8>>` — i.e. has both an
+/// `error_type` and a `TypeRef::Bytes` return.  These functions use the out-param
+/// convention: `(args..., *uint8_t, *uintptr_t, *uintptr_t) -> i32`.
+fn is_bytes_result_func(func: &FunctionDef) -> bool {
+    func.error_type.is_some() && matches!(func.return_type, TypeRef::Bytes)
+}
+
+/// Same check for MethodDef — needed by methods.rs.
+pub(super) fn is_bytes_result_method(method: &MethodDef) -> bool {
+    method.error_type.is_some() && matches!(method.return_type, TypeRef::Bytes)
+}
+
 /// Generate a wrapper function for a free function.
 pub(super) fn gen_function_wrapper(
     func: &FunctionDef,
@@ -58,6 +69,9 @@ pub(super) fn gen_function_wrapper(
 
     emit_type_doc(&mut out, &func_go_name, &func.doc, "calls the FFI function.");
 
+    // Detect Result<Vec<u8>> — uses out-param convention, always returns ([]byte, error).
+    let is_bytes_result = is_bytes_result_func(func);
+
     // A function that marshals parameters to JSON can fail even without a declared error_type.
     // Synthesize an error return in those cases so we never panic on marshal failure.
     // Exclude bridge params — they are not marshalled (they're passed as nil).
@@ -70,7 +84,10 @@ pub(super) fn gen_function_wrapper(
     let marshals_params = params_require_marshal(&non_bridge_params, opaque_names);
     let can_return_error = func.error_type.is_some() || marshals_params;
 
-    let return_type = if can_return_error {
+    let return_type = if is_bytes_result {
+        // Out-param bytes result always returns ([]byte, error)
+        "([]byte, error)".to_string()
+    } else if can_return_error {
         if matches!(func.return_type, TypeRef::Unit) {
             "error".to_string()
         } else {
@@ -84,8 +101,6 @@ pub(super) fn gen_function_wrapper(
 
     let func_snake = func.name.to_snake_case();
     let ffi_name = format!("C.{}_{}", ffi_prefix, func_snake);
-
-    write!(out, "func {}(", func_go_name).ok();
 
     // All optional params (wherever they appear) are represented as pointer types in the Go
     // signature so callers can pass nil to omit them.  This is simpler and more correct than
@@ -111,13 +126,21 @@ pub(super) fn gen_function_wrapper(
         };
         param_strs.push(format!("{} {}", go_param_name(&p.name), param_type));
     }
-    write!(out, "{}", param_strs.join(", ")).ok();
-
-    if return_type.is_empty() {
-        writeln!(out, ") {{").ok();
+    let params_str = param_strs.join(", ");
+    let ret_type_str = if return_type.is_empty() {
+        "".to_string()
     } else {
-        writeln!(out, ") {} {{", return_type).ok();
-    }
+        format!(" {}", return_type)
+    };
+
+    out.push_str(&crate::template_env::render(
+        "function_signature.jinja",
+        minijinja::context! {
+            func_name => func_go_name,
+            params => &params_str,
+            return_type => &ret_type_str,
+        },
+    ));
 
     // Convert parameters
     // Note: can_return_error is set above (includes synthesized error for marshal-requiring params).
@@ -126,18 +149,13 @@ pub(super) fn gen_function_wrapper(
         if is_bridge_param(param, bridge_param_names, bridge_type_aliases) {
             continue;
         }
-        write!(
-            out,
-            "{}",
-            gen_param_to_c(
-                param,
-                returns_value_and_error,
-                can_return_error,
-                ffi_prefix,
-                opaque_names
-            )
-        )
-        .ok();
+        out.push_str(&gen_param_to_c(
+            param,
+            returns_value_and_error,
+            can_return_error,
+            ffi_prefix,
+            opaque_names,
+        ));
     }
 
     // Build the C call with converted parameters.
@@ -146,6 +164,7 @@ pub(super) fn gen_function_wrapper(
     // visitor path via a separate {prefix}_convert_with_visitor function.
     // Non-sanitized bridge params pass nil (no visitor) in the plain Convert().
     // Bytes params expand to two C arguments: the pointer and the length.
+    // For bytes-result functions, three trailing out-params (&outPtr, &outLen, &outCap) are appended.
     let c_params: Vec<String> = func
         .params
         .iter()
@@ -165,43 +184,91 @@ pub(super) fn gen_function_wrapper(
         })
         .collect();
 
-    let c_call = format!("{}({})", ffi_name, c_params.join(", "));
+    // For bytes-result, append the three out-param addresses.
+    let c_call = if is_bytes_result {
+        let mut all_params = c_params.clone();
+        all_params.push("&outPtr".to_string());
+        all_params.push("&outLen".to_string());
+        all_params.push("&outCap".to_string());
+        format!("{}({})", ffi_name, all_params.join(", "))
+    } else {
+        format!("{}({})", ffi_name, c_params.join(", "))
+    };
 
     // Handle result and error.
+    // Result<Vec<u8>> uses the out-param convention: emit bytes_result_call which
+    // declares outPtr/outLen/outCap, calls the FFI with those addresses appended,
+    // checks the i32 return code, copies the bytes, and frees via {prefix}_free_bytes.
+    if is_bytes_result {
+        out.push_str(&crate::template_env::render(
+            "bytes_result_call.jinja",
+            minijinja::context! {
+                c_call => &c_call,
+                ffi_prefix => ffi_prefix,
+            },
+        ));
+        out.push_str(&crate::template_env::render(
+            "function_body_end.jinja",
+            minijinja::Value::default(),
+        ));
+        return out;
+    }
+
     // When can_return_error is true (either from declared error_type or synthesized for
     // marshal-requiring params), emit lastError() checks. For synthesized-error functions
     // that have no declared error_type, the FFI call itself never sets a last error, so
     // lastError() will return nil and the return value flows through normally.
     if can_return_error {
         if matches!(func.return_type, TypeRef::Unit) {
-            writeln!(out, "\t{}", c_call).ok();
+            out.push_str(&crate::template_env::render(
+                "c_call_simple.jinja",
+                minijinja::context! {
+                    c_call => &c_call,
+                },
+            ));
             if func.error_type.is_some() {
-                writeln!(out, "\treturn lastError()").ok();
+                out.push_str("\treturn lastError()\n");
             } else {
-                writeln!(out, "\treturn nil").ok();
+                out.push_str("\treturn nil\n");
             }
         } else {
-            writeln!(out, "\tptr := {}", c_call).ok();
+            out.push_str(&crate::template_env::render(
+                "c_ptr_assign.jinja",
+                minijinja::context! {
+                    c_call => &c_call,
+                },
+            ));
             if func.error_type.is_some() {
-                writeln!(out, "\tif err := lastError(); err != nil {{").ok();
+                out.push_str("\tif err := lastError(); err != nil {\n");
                 // Free the pointer if non-nil even on error, to avoid leaks.
                 // Bytes pointers are NOT freed — they alias internal storage.
                 if matches!(
                     func.return_type,
                     TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json
                 ) {
-                    writeln!(out, "\t\tif ptr != nil {{").ok();
-                    writeln!(out, "\t\t\tC.{}_free_string(ptr)", ffi_prefix).ok();
-                    writeln!(out, "\t\t}}").ok();
+                    out.push_str("\t\tif ptr != nil {\n");
+                    out.push_str(&crate::template_env::render(
+                        "free_string_on_error.jinja",
+                        minijinja::context! {
+                            ffi_prefix => ffi_prefix,
+                        },
+                    ));
+                    out.push_str("\t\t}\n");
                 }
                 if let TypeRef::Named(name) = &func.return_type {
                     let type_snake = name.to_snake_case();
-                    writeln!(out, "\t\tif ptr != nil {{").ok();
-                    writeln!(out, "\t\t\tC.{}_{}_free(ptr)", ffi_prefix, type_snake).ok();
-                    writeln!(out, "\t\t}}").ok();
+                    out.push_str("\t\tif ptr != nil {\n");
+                    out.push_str(&crate::template_env::render(
+                        "free_type_on_error.jinja",
+                        minijinja::context! {
+                            ffi_prefix => ffi_prefix,
+                            type_snake => &type_snake,
+                        },
+                    ));
+                    out.push_str("\t\t}\n");
                 }
-                writeln!(out, "\t\treturn nil, err").ok();
-                writeln!(out, "\t}}").ok();
+                out.push_str("\t\treturn nil, err\n");
+                out.push_str("\t}\n");
             }
             // Free the FFI-allocated string after unmarshaling.
             // Bytes pointers are NOT freed — they alias internal storage owned by
@@ -210,14 +277,27 @@ pub(super) fn gen_function_wrapper(
                 func.return_type,
                 TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json
             ) {
-                writeln!(out, "\tdefer C.{}_free_string(ptr)", ffi_prefix).ok();
+                out.push_str(&crate::template_env::render(
+                    "free_string.jinja",
+                    minijinja::context! {
+                        ffi_prefix => ffi_prefix,
+                        ptr => "ptr",
+                    },
+                ));
             }
             // For non-opaque Named types, free the handle after JSON extraction.
             // Opaque types are NOT freed here — the caller owns them via the Go wrapper.
             if let TypeRef::Named(name) = &func.return_type {
                 if !opaque_names.contains(name.as_str()) {
                     let type_snake = name.to_snake_case();
-                    writeln!(out, "\tdefer C.{}_{}_free(ptr)", ffi_prefix, type_snake).ok();
+                    out.push_str(&crate::template_env::render(
+                        "free_type.jinja",
+                        minijinja::context! {
+                            ffi_prefix => ffi_prefix,
+                            type_snake => &type_snake,
+                            ptr => "ptr",
+                        },
+                    ));
                 }
             }
 
@@ -227,92 +307,149 @@ pub(super) fn gen_function_wrapper(
                 if let TypeRef::Named(name) = &func.return_type {
                     if !opaque_names.contains(name.as_str()) {
                         let type_snake = name.to_snake_case();
-                        writeln!(out, "\tjsonPtr := C.{}_{}_to_json(ptr)", ffi_prefix, type_snake).ok();
-                        writeln!(out, "\tif jsonPtr == nil {{").ok();
-                        writeln!(out, "\t\treturn nil, fmt.Errorf(\"failed to convert to JSON\")").ok();
-                        writeln!(out, "\t}}").ok();
-                        writeln!(out, "\tdefer C.{}_free_string(jsonPtr)", ffi_prefix).ok();
-                        writeln!(out, "\tvar result {}", name).ok();
-                        writeln!(
-                            out,
-                            "\tif err := json.Unmarshal([]byte(C.GoString(jsonPtr)), &result); err != nil {{"
-                        )
-                        .ok();
-                        writeln!(out, "\t\treturn nil, fmt.Errorf(\"failed to unmarshal: %w\", err)").ok();
-                        writeln!(out, "\t}}").ok();
-                        writeln!(out, "\treturn &result, nil").ok();
+                        out.push_str(&crate::template_env::render(
+                            "c_json_to_json.jinja",
+                            minijinja::context! {
+                                ffi_prefix => ffi_prefix,
+                                type_snake => &type_snake,
+                            },
+                        ));
+                        out.push_str("\tif jsonPtr == nil {\n");
+                        out.push_str("\t\treturn nil, fmt.Errorf(\"failed to convert to JSON\")\n");
+                        out.push_str("\t}\n");
+                        out.push_str(&crate::template_env::render(
+                            "free_string.jinja",
+                            minijinja::context! {
+                                ffi_prefix => ffi_prefix,
+                                ptr => "jsonPtr",
+                            },
+                        ));
+                        out.push_str(&crate::template_env::render(
+                            "var_decl_type.jinja",
+                            minijinja::context! {
+                                type_name => name.as_str(),
+                            },
+                        ));
+                        out.push_str(
+                            "\tif err := json.Unmarshal([]byte(C.GoString(jsonPtr)), &result); err != nil {\n",
+                        );
+                        out.push_str("\t\treturn nil, fmt.Errorf(\"failed to unmarshal: %w\", err)\n");
+                        out.push_str("\t}\n");
+                        out.push_str("\treturn &result, nil\n");
                     } else {
-                        writeln!(
-                            out,
-                            "\treturn {}, nil",
-                            go_return_expr(&func.return_type, "ptr", ffi_prefix, opaque_names)
-                        )
-                        .ok();
+                        let return_expr = go_return_expr(&func.return_type, "ptr", ffi_prefix, opaque_names);
+                        out.push_str(&crate::template_env::render(
+                            "method_return_simple.jinja",
+                            minijinja::context! {
+                                value => format!("{}, nil", return_expr),
+                            },
+                        ));
                     }
                 } else if matches!(func.return_type, TypeRef::Vec(_)) {
                     // Handle Vec types with error propagation
                     if let TypeRef::Vec(inner) = &func.return_type {
                         let go_elem = go_type(inner);
-                        writeln!(out, "\tif ptr == nil {{").ok();
-                        writeln!(out, "\t\treturn nil, fmt.Errorf(\"failed to get result\")").ok();
-                        writeln!(out, "\t}}").ok();
-                        writeln!(out, "\tdefer C.{}_free_string(ptr)", ffi_prefix).ok();
-                        writeln!(out, "\tvar result []{}", go_elem).ok();
-                        writeln!(
-                            out,
-                            "\tif err := json.Unmarshal([]byte(C.GoString(ptr)), &result); err != nil {{"
-                        )
-                        .ok();
-                        writeln!(out, "\t\treturn nil, fmt.Errorf(\"failed to unmarshal: %w\", err)").ok();
-                        writeln!(out, "\t}}").ok();
-                        writeln!(out, "\treturn result, nil").ok();
+                        out.push_str("\tif ptr == nil {\n");
+                        out.push_str("\t\treturn nil, fmt.Errorf(\"failed to get result\")\n");
+                        out.push_str("\t}\n");
+                        out.push_str(&crate::template_env::render(
+                            "free_string.jinja",
+                            minijinja::context! {
+                                ffi_prefix => ffi_prefix,
+                                ptr => "ptr",
+                            },
+                        ));
+                        out.push_str(&crate::template_env::render(
+                            "var_decl_slice.jinja",
+                            minijinja::context! {
+                                element_type => &go_elem,
+                            },
+                        ));
+                        out.push_str("\tif err := json.Unmarshal([]byte(C.GoString(ptr)), &result); err != nil {\n");
+                        out.push_str("\t\treturn nil, fmt.Errorf(\"failed to unmarshal: %w\", err)\n");
+                        out.push_str("\t}\n");
+                        out.push_str(&crate::template_env::render(
+                            "method_return_simple.jinja",
+                            minijinja::context! {
+                                value => "result, nil",
+                            },
+                        ));
                     }
                 } else {
-                    writeln!(
-                        out,
-                        "\treturn {}, nil",
-                        go_return_expr(&func.return_type, "ptr", ffi_prefix, opaque_names)
-                    )
-                    .ok();
+                    let return_expr = go_return_expr(&func.return_type, "ptr", ffi_prefix, opaque_names);
+                    out.push_str(&crate::template_env::render(
+                        "method_return_simple.jinja",
+                        minijinja::context! {
+                            value => format!("{}, nil", return_expr),
+                        },
+                    ));
                 }
             } else {
-                writeln!(
-                    out,
-                    "\treturn {}",
-                    go_return_expr(&func.return_type, "ptr", ffi_prefix, opaque_names)
-                )
-                .ok();
+                let return_expr = go_return_expr(&func.return_type, "ptr", ffi_prefix, opaque_names);
+                out.push_str(&crate::template_env::render(
+                    "method_return_simple.jinja",
+                    minijinja::context! {
+                        value => return_expr,
+                    },
+                ));
             }
         }
     } else if matches!(func.return_type, TypeRef::Unit) {
-        writeln!(out, "\t{}", c_call).ok();
+        out.push_str(&crate::template_env::render(
+            "c_call_simple.jinja",
+            minijinja::context! {
+                c_call => &c_call,
+            },
+        ));
     } else {
-        writeln!(out, "\tptr := {}", c_call).ok();
+        out.push_str(&crate::template_env::render(
+            "c_ptr_assign.jinja",
+            minijinja::context! {
+                c_call => &c_call,
+            },
+        ));
         // Add defer free for C string returns.
         // Bytes pointers are NOT freed — they alias internal storage.
         if matches!(
             func.return_type,
             TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json
         ) {
-            writeln!(out, "\tdefer C.{}_free_string(ptr)", ffi_prefix).ok();
+            out.push_str(&crate::template_env::render(
+                "free_string.jinja",
+                minijinja::context! {
+                    ffi_prefix => ffi_prefix,
+                    ptr => "ptr",
+                },
+            ));
         }
         // For non-opaque Named types, free the handle after JSON extraction.
         // Opaque types are NOT freed here — the caller owns them via the Go wrapper.
         if let TypeRef::Named(name) = &func.return_type {
             if !opaque_names.contains(name.as_str()) {
                 let type_snake = name.to_snake_case();
-                writeln!(out, "\tdefer C.{}_{}_free(ptr)", ffi_prefix, type_snake).ok();
+                out.push_str(&crate::template_env::render(
+                    "free_type.jinja",
+                    minijinja::context! {
+                        ffi_prefix => ffi_prefix,
+                        type_snake => &type_snake,
+                        ptr => "ptr",
+                    },
+                ));
             }
         }
-        writeln!(
-            out,
-            "\treturn {}",
-            go_return_expr(&func.return_type, "ptr", ffi_prefix, opaque_names)
-        )
-        .ok();
+        let return_expr = go_return_expr(&func.return_type, "ptr", ffi_prefix, opaque_names);
+        out.push_str(&crate::template_env::render(
+            "method_return_simple.jinja",
+            minijinja::context! {
+                value => return_expr,
+            },
+        ));
     }
 
-    writeln!(out, "}}").ok();
+    out.push_str(&crate::template_env::render(
+        "function_body_end.jinja",
+        minijinja::Value::default(),
+    ));
     out
 }
 
@@ -333,7 +470,6 @@ pub(super) fn gen_convert_with_visitor_wrapper(
     // Find the html and options parameters.
     let options_param = func.params.iter().find(|p| p.name == "options");
 
-    write!(out, "func {}(", func_go_name).ok();
     let mut param_strs: Vec<String> = Vec::new();
     for p in &func.params {
         let param_type = if p.optional {
@@ -349,88 +485,114 @@ pub(super) fn gen_convert_with_visitor_wrapper(
         };
         param_strs.push(format!("{} {}", go_param_name(&p.name), param_type));
     }
-    write!(out, "{}", param_strs.join(", ")).ok();
+    let params_str = param_strs.join(", ");
 
     // Return type is (*ConversionResult, error) for convert
-    writeln!(out, ") (*ConversionResult, error) {{").ok();
+    out.push_str(&crate::template_env::render(
+        "function_signature.jinja",
+        minijinja::context! {
+            func_name => func_go_name,
+            params => &params_str,
+            return_type => " (*ConversionResult, error)",
+        },
+    ));
 
     // Check if options.Visitor is set and delegate to helper
     if options_param.is_some() {
-        writeln!(out, "\tif options != nil && options.Visitor != nil {{").ok();
-        writeln!(
-            out,
-            "\t\treturn convertWithVisitorHelper(html, options, options.Visitor)"
-        )
-        .ok();
-        writeln!(out, "\t}}").ok();
-        writeln!(out).ok();
+        out.push_str("\tif options != nil && options.Visitor != nil {\n");
+        out.push_str("\t\treturn convertWithVisitorHelper(html, options, options.Visitor)\n");
+        out.push_str("\t}\n");
+        out.push('\n');
     }
 
     // Otherwise, call the FFI convert directly (no visitor).
     let func_snake = func.name.to_snake_case();
     let ffi_name = format!("C.{}_{}", ffi_prefix, func_snake);
 
-    writeln!(out, "\tcHTML := C.CString(html)").ok();
-    writeln!(out, "\tdefer C.free(unsafe.Pointer(cHTML))").ok();
-    writeln!(out).ok();
+    out.push_str("\tcHTML := C.CString(html)\n");
+    out.push_str("\tdefer C.free(unsafe.Pointer(cHTML))\n");
+    out.push('\n');
 
     // Handle options parameter.
     if options_param.is_some() {
-        writeln!(out, "\tvar cOptions *C.HTMConversionOptions").ok();
-        writeln!(out, "\tif options != nil {{").ok();
-        writeln!(out, "\t\tjsonBytes, err := json.Marshal(options)").ok();
-        writeln!(out, "\t\tif err != nil {{").ok();
-        writeln!(
-            out,
-            "\t\t\treturn nil, fmt.Errorf(\"failed to marshal options: %w\", err)"
-        )
-        .ok();
-        writeln!(out, "\t\t}}").ok();
-        writeln!(out, "\t\ttmpStr := C.CString(string(jsonBytes))").ok();
-        writeln!(
-            out,
-            "\t\tcOptions = C.{}_conversion_options_from_json(tmpStr)",
-            ffi_prefix
-        )
-        .ok();
-        writeln!(out, "\t\tC.free(unsafe.Pointer(tmpStr))").ok();
-        writeln!(out, "\t\tdefer C.{}_conversion_options_free(cOptions)", ffi_prefix).ok();
-        writeln!(out, "\t}}").ok();
-        writeln!(out).ok();
+        out.push_str("\tvar cOptions *C.HTMConversionOptions\n");
+        out.push_str("\tif options != nil {\n");
+        out.push_str("\t\tjsonBytes, err := json.Marshal(options)\n");
+        out.push_str("\t\tif err != nil {\n");
+        out.push_str("\t\t\treturn nil, fmt.Errorf(\"failed to marshal options: %w\", err)\n");
+        out.push_str("\t\t}\n");
+        out.push_str("\t\ttmpStr := C.CString(string(jsonBytes))\n");
+        out.push_str(&crate::template_env::render(
+            "c_options_from_json_with_name.jinja",
+            minijinja::context! {
+                ffi_prefix => ffi_prefix,
+            },
+        ));
+        out.push_str("\t\tC.free(unsafe.Pointer(tmpStr))\n");
+        out.push_str(&crate::template_env::render(
+            "c_options_defer_free_with_name.jinja",
+            minijinja::context! {
+                ffi_prefix => ffi_prefix,
+            },
+        ));
+        out.push_str("\t}\n");
+        out.push('\n');
 
-        writeln!(out, "\tptr := {}(cHTML, cOptions)", ffi_name).ok();
+        out.push_str(&crate::template_env::render(
+            "c_ptr_assign_func.jinja",
+            minijinja::context! {
+                ffi_name => &ffi_name,
+                options_var => "cOptions",
+            },
+        ));
     } else {
-        writeln!(out, "\tptr := {}(cHTML, nil)", ffi_name).ok();
+        out.push_str(&crate::template_env::render(
+            "c_ptr_assign_func.jinja",
+            minijinja::context! {
+                ffi_name => &ffi_name,
+                options_var => "nil",
+            },
+        ));
     }
 
-    writeln!(out, "\tif ptr == nil {{").ok();
-    writeln!(out, "\t\tif err := lastError(); err != nil {{").ok();
-    writeln!(out, "\t\t\treturn nil, err").ok();
-    writeln!(out, "\t\t}}").ok();
-    writeln!(out, "\t\treturn nil, fmt.Errorf(\"conversion returned nil\")").ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "\tdefer C.{}_conversion_result_free(ptr)", ffi_prefix).ok();
-    writeln!(out).ok();
+    out.push_str("\tif ptr == nil {\n");
+    out.push_str("\t\tif err := lastError(); err != nil {\n");
+    out.push_str("\t\t\treturn nil, err\n");
+    out.push_str("\t\t}\n");
+    out.push_str("\t\treturn nil, fmt.Errorf(\"conversion returned nil\")\n");
+    out.push_str("\t}\n");
+    out.push_str(&crate::template_env::render(
+        "c_conversion_result_free.jinja",
+        minijinja::context! {
+            ffi_prefix => ffi_prefix,
+        },
+    ));
+    out.push('\n');
 
-    writeln!(out, "\tjsonPtr := C.{}_conversion_result_to_json(ptr)", ffi_prefix).ok();
-    writeln!(out, "\tif jsonPtr == nil {{").ok();
-    writeln!(out, "\t\treturn nil, fmt.Errorf(\"failed to convert result to JSON\")").ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "\tdefer C.{}_free_string(jsonPtr)", ffi_prefix).ok();
-    writeln!(out, "\tvar result ConversionResult").ok();
-    writeln!(
-        out,
-        "\tif err := json.Unmarshal([]byte(C.GoString(jsonPtr)), &result); err != nil {{"
-    )
-    .ok();
-    writeln!(
-        out,
-        "\t\treturn nil, fmt.Errorf(\"failed to unmarshal result: %w\", err)"
-    )
-    .ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "\treturn &result, nil").ok();
-    writeln!(out, "}}").ok();
+    out.push_str(&crate::template_env::render(
+        "c_conversion_result_to_json.jinja",
+        minijinja::context! {
+            ffi_prefix => ffi_prefix,
+        },
+    ));
+    out.push_str("\tif jsonPtr == nil {\n");
+    out.push_str("\t\treturn nil, fmt.Errorf(\"failed to convert result to JSON\")\n");
+    out.push_str("\t}\n");
+    out.push_str(&crate::template_env::render(
+        "c_free_string_defer.jinja",
+        minijinja::context! {
+            ffi_prefix => ffi_prefix,
+        },
+    ));
+    out.push_str("\tvar result ConversionResult\n");
+    out.push_str("\tif err := json.Unmarshal([]byte(C.GoString(jsonPtr)), &result); err != nil {\n");
+    out.push_str("\t\treturn nil, fmt.Errorf(\"failed to unmarshal result: %w\", err)\n");
+    out.push_str("\t}\n");
+    out.push_str("\treturn &result, nil\n");
+    out.push_str(&crate::template_env::render(
+        "function_body_end.jinja",
+        minijinja::Value::default(),
+    ));
 
     out
 }
@@ -485,5 +647,133 @@ mod tests {
         )];
         let opaque: std::collections::HashSet<&str> = std::collections::HashSet::new();
         assert!(params_require_marshal(&params, &opaque));
+    }
+
+    fn make_bytes_result_func(name: &str, with_bytes_param: bool) -> FunctionDef {
+        let params = if with_bytes_param {
+            vec![ParamDef {
+                name: "data".to_string(),
+                ty: TypeRef::Bytes,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            }]
+        } else {
+            vec![]
+        };
+        FunctionDef {
+            name: name.to_string(),
+            rust_path: String::new(),
+            original_rust_path: String::new(),
+            params,
+            return_type: TypeRef::Bytes,
+            is_async: false,
+            error_type: Some("KreuzbergError".to_string()),
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+        }
+    }
+
+    fn make_bytes_result_method(name: &str) -> MethodDef {
+        MethodDef {
+            name: name.to_string(),
+            doc: String::new(),
+            params: vec![ParamDef {
+                name: "data".to_string(),
+                ty: TypeRef::Bytes,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            }],
+            return_type: TypeRef::Bytes,
+            is_static: false,
+            is_async: false,
+            error_type: Some("KreuzbergError".to_string()),
+            receiver: None,
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+        }
+    }
+
+    #[test]
+    fn test_is_bytes_result_func_detects_bytes_with_error() {
+        let func = make_bytes_result_func("process_image", true);
+        assert!(is_bytes_result_func(&func));
+    }
+
+    #[test]
+    fn test_is_bytes_result_func_false_for_bytes_without_error() {
+        let mut func = make_bytes_result_func("get_data", false);
+        func.error_type = None;
+        assert!(!is_bytes_result_func(&func));
+    }
+
+    #[test]
+    fn test_is_bytes_result_func_false_for_string_with_error() {
+        let func = FunctionDef {
+            name: "get_text".to_string(),
+            rust_path: String::new(),
+            original_rust_path: String::new(),
+            params: vec![],
+            return_type: TypeRef::String,
+            is_async: false,
+            error_type: Some("KreuzbergError".to_string()),
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+        };
+        assert!(!is_bytes_result_func(&func));
+    }
+
+    #[test]
+    fn test_is_bytes_result_method_detects_correctly() {
+        let method = make_bytes_result_method("render_page");
+        assert!(is_bytes_result_method(&method));
+    }
+
+    #[test]
+    fn test_gen_function_wrapper_bytes_result_emits_out_params() {
+        let func = make_bytes_result_func("process_image", true);
+        let opaque: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        let bridge_names: HashSet<String> = HashSet::new();
+        let bridge_aliases: HashSet<String> = HashSet::new();
+        let out = gen_function_wrapper(&func, "krz", &opaque, &bridge_names, &bridge_aliases);
+        // Return type must be ([]byte, error)
+        assert!(out.contains("([]byte, error)"), "missing bytes return type in:\n{out}");
+        // Must declare out-param variables (outLen and outCap are declared together)
+        assert!(out.contains("var outPtr"), "missing outPtr in:\n{out}");
+        assert!(out.contains("outLen"), "missing outLen in:\n{out}");
+        assert!(out.contains("outCap"), "missing outCap in:\n{out}");
+        // Must pass out-params to C call
+        assert!(out.contains("&outPtr"), "missing &outPtr in:\n{out}");
+        assert!(out.contains("&outLen"), "missing &outLen in:\n{out}");
+        assert!(out.contains("&outCap"), "missing &outCap in:\n{out}");
+        // Must copy bytes via C.GoBytes
+        assert!(out.contains("C.GoBytes"), "missing C.GoBytes in:\n{out}");
+        // Must free via krz_free_bytes
+        assert!(out.contains("krz_free_bytes"), "missing krz_free_bytes in:\n{out}");
     }
 }

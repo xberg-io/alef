@@ -93,6 +93,14 @@ pub struct RustBindingConfig<'a> {
     /// When `gen_lossy_binding_to_core_fields` encounters a field whose `TypeRef::Named` type
     /// is in this slice, it emits `Default::default()` instead of `.clone().into()`.
     pub lossy_skip_types: &'a [String],
+    /// Subset of `opaque_type_names` whose binding wrappers DO implement
+    /// `serde::Serialize`/`Deserialize` (e.g. data-enum wrappers via `gen_pyo3_data_enum`,
+    /// which emit forwarding impls delegating to the core type). Fields whose type
+    /// references a name in this slice will NOT receive `#[serde(skip)]`, even when
+    /// the name is also in `opaque_type_names`. Required so `from_json`/`to_json`
+    /// round-trips on parent structs (e.g. `ChatCompletionRequest.messages: Vec<Message>`)
+    /// don't silently drop the field to `Default::default()`.
+    pub serializable_opaque_type_names: &'a [String],
 }
 
 /// Method names that conflict with standard trait methods.

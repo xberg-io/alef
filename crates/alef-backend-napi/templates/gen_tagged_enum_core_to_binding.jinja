@@ -1,0 +1,15 @@
+impl From<{{ core_path }}> for {{ binding_name }} {
+    fn from(val: {{ core_path }}) -> Self {
+        match val {
+{%- for variant in variants %}
+    {%- if variant.is_empty %}
+            {{ core_path }}::{{ variant.name }} => Self { {{ tag_field }}_tag: "{{ variant.tag_value }}".to_string(), {{ variant.all_fields_none | join(", ") }} },
+    {%- elif variant.is_tuple %}
+            {{ core_path }}::{{ variant.name }}({{ variant.destructured | join(", ") }}) => Self { {{ tag_field }}_tag: "{{ variant.tag_value }}".to_string(), {{ variant.field_inits | join(", ") }} },
+    {%- else %}
+            {{ core_path }}::{{ variant.name }} { {{ variant.destructured | join(", ") }} } => Self { {{ tag_field }}_tag: "{{ variant.tag_value }}".to_string(), {{ variant.field_inits | join(", ") }} },
+    {%- endif %}
+{%- endfor %}
+        }
+    }
+}

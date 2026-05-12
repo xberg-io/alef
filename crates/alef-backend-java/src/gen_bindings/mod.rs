@@ -2,7 +2,7 @@ use ahash::AHashSet;
 use alef_codegen::naming::to_class_name;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{BridgeBinding, Language, ResolvedCrateConfig};
-use alef_core::ir::ApiSurface;
+use alef_core::ir::{ApiSurface, TypeRef};
 use std::collections::HashSet;
 use std::path::PathBuf;
 
@@ -18,7 +18,7 @@ use facade::gen_facade_class;
 use ffi_class::gen_main_class;
 use helpers::{gen_exception_class, gen_infrastructure_exception_class};
 use native_lib::gen_native_lib;
-use types::{gen_builder_class, gen_enum_class, gen_opaque_handle_class, gen_record_type};
+use types::{gen_builder_class, gen_byte_array_serializer, gen_enum_class, gen_opaque_handle_class, gen_record_type};
 
 pub struct JavaBackend;
 
@@ -170,13 +170,23 @@ impl Backend for JavaBackend {
             });
         }
 
-        // Collect complex enums (enums with data variants and no serde tag) — use Object for these fields.
-        // Tagged unions (serde_tag is set) are now generated as proper sealed interfaces
-        // and can be deserialized as their concrete types, so they are NOT complex_enums.
-        let complex_enums: AHashSet<String> = api
+        // Untagged unions with data variants now emit as JsonNode-wrapper classes
+        // (see gen_java_untagged_wrapper). The set is intentionally empty so that
+        // record fields keep their wrapper type instead of being downcast to Object.
+        let complex_enums: AHashSet<String> = AHashSet::new();
+
+        // Collect sealed union types with unwrapped/tuple variants that need custom deserializers.
+        // When a record field references one of these types, we need to add a @JsonDeserialize
+        // annotation to the field so Jackson uses the custom deserializer.
+        let sealed_unions_with_unwrapped: AHashSet<String> = api
             .enums
             .iter()
-            .filter(|e| e.serde_tag.is_none() && e.variants.iter().any(|v| !v.fields.is_empty()))
+            .filter(|e| {
+                e.serde_tag.is_some()
+                    && e.variants
+                        .iter()
+                        .any(|v| v.fields.len() == 1 && helpers::is_tuple_field_name(&v.fields[0].name))
+            })
             .map(|e| e.name.clone())
             .collect();
 
@@ -197,7 +207,15 @@ impl Backend for JavaBackend {
                 }
                 files.push(GeneratedFile {
                     path: base_path.join(format!("{}.java", typ.name)),
-                    content: gen_record_type(&package, typ, &complex_enums, &lang_rename_all, has_visitor_pattern),
+                    content: gen_record_type(
+                        &package,
+                        typ,
+                        &complex_enums,
+                        &sealed_unions_with_unwrapped,
+                        &lang_rename_all,
+                        has_visitor_pattern,
+                        &main_class,
+                    ),
                     generated_header: true,
                 });
                 // Generate builder class for types with defaults
@@ -209,6 +227,21 @@ impl Backend for JavaBackend {
                     });
                 }
             }
+        }
+
+        // 4a. Utility serializer for byte[] → JSON int-array (needed when any record
+        // has a non-optional Bytes field). Jackson's default byte[] serialiser emits
+        // base64, which Rust's serde Vec<u8> cannot accept. Emit the class once.
+        let needs_bytes_serializer = api
+            .types
+            .iter()
+            .any(|t| !t.is_opaque && t.fields.iter().any(|f| !f.optional && matches!(f.ty, TypeRef::Bytes)));
+        if needs_bytes_serializer {
+            files.push(GeneratedFile {
+                path: base_path.join("ByteArrayToIntArraySerializer.java"),
+                content: gen_byte_array_serializer(&package),
+                generated_header: true,
+            });
         }
 
         // Collect builder class names generated from record types with defaults,
@@ -225,7 +258,7 @@ impl Backend for JavaBackend {
             if typ.is_opaque && !builder_class_names.contains(&typ.name) {
                 files.push(GeneratedFile {
                     path: base_path.join(format!("{}.java", typ.name)),
-                    content: gen_opaque_handle_class(&package, typ, &prefix),
+                    content: gen_opaque_handle_class(&package, typ, &prefix, &config.adapters, &main_class),
                     generated_header: true,
                 });
             }
@@ -239,7 +272,7 @@ impl Backend for JavaBackend {
             }
             files.push(GeneratedFile {
                 path: base_path.join(format!("{}.java", enum_def.name)),
-                content: gen_enum_class(&package, enum_def),
+                content: gen_enum_class(&package, enum_def, &main_class),
                 generated_header: true,
             });
         }
@@ -269,6 +302,17 @@ impl Backend for JavaBackend {
         // 8. Trait bridge plugin registration files
         // Emits two files per trait: I{Trait}.java (managed interface) and
         // {Trait}Bridge.java (Panama upcall stubs + register/unregister helpers).
+        //
+        // Set of struct + enum names that get a generated companion Java class.
+        // Trait method signatures referencing types outside this set (e.g. excluded
+        // internal types like `InternalDocument`) are JSON-bridged as Strings.
+        let visible_type_names: HashSet<&str> = api
+            .types
+            .iter()
+            .filter(|t| !t.is_trait)
+            .map(|t| t.name.as_str())
+            .chain(api.enums.iter().map(|e| e.name.as_str()))
+            .collect();
         for bridge_cfg in &config.trait_bridges {
             if bridge_cfg.exclude_languages.contains(&Language::Java.to_string()) {
                 continue;
@@ -287,7 +331,15 @@ impl Backend for JavaBackend {
                 let trait_bridge::BridgeFiles {
                     interface_content,
                     bridge_content,
-                } = trait_bridge::gen_trait_bridge_files(trait_def, &prefix, &package, has_super_trait);
+                } = trait_bridge::gen_trait_bridge_files(
+                    trait_def,
+                    &prefix,
+                    &package,
+                    has_super_trait,
+                    bridge_cfg.unregister_fn.as_deref(),
+                    bridge_cfg.clear_fn.as_deref(),
+                    &visible_type_names,
+                );
 
                 files.push(GeneratedFile {
                     path: base_path.join(format!("I{}.java", trait_def.name)),

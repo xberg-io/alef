@@ -83,6 +83,8 @@ pub(crate) fn make_field(name: &str, ty: TypeRef, optional: bool, typed_default:
         core_wrapper: CoreWrapper::None,
         vec_inner_core_wrapper: CoreWrapper::None,
         newtype_wrapper: None,
+        serde_rename: None,
+        serde_flatten: false,
     }
 }
 
@@ -94,6 +96,7 @@ pub(crate) fn empty_api() -> ApiSurface {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     }
 }
 
@@ -120,5 +123,6 @@ pub(crate) fn make_minimal_api(version: &str) -> ApiSurface {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     }
 }

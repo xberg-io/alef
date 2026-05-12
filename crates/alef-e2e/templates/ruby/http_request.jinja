@@ -1,0 +1,24 @@
+{#- Ruby HTTP request rendering
+
+   Context variables:
+   - method_class: HTTP method as Ruby class name (Get, Post, etc.)
+   - path: request path
+   - has_body: boolean indicating if request has body
+   - ruby_body: request body as Ruby literal (if has_body is true)
+   - headers: list of objects with 'key_literal' and 'value_literal'
+#}
+      require 'net/http'
+      require 'uri'
+      require 'json'
+      _uri = URI.parse("#{mock_server_url}{{ path }}")
+      _http = Net::HTTP.new(_uri.host, _uri.port)
+      _http.use_ssl = _uri.scheme == 'https'
+      _req = Net::HTTP::{{ method_class }}.new(_uri.request_uri)
+{%- if has_body %}
+      _req.body = {{ ruby_body }}.to_json
+      _req['Content-Type'] = 'application/json'
+{%- endif %}
+{%- for header in headers %}
+      _req[{{ header.key_literal }}] = {{ header.value_literal }}
+{%- endfor %}
+      {{ response_var }} = _http.request(_req)

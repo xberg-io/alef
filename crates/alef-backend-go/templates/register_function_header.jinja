@@ -1,0 +1,3 @@
+// Register{{ name }} registers a {{ name }} implementation with the C runtime.
+func Register{{ name }}(impl {{ name }}) error {
+	handle := cgo.NewHandle(impl)

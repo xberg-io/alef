@@ -1,0 +1,5 @@
+let {{ name }}_core: Option<Vec<_>> = {{ name }}.map(|strs| strs.into_iter()
+    .filter_map(|s| serde_json::from_str(&s).ok())
+    .collect()
+    );
+    {{ "" -}}

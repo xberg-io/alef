@@ -1,7 +1,5 @@
 //! Internal string-generation helpers for the Java visitor bridge.
 
-use std::fmt::Write;
-
 use super::callbacks::CallbackSpec;
 
 /// Generate camelCase stub variable name: stub + capitalize(java_method).
@@ -100,7 +98,6 @@ pub(super) fn layout_to_java_class(layout: &str) -> &'static str {
 
 /// Generate one `handle_*` instance method inside `VisitorBridge`.
 pub(super) fn gen_handle_method(out: &mut String, spec: &CallbackSpec) {
-    // Build method signature matching the MethodType passed to upcallStub.
     let mut params = vec![
         "final MemorySegment ctx".to_string(),
         "final MemorySegment userData".to_string(),
@@ -123,37 +120,22 @@ pub(super) fn gen_handle_method(out: &mut String, spec: &CallbackSpec) {
 
     let method_name = handle_method_name(spec.java_method);
     let single_line = format!("    int {}({}) {{", method_name, params.join(", "));
-    if single_line.len() <= 80 {
-        writeln!(out, "{}", single_line).ok();
-    } else {
-        let indent = "            ";
-        writeln!(
-            out,
-            "    int {}(\n{}{}) {{",
-            method_name,
-            indent,
-            params.join(&format!(",\n{indent}"))
-        )
-        .ok();
-    }
-    writeln!(out, "        try {{").ok();
-    writeln!(out, "            var context = decodeNodeContext(ctx);").ok();
+    let single_line_fits = single_line.len() <= 80;
 
-    // Decode each extra param
-    for ep in spec.extra {
-        let mut decode = ep.decode.to_string();
-        for (c_idx, _) in ep.c_layouts.iter().enumerate() {
-            let placeholder = format!("raw_{}_{}", ep.java_name, c_idx);
-            let var = raw_var_name(ep.java_name, c_idx);
-            decode = decode.replace(&placeholder, &var);
-        }
-        writeln!(out, "            var {} = {};", ep.java_name, decode).ok();
-    }
-    if spec.has_is_header {
-        writeln!(out, "            var goIsHeader = isHeader != 0;").ok();
-    }
+    let decode_lines: Vec<String> = spec
+        .extra
+        .iter()
+        .map(|ep| {
+            let mut decode = ep.decode.to_string();
+            for (c_idx, _) in ep.c_layouts.iter().enumerate() {
+                let placeholder = format!("raw_{}_{}", ep.java_name, c_idx);
+                let var = raw_var_name(ep.java_name, c_idx);
+                decode = decode.replace(&placeholder, &var);
+            }
+            format!("var {} = {};", ep.java_name, decode)
+        })
+        .collect();
 
-    // Build call args
     let mut call_args = vec!["context".to_string()];
     for ep in spec.extra {
         call_args.push(ep.java_name.to_string());
@@ -162,27 +144,19 @@ pub(super) fn gen_handle_method(out: &mut String, spec: &CallbackSpec) {
         call_args.push("goIsHeader".to_string());
     }
 
-    writeln!(
-        out,
-        "            var result = visitor.{}({});",
-        spec.java_method,
-        call_args.join(", ")
-    )
-    .ok();
-    writeln!(out, "            return encodeVisitResult(result, outCustom, outLen);").ok();
-    writeln!(out, "        }} catch (Throwable t) {{").ok();
-    writeln!(
-        out,
-        "            // Record the first visitor exception; subsequent errors are suppressed."
-    )
-    .ok();
-    writeln!(out, "            if (visitorError == null) {{").ok();
-    writeln!(out, "                visitorError = t;").ok();
-    writeln!(out, "            }}").ok();
-    writeln!(out, "            return VISIT_RESULT_ERROR;").ok();
-    writeln!(out, "        }}").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out).ok();
+    out.push_str(&crate::template_env::render(
+        "handle_method.jinja",
+        minijinja::context! {
+            single_line_fits => single_line_fits,
+            method_name => &method_name,
+            params => &params,
+            decode_lines => &decode_lines,
+            has_is_header => spec.has_is_header,
+            java_method => spec.java_method,
+            call_args => &call_args,
+        },
+    ));
+    out.push('\n');
 }
 
 pub(super) fn raw_var_name(java_name: &str, c_idx: usize) -> String {

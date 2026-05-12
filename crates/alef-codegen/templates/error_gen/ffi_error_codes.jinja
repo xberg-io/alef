@@ -1,0 +1,10 @@
+/// Error codes for `{{ error_name }}`.
+typedef enum {
+    {{ prefix }}_NONE = 0,
+{%- for variant_screaming, index in variant_variants %}
+    {{ prefix }}_{{ variant_screaming }} = {{ index }},
+{%- endfor %}
+} {{ prefix_lower }}_t;
+
+/// Return a static string describing the error code.
+const char* {{ prefix_lower }}_error_message({{ prefix_lower }}_t code);

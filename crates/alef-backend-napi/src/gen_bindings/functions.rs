@@ -207,10 +207,17 @@ pub(super) fn gen_function(
     } else {
         format!("{}{}", default_coerce_prefix, body)
     };
-    format!(
-        "{attrs}#[napi{js_name_attr}]\npub {async_kw}fn {}({params}) -> {return_annotation} {{\n    \
-         {body}\n}}",
-        func.name
+    crate::template_env::render(
+        "function_wrapper.jinja",
+        minijinja::context! {
+            attrs => attrs,
+            js_name_attr => js_name_attr,
+            async_kw => async_kw,
+            func_name => &func.name,
+            params => params,
+            return_annotation => return_annotation,
+            body => body,
+        },
     )
 }
 
@@ -266,9 +273,12 @@ pub(super) fn gen_vec_f32_conversion_bindings(params: &[ParamDef]) -> String {
     for p in params {
         if needs_vec_f32_conversion(&p.ty) && p.is_ref {
             let conv_name = format!("{}_f32", p.name);
-            bindings.push_str(&format!(
-                "    let {conv_name}: Vec<f32> = {}.iter().map(|&x| x as f32).collect();\n",
-                p.name
+            bindings.push_str(&crate::template_env::render(
+                "vec_f32_conversion_binding.jinja",
+                minijinja::context! {
+                    conv_name => conv_name,
+                    param_name => &p.name,
+                },
             ));
         }
     }
@@ -282,7 +292,12 @@ pub(super) fn gen_napi_buffer_conversion_bindings(params: &[ParamDef]) -> String
     for p in params {
         if is_bytes_param(&p.ty) {
             // Convert napi::Buffer to Vec<u8> by calling .to_vec()
-            bindings.push_str(&format!("    let {}: Vec<u8> = {}.to_vec();\n", p.name, p.name));
+            bindings.push_str(&crate::template_env::render(
+                "buffer_conversion_binding.jinja",
+                minijinja::context! {
+                    param_name => &p.name,
+                },
+            ));
         }
     }
     bindings

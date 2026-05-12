@@ -1,0 +1,1 @@
+let {{ name }}_ptr: *const std::ffi::c_char = _{{ name }}_storage.as_ref().map_or(std::ptr::null(), |cs| cs.as_ptr());

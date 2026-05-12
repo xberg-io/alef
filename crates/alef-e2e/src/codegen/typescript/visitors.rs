@@ -3,7 +3,7 @@
 use std::fmt::Write as FmtWrite;
 
 use crate::escape::escape_js;
-use crate::fixture::CallbackAction;
+use crate::fixture::{CallbackAction, TemplateReturnForm};
 use heck::ToLowerCamelCase;
 
 /// Build a TypeScript visitor object and add setup line. Returns the visitor variable name.
@@ -62,22 +62,15 @@ pub(super) fn emit_typescript_visitor_method(out: &mut String, method_name: &str
         _ => "ctx: any",
     };
 
-    let _ = writeln!(out, "    {camel_method}({params}): string | {{ custom: string }} {{");
-    match action {
-        CallbackAction::Skip => {
-            let _ = writeln!(out, "        return \"skip\";");
-        }
-        CallbackAction::Continue => {
-            let _ = writeln!(out, "        return \"continue\";");
-        }
-        CallbackAction::PreserveHtml => {
-            let _ = writeln!(out, "        return \"preserve_html\";");
-        }
+    let (action_type, action_value, action_template, return_form) = match action {
+        CallbackAction::Skip => ("skip", String::new(), String::new(), "dict"),
+        CallbackAction::Continue => ("continue", String::new(), String::new(), "dict"),
+        CallbackAction::PreserveHtml => ("preserve_html", String::new(), String::new(), "dict"),
         CallbackAction::Custom { output } => {
             let escaped = escape_js(output);
-            let _ = writeln!(out, "        return {{ custom: \"{escaped}\" }};");
+            ("custom", escaped, String::new(), "dict")
         }
-        CallbackAction::CustomTemplate { template } => {
+        CallbackAction::CustomTemplate { template, return_form } => {
             // Convert {placeholder} to ${placeholder} for JavaScript template literals
             let mut processed = String::new();
             for ch in template.chars() {
@@ -87,10 +80,26 @@ pub(super) fn emit_typescript_visitor_method(out: &mut String, method_name: &str
                     _ => processed.push(ch),
                 }
             }
-            let _ = writeln!(out, "        return {{ custom: `{processed}` }};");
+            let form = match return_form {
+                TemplateReturnForm::Dict => "dict",
+                TemplateReturnForm::BareString => "bare_string",
+            };
+            ("custom_template", String::new(), processed, form)
         }
-    }
-    let _ = writeln!(out, "    }},");
+    };
+
+    let rendered = crate::template_env::render(
+        "typescript/visitor_method.jinja",
+        minijinja::context! {
+            camel_method => camel_method,
+            params => params,
+            action_type => action_type,
+            action_value => action_value,
+            action_template => action_template,
+            return_form => return_form,
+        },
+    );
+    let _ = writeln!(out, "{rendered}");
 }
 
 #[cfg(test)]

@@ -1,0 +1,5 @@
+let core_{{ param_name }}: {{ core_import }}::{{ core_ty }} = {{ param_name }}
+        .map(|s| serde_json::from_str::<{{ core_import }}::{{ core_ty }}>(&s))
+        .transpose()
+        .map_err(|e| e.to_string())?
+        .unwrap_or_default();

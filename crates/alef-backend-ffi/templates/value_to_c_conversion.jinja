@@ -1,0 +1,49 @@
+{%- if type_class == "primitive_bool" %}
+{{ indent }}{{ expr }} as i32
+{%- elif type_class == "primitive_other" %}
+{{ indent }}{{ expr }}
+{%- elif type_class == "string" %}
+{{ indent }}match CString::new({{ expr }}.to_string()) {
+{{ indent }}    Ok(cs) => cs.into_raw(),
+{{ indent }}    Err(_) => std::ptr::null_mut(),
+{{ indent }}}
+{%- elif type_class == "path" %}
+{{ indent }}match CString::new({{ expr }}.to_string_lossy().to_string()) {
+{{ indent }}    Ok(cs) => cs.into_raw(),
+{{ indent }}    Err(_) => std::ptr::null_mut(),
+{{ indent }}}
+{%- elif type_class == "json_or_vec_or_map" %}
+{{ indent }}match serde_json::to_string(&{{ expr }}) {
+{{ indent }}    Ok(s) => match CString::new(s) {
+{{ indent }}        Ok(cs) => cs.into_raw(),
+{{ indent }}        Err(_) => std::ptr::null_mut(),
+{{ indent }}    },
+{{ indent }}    Err(_) => std::ptr::null_mut(),
+{{ indent }}}
+{%- elif type_class == "named_enum" %}
+{{ indent }}Box::into_raw(Box::new({{ copy_expr }}))
+{%- elif type_class == "named_clone" %}
+{{ indent }}Box::into_raw(Box::new({{ expr }}.clone()))
+{%- elif type_class == "named_owned" %}
+{{ indent }}Box::into_raw(Box::new({{ expr }}))
+{%- elif type_class == "named_non_clone" %}
+{{ indent }}{{ expr }} as *const _ as *mut _
+{%- elif type_class == "bytes" %}
+{{ indent }}{{ expr }}.as_ptr() as *mut u8
+{%- elif type_class == "duration" %}
+{{ indent }}{{ expr }}.as_millis() as u64
+{%- elif type_class == "optional" %}
+{{ indent }}match &{{ expr }} {
+{{ indent }}    Some(val) => {
+{{ inner_conversion }}
+{{ indent }}    }
+{{ indent }}    None => {{ null_value }},
+{{ indent }}}
+{%- elif type_class == "optional_owned" %}
+{{ indent }}match {{ expr }} {
+{{ indent }}    Some(val) => {
+{{ inner_conversion }}
+{{ indent }}    }
+{{ indent }}    None => {{ null_value }},
+{{ indent }}}
+{%- endif %}

@@ -197,13 +197,13 @@ pub fn render_assertion(
             let _ = writeln!(out, "    assert!({result_var}.is_err(), \"expected call to fail\");");
             if let Some(serde_json::Value::String(msg)) = &assertion.value {
                 let escaped = escape_rust(msg);
-                // Use `.err().unwrap()` instead of `.unwrap_err()` to avoid the
-                // `Ok: Debug` requirement — `BoxStream` (for streaming calls) does
-                // not implement `Debug`, which would cause a compile error.
-                // Use `to_string()` which includes the error prefix (e.g., "unauthorized: ...", "timeout: ...").
+                // Match against the Debug format (variant-name-style) and the Display format
+                // (human-readable text). Fixtures often name the error variant ("BadRequest"),
+                // but Display impls typically lowercase with a colon ("bad request: ..."), so
+                // checking both lets either kind of fixture value match.
                 let _ = writeln!(
                     out,
-                    "    assert!({result_var}.as_ref().err().unwrap().to_string().contains(\"{escaped}\"), \"error message mismatch\");"
+                    "    {{ let __e = {result_var}.as_ref().err().unwrap(); assert!(format!(\"{{:?}}\", __e).contains(\"{escaped}\") || __e.to_string().contains(\"{escaped}\"), \"error message mismatch\"); }}"
                 );
             }
         }
@@ -392,10 +392,7 @@ mod tests {
             assertion_type: assertion_type.to_string(),
             field: field.map(|s| s.to_string()),
             value,
-            values: None,
-            method: None,
-            args: None,
-            check: None,
+            ..Default::default()
         }
     }
 

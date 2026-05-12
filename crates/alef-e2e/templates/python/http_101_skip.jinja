@@ -1,0 +1,10 @@
+{#- Python HTTP 101 (WebSocket) skip test template
+
+   Context variables:
+   - fn_name: test function name
+   - desc_with_period: fixture description with ending period
+#}
+@pytest.mark.skip(reason="HTTP 101 WebSocket upgrade cannot be tested via urllib")
+def test_{{ fn_name }}(mock_server: str) -> None:
+    """{{ desc_with_period }}"""
+    ...

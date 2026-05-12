@@ -1,0 +1,29 @@
+{#- Java test file template for JUnit 5
+
+   Context variables:
+   - header: file header comment
+   - java_group_id: Java package ID (e.g., "com.example.e2e")
+   - test_class_name: test class name (e.g., "BasicTest")
+   - category: category name from fixture group
+   - imports: list of import strings (pre-formatted)
+   - needs_object_mapper: boolean
+   - fixtures_body: string containing all rendered test methods
+#}
+{{ header }}
+package {{ java_group_id }}.e2e;
+
+{% if imports %}
+{% for imp in imports %}
+{{ imp }}
+{% endfor %}
+{% endif %}
+
+/** E2e tests for category: {{ category }}. */
+class {{ test_class_name }} {
+{%- if needs_object_mapper %}
+
+    private static final ObjectMapper MAPPER = new ObjectMapper().registerModule(new Jdk8Module()).setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE);
+{%- endif %}
+
+{{ fixtures_body }}
+}

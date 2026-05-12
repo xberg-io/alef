@@ -1,0 +1,40 @@
+{#- PHP test method template for PHPUnit
+
+   Context variables:
+   - method_name: method name (snake_case)
+   - description: fixture description
+   - client_factory: client factory call (or empty string)
+   - setup_lines: list of setup line strings
+   - expects_error: boolean
+   - skip_test: boolean (for unskipped non-assertions)
+   - has_usable_assertions: boolean
+   - call_expr: the complete function call expression
+   - result_var: result variable name
+   - assertions_body: string containing all rendered assertions
+#}
+
+    /** {{ description }} */
+    public function test_{{ method_name }}(): void
+    {
+{%- if client_factory %}
+        {{ client_factory }}
+{% endif %}
+{%- if expects_error %}
+        $this->expectException(\Exception::class);
+{%- for line in setup_lines %}
+        {{ line }}
+{% endfor %}
+        {{ call_expr }};
+{%- elif skip_test %}
+        $this->markTestSkipped('no assertions configured for this fixture in php e2e');
+{%- else %}
+{%- for line in setup_lines %}
+        {{ line }}
+{% endfor %}
+{%- if not has_usable_assertions %}
+        $this->expectNotToPerformAssertions();
+{% endif %}
+        ${{ result_var }} = {{ call_expr }};
+{{ assertions_body }}
+{% endif %}
+    }

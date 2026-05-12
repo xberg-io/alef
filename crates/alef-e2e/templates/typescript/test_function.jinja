@@ -1,0 +1,48 @@
+{#- TypeScript test case (it() block) template
+
+   Context variables:
+   - test_name: sanitized test name
+   - description: fixture description with escaped quotes
+   - async_kw: "async " (or empty string)
+   - client_setup: client instantiation code (or empty string)
+   - setup_lines: array of setup statement strings
+   - call_expr: function call expression
+   - has_usable_assertion: bool
+   - result_var: result variable name
+   - await_kw: "await " (or empty string)
+   - assertions_body: string containing all rendered assertions
+   - expects_error: bool
+   - is_skipped: bool
+#}
+{%- if is_skipped %}
+  it.skip('{{ test_name }}: {{ description }}', async () => {
+    // no assertions configured for this fixture in node e2e
+  });
+{%- elif expects_error %}
+  it('{{ test_name }}: {{ description }}', async () => {
+{%- if client_setup %}
+    {{ client_setup }}
+{%- endif %}
+    await expect(async () => {
+{%- for line in setup_lines %}
+      {{ line }}
+{%- endfor %}
+      await {{ call_expr }};
+    }).rejects.toThrow();
+  });
+{%- else %}
+  it('{{ test_name }}: {{ description }}', {{ async_kw }}() => {
+{%- if client_setup %}
+    {{ client_setup }}
+{%- endif %}
+{%- for line in setup_lines %}
+    {{ line }}
+{%- endfor %}
+{%- if has_usable_assertion %}
+    const {{ result_var }} = {{ await_kw }}{{ call_expr }};
+{%- else %}
+    {{ await_kw }}{{ call_expr }};
+{%- endif %}
+{{ assertions_body }}
+  });
+{%- endif %}

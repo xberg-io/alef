@@ -1,0 +1,5 @@
+	jsonPtrUpdated := C.{{ ffi_prefix }}_{{ type_snake }}_to_json(cRecv)
+	if jsonPtrUpdated != nil {
+		_ = json.Unmarshal([]byte(C.GoString(jsonPtrUpdated)), {{ recv }})
+		C.{{ ffi_prefix }}_free_string(jsonPtrUpdated)
+	}

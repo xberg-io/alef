@@ -14,7 +14,7 @@ mod assertion_helpers;
 mod assertion_synthetic;
 
 pub use cargo_toml::render_cargo_toml;
-pub use mock_server::{render_mock_server_binary, render_mock_server_module};
+pub use mock_server::{render_common_module, render_mock_server_binary, render_mock_server_module};
 
 use alef_core::backend::GeneratedFile;
 use alef_core::config::ResolvedCrateConfig;
@@ -37,6 +37,7 @@ impl E2eCodegen for RustE2eCodegen {
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
         config: &ResolvedCrateConfig,
+        _type_defs: &[alef_core::ir::TypeDef],
     ) -> Result<Vec<GeneratedFile>> {
         let mut files = Vec::new();
         let output_base = PathBuf::from(e2e_config.effective_output()).join("rust");
@@ -58,7 +59,7 @@ impl E2eCodegen for RustE2eCodegen {
         let needs_mock_server = groups
             .iter()
             .flat_map(|g| g.fixtures.iter())
-            .any(|f| !is_skipped(f, "rust") && f.mock_response.is_some());
+            .any(|f| !is_skipped(f, "rust") && f.needs_mock_server());
 
         // Check if any fixture uses the http integration test pattern (spikard http fixtures).
         let needs_http_tests = groups
@@ -105,6 +106,12 @@ impl E2eCodegen for RustE2eCodegen {
             files.push(GeneratedFile {
                 path: output_base.join("tests").join("mock_server.rs"),
                 content: render_mock_server_module(),
+                generated_header: true,
+            });
+            // Generate common.rs module for spawning the standalone mock-server binary.
+            files.push(GeneratedFile {
+                path: output_base.join("tests").join("common.rs"),
+                content: render_common_module(),
                 generated_header: true,
             });
         }

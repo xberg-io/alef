@@ -1,0 +1,17 @@
+impl {{ wrapper }} {
+    /// Create a new bridge wrapping a JS object.
+    ///
+    /// Validates that the JS object provides all required methods.
+    pub fn new(js_obj: wasm_bindgen::JsValue) -> Result<Self, String> {
+{%- for method in required_methods %}
+        if !js_sys::Reflect::has(&js_obj, &wasm_bindgen::JsValue::from_str("{{ method.js_name }}")).unwrap_or(false) {
+            return Err(format!("JS object missing required method: {}", "{{ method.name }}"));
+        }
+{%- endfor %}
+
+        Ok(Self {
+            inner: js_obj,
+            cached_name: "wasm_bridge".to_string(),
+        })
+    }
+}

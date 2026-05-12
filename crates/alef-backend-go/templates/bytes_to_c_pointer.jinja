@@ -1,0 +1,5 @@
+	var {{ c_name }} *C.uint8_t
+	if len({{ go_param }}) > 0 {
+		{{ c_name }} = (*C.uint8_t)(unsafe.Pointer(&{{ go_param }}[0]))
+	}
+	{{ c_name }}Len := C.uintptr_t(len({{ go_param }}))

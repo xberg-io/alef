@@ -1,0 +1,6 @@
+/// Convenience overload: accepts a `[UInt8]` byte array.
+public func {{ wrapper_name }}(
+    content: [UInt8]{{ trailing_params }}
+){{ throws_clause }} -> {{ return_ty }} {
+    return try {{ inner_call }}(makeByteVec(content){{ trailing_args }}){{ return_suffix }}
+}

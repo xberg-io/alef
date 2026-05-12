@@ -1,0 +1,137 @@
+{#- C# assertion template for xUnit
+
+   Context variables (pre-computed in render_assertion):
+   - assertion_type: assertion type ("equals", "contains", etc.)
+   - synthetic_pred: synthetic field predicate (for chunks_have_content, etc.)
+   - synthetic_pred_type: "is_true" or "is_false" (for synthetic assertions)
+   - field_expr: C# expression for the field
+   - field_as_str: field_expr converted to string (field_expr.ToString() or JsonSerializer.Serialize)
+   - field_needs_json_serialize: bool (whether field_as_str uses JsonSerializer)
+   - cs_val: pre-formatted C# value (empty if no value)
+   - has_cs_val: bool
+   - is_string_val: bool (expected.is_string())
+   - is_bool_true: bool (expected.as_bool() == Some(true))
+   - is_bool_false: bool (expected.as_bool() == Some(false))
+   - is_integer_val: bool (expected.is_number() && !has_fract)
+   - n: u64 (count/length, 0 if not applicable)
+   - values_cs_lower: Vec<String> (for contains_all, lowercase C# values)
+   - contains_any_expr: String (pre-built joined OR expression)
+   - call_expr: String (for method_result, empty if not applicable)
+   - check: String (assertion.check.as_deref().unwrap_or("is_true"))
+   - cs_check_val: String (pre-formatted check value, empty if not applicable)
+   - check_n: u64 (count/min for check, 0 if not applicable)
+   - exception_class: &str
+   - is_check_bool_true: bool (for method_result equals with bool value true)
+   - is_check_bool_false: bool (for method_result equals with bool value false)
+   - skipped_reason: String (reason why assertion was skipped, empty if not skipped)
+#}
+
+{%- if not skipped_reason %}
+{% if assertion_type == "equals" -%}
+{% if is_string_val -%}
+        Assert.Equal({{ cs_val }}, {{ field_expr }}!.Trim());
+{% elif is_bool_true -%}
+        Assert.True({{ field_expr }});
+{% elif is_bool_false -%}
+        Assert.False({{ field_expr }});
+{% elif is_integer_val -%}
+        Assert.True({{ field_expr }} == {{ cs_val }});
+{% else -%}
+        Assert.Equal({{ cs_val }}, {{ field_expr }});
+{% endif %}
+{% elif assertion_type == "contains" -%}
+        Assert.Contains({{ cs_val }}, {{ field_as_str }}.ToLower());
+{% elif assertion_type == "contains_all" -%}
+{% for val in values_cs_lower -%}
+        Assert.Contains({{ val }}, {{ field_as_str }}.ToLower());
+{% endfor %}
+{% elif assertion_type == "not_contains" -%}
+        Assert.DoesNotContain({{ cs_val }}, {{ field_as_str }});
+{% elif assertion_type == "not_empty" -%}
+{% if field_needs_json_serialize -%}
+        Assert.NotEmpty({{ field_expr }});
+{% else -%}
+        Assert.False(string.IsNullOrEmpty({{ field_expr }}?.ToString()));
+{% endif %}
+{% elif assertion_type == "is_empty" -%}
+{% if field_needs_json_serialize -%}
+        Assert.Empty({{ field_expr }});
+{% else -%}
+        Assert.True(string.IsNullOrEmpty({{ field_expr }}?.ToString()));
+{% endif %}
+{% elif assertion_type == "contains_any" -%}
+        Assert.True({{ contains_any_expr }}, "expected to contain at least one of the specified values");
+{% elif assertion_type == "greater_than" -%}
+        Assert.True({{ field_expr }} > {{ cs_val }}, "expected > {{ cs_val }}");
+{% elif assertion_type == "less_than" -%}
+        Assert.True({{ field_expr }} < {{ cs_val }}, "expected < {{ cs_val }}");
+{% elif assertion_type == "greater_than_or_equal" -%}
+        Assert.True({{ field_expr }} >= {{ cs_val }}, "expected >= {{ cs_val }}");
+{% elif assertion_type == "less_than_or_equal" -%}
+        Assert.True({{ field_expr }} <= {{ cs_val }}, "expected <= {{ cs_val }}");
+{% elif assertion_type == "starts_with" -%}
+        Assert.StartsWith({{ cs_val }}, {{ field_expr }});
+{% elif assertion_type == "ends_with" -%}
+        Assert.EndsWith({{ cs_val }}, {{ field_expr }});
+{% elif assertion_type == "min_length" -%}
+        Assert.True({{ field_expr }}.Length >= {{ n }}, "expected length >= {{ n }}");
+{% elif assertion_type == "max_length" -%}
+        Assert.True({{ field_expr }}.Length <= {{ n }}, "expected length <= {{ n }}");
+{% elif assertion_type == "count_min" -%}
+        Assert.True({{ field_expr }}.Count >= {{ n }}, "expected at least {{ n }} elements");
+{% elif assertion_type == "count_equals" -%}
+        Assert.Equal({{ n }}, {{ field_expr }}.Count);
+{% elif assertion_type == "is_true" -%}
+        Assert.True({{ field_expr }});
+{% elif assertion_type == "is_false" -%}
+        Assert.False({{ field_expr }});
+{% elif assertion_type == "synthetic_assertion" -%}
+{% if synthetic_pred_type == "is_true" -%}
+        Assert.True({{ synthetic_pred }});
+{% elif synthetic_pred_type == "is_false" -%}
+        Assert.False({{ synthetic_pred }});
+{% endif %}
+{% elif assertion_type == "synthetic_embeddings_count_equals" -%}
+        Assert.True({{ synthetic_pred }} == {{ n }});
+{% elif assertion_type == "synthetic_embeddings_count_min" -%}
+        Assert.True({{ synthetic_pred }} >= {{ n }});
+{% elif assertion_type == "synthetic_embedding_dimensions_equals" -%}
+        Assert.True({{ synthetic_pred }} == {{ n }});
+{% elif assertion_type == "synthetic_embedding_dimensions_greater_than" -%}
+        Assert.True({{ synthetic_pred }} > {{ n }});
+{% elif assertion_type == "synthetic_embeddings_not_empty" -%}
+        Assert.NotEmpty({{ synthetic_pred }});
+{% elif assertion_type == "synthetic_embeddings_is_empty" -%}
+        Assert.Empty({{ synthetic_pred }});
+{% elif assertion_type == "method_result" -%}
+{% if check == "equals" -%}
+{% if is_check_bool_true -%}
+        Assert.True({{ call_expr }});
+{% elif is_check_bool_false -%}
+        Assert.False({{ call_expr }});
+{% else -%}
+        Assert.Equal({{ cs_check_val }}, {{ call_expr }});
+{% endif %}
+{% elif check == "is_true" -%}
+        Assert.True({{ call_expr }});
+{% elif check == "is_false" -%}
+        Assert.False({{ call_expr }});
+{% elif check == "greater_than_or_equal" -%}
+        Assert.True({{ call_expr }} >= {{ check_n }}, "expected >= {{ check_n }}");
+{% elif check == "count_min" -%}
+        Assert.True({{ call_expr }}.Count >= {{ check_n }}, "expected at least {{ check_n }} elements");
+{% elif check == "is_error" -%}
+        Assert.ThrowsAny<{{ exception_class }}>(() => { {{ call_expr }}; });
+{% elif check == "contains" -%}
+        Assert.Contains({{ cs_check_val }}, {{ call_expr }});
+{% endif %}
+{% elif assertion_type == "matches_regex" -%}
+        Assert.Matches({{ cs_val }}, {{ field_expr }});
+{% elif assertion_type == "not_error" -%}
+{#- not_error assertions produce no output; already handled by call succeeding #}
+{% elif assertion_type == "error" -%}
+{#- error assertions are handled at the test method level #}
+{% endif %}
+{%- else %}
+        // skipped: {{ skipped_reason }}
+{%- endif %}

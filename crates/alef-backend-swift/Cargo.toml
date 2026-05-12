@@ -13,6 +13,7 @@ alef-codegen = { workspace = true }
 alef-core = { workspace = true }
 anyhow = { workspace = true }
 heck = { workspace = true }
+minijinja = { workspace = true }
 
 [dev-dependencies]
 criterion = { version = "0.8", features = ["html_reports"] }

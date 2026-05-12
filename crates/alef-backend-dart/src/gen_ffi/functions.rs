@@ -14,24 +14,35 @@ pub(super) fn emit_function(
     error_code_symbol: &str,
     out: &mut String,
 ) {
+    use crate::template_env;
     if f.is_async {
         // TODO: dart:ffi async requires Isolate plumbing; deferred for Phase 3b.
-        out.push_str(&format!(
-            "// TODO: async function '{}' is not supported in dart:ffi mode; deferred.\n",
-            f.name
+        out.push_str(&template_env::render(
+            "ffi_async_todo.jinja",
+            minijinja::context! {
+                name => f.name.as_str(),
+            },
         ));
         return;
     }
 
     if !f.doc.is_empty() {
-        for line in f.doc.lines() {
-            out.push_str("/// ");
-            out.push_str(line);
-            out.push('\n');
-        }
+        let doc_lines: Vec<String> = f.doc.lines().map(ToString::to_string).collect();
+        out.push_str(&template_env::render(
+            "doc_comment.jinja",
+            minijinja::context! {
+                indent => "",
+                lines => doc_lines,
+            },
+        ));
     }
     if let Some(ref error_ty) = f.error_type {
-        out.push_str(&format!("/// Throws [StateError] on failure (was: {error_ty}).\n"));
+        out.push_str(&template_env::render(
+            "ffi_error_throws_doc.jinja",
+            minijinja::context! {
+                error_ty => error_ty.as_str(),
+            },
+        ));
     }
 
     let c_symbol = format!("{prefix}_{}", f.name);
@@ -46,29 +57,45 @@ pub(super) fn emit_function(
     let typedef_native = format!("_{fn_name}Native");
     let typedef_dart = format!("_{fn_name}Dart");
 
-    out.push_str(&format!(
-        "typedef {typedef_native} = {native_return} Function({});\n",
-        native_params.join(", ")
+    out.push_str(&template_env::render(
+        "ffi_typedef_native_sig.jinja",
+        minijinja::context! {
+            typedef_native => typedef_native.as_str(),
+            native_return => native_return.as_str(),
+            native_params => native_params.join(", "),
+        },
     ));
-    out.push_str(&format!(
-        "typedef {typedef_dart} = {dart_return} Function({});\n",
-        dart_params.join(", ")
+    out.push_str(&template_env::render(
+        "ffi_typedef_dart_sig.jinja",
+        minijinja::context! {
+            typedef_dart => typedef_dart.as_str(),
+            dart_return => dart_return.as_str(),
+            dart_params => dart_params.join(", "),
+        },
     ));
-    out.push_str(&format!(
-        "final {dart_return} Function({}) _{fn_name}Fn =\n",
-        dart_params.join(", ")
-    ));
-    out.push_str(&format!(
-        "    _lib.lookupFunction<{typedef_native}, {typedef_dart}>('{c_symbol}');\n\n"
+    out.push_str(&template_env::render(
+        "ffi_function_lookup_sig.jinja",
+        minijinja::context! {
+            dart_return => dart_return.as_str(),
+            dart_params => dart_params.join(", "),
+            fn_name => fn_name.as_str(),
+            typedef_native => typedef_native.as_str(),
+            typedef_dart => typedef_dart.as_str(),
+            c_symbol => c_symbol.as_str(),
+        },
     ));
 
     // Emit the public wrapper function.
     let dart_wrapper_params: Vec<String> = f.params.iter().map(dart_wrapper_param).collect();
     let wrapper_return = dart_public_return(&f.return_type);
 
-    out.push_str(&format!(
-        "{wrapper_return} {fn_name}({}) {{\n",
-        dart_wrapper_params.join(", ")
+    out.push_str(&template_env::render(
+        "ffi_wrapper_fn_open.jinja",
+        minijinja::context! {
+            wrapper_return => wrapper_return.as_str(),
+            fn_name => fn_name.as_str(),
+            dart_wrapper_params => dart_wrapper_params.join(", "),
+        },
     ));
 
     // Allocate native strings for each string parameter.
@@ -81,19 +108,36 @@ pub(super) fn emit_function(
     let call_args_str = call_args.join(", ");
 
     if matches!(f.return_type, TypeRef::Unit) {
-        out.push_str(&format!("  _{fn_name}Fn({call_args_str});\n"));
+        out.push_str(&template_env::render(
+            "ffi_call_void.jinja",
+            minijinja::context! {
+                fn_name => fn_name.as_str(),
+                call_args_str => call_args_str.as_str(),
+            },
+        ));
         if f.error_type.is_some() {
             out.push_str("  _checkError();\n");
         }
         emit_param_free_all(&f.params, out);
     } else {
-        out.push_str(&format!("  final _result = _{fn_name}Fn({call_args_str});\n"));
+        out.push_str(&template_env::render(
+            "ffi_call_result.jinja",
+            minijinja::context! {
+                fn_name => fn_name.as_str(),
+                call_args_str => call_args_str.as_str(),
+            },
+        ));
         if f.error_type.is_some() {
             out.push_str("  _checkError();\n");
         }
         emit_param_free_all(&f.params, out);
         let ret_expr = unwrap_return_expr("_result", &f.return_type, free_symbol, error_code_symbol);
-        out.push_str(&format!("  return {ret_expr};\n"));
+        out.push_str(&template_env::render(
+            "ffi_return_value.jinja",
+            minijinja::context! {
+                ret_expr => ret_expr,
+            },
+        ));
     }
 
     out.push_str("}\n");
@@ -101,10 +145,16 @@ pub(super) fn emit_function(
 
 /// Allocate a native UTF-8 string for a string/path parameter.
 fn emit_param_alloc(p: &ParamDef, out: &mut String) {
+    use crate::template_env;
     let name = p.name.to_lower_camel_case();
     match &p.ty {
         TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-            out.push_str(&format!("  final {name}Native = {name}.toNativeUtf8();\n"));
+            out.push_str(&template_env::render(
+                "ffi_param_alloc_string.jinja",
+                minijinja::context! {
+                    name => name.as_str(),
+                },
+            ));
         }
         _ => {}
     }
@@ -112,11 +162,17 @@ fn emit_param_alloc(p: &ParamDef, out: &mut String) {
 
 /// Free all previously allocated native strings.
 fn emit_param_free_all(params: &[ParamDef], out: &mut String) {
+    use crate::template_env;
     for p in params {
         let name = p.name.to_lower_camel_case();
         match &p.ty {
             TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-                out.push_str(&format!("  calloc.free({name}Native);\n"));
+                out.push_str(&template_env::render(
+                    "ffi_param_free_string.jinja",
+                    minijinja::context! {
+                        name => name.as_str(),
+                    },
+                ));
             }
             _ => {}
         }

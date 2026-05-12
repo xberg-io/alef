@@ -1,0 +1,2 @@
+        let ctx_arr = nodecontext_to_php_array({{ ref }}{{ name }});
+        args.push(ext_php_rs::convert::IntoZval::into_zval(ctx_arr, false).unwrap_or_default());

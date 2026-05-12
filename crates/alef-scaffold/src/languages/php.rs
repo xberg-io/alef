@@ -120,16 +120,17 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
   }},
   "scripts": {{
     "phpstan": "php -d detect_unicode=0 vendor/bin/phpstan --configuration=phpstan.neon --memory-limit=512M",
-    "format": "PHP_CS_FIXER_IGNORE_ENV=1 php vendor/bin/php-cs-fixer fix --config php-cs-fixer.php src",
-    "format:check": "PHP_CS_FIXER_IGNORE_ENV=1 php vendor/bin/php-cs-fixer fix --config php-cs-fixer.php --dry-run src",
+    "format": "PHP_CS_FIXER_IGNORE_ENV=1 php vendor/bin/php-cs-fixer fix",
+    "format:check": "PHP_CS_FIXER_IGNORE_ENV=1 php vendor/bin/php-cs-fixer fix --dry-run",
     "test": "php vendor/bin/phpunit",
     "lint": "@phpstan",
-    "lint:fix": "PHP_CS_FIXER_IGNORE_ENV=1 php vendor/bin/php-cs-fixer fix --config php-cs-fixer.php src && php -d detect_unicode=0 vendor/bin/phpstan --configuration=phpstan.neon --memory-limit=512M"
+    "lint:fix": "PHP_CS_FIXER_IGNORE_ENV=1 php vendor/bin/php-cs-fixer fix && php -d detect_unicode=0 vendor/bin/phpstan --configuration=phpstan.neon --memory-limit=512M"
   }},
   "php-ext": {{
     "extension-name": "{ext_name}",
     "support-zts": true,
-    "support-nts": true
+    "support-nts": true,
+    "download-url-method": ["pre-packaged-binary", "composer-default"]
   }}{keywords}
 }}
 "#,
@@ -180,16 +181,22 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
             generated_header: false,
         },
         GeneratedFile {
-            path: PathBuf::from(format!("{pkg_dir}/php-cs-fixer.php")),
+            path: PathBuf::from(format!("{pkg_dir}/.php-cs-fixer.dist.php")),
             content: r#"<?php
 
 declare(strict_types=1);
 
+// Stub files declare classes the native extension provides at runtime.
+// They contain ext-php-rs-style scaffolding that php-cs-fixer's @PHP82Migration
+// rule would otherwise rewrite into constructor-promoted properties, deleting
+// the explicit class-level property declarations phpstan needs to see.
+// Excluding stubs/ keeps the stub structure intact for static analysis.
 $finder = (new PhpCsFixer\Finder())
     ->in(array_filter([
         __DIR__ . '/src',
         is_dir(__DIR__ . '/tests') ? __DIR__ . '/tests' : null,
-    ]));
+    ]))
+    ->notPath('stubs');
 
 return (new PhpCsFixer\Config())
     ->setRules([

@@ -23,6 +23,8 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
         core_wrapper: CoreWrapper::None,
         vec_inner_core_wrapper: CoreWrapper::None,
         newtype_wrapper: None,
+        serde_rename: None,
+        serde_flatten: false,
     }
 }
 
@@ -96,6 +98,7 @@ fn struct_with_primitive_fields_emits_public_struct() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -141,6 +144,7 @@ fn struct_with_optional_array_and_dict_fields() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -168,6 +172,7 @@ fn struct_with_serde_derives_codable() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -189,6 +194,7 @@ fn empty_struct_emits_single_line() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -235,12 +241,14 @@ fn unit_only_enum_emits_lower_camel_cases() {
             doc: String::new(),
             cfg: None,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
 
             is_copy: false,
             has_serde: false,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -285,12 +293,14 @@ fn data_bearing_enum_emits_associated_values() {
             doc: String::new(),
             cfg: None,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
 
             is_copy: false,
             has_serde: false,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -328,6 +338,7 @@ fn sync_function_emits_public_static_func() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -368,6 +379,7 @@ fn async_function_emits_async_keyword() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -404,6 +416,7 @@ fn error_throwing_function_emits_throws() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -440,6 +453,7 @@ fn async_throws_function_emits_both_qualifiers() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -488,6 +502,7 @@ fn error_enum_conforms_to_error_protocol() {
             ],
             doc: String::new(),
         }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -497,13 +512,298 @@ fn error_enum_conforms_to_error_protocol() {
         content.contains("public enum ApiError: Error {"),
         "missing Error conformance: {content}"
     );
+    assert!(content.contains("case notFound\n"), "missing notFound case: {content}");
+    assert!(content.contains("case timeout\n"), "missing timeout case: {content}");
+}
+
+// ── convenience wrapper tests ─────────────────────────────────────────────────
+
+/// Helper: build a FunctionDef with no error type and not async.
+fn make_sync_fn(name: &str, params: Vec<ParamDef>, return_type: TypeRef) -> FunctionDef {
+    FunctionDef {
+        name: name.to_string(),
+        rust_path: format!("demo::{name}"),
+        original_rust_path: String::new(),
+        params,
+        return_type,
+        is_async: false,
+        error_type: Some("DemoError".to_string()),
+        doc: String::new(),
+        cfg: None,
+        sanitized: false,
+        return_sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+    }
+}
+
+/// Helper: build an optional ParamDef.
+fn make_optional_param(name: &str, ty: TypeRef) -> ParamDef {
+    ParamDef {
+        name: name.to_string(),
+        ty,
+        optional: true,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: false,
+        is_mut: false,
+        newtype_wrapper: None,
+        original_type: None,
+    }
+}
+
+#[test]
+fn bytes_first_param_skips_overload_when_name_shadows_bridge() {
+    // IR: analyze_bytes(content: Bytes, config: AnalyzeConfig) -> AnalyzeResult
+    // The convenience wrapper name (`analyzeBytes`) collides with the bridge
+    // function name (`analyzeBytes`) because there is no `_sync` suffix to
+    // strip. Swift overload resolution would resolve the unlabeled inner
+    // positional call to the wrapper itself (recursive shadow), and module-
+    // prefix qualification of free functions is rejected by the compiler. We
+    // therefore skip emitting the convenience overload entirely; users call
+    // the bridge function directly with `makeByteVec(...)`.
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![make_sync_fn(
+            "analyze_bytes",
+            vec![
+                make_param("content", TypeRef::Bytes),
+                make_param("config", TypeRef::Named("AnalyzeConfig".into())),
+            ],
+            TypeRef::Named("AnalyzeResult".into()),
+        )],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+
+    // No convenience overload for `analyzeBytes` — the only function in the
+    // surface would shadow itself.
     assert!(
-        content.contains("case notFound(message: String)"),
-        "missing notFound case: {content}"
+        !content.contains("public func analyzeBytes(\n    content: String"),
+        "shadowing String overload must be skipped: {content}"
     );
     assert!(
-        content.contains("case timeout(message: String)"),
-        "missing timeout case: {content}"
+        !content.contains("public func analyzeBytes(\n    content: [UInt8]"),
+        "shadowing [UInt8] overload must be skipped: {content}"
+    );
+
+    // Since this is the only candidate, no convenience-wrapper section header
+    // should be emitted at all.
+    assert!(
+        !content.contains("// MARK: - Convenience Wrapper Functions"),
+        "wrapper section must not appear when all candidates shadow: {content}"
+    );
+    assert!(
+        !content.contains("makeByteVec"),
+        "makeByteVec must not appear when all candidates shadow: {content}"
+    );
+}
+
+#[test]
+fn bytes_overload_with_string_return_does_not_append_to_string() {
+    // IR: detect_mime_type_from_bytes_sync(content: Bytes) -> String
+    //
+    // Bug regression: prior versions appended `.toString()` to the inner call,
+    // assuming swift-bridge mapped Rust `String` returns to `RustString`. In
+    // fact swift-bridge maps `String` (and `Result<String, _>`) directly to a
+    // Swift-native `String` — `.toString()` is a no-op at best and a compile
+    // error against the actual Swift `String` type. The convenience overload
+    // must return the bridge result verbatim.
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![make_sync_fn(
+            "detect_mime_sync",
+            vec![make_param("content", TypeRef::Bytes)],
+            TypeRef::String,
+        )],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+
+    // Wrapper exists (no shadow: `detectMime` ≠ `detectMimeSync`).
+    assert!(
+        content.contains("public func detectMime(\n    content: String"),
+        "missing detectMime String overload: {content}"
+    );
+
+    // Bridge result is returned verbatim — no `.toString()` suffix.
+    assert!(
+        !content.contains(".toString()"),
+        "must not append .toString() to a Swift `String` return: {content}"
+    );
+
+    // Inner call delegates to the suffixed bridge name without conversion.
+    assert!(
+        content.contains("return try detectMimeSync(makeByteVec(Array(content.utf8)))\n"),
+        "inner call should return verbatim without conversion: {content}"
+    );
+}
+
+#[test]
+fn bytes_sync_suffix_stripped_in_wrapper_name() {
+    // IR: process_bytes_sync(content: Bytes, config: ProcessConfig) -> ProcessResult
+    // Wrapper name should be `processBytes` (strip "Sync"), inner call `processBytesSync`.
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![make_sync_fn(
+            "process_bytes_sync",
+            vec![
+                make_param("content", TypeRef::Bytes),
+                make_param("config", TypeRef::Named("ProcessConfig".into())),
+            ],
+            TypeRef::Named("ProcessResult".into()),
+        )],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+
+    // Public wrapper is named `processBytes` (Sync stripped)
+    assert!(
+        content.contains("public func processBytes(\n    content: String"),
+        "missing String overload with Sync stripped: {content}"
+    );
+    assert!(
+        content.contains("public func processBytes(\n    content: [UInt8]"),
+        "missing [UInt8] overload with Sync stripped: {content}"
+    );
+    // Inner call delegates to `processBytesSync`
+    assert!(
+        content.contains("return try processBytesSync(makeByteVec("),
+        "inner call should use processBytesSync: {content}"
+    );
+}
+
+#[test]
+fn path_first_param_emits_string_path_overload() {
+    // IR: load_file_sync(path: Path, mime_type: String (optional), cfg: LoadConfig) -> LoadResult
+    // Should emit a `loadFile` wrapper accepting `path: String`.
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![make_sync_fn(
+            "load_file_sync",
+            vec![
+                make_param("path", TypeRef::Path),
+                make_optional_param("mime_type", TypeRef::String),
+                make_param("cfg", TypeRef::Named("LoadConfig".into())),
+            ],
+            TypeRef::Named("LoadResult".into()),
+        )],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+
+    // Public wrapper is `loadFile` (Sync stripped)
+    assert!(
+        content.contains("public func loadFile(\n    path: String"),
+        "missing String path overload for loadFile: {content}"
+    );
+    // Inner call delegates to `loadFileSync`
+    assert!(
+        content.contains("return try loadFileSync(path"),
+        "inner call should use loadFileSync: {content}"
+    );
+    // Optional mime_type gets `= nil` default
+    assert!(
+        content.contains("mimeType: String? = nil"),
+        "optional mime_type should have nil default: {content}"
+    );
+}
+
+#[test]
+fn no_bytes_or_path_functions_emits_no_wrapper_section() {
+    // IR with only a String-param function — no convenience wrappers should be emitted.
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![make_sync_fn(
+            "greet",
+            vec![make_param("name", TypeRef::String)],
+            TypeRef::String,
+        )],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+
+    assert!(
+        !content.contains("// MARK: - Convenience Wrapper Functions"),
+        "wrapper section must not appear when no bytes/path candidates: {content}"
+    );
+    assert!(
+        !content.contains("makeByteVec"),
+        "makeByteVec must not appear when no bytes candidates: {content}"
+    );
+}
+
+#[test]
+fn async_bytes_function_is_not_a_candidate() {
+    // Async functions are not candidates — they cannot be wrapped with a simple sync call.
+    let async_fn = FunctionDef {
+        name: "fetch_bytes".to_string(),
+        rust_path: "demo::fetch_bytes".to_string(),
+        original_rust_path: String::new(),
+        params: vec![
+            make_param("content", TypeRef::Bytes),
+            make_param("config", TypeRef::Named("FetchConfig".into())),
+        ],
+        return_type: TypeRef::Named("FetchResult".into()),
+        is_async: true,
+        error_type: None,
+        doc: String::new(),
+        cfg: None,
+        sanitized: false,
+        return_sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+    };
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![async_fn],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+
+    assert!(
+        !content.contains("public func fetchBytes"),
+        "async bytes function must not generate a convenience overload: {content}"
     );
 }
 
@@ -518,6 +818,7 @@ fn output_path_uses_pascal_case_module_name() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();

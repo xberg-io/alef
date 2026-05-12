@@ -1,0 +1,6 @@
+	if v.{{ go_field }} != nil {
+		aux.{{ go_field }} = make([]int, len(*v.{{ go_field }}))
+		for i, b := range *v.{{ go_field }} {
+			aux.{{ go_field }}[i] = int(b)
+		}
+	}

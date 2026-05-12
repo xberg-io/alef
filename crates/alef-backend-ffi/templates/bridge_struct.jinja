@@ -1,0 +1,26 @@
+/// Rust-side bridge that holds a C vtable pointer and opaque `user_data`.
+///
+/// Implements `{{ trait_name }}` by forwarding calls through the vtable.
+pub struct {{ bridge_name }} {
+    vtable: {{ vtable_name }},
+    user_data: *const std::ffi::c_void,
+    cached_name: String,
+    cached_version: String,
+{%- if extra_fields %}
+{{ extra_fields -}}
+{%- endif %}
+}
+
+impl std::fmt::Debug for {{ bridge_name }} {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("{{ bridge_name }}")
+            .field("cached_name", &self.cached_name)
+            .field("cached_version", &self.cached_version)
+            .finish_non_exhaustive()
+    }
+}
+
+// SAFETY: The caller is responsible for ensuring `user_data` is safe to send across
+// thread boundaries. This is documented in `{{ vtable_name }}` and the registration function.
+unsafe impl Send for {{ bridge_name }} {}
+unsafe impl Sync for {{ bridge_name }} {}

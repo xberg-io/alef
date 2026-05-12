@@ -22,6 +22,8 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
         core_wrapper: CoreWrapper::None,
         vec_inner_core_wrapper: CoreWrapper::None,
         newtype_wrapper: None,
+        serde_rename: None,
+        serde_flatten: false,
     }
 }
 
@@ -93,6 +95,7 @@ fn cargo_toml_contains_frb_version() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -133,6 +136,7 @@ fn lib_rs_emits_mirror_struct_per_ir_type() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -170,6 +174,7 @@ fn lib_rs_emits_bridge_fn_per_ir_function() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -213,6 +218,7 @@ fn lib_rs_async_fn_uses_async_fn_keyword() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -248,6 +254,7 @@ fn lib_rs_result_fn_uses_map_err_to_string() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -295,12 +302,14 @@ fn lib_rs_emits_mirror_enum_per_ir_enum() {
             doc: String::new(),
             cfg: None,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
 
             is_copy: false,
             has_serde: false,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -324,6 +333,7 @@ fn build_rs_is_emitted() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -341,6 +351,7 @@ fn frb_yaml_is_emitted_with_module_name() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -373,6 +384,7 @@ fn generate_bindings_returns_dart_file_plus_rust_crate_files() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -471,6 +483,7 @@ fn lib_rs_emits_frb_trait_bridge_for_sync_method_trait() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
     let config = make_config_with_bridge("Validator");
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
@@ -529,6 +542,7 @@ fn lib_rs_emits_frb_trait_bridge_for_async_method_trait() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
     let config = make_config_with_bridge("OcrBackend");
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
@@ -568,6 +582,254 @@ fn lib_rs_emits_frb_trait_bridge_for_async_method_trait() {
     assert!(lib.contains("fn extract_text("), "missing extract_text impl: {lib}");
 }
 
+/// When the bridge config sets `register_fn` + `registry_getter`, the codegen
+/// must emit a `pub fn register_<trait>(...) -> Result<(), String>` forwarder
+/// that wraps the user's `{Trait}DartImpl` in `Arc::new(...)` and inserts it
+/// into the configured registry. FRB auto-bridges this `pub fn` for Dart.
+#[test]
+fn lib_rs_emits_register_forwarder_when_register_fn_configured() {
+    let trait_def = make_trait(
+        "OcrBackend",
+        "demo_crate::OcrBackend",
+        vec![make_method(
+            "supports_language",
+            vec![make_param("lang", TypeRef::String)],
+            TypeRef::Primitive(PrimitiveType::Bool),
+            false,
+        )],
+    );
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_def],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+    let mut config = make_config();
+    config.trait_bridges = vec![TraitBridgeConfig {
+        trait_name: "OcrBackend".to_string(),
+        super_trait: None,
+        registry_getter: Some("demo_crate::plugins::registry::get_ocr_backend_registry".to_string()),
+        register_fn: Some("register_ocr_backend".to_string()),
+        unregister_fn: Some("unregister_ocr_backend".to_string()),
+        clear_fn: None,
+        type_alias: None,
+        param_name: None,
+        register_extra_args: None,
+        exclude_languages: vec![],
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
+    }];
+    let files = DartBackend.generate_bindings(&api, &config).unwrap();
+    let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
+
+    // Register forwarder takes the FRB-bridged opaque struct and returns Result<(), String>.
+    assert!(
+        lib.contains("pub fn register_ocr_backend(impl_: OcrBackendDartImpl) -> Result<(), String>"),
+        "missing register forwarder signature: {lib}"
+    );
+    assert!(
+        lib.contains("std::sync::Arc<dyn demo_crate::plugins::OcrBackend>"),
+        "register forwarder must wrap impl_ as Arc<dyn Trait>: {lib}"
+    );
+    assert!(
+        lib.contains("demo_crate::plugins::registry::get_ocr_backend_registry()"),
+        "register forwarder must call the configured registry getter: {lib}"
+    );
+    assert!(
+        lib.contains("registry.register(arc).map_err(|e| e.to_string())"),
+        "register forwarder must register the Arc and stringify errors: {lib}"
+    );
+
+    // Unregister forwarder takes the plugin name and returns Result<(), String>.
+    assert!(
+        lib.contains("pub fn unregister_ocr_backend(name: String) -> Result<(), String>"),
+        "missing unregister forwarder signature: {lib}"
+    );
+    assert!(
+        lib.contains("registry.remove(&name).map_err(|e| e.to_string())"),
+        "unregister forwarder must call registry.remove(&name) and stringify errors: {lib}"
+    );
+}
+
+/// When `register_fn` is unset, no forwarder is emitted — the bridge keeps
+/// only the wrapper struct, trait impl, and factory.
+#[test]
+fn lib_rs_does_not_emit_register_forwarder_without_register_fn() {
+    let trait_def = make_trait(
+        "Validator",
+        "demo_crate::Validator",
+        vec![make_method(
+            "validate",
+            vec![make_param("input", TypeRef::String)],
+            TypeRef::Primitive(PrimitiveType::Bool),
+            false,
+        )],
+    );
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_def],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+    // make_config_with_bridge() leaves register_fn = None.
+    let config = make_config_with_bridge("Validator");
+    let files = DartBackend.generate_bindings(&api, &config).unwrap();
+    let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
+
+    assert!(
+        !lib.contains("pub fn register_"),
+        "no register forwarder should be emitted when register_fn is unset: {lib}"
+    );
+    assert!(
+        !lib.contains("pub fn unregister_"),
+        "no unregister forwarder should be emitted when unregister_fn is unset: {lib}"
+    );
+}
+
+/// `register_extra_args` must be appended to the `registry.register(arc)` call.
+#[test]
+fn lib_rs_register_forwarder_appends_register_extra_args() {
+    let trait_def = make_trait(
+        "Validator",
+        "demo_crate::Validator",
+        vec![make_method(
+            "validate",
+            vec![make_param("input", TypeRef::String)],
+            TypeRef::Primitive(PrimitiveType::Bool),
+            false,
+        )],
+    );
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_def],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+    let mut config = make_config();
+    config.trait_bridges = vec![TraitBridgeConfig {
+        trait_name: "Validator".to_string(),
+        super_trait: None,
+        registry_getter: Some("demo_crate::plugins::registry::get_validator_registry".to_string()),
+        register_fn: Some("register_validator".to_string()),
+        unregister_fn: None,
+        clear_fn: None,
+        type_alias: None,
+        param_name: None,
+        register_extra_args: Some("0".to_string()),
+        exclude_languages: vec![],
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
+    }];
+    let files = DartBackend.generate_bindings(&api, &config).unwrap();
+    let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
+
+    assert!(
+        lib.contains("registry.register(arc, 0)"),
+        "register forwarder must append register_extra_args: {lib}"
+    );
+}
+
+/// When `clear_fn` and `registry_getter` are both set, the codegen must emit a
+/// `pub fn clear_*() -> Result<(), String>` Rust-side forwarder.  FRB auto-bridges
+/// it so Dart sees it as `Future<void> clearXxxs()`.
+#[test]
+fn lib_rs_emits_clear_forwarder_when_clear_fn_configured() {
+    let trait_def = make_trait(
+        "OcrBackend",
+        "demo_crate::OcrBackend",
+        vec![make_method(
+            "supports_language",
+            vec![make_param("lang", TypeRef::String)],
+            TypeRef::Primitive(PrimitiveType::Bool),
+            false,
+        )],
+    );
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_def],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+    let mut config = make_config();
+    config.trait_bridges = vec![TraitBridgeConfig {
+        trait_name: "OcrBackend".to_string(),
+        super_trait: None,
+        registry_getter: Some("demo_crate::plugins::registry::get_ocr_backend_registry".to_string()),
+        register_fn: Some("register_ocr_backend".to_string()),
+        unregister_fn: Some("unregister_ocr_backend".to_string()),
+        clear_fn: Some("clear_ocr_backends".to_string()),
+        type_alias: None,
+        param_name: None,
+        register_extra_args: None,
+        exclude_languages: vec![],
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
+    }];
+    let files = DartBackend.generate_bindings(&api, &config).unwrap();
+    let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
+
+    // Clear forwarder takes no args and returns Result<(), String>.
+    assert!(
+        lib.contains("pub fn clear_ocr_backends() -> Result<(), String>"),
+        "missing clear forwarder signature: {lib}"
+    );
+    assert!(
+        lib.contains("registry.clear().map_err(|e| e.to_string())"),
+        "clear forwarder must call registry.clear() and stringify errors: {lib}"
+    );
+    assert!(
+        lib.contains("demo_crate::plugins::registry::get_ocr_backend_registry()"),
+        "clear forwarder must call the configured registry getter: {lib}"
+    );
+}
+
+/// When `clear_fn` is unset, no clear forwarder is emitted.
+#[test]
+fn lib_rs_does_not_emit_clear_forwarder_without_clear_fn() {
+    let trait_def = make_trait(
+        "Validator",
+        "demo_crate::Validator",
+        vec![make_method(
+            "validate",
+            vec![make_param("input", TypeRef::String)],
+            TypeRef::Primitive(PrimitiveType::Bool),
+            false,
+        )],
+    );
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_def],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+    let config = make_config_with_bridge("Validator");
+    let files = DartBackend.generate_bindings(&api, &config).unwrap();
+    let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
+
+    assert!(
+        !lib.contains("pub fn clear_"),
+        "no clear forwarder should be emitted when clear_fn is unset: {lib}"
+    );
+}
+
 #[test]
 fn cargo_toml_has_license_field() {
     use alef_core::config::ScaffoldConfig;
@@ -590,6 +852,7 @@ fn cargo_toml_has_license_field() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
@@ -610,6 +873,7 @@ fn cargo_toml_license_defaults_to_mit_when_scaffold_absent() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -632,6 +896,7 @@ fn cargo_toml_does_not_include_anyhow_without_trait_bridges() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -665,6 +930,7 @@ fn cargo_toml_does_not_include_anyhow_with_trait_bridges() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
     let config = make_config_with_bridge("OcrBackend");
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
@@ -694,6 +960,7 @@ fn cargo_toml_does_not_include_serde_json() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -703,4 +970,90 @@ fn cargo_toml_does_not_include_serde_json() {
         !cargo.contains("serde_json"),
         "Cargo.toml must not list serde_json (unused dep); got:\n{cargo}"
     );
+}
+
+/// When a function name appears in `[crates.dart].stub_methods`, the generated
+/// bridge fn body must be replaced with `unimplemented!()` rather than attempting
+/// argument conversion. The function signature (params + return type) must still
+/// be emitted so the FRB codegen can see the function.
+#[test]
+fn lib_rs_stub_methods_emits_unimplemented_body() {
+    let toml = r#"
+[workspace]
+languages = ["dart"]
+
+[[crates]]
+name = "demo-crate"
+sources = ["src/lib.rs"]
+
+[crates.dart]
+stub_methods = ["process_bytes_batch"]
+"#;
+    let cfg: NewAlefConfig = toml::from_str(toml).expect("test config must parse");
+    let config = cfg.resolve().expect("test config must resolve").remove(0);
+
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![
+            FunctionDef {
+                name: "process_bytes_batch".into(),
+                rust_path: "demo::process_bytes_batch".into(),
+                original_rust_path: String::new(),
+                params: vec![make_param("items", TypeRef::Vec(Box::new(TypeRef::Bytes)))],
+                return_type: TypeRef::Unit,
+                is_async: false,
+                error_type: None,
+                doc: String::new(),
+                cfg: None,
+                sanitized: false,
+                return_sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+            },
+            FunctionDef {
+                name: "greet".into(),
+                rust_path: "demo::greet".into(),
+                original_rust_path: String::new(),
+                params: vec![make_param("name", TypeRef::String)],
+                return_type: TypeRef::String,
+                is_async: false,
+                error_type: None,
+                doc: String::new(),
+                cfg: None,
+                sanitized: false,
+                return_sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+            },
+        ],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = DartBackend.generate_bindings(&api, &config).unwrap();
+    let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
+
+    // The stub function must still be present with its signature.
+    assert!(
+        lib.contains("pub fn process_bytes_batch"),
+        "stub fn must still be emitted: {lib}"
+    );
+    // The body must be unimplemented!(), not a real call.
+    assert!(
+        lib.contains("unimplemented!"),
+        "stub fn body must contain unimplemented!(): {lib}"
+    );
+    assert!(
+        !lib.contains("demo::process_bytes_batch("),
+        "stub fn must NOT call the core fn: {lib}"
+    );
+
+    // Non-stub functions must not be affected.
+    assert!(lib.contains("pub fn greet"), "non-stub fn must still be emitted: {lib}");
+    assert!(lib.contains("demo::greet("), "non-stub fn must call core fn: {lib}");
 }

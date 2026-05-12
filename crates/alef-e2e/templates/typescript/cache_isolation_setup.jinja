@@ -1,0 +1,15 @@
+{#- TypeScript cache isolation setup template
+
+   Context variables: none (uses fixed template)
+#}
+  let _tslpTestCacheDir: string;
+
+  beforeAll(() => {
+    _tslpTestCacheDir = mkdtempSync(join(tmpdir(), 'tslp-e2e-'));
+    configure({ cacheDir: _tslpTestCacheDir });
+  });
+
+  afterAll(() => {
+    configure({});
+    try { rmSync(_tslpTestCacheDir, { recursive: true, force: true }); } catch (_e) {}
+  });

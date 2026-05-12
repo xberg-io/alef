@@ -1,0 +1,2 @@
+        if "{{ field_name }}" in value and value["{{ field_name }}"] is not None:
+            value["{{ field_name }}"] = _to_rust_{{ nested_snake }}(value["{{ field_name }}"])

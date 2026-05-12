@@ -1,0 +1,5 @@
+        let __types: Vec<String> = {{ call_expr }};
+        let __strs: Vec<&'static str> = __types.into_iter()
+            .map(|s| -> &'static str { Box::leak(s.into_boxed_str()) })
+            .collect();
+        Box::leak(__strs.into_boxed_slice())

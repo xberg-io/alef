@@ -1,0 +1,6 @@
+{% if is_ref %}
+let _{{ name }}_storage: Option<std::ffi::CString> = {{ name }}.and_then(|v| std::ffi::CString::new(v).ok());
+{% else %}
+let _{{ name }}_storage: Option<std::ffi::CString> = {{ name }}.as_deref().and_then(|v| std::ffi::CString::new(v).ok());
+{% endif %}
+let {{ name }}_ptr: *const std::ffi::c_char = _{{ name }}_storage.as_ref().map_or(std::ptr::null(), |cs| cs.as_ptr());

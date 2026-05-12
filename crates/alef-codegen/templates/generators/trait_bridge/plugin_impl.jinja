@@ -1,0 +1,23 @@
+impl {{ super_trait_path }} for {{ wrapper_name }} {
+    fn name(&self) -> &str {
+        &self.cached_name
+    }
+
+    fn version(&self) -> String {
+{% for line in version_lines %}
+        {{ line }}
+{% endfor %}
+    }
+
+    fn initialize(&self) -> std::result::Result<(), {{ error_path }}> {
+{% for line in init_lines %}
+        {{ line }}
+{% endfor %}
+    }
+
+    fn shutdown(&self) -> std::result::Result<(), {{ error_path }}> {
+{% for line in shutdown_lines %}
+        {{ line }}
+{% endfor %}
+    }
+}

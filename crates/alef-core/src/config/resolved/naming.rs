@@ -74,6 +74,22 @@ impl ResolvedCrateConfig {
             .unwrap_or_else(|| self.name.replace('-', "_"))
     }
 
+    /// Get the Dart FRB bridge class name.
+    ///
+    /// Converts `[dart] lib_name` (falling back to `dart_pubspec_name()`) to
+    /// PascalCase and appends `"Bridge"`, matching the FRB v2 convention.
+    /// E.g. `lib_name = "kreuzcrawl"` → `"KreuzcrawlBridge"`.
+    pub fn dart_bridge_class_name(&self) -> String {
+        use heck::ToUpperCamelCase;
+        let lib_name = self
+            .dart
+            .as_ref()
+            .and_then(|d| d.lib_name.as_ref())
+            .cloned()
+            .unwrap_or_else(|| self.dart_pubspec_name());
+        format!("{}Bridge", lib_name.to_upper_camel_case())
+    }
+
     /// Get the Swift module name.
     ///
     /// Returns `[swift] module_name` if configured, otherwise derives a PascalCase

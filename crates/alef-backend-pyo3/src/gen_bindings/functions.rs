@@ -20,6 +20,7 @@ pub(super) fn gen_api_py(
     package_name: &str,
     trait_bridges: &[alef_core::config::TraitBridgeConfig],
     dto: &alef_core::config::DtoConfig,
+    capsule_types: &std::collections::HashMap<String, alef_core::config::CapsuleTypeConfig>,
 ) -> String {
     use alef_core::config::PythonDtoStyle;
     use alef_core::ir::TypeRef;
@@ -132,7 +133,13 @@ pub(super) fn gen_api_py(
     let mut out = String::with_capacity(4096);
     out.push_str(&hash::header(CommentStyle::Hash));
     out.push_str("\"\"\"Public API for conversion.\"\"\"\n\n");
-    out.push_str(&format!("import {package_name}.{module_name} as _rust\n"));
+    out.push_str(&crate::template_env::render(
+        "import_as_module.jinja",
+        minijinja::context! {
+            package_name => package_name,
+            module_name => module_name,
+        },
+    ));
 
     // Split type imports: opaque/error types and non-options types come from the native module,
     // has_default dataclass types come from .options.
@@ -236,6 +243,11 @@ pub(super) fn gen_api_py(
     let mut options_imports: Vec<&str> = Vec::new();
     let mut native_imports: Vec<&str> = Vec::new();
     for name in &all_type_imports {
+        // Capsule types are not registered as #[pyclass] in the native module; skip them
+        // here so api.py doesn't try `from ._native import <CapsuleType>` and crash at import.
+        if capsule_types.contains_key(name) {
+            continue;
+        }
         let is_options = options_type_names.contains(name) || options_enum_names.contains(name);
         let is_native = !is_options
             && (opaque_names.contains(name)
@@ -257,10 +269,21 @@ pub(super) fn gen_api_py(
     native_imports.sort_unstable();
     options_imports.sort_unstable();
     if !native_imports.is_empty() {
-        out.push_str(&format!("\nfrom .{module_name} import {}\n", native_imports.join(", ")));
+        out.push_str(&crate::template_env::render(
+            "import_from_module.jinja",
+            minijinja::context! {
+                module_name => module_name,
+                imports => native_imports.join(", "),
+            },
+        ));
     }
     if !options_imports.is_empty() {
-        out.push_str(&format!("\nfrom .options import {}\n", options_imports.join(", ")));
+        out.push_str(&crate::template_env::render(
+            "import_from_options.jinja",
+            minijinja::context! {
+                imports => options_imports.join(", "),
+            },
+        ));
     }
     out.push_str("\nfrom typing import Any, TypeVar\n");
     out.push('\n');
@@ -301,8 +324,13 @@ pub(super) fn gen_api_py(
         // Build the converter signature.
         // When there's a visitor override param, always use multi-line form.
         if bridge_visitor_field.is_some() {
-            out.push_str(&format!(
-                "def _to_rust_{snake}(\n    value: {type_name} | dict[str, Any] | None,\n    _visitor_override: {bridge_visitor_type} | None = None,\n) -> _rust.{type_name} | None:\n"
+            out.push_str(&crate::template_env::render(
+                "converters/signature_with_visitor.jinja",
+                minijinja::context! {
+                    snake => &snake,
+                    type_name => type_name,
+                    bridge_visitor_type => bridge_visitor_type,
+                },
             ));
         } else {
             // Single-line: "def _to_rust_{snake}(value: {type_name} | None) -> _rust.{type_name} | None:"
@@ -310,17 +338,28 @@ pub(super) fn gen_api_py(
             // + type_name + " | None:" (8) = 47 + snake.len + 2 * type_name.len
             let sig_len = 47 + snake.len() + 2 * type_name.len();
             if sig_len > 100 {
-                out.push_str(&format!(
-                    "def _to_rust_{snake}(\n    value: {type_name} | dict[str, Any] | None,\n) -> _rust.{type_name} | None:\n"
+                out.push_str(&crate::template_env::render(
+                    "converters/signature_multiline.jinja",
+                    minijinja::context! {
+                        snake => &snake,
+                        type_name => type_name,
+                    },
                 ));
             } else {
-                out.push_str(&format!(
-                    "def _to_rust_{snake}(value: {type_name} | dict[str, Any] | None) -> _rust.{type_name} | None:\n"
+                out.push_str(&crate::template_env::render(
+                    "converters/signature_singleline.jinja",
+                    minijinja::context! {
+                        snake => &snake,
+                        type_name => type_name,
+                    },
                 ));
             }
         }
-        out.push_str(&format!(
-            "    \"\"\"Convert Python {type_name} to Rust binding type.\"\"\"\n"
+        out.push_str(&crate::template_env::render(
+            "converters/docstring.jinja",
+            minijinja::context! {
+                type_name => type_name,
+            },
         ));
 
         // Helper fn: extract the leaf Named type name from Named(n) or Optional(Named(n)).
@@ -375,11 +414,18 @@ pub(super) fn gen_api_py(
             let insert_pos = out.rfind(&helper_marker).unwrap_or(out.len());
 
             let mut helper = String::new();
-            helper.push_str(&format!(
-                "def _coerce_dict_{snake}(value: dict[str, Any]) -> {type_name}:\n"
+            helper.push_str(&crate::template_env::render(
+                "converters/dict_coercer_header.jinja",
+                minijinja::context! {
+                    snake => &snake,
+                    type_name => type_name,
+                },
             ));
-            helper.push_str(&format!(
-                "    \"\"\"Coerce a dict into {type_name}, converting nested types in-place.\"\"\"\n"
+            helper.push_str(&crate::template_env::render(
+                "converters/dict_coercer_docstring.jinja",
+                minijinja::context! {
+                    type_name => type_name,
+                },
             ));
 
             if !struct_coercible.is_empty() {
@@ -387,7 +433,13 @@ pub(super) fn gen_api_py(
                 for field in &struct_coercible {
                     let nested_name = get_inner_name(&field.ty).unwrap();
                     let nested_snake = nested_name.to_snake_case();
-                    helper.push_str(&format!("        \"{}\": _to_rust_{nested_snake},\n", field.name));
+                    helper.push_str(&crate::template_env::render(
+                        "converters/struct_coercion_entry.jinja",
+                        minijinja::context! {
+                            field_name => &field.name,
+                            nested_snake => &nested_snake,
+                        },
+                    ));
                 }
                 helper.push_str("    }\n");
                 helper.push_str("    for _k, _fn in _struct_coercions.items():\n");
@@ -400,7 +452,13 @@ pub(super) fn gen_api_py(
                 helper.push_str("    _enum_coercions = {\n");
                 for field in &simple_enum_coercible {
                     let enum_name = get_inner_name(&field.ty).unwrap();
-                    helper.push_str(&format!("        \"{}\": _rust.{enum_name},\n", field.name));
+                    helper.push_str(&crate::template_env::render(
+                        "converters/enum_coercion_entry.jinja",
+                        minijinja::context! {
+                            field_name => &field.name,
+                            enum_name => enum_name,
+                        },
+                    ));
                 }
                 helper.push_str("    }\n");
                 helper.push_str("    for _k, _cls in _enum_coercions.items():\n");
@@ -413,7 +471,13 @@ pub(super) fn gen_api_py(
                 helper.push_str("    _data_enum_coercions = {\n");
                 for field in &data_enum_coercible {
                     let enum_name = get_inner_name(&field.ty).unwrap();
-                    helper.push_str(&format!("        \"{}\": _rust.{enum_name},\n", field.name));
+                    helper.push_str(&crate::template_env::render(
+                        "converters/enum_coercion_entry.jinja",
+                        minijinja::context! {
+                            field_name => &field.name,
+                            enum_name => enum_name,
+                        },
+                    ));
                 }
                 helper.push_str("    }\n");
                 helper.push_str("    for _k, _cls in _data_enum_coercions.items():\n");
@@ -422,7 +486,12 @@ pub(super) fn gen_api_py(
                 );
             }
 
-            helper.push_str(&format!("    return {type_name}(**value)\n\n\n"));
+            helper.push_str(&crate::template_env::render(
+                "converters/return_coerced_type.jinja",
+                minijinja::context! {
+                    type_name => type_name,
+                },
+            ));
             out.insert_str(insert_pos, &helper);
         }
 
@@ -432,16 +501,24 @@ pub(super) fn gen_api_py(
 
         if use_dict_helper {
             // Delegate all dict coercion to the extracted helper.
-            out.push_str(&format!("        value = _coerce_dict_{snake}(value)\n"));
+            out.push_str(&crate::template_env::render(
+                "converters/call_dict_helper.jinja",
+                minijinja::context! {
+                    snake => &snake,
+                },
+            ));
         } else {
             // Inline coercions for types with few coercible fields (stays within ruff C901 limit).
             let has_enum_field = !simple_enum_coercible.is_empty();
             if has_enum_field {
                 for field in &simple_enum_coercible {
                     let enum_name = get_inner_name(&field.ty).unwrap();
-                    out.push_str(&format!(
-                        "        if \"{field_name}\" in value and value[\"{field_name}\"] is not None:\n            value[\"{field_name}\"] = _coerce_enum(_rust.{enum_name}, value[\"{field_name}\"])\n",
-                        field_name = field.name,
+                    out.push_str(&crate::template_env::render(
+                        "converters/inline_enum_coerce.jinja",
+                        minijinja::context! {
+                            field_name => &field.name,
+                            enum_name => enum_name,
+                        },
                     ));
                 }
             }
@@ -450,9 +527,12 @@ pub(super) fn gen_api_py(
                 for field in &struct_coercible {
                     let nested_name = get_inner_name(&field.ty).unwrap();
                     let nested_snake = nested_name.to_snake_case();
-                    out.push_str(&format!(
-                        "        if \"{field_name}\" in value and value[\"{field_name}\"] is not None:\n            value[\"{field_name}\"] = _to_rust_{nested_snake}(value[\"{field_name}\"])\n",
-                        field_name = field.name,
+                    out.push_str(&crate::template_env::render(
+                        "converters/inline_struct_coerce.jinja",
+                        minijinja::context! {
+                            field_name => &field.name,
+                            nested_snake => &nested_snake,
+                        },
                     ));
                 }
             }
@@ -464,24 +544,41 @@ pub(super) fn gen_api_py(
             if !data_enum_coercible.is_empty() {
                 for field in &data_enum_coercible {
                     let enum_name = get_inner_name(&field.ty).unwrap();
-                    out.push_str(&format!(
-                        "        if \"{field_name}\" in value and value[\"{field_name}\"] is not None and not isinstance(value[\"{field_name}\"], _rust.{enum_name}):\n            value[\"{field_name}\"] = _rust.{enum_name}(value[\"{field_name}\"])\n",
-                        field_name = field.name,
+                    out.push_str(&crate::template_env::render(
+                        "converters/inline_data_enum_coerce.jinja",
+                        minijinja::context! {
+                            field_name => &field.name,
+                            enum_name => enum_name,
+                        },
                     ));
                 }
             }
-            out.push_str(&format!("        value = {type_name}(**value)\n"));
+            out.push_str(&crate::template_env::render(
+                "converters/construct_type.jinja",
+                minijinja::context! {
+                    type_name => type_name,
+                },
+            ));
         }
         out.push_str("    if value is None:\n");
         if let Some((kwarg_name, _field_name, _)) = bridge_visitor_field {
             // When value is None but visitor override is provided, construct a default instance.
-            out.push_str(&format!(
-                "        if _visitor_override is not None:\n            return _rust.{type_name}({kwarg_name}=_visitor_override)\n        return None\n"
+            out.push_str(&crate::template_env::render(
+                "visitor_override_none_case.jinja",
+                minijinja::context! {
+                    type_name => type_name,
+                    kwarg_name => kwarg_name,
+                },
             ));
         } else {
             out.push_str("        return None\n");
         }
-        out.push_str(&format!("    return _rust.{type_name}(\n"));
+        out.push_str(&crate::template_env::render(
+            "converters/return_constructed.jinja",
+            minijinja::context! {
+                type_name => type_name,
+            },
+        ));
 
         for field in &typ.fields {
             // Check if the field's type is itself a has_default Named type (needs nested conversion)
@@ -501,9 +598,12 @@ pub(super) fn gen_api_py(
                 if default_types.contains_key(nested_name) {
                     let nested_snake = nested_name.to_snake_case();
                     let accessor = field_access(&field.name);
-                    out.push_str(&format!(
-                        "        {}=_to_rust_{nested_snake}({accessor}),\n",
-                        field.name
+                    out.push_str(&crate::template_env::render(
+                        "converters/field_accessor.jinja",
+                        minijinja::context! {
+                            field_name => &field.name,
+                            accessor => format!("_to_rust_{nested_snake}({accessor})"),
+                        },
                     ));
                     continue;
                 }
@@ -522,16 +622,22 @@ pub(super) fn gen_api_py(
                         let needs_none_guard =
                             matches!(&field.ty, TypeRef::Optional(_)) || field.optional || is_typeddict;
                         if needs_none_guard {
-                            out.push_str(&format!(
-                                "        {name}=({accessor} if isinstance({accessor}, _rust.{enum_name}) else _rust.{enum_name}({accessor})) if {accessor} is not None else None,\n",
-                                name = field.name,
-                                enum_name = nested_name,
+                            out.push_str(&crate::template_env::render(
+                                "data_enum_dict_coerce_guard.jinja",
+                                minijinja::context! {
+                                    name => &field.name,
+                                    accessor => &accessor,
+                                    enum_name => nested_name,
+                                },
                             ));
                         } else {
-                            out.push_str(&format!(
-                                "        {name}={accessor} if isinstance({accessor}, _rust.{enum_name}) else _rust.{enum_name}({accessor}),\n",
-                                name = field.name,
-                                enum_name = nested_name,
+                            out.push_str(&crate::template_env::render(
+                                "data_enum_dict_coerce_no_guard.jinja",
+                                minijinja::context! {
+                                    name => &field.name,
+                                    accessor => &accessor,
+                                    enum_name => nested_name,
+                                },
                             ));
                         }
                     } else {
@@ -539,10 +645,13 @@ pub(super) fn gen_api_py(
                         // instance. PyO3 enums do not provide a string `__init__`, so use the
                         // shared `_coerce_enum` helper to look up the canonical variant.
                         let accessor = field_access(&field.name);
-                        out.push_str(&format!(
-                            "        {name}=_coerce_enum(_rust.{enum_name}, {accessor}),\n",
-                            name = field.name,
-                            enum_name = nested_name,
+                        out.push_str(&crate::template_env::render(
+                            "simple_enum_dict_coerce.jinja",
+                            minijinja::context! {
+                                name => &field.name,
+                                enum_name => nested_name,
+                                accessor => &accessor,
+                            },
                         ));
                     }
                     continue;
@@ -556,16 +665,24 @@ pub(super) fn gen_api_py(
                         let accessor = field_access(&field.name);
                         if data_enum_names.contains(&enum_name.as_str()) {
                             // Data enum list: each element is a dict passed to the PyO3 constructor.
-                            out.push_str(&format!(
-                                "        {name}=[_rust.{enum_name}(v) for v in {accessor}],\n",
-                                name = field.name,
+                            out.push_str(&crate::template_env::render(
+                                "data_enum_vec_coerce.jinja",
+                                minijinja::context! {
+                                    name => &field.name,
+                                    enum_name => enum_name.as_str(),
+                                    accessor => &accessor,
+                                },
                             ));
                         } else {
                             // Simple unit enum list: each element is a string/alias or a
                             // _rust.<Enum> instance — coerce via the shared helper.
-                            out.push_str(&format!(
-                                "        {name}=[_coerce_enum(_rust.{enum_name}, v) for v in {accessor}],\n",
-                                name = field.name,
+                            out.push_str(&crate::template_env::render(
+                                "simple_enum_vec_coerce.jinja",
+                                minijinja::context! {
+                                    name => &field.name,
+                                    enum_name => enum_name.as_str(),
+                                    accessor => &accessor,
+                                },
                             ));
                         }
                         continue;
@@ -577,16 +694,25 @@ pub(super) fn gen_api_py(
             // When it is, use the _visitor_override if provided, else fall back to value.field.
             if let Some((kwarg_name, field_name, _)) = bridge_visitor_field {
                 if field.name == field_name {
-                    out.push_str(&format!(
-                        "        {field_name}=_visitor_override if _visitor_override is not None else {accessor},\n",
-                        accessor = field_access(field_name),
+                    out.push_str(&crate::template_env::render(
+                        "visitor_override_param.jinja",
+                        minijinja::context! {
+                            field_name => field_name,
+                            accessor => field_access(field_name),
+                        },
                     ));
                     let _ = kwarg_name; // used above in the None branch
                     continue;
                 }
             }
             let accessor = field_access(&field.name);
-            out.push_str(&format!("        {name}={accessor},\n", name = field.name));
+            out.push_str(&crate::template_env::render(
+                "field_kwarg.jinja",
+                minijinja::context! {
+                    name => &field.name,
+                    accessor => &accessor,
+                },
+            ));
         }
 
         out.push_str("    )\n\n\n");
@@ -702,18 +828,41 @@ pub(super) fn gen_api_py(
             return_type_str
         );
         if single_line.len() <= 100 && !has_builtin_param {
-            out.push_str(&single_line);
+            out.push_str(&crate::template_env::render(
+                "function_signature_single_line.jinja",
+                minijinja::context! {
+                    def_keyword => def_keyword,
+                    name => &func.name,
+                    params => sig_parts.join(", "),
+                    return_type => &return_type_str,
+                },
+            ));
         } else {
-            out.push_str(&format!("{def_keyword} {}(\n", func.name));
+            out.push_str(&crate::template_env::render(
+                "function_signature_multiline_start.jinja",
+                minijinja::context! {
+                    def_keyword => def_keyword,
+                    name => &func.name,
+                },
+            ));
             for param in &sig_parts {
                 let name = param.split(':').next().unwrap_or("").trim();
                 if crate::gen_stubs::is_python_builtin_name(name) {
-                    out.push_str(&format!("    {},  # noqa: A002\n", param));
+                    out.push_str(&crate::template_env::render(
+                        "function_signature_multiline_param_noqa.jinja",
+                        minijinja::context! { param => param },
+                    ));
                 } else {
-                    out.push_str(&format!("    {},\n", param));
+                    out.push_str(&crate::template_env::render(
+                        "function_signature_multiline_param.jinja",
+                        minijinja::context! { param => param },
+                    ));
                 }
             }
-            out.push_str(&format!(") -> {}:\n", return_type_str));
+            out.push_str(&crate::template_env::render(
+                "function_signature_multiline_end.jinja",
+                minijinja::context! { return_type => &return_type_str },
+            ));
         }
         {
             let doc_with_period = if !func.doc.is_empty() {
@@ -742,7 +891,10 @@ pub(super) fn gen_api_py(
                 };
                 format!("{}.", capitalized)
             };
-            out.push_str(&format!("    \"\"\"{doc_with_period}\"\"\"\n"));
+            out.push_str(&crate::template_env::render(
+                "function_docstring.jinja",
+                minijinja::context! { doc => &doc_with_period },
+            ));
         }
 
         // For each param that has a converter, emit a local conversion variable.
@@ -800,8 +952,14 @@ pub(super) fn gen_api_py(
                             // Optional has-default param: use Rust default constructor when None
                             // instead of passing None to the Rust binding (which may panic on
                             // `.expect("'config' is required")`).
-                            out.push_str(&format!(
-                                "    {var} = {scalar_expr} if {pname} is not None else _rust.{name}()\n"
+                            out.push_str(&crate::template_env::render(
+                                "config_conversion_ternary.jinja",
+                                minijinja::context! {
+                                    var => &var,
+                                    body => &scalar_expr,
+                                    pname => pname,
+                                    name => name,
+                                },
                             ));
                         } else {
                             emit_param_conversion(&mut out, &var, pname, &scalar_expr, false);
@@ -811,7 +969,13 @@ pub(super) fn gen_api_py(
                         // Rust default constructor instead of raising ValueError.  This lets
                         // callers omit the config argument naturally.
                         if !param.optional && !is_promoted && !is_collection {
-                            out.push_str(&format!("    if {var} is None:\n        {var} = _rust.{name}()\n"));
+                            out.push_str(&crate::template_env::render(
+                                "config_default_on_none.jinja",
+                                minijinja::context! {
+                                    var => &var,
+                                    name => name,
+                                },
+                            ));
                         }
                     }
                     call_args.push((pname.clone(), var));
@@ -841,10 +1005,13 @@ pub(super) fn gen_api_py(
         let kwargs: Vec<String> = call_args.iter().map(|(k, v)| format!("{k}={v}")).collect();
         // Async pyo3 functions return a coroutine that must be awaited by the Python caller.
         let return_prefix = if func.is_async { "await " } else { "" };
-        out.push_str(&format!(
-            "    return {return_prefix}_rust.{}({})\n\n\n",
-            func.name,
-            kwargs.join(", ")
+        out.push_str(&crate::template_env::render(
+            "function_call.jinja",
+            minijinja::context! {
+                return_prefix => return_prefix,
+                name => &func.name,
+                kwargs => kwargs.join(", "),
+            },
         ));
     }
 
@@ -853,24 +1020,27 @@ pub(super) fn gen_api_py(
     // api.functions — they must be re-exported via api.py so callers can use the public package
     // path (e.g. `kreuzberg.register_ocr_backend`) rather than `kreuzberg._kreuzberg.register_ocr_backend`.
     for register_fn in crate::trait_bridge::collect_bridge_register_fns(trait_bridges) {
-        out.push_str(&format!(
-            "def {register_fn}(backend: object) -> None:\n    \"\"\"Register a {register_fn} backend.\"\"\"\n    return _rust.{register_fn}(backend=backend)\n\n\n"
+        out.push_str(&crate::template_env::render(
+            "bridge_register_fn.jinja",
+            minijinja::context! { register_fn => &register_fn },
         ));
     }
 
     // Emit pass-through wrappers for trait-bridge unregistration functions.
     // These allow callers to unregister a named backend via the public package path.
     for unregister_fn in crate::trait_bridge::collect_bridge_unregister_fns(trait_bridges) {
-        out.push_str(&format!(
-            "def {unregister_fn}(name: str) -> None:\n    \"\"\"Unregister the named {unregister_fn} backend.\"\"\"\n    return _rust.{unregister_fn}(name=name)\n\n\n"
+        out.push_str(&crate::template_env::render(
+            "bridge_unregister_fn.jinja",
+            minijinja::context! { unregister_fn => &unregister_fn },
         ));
     }
 
     // Emit pass-through wrappers for trait-bridge clear functions.
     // These allow callers to clear all registered backends for a plugin type.
     for clear_fn in crate::trait_bridge::collect_bridge_clear_fns(trait_bridges) {
-        out.push_str(&format!(
-            "def {clear_fn}() -> None:\n    \"\"\"Clear all registered {clear_fn} backends.\"\"\"\n    return _rust.{clear_fn}()\n\n\n"
+        out.push_str(&crate::template_env::render(
+            "bridge_clear_fn.jinja",
+            minijinja::context! { clear_fn => &clear_fn },
         ));
     }
 
@@ -900,10 +1070,24 @@ pub(super) fn classify_param_type(ty: &alef_core::ir::TypeRef) -> Option<(&str, 
 /// when the parameter is optional.
 pub(super) fn emit_param_conversion(out: &mut String, var: &str, pname: &str, body: &str, optional: bool) {
     if optional {
-        out.push_str(&format!("    {var} = {body} if {pname} is not None else None\n"));
+        out.push_str(&crate::template_env::render(
+            "param_conversion_optional.jinja",
+            minijinja::context! {
+                var => var,
+                body => body,
+                pname => pname,
+            },
+        ));
     } else {
-        out.push_str(&format!("    {var} = {body}\n"));
+        out.push_str(&crate::template_env::render(
+            "param_conversion.jinja",
+            minijinja::context! {
+                var => var,
+                body => body,
+            },
+        ));
     }
+    out.push('\n');
 }
 
 #[cfg(test)]

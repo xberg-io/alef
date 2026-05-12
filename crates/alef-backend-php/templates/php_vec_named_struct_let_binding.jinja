@@ -1,0 +1,25 @@
+{% if is_optional %}
+let {{ php_name }}_core: Option<Vec<{{ core_import }}::{{ struct_name }}>> = if let Some(ht) = {{ php_name }} {
+    let mut result = Vec::new();
+    for (_, item) in ht.iter() {
+        if let Some(parsed) = <&{{ struct_name }} as ext_php_rs::convert::FromZval>::from_zval(item) {
+            result.push(parsed.clone().into());
+        } else {
+            return Err(ext_php_rs::exception::PhpException::default("Failed to convert array element to {{ struct_name }}".to_string()));
+        }
+    }
+    Some(result)
+} else {
+    None
+};
+{% else %}
+let mut {{ php_name }}_core_result: Vec<{{ core_import }}::{{ struct_name }}> = Vec::new();
+for (_, item) in {{ php_name }}.iter() {
+    if let Some(parsed) = <&{{ struct_name }} as ext_php_rs::convert::FromZval>::from_zval(item) {
+        {{ php_name }}_core_result.push(parsed.clone().into());
+    } else {
+        return Err(ext_php_rs::exception::PhpException::default("Failed to convert array element to {{ struct_name }}".to_string()));
+    }
+}
+let {{ php_name }}_core: Vec<{{ core_import }}::{{ struct_name }}> = {{ php_name }}_core_result;
+{% endif %}

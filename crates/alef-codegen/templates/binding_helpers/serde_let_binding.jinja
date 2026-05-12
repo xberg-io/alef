@@ -1,0 +1,1 @@
+let {{ param_name }}_core{% if is_optional %}: Option<{{ core_path }}>{% else %}: {{ core_path }}{% endif %} = {{ value_expr }};

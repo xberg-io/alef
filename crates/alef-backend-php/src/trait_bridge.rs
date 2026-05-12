@@ -4,7 +4,6 @@
 //! to PHP objects via ext-php-rs Zval method calls.
 
 use minijinja::context;
-use std::fmt::Write;
 
 use alef_codegen::generators::trait_bridge::{
     BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec, bridge_param_type as param_type, gen_bridge_all,
@@ -261,6 +260,13 @@ pub fn gen_trait_bridge(
                 .iter()
                 .map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))),
         )
+        // Include excluded types so trait methods referencing them (e.g. `&InternalDocument`)
+        // are qualified with the full Rust path rather than emitting the bare type name.
+        .chain(
+            api.excluded_type_paths
+                .iter()
+                .map(|(name, path)| (name.clone(), path.replace('-', "_"))),
+        )
         .collect();
 
     // Visitor-style bridge: all methods have defaults, no registry, no super-trait.
@@ -309,7 +315,8 @@ fn gen_visitor_bridge(
     let core_crate = trait_path
         .split("::")
         .next()
-        .unwrap_or("html_to_markdown_rs")
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| panic!("trait_path '{trait_path}' must be a qualified path of the form 'crate_name::...'; configure extension_name in alef.toml"))
         .to_string();
 
     // Helper: convert NodeContext to a PHP array (Zval)
@@ -331,25 +338,13 @@ fn gen_visitor_bridge(
     out.push('\n');
 
     // Helper: apply {param_name} template substitution to Custom visit results.
-    // Use push_str to avoid writeln! format-string interpretation of braces.
-    out.push_str(&format!(
-        "fn php_visit_result_with_template(val: &ext_php_rs::types::Zval, tmpl_vars: &[(&str, &str)]) -> {core_crate}::VisitResult {{\n"
+    out.push_str(&crate::template_env::render(
+        "php_visit_result_with_template.jinja",
+        context! {
+            core_crate => &core_crate,
+        },
     ));
-    out.push_str("    let base = php_zval_to_visit_result(val);\n");
-    out.push_str(&format!(
-        "    if let {core_crate}::VisitResult::Custom(tmpl) = base {{\n"
-    ));
-    out.push_str("        let mut s = tmpl;\n");
-    out.push_str("        for (k, v) in tmpl_vars {\n");
-    // Generates: s = s.replace(&format!("{{{}}}", k), v);
-    // where "{{{}}}" is a format literal: {{ → {, {} → k, }} → } giving "{k}"
-    out.push_str("            s = s.replace(&format!(\"{{{}}}\", k), v);\n");
-    out.push_str("        }\n");
-    out.push_str(&format!("        {core_crate}::VisitResult::Custom(s)\n"));
-    out.push_str("    } else {\n");
-    out.push_str("        base\n");
-    out.push_str("    }\n");
-    out.push_str("}\n\n");
+    out.push_str("\n\n");
 
     // Bridge struct — stores a reference to the PHP object.
     out.push_str(&crate::template_env::render(
@@ -361,7 +356,13 @@ fn gen_visitor_bridge(
     out.push('\n');
 
     // Trait impl
-    out.push_str(&format!("impl {trait_path} for {struct_name} {{\n"));
+    out.push_str(&crate::template_env::render(
+        "php_trait_impl_start.jinja",
+        context! {
+            trait_path => &trait_path,
+            struct_name => struct_name,
+        },
+    ));
     for method in &trait_type.methods {
         if method.trait_source.is_some() {
             continue;
@@ -390,7 +391,14 @@ fn gen_visitor_method_php(out: &mut String, method: &MethodDef, type_paths: &Has
         other => param_type(other, "", false, type_paths),
     };
 
-    out.push_str(&format!("    fn {name}({sig}) -> {ret_ty} {{\n"));
+    out.push_str(&crate::template_env::render(
+        "php_visitor_method_signature.jinja",
+        context! {
+            name => name,
+            sig => &sig,
+            ret_ty => &ret_ty,
+        },
+    ));
 
     // SAFETY: php_obj pointer is valid for the lifetime of the PHP call frame.
     out.push_str("        // SAFETY: php_obj is a valid ZendObject pointer for the duration of this call.\n");
@@ -403,50 +411,66 @@ fn gen_visitor_method_php(out: &mut String, method: &MethodDef, type_paths: &Has
         for p in &method.params {
             if let TypeRef::Named(n) = &p.ty {
                 if n == "NodeContext" {
-                    out.push_str(&format!(
-                        "        let ctx_arr = nodecontext_to_php_array({}{});\n",
-                        if p.is_ref { "" } else { "&" },
-                        p.name
+                    out.push_str(&crate::template_env::render(
+                        "php_visitor_arg_nodecontext.jinja",
+                        context! {
+                            name => &p.name,
+                            ref => if p.is_ref { "" } else { "&" },
+                        },
                     ));
-                    out.push_str("        args.push(ext_php_rs::convert::IntoZval::into_zval(ctx_arr, false).unwrap_or_default());\n");
+                    out.push('\n');
                     continue;
                 }
             }
             // Check optional string ref BEFORE non-optional string, since visitor_param_type
             // returns Option<&str> for optional string ref params.
             if p.optional && matches!(&p.ty, TypeRef::String) && p.is_ref {
-                out.push_str(&format!(
-                    "        args.push(match {0} {{ Some(s) => ext_php_rs::types::Zval::try_from(s.to_string()).unwrap_or_default(), None => ext_php_rs::types::Zval::new() }});\n",
-                    p.name
+                out.push_str(&crate::template_env::render(
+                    "php_visitor_arg_optional_string_ref.jinja",
+                    context! {
+                        name => &p.name,
+                    },
                 ));
+                out.push('\n');
                 continue;
             }
             if matches!(&p.ty, TypeRef::String) {
                 if p.is_ref {
-                    out.push_str(&format!(
-                        "        args.push(ext_php_rs::types::Zval::try_from({}.to_string()).unwrap_or_default());\n",
-                        p.name
+                    out.push_str(&crate::template_env::render(
+                        "php_visitor_arg_string_ref.jinja",
+                        context! {
+                            name => &p.name,
+                        },
                     ));
                 } else {
-                    out.push_str(&format!(
-                        "        args.push(ext_php_rs::types::Zval::try_from({}.clone()).unwrap_or_default());\n",
-                        p.name
+                    out.push_str(&crate::template_env::render(
+                        "php_visitor_arg_string_owned.jinja",
+                        context! {
+                            name => &p.name,
+                        },
                     ));
                 }
+                out.push('\n');
                 continue;
             }
             if matches!(&p.ty, TypeRef::Primitive(alef_core::ir::PrimitiveType::Bool)) {
-                out.push_str(&format!(
-                    "        {{ let mut _zv = ext_php_rs::types::Zval::new(); _zv.set_bool({}); args.push(_zv); }}\n",
-                    p.name
+                out.push_str(&crate::template_env::render(
+                    "php_visitor_arg_bool.jinja",
+                    context! {
+                        name => &p.name,
+                    },
                 ));
+                out.push('\n');
                 continue;
             }
             // Default: format as string
-            out.push_str(&format!(
-                "        args.push(ext_php_rs::types::Zval::try_from(format!(\"{{:?}}\", {})).unwrap_or_default());\n",
-                p.name
+            out.push_str(&crate::template_env::render(
+                "php_visitor_arg_default.jinja",
+                context! {
+                    name => &p.name,
+                },
             ));
+            out.push('\n');
         }
     }
 
@@ -457,8 +481,12 @@ fn gen_visitor_method_php(out: &mut String, method: &MethodDef, type_paths: &Has
         out.push_str("        let dyn_args: Vec<&dyn ext_php_rs::convert::IntoZvalDyn> = args.iter().map(|z| z as &dyn ext_php_rs::convert::IntoZvalDyn).collect();\n");
     }
     let args_expr = if has_args { "dyn_args" } else { "vec![]" };
-    out.push_str(&format!(
-        "        let result = php_obj_ref.try_call_method(\"{name}\", {args_expr});\n"
+    out.push_str(&crate::template_env::render(
+        "php_visitor_method_php_call.jinja",
+        context! {
+            name => name,
+            args_expr => args_expr,
+        },
     ));
 
     // Build template vars for {param_name} → value substitution in Custom results.
@@ -488,7 +516,14 @@ fn gen_visitor_method_php(out: &mut String, method: &MethodDef, type_paths: &Has
         } else {
             format!("{}.to_string()", p.name)
         };
-        writeln!(out, "        let {owned_var}: String = {expr};").unwrap();
+        out.push_str(&crate::template_env::render(
+            "php_visitor_template_var_let_binding.jinja",
+            context! {
+                owned_var => &owned_var,
+                expr => &expr,
+            },
+        ));
+        out.push('\n');
         tmpl_var_names.push(format!("(\"{key}\", {owned_var}.as_str())"));
     }
     let tmpl_vars_expr = if tmpl_var_names.is_empty() {
@@ -498,13 +533,13 @@ fn gen_visitor_method_php(out: &mut String, method: &MethodDef, type_paths: &Has
     };
 
     // Parse result — try_call_method returns Result<Zval> (not Result<Option<Zval>>)
-    out.push_str("        match result {\n");
-    out.push_str(&format!("            Err(_) => {ret_ty}::Continue,\n"));
-    out.push_str(&format!(
-        "            Ok(val) => php_visit_result_with_template(&val, {tmpl_vars_expr}),\n"
+    out.push_str(&crate::template_env::render(
+        "php_visitor_method_result_match.jinja",
+        context! {
+            ret_ty => &ret_ty,
+            tmpl_vars_expr => &tmpl_vars_expr,
+        },
     ));
-    out.push_str("        }\n");
-    out.push_str("    }\n");
     out.push('\n');
 }
 
@@ -732,9 +767,15 @@ pub fn gen_bridge_function(
     if func.error_type.is_some() {
         out.push_str("#[allow(clippy::missing_errors_doc)]\n");
     }
-    out.push_str(&format!("pub fn {func_name}({params_str}) -> {ret} {{\n"));
-    out.push_str(&format!("    {body}\n"));
-    out.push_str("}\n");
+    out.push_str(&crate::template_env::render(
+        "php_bridge_function_definition.jinja",
+        context! {
+            func_name => func_name,
+            params_str => &params_str,
+            ret => &ret,
+            body => &body,
+        },
+    ));
 
     out
 }

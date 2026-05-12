@@ -1,0 +1,26 @@
+#[pyfunction]
+pub fn {{ register_fn }}(py: Python<'_>, backend: Py<PyAny>) -> PyResult<()> {
+{% if has_required_methods %}
+    let required_methods = [{{ required_methods_str }}];
+    let obj = backend.bind(py);
+    for method in &required_methods {
+        if !obj.hasattr(*method)? {
+            return Err(pyo3::exceptions::PyAttributeError::new_err(
+                format!("Backend missing required method: {}", method)
+            ));
+        }
+    }
+{% endif %}
+
+    let wrapper = {{ wrapper }}::new(backend)?;
+    let arc: Arc<dyn {{ trait_path }}> = Arc::new(wrapper);
+
+    py.detach(|| {
+        let registry = {{ registry_getter }}();
+        let mut registry = registry.write();
+        registry.register(arc{{ register_extra_args }}).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(
+            format!("Failed to register backend: {}", e)
+        ))
+    })?;
+    Ok(())
+}

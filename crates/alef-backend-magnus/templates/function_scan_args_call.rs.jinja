@@ -1,0 +1,9 @@
+{% if has_required and has_optional -%}
+let args = magnus::scan_args::scan_args::<({{ required_types }},), ({{ optional_types }},), (), (), (), ()>(args)?;
+{%- elif has_required -%}
+let args = magnus::scan_args::scan_args::<({{ required_types }},), (), (), (), (), ()>(args)?;
+{%- elif has_optional -%}
+let args = magnus::scan_args::scan_args::<(), ({{ optional_types }},), (), (), (), ()>(args)?;
+{%- else -%}
+let args = magnus::scan_args::scan_args::<(), (), (), (), (), ()>(args)?;
+{%- endif %}

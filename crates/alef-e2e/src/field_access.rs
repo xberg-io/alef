@@ -106,6 +106,37 @@ impl FieldResolver {
         self.array_fields.contains(field)
     }
 
+    /// Check if a resolved field path traverses a tagged-union variant.
+    ///
+    /// Returns `Some((prefix, variant, suffix))` where:
+    /// - `prefix` is the path up to (but not including) the tagged-union field
+    ///   (e.g., `"metadata.format"`)
+    /// - `variant` is the tagged-union accessor segment
+    ///   (e.g., `"excel"`)
+    /// - `suffix` is the remaining path after the variant
+    ///   (e.g., `"sheet_count"`)
+    ///
+    /// Returns `None` if no tagged-union segment exists in the path.
+    pub fn tagged_union_split(&self, fixture_field: &str) -> Option<(String, String, String)> {
+        let resolved = self.resolve(fixture_field);
+        let segments: Vec<&str> = resolved.split('.').collect();
+        let mut path_so_far = String::new();
+        for (i, seg) in segments.iter().enumerate() {
+            if !path_so_far.is_empty() {
+                path_so_far.push('.');
+            }
+            path_so_far.push_str(seg);
+            if self.method_calls.contains(&path_so_far) {
+                // Everything before the last segment of path_so_far is the prefix.
+                let prefix = segments[..i].join(".");
+                let variant = (*seg).to_string();
+                let suffix = segments[i + 1..].join(".");
+                return Some((prefix, variant, suffix));
+            }
+        }
+        None
+    }
+
     /// Check if a resolved field path contains a non-numeric map access.
     pub fn has_map_access(&self, fixture_field: &str) -> bool {
         let resolved = self.resolve(fixture_field);
@@ -126,8 +157,11 @@ impl FieldResolver {
         let segments = self.inject_array_indexing(segments);
         match language {
             "java" => render_java_with_optionals(&segments, result_var, &self.optional_fields),
+            "kotlin" => render_kotlin_with_optionals(&segments, result_var, &self.optional_fields),
             "rust" => render_rust_with_optionals(&segments, result_var, &self.optional_fields, &self.method_calls),
             "csharp" => render_csharp_with_optionals(&segments, result_var, &self.optional_fields),
+            "zig" => render_zig_with_optionals(&segments, result_var, &self.optional_fields, &self.method_calls),
+            "swift" => render_swift_with_optionals(&segments, result_var, &self.optional_fields),
             _ => render_accessor(&segments, language, result_var),
         }
     }
@@ -150,6 +184,17 @@ impl FieldResolver {
                     let next_is_length = i + 1 < len && matches!(segments[i + 1], PathSegment::Length);
                     if i + 1 < len && self.array_fields.contains(&path_so_far) && !next_is_length {
                         result.push(PathSegment::ArrayField(f.clone()));
+                    } else {
+                        result.push(seg.clone());
+                    }
+                }
+                PathSegment::MapAccess { field, key } => {
+                    if !path_so_far.is_empty() {
+                        path_so_far.push('.');
+                    }
+                    path_so_far.push_str(field);
+                    if key == "0" && self.array_fields.contains(&path_so_far) {
+                        result.push(PathSegment::ArrayField(field.clone()));
                     } else {
                         result.push(seg.clone());
                     }
@@ -249,14 +294,116 @@ fn render_accessor(segments: &[PathSegment], language: &str, result_var: &str) -
         "wasm" => render_wasm(segments, result_var),
         "go" => render_go(segments, result_var),
         "java" => render_java(segments, result_var),
+        "kotlin" => render_kotlin(segments, result_var),
         "csharp" => render_pascal_dot(segments, result_var),
         "ruby" => render_dot_access(segments, result_var, "ruby"),
         "php" => render_php(segments, result_var),
         "elixir" => render_dot_access(segments, result_var, "elixir"),
         "r" => render_r(segments, result_var),
         "c" => render_c(segments, result_var),
+        "swift" => render_swift(segments, result_var),
         _ => render_dot_access(segments, result_var, language),
     }
+}
+
+/// Generate a Swift accessor expression.
+///
+/// Swift-bridge exposes all Rust struct fields as methods with `()`, so every
+/// field segment must be followed by `()`. Array fields (e.g. `nodes` inside
+/// an array parent) also need `()`.
+fn render_swift(segments: &[PathSegment], result_var: &str) -> String {
+    let mut out = result_var.to_string();
+    for seg in segments {
+        match seg {
+            PathSegment::Field(f) => {
+                out.push('.');
+                out.push_str(f);
+                out.push_str("()");
+            }
+            PathSegment::ArrayField(f) => {
+                out.push('.');
+                out.push_str(f);
+                out.push_str("()[0]");
+            }
+            PathSegment::MapAccess { field, key } => {
+                out.push('.');
+                out.push_str(field);
+                if key.chars().all(|c| c.is_ascii_digit()) {
+                    out.push_str(&format!("()[{key}]"));
+                } else {
+                    out.push_str(&format!("()[\"{key}\"]"));
+                }
+            }
+            PathSegment::Length => {
+                out.push_str(".count");
+            }
+        }
+    }
+    out
+}
+
+/// Generate a Swift accessor expression with optional chaining.
+///
+/// When an intermediate field is in `optional_fields`, a `?` is inserted after the
+/// `()` call on that segment so the next access uses `?.`. This prevents compile
+/// errors when accessing members through an `Optional<T>` in Swift.
+///
+/// Example: for `metadata.format.excel.sheet_count` where `metadata.format` and
+/// `metadata.format.excel` are optional, the result is:
+/// `result.metadata().format()?.excel()?.sheet_count()`
+fn render_swift_with_optionals(
+    segments: &[PathSegment],
+    result_var: &str,
+    optional_fields: &HashSet<String>,
+) -> String {
+    let mut out = result_var.to_string();
+    let mut path_so_far = String::new();
+    let total = segments.len();
+    for (i, seg) in segments.iter().enumerate() {
+        let is_leaf = i == total - 1;
+        match seg {
+            PathSegment::Field(f) => {
+                if !path_so_far.is_empty() {
+                    path_so_far.push('.');
+                }
+                path_so_far.push_str(f);
+                out.push('.');
+                out.push_str(f);
+                out.push_str("()");
+                // Insert `?` after `()` for non-leaf optional fields so the next
+                // member access becomes `?.`.
+                if !is_leaf && optional_fields.contains(&path_so_far) {
+                    out.push('?');
+                }
+            }
+            PathSegment::ArrayField(f) => {
+                if !path_so_far.is_empty() {
+                    path_so_far.push('.');
+                }
+                path_so_far.push_str(f);
+                out.push('.');
+                out.push_str(f);
+                out.push_str("()[0]");
+            }
+            PathSegment::MapAccess { field, key } => {
+                if !path_so_far.is_empty() {
+                    path_so_far.push('.');
+                }
+                path_so_far.push_str(field);
+                out.push('.');
+                out.push_str(field);
+                if key.chars().all(|c| c.is_ascii_digit()) {
+                    out.push_str(&format!("()[{key}]"));
+                } else {
+                    out.push_str(&format!("()[\"{key}\"]"));
+                }
+            }
+            PathSegment::Length => {
+                out.push_str(".count");
+            }
+        }
+    }
+    out
 }
 
 fn render_rust(segments: &[PathSegment], result_var: &str) -> String {
@@ -331,6 +478,10 @@ fn render_dot_access(segments: &[PathSegment], result_var: &str, language: &str)
                     let current = std::mem::take(&mut out);
                     out = format!("length({current})");
                 }
+                "gleam" => {
+                    let current = std::mem::take(&mut out);
+                    out = format!("list.length({current})");
+                }
                 _ => {
                     let current = std::mem::take(&mut out);
                     out = format!("len({current})");
@@ -357,7 +508,13 @@ fn render_typescript(segments: &[PathSegment], result_var: &str) -> String {
             PathSegment::MapAccess { field, key } => {
                 out.push('.');
                 out.push_str(&field.to_lower_camel_case());
-                out.push_str(&format!("[\"{key}\"]"));
+                // Numeric (digit-only) keys index into arrays as integers, not as
+                // string-keyed object properties; emit `[0]` not `["0"]`.
+                if !key.is_empty() && key.chars().all(|c| c.is_ascii_digit()) {
+                    out.push_str(&format!("[{key}]"));
+                } else {
+                    out.push_str(&format!("[\"{key}\"]"));
+                }
             }
             PathSegment::Length => {
                 out.push_str(".length");
@@ -441,10 +598,53 @@ fn render_java(segments: &[PathSegment], result_var: &str) -> String {
             PathSegment::MapAccess { field, key } => {
                 out.push('.');
                 out.push_str(&field.to_lower_camel_case());
-                out.push_str(&format!("().get(\"{key}\")"));
+                // Numeric keys index into List<T> (.get(int)); string keys index into Map<String, V>.
+                let is_numeric = !key.is_empty() && key.chars().all(|c| c.is_ascii_digit());
+                if is_numeric {
+                    out.push_str(&format!("().get({key})"));
+                } else {
+                    out.push_str(&format!("().get(\"{key}\")"));
+                }
             }
             PathSegment::Length => {
                 out.push_str(".size()");
+            }
+        }
+    }
+    out
+}
+
+/// Kotlin accessor: same camelCase method calls as Java but uses Kotlin idioms.
+///
+/// Differences from Java:
+/// - Array first element: `.field().first()` instead of `.field().getFirst()`
+/// - Collection size: `.size` (property) instead of `.size()` (method)
+fn render_kotlin(segments: &[PathSegment], result_var: &str) -> String {
+    let mut out = result_var.to_string();
+    for seg in segments {
+        match seg {
+            PathSegment::Field(f) => {
+                out.push('.');
+                out.push_str(&f.to_lower_camel_case());
+                out.push_str("()");
+            }
+            PathSegment::ArrayField(f) => {
+                out.push('.');
+                out.push_str(&f.to_lower_camel_case());
+                out.push_str("().first()");
+            }
+            PathSegment::MapAccess { field, key } => {
+                out.push('.');
+                out.push_str(&field.to_lower_camel_case());
+                let is_numeric = !key.is_empty() && key.chars().all(|c| c.is_ascii_digit());
+                if is_numeric {
+                    out.push_str(&format!("().get({key})"));
+                } else {
+                    out.push_str(&format!("().get(\"{key}\")"));
+                }
+            }
+            PathSegment::Length => {
+                out.push_str(".size");
             }
         }
     }
@@ -484,10 +684,97 @@ fn render_java_with_optionals(segments: &[PathSegment], result_var: &str, option
                 path_so_far.push_str(field);
                 out.push('.');
                 out.push_str(&field.to_lower_camel_case());
-                out.push_str(&format!("().get(\"{key}\")"));
+                // Numeric keys index into List<T> (.get(int)); string keys index into Map<String, V>.
+                let is_numeric = !key.is_empty() && key.chars().all(|c| c.is_ascii_digit());
+                if is_numeric {
+                    out.push_str(&format!("().get({key})"));
+                } else {
+                    out.push_str(&format!("().get(\"{key}\")"));
+                }
             }
             PathSegment::Length => {
                 out.push_str(".size()");
+            }
+        }
+    }
+    out
+}
+
+/// Kotlin variant of `render_java_with_optionals` using Kotlin idioms.
+///
+/// When the previous field in the chain is optional (nullable), uses `?.`
+/// safe-call navigation for the next segment so the Kotlin compiler is
+/// satisfied by the nullable receiver.
+fn render_kotlin_with_optionals(
+    segments: &[PathSegment],
+    result_var: &str,
+    optional_fields: &HashSet<String>,
+) -> String {
+    let mut out = result_var.to_string();
+    let mut path_so_far = String::new();
+    // Track whether the previous segment returned a nullable type. Starts
+    // false because `result_var` is always non-null.
+    let mut prev_was_nullable = false;
+    for seg in segments {
+        let nav = if prev_was_nullable { "?." } else { "." };
+        match seg {
+            PathSegment::Field(f) => {
+                if !path_so_far.is_empty() {
+                    path_so_far.push('.');
+                }
+                path_so_far.push_str(f);
+                // After this call, the receiver is nullable if the field is in
+                // optional_fields (the Java @Nullable annotation makes the
+                // return type T? in Kotlin).
+                let is_optional = optional_fields.contains(&path_so_far);
+                out.push_str(nav);
+                out.push_str(&f.to_lower_camel_case());
+                out.push_str("()");
+                prev_was_nullable = is_optional;
+            }
+            PathSegment::ArrayField(f) => {
+                if !path_so_far.is_empty() {
+                    path_so_far.push('.');
+                }
+                path_so_far.push_str(f);
+                let is_optional = optional_fields.contains(&path_so_far);
+                out.push_str(nav);
+                out.push_str(&f.to_lower_camel_case());
+                if prev_was_nullable || is_optional {
+                    out.push_str("()?.first()");
+                } else {
+                    out.push_str("().first()");
+                }
+                prev_was_nullable = is_optional;
+            }
+            PathSegment::MapAccess { field, key } => {
+                if !path_so_far.is_empty() {
+                    path_so_far.push('.');
+                }
+                path_so_far.push_str(field);
+                let is_optional = optional_fields.contains(&path_so_far);
+                out.push_str(nav);
+                out.push_str(&field.to_lower_camel_case());
+                let is_numeric = !key.is_empty() && key.chars().all(|c| c.is_ascii_digit());
+                if is_numeric {
+                    if is_optional {
+                        out.push_str(&format!("()?.get({key})"));
+                    } else {
+                        out.push_str(&format!("().get({key})"));
+                    }
+                } else if is_optional {
+                    out.push_str(&format!("()?.get(\"{key}\")"));
+                } else {
+                    out.push_str(&format!("().get(\"{key}\")"));
+                }
+                prev_was_nullable = is_optional;
+            }
+            PathSegment::Length => {
+                // .size is a Kotlin property, no () needed.
+                // If the previous field was nullable, use ?.size
+                let size_nav = if prev_was_nullable { "?" } else { "" };
+                out.push_str(&format!("{size_nav}.size"));
+                prev_was_nullable = false;
             }
         }
     }
@@ -557,6 +844,75 @@ fn render_rust_with_optionals(
             }
             PathSegment::Length => {
                 out.push_str(".len()");
+            }
+        }
+    }
+    out
+}
+
+/// Zig accessor that unwraps optional fields with `.?`.
+///
+/// Zig does not allow field access, indexing, or comparisons through `?T`;
+/// the value must be unwrapped first. Each segment whose path appears in the
+/// optional-field set is followed by `.?` so the resulting expression is a
+/// concrete value usable in assertions.
+///
+/// Paths in `method_calls` represent tagged-union variant accessors (Rust
+/// variant getters such as `FormatMetadata::excel()`). In Zig, tagged-union
+/// variants are accessed via the same dot syntax as struct fields, so the
+/// segment is emitted as `.{name}` *without* `.?` even if the path also
+/// appears in `optional_fields`.
+fn render_zig_with_optionals(
+    segments: &[PathSegment],
+    result_var: &str,
+    optional_fields: &HashSet<String>,
+    method_calls: &HashSet<String>,
+) -> String {
+    let mut out = result_var.to_string();
+    let mut path_so_far = String::new();
+    for seg in segments {
+        match seg {
+            PathSegment::Field(f) => {
+                if !path_so_far.is_empty() {
+                    path_so_far.push('.');
+                }
+                path_so_far.push_str(f);
+                out.push('.');
+                out.push_str(f);
+                if !method_calls.contains(&path_so_far) && optional_fields.contains(&path_so_far) {
+                    out.push_str(".?");
+                }
+            }
+            PathSegment::ArrayField(f) => {
+                if !path_so_far.is_empty() {
+                    path_so_far.push('.');
+                }
+                path_so_far.push_str(f);
+                out.push('.');
+                out.push_str(f);
+                if !method_calls.contains(&path_so_far) && optional_fields.contains(&path_so_far) {
+                    out.push_str(".?");
+                }
+                out.push_str("[0]");
+            }
+            PathSegment::MapAccess { field, key } => {
+                if !path_so_far.is_empty() {
+                    path_so_far.push('.');
+                }
+                path_so_far.push_str(field);
+                out.push('.');
+                out.push_str(field);
+                if !method_calls.contains(&path_so_far) && optional_fields.contains(&path_so_far) {
+                    out.push_str(".?");
+                }
+                if key.chars().all(|c| c.is_ascii_digit()) {
+                    out.push_str(&format!("[{key}]"));
+                } else {
+                    out.push_str(&format!(".get(\"{key}\")"));
+                }
+            }
+            PathSegment::Length => {
+                out.push_str(".len");
             }
         }
     }
@@ -650,16 +1006,18 @@ fn render_php(segments: &[PathSegment], result_var: &str) -> String {
         match seg {
             PathSegment::Field(f) => {
                 out.push_str("->");
-                out.push_str(f);
+                // PHP properties are camelCase (per #[php(prop, name = "...")]),
+                // so convert snake_case field names to camelCase.
+                out.push_str(&f.to_lower_camel_case());
             }
             PathSegment::ArrayField(f) => {
                 out.push_str("->");
-                out.push_str(f);
+                out.push_str(&f.to_lower_camel_case());
                 out.push_str("[0]");
             }
             PathSegment::MapAccess { field, key } => {
                 out.push_str("->");
-                out.push_str(field);
+                out.push_str(&field.to_lower_camel_case());
                 out.push_str(&format!("[\"{key}\"]"));
             }
             PathSegment::Length => {
@@ -856,6 +1214,26 @@ mod tests {
     }
 
     #[test]
+    fn test_accessor_typescript_numeric_index_is_unquoted() {
+        // Digit-only map-access keys (e.g. JSON pointer segments like `results.0`)
+        // must emit numeric bracket access (`[0]`) not string-keyed access
+        // (`["0"]`), which would return undefined on arrays.
+        let mut fields = HashMap::new();
+        fields.insert("first_score".to_string(), "results[0].relevance_score".to_string());
+        let r = FieldResolver::new(
+            &fields,
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+        );
+        assert_eq!(
+            r.accessor("first_score", "typescript", "result"),
+            "result.results[0].relevanceScore"
+        );
+    }
+
+    #[test]
     fn test_accessor_node_alias() {
         let r = make_resolver();
         assert_eq!(r.accessor("og", "node", "result"), "result.metadata.document.openGraph");
@@ -891,6 +1269,48 @@ mod tests {
             r.accessor("title", "java", "result"),
             "result.metadata().document().title()"
         );
+    }
+
+    #[test]
+    fn test_accessor_kotlin_uses_kotlin_collection_idioms() {
+        let mut fields = HashMap::new();
+        fields.insert("first_node_name".to_string(), "nodes[0].name".to_string());
+        fields.insert("node_count".to_string(), "nodes.length".to_string());
+        let mut arrays = HashSet::new();
+        arrays.insert("nodes".to_string());
+        let r = FieldResolver::new(&fields, &HashSet::new(), &HashSet::new(), &arrays, &HashSet::new());
+        assert_eq!(
+            r.accessor("first_node_name", "kotlin", "result"),
+            "result.nodes().first().name()"
+        );
+        assert_eq!(r.accessor("node_count", "kotlin", "result"), "result.nodes().size");
+    }
+
+    #[test]
+    fn test_accessor_kotlin_uses_safe_calls_for_optional_prefixes() {
+        let r = make_resolver_with_doc_optional();
+        assert_eq!(
+            r.accessor("title", "kotlin", "result"),
+            "result.metadata().document()?.title()"
+        );
+    }
+
+    #[test]
+    fn test_accessor_kotlin_uses_safe_calls_for_optional_arrays_and_maps() {
+        let mut fields = HashMap::new();
+        fields.insert("first_node_name".to_string(), "nodes[0].name".to_string());
+        fields.insert("tag".to_string(), "tags[name]".to_string());
+        let mut optional = HashSet::new();
+        optional.insert("nodes".to_string());
+        optional.insert("tags".to_string());
+        let mut arrays = HashSet::new();
+        arrays.insert("nodes".to_string());
+        let r = FieldResolver::new(&fields, &optional, &HashSet::new(), &arrays, &HashSet::new());
+        assert_eq!(
+            r.accessor("first_node_name", "kotlin", "result"),
+            "result.nodes()?.first()?.name()"
+        );
+        assert_eq!(r.accessor("tag", "kotlin", "result"), "result.tags()?.get(\"name\")");
     }
 
     #[test]

@@ -79,7 +79,7 @@ pub(super) fn render_conftest(e2e_config: &E2eConfig, groups: &[FixtureGroup]) -
         if f.needs_mock_server() {
             return true;
         }
-        let cc = e2e_config.resolve_call(f.call.as_deref());
+        let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
         let python_override = cc
             .overrides
             .get("python")
@@ -88,7 +88,7 @@ pub(super) fn render_conftest(e2e_config: &E2eConfig, groups: &[FixtureGroup]) -
     });
 
     let has_file_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| {
-        let cc = e2e_config.resolve_call(f.call.as_deref());
+        let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
         cc.args
             .iter()
             .any(|a| a.arg_type == "file_path" || a.arg_type == "bytes")
@@ -128,10 +128,28 @@ def mock_server() -> Generator[str, None, None]:
     )
     url = ""
     assert proc.stdout is not None
-    for raw_line in proc.stdout:
+    # Read startup lines from the mock server.  The server emits at most two:
+    #   MOCK_SERVER_URL=http://...
+    #   MOCK_SERVERS={{"fixture_id":"http://..."}}  (only when host-root fixtures exist)
+    # We read up to 8 lines and stop as soon as we have seen MOCK_SERVER_URL and either
+    # MOCK_SERVERS or a line that does not start with "MOCK_SERVER".
+    for _ in range(8):
+        raw_line = proc.stdout.readline()
+        if not raw_line:
+            break
         line = raw_line.decode().strip()
         if line.startswith("MOCK_SERVER_URL="):
             url = line.split("=", 1)[1]
+        elif line.startswith("MOCK_SERVERS="):
+            import json as _json  # noqa: PLC0415
+
+            _json_val = line.split("=", 1)[1]
+            os.environ["MOCK_SERVERS"] = _json_val
+            for _fid, _furl in _json.loads(_json_val).items():
+                os.environ[f"MOCK_SERVER_{{_fid.upper()}}"] = _furl
+            break
+        elif url:
+            # We have the URL and this line is not MOCK_SERVERS — we are done.
             break
     os.environ["MOCK_SERVER_URL"] = url
     # Drain stdout in background so the server never blocks.
@@ -180,6 +198,7 @@ def app(mock_server: str) -> object:  # noqa: ARG001
 "#
         )
     } else if has_file_fixtures {
+        let test_documents_dir = &e2e_config.test_documents_dir;
         format!(
             r#"{header}"""Pytest configuration for e2e tests."""
 import os
@@ -188,9 +207,10 @@ from pathlib import Path
 # Ensure the package is importable.
 # The {module} package is expected to be installed in the current environment.
 
-# Change to the test_documents directory so that fixture file paths like
-# "pdf/fake_memo.pdf" resolve correctly when running pytest from e2e/python/.
-_TEST_DOCUMENTS = Path(__file__).parent.parent.parent / "test_documents"
+# Change to the configured test-documents directory so that fixture file
+# paths like "pdf/fake_memo.pdf" resolve correctly when running pytest
+# from e2e/python/.
+_TEST_DOCUMENTS = Path(__file__).parent.parent.parent / "{test_documents_dir}"
 if _TEST_DOCUMENTS.is_dir():
     os.chdir(_TEST_DOCUMENTS)
 

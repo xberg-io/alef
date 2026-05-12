@@ -11,7 +11,6 @@ use alef_codegen::generators::trait_bridge::{
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 use std::collections::HashMap;
-use std::fmt::Write;
 
 /// Compute the Python-visible symbol name for a generated `#[pyfunction]`.
 ///
@@ -47,9 +46,6 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
     fn gen_sync_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
         let name = &method.name;
         let has_error = method.error_type.is_some();
-        let mut out = String::with_capacity(512);
-
-        writeln!(out, "Python::attach(|py| {{").ok();
 
         let py_args = self.sync_py_args(method);
         let call = if py_args.is_empty() {
@@ -59,71 +55,66 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
         };
 
         if matches!(method.return_type, TypeRef::Unit) {
-            writeln!(out, "            {call}").ok();
-            if has_error {
-                writeln!(out, "                .map(|_| ())").ok();
-                self.write_error_map(&mut out, name, spec.core_import);
-            } else {
-                writeln!(out, "                .map(|_| ()).unwrap_or(())").ok();
-            }
+            crate::template_env::render(
+                "trait_bridge/sync_method_unit_return.jinja",
+                minijinja::context! {
+                    method_name => name,
+                    call => call,
+                    has_error => has_error,
+                    core_import => spec.core_import,
+                },
+            )
         } else {
             let ext = self.extract_ty(&method.return_type);
-            writeln!(out, "            {call}").ok();
-            // For Named types, extract as String and deserialize
-            if matches!(method.return_type, TypeRef::Named(_)) {
-                writeln!(out, "                .and_then(|v| v.extract::<String>())").ok();
-                writeln!(out, "                .and_then(|s| serde_json::from_str::<{ext}>(&s).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string())))").ok();
-            } else {
-                writeln!(out, "                .and_then(|v| v.extract::<{ext}>())").ok();
-            }
-            if has_error {
-                self.write_error_map(&mut out, name, spec.core_import);
-            } else {
-                writeln!(out, "                .unwrap_or_default()").ok();
-            }
+            let is_named = matches!(method.return_type, TypeRef::Named(_));
+            crate::template_env::render(
+                "trait_bridge/sync_method_non_unit_return.jinja",
+                minijinja::context! {
+                    method_name => name,
+                    call => call,
+                    is_named => is_named,
+                    extract_ty => ext,
+                    has_error => has_error,
+                    core_import => spec.core_import,
+                },
+            )
         }
-
-        writeln!(out, "        }})").ok();
-        out
     }
 
     fn gen_async_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
         let name = &method.name;
-        let mut out = String::with_capacity(1024);
 
-        writeln!(out, "let python_obj = Python::attach(|py| self.inner.clone_ref(py));").ok();
-        writeln!(out, "let cached_name = self.cached_name.clone();").ok();
+        // Build param cloning code using template
+        let params: Vec<minijinja::Value> = method
+            .params
+            .iter()
+            .map(|p| {
+                minijinja::context! {
+                    name => &p.name,
+                    ty => match &p.ty {
+                        TypeRef::Bytes => "Bytes",
+                        TypeRef::Path => "Path",
+                        TypeRef::Named(_) => {
 
-        // Clone/convert params for the blocking closure
-        for p in &method.params {
-            match (&p.ty, p.is_ref) {
-                (TypeRef::Bytes, true) => {
-                    writeln!(out, "let {0} = {0}.to_vec();", p.name).ok();
+                            match &p.ty {
+                                TypeRef::Named(n) => n.as_str(),
+                                _ => "",
+                            }
+                        },
+                        _ => "",
+                    }.to_string(),
+                    ty_is_named => matches!(&p.ty, TypeRef::Named(_)),
+                    is_ref => p.is_ref,
                 }
-                (TypeRef::Path, true) => {
-                    writeln!(out, "let {0}_str = {0}.to_string_lossy().to_string();", p.name).ok();
-                }
-                (TypeRef::Named(_), true) => {
-                    writeln!(
-                        out,
-                        "let {0}_json = serde_json::to_string({0}).unwrap_or_default();",
-                        p.name
-                    )
-                    .ok();
-                }
-                (_, true) => {
-                    writeln!(out, "let {0} = {0}.to_owned();", p.name).ok();
-                }
-                _ => {
-                    writeln!(out, "let {0} = {0}.clone();", p.name).ok();
-                }
-            }
-        }
+            })
+            .collect();
 
-        writeln!(out).ok();
-        writeln!(out, "tokio::task::spawn_blocking(move || {{").ok();
-        writeln!(out, "    Python::attach(|py| {{").ok();
-        writeln!(out, "        let obj = python_obj.bind(py);").ok();
+        let param_cloning = crate::template_env::render(
+            "trait_bridge/async_param_cloning.jinja",
+            minijinja::context! {
+                params => params,
+            },
+        );
 
         let py_args = self.async_py_args(method);
         let call = if py_args.is_empty() {
@@ -133,159 +124,53 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
         };
 
         if self.is_named(&method.return_type) {
-            // Complex return: Python returns dict, convert via serde JSON
-            writeln!(out, "        let py_result = {call}").ok();
-            writeln!(
-                out,
-                "            .map_err(|e| {}::KreuzbergError::Plugin {{",
-                spec.core_import
-            )
-            .ok();
-            writeln!(
-                out,
-                "                message: format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name, e),"
-            )
-            .ok();
-            writeln!(out, "                plugin_name: cached_name.clone(),").ok();
-            writeln!(out, "            }})?;").ok();
-            writeln!(out, "        let json_val: String = py").ok();
-            writeln!(out, "            .import(\"json\")").ok();
-            writeln!(
-                out,
-                "            .and_then(|m| m.call_method1(\"dumps\", (py_result,)))"
-            )
-            .ok();
-            writeln!(out, "            .and_then(|v| v.extract())").ok();
-            writeln!(
-                out,
-                "            .map_err(|e| {}::KreuzbergError::Plugin {{",
-                spec.core_import
-            )
-            .ok();
-            writeln!(
-                out,
-                "                message: format!(\"Plugin '{{}}': JSON serialization failed: {{}}\", cached_name, e),"
-            )
-            .ok();
-            writeln!(out, "                plugin_name: cached_name.clone(),").ok();
-            writeln!(out, "            }})?;").ok();
             let return_type =
                 alef_codegen::generators::trait_bridge::format_type_ref(&method.return_type, &spec.type_paths);
-            writeln!(
-                out,
-                "        serde_json::from_str::<{}>(&json_val).map_err(|e| {}::KreuzbergError::Plugin {{",
-                return_type, spec.core_import
+            crate::template_env::render(
+                "trait_bridge/async_method_named_return.jinja",
+                minijinja::context! {
+                    method_name => name,
+                    call => call,
+                    param_cloning => param_cloning,
+                    return_type => return_type,
+                    core_import => spec.core_import,
+                },
             )
-            .ok();
-            writeln!(
-                out,
-                "            message: format!(\"Plugin '{{}}': deserialization failed: {{}}\", cached_name, e),"
+        } else if matches!(method.return_type, TypeRef::Unit) {
+            crate::template_env::render(
+                "trait_bridge/async_method_unit_return.jinja",
+                minijinja::context! {
+                    method_name => name,
+                    call => call,
+                    param_cloning => param_cloning,
+                    core_import => spec.core_import,
+                },
             )
-            .ok();
-            writeln!(out, "            plugin_name: cached_name.clone(),").ok();
-            writeln!(out, "        }})").ok();
         } else {
             let ext = self.extract_ty(&method.return_type);
-            if matches!(method.return_type, TypeRef::Unit) {
-                writeln!(out, "        {call}").ok();
-                writeln!(out, "            .map(|_| ())").ok();
-                writeln!(
-                    out,
-                    "            .map_err(|e| {}::KreuzbergError::Plugin {{",
-                    spec.core_import
-                )
-                .ok();
-                writeln!(
-                    out,
-                    "                message: format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name, e),"
-                )
-                .ok();
-                writeln!(out, "                plugin_name: cached_name.clone(),").ok();
-                writeln!(out, "            }})").ok();
-            } else {
-                writeln!(out, "        {call}").ok();
-                writeln!(out, "            .and_then(|v| v.extract::<{ext}>())").ok();
-                writeln!(
-                    out,
-                    "            .map_err(|e| {}::KreuzbergError::Plugin {{",
-                    spec.core_import
-                )
-                .ok();
-                writeln!(
-                    out,
-                    "                message: format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name, e),"
-                )
-                .ok();
-                writeln!(out, "                plugin_name: cached_name.clone(),").ok();
-                writeln!(out, "            }})").ok();
-            }
+            crate::template_env::render(
+                "trait_bridge/async_method_non_unit_return.jinja",
+                minijinja::context! {
+                    method_name => name,
+                    call => call,
+                    extract_ty => ext,
+                    param_cloning => param_cloning,
+                    core_import => spec.core_import,
+                },
+            )
         }
-
-        writeln!(out, "    }})").ok();
-        writeln!(out, "}})").ok();
-        writeln!(out, ".await").ok();
-        writeln!(out, ".map_err(|e| {}::KreuzbergError::Plugin {{", spec.core_import).ok();
-        writeln!(out, "    message: format!(\"spawn_blocking failed: {{}}\", e),").ok();
-        writeln!(out, "    plugin_name: self.cached_name.clone(),").ok();
-        writeln!(out, "}})").ok();
-        writeln!(out, ".flatten()").ok();
-        out
     }
 
     fn gen_constructor(&self, spec: &TraitBridgeSpec) -> String {
         let wrapper = spec.wrapper_name();
-        let mut out = String::with_capacity(512);
-
-        writeln!(out, "impl {wrapper} {{").ok();
-        writeln!(out, "    /// Create a new bridge wrapping a Python object.").ok();
-        writeln!(out, "    ///").ok();
-        writeln!(
-            out,
-            "    /// Validates that the Python object provides all required methods."
+        let required_methods = spec.required_methods();
+        crate::template_env::render(
+            "trait_bridge/constructor.jinja",
+            minijinja::context! {
+                wrapper => wrapper,
+                required_methods => required_methods,
+            },
         )
-        .ok();
-        writeln!(out, "    pub fn new(python_obj: Py<PyAny>) -> PyResult<Self> {{").ok();
-        writeln!(out, "        Python::attach(|py| {{").ok();
-        writeln!(out, "            let obj = python_obj.bind(py);").ok();
-
-        // Validate all required methods exist
-        for req_method in spec.required_methods() {
-            writeln!(
-                out,
-                "            if !obj.hasattr(\"{}\").unwrap_or(false) {{",
-                req_method.name
-            )
-            .ok();
-            writeln!(
-                out,
-                "                return Err(pyo3::exceptions::PyAttributeError::new_err("
-            )
-            .ok();
-            writeln!(
-                out,
-                "                    \"Python object missing required method: {}\",",
-                req_method.name
-            )
-            .ok();
-            writeln!(out, "                ));").ok();
-            writeln!(out, "            }}").ok();
-        }
-
-        // Extract and cache name
-        writeln!(out, "            let cached_name: String = obj").ok();
-        writeln!(out, "                .call_method0(\"name\")").ok();
-        writeln!(out, "                .and_then(|v| v.extract())").ok();
-        writeln!(out, "                .unwrap_or_else(|_| \"unknown\".to_string());").ok();
-
-        writeln!(out).ok();
-        writeln!(out, "            Ok(Self {{").ok();
-        writeln!(out, "                inner: python_obj,").ok();
-        writeln!(out, "                cached_name,").ok();
-        writeln!(out, "            }})").ok();
-        writeln!(out, "        }})").ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out, "}}").ok();
-        out
     }
 
     fn gen_unregistration_fn(&self, spec: &TraitBridgeSpec) -> String {
@@ -298,25 +183,15 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
         // set we fall back to `{core}::plugins::{unregister_fn}` and trust the
         // caller's wiring.
         let host_path = host_function_path(spec, unregister_fn);
-        let mut out = String::with_capacity(512);
         let host_symbol = exported_pyfunction_symbol(unregister_fn);
-        writeln!(out, "#[pyfunction]").ok();
-        writeln!(out, "#[pyo3(name = \"{host_symbol}\")]").ok();
-        writeln!(
-            out,
-            "pub fn _alef_{unregister_fn}(py: Python<'_>, name: String) -> PyResult<()> {{"
+        crate::template_env::render(
+            "trait_bridge/unregistration_fn.jinja",
+            minijinja::context! {
+                unregister_fn => unregister_fn,
+                host_symbol => host_symbol,
+                host_path => host_path,
+            },
         )
-        .ok();
-        writeln!(out, "    py.detach(|| {{").ok();
-        writeln!(out, "        {host_path}(&name)").ok();
-        writeln!(
-            out,
-            "            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!(\"{{}}\", e)))"
-        )
-        .ok();
-        writeln!(out, "    }})").ok();
-        writeln!(out, "}}").ok();
-        out
     }
 
     fn gen_clear_fn(&self, spec: &TraitBridgeSpec) -> String {
@@ -325,20 +200,14 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
         };
         let host_path = host_function_path(spec, clear_fn);
         let host_symbol = exported_pyfunction_symbol(clear_fn);
-        let mut out = String::with_capacity(512);
-        writeln!(out, "#[pyfunction]").ok();
-        writeln!(out, "#[pyo3(name = \"{host_symbol}\")]").ok();
-        writeln!(out, "pub fn _alef_{clear_fn}(py: Python<'_>) -> PyResult<()> {{").ok();
-        writeln!(out, "    py.detach(|| {{").ok();
-        writeln!(out, "        {host_path}()").ok();
-        writeln!(
-            out,
-            "            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!(\"{{}}\", e)))"
+        crate::template_env::render(
+            "trait_bridge/clear_fn.jinja",
+            minijinja::context! {
+                clear_fn => clear_fn,
+                host_symbol => host_symbol,
+                host_path => host_path,
+            },
         )
-        .ok();
-        writeln!(out, "    }})").ok();
-        writeln!(out, "}}").ok();
-        out
     }
 
     fn gen_registration_fn(&self, spec: &TraitBridgeSpec) -> String {
@@ -351,73 +220,32 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
         let wrapper = spec.wrapper_name();
         let trait_path = spec.trait_path();
 
-        let mut out = String::with_capacity(1024);
-
-        writeln!(out, "#[pyfunction]").ok();
-        writeln!(
-            out,
-            "pub fn {register_fn}(py: Python<'_>, backend: Py<PyAny>) -> PyResult<()> {{"
-        )
-        .ok();
-
-        // Validate required methods
         let req_methods: Vec<&MethodDef> = spec.required_methods();
-        if !req_methods.is_empty() {
-            writeln!(
-                out,
-                "    let required_methods = [{}];",
-                req_methods
-                    .iter()
-                    .map(|m| format!("\"{}\"", m.name))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
-            .ok();
-            writeln!(out, "    let obj = backend.bind(py);").ok();
-            writeln!(out, "    for method in &required_methods {{").ok();
-            writeln!(out, "        if !obj.hasattr(*method)? {{").ok();
-            writeln!(
-                out,
-                "            return Err(pyo3::exceptions::PyAttributeError::new_err("
-            )
-            .ok();
-            writeln!(
-                out,
-                "                format!(\"Backend missing required method: {{}}\", method)"
-            )
-            .ok();
-            writeln!(out, "            ));").ok();
-            writeln!(out, "        }}").ok();
-            writeln!(out, "    }}").ok();
-        }
+        let required_methods_str = req_methods
+            .iter()
+            .map(|m| format!("\"{}\"", m.name))
+            .collect::<Vec<_>>()
+            .join(", ");
 
-        // Create the wrapper using the constructor
-        writeln!(out).ok();
-        writeln!(out, "    let wrapper = {wrapper}::new(backend)?;").ok();
-        writeln!(out, "    let arc: Arc<dyn {trait_path}> = Arc::new(wrapper);").ok();
-        writeln!(out).ok();
-
-        // Register in the plugin registry
-        let extra = spec
+        let register_extra_args = spec
             .bridge_config
             .register_extra_args
             .as_deref()
             .map(|a| format!(", {a}"))
             .unwrap_or_default();
-        writeln!(out, "    py.detach(|| {{").ok();
-        writeln!(out, "        let registry = {registry_getter}();").ok();
-        writeln!(out, "        let mut registry = registry.write();").ok();
-        writeln!(
-            out,
-            "        registry.register(arc{extra}).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err("
+
+        crate::template_env::render(
+            "trait_bridge/registration_fn.jinja",
+            minijinja::context! {
+                register_fn => register_fn,
+                wrapper => wrapper,
+                trait_path => trait_path,
+                registry_getter => registry_getter,
+                register_extra_args => register_extra_args,
+                has_required_methods => !req_methods.is_empty(),
+                required_methods_str => required_methods_str,
+            },
         )
-        .ok();
-        writeln!(out, "            format!(\"Failed to register backend: {{}}\", e)").ok();
-        writeln!(out, "        ))").ok();
-        writeln!(out, "    }})?;").ok();
-        writeln!(out, "    Ok(())").ok();
-        writeln!(out, "}}").ok();
-        out
     }
 }
 
@@ -512,22 +340,6 @@ impl Pyo3BridgeGenerator {
     fn is_named(&self, ty: &TypeRef) -> bool {
         matches!(ty, TypeRef::Named(_))
     }
-
-    /// Write error mapping code to the output.
-    fn write_error_map(&self, out: &mut String, method_name: &str, core_import: &str) {
-        writeln!(
-            out,
-            "                .map_err(|e| {core_import}::KreuzbergError::Plugin {{"
-        )
-        .ok();
-        writeln!(
-            out,
-            "                    message: format!(\"Plugin '{{}}' method '{method_name}' failed: {{}}\", self.cached_name, e),"
-        )
-        .ok();
-        writeln!(out, "                    plugin_name: self.cached_name.clone(),").ok();
-        writeln!(out, "                }})").ok();
-    }
 }
 
 /// Generate all trait bridge code for a given trait type and bridge config.
@@ -548,6 +360,13 @@ pub fn gen_trait_bridge(
             api.enums
                 .iter()
                 .map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))),
+        )
+        // Include excluded types so trait methods referencing them (e.g. `&InternalDocument`)
+        // are qualified with the full Rust path rather than emitting the bare type name.
+        .chain(
+            api.excluded_type_paths
+                .iter()
+                .map(|(name, path)| (name.clone(), path.replace('-', "_"))),
         )
         .collect();
 
@@ -592,78 +411,52 @@ pub fn gen_trait_bridge(
 /// - No super-trait forwarding
 fn gen_visitor_bridge(
     trait_type: &TypeDef,
-    bridge_cfg: &TraitBridgeConfig,
+    _bridge_cfg: &TraitBridgeConfig,
     struct_name: &str,
     trait_path: &str,
     type_paths: &HashMap<String, String>,
 ) -> String {
-    let mut out = String::with_capacity(4096);
     let core_crate = trait_path
         .split("::")
         .next()
-        .unwrap_or("html_to_markdown_rs")
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| panic!("trait_path '{trait_path}' must be a qualified path of the form 'crate_name::...'; configure the crate name in alef.toml"))
         .to_string();
 
     // Emit a helper function for converting NodeContext to a Python dict.
-    // This is emitted once per visitor bridge (always alongside it).
-    writeln!(out, "fn nodecontext_to_py_dict<'py>(").unwrap();
-    writeln!(out, "    py: Python<'py>,").unwrap();
-    writeln!(out, "    ctx: &{core_crate}::visitor::NodeContext,").unwrap();
-    writeln!(out, ") -> pyo3::Bound<'py, pyo3::types::PyDict> {{").unwrap();
-    writeln!(out, "    let d = pyo3::types::PyDict::new(py);").unwrap();
-    writeln!(
-        out,
-        "    d.set_item(\"node_type\", format!(\"{{:?}}\", ctx.node_type)).unwrap_or(());"
-    )
-    .unwrap();
-    writeln!(out, "    d.set_item(\"tag_name\", &ctx.tag_name).unwrap_or(());").unwrap();
-    writeln!(out, "    d.set_item(\"depth\", ctx.depth).unwrap_or(());").unwrap();
-    writeln!(
-        out,
-        "    d.set_item(\"index_in_parent\", ctx.index_in_parent).unwrap_or(());"
-    )
-    .unwrap();
-    writeln!(out, "    d.set_item(\"is_inline\", ctx.is_inline).unwrap_or(());").unwrap();
-    writeln!(
-        out,
-        "    d.set_item(\"parent_tag\", ctx.parent_tag.as_deref()).unwrap_or(());"
-    )
-    .unwrap();
-    writeln!(out, "    let attrs = pyo3::types::PyDict::new(py);").unwrap();
-    writeln!(out, "    for (k, v) in &ctx.attributes {{").unwrap();
-    writeln!(out, "        attrs.set_item(k, v).unwrap_or(());").unwrap();
-    writeln!(out, "    }}").unwrap();
-    writeln!(out, "    d.set_item(\"attributes\", attrs).unwrap_or(());").unwrap();
-    writeln!(out, "    d").unwrap();
-    writeln!(out, "}}").unwrap();
-    writeln!(out).unwrap();
+    let helper_fn = crate::template_env::render(
+        "trait_bridge/nodecontext_to_py_dict.jinja",
+        minijinja::context! {
+            core_crate => core_crate,
+        },
+    );
 
     // Struct with only the Python object — no cached fields needed
-    writeln!(out, "#[derive(Debug)]").unwrap();
-    writeln!(out, "pub struct {struct_name} {{").unwrap();
-    writeln!(out, "    python_obj: Py<PyAny>,").unwrap();
-    writeln!(out, "}}").unwrap();
-    writeln!(out).unwrap();
+    let struct_def = crate::template_env::render(
+        "trait_bridge/visitor_struct.jinja",
+        minijinja::context! {
+            struct_name => struct_name,
+        },
+    );
 
-    // Constructor
-    writeln!(out, "impl {struct_name} {{").unwrap();
-    writeln!(out, "    pub fn new(python_obj: Py<PyAny>) -> Self {{").unwrap();
-    writeln!(out, "        Self {{ python_obj }}").unwrap();
-    writeln!(out, "    }}").unwrap();
-    writeln!(out, "}}").unwrap();
-    writeln!(out).unwrap();
-
-    // Trait impl — all methods try Python dispatch, fall back to Continue
-    let _ = &bridge_cfg.trait_name;
-    writeln!(out, "impl {trait_path} for {struct_name} {{").unwrap();
+    // Trait impl — collect all methods
+    let mut methods_code = String::new();
     for method in &trait_type.methods {
         if method.trait_source.is_some() {
             continue;
         }
-        gen_visitor_method(&mut out, method, trait_path, type_paths);
+        gen_visitor_method(&mut methods_code, method, trait_path, type_paths);
     }
-    writeln!(out, "}}").unwrap();
-    writeln!(out).unwrap();
+
+    let mut out = String::with_capacity(4096);
+    out.push_str(&helper_fn);
+    out.push_str(&struct_def);
+    out.push_str(&crate::template_env::render(
+        "trait_bridge/impl_header.jinja",
+        minijinja::context! { trait_path => trait_path, struct_name => struct_name },
+    ));
+    out.push_str(&methods_code);
+    out.push_str("}\n");
     out
 }
 
@@ -697,84 +490,26 @@ fn gen_visitor_method(out: &mut String, method: &MethodDef, _trait_path: &str, t
         other => param_type(other, "", false, type_paths),
     };
 
-    writeln!(out, "    fn {name}({sig}) -> {ret_ty} {{").unwrap();
-    writeln!(out, "        Python::attach(|py| {{").unwrap();
-    writeln!(out, "            let obj = self.python_obj.bind(py);").unwrap();
-    writeln!(out, "            if !obj.hasattr(\"{name}\").unwrap_or(false) {{").unwrap();
-    writeln!(out, "                return {ret_ty}::Continue;").unwrap();
-    writeln!(out, "            }}").unwrap();
-
     // Build argument expressions for the Python call
     let py_args = build_visitor_py_args(method);
 
-    let call = if py_args.is_empty() {
+    let py_call = if py_args.is_empty() {
         format!("obj.call_method0(\"{name}\")")
     } else {
         format!("obj.call_method1(\"{name}\", ({py_args}))")
     };
 
-    // Call the Python method and convert the result
-    writeln!(out, "            match {call} {{").unwrap();
-    writeln!(out, "                Err(_) => {ret_ty}::Continue,").unwrap();
-    writeln!(out, "                Ok(result) => {{").unwrap();
-    // Try to extract as string first
-    writeln!(out, "                    if let Ok(s) = result.extract::<String>() {{").unwrap();
-    writeln!(out, "                        match s.to_lowercase().as_str() {{").unwrap();
-    writeln!(out, "                            \"continue\" => {ret_ty}::Continue,").unwrap();
-    writeln!(out, "                            \"skip\" => {ret_ty}::Skip,").unwrap();
-    writeln!(
-        out,
-        "                            \"preserve_html\" | \"preservehtml\" => {ret_ty}::PreserveHtml,"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "                            other => {ret_ty}::Custom(other.to_string()),"
-    )
-    .unwrap();
-    writeln!(out, "                        }}").unwrap();
-    writeln!(out, "                    }} else if result.is_none() {{").unwrap();
-    writeln!(out, "                        {ret_ty}::Continue").unwrap();
-    writeln!(out, "                    }} else {{").unwrap();
-    // Try dict protocol: {"custom": "..."} or {"error": "..."}
-    writeln!(
-        out,
-        "                        let py_dict = result.downcast::<pyo3::types::PyDict>();"
-    )
-    .unwrap();
-    writeln!(out, "                        if let Ok(d) = py_dict {{").unwrap();
-    writeln!(
-        out,
-        "                            if let Some(v) = d.get_item(\"custom\").ok().flatten() {{"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "                                {ret_ty}::Custom(v.extract::<String>().unwrap_or_default())"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "                            }} else if let Some(v) = d.get_item(\"error\").ok().flatten() {{"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "                                {ret_ty}::Error(v.extract::<String>().unwrap_or_default())"
-    )
-    .unwrap();
-    writeln!(out, "                            }} else {{").unwrap();
-    writeln!(out, "                                {ret_ty}::Continue").unwrap();
-    writeln!(out, "                            }}").unwrap();
-    writeln!(out, "                        }} else {{").unwrap();
-    writeln!(out, "                            {ret_ty}::Continue").unwrap();
-    writeln!(out, "                        }}").unwrap();
-    writeln!(out, "                    }}").unwrap();
-    writeln!(out, "                }}").unwrap();
-    writeln!(out, "            }}").unwrap();
-    writeln!(out, "        }})").unwrap();
-    writeln!(out, "    }}").unwrap();
-    writeln!(out).unwrap();
+    let method_code = crate::template_env::render(
+        "trait_bridge/visitor_method.jinja",
+        minijinja::context! {
+            method_name => name,
+            sig => sig,
+            ret_ty => ret_ty,
+            py_call => py_call,
+        },
+    );
+
+    out.push_str(&method_code);
 }
 
 /// Build Python call argument expressions for a visitor method.
@@ -1156,11 +891,7 @@ pub fn gen_bridge_function(
         .trim_start_matches('[')
         .trim_end_matches(']');
 
-    let mut out = String::with_capacity(1024);
-    if func.error_type.is_some() {
-        writeln!(out, "#[allow(clippy::missing_errors_doc)]").ok();
-    }
-    writeln!(out, "#[{attr_inner}]").ok();
+    let mut sig_str = String::new();
     if cfg.needs_signature {
         // Build PyO3 signature listing ALL params in order.
         // Required params appear by name, optional params appear with =None.
@@ -1186,18 +917,30 @@ pub fn gen_bridge_function(
                 }
             })
             .collect();
-        let sig_str = sig_parts.join(", ");
-        writeln!(out, "{}{}{}", cfg.signature_prefix, sig_str, cfg.signature_suffix).ok();
+        sig_str = sig_parts.join(", ");
     }
+
     let func_name = &func.name;
-    writeln!(out, "pub fn {func_name}{lifetime}({params_str}) -> {ret} {{").ok();
-    writeln!(out, "    {body}").ok();
-    writeln!(out, "}}").ok();
 
     // Suppress unused adapter_bodies warning
     let _ = adapter_bodies;
 
-    out
+    crate::template_env::render(
+        "trait_bridge/function_wrapper.jinja",
+        minijinja::context! {
+            has_error => func.error_type.is_some(),
+            attr_inner => attr_inner,
+            needs_signature => cfg.needs_signature,
+            signature_prefix => cfg.signature_prefix,
+            sig_str => sig_str,
+            signature_suffix => cfg.signature_suffix,
+            func_name => func_name,
+            lifetime => lifetime,
+            params_str => params_str,
+            ret => ret,
+            body => body,
+        },
+    )
 }
 
 /// Generate a PyO3 function wrapper for a bridge whose handle lives as a field
@@ -1482,11 +1225,7 @@ pub fn gen_bridge_field_function(
         .trim_start_matches('[')
         .trim_end_matches(']');
 
-    let mut out = String::with_capacity(1024);
-    if func.error_type.is_some() {
-        writeln!(out, "#[allow(clippy::missing_errors_doc)]").ok();
-    }
-    writeln!(out, "#[{attr_inner}]").ok();
+    let mut sig_str = String::new();
     if cfg.needs_signature {
         // #[pyo3(signature = (...))] — all params from the IR plus the extra visitor kwarg.
         let mut seen_optional = false;
@@ -1506,12 +1245,23 @@ pub fn gen_bridge_field_function(
             .collect();
         // visitor kwarg is always optional
         sig_items.push(format!("{visitor_kwarg}=None"));
-        let sig_str = sig_items.join(", ");
-        writeln!(out, "{}{}{}", cfg.signature_prefix, sig_str, cfg.signature_suffix).ok();
+        sig_str = sig_items.join(", ");
     }
     let func_name = &func.name;
-    writeln!(out, "pub fn {func_name}{lifetime}({params_str}) -> {ret} {{").ok();
-    writeln!(out, "    {body}").ok();
-    writeln!(out, "}}").ok();
-    out
+    crate::template_env::render(
+        "trait_bridge/function_wrapper.jinja",
+        minijinja::context! {
+            has_error => func.error_type.is_some(),
+            attr_inner => attr_inner,
+            needs_signature => cfg.needs_signature,
+            signature_prefix => cfg.signature_prefix,
+            sig_str => sig_str,
+            signature_suffix => cfg.signature_suffix,
+            func_name => func_name,
+            lifetime => lifetime,
+            params_str => params_str,
+            ret => ret,
+            body => body,
+        },
+    )
 }

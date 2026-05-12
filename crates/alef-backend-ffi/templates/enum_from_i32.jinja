@@ -1,0 +1,14 @@
+/// Convert an integer to a `{{ enum_name }}` variant. Returns -1 on invalid input.
+/// # Safety
+/// Caller must ensure all pointer arguments are valid or null.
+/// Returned pointers must be freed with the appropriate free function.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn {{ prefix }}_{{ enum_snake }}_from_i32(value: i32) -> i32 {
+    match value {
+{% for variant in variants %}        {{ loop.index0 }} => {{ loop.index0 }}, // {{ variant }}
+{% endfor %}        _ => {
+            set_last_error(1, "Invalid {{ enum_name }} variant");
+            -1
+        }
+    }
+}

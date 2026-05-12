@@ -2,55 +2,55 @@ use minijinja::Environment;
 
 static TEMPLATES: &[(&str, &str)] = &[
     (
-        "namespace_decl.jinja",
-        include_str!("../templates/namespace_decl.jinja"),
-    ),
-    ("class_header.jinja", include_str!("../templates/class_header.jinja")),
-    (
         "async_task_return_type.jinja",
         include_str!("../templates/async_task_return_type.jinja"),
     ),
-    ("param_doc.jinja", include_str!("../templates/param_doc.jinja")),
+    ("class_header.jinja", include_str!("../templates/class_header.jinja")),
+    ("doc_line.jinja", include_str!("../templates/doc_line.jinja")),
     (
-        "param_decl_optional.jinja",
-        include_str!("../templates/param_decl_optional.jinja"),
+        "doc_comment_block.jinja",
+        include_str!("../templates/doc_comment_block.jinja"),
     ),
     (
-        "param_decl_required.jinja",
-        include_str!("../templates/param_decl_required.jinja"),
+        "enum_custom_converter.jinja",
+        include_str!("../templates/enum_custom_converter.jinja"),
     ),
-    ("null_check.jinja", include_str!("../templates/null_check.jinja")),
+    ("enum_header.jinja", include_str!("../templates/enum_header.jinja")),
+    (
+        "untagged_union_wrapper.jinja",
+        include_str!("../templates/untagged_union_wrapper.jinja"),
+    ),
+    (
+        "sealed_union_converter.jinja",
+        include_str!("../templates/sealed_union_converter.jinja"),
+    ),
+    (
+        "named_param_handle_from_json_optional.jinja",
+        include_str!("../templates/named_param_handle_from_json_optional.jinja"),
+    ),
     (
         "error_dispatch.jinja",
         include_str!("../templates/error_dispatch.jinja"),
     ),
     (
-        "native_call_start.jinja",
-        include_str!("../templates/native_call_start.jinja"),
+        "error_helper_method.jinja",
+        include_str!("../templates/error_helper_method.jinja"),
     ),
     (
-        "sealed_class_header.jinja",
-        include_str!("../templates/sealed_class_header.jinja"),
+        "exception_class.jinja",
+        include_str!("../templates/exception_class.jinja"),
     ),
     (
-        "safe_handle_class.jinja",
-        include_str!("../templates/safe_handle_class.jinja"),
+        "exception_return.jinja",
+        include_str!("../templates/exception_return.jinja"),
     ),
     (
-        "safe_handle_ctor.jinja",
-        include_str!("../templates/safe_handle_ctor.jinja"),
+        "ffi_json_extensions.jinja",
+        include_str!("../templates/ffi_json_extensions.jinja"),
     ),
     (
-        "release_handle_method.jinja",
-        include_str!("../templates/release_handle_method.jinja"),
-    ),
-    (
-        "safehandle_field.jinja",
-        include_str!("../templates/safehandle_field.jinja"),
-    ),
-    (
-        "opaque_class_ctor.jinja",
-        include_str!("../templates/opaque_class_ctor.jinja"),
+        "field_definition.jinja",
+        include_str!("../templates/field_definition.jinja"),
     ),
     (
         "indented_arg_async.jinja",
@@ -61,21 +61,349 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/indented_arg_sync.jinja"),
     ),
     (
-        "exception_return.jinja",
-        include_str!("../templates/exception_return.jinja"),
+        "namespace_decl.jinja",
+        include_str!("../templates/namespace_decl.jinja"),
     ),
-    ("doc_line.jinja", include_str!("../templates/doc_line.jinja")),
     (
-        "field_definition.jinja",
-        include_str!("../templates/field_definition.jinja"),
+        "native_call_start.jinja",
+        include_str!("../templates/native_call_start.jinja"),
+    ),
+    (
+        "native_arg_line.jinja",
+        include_str!("../templates/native_arg_line.jinja"),
+    ),
+    (
+        "native_bytes_len_arg_line.jinja",
+        include_str!("../templates/native_bytes_len_arg_line.jinja"),
+    ),
+    (
+        "native_methods_header.jinja",
+        include_str!("../templates/native_methods_header.jinja"),
+    ),
+    (
+        "native_methods_trait_bridges.jinja",
+        include_str!("../templates/native_methods_trait_bridges.jinja"),
+    ),
+    (
+        "native_methods_visitor.jinja",
+        include_str!("../templates/native_methods_visitor.jinja"),
+    ),
+    ("null_check.jinja", include_str!("../templates/null_check.jinja")),
+    (
+        "opaque_class_ctor.jinja",
+        include_str!("../templates/opaque_class_ctor.jinja"),
     ),
     (
         "opaque_ctor_call.jinja",
         include_str!("../templates/opaque_ctor_call.jinja"),
     ),
     (
+        "opaque_handle_header.jinja",
+        include_str!("../templates/opaque_handle_header.jinja"),
+    ),
+    (
+        "opaque_streaming_method.jinja",
+        include_str!("../templates/opaque_streaming_method.jinja"),
+    ),
+    (
+        "param_decl_optional.jinja",
+        include_str!("../templates/param_decl_optional.jinja"),
+    ),
+    (
+        "param_decl_required.jinja",
+        include_str!("../templates/param_decl_required.jinja"),
+    ),
+    ("param_doc.jinja", include_str!("../templates/param_doc.jinja")),
+    (
         "public_method_signature.jinja",
         include_str!("../templates/public_method_signature.jinja"),
+    ),
+    (
+        "release_handle_method.jinja",
+        include_str!("../templates/release_handle_method.jinja"),
+    ),
+    (
+        "safe_handle_class.jinja",
+        include_str!("../templates/safe_handle_class.jinja"),
+    ),
+    (
+        "safe_handle_ctor.jinja",
+        include_str!("../templates/safe_handle_ctor.jinja"),
+    ),
+    (
+        "safehandle_field.jinja",
+        include_str!("../templates/safehandle_field.jinja"),
+    ),
+    (
+        "sealed_class_header.jinja",
+        include_str!("../templates/sealed_class_header.jinja"),
+    ),
+    (
+        "trait_bridge_class.jinja",
+        include_str!("../templates/trait_bridge_class.jinja"),
+    ),
+    (
+        "trait_bridges_header.jinja",
+        include_str!("../templates/trait_bridges_header.jinja"),
+    ),
+    (
+        "trait_interface.jinja",
+        include_str!("../templates/trait_interface.jinja"),
+    ),
+    (
+        "trait_registry_class.jinja",
+        include_str!("../templates/trait_registry_class.jinja"),
+    ),
+    (
+        "wrapper_class_header.jinja",
+        include_str!("../templates/wrapper_class_header.jinja"),
+    ),
+    (
+        "named_param_json_optional.jinja",
+        include_str!("../templates/named_param_json_optional.jinja"),
+    ),
+    (
+        "named_param_json_serialize.jinja",
+        include_str!("../templates/named_param_json_serialize.jinja"),
+    ),
+    (
+        "named_param_handle_from_json.jinja",
+        include_str!("../templates/named_param_handle_from_json.jinja"),
+    ),
+    (
+        "named_param_handle_string.jinja",
+        include_str!("../templates/named_param_handle_string.jinja"),
+    ),
+    (
+        "named_param_handle_pin.jinja",
+        include_str!("../templates/named_param_handle_pin.jinja"),
+    ),
+    (
+        "named_param_teardown_free.jinja",
+        include_str!("../templates/named_param_teardown_free.jinja"),
+    ),
+    (
+        "named_param_teardown_hglobal.jinja",
+        include_str!("../templates/named_param_teardown_hglobal.jinja"),
+    ),
+    (
+        "named_param_teardown_gchandle.jinja",
+        include_str!("../templates/named_param_teardown_gchandle.jinja"),
+    ),
+    (
+        "return_string_utf8.jinja",
+        include_str!("../templates/return_string_utf8.jinja"),
+    ),
+    (
+        "free_native_string.jinja",
+        include_str!("../templates/free_native_string.jinja"),
+    ),
+    (
+        "return_bool_from_int.jinja",
+        include_str!("../templates/return_bool_from_int.jinja"),
+    ),
+    (
+        "return_opaque_ctor.jinja",
+        include_str!("../templates/return_opaque_ctor.jinja"),
+    ),
+    (
+        "native_to_json_ptr.jinja",
+        include_str!("../templates/native_to_json_ptr.jinja"),
+    ),
+    ("json_from_ptr.jinja", include_str!("../templates/json_from_ptr.jinja")),
+    (
+        "free_string_ptr.jinja",
+        include_str!("../templates/free_string_ptr.jinja"),
+    ),
+    (
+        "free_native_handle.jinja",
+        include_str!("../templates/free_native_handle.jinja"),
+    ),
+    (
+        "deserialize_json.jinja",
+        include_str!("../templates/deserialize_json.jinja"),
+    ),
+    (
+        "return_ptr_as_string.jinja",
+        include_str!("../templates/return_ptr_as_string.jinja"),
+    ),
+    (
+        "return_native_result.jinja",
+        include_str!("../templates/return_native_result.jinja"),
+    ),
+    ("return_value.jinja", include_str!("../templates/return_value.jinja")),
+    (
+        "json_polymorphic_attr.jinja",
+        include_str!("../templates/json_polymorphic_attr.jinja"),
+    ),
+    (
+        "json_derived_type_attr.jinja",
+        include_str!("../templates/json_derived_type_attr.jinja"),
+    ),
+    (
+        "abstract_record_header.jinja",
+        include_str!("../templates/abstract_record_header.jinja"),
+    ),
+    (
+        "doc_line_indented.jinja",
+        include_str!("../templates/doc_line_indented.jinja"),
+    ),
+    (
+        "unit_variant_record.jinja",
+        include_str!("../templates/unit_variant_record.jinja"),
+    ),
+    (
+        "variant_record_body_header.jinja",
+        include_str!("../templates/variant_record_body_header.jinja"),
+    ),
+    (
+        "required_value_property.jinja",
+        include_str!("../templates/required_value_property.jinja"),
+    ),
+    (
+        "variant_record_params_header.jinja",
+        include_str!("../templates/variant_record_params_header.jinja"),
+    ),
+    (
+        "variant_field_tuple.jinja",
+        include_str!("../templates/variant_field_tuple.jinja"),
+    ),
+    (
+        "variant_field_json_value.jinja",
+        include_str!("../templates/variant_field_json_value.jinja"),
+    ),
+    (
+        "variant_field_json_named.jinja",
+        include_str!("../templates/variant_field_json_named.jinja"),
+    ),
+    (
+        "variant_record_close.jinja",
+        include_str!("../templates/variant_record_close.jinja"),
+    ),
+    (
+        "variant_accessor_summary.jinja",
+        include_str!("../templates/variant_accessor_summary.jinja"),
+    ),
+    (
+        "variant_accessor_property.jinja",
+        include_str!("../templates/variant_accessor_property.jinja"),
+    ),
+    (
+        "dll_import_attr.jinja",
+        include_str!("../templates/dll_import_attr.jinja"),
+    ),
+    (
+        "extern_void_ptr.jinja",
+        include_str!("../templates/extern_void_ptr.jinja"),
+    ),
+    (
+        "extern_ptr_from_json.jinja",
+        include_str!("../templates/extern_ptr_from_json.jinja"),
+    ),
+    (
+        "extern_ptr_to_json.jinja",
+        include_str!("../templates/extern_ptr_to_json.jinja"),
+    ),
+    ("pinvoke_param.jinja", include_str!("../templates/pinvoke_param.jinja")),
+    (
+        "pinvoke_bytes_len_param.jinja",
+        include_str!("../templates/pinvoke_bytes_len_param.jinja"),
+    ),
+    (
+        "streaming_pinvoke_declaration.jinja",
+        include_str!("../templates/streaming_pinvoke_declaration.jinja"),
+    ),
+    (
+        "opaque_method_header.jinja",
+        include_str!("../templates/opaque_method_header.jinja"),
+    ),
+    (
+        "null_result_throw.jinja",
+        include_str!("../templates/null_result_throw.jinja"),
+    ),
+    (
+        "record_class_header.jinja",
+        include_str!("../templates/record_class_header.jinja"),
+    ),
+    (
+        "json_converter_attr.jinja",
+        include_str!("../templates/json_converter_attr.jinja"),
+    ),
+    (
+        "json_property_name_attr.jinja",
+        include_str!("../templates/json_property_name_attr.jinja"),
+    ),
+    (
+        "json_extension_data_property.jinja",
+        include_str!("../templates/json_extension_data_property.jinja"),
+    ),
+    (
+        "visitor_bridge_property.jinja",
+        include_str!("../templates/visitor_bridge_property.jinja"),
+    ),
+    (
+        "property_with_default.jinja",
+        include_str!("../templates/property_with_default.jinja"),
+    ),
+    (
+        "vtable_slot_comment.jinja",
+        include_str!("../templates/vtable_slot_comment.jinja"),
+    ),
+    (
+        "vtable_slot_assign.jinja",
+        include_str!("../templates/vtable_slot_assign.jinja"),
+    ),
+    (
+        "vtable_write_intptr.jinja",
+        include_str!("../templates/vtable_write_intptr.jinja"),
+    ),
+    (
+        "vtable_method_fn_new.jinja",
+        include_str!("../templates/vtable_method_fn_new.jinja"),
+    ),
+    (
+        "callback_header_options.jinja",
+        include_str!("../templates/callback_header_options.jinja"),
+    ),
+    (
+        "callback_header_full.jinja",
+        include_str!("../templates/callback_header_full.jinja"),
+    ),
+    (
+        "callback_string_param.jinja",
+        include_str!("../templates/callback_string_param.jinja"),
+    ),
+    (
+        "callback_bytes_param.jinja",
+        include_str!("../templates/callback_bytes_param.jinja"),
+    ),
+    (
+        "callback_json_from_ptr.jinja",
+        include_str!("../templates/callback_json_from_ptr.jinja"),
+    ),
+    (
+        "callback_json_deserialize.jinja",
+        include_str!("../templates/callback_json_deserialize.jinja"),
+    ),
+    (
+        "callback_void_call.jinja",
+        include_str!("../templates/callback_void_call.jinja"),
+    ),
+    (
+        "callback_result_call.jinja",
+        include_str!("../templates/callback_result_call.jinja"),
+    ),
+    (
+        "callback_result_serialize.jinja",
+        include_str!("../templates/callback_result_serialize.jinja"),
+    ),
+    (
+        "bytes_result_call.jinja",
+        include_str!("../templates/bytes_result_call.jinja"),
+    ),
+    (
+        "opaque_bytes_result_call.jinja",
+        include_str!("../templates/opaque_bytes_result_call.jinja"),
     ),
 ];
 

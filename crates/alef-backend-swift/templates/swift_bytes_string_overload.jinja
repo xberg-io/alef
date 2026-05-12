@@ -1,0 +1,6 @@
+/// Convenience overload: accepts a UTF-8 `String` and converts it to bytes.
+public func {{ wrapper_name }}(
+    content: String{{ trailing_params }}
+){{ throws_clause }} -> {{ return_ty }} {
+    return try {{ inner_call }}(makeByteVec(Array(content.utf8)){{ trailing_args }}){{ return_suffix }}
+}

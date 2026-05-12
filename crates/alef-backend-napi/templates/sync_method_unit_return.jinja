@@ -1,0 +1,26 @@
+let func: napi::bindgen_prelude::Function<{{ args_tuple_ty }}, napi::bindgen_prelude::Unknown> = match self.inner.get_named_property("{{ method_name }}") {
+    Ok(f) => f,
+{% if has_error %}
+    Err(e) => return Err({{ error_lookup }}),
+{% else %}
+    Err(_) => return Default::default(),
+{% endif %}
+};
+
+{% if empty_args %}
+let result = func.call(());
+{% else %}
+let result = func.call(napi::bindgen_prelude::FnArgs::from({{ tuple_args }}));
+{% endif %}
+
+{% if has_error %}
+match result {
+    Err(e) => Err({{ error_call }}),
+    Ok(_) => Ok(())
+}
+{% else %}
+match result {
+    Err(_) => Default::default(),
+    Ok(_) => ()
+}
+{% endif %}

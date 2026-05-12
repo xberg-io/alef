@@ -1,0 +1,32 @@
+{#- TypeScript synthetic field assertion template
+
+   Context variables:
+   - assertion_type: assertion type ("is_true", "is_false", "count_equals", etc.)
+   - pred: predicate expression for boolean assertions
+   - field_name: synthetic field name (for error messages)
+   - result_var: result variable name (for embeddings assertions)
+   - expr: expression to evaluate (for embedding_dimensions)
+   - js_val: JavaScript formatted value string
+   - n: numeric value
+#}
+{%- if assertion_type == "is_true" or assertion_type == "is_false" %}
+{%- if assertion_type == "is_true" %}
+    expect({{ pred }}).toBe(true);
+{%- else %}
+    expect({{ pred }}).toBe(false);
+{%- endif %}
+{%- elif assertion_type == "count_equals" %}
+    expect({{ result_var }}.length).toBe({{ js_val }});
+{%- elif assertion_type == "count_min" %}
+    expect({{ result_var }}.length).toBeGreaterThanOrEqual({{ js_val }});
+{%- elif assertion_type == "not_empty" %}
+    expect({{ result_var }}.length).toBeGreaterThan(0);
+{%- elif assertion_type == "is_empty" %}
+    expect({{ result_var }}.length).toBe(0);
+{%- elif assertion_type == "equals" %}
+    expect({{ expr }}).toBe({{ js_val }});
+{%- elif assertion_type == "greater_than" %}
+    expect({{ expr }}).toBeGreaterThan({{ js_val }});
+{%- else %}
+    // skipped: unsupported assertion type on synthetic field '{{ field_name }}'
+{%- endif %}

@@ -1,0 +1,26 @@
+{#- C# HTTP request rendering
+
+   Context variables:
+   - method: HTTP method as PascalCase (Get, Post, etc.)
+   - path: request path (escaped)
+   - has_body: boolean indicating if request has body
+   - json_body: JSON body as string (if has_body)
+   - content_type: content type header value
+   - headers: list of objects with 'name_escaped' and 'value_escaped'
+   - has_cookies: boolean
+   - cookie_header: combined cookie header value (if has_cookies)
+#}
+        var baseUrl = Environment.GetEnvironmentVariable("MOCK_SERVER_URL") ?? "http://localhost:8080";
+        using var handler = new System.Net.Http.HttpClientHandler { AllowAutoRedirect = false };
+        using var client = new System.Net.Http.HttpClient(handler);
+        var request = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.{{ method }}, $"{baseUrl}{{ path }}");
+{%- if has_body %}
+        request.Content = new System.Net.Http.StringContent("{{ json_body }}", System.Text.Encoding.UTF8, "{{ content_type }}");
+{%- endif %}
+{%- for header in headers %}
+        request.Headers.Add("{{ header.name_escaped }}", "{{ header.value_escaped }}");
+{%- endfor %}
+{%- if has_cookies %}
+        request.Headers.Add("Cookie", "{{ cookie_header }}");
+{%- endif %}
+        var response = await client.SendAsync(request);

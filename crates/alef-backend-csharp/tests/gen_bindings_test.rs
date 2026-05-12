@@ -32,6 +32,8 @@ fn test_basic_generation() {
                     core_wrapper: alef_core::ir::CoreWrapper::None,
                     vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                     newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
                 },
                 FieldDef {
                     name: "backend".to_string(),
@@ -47,6 +49,8 @@ fn test_basic_generation() {
                     core_wrapper: alef_core::ir::CoreWrapper::None,
                     vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                     newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
                 },
             ],
             methods: vec![],
@@ -131,9 +135,11 @@ fn test_basic_generation() {
             is_copy: false,
             has_serde: false,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     // Create test config
@@ -229,6 +235,7 @@ fn test_namespace_resolution() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config("my-lib", Some("MyCompany.MyLib"), false);
@@ -257,6 +264,7 @@ fn test_generated_header() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config("test", None, false);
@@ -305,6 +313,8 @@ fn test_type_mapping() {
                     core_wrapper: alef_core::ir::CoreWrapper::None,
                     vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                     newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
                 },
                 FieldDef {
                     name: "i64_val".to_string(),
@@ -320,6 +330,8 @@ fn test_type_mapping() {
                     core_wrapper: alef_core::ir::CoreWrapper::None,
                     vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                     newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
                 },
                 FieldDef {
                     name: "string_val".to_string(),
@@ -335,6 +347,8 @@ fn test_type_mapping() {
                     core_wrapper: alef_core::ir::CoreWrapper::None,
                     vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                     newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
                 },
                 FieldDef {
                     name: "list_val".to_string(),
@@ -350,6 +364,8 @@ fn test_type_mapping() {
                     core_wrapper: alef_core::ir::CoreWrapper::None,
                     vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                     newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
                 },
             ],
             methods: vec![],
@@ -369,6 +385,7 @@ fn test_type_mapping() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config("test", None, false);
@@ -422,6 +439,8 @@ fn test_tuple_struct_fields_skipped() {
                     core_wrapper: alef_core::ir::CoreWrapper::None,
                     vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                     newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
                 },
                 FieldDef {
                     name: "_1".to_string(),
@@ -437,6 +456,8 @@ fn test_tuple_struct_fields_skipped() {
                     core_wrapper: alef_core::ir::CoreWrapper::None,
                     vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                     newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
                 },
             ],
             methods: vec![],
@@ -456,6 +477,7 @@ fn test_tuple_struct_fields_skipped() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config("test", None, false);
@@ -502,6 +524,8 @@ fn test_mixed_struct_skips_tuple_fields_only() {
                     core_wrapper: alef_core::ir::CoreWrapper::None,
                     vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                     newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
                 },
                 FieldDef {
                     name: "label".to_string(),
@@ -517,6 +541,8 @@ fn test_mixed_struct_skips_tuple_fields_only() {
                     core_wrapper: alef_core::ir::CoreWrapper::None,
                     vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                     newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
                 },
             ],
             methods: vec![],
@@ -536,6 +562,7 @@ fn test_mixed_struct_skips_tuple_fields_only() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config("test", None, false);
@@ -617,6 +644,8 @@ fn test_duration_field_emits_single_nullable_not_double() {
                 core_wrapper: alef_core::ir::CoreWrapper::None,
                 vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                 newtype_wrapper: None,
+                serde_rename: None,
+                serde_flatten: false,
             }],
             methods: vec![],
             is_opaque: false,
@@ -634,6 +663,7 @@ fn test_duration_field_emits_single_nullable_not_double() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = minimal_csharp_config("test");
@@ -686,6 +716,8 @@ fn test_optional_ulong_field_emits_single_nullable() {
                 core_wrapper: alef_core::ir::CoreWrapper::None,
                 vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                 newtype_wrapper: None,
+                serde_rename: None,
+                serde_flatten: false,
             }],
             methods: vec![],
             is_opaque: false,
@@ -703,6 +735,7 @@ fn test_optional_ulong_field_emits_single_nullable() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = minimal_csharp_config("test");
@@ -756,6 +789,8 @@ fn test_plain_enum_with_default_emits_single_nullable() {
                 core_wrapper: alef_core::ir::CoreWrapper::None,
                 vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                 newtype_wrapper: None,
+                serde_rename: None,
+                serde_flatten: false,
             }],
             methods: vec![],
             is_opaque: false,
@@ -788,9 +823,11 @@ fn test_plain_enum_with_default_emits_single_nullable() {
             is_copy: false,
             has_serde: false,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = minimal_csharp_config("test");
@@ -814,5 +851,129 @@ fn test_plain_enum_with_default_emits_single_nullable() {
         cs_file.content.contains("Mode?"),
         "Enum field with null default should be nullable; got:\n{}",
         cs_file.content
+    );
+}
+
+/// Verifies that a function returning `Result<Vec<u8>>` (error_type + TypeRef::Bytes) uses
+/// the out-param P/Invoke convention and emits correct wrapper code.
+#[test]
+fn test_bytes_result_func_emits_out_param_pinvoke_and_wrapper() {
+    let backend = CsharpBackend;
+
+    let api = ApiSurface {
+        crate_name: "kreuzberg".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "process_image".to_string(),
+            rust_path: "kreuzberg::process_image".to_string(),
+            original_rust_path: String::new(),
+            params: vec![ParamDef {
+                name: "data".to_string(),
+                ty: TypeRef::Bytes,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            }],
+            return_type: TypeRef::Bytes,
+            is_async: false,
+            error_type: Some("KreuzbergError".to_string()),
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config("kreuzberg", Some("Kreuzberg"), true);
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generation must succeed");
+
+    let native = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("NativeMethods.cs"))
+        .expect("NativeMethods.cs must be generated");
+
+    // P/Invoke: return type must be int (not IntPtr).
+    assert!(
+        native.content.contains("internal static extern int ProcessImage"),
+        "P/Invoke return must be int for bytes_result; got:\n{}",
+        native.content
+    );
+    // P/Invoke: must have input byte-length parameter for byte-slice input.
+    assert!(
+        native.content.contains("IntPtr data") && native.content.contains("UIntPtr dataLen"),
+        "P/Invoke must have byte-slice length parameter; got:\n{}",
+        native.content
+    );
+    // P/Invoke: must have out-params.
+    assert!(
+        native.content.contains("out IntPtr outPtr"),
+        "P/Invoke must have out IntPtr outPtr; got:\n{}",
+        native.content
+    );
+    assert!(
+        native.content.contains("out UIntPtr outLen"),
+        "P/Invoke must have out UIntPtr outLen; got:\n{}",
+        native.content
+    );
+    assert!(
+        native.content.contains("out UIntPtr outCap"),
+        "P/Invoke must have out UIntPtr outCap; got:\n{}",
+        native.content
+    );
+    // P/Invoke: FreeBytes declaration must be present.
+    assert!(
+        native.content.contains("internal static extern void FreeBytes"),
+        "NativeMethods.cs must have FreeBytes; got:\n{}",
+        native.content
+    );
+
+    let wrapper = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("KreuzbergLib.cs"))
+        .expect("KreuzbergLib.cs must be generated");
+
+    // Wrapper: return type must be byte[].
+    assert!(
+        wrapper.content.contains("public static byte[] ProcessImage"),
+        "Wrapper return must be byte[] for bytes_result; got:\n{}",
+        wrapper.content
+    );
+    // Wrapper: must pass byte-length argument for byte-slice input.
+    assert!(
+        wrapper.content.contains("(UIntPtr)data.Length"),
+        "Wrapper must pass byte-length argument (UIntPtr)data.Length; got:\n{}",
+        wrapper.content
+    );
+    // Wrapper: must check rc != 0.
+    assert!(
+        wrapper.content.contains("rc != 0"),
+        "Wrapper must check rc != 0; got:\n{}",
+        wrapper.content
+    );
+    // Wrapper: must call Marshal.Copy.
+    assert!(
+        wrapper.content.contains("Marshal.Copy"),
+        "Wrapper must call Marshal.Copy; got:\n{}",
+        wrapper.content
+    );
+    // Wrapper: must call FreeBytes.
+    assert!(
+        wrapper.content.contains("FreeBytes"),
+        "Wrapper must call NativeMethods.FreeBytes; got:\n{}",
+        wrapper.content
     );
 }

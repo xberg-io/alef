@@ -1,0 +1,25 @@
+{#- PHP visitor method template
+
+   Context variables:
+   - method_name: visitor method name
+   - params: PHP parameter list as string
+   - action_type: "skip", "continue", "preserve_html", "custom", or "custom_template"
+   - action_value: custom output or template string (for custom/custom_template)
+#}
+    public function {{ method_name }}({{ params }}) {
+{% if action_type == "skip" %}
+        return 'skip';
+{% elif action_type == "continue" %}
+        return 'continue';
+{% elif action_type == "preserve_html" %}
+        return 'preserve_html';
+{% elif action_type == "custom" %}
+        return ['custom' => "{{ action_value }}"];
+{% elif action_type == "custom_template" %}
+{% if return_form == "bare_string" %}
+        return "{{ action_value }}";
+{% else %}
+        return ['custom' => "{{ action_value }}"];
+{% endif %}
+{% endif %}
+    }

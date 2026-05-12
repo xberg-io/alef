@@ -8,6 +8,7 @@
 mod gen_bindings;
 pub mod gen_rust_crate;
 pub mod naming;
+mod template_env;
 mod type_map;
 
 pub use gen_bindings::SwiftBackend;

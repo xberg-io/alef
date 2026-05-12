@@ -1,0 +1,69 @@
+{%- if assertion_type == "equals" -%}
+  expect_equal(trimws({{ field_expr }}), {{ r_val }})
+{%- elif assertion_type == "contains" -%}
+  expect_true(grepl({{ r_val }}, {{ field_expr }}, fixed = TRUE))
+{%- elif assertion_type == "contains_all" -%}
+{%- for val in values_r %}
+  expect_true(grepl({{ val }}, {{ field_expr }}, fixed = TRUE))
+{%- endfor %}
+{%- elif assertion_type == "not_contains" -%}
+  expect_false(grepl({{ r_val }}, {{ field_expr }}, fixed = TRUE))
+{%- elif assertion_type == "not_empty" -%}
+  expect_true(if (is.character({{ field_expr }})) nchar({{ field_expr }}) > 0 else length({{ field_expr }}) > 0)
+{%- elif assertion_type == "is_empty" -%}
+  expect_equal({{ field_expr }}, "")
+{%- elif assertion_type == "contains_any" -%}
+  expect_true(any(sapply(c({{ values_r|join(", ") }}), function(v) grepl(v, {{ field_expr }}, fixed = TRUE))))
+{%- elif assertion_type == "greater_than" -%}
+  expect_true({{ field_expr }} > {{ r_val }})
+{%- elif assertion_type == "less_than" -%}
+  expect_true({{ field_expr }} < {{ r_val }})
+{%- elif assertion_type == "greater_than_or_equal" -%}
+  expect_true({{ field_expr }} >= {{ r_val }})
+{%- elif assertion_type == "less_than_or_equal" -%}
+  expect_true({{ field_expr }} <= {{ r_val }})
+{%- elif assertion_type == "starts_with" -%}
+  expect_true(startsWith({{ field_expr }}, {{ r_val }}))
+{%- elif assertion_type == "ends_with" -%}
+  expect_true(endsWith({{ field_expr }}, {{ r_val }}))
+{%- elif assertion_type == "min_length" -%}
+  expect_true(nchar({{ field_expr }}) >= {{ n }})
+{%- elif assertion_type == "max_length" -%}
+  expect_true(nchar({{ field_expr }}) <= {{ n }})
+{%- elif assertion_type == "count_min" -%}
+  expect_true(length({{ field_expr }}) >= {{ n }})
+{%- elif assertion_type == "count_equals" -%}
+  expect_equal(length({{ field_expr }}), {{ n }})
+{%- elif assertion_type == "is_true" -%}
+  expect_true({{ field_expr }})
+{%- elif assertion_type == "is_false" -%}
+  expect_false({{ field_expr }})
+{%- elif assertion_type == "method_result" -%}
+{%- if check == "equals" -%}
+{%- if is_bool_val -%}
+{%- if bool_is_true -%}
+  expect_true({{ call_expr }})
+{%- else -%}
+  expect_false({{ call_expr }})
+{%- endif -%}
+{%- else -%}
+  expect_equal({{ call_expr }}, {{ r_check_val }})
+{%- endif -%}
+{%- elif check == "is_true" -%}
+  expect_true({{ call_expr }})
+{%- elif check == "is_false" -%}
+  expect_false({{ call_expr }})
+{%- elif check == "greater_than_or_equal" -%}
+  expect_true({{ call_expr }} >= {{ check_n }})
+{%- elif check == "count_min" -%}
+  expect_true(length({{ call_expr }}) >= {{ check_n }})
+{%- elif check == "is_error" -%}
+  expect_error({{ call_expr }})
+{%- elif check == "contains" -%}
+  expect_true(grepl({{ r_check_val }}, {{ call_expr }}, fixed = TRUE))
+{%- endif -%}
+{%- elif assertion_type == "matches_regex" -%}
+  expect_true(grepl({{ r_val }}, {{ field_expr }}))
+{%- elif assertion_type == "not_error" -%}
+  expect_true(TRUE)
+{%- endif -%}

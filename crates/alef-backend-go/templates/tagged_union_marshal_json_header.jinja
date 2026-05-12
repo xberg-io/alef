@@ -1,0 +1,3 @@
+// MarshalJSON encodes the tagged union with the discriminator tag.
+func (t {{ go_enum_name }}) MarshalJSON() ([]byte, error) {
+	switch t.{{ tag_field_name }} {

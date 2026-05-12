@@ -1,0 +1,25 @@
+{#- Python visitor method template
+
+   Context variables:
+   - method_name: visitor method name (e.g., "visit_text")
+   - params: parameter list (e.g., "self, ctx, text")
+   - action_type: "skip", "continue", "preserve_html", "custom", "custom_template"
+   - action_value: escaped string value (for custom)
+   - action_template: escaped template string (for custom_template)
+#}
+        def {{ method_name }}({{ params }}):  # noqa: A002, ANN001, ANN202, ARG002
+{% if action_type == "skip" %}
+            return "skip"
+{% elif action_type == "continue" %}
+            return "continue"
+{% elif action_type == "preserve_html" %}
+            return "preserve_html"
+{% elif action_type == "custom" %}
+            return {"custom": "{{ action_value }}"}
+{% elif action_type == "custom_template" %}
+{% if return_form == "bare_string" %}
+            return f'{{ action_template }}'
+{% else %}
+            return {"custom": f'{{ action_template }}'}
+{% endif %}
+{% endif %}

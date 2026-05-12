@@ -153,6 +153,7 @@ fn extract_raw(config: &ResolvedCrateConfig, _config_path: &Path) -> anyhow::Res
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: std::collections::HashMap::new(),
     };
 
     for (crate_name, sources) in &groups {
@@ -162,6 +163,7 @@ fn extract_raw(config: &ResolvedCrateConfig, _config_path: &Path) -> anyhow::Res
         merged.functions.extend(api.functions);
         merged.enums.extend(api.enums);
         merged.errors.extend(api.errors);
+        merged.excluded_type_paths.extend(api.excluded_type_paths);
     }
 
     Ok(merged)
@@ -280,7 +282,16 @@ fn sanitize_unknown_types(api: &mut ApiSurface) {
             }
         }
         let type_name = typ.name.clone();
+        let is_trait = typ.is_trait;
         for method in &mut typ.methods {
+            // Trait method params and return types must match the original Rust trait
+            // signature exactly — bridge codegen emits `impl Trait for Wrapper { fn ... }`
+            // and the impl must satisfy the trait. Sanitizing these would cause
+            // E0053 (incompatible type) trait coherence errors. Internal-only param
+            // types are handled by per-backend JSON serialization in the bridge body.
+            if is_trait {
+                continue;
+            }
             let mut method_sanitized = false;
             for param in &mut method.params {
                 if sanitize_type_ref(&mut param.ty, &known_types, &known_enums) {
@@ -421,15 +432,14 @@ fn strip_cfg_fields(api: &mut ApiSurface, enabled_features: &[String]) {
     for typ in &mut api.types {
         let original_count = typ.fields.len();
         let cfg_count = typ.fields.iter().filter(|f| f.cfg.is_some()).count();
-        // Retain non-cfg fields and cfg fields whose feature condition is satisfied.
+        // Retain non-cfg fields and cfg fields whose feature condition is satisfied
+        // by the source crate. Per-binding feature filtering happens later in codegen,
+        // which evaluates `field.cfg` against each binding's effective feature set —
+        // so we keep the cfg attribute on retained fields rather than clearing it.
         typ.fields.retain(|f| match &f.cfg {
             None => true,
             Some(cfg_str) => cfg_condition_enabled(cfg_str, enabled_features),
         });
-        // Clear cfg on retained fields so codegen treats them as unconditional.
-        for field in &mut typ.fields {
-            field.cfg = None;
-        }
         // Mark if any cfg fields were actually stripped (not enabled).
         if cfg_count > 0 && typ.fields.len() < original_count {
             typ.has_stripped_cfg_fields = true;
@@ -651,6 +661,24 @@ fn apply_filters(mut api: ApiSurface, config: &ResolvedCrateConfig) -> ApiSurfac
 
     // Then apply excludes (blacklist).
     // Entries containing `::` are matched against rust_path (fully-qualified); others by name.
+    //
+    // Capture rust_paths of excluded types BEFORE dropping them, so trait_bridge
+    // codegen can still reference them by qualified path when they appear in trait
+    // method signatures (preserves `impl Trait for Wrapper { fn render(&self,
+    // doc: &kreuzberg::types::internal::InternalDocument) }`).
+    for typ in &api.types {
+        if is_type_excluded(&typ.name, &typ.rust_path, &exclude.types) {
+            api.excluded_type_paths
+                .insert(typ.name.clone(), typ.rust_path.replace('-', "_"));
+        }
+    }
+    for enm in &api.enums {
+        if is_type_excluded(&enm.name, &enm.rust_path, &exclude.types) {
+            api.excluded_type_paths
+                .insert(enm.name.clone(), enm.rust_path.replace('-', "_"));
+        }
+    }
+
     api.types
         .retain(|t| !is_type_excluded(&t.name, &t.rust_path, &exclude.types));
     api.functions.retain(|f| !exclude.functions.contains(&f.name));

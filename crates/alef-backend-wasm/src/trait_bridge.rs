@@ -10,7 +10,6 @@ use alef_codegen::generators::trait_bridge::{
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 use std::collections::HashMap;
-use std::fmt::Write;
 
 /// Find the first parameter index and bridge config where the parameter's named type
 /// matches a trait bridge's `type_alias`.
@@ -52,302 +51,100 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
         let name = &method.name;
         let js_name = to_camel_case(name);
         let has_error = method.error_type.is_some();
-        let mut out = String::with_capacity(512);
-
-        writeln!(out, "let key = wasm_bindgen::JsValue::from_str(\"{js_name}\");").ok();
-        writeln!(
-            out,
-            "let has_method = js_sys::Reflect::has(&self.inner, &key).unwrap_or(false);"
-        )
-        .ok();
-        writeln!(out, "if !has_method {{").ok();
-        if has_error {
-            let err_expr = spec.make_error(&format!(
-                "format!(\"Method '{{}}' not found on JS object\", \"{name}\")"
-            ));
-            writeln!(out, "    return Err({err_expr});").ok();
-        } else {
-            writeln!(out, "    return Default::default();").ok();
-        }
-        writeln!(out, "}}").ok();
-        writeln!(out).ok();
-
-        if has_error {
-            writeln!(out, "let func_val = js_sys::Reflect::get(&self.inner, &key)").ok();
-            writeln!(
-                out,
-                "    .map_err(|_| {})?;",
-                spec.make_error(&format!("format!(\"Failed to get method '{{}}'\", \"{name}\")"))
-            )
-            .ok();
-        } else {
-            writeln!(out, "let func_val = match js_sys::Reflect::get(&self.inner, &key) {{").ok();
-            writeln!(out, "    Ok(f) => f,").ok();
-            writeln!(out, "    Err(_) => return Default::default(),").ok();
-            writeln!(out, "}};").ok();
-        }
-        writeln!(out).ok();
-
-        if has_error {
-            writeln!(out, "let func: js_sys::Function = func_val.dyn_into()").ok();
-            writeln!(
-                out,
-                "    .map_err(|_| {})?;",
-                spec.make_error(&format!("format!(\"Method '{{}}' is not a function\", \"{name}\")"))
-            )
-            .ok();
-        } else {
-            writeln!(out, "let func: js_sys::Function = match func_val.dyn_into() {{").ok();
-            writeln!(out, "    Ok(f) => f,").ok();
-            writeln!(out, "    Err(_) => return Default::default(),").ok();
-            writeln!(out, "}};").ok();
-        }
-        writeln!(out).ok();
-
-        // Build args array
-        writeln!(out, "let args = js_sys::Array::new();").ok();
-        for p in &method.params {
-            let arg_val = build_wasm_arg(p);
-            writeln!(out, "args.push(&{arg_val});").ok();
-        }
-        writeln!(out).ok();
-
-        // Call the function
-        if has_error {
-            writeln!(out, "let result = func.apply(&self.inner, &args)").ok();
-            writeln!(
-                out,
-                "    .map_err(|_| {})?;",
-                spec.make_error(&format!("format!(\"Failed to call method '{{}}'\", \"{name}\")"))
-            )
-            .ok();
-        } else {
-            writeln!(out, "let result = match func.apply(&self.inner, &args) {{").ok();
-            writeln!(out, "    Ok(r) => r,").ok();
-            writeln!(out, "    Err(_) => return Default::default(),").ok();
-            writeln!(out, "}};").ok();
-        }
-        writeln!(out).ok();
-
-        // Convert result
         let ret_ty = self.extract_ty(&method.return_type);
-        if matches!(method.return_type, TypeRef::Unit) {
-            if has_error {
-                writeln!(out, "Ok(())").ok();
-            } else {
-                writeln!(out, "()").ok();
-            }
-        } else if matches!(method.return_type, TypeRef::String) {
-            if has_error {
-                writeln!(out, "result.as_string()").ok();
-                writeln!(
-                    out,
-                    "    .ok_or_else(|| {})",
-                    spec.make_error("\"Expected string return\".to_string()")
-                )
-                .ok();
-            } else {
-                writeln!(out, "result.as_string().unwrap_or_default()").ok();
-            }
-        } else {
-            if has_error {
-                writeln!(out, "// Convert JS result to {ret_ty}").ok();
-                writeln!(out, "result.as_string()").ok();
-                writeln!(
-                    out,
-                    "    .ok_or_else(|| {})",
-                    spec.make_error("\"Failed to convert result\".to_string()")
-                )
-                .ok();
-                writeln!(
-                    out,
-                    "    .and_then(|s| serde_json::from_str::<{ret_ty}>(&s).map_err(|e| {}))",
-                    spec.make_error("format!(\"Failed to deserialize result: {}\", e)")
-                )
-                .ok();
-            } else {
-                writeln!(
-                    out,
-                    "result.as_string().and_then(|s| serde_json::from_str::<{ret_ty}>(&s).ok()).unwrap_or_default()"
-                )
-                .ok();
-            }
-        }
-        out
+
+        let error_expr = spec.make_error(&format!(
+            "format!(\"Method '{{}}' not found on JS object\", \"{name}\")"
+        ));
+        let error_get_method = spec.make_error(&format!("format!(\"Failed to get method '{{}}'\", \"{name}\")"));
+        let error_dyn_into = spec.make_error(&format!("format!(\"Method '{{}}' is not a function\", \"{name}\")"));
+        let error_apply = spec.make_error(&format!("format!(\"Failed to call method '{{}}'\", \"{name}\")"));
+        let error_string_conv = spec.make_error("\"Expected string return\".to_string()");
+        let error_result_conv = spec.make_error("\"Failed to convert result\".to_string()");
+        let error_deser = spec.make_error("format!(\"Failed to deserialize result: {}\", e)");
+
+        let params: Vec<String> = method.params.iter().map(build_wasm_arg).collect();
+
+        let return_unit = matches!(method.return_type, TypeRef::Unit);
+        let return_string = matches!(method.return_type, TypeRef::String);
+
+        let ctx = minijinja::context! {
+            js_name => js_name,
+            has_error => has_error,
+            error_expr => error_expr,
+            error_get_method => error_get_method,
+            error_dyn_into => error_dyn_into,
+            error_apply => error_apply,
+            error_string_conv => error_string_conv,
+            error_result_conv => error_result_conv,
+            error_deser => error_deser,
+            params => params,
+            ret_ty => ret_ty,
+            return_unit => return_unit,
+            return_string => return_string,
+        };
+        crate::template_env::render("gen_sync_method_body", ctx)
     }
 
     fn gen_async_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
-        let name = &method.name;
-        let js_name = to_camel_case(name);
-        let has_error = method.error_type.is_some();
-        let mut out = String::with_capacity(1024);
-
         // WASM is single-threaded, so we just call the function synchronously.
         // The #[async_trait] macro will wrap this body in a pinned future.
         // Do NOT add Box::pin(async move { ... }) here — that causes double-boxing.
+        let name = &method.name;
+        let js_name = to_camel_case(name);
+        let has_error = method.error_type.is_some();
+        let ret_ty = self.extract_ty(&method.return_type);
 
-        writeln!(out, "let key = wasm_bindgen::JsValue::from_str(\"{js_name}\");").ok();
-        writeln!(
-            out,
-            "let has_method = js_sys::Reflect::has(&self.inner, &key).unwrap_or(false);"
-        )
-        .ok();
-        writeln!(out, "if !has_method {{").ok();
-        if has_error {
-            let err_expr = spec.make_error(&format!(
-                "format!(\"Method '{{}}' not found on JS object\", \"{name}\")"
-            ));
-            writeln!(out, "    return Err({err_expr});").ok();
-        } else {
-            writeln!(out, "    return Default::default();").ok();
-        }
-        writeln!(out, "}}").ok();
-        writeln!(out).ok();
+        let error_expr = spec.make_error(&format!(
+            "format!(\"Method '{{}}' not found on JS object\", \"{name}\")"
+        ));
+        let error_get_method = spec.make_error(&format!("format!(\"Failed to get method '{{}}'\", \"{name}\")"));
+        let error_dyn_into = spec.make_error(&format!("format!(\"Method '{{}}' is not a function\", \"{name}\")"));
+        let error_apply = spec.make_error(&format!("format!(\"Failed to call method '{{}}'\", \"{name}\")"));
+        let error_string_conv = spec.make_error("\"Expected string return\".to_string()");
+        let error_result_conv = spec.make_error("\"Failed to convert result\".to_string()");
+        let error_deser = spec.make_error("format!(\"Failed to deserialize result: {}\", e)");
 
-        if has_error {
-            writeln!(out, "let func_val = js_sys::Reflect::get(&self.inner, &key)").ok();
-            writeln!(
-                out,
-                "    .map_err(|_| {})?;",
-                spec.make_error(&format!("format!(\"Failed to get method '{{}}'\", \"{name}\")"))
-            )
-            .ok();
-        } else {
-            writeln!(out, "let func_val = match js_sys::Reflect::get(&self.inner, &key) {{").ok();
-            writeln!(out, "    Ok(f) => f,").ok();
-            writeln!(out, "    Err(_) => return Default::default(),").ok();
-            writeln!(out, "}};").ok();
-        }
-        writeln!(out).ok();
+        let params: Vec<String> = method.params.iter().map(build_wasm_arg).collect();
 
-        if has_error {
-            writeln!(out, "let func: js_sys::Function = func_val.dyn_into()").ok();
-            writeln!(
-                out,
-                "    .map_err(|_| {})?;",
-                spec.make_error(&format!("format!(\"Method '{{}}' is not a function\", \"{name}\")"))
-            )
-            .ok();
-        } else {
-            writeln!(out, "let func: js_sys::Function = match func_val.dyn_into() {{").ok();
-            writeln!(out, "    Ok(f) => f,").ok();
-            writeln!(out, "    Err(_) => return Default::default(),").ok();
-            writeln!(out, "}};").ok();
-        }
-        writeln!(out).ok();
+        let return_unit = matches!(method.return_type, TypeRef::Unit);
+        let return_string = matches!(method.return_type, TypeRef::String);
 
-        writeln!(out, "let args = js_sys::Array::new();").ok();
-        for p in &method.params {
-            let arg_val = build_wasm_arg(p);
-            writeln!(out, "args.push(&{arg_val});").ok();
-        }
-        writeln!(out).ok();
-
-        if has_error {
-            writeln!(out, "let result = func.apply(&self.inner, &args)").ok();
-            writeln!(
-                out,
-                "    .map_err(|_| {})?;",
-                spec.make_error(&format!("format!(\"Failed to call method '{{}}'\", \"{name}\")"))
-            )
-            .ok();
-        } else {
-            writeln!(out, "let result = match func.apply(&self.inner, &args) {{").ok();
-            writeln!(out, "    Ok(r) => r,").ok();
-            writeln!(out, "    Err(_) => return Default::default(),").ok();
-            writeln!(out, "}};").ok();
-        }
-        writeln!(out).ok();
-
-        // Convert result
-        if matches!(method.return_type, TypeRef::Unit) {
-            if has_error {
-                writeln!(out, "Ok(())").ok();
-            } else {
-                writeln!(out, "()").ok();
-            }
-        } else if matches!(method.return_type, TypeRef::String) {
-            if has_error {
-                writeln!(out, "result.as_string()").ok();
-                writeln!(
-                    out,
-                    "    .ok_or_else(|| {})",
-                    spec.make_error("\"Expected string return\".to_string()")
-                )
-                .ok();
-            } else {
-                writeln!(out, "result.as_string().unwrap_or_default()").ok();
-            }
-        } else {
-            let ret_ty = self.extract_ty(&method.return_type);
-            if has_error {
-                writeln!(out, "result.as_string()").ok();
-                writeln!(
-                    out,
-                    "    .ok_or_else(|| {})",
-                    spec.make_error("\"Failed to convert result\".to_string()")
-                )
-                .ok();
-                writeln!(
-                    out,
-                    "    .and_then(|s| serde_json::from_str::<{ret_ty}>(&s).map_err(|e| {}))",
-                    spec.make_error("format!(\"Failed to deserialize result: {}\", e)")
-                )
-                .ok();
-            } else {
-                writeln!(
-                    out,
-                    "result.as_string().and_then(|s| serde_json::from_str::<{ret_ty}>(&s).ok()).unwrap_or_default()"
-                )
-                .ok();
-            }
-        }
-        out
+        let ctx = minijinja::context! {
+            js_name => js_name,
+            has_error => has_error,
+            error_expr => error_expr,
+            error_get_method => error_get_method,
+            error_dyn_into => error_dyn_into,
+            error_apply => error_apply,
+            error_string_conv => error_string_conv,
+            error_result_conv => error_result_conv,
+            error_deser => error_deser,
+            params => params,
+            ret_ty => ret_ty,
+            return_unit => return_unit,
+            return_string => return_string,
+        };
+        crate::template_env::render("gen_async_method_body", ctx)
     }
 
     fn gen_constructor(&self, spec: &TraitBridgeSpec) -> String {
         let wrapper = spec.wrapper_name();
-        let mut out = String::with_capacity(512);
-
-        writeln!(out, "impl {wrapper} {{").ok();
-        writeln!(out, "    /// Create a new bridge wrapping a JS object.").ok();
-        writeln!(out, "    ///").ok();
-        writeln!(
-            out,
-            "    /// Validates that the JS object provides all required methods."
-        )
-        .ok();
-        writeln!(
-            out,
-            "    pub fn new(js_obj: wasm_bindgen::JsValue) -> Result<Self, String> {{"
-        )
-        .ok();
-
-        // Validate all required methods exist
-        for req_method in spec.required_methods() {
-            let js_name = to_camel_case(&req_method.name);
-            writeln!(
-                out,
-                "        if !js_sys::Reflect::has(&js_obj, &wasm_bindgen::JsValue::from_str(\"{js_name}\")).unwrap_or(false) {{"
-            )
-            .ok();
-            writeln!(
-                out,
-                "            return Err(format!(\"JS object missing required method: {{}}\", \"{}\"));",
-                req_method.name
-            )
-            .ok();
-            writeln!(out, "        }}").ok();
-        }
-
-        writeln!(out).ok();
-        writeln!(out, "        Ok(Self {{").ok();
-        writeln!(out, "            inner: js_obj,").ok();
-        writeln!(out, "            cached_name: \"wasm_bridge\".to_string(),").ok();
-        writeln!(out, "        }})").ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out, "}}").ok();
-        out
+        let required_methods: Vec<_> = spec
+            .required_methods()
+            .iter()
+            .map(|m| {
+                minijinja::context! {
+                    name => m.name.clone(),
+                    js_name => to_camel_case(&m.name),
+                }
+            })
+            .collect();
+        let ctx = minijinja::context! {
+            wrapper => wrapper,
+            required_methods => required_methods,
+        };
+        crate::template_env::render("gen_constructor", ctx)
     }
 
     fn gen_unregistration_fn(&self, spec: &TraitBridgeSpec) -> String {
@@ -356,20 +153,12 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
         };
         let host_path = alef_codegen::generators::trait_bridge::host_function_path(spec, unregister_fn);
         let camel = to_camel_case(unregister_fn);
-        let mut out = String::with_capacity(512);
-        writeln!(out, "#[wasm_bindgen(js_name = \"{camel}\")]").ok();
-        writeln!(
-            out,
-            "pub fn {unregister_fn}(name: String) -> Result<(), wasm_bindgen::JsValue> {{"
-        )
-        .ok();
-        writeln!(
-            out,
-            "    {host_path}(&name).map_err(|e| wasm_bindgen::JsValue::from_str(&e.to_string()))"
-        )
-        .ok();
-        writeln!(out, "}}").ok();
-        out
+        let ctx = minijinja::context! {
+            camel => camel.clone(),
+            unregister_fn => unregister_fn.to_string(),
+            host_path => host_path,
+        };
+        crate::template_env::render("gen_unregistration_fn", ctx)
     }
 
     fn gen_clear_fn(&self, spec: &TraitBridgeSpec) -> String {
@@ -378,16 +167,12 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
         };
         let host_path = alef_codegen::generators::trait_bridge::host_function_path(spec, clear_fn);
         let camel = to_camel_case(clear_fn);
-        let mut out = String::with_capacity(512);
-        writeln!(out, "#[wasm_bindgen(js_name = \"{camel}\")]").ok();
-        writeln!(out, "pub fn {clear_fn}() -> Result<(), wasm_bindgen::JsValue> {{").ok();
-        writeln!(
-            out,
-            "    {host_path}().map_err(|e| wasm_bindgen::JsValue::from_str(&e.to_string()))"
-        )
-        .ok();
-        writeln!(out, "}}").ok();
-        out
+        let ctx = minijinja::context! {
+            camel => camel.clone(),
+            clear_fn => clear_fn.to_string(),
+            host_path => host_path,
+        };
+        crate::template_env::render("gen_clear_fn", ctx)
     }
 
     fn gen_registration_fn(&self, spec: &TraitBridgeSpec) -> String {
@@ -400,70 +185,33 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
         let wrapper = spec.wrapper_name();
         let trait_path = spec.trait_path();
 
-        let mut out = String::with_capacity(1024);
-
-        // Emit `js_name` so the function shows up camelCase in JS, matching
-        // alef's standard JS convention for top-level free functions (see
-        // `gen_bindings/functions.rs:977-1002`). Without this attribute the
-        // export was emitted snake_case, so `index.ts` couldn't re-export it.
         let camel = to_camel_case(register_fn);
-        writeln!(out, "#[wasm_bindgen(js_name = \"{camel}\")]").ok();
-        writeln!(
-            out,
-            "pub fn {register_fn}(backend: wasm_bindgen::JsValue) -> Result<(), wasm_bindgen::JsValue> {{"
-        )
-        .ok();
-
-        // Validate required methods
-        let req_methods: Vec<&MethodDef> = spec.required_methods();
-        if !req_methods.is_empty() {
-            writeln!(out, "    let required_methods = vec![").ok();
-            for m in &req_methods {
-                writeln!(out, "        \"{}\",", to_camel_case(&m.name)).ok();
-            }
-            writeln!(out, "    ];").ok();
-            writeln!(out).ok();
-            writeln!(out, "    for method_name in required_methods {{").ok();
-            writeln!(
-                out,
-                "        if !js_sys::Reflect::has(&backend, &wasm_bindgen::JsValue::from_str(method_name)).unwrap_or(false) {{"
-            )
-            .ok();
-            writeln!(
-                out,
-                "            return Err(wasm_bindgen::JsValue::from_str(&format!(\"Backend missing required method: {{}}\", method_name)));"
-            )
-            .ok();
-            writeln!(out, "        }}").ok();
-            writeln!(out, "    }}").ok();
-        }
-
-        writeln!(out).ok();
-        writeln!(out, "    let wrapper = {wrapper}::new(backend)").ok();
-        writeln!(out, "        .map_err(|e| wasm_bindgen::JsValue::from_str(&e))?;").ok();
-        writeln!(
-            out,
-            "    let arc: std::sync::Arc<dyn {trait_path}> = std::sync::Arc::new(wrapper);"
-        )
-        .ok();
-        writeln!(out).ok();
-
+        let required_methods: Vec<_> = spec
+            .required_methods()
+            .iter()
+            .map(|m| {
+                minijinja::context! {
+                    js_name => to_camel_case(&m.name),
+                }
+            })
+            .collect();
         let extra = spec
             .bridge_config
             .register_extra_args
             .as_deref()
             .map(|a| format!(", {a}"))
             .unwrap_or_default();
-        writeln!(out, "    let registry = {registry_getter}();").ok();
-        writeln!(out, "    let mut registry = registry.write();").ok();
-        writeln!(out, "    registry.register(arc{extra})").ok();
-        writeln!(
-            out,
-            "        .map_err(|e| wasm_bindgen::JsValue::from_str(&e.to_string()))"
-        )
-        .ok();
-        writeln!(out, "}}").ok();
-        out
+
+        let ctx = minijinja::context! {
+            camel => camel,
+            register_fn => register_fn.to_string(),
+            required_methods => required_methods,
+            wrapper => wrapper,
+            trait_path => trait_path,
+            registry_getter => registry_getter.to_string(),
+            extra => extra,
+        };
+        crate::template_env::render("gen_registration_fn", ctx)
     }
 }
 
@@ -534,6 +282,13 @@ pub fn gen_trait_bridge(
             api.enums
                 .iter()
                 .map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))),
+        )
+        // Include excluded types so trait methods referencing them (e.g. `&InternalDocument`)
+        // are qualified with the full Rust path rather than emitting the bare type name.
+        .chain(
+            api.excluded_type_paths
+                .iter()
+                .map(|(name, path)| (name.clone(), path.replace('-', "_"))),
         )
         .collect();
 
@@ -610,99 +365,28 @@ fn gen_visitor_bridge(
     core_crate: &str,
     type_paths: &HashMap<String, String>,
 ) {
-    // Helper: convert NodeContext to a JS object via js_sys::Object
-    writeln!(out, "fn nodecontext_to_js_value(").unwrap();
-    writeln!(out, "    ctx: &{core_crate}::visitor::NodeContext,").unwrap();
-    writeln!(out, ") -> wasm_bindgen::JsValue {{").unwrap();
-    writeln!(out, "    let obj = js_sys::Object::new();").unwrap();
-    writeln!(
-        out,
-        "    js_sys::Reflect::set(&obj, &wasm_bindgen::JsValue::from_str(\"nodeType\"), &wasm_bindgen::JsValue::from_str(&format!(\"{{:?}}\", ctx.node_type))).ok();"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "    js_sys::Reflect::set(&obj, &wasm_bindgen::JsValue::from_str(\"tagName\"), &wasm_bindgen::JsValue::from_str(&ctx.tag_name)).ok();"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "    js_sys::Reflect::set(&obj, &wasm_bindgen::JsValue::from_str(\"depth\"), &wasm_bindgen::JsValue::from_f64(ctx.depth as f64)).ok();"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "    js_sys::Reflect::set(&obj, &wasm_bindgen::JsValue::from_str(\"indexInParent\"), &wasm_bindgen::JsValue::from_f64(ctx.index_in_parent as f64)).ok();"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "    js_sys::Reflect::set(&obj, &wasm_bindgen::JsValue::from_str(\"isInline\"), &wasm_bindgen::JsValue::from_bool(ctx.is_inline)).ok();"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "    let parent_tag_val = match &ctx.parent_tag {{\n        Some(s) => wasm_bindgen::JsValue::from_str(s),\n        None => wasm_bindgen::JsValue::null(),\n    }};"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "    js_sys::Reflect::set(&obj, &wasm_bindgen::JsValue::from_str(\"parentTag\"), &parent_tag_val).ok();"
-    )
-    .unwrap();
-    writeln!(out, "    let attrs = js_sys::Object::new();").unwrap();
-    writeln!(out, "    for (k, v) in &ctx.attributes {{").unwrap();
-    writeln!(
-        out,
-        "        js_sys::Reflect::set(&attrs, &wasm_bindgen::JsValue::from_str(k), &wasm_bindgen::JsValue::from_str(v)).ok();"
-    )
-    .unwrap();
-    writeln!(out, "    }}").unwrap();
-    writeln!(
-        out,
-        "    js_sys::Reflect::set(&obj, &wasm_bindgen::JsValue::from_str(\"attributes\"), &attrs).ok();"
-    )
-    .unwrap();
-    writeln!(out, "    obj.into()").unwrap();
-    writeln!(out, "}}").unwrap();
-    writeln!(out).unwrap();
+    let methods: Vec<_> = trait_type
+        .methods
+        .iter()
+        .filter(|m| m.trait_source.is_none())
+        .map(|method| {
+            let mut method_out = String::new();
+            gen_visitor_method_wasm(&mut method_out, method, type_paths);
+            minijinja::context! {
+                code => method_out,
+            }
+        })
+        .collect();
 
-    // Bridge struct
-    writeln!(out, "pub struct {struct_name} {{").unwrap();
-    writeln!(out, "    js_obj: wasm_bindgen::JsValue,").unwrap();
-    writeln!(out, "}}").unwrap();
-    writeln!(out).unwrap();
-
-    // Manual Debug impl
-    writeln!(out, "impl std::fmt::Debug for {struct_name} {{").unwrap();
-    writeln!(
-        out,
-        "    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{"
-    )
-    .unwrap();
-    writeln!(out, "        write!(f, \"{struct_name}\")").unwrap();
-    writeln!(out, "    }}").unwrap();
-    writeln!(out, "}}").unwrap();
-    writeln!(out).unwrap();
-
-    // Constructor
-    writeln!(out, "impl {struct_name} {{").unwrap();
-    writeln!(out, "    pub fn new(js_obj: wasm_bindgen::JsValue) -> Self {{").unwrap();
-    writeln!(out, "        Self {{ js_obj }}").unwrap();
-    writeln!(out, "    }}").unwrap();
-    writeln!(out, "}}").unwrap();
-    writeln!(out).unwrap();
-
-    // Trait impl
-    writeln!(out, "impl {trait_path} for {struct_name} {{").unwrap();
-    for method in &trait_type.methods {
-        if method.trait_source.is_some() {
-            continue;
-        }
-        gen_visitor_method_wasm(out, method, type_paths);
-    }
-    writeln!(out, "}}").unwrap();
-    writeln!(out).unwrap();
+    let ctx = minijinja::context! {
+        core_crate => core_crate.to_string(),
+        struct_name => struct_name.to_string(),
+        trait_path => trait_path.to_string(),
+        methods => methods,
+    };
+    let rendered = crate::template_env::render("gen_visitor_bridge", ctx);
+    out.push_str(&rendered);
+    out.push('\n');
 }
 
 /// Generate a single visitor method that checks for a camelCase JS property and calls it.
@@ -725,99 +409,29 @@ fn gen_visitor_method_wasm(out: &mut String, method: &MethodDef, type_paths: &Ha
         other => param_type(other, "", false, type_paths),
     };
 
-    writeln!(out, "    fn {name}({sig}) -> {ret_ty} {{").unwrap();
+    let params: Vec<String> = method.params.iter().map(build_wasm_arg).collect();
 
-    // Check if the JS object has the method via Reflect
-    writeln!(out, "        let key = wasm_bindgen::JsValue::from_str(\"{js_name}\");").unwrap();
-    writeln!(
-        out,
-        "        let has_method = js_sys::Reflect::has(&self.js_obj, &key).unwrap_or(false);"
-    )
-    .unwrap();
-    writeln!(out, "        if !has_method {{").unwrap();
-    writeln!(out, "            return {ret_ty}::Continue;").unwrap();
-    writeln!(out, "        }}").unwrap();
-
-    // Get the JS function
-    writeln!(
-        out,
-        "        let func_val = match js_sys::Reflect::get(&self.js_obj, &key) {{"
-    )
-    .unwrap();
-    writeln!(out, "            Ok(f) => f,").unwrap();
-    writeln!(out, "            Err(_) => return {ret_ty}::Continue,").unwrap();
-    writeln!(out, "        }};").unwrap();
-    writeln!(out, "        let func: js_sys::Function = match func_val.dyn_into() {{").unwrap();
-    writeln!(out, "            Ok(f) => f,").unwrap();
-    writeln!(out, "            Err(_) => return {ret_ty}::Continue,").unwrap();
-    writeln!(out, "        }};").unwrap();
-
-    // Build args array
-    writeln!(out, "        let args = js_sys::Array::new();").unwrap();
-    for p in &method.params {
-        let arg_val = build_wasm_arg(p);
-        writeln!(out, "        args.push(&{arg_val});").unwrap();
-    }
-
-    // Call the function
-    writeln!(out, "        let result = func.apply(&self.js_obj, &args);").unwrap();
-
-    // Parse result
-    writeln!(out, "        match result {{").unwrap();
-    writeln!(out, "            Err(_) => {ret_ty}::Continue,").unwrap();
-    writeln!(out, "            Ok(val) => {{").unwrap();
-    writeln!(out, "                if let Some(s) = val.as_string() {{").unwrap();
-    writeln!(out, "                    match s.to_lowercase().as_str() {{").unwrap();
-    writeln!(out, "                        \"continue\" => {ret_ty}::Continue,").unwrap();
-    writeln!(out, "                        \"skip\" => {ret_ty}::Skip,").unwrap();
-    writeln!(
-        out,
-        "                        \"preserve_html\" | \"preservehtml\" => {ret_ty}::PreserveHtml,"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "                        other => {ret_ty}::Custom(other.to_string()),"
-    )
-    .unwrap();
-    writeln!(out, "                    }}").unwrap();
-    writeln!(out, "                }} else if val.is_object() {{").unwrap();
-    writeln!(
-        out,
-        "                    let custom_key = wasm_bindgen::JsValue::from_str(\"custom\");"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "                    let error_key = wasm_bindgen::JsValue::from_str(\"error\");"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "                    if let Ok(cv) = js_sys::Reflect::get(&val, &custom_key) {{"
-    )
-    .unwrap();
-    writeln!(out, "                        if let Some(s) = cv.as_string() {{").unwrap();
-    writeln!(out, "                            return {ret_ty}::Custom(s);").unwrap();
-    writeln!(out, "                        }}").unwrap();
-    writeln!(out, "                    }}").unwrap();
-    writeln!(
-        out,
-        "                    if let Ok(ev) = js_sys::Reflect::get(&val, &error_key) {{"
-    )
-    .unwrap();
-    writeln!(out, "                        if ev.as_string().is_some() {{").unwrap();
-    writeln!(out, "                            return {ret_ty}::Continue;").unwrap();
-    writeln!(out, "                        }}").unwrap();
-    writeln!(out, "                    }}").unwrap();
-    writeln!(out, "                    {ret_ty}::Continue").unwrap();
-    writeln!(out, "                }} else {{").unwrap();
-    writeln!(out, "                    {ret_ty}::Continue").unwrap();
-    writeln!(out, "                }}").unwrap();
-    writeln!(out, "            }}").unwrap();
-    writeln!(out, "        }}").unwrap();
-    writeln!(out, "    }}").unwrap();
-    writeln!(out).unwrap();
+    let ctx = minijinja::context! {
+        name => name.clone(),
+        sig => sig,
+        ret_ty => ret_ty.clone(),
+        js_name => js_name,
+        params => params,
+    };
+    let rendered = crate::template_env::render("gen_visitor_method_wasm", ctx);
+    let indented = rendered
+        .lines()
+        .map(|line| {
+            if line.is_empty() {
+                String::new()
+            } else {
+                format!("    {}", line)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    out.push_str(&indented);
+    out.push('\n');
 }
 
 /// Build a single wasm arg expression for a visitor method parameter.
@@ -1037,17 +651,15 @@ pub fn gen_bridge_function(
     };
 
     let func_name = &func.name;
-    let mut out = String::with_capacity(1024);
-    if func.error_type.is_some() {
-        writeln!(out, "#[allow(clippy::missing_errors_doc)]").ok();
-    }
-    // Bridge type is gated to wasm32 (see gen_trait_bridge); functions that
-    // construct it must be too, otherwise host builds fail to resolve the type.
-    writeln!(out, "#[cfg(target_arch = \"wasm32\")]").ok();
-    writeln!(out, "#[wasm_bindgen{js_name_attr}]").ok();
-    writeln!(out, "pub fn {func_name}({params_str}) -> {ret} {{").ok();
-    writeln!(out, "    {body}").ok();
-    writeln!(out, "}}").ok();
+    let has_error = func.error_type.is_some();
 
-    out
+    let ctx = minijinja::context! {
+        func_name => func_name.clone(),
+        params_str => params_str,
+        ret => ret,
+        body => body,
+        has_error => has_error,
+        js_name_attr => js_name_attr,
+    };
+    crate::template_env::render("gen_bridge_function", ctx)
 }

@@ -1,4 +1,4 @@
-use heck::ToSnakeCase;
+use heck::{ToLowerCamelCase, ToSnakeCase};
 
 use alef_core::config::{AdapterConfig, Language, ResolvedCrateConfig};
 
@@ -74,22 +74,24 @@ fn call_args(adapter: &AdapterConfig) -> Vec<String> {
 }
 
 /// Build the call arguments with `.clone().into()` for backends that pass by reference (PHP).
+/// PHP signatures use lowerCamelCase parameter names (see `gen_php_function_params` in
+/// the PHP backend), so the body must reference parameters by their camelCased identifiers.
 fn call_args_cloned(adapter: &AdapterConfig) -> Vec<String> {
     adapter
         .params
         .iter()
         .map(|p| {
+            let name = p.name.to_lower_camel_case();
             if p.ty == "String" || p.ty == "&str" {
                 if p.optional {
-                    format!("{}.as_deref()", p.name)
+                    format!("{name}.as_deref()")
                 } else {
-                    format!("{}.as_str()", p.name)
+                    format!("{name}.as_str()")
                 }
             } else if p.optional {
-                // PHP optional params are Option<&T> — drop the extra .as_ref()
-                format!("{}.map(|v| v.clone().into())", p.name)
+                format!("{name}.map(|v| v.clone().into())")
             } else {
-                format!("{}.clone().into()", p.name)
+                format!("{name}.clone().into()")
             }
         })
         .collect()
@@ -192,12 +194,12 @@ fn gen_node_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> Strin
     let prefix = config.node_type_prefix();
     let raw_returns = adapter.returns.as_deref().unwrap_or("()");
 
-    // bytes::Bytes has no prefixed JS equivalent — map to Vec<u8> via .to_vec().
+    // bytes::Bytes has no prefixed JS equivalent — convert to napi Buffer via Vec<u8>.
     let is_bytes = raw_returns == "bytes::Bytes";
     let map_expr = if raw_returns == "()" {
         format!(".map({raw_returns}::from)")
     } else if is_bytes {
-        ".map(|b| b.to_vec())".to_string()
+        ".map(|b| napi::bindgen_prelude::Buffer::from(b.to_vec()))".to_string()
     } else {
         format!(".map({prefix}{raw_returns}::from)")
     };

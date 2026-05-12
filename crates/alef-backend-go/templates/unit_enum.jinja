@@ -1,0 +1,13 @@
+// {{ go_name }} is an enumeration type.
+type {{ go_name }} string
+
+const (
+{% for variant in variants -%}
+	// {{ variant.const_name }}{% if variant.doc_first_line %} {{ variant.doc_first_line }}{% else %} is the {{ variant.rust_name }} variant of {{ enum_name }}.{% endif %}
+
+{% for doc_line in variant.doc_lines -%}
+	// {{ doc_line }}
+{% endfor -%}
+	{{ variant.const_name }} {{ go_name }} = "{{ variant.wire_value }}"
+{% endfor -%}
+)

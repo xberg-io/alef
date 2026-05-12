@@ -1,0 +1,31 @@
+package {{ pkg_name }}
+
+/*
+#cgo CFLAGS: -I${SRCDIR}/include -Wno-incompatible-function-pointer-types
+#include "{{ ffi_header }}"
+#include <stdlib.h>
+#include <string.h>
+
+{% for spec in callbacks -%}
+extern int32_t {{ spec.export_name }}({{ spec.c_sig }});
+{% endfor -%}
+
+static {{ vtable_c_type }} makeVisitorVTable(void) {
+    {{ vtable_c_type }} vtbl;
+    memset(&vtbl, 0, sizeof(vtbl));
+{% for spec in callbacks -%}
+    vtbl.{{ spec.c_field }} = {{ spec.export_name }};
+{% endfor -%}
+    return vtbl;
+}
+*/
+import "C"
+
+import (
+	"encoding/json"
+	"fmt"
+	"sync"
+	"sync/atomic"
+	"unsafe"
+)
+

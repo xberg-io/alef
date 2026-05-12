@@ -87,29 +87,27 @@ pub fn python_exception_name(variant_name: &str, error_name: &str) -> String {
 /// Appends "Error" suffix to variant names that don't already have it (N818 compliance).
 /// Prefixes names that would shadow Python builtins (A004 compliance).
 pub fn gen_pyo3_error_types(error: &ErrorDef, module_name: &str, seen_exceptions: &mut AHashSet<String>) -> String {
-    let mut lines = Vec::with_capacity(error.variants.len() + 2);
-    lines.push("// Error types".to_string());
-
-    // One exception per variant (with Error suffix if needed, prefixed if shadowing builtins)
+    // Pre-compute variant names that haven't been seen yet
+    let mut variant_names = Vec::new();
     for variant in &error.variants {
         let variant_name = python_exception_name(&variant.name, &error.name);
         if seen_exceptions.insert(variant_name.clone()) {
-            lines.push(format!(
-                "pyo3::create_exception!({module_name}, {}, pyo3::exceptions::PyException);",
-                variant_name
-            ));
+            variant_names.push(variant_name);
         }
     }
 
-    // Base exception for the enum itself
-    if seen_exceptions.insert(error.name.clone()) {
-        lines.push(format!(
-            "pyo3::create_exception!({module_name}, {}, pyo3::exceptions::PyException);",
-            error.name
-        ));
-    }
+    // Check if base error hasn't been seen
+    let include_base = seen_exceptions.insert(error.name.clone());
 
-    lines.join("\n")
+    crate::template_env::render(
+        "error_gen/pyo3_error_types.jinja",
+        minijinja::context! {
+            variant_names => variant_names,
+            module_name => module_name,
+            error_name => error.name.as_str(),
+            include_base => include_base,
+        },
+    )
 }
 
 /// Generate a `to_py_err` converter function that maps each Rust error variant to a Python exception.
@@ -134,24 +132,23 @@ pub fn gen_pyo3_error_converter(error: &ErrorDef, core_import: &str) -> String {
 
     let fn_name = format!("{}_to_py_err", to_snake_case(&error.name));
 
-    let mut lines = Vec::new();
-    lines.push(format!("/// Convert a `{rust_path}` error to a Python exception."));
-    lines.push(format!("fn {fn_name}(e: {rust_path}) -> pyo3::PyErr {{"));
-    lines.push("    let msg = e.to_string();".to_string());
-    lines.push("    #[allow(unreachable_patterns)]".to_string());
-    lines.push("    match &e {".to_string());
-
+    // Pre-compute variants as (pattern, exc_name) tuples
+    let mut variants = Vec::new();
     for variant in &error.variants {
         let pattern = error_variant_wildcard_pattern(&rust_path, variant);
         let variant_exc_name = python_exception_name(&variant.name, &error.name);
-        lines.push(format!("        {pattern} => {}::new_err(msg),", variant_exc_name));
+        variants.push((pattern, variant_exc_name));
     }
 
-    // Catch-all for cfg-gated variants not in the IR
-    lines.push(format!("        _ => {}::new_err(msg),", error.name));
-    lines.push("    }".to_string());
-    lines.push("}".to_string());
-    lines.join("\n")
+    crate::template_env::render(
+        "error_gen/pyo3_error_converter.jinja",
+        minijinja::context! {
+            rust_path => rust_path.as_str(),
+            fn_name => fn_name.as_str(),
+            error_name => error.name.as_str(),
+            variants => variants,
+        },
+    )
 }
 
 /// Generate `m.add(...)` registration calls for each exception type.
@@ -208,17 +205,20 @@ fn to_snake_case(s: &str) -> String {
 
 /// Generate a `JsError` enum with string constants for each error variant name.
 pub fn gen_napi_error_types(error: &ErrorDef) -> String {
-    let mut lines = Vec::with_capacity(error.variants.len() + 4);
-    lines.push("// Error variant name constants".to_string());
+    // Pre-compute (const_name, variant_name) pairs
+    let mut variants = Vec::new();
+    let error_screaming = to_screaming_snake(&error.name);
     for variant in &error.variants {
-        lines.push(format!(
-            "pub const {}_ERROR_{}: &str = \"{}\";",
-            to_screaming_snake(&error.name),
-            to_screaming_snake(&variant.name),
-            variant.name,
-        ));
+        let variant_const = format!("{}_ERROR_{}", error_screaming, to_screaming_snake(&variant.name));
+        variants.push((variant_const, variant.name.clone()));
     }
-    lines.join("\n")
+
+    crate::template_env::render(
+        "error_gen/napi_error_types.jinja",
+        minijinja::context! {
+            variants => variants,
+        },
+    )
 }
 
 /// Generate a converter function that maps a core error to `napi::Error`.
@@ -231,27 +231,21 @@ pub fn gen_napi_error_converter(error: &ErrorDef, core_import: &str) -> String {
 
     let fn_name = format!("{}_to_napi_err", to_snake_case(&error.name));
 
-    let mut lines = Vec::new();
-    lines.push(format!("/// Convert a `{rust_path}` error to a NAPI error."));
-    lines.push("#[allow(dead_code)]".to_string());
-    lines.push(format!("fn {fn_name}(e: {rust_path}) -> napi::Error {{"));
-    lines.push("    let msg = e.to_string();".to_string());
-    lines.push("    #[allow(unreachable_patterns)]".to_string());
-    lines.push("    match &e {".to_string());
-
+    // Pre-compute (pattern, variant_name) pairs
+    let mut variants = Vec::new();
     for variant in &error.variants {
         let pattern = error_variant_wildcard_pattern(&rust_path, variant);
-        lines.push(format!(
-            "        {pattern} => napi::Error::new(napi::Status::GenericFailure, format!(\"[{}] {{}}\", msg)),",
-            variant.name,
-        ));
+        variants.push((pattern, variant.name.clone()));
     }
 
-    // Catch-all for cfg-gated variants not in the IR
-    lines.push("        _ => napi::Error::new(napi::Status::GenericFailure, msg),".to_string());
-    lines.push("    }".to_string());
-    lines.push("}".to_string());
-    lines.join("\n")
+    crate::template_env::render(
+        "error_gen/napi_error_converter.jinja",
+        minijinja::context! {
+            rust_path => rust_path.as_str(),
+            fn_name => fn_name.as_str(),
+            variants => variants,
+        },
+    )
 }
 
 /// Return the NAPI converter function name for a given error type.
@@ -276,40 +270,35 @@ pub fn gen_wasm_error_converter(error: &ErrorDef, core_import: &str) -> String {
     let fn_name = format!("{}_to_js_value", to_snake_case(&error.name));
     let code_fn_name = format!("{}_error_code", to_snake_case(&error.name));
 
-    let mut lines = Vec::new();
-
-    // error_code helper — maps each variant to a snake_case string code
-    lines.push(format!("/// Return the error code string for a `{rust_path}` variant."));
-    lines.push("#[allow(dead_code)]".to_string());
-    lines.push(format!("fn {code_fn_name}(e: &{rust_path}) -> &'static str {{"));
-    lines.push("    #[allow(unreachable_patterns)]".to_string());
-    lines.push("    match e {".to_string());
+    // Pre-compute variants for error_code helper: (pattern, code) pairs
+    let mut code_variants = Vec::new();
     for variant in &error.variants {
         let pattern = error_variant_wildcard_pattern(&rust_path, variant);
         let code = to_snake_case(&variant.name);
-        lines.push(format!("        {pattern} => \"{code}\","));
+        code_variants.push((pattern, code));
     }
-    lines.push(format!("        _ => \"{}\",", to_snake_case(&error.name)));
-    lines.push("    }".to_string());
-    lines.push("}".to_string());
+    let default_code = to_snake_case(&error.name);
 
-    lines.push(String::new());
+    let code_fn = crate::template_env::render(
+        "error_gen/wasm_error_code_fn.jinja",
+        minijinja::context! {
+            rust_path => rust_path.as_str(),
+            code_fn_name => code_fn_name.as_str(),
+            variants => code_variants,
+            default_code => default_code.as_str(),
+        },
+    );
 
-    // main converter — returns a JS object { code, message }
-    lines.push(format!(
-        "/// Convert a `{rust_path}` error to a `JsValue` object with `code` and `message` fields."
-    ));
-    lines.push("#[allow(dead_code)]".to_string());
-    lines.push(format!("fn {fn_name}(e: {rust_path}) -> wasm_bindgen::JsValue {{"));
-    lines.push(format!("    let code = {code_fn_name}(&e);"));
-    lines.push("    let message = e.to_string();".to_string());
-    lines.push("    let obj = js_sys::Object::new();".to_string());
-    lines.push("    js_sys::Reflect::set(&obj, &\"code\".into(), &code.into()).ok();".to_string());
-    lines.push("    js_sys::Reflect::set(&obj, &\"message\".into(), &message.into()).ok();".to_string());
-    lines.push("    obj.into()".to_string());
-    lines.push("}".to_string());
+    let converter_fn = crate::template_env::render(
+        "error_gen/wasm_error_converter.jinja",
+        minijinja::context! {
+            rust_path => rust_path.as_str(),
+            fn_name => fn_name.as_str(),
+            code_fn_name => code_fn_name.as_str(),
+        },
+    );
 
-    lines.join("\n")
+    format!("{}\n\n{}", code_fn, converter_fn)
 }
 
 /// Return the WASM converter function name for a given error type.
@@ -331,29 +320,21 @@ pub fn gen_php_error_converter(error: &ErrorDef, core_import: &str) -> String {
 
     let fn_name = format!("{}_to_php_err", to_snake_case(&error.name));
 
-    let mut lines = Vec::new();
-    lines.push(format!("/// Convert a `{rust_path}` error to a PHP exception."));
-    lines.push("#[allow(dead_code)]".to_string());
-    lines.push(format!(
-        "fn {fn_name}(e: {rust_path}) -> ext_php_rs::exception::PhpException {{"
-    ));
-    lines.push("    let msg = e.to_string();".to_string());
-    lines.push("    #[allow(unreachable_patterns)]".to_string());
-    lines.push("    match &e {".to_string());
-
+    // Pre-compute (pattern, variant_name) pairs
+    let mut variants = Vec::new();
     for variant in &error.variants {
         let pattern = error_variant_wildcard_pattern(&rust_path, variant);
-        lines.push(format!(
-            "        {pattern} => ext_php_rs::exception::PhpException::default(format!(\"[{}] {{}}\", msg)),",
-            variant.name,
-        ));
+        variants.push((pattern, variant.name.clone()));
     }
 
-    // Catch-all for cfg-gated variants not in the IR
-    lines.push("        _ => ext_php_rs::exception::PhpException::default(msg),".to_string());
-    lines.push("    }".to_string());
-    lines.push("}".to_string());
-    lines.join("\n")
+    crate::template_env::render(
+        "error_gen/php_error_converter.jinja",
+        minijinja::context! {
+            rust_path => rust_path.as_str(),
+            fn_name => fn_name.as_str(),
+            variants => variants,
+        },
+    )
 }
 
 /// Return the PHP converter function name for a given error type.
@@ -375,16 +356,13 @@ pub fn gen_magnus_error_converter(error: &ErrorDef, core_import: &str) -> String
 
     let fn_name = format!("{}_to_magnus_err", to_snake_case(&error.name));
 
-    let mut lines = Vec::new();
-    lines.push(format!("/// Convert a `{rust_path}` error to a Magnus runtime error."));
-    lines.push("#[allow(dead_code)]".to_string());
-    lines.push(format!("fn {fn_name}(e: {rust_path}) -> magnus::Error {{"));
-    lines.push("    let msg = e.to_string();".to_string());
-    lines.push(
-        "    magnus::Error::new(unsafe { magnus::Ruby::get_unchecked() }.exception_runtime_error(), msg)".to_string(),
-    );
-    lines.push("}".to_string());
-    lines.join("\n")
+    crate::template_env::render(
+        "error_gen/magnus_error_converter.jinja",
+        minijinja::context! {
+            rust_path => rust_path.as_str(),
+            fn_name => fn_name.as_str(),
+        },
+    )
 }
 
 /// Return the Magnus converter function name for a given error type.
@@ -406,13 +384,13 @@ pub fn gen_rustler_error_converter(error: &ErrorDef, core_import: &str) -> Strin
 
     let fn_name = format!("{}_to_rustler_err", to_snake_case(&error.name));
 
-    let mut lines = Vec::new();
-    lines.push(format!("/// Convert a `{rust_path}` error to a Rustler error string."));
-    lines.push("#[allow(dead_code)]".to_string());
-    lines.push(format!("fn {fn_name}(e: {rust_path}) -> String {{"));
-    lines.push("    e.to_string()".to_string());
-    lines.push("}".to_string());
-    lines.join("\n")
+    crate::template_env::render(
+        "error_gen/rustler_error_converter.jinja",
+        minijinja::context! {
+            rust_path => rust_path.as_str(),
+            fn_name => fn_name.as_str(),
+        },
+    )
 }
 
 /// Return the Rustler converter function name for a given error type.
@@ -432,25 +410,22 @@ pub fn gen_ffi_error_codes(error: &ErrorDef) -> String {
     let prefix = to_screaming_snake(&error.name);
     let prefix_lower = to_snake_case(&error.name);
 
-    let mut lines = Vec::new();
-    lines.push(format!("/// Error codes for `{}`.", error.name));
-    lines.push("typedef enum {".to_string());
-    lines.push(format!("    {}_NONE = 0,", prefix));
-
+    // Pre-compute (variant_screaming, index) pairs
+    let mut variant_variants = Vec::new();
     for (i, variant) in error.variants.iter().enumerate() {
         let variant_screaming = to_screaming_snake(&variant.name);
-        lines.push(format!("    {}_{} = {},", prefix, variant_screaming, i + 1));
+        variant_variants.push((variant_screaming, (i + 1).to_string()));
     }
 
-    lines.push(format!("}} {}_t;\n", prefix_lower));
-
-    // Error message function
-    lines.push(format!(
-        "/// Return a static string describing the error code.\nconst char* {}_error_message({}_t code);",
-        prefix_lower, prefix_lower
-    ));
-
-    lines.join("\n")
+    crate::template_env::render(
+        "error_gen/ffi_error_codes.jinja",
+        minijinja::context! {
+            error_name => error.name.as_str(),
+            prefix => prefix.as_str(),
+            prefix_lower => prefix_lower.as_str(),
+            variant_variants => variant_variants,
+        },
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -490,8 +465,7 @@ pub fn gen_go_sentinel_errors(errors: &[ErrorDef]) -> String {
         }
     }
     let mut seen = std::collections::HashSet::new();
-    let mut lines = Vec::new();
-    lines.push("var (".to_string());
+    let mut sentinels = Vec::new();
     for err in errors {
         let parent_base = error_base_prefix(&err.name);
         for variant in &err.variants {
@@ -505,12 +479,16 @@ pub fn gen_go_sentinel_errors(errors: &[ErrorDef]) -> String {
                 continue;
             }
             let msg = variant_display_message(variant);
-            lines.push(format!("\t// {} is returned when {}.", const_name, msg));
-            lines.push(format!("\t{} = errors.New(\"{}\")", const_name, msg));
+            sentinels.push((const_name, msg));
         }
     }
-    lines.push(")".to_string());
-    lines.join("\n")
+
+    crate::template_env::render(
+        "error_gen/go_sentinel_errors.jinja",
+        minijinja::context! {
+            sentinels => sentinels,
+        },
+    )
 }
 
 /// Generate the structured error type (struct + Error() method) for a single
@@ -518,17 +496,13 @@ pub fn gen_go_sentinel_errors(errors: &[ErrorDef]) -> String {
 /// [`gen_go_sentinel_errors`].
 pub fn gen_go_error_struct(error: &ErrorDef, pkg_name: &str) -> String {
     let go_type_name = strip_package_prefix(&error.name, pkg_name);
-    let mut lines = Vec::new();
-    lines.push(format!("// {} is a structured error type.", go_type_name));
-    lines.push(format!("type {} struct {{", go_type_name));
-    lines.push("\tCode    string".to_string());
-    lines.push("\tMessage string".to_string());
-    lines.push("}\n".to_string());
-    lines.push(format!(
-        "func (e *{}) Error() string {{ return e.Message }}",
-        go_type_name
-    ));
-    lines.join("\n")
+
+    crate::template_env::render(
+        "error_gen/go_error_struct.jinja",
+        minijinja::context! {
+            go_type_name => go_type_name.as_str(),
+        },
+    )
 }
 
 /// Strip the package-name prefix from a type name to avoid revive's stutter lint.
@@ -567,53 +541,34 @@ pub fn gen_java_error_types(error: &ErrorDef, package: &str) -> Vec<(String, Str
 
     // Base exception class
     let base_name = format!("{}Exception", error.name);
-    let mut base = String::with_capacity(512);
-    base.push_str(&format!(
-        "// DO NOT EDIT - auto-generated by alef\npackage {};\n\n",
-        package
-    ));
-    if !error.doc.is_empty() {
-        // Multi-line Rust doc strings must be emitted as a proper Javadoc
-        // block (one `* ` per line) — not as `/** <doc>. */` with embedded
-        // newlines, which forces spotless to reformat and leaves trailing
-        // whitespace on the blank-line `* ` rows. The blank-line case emits
-        // ` *\n` (no trailing space), so prek's `trailing-whitespace` hook
-        // and `alef-verify`'s embedded hash agree.
-        crate::doc_emission::emit_javadoc(&mut base, &error.doc, "");
-    }
-    base.push_str(&format!("public class {} extends Exception {{\n", base_name));
-    base.push_str(&format!(
-        "    /** Creates a new {} with the given message. */\n    public {}(final String message) {{\n        super(message);\n    }}\n\n",
-        base_name, base_name
-    ));
-    base.push_str(&format!(
-        "    /** Creates a new {} with the given message and cause. */\n    public {}(final String message, final Throwable cause) {{\n        super(message, cause);\n    }}\n",
-        base_name, base_name
-    ));
-    base.push_str("}\n");
+    let doc_lines: Vec<&str> = error.doc.lines().collect();
+
+    let base = crate::template_env::render(
+        "error_gen/java_error_base.jinja",
+        minijinja::context! {
+            package => package,
+            base_name => base_name.as_str(),
+            doc => !error.doc.is_empty(),
+            doc_lines => doc_lines,
+        },
+    );
     files.push((base_name.clone(), base));
 
     // Per-variant exception classes
     for variant in &error.variants {
         let class_name = format!("{}Exception", variant.name);
-        let mut content = String::with_capacity(512);
-        content.push_str(&format!(
-            "// DO NOT EDIT - auto-generated by alef\npackage {};\n\n",
-            package
-        ));
-        if !variant.doc.is_empty() {
-            crate::doc_emission::emit_javadoc(&mut content, &variant.doc, "");
-        }
-        content.push_str(&format!("public class {} extends {} {{\n", class_name, base_name));
-        content.push_str(&format!(
-            "    /** Creates a new {} with the given message. */\n    public {}(final String message) {{\n        super(message);\n    }}\n\n",
-            class_name, class_name
-        ));
-        content.push_str(&format!(
-            "    /** Creates a new {} with the given message and cause. */\n    public {}(final String message, final Throwable cause) {{\n        super(message, cause);\n    }}\n",
-            class_name, class_name
-        ));
-        content.push_str("}\n");
+        let doc_lines: Vec<&str> = variant.doc.lines().collect();
+
+        let content = crate::template_env::render(
+            "error_gen/java_error_variant.jinja",
+            minijinja::context! {
+                package => package,
+                class_name => class_name.as_str(),
+                base_name => base_name.as_str(),
+                doc => !variant.doc.is_empty(),
+                doc_lines => doc_lines,
+            },
+        );
         files.push((class_name, content));
     }
 
@@ -644,55 +599,38 @@ pub fn gen_csharp_error_types(
     // Inherit from the generic library exception when provided so that
     // `Assert.ThrowsAny<LibException>()` catches typed errors too.
     let base_parent = fallback_class.unwrap_or("Exception");
+    let error_doc_lines: Vec<&str> = error.doc.lines().collect();
 
     // Base exception class
     {
-        let mut out = String::with_capacity(512);
-        out.push_str("// This file is auto-generated by alef. DO NOT EDIT.\n#nullable enable\n\nusing System;\n\n");
-        out.push_str(&format!("namespace {};\n\n", namespace));
-        if !error.doc.is_empty() {
-            out.push_str("/// <summary>\n");
-            for line in error.doc.lines() {
-                out.push_str(&format!("/// {}\n", line));
-            }
-            out.push_str("/// </summary>\n");
-        }
-        out.push_str(&format!("public class {} : {}\n{{\n", base_name, base_parent));
-        out.push_str(&format!(
-            "    public {}(string message) : base(message) {{ }}\n\n",
-            base_name
-        ));
-        out.push_str(&format!(
-            "    public {}(string message, Exception innerException) : base(message, innerException) {{ }}\n",
-            base_name
-        ));
-        out.push_str("}\n");
+        let out = crate::template_env::render(
+            "error_gen/csharp_error_base.jinja",
+            minijinja::context! {
+                namespace => namespace,
+                base_name => base_name.as_str(),
+                base_parent => base_parent,
+                doc => !error.doc.is_empty(),
+                doc_lines => error_doc_lines,
+            },
+        );
         files.push((base_name.clone(), out));
     }
 
     // Per-variant exception classes
     for variant in &error.variants {
         let class_name = format!("{}Exception", variant.name);
-        let mut out = String::with_capacity(512);
-        out.push_str("// This file is auto-generated by alef. DO NOT EDIT.\n#nullable enable\n\nusing System;\n\n");
-        out.push_str(&format!("namespace {};\n\n", namespace));
-        if !variant.doc.is_empty() {
-            out.push_str("/// <summary>\n");
-            for line in variant.doc.lines() {
-                out.push_str(&format!("/// {}\n", line));
-            }
-            out.push_str("/// </summary>\n");
-        }
-        out.push_str(&format!("public class {} : {}\n{{\n", class_name, base_name));
-        out.push_str(&format!(
-            "    public {}(string message) : base(message) {{ }}\n\n",
-            class_name
-        ));
-        out.push_str(&format!(
-            "    public {}(string message, Exception innerException) : base(message, innerException) {{ }}\n",
-            class_name
-        ));
-        out.push_str("}\n");
+        let variant_doc_lines: Vec<&str> = variant.doc.lines().collect();
+
+        let out = crate::template_env::render(
+            "error_gen/csharp_error_variant.jinja",
+            minijinja::context! {
+                namespace => namespace,
+                class_name => class_name.as_str(),
+                base_name => base_name.as_str(),
+                doc => !variant.doc.is_empty(),
+                doc_lines => variant_doc_lines,
+            },
+        );
         files.push((class_name, out));
     }
 
@@ -885,6 +823,8 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         }
     }
 
@@ -904,6 +844,8 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         }
     }
 

@@ -3,7 +3,7 @@
 use crate::config::E2eConfig;
 use crate::escape::{escape_r, r_template_to_paste0, sanitize_filename, sanitize_ident};
 use crate::field_access::FieldResolver;
-use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup};
+use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup, TemplateReturnForm};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::ResolvedCrateConfig;
 use alef_core::hash::{self, CommentStyle};
@@ -22,6 +22,7 @@ impl E2eCodegen for RCodegen {
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
         config: &ResolvedCrateConfig,
+        _type_defs: &[alef_core::ir::TypeDef],
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
         let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
@@ -83,7 +84,7 @@ impl E2eCodegen for RCodegen {
         // `pdf/fake_memo.pdf` resolve at extraction time.
         files.push(GeneratedFile {
             path: output_base.join("tests").join("setup-fixtures.R"),
-            content: render_setup_fixtures(),
+            content: render_setup_fixtures(&e2e_config.test_documents_relative_from(1)),
             generated_header: true,
         });
 
@@ -148,7 +149,7 @@ Config/testthat/edition: 3
     )
 }
 
-fn render_setup_fixtures() -> String {
+fn render_setup_fixtures(test_documents_path: &str) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::Hash));
     let _ = writeln!(out);
@@ -174,11 +175,11 @@ fn render_setup_fixtures() -> String {
     );
     let _ = writeln!(
         out,
-        ".kreuzberg_test_documents <- normalizePath(\"../../../test_documents\", mustWork = FALSE)"
+        ".alef_test_documents <- normalizePath(\"{test_documents_path}\", mustWork = FALSE)"
     );
     let _ = writeln!(out, ".resolve_fixture <- function(path) {{");
-    let _ = writeln!(out, "  if (dir.exists(.kreuzberg_test_documents)) {{");
-    let _ = writeln!(out, "    file.path(.kreuzberg_test_documents, path)");
+    let _ = writeln!(out, "  if (dir.exists(.alef_test_documents)) {{");
+    let _ = writeln!(out, "    file.path(.alef_test_documents, path)");
     let _ = writeln!(out, "  }} else {{");
     let _ = writeln!(out, "    path");
     let _ = writeln!(out, "  }}");
@@ -261,7 +262,7 @@ fn render_test_case(
     default_result_is_simple: bool,
     default_result_is_r_list: bool,
 ) {
-    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
     let function_name = &call_config.function;
     let result_var = &call_config.result_var;
     // Per-fixture call configs (e.g. `list_document_extractors`) may set
@@ -1060,9 +1061,16 @@ fn emit_r_visitor_method(out: &mut String, method_name: &str, action: &CallbackA
             let escaped = escape_r(output);
             let _ = writeln!(out, "      list(custom = \"{escaped}\")");
         }
-        CallbackAction::CustomTemplate { template } => {
+        CallbackAction::CustomTemplate { template, return_form } => {
             let r_expr = r_template_to_paste0(template);
-            let _ = writeln!(out, "      list(custom = {r_expr})");
+            match return_form {
+                TemplateReturnForm::BareString => {
+                    let _ = writeln!(out, "      {r_expr}");
+                }
+                TemplateReturnForm::Dict => {
+                    let _ = writeln!(out, "      list(custom = {r_expr})");
+                }
+            }
         }
     }
     let _ = writeln!(out, "    }},");

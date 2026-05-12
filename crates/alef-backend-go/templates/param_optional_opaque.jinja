@@ -1,0 +1,4 @@
+	var {{ c_name }} *C.{{ c_type }}
+	if {{ go_param }} != nil {
+		{{ c_name }} = (*C.{{ c_type }})(unsafe.Pointer({{ go_param }}.ptr))
+	}

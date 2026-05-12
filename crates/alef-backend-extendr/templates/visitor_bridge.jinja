@@ -1,0 +1,38 @@
+fn nodecontext_to_robj(
+    ctx: &{{ core_crate }}::visitor::NodeContext,
+) -> extendr_api::Robj {
+    use extendr_api::prelude::*;
+    let attrs_pairs: Vec<(&str, extendr_api::Robj)> = ctx.attributes.iter()
+        .map(|(k, v)| (k.as_str(), extendr_api::Robj::from(v.as_str())))
+        .collect();
+    let attrs: extendr_api::Robj = List::from_pairs(attrs_pairs).into();
+    list!(
+        node_type = format!("{:?}", ctx.node_type),
+        tag_name = ctx.tag_name.as_str(),
+        depth = ctx.depth as i32,
+        index_in_parent = ctx.index_in_parent as i32,
+        is_inline = ctx.is_inline,
+        parent_tag = ctx.parent_tag.as_deref().unwrap_or(""),
+        attributes = attrs,
+    ).into()
+}
+
+pub struct {{ struct_name }} {
+    r_obj: extendr_api::Robj,
+}
+
+impl std::fmt::Debug for {{ struct_name }} {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{{ struct_name }}")
+    }
+}
+
+impl {{ struct_name }} {
+    pub fn new(r_obj: extendr_api::Robj) -> Self {
+        Self { r_obj }
+    }
+}
+
+impl {{ trait_path }} for {{ struct_name }} {
+{{ method_impls }}
+}

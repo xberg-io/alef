@@ -1,0 +1,6 @@
+	var {{ c_name }} *C.char
+	if {{ go_param }} != nil {
+		jsonBytes, _ := json.Marshal({{ go_param }})
+		{{ c_name }} = C.CString(string(jsonBytes))
+		defer C.free(unsafe.Pointer({{ c_name }}))
+	}

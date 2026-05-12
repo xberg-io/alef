@@ -1,0 +1,48 @@
+    fn {{ method_name }}({{ signature }}) -> {{ return_type }} {
+        use extendr_api::prelude::*;
+
+        let maybe_fn = self.r_obj.dollar("{{ method_name }}");
+        let fn_robj = match maybe_fn {
+            Ok(v) if !v.is_null() && !v.is_na() => v,
+            _ => return {{ return_type }}::Continue,
+        };
+
+{% if empty_args %}
+        let result = fn_robj.call(extendr_api::Pairlist::new());
+{% else %}
+        let args = extendr_api::Pairlist::from_pairs(&[{{ args_pairs }}]);
+        let result = fn_robj.call(args);
+{% endif %}
+
+        match result {
+            Err(_) => {{ return_type }}::Continue,
+            Ok(val) => {
+                if let Some(s) = val.as_str() {
+                    match s.to_lowercase().as_str() {
+                        "continue" => {{ return_type }}::Continue,
+                        "skip" => {{ return_type }}::Skip,
+                        "preserve_html" | "preservehtml" => {{ return_type }}::PreserveHtml,
+                        _ => {{ return_type }}::Custom(s.to_string()),
+                    }
+                } else if val.is_null() || val.is_na() {
+                    {{ return_type }}::Continue
+                } else {
+                    if let Ok(custom_val) = val.dollar("custom") {
+                        if let Some(s) = custom_val.as_str() {
+                            {{ return_type }}::Custom(s.to_string())
+                        } else {
+                            {{ return_type }}::Continue
+                        }
+                    } else if let Ok(error_val) = val.dollar("error") {
+                        if let Some(s) = error_val.as_str() {
+                            {{ return_type }}::Error(s.to_string())
+                        } else {
+                            {{ return_type }}::Continue
+                        }
+                    } else {
+                        {{ return_type }}::Continue
+                    }
+                }
+            }
+        }
+    }

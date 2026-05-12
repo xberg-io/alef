@@ -10,6 +10,33 @@ use super::helpers::{
     has_field_attr, is_pub, syn_type_is_boxed, unwrap_optional,
 };
 
+/// Return true when the enum has `#[serde(untagged)]`.
+fn has_serde_untagged(attrs: &[syn::Attribute]) -> bool {
+    for attr in attrs {
+        let tokens = if let Ok(list) = attr.meta.require_list() {
+            format!("{}", list.tokens)
+        } else {
+            continue;
+        };
+        // Match the bare keyword "untagged" (no `=` after it — it's a flag, not a key-value pair).
+        let mut rest = tokens.as_str();
+        while let Some(pos) = rest.find("untagged") {
+            let before = &rest[..pos];
+            let after = &rest[pos + "untagged".len()..];
+            // Ensure it's a standalone word (not part of another identifier)
+            let valid_before = before.is_empty() || before.ends_with(|c: char| !c.is_alphanumeric() && c != '_');
+            let valid_after = after.is_empty() || after.starts_with(|c: char| !c.is_alphanumeric() && c != '_');
+            // Ensure it's not followed by `=` (that would be a key=value pair)
+            let not_kv = !after.trim_start().starts_with('=');
+            if valid_before && valid_after && not_kv {
+                return true;
+            }
+            rest = &rest[pos + 1..];
+        }
+    }
+    false
+}
+
 /// Extract `tag` value from `#[serde(tag = "...")]` or
 /// `#[cfg_attr(..., serde(tag = "..."))]` attributes on enums.
 fn extract_serde_tag(attrs: &[syn::Attribute]) -> Option<String> {
@@ -79,6 +106,8 @@ pub(crate) fn extract_struct(item: &syn::ItemStruct, crate_name: &str, module_pa
                 core_wrapper: detect_core_wrapper(&field.ty),
                 vec_inner_core_wrapper: detect_vec_inner_core_wrapper(&field.ty),
                 newtype_wrapper: None,
+                serde_rename: None,
+                serde_flatten: false,
             }]
         }
         _ => vec![],
@@ -140,6 +169,7 @@ pub(crate) fn extract_enum(item: &syn::ItemEnum, crate_name: &str, module_path: 
 
     let rust_path = build_rust_path(crate_name, module_path, &name);
     let serde_tag = extract_serde_tag(&item.attrs);
+    let serde_untagged = has_serde_untagged(&item.attrs);
     let serde_rename_all = extract_serde_rename_all(&item.attrs);
     let is_copy = has_derive(item.attrs.as_slice(), "Copy");
     let has_serde = has_derive(item.attrs.as_slice(), "Serialize") && has_derive(item.attrs.as_slice(), "Deserialize");
@@ -152,6 +182,7 @@ pub(crate) fn extract_enum(item: &syn::ItemEnum, crate_name: &str, module_path: 
         doc,
         cfg,
         serde_tag,
+        serde_untagged,
         serde_rename_all,
         is_copy,
         has_serde,
@@ -226,6 +257,8 @@ pub(crate) fn extract_error_enum(item: &syn::ItemEnum, crate_name: &str, module_
                                 core_wrapper: CoreWrapper::None,
                                 vec_inner_core_wrapper: CoreWrapper::None,
                                 newtype_wrapper: None,
+                                serde_rename: None,
+                                serde_flatten: false,
                             }
                         })
                         .collect();

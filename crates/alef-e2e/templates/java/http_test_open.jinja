@@ -1,0 +1,18 @@
+{#- Java HTTP test method header
+
+   Context variables:
+   - fn_name: sanitized function name (UpperCamelCase)
+   - description: fixture description
+   - skip_reason: optional skip reason (if test is skipped)
+#}
+    @Test
+{%- if skip_reason %}
+    void test{{ fn_name }}() {
+        // {{ description }}
+        org.junit.jupiter.api.Assumptions.assumeTrue(false, "{{ skip_reason }}");
+{%- else %}
+    void test{{ fn_name }}() throws Exception {
+        // {{ description }}
+        String baseUrl = System.getenv("MOCK_SERVER_URL");
+        if (baseUrl == null) baseUrl = "http://localhost:8080";
+{%- endif %}

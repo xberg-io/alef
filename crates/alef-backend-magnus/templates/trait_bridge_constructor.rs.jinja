@@ -1,0 +1,20 @@
+impl {{ wrapper }} {
+    /// Create a new bridge wrapping a Ruby object.
+    /// Validates that the Ruby object responds to all required methods.
+    pub fn new(rb_obj: magnus::Value, name: String) -> Result<Self, magnus::Error> {
+{%- for req_method in required_methods %}
+        if !rb_obj.respond_to("{{ req_method }}", false).unwrap_or(false) {
+            let ruby = unsafe { magnus::Ruby::get_unchecked() };
+            return Err(magnus::Error::new(
+                ruby.exception_runtime_error(),
+                format!("Ruby object missing required method: {}", "{{ req_method }}"),
+            ));
+        }
+{%- endfor %}
+
+        Ok(Self {
+            inner: magnus::value::Opaque::from(rb_obj),
+            cached_name: name,
+        })
+    }
+}

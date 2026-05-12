@@ -14,7 +14,8 @@ use crate::fixture::Fixture;
 
 use super::assertions::render_assertion;
 use super::helpers::{
-    BytesKind, classify_bytes_value, is_skipped, resolve_client_factory, resolve_function_name_for_call,
+    BytesKind, classify_bytes_value, is_skipped, resolve_assert_enum_fields, resolve_client_factory,
+    resolve_function_name_for_call,
 };
 use super::json::json_to_python_literal;
 use super::visitors::emit_python_visitor_method;
@@ -34,13 +35,12 @@ pub(super) fn render_test_function(
 ) {
     let fn_name = sanitize_ident(&fixture.id);
     let description = &fixture.description;
-    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
     let function_name = resolve_function_name_for_call(call_config);
     let result_var = &call_config.result_var;
 
     let python_override = call_config.overrides.get("python");
     let result_is_simple = python_override.is_some_and(|o| o.result_is_simple);
-    let arg_name_map = python_override.map(|o| &o.arg_name_map);
 
     // Per-fixture call override takes precedence over the file-level value.
     let effective_options_type = python_override.and_then(|o| o.options_type.as_deref()).or(options_type);
@@ -54,24 +54,25 @@ pub(super) fn render_test_function(
         format!("{description}.")
     };
 
-    if is_skipped(fixture, "python") {
+    let skip_decorator = if is_skipped(fixture, "python") {
         let reason = fixture
             .skip
             .as_ref()
             .and_then(|s| s.reason.as_deref())
             .unwrap_or("skipped for python");
         let escaped = escape_python(reason);
-        let _ = writeln!(out, "@pytest.mark.skip(reason=\"{escaped}\")");
-    }
+        format!("@pytest.mark.skip(reason=\"{escaped}\")\n")
+    } else {
+        String::new()
+    };
 
     let is_async = python_override.and_then(|o| o.r#async).unwrap_or(call_config.r#async);
-    if is_async {
-        let _ = writeln!(out, "@pytest.mark.asyncio");
-        let _ = writeln!(out, "async def test_{fn_name}() -> None:");
+    let async_decorator = if is_async {
+        "@pytest.mark.asyncio\n".to_string()
     } else {
-        let _ = writeln!(out, "def test_{fn_name}() -> None:");
-    }
-    let _ = writeln!(out, "    \"\"\"{desc_with_period}\"\"\"");
+        String::new()
+    };
+    let async_kw = if is_async { "async " } else { "" };
 
     let has_error_assertion = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
@@ -83,19 +84,19 @@ pub(super) fn render_test_function(
         enum_fields,
         handle_nested_types,
         handle_dict_types,
-        arg_name_map,
     );
 
+    // Build visitor class if present
+    let mut visitor_class = String::new();
     if let Some(visitor_spec) = &fixture.visitor {
-        let _ = writeln!(out, "    class _TestVisitor:");
+        let _ = writeln!(visitor_class, "    class _TestVisitor:");
         for (method_name, action) in &visitor_spec.callbacks {
-            emit_python_visitor_method(out, method_name, action);
+            emit_python_visitor_method(&mut visitor_class, method_name, action);
         }
     }
 
-    for binding in &arg_bindings {
-        let _ = writeln!(out, "{binding}");
-    }
+    // Build arg bindings string
+    let arg_bindings_str = arg_bindings.iter().map(|b| format!("{b}\n")).collect::<String>();
 
     let call_args_str = {
         let mut exprs = kwarg_exprs.clone();
@@ -111,33 +112,98 @@ pub(super) fn render_test_function(
     // the fixture response is served via prefix routing.
     // Fixtures without mock_response (real-API smoke tests) use no base_url override.
     let client_factory = resolve_client_factory(e2e_config);
+    let mut client_setup = String::new();
     let call_expr = if let Some(ref factory) = client_factory {
-        if fixture.mock_response.is_some() || fixture.http.is_some() {
+        let has_mock = fixture.mock_response.is_some() || fixture.http.is_some();
+        let api_key_opt = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref());
+        if let Some(api_key_var) = api_key_opt.filter(|_| has_mock) {
             let fixture_id = &fixture.id;
+            let mock_base_url_expr = if fixture.has_host_root_route() {
+                format!(
+                    "os.environ.get(\"MOCK_SERVER_{}\") or os.environ[\"MOCK_SERVER_URL\"] + \"/fixtures/{fixture_id}\"",
+                    fixture_id.to_uppercase()
+                )
+            } else {
+                format!("os.environ[\"MOCK_SERVER_URL\"] + \"/fixtures/{fixture_id}\"")
+            };
+            let _ = writeln!(client_setup, "    api_key = os.environ.get(\"{api_key_var}\")");
+            let _ = writeln!(client_setup, "    if api_key:");
             let _ = writeln!(
-                out,
-                "    client = {factory}(api_key=\"test-key\", base_url=os.environ[\"MOCK_SERVER_URL\"] + \"/fixtures/{fixture_id}\")"
+                client_setup,
+                "        print(\"{fixture_id}: using real API ({api_key_var} is set)\", flush=True)  # noqa: T201"
             );
-        } else if let Some(api_key_var) = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref()) {
-            let _ = writeln!(out, "    api_key = os.environ.get(\"{api_key_var}\")");
-            let _ = writeln!(out, "    if not api_key:  # noqa: SIM102");
-            let _ = writeln!(out, "        pytest.skip(\"{api_key_var} not set\")");
-            let _ = writeln!(out, "    client = {factory}(api_key=api_key)");
+            let _ = writeln!(client_setup, "        client = {factory}(api_key=api_key)");
+            let _ = writeln!(client_setup, "    else:");
+            let _ = writeln!(
+                client_setup,
+                "        print(\"{fixture_id}: using mock server ({api_key_var} not set)\", flush=True)  # noqa: T201"
+            );
+            let _ = writeln!(
+                client_setup,
+                "        client = {factory}(api_key=\"test-key\", base_url={mock_base_url_expr})"
+            );
+        } else if has_mock {
+            let fixture_id = &fixture.id;
+            let base_url_expr = if fixture.has_host_root_route() {
+                format!(
+                    "os.environ.get(\"MOCK_SERVER_{}\") or os.environ[\"MOCK_SERVER_URL\"] + \"/fixtures/{fixture_id}\"",
+                    fixture_id.to_uppercase()
+                )
+            } else {
+                format!("os.environ[\"MOCK_SERVER_URL\"] + \"/fixtures/{fixture_id}\"")
+            };
+            let _ = writeln!(
+                client_setup,
+                "    client = {factory}(api_key=\"test-key\", base_url={base_url_expr})"
+            );
+        } else if let Some(api_key_var) = api_key_opt {
+            let _ = writeln!(client_setup, "    api_key = os.environ.get(\"{api_key_var}\")");
+            let _ = writeln!(client_setup, "    if not api_key:  # noqa: SIM102");
+            let _ = writeln!(client_setup, "        pytest.skip(\"{api_key_var} not set\")");
+            let _ = writeln!(client_setup, "    client = {factory}(api_key=api_key)");
         } else {
-            let _ = writeln!(out, "    client = {factory}(api_key=\"test-key\")");
+            let _ = writeln!(client_setup, "    client = {factory}(api_key=\"test-key\")");
         }
         format!("{await_prefix}client.{function_name}({call_args_str})")
     } else {
         format!("{await_prefix}{function_name}({call_args_str})")
     };
+    // Prepend client setup to arg bindings so it lands inside the test function body.
+    let arg_bindings_str = format!("{client_setup}{arg_bindings_str}");
 
     if has_error_assertion {
-        emit_error_assertion(out, fixture, &call_expr);
+        // For error-assertion fixtures, the engine creation and other arg bindings
+        // must happen INSIDE the `pytest.raises` block — otherwise validation
+        // errors raised at engine-creation time fly past the assertion uncaught
+        // and crash the test (e.g. `validation_max_depth_too_high` raises in
+        // `create_engine(CrawlConfig(max_depth=200))` before the `await scrape(...)`
+        // call ever runs). Pass arg_bindings_str to emit_error_assertion so it
+        // can emit them indented one level deeper, inside the with block.
+        let mut error_assertion_block = String::new();
+        emit_error_assertion(&mut error_assertion_block, fixture, &arg_bindings_str, &call_expr);
+
+        let ctx = minijinja::context! {
+            skip_decorator => skip_decorator,
+            async_decorator => async_decorator,
+            async_kw => async_kw,
+            fn_name => fn_name,
+            docstring => desc_with_period,
+            visitor_class => visitor_class,
+            arg_bindings => String::new(),
+            call_expr => call_expr,
+            is_error_assertion => true,
+            error_assertion_block => error_assertion_block,
+            result_assertions => String::new(),
+        };
+        let rendered = crate::template_env::render("python/test_function.jinja", ctx);
+        out.push_str(&rendered);
         return;
     }
 
+    // Build result and assertions
+    let mut result_assertions = String::new();
     emit_result_and_assertions(
-        out,
+        &mut result_assertions,
         fixture,
         e2e_config,
         call_config,
@@ -146,27 +212,64 @@ pub(super) fn render_test_function(
         field_resolver,
         result_is_simple,
     );
+
+    let ctx = minijinja::context! {
+        skip_decorator => skip_decorator,
+        async_decorator => async_decorator,
+        async_kw => async_kw,
+        fn_name => fn_name,
+        docstring => desc_with_period,
+        visitor_class => visitor_class,
+        arg_bindings => arg_bindings_str,
+        call_expr => call_expr,
+        is_error_assertion => false,
+        error_assertion_block => String::new(),
+        result_assertions => result_assertions,
+    };
+    let rendered = crate::template_env::render("python/test_function.jinja", ctx);
+    out.push_str(&rendered);
 }
 
-fn emit_error_assertion(out: &mut String, fixture: &Fixture, call_expr: &str) {
+fn emit_error_assertion(out: &mut String, fixture: &Fixture, arg_bindings_str: &str, call_expr: &str) {
     let error_assertion = fixture.assertions.iter().find(|a| a.assertion_type == "error");
     let has_message = error_assertion
         .and_then(|a| a.value.as_ref())
         .and_then(|v| v.as_str())
         .is_some();
 
+    // Re-indent arg_bindings by an extra 4 spaces so they land inside the `with`
+    // block. arg_bindings already begin with 4 spaces (function-body level);
+    // prepending 4 more puts them at the with-body level (8 spaces).
+    let indented_bindings: String = arg_bindings_str
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| format!("    {l}\n"))
+        .collect();
+
     if has_message {
         let _ = writeln!(out, "    with pytest.raises(Exception) as exc_info:  # noqa: B017");
+        out.push_str(&indented_bindings);
         let _ = writeln!(out, "        {call_expr}");
         if let Some(msg) = error_assertion.and_then(|a| a.value.as_ref()).and_then(|v| v.as_str()) {
             let escaped = escape_python(msg);
+            // Match against EITHER the rendered exception message OR the
+            // exception class name. Different downstream crates use different
+            // fixture-shape conventions:
+            //   * kreuzcrawl: fixture values like "max_depth", "proxy", "urls"
+            //     are substrings of the user-facing error message, never of
+            //     a class name like `InvalidConfigError`.
+            //   * liter-llm: fixture values like "Authentication", "BadRequest",
+            //     "ContentPolicy" are class-name prefixes (`AuthenticationError`,
+            //     `BadRequestError`, `ContentPolicyError`), not message text.
+            // The disjunction lets a single codegen path satisfy both.
             let _ = writeln!(
                 out,
-                "    assert \"{escaped}\" in type(exc_info.value).__name__  # noqa: S101"
+                "    assert \"{escaped}\" in str(exc_info.value) or \"{escaped}\" in type(exc_info.value).__name__  # noqa: S101"
             );
         }
     } else {
         let _ = writeln!(out, "    with pytest.raises(Exception):  # noqa: B017");
+        out.push_str(&indented_bindings);
         let _ = writeln!(out, "        {call_expr}");
     }
 }
@@ -225,6 +328,7 @@ fn emit_result_and_assertions(
     let _ = writeln!(out, "    {py_result_var} = {call_expr}");
 
     let fields_enum = &e2e_config.fields_enum;
+    let assert_enum_fields = resolve_assert_enum_fields(call_config);
     for assertion in &fixture.assertions {
         if assertion.assertion_type == "not_error" {
             if !call_config.returns_result {
@@ -238,6 +342,7 @@ fn emit_result_and_assertions(
             result_var,
             field_resolver,
             fields_enum,
+            assert_enum_fields,
             result_is_simple,
         );
     }
@@ -253,17 +358,12 @@ fn build_args_and_setup(
     enum_fields: &HashMap<String, String>,
     handle_nested_types: &HashMap<String, String>,
     handle_dict_types: &HashSet<String>,
-    arg_name_map: Option<&HashMap<String, String>>,
 ) -> (Vec<String>, Vec<String>) {
     let mut arg_bindings = Vec::new();
     let mut kwarg_exprs = Vec::new();
 
     for arg in &call_config.args {
         let var_name = &arg.name;
-        let kwarg_name = arg_name_map
-            .and_then(|m| m.get(var_name.as_str()))
-            .map(|s| s.as_str())
-            .unwrap_or(var_name.as_str());
 
         if arg.arg_type == "handle" {
             emit_handle_arg(
@@ -272,7 +372,6 @@ fn build_args_and_setup(
                 fixture,
                 arg,
                 var_name,
-                kwarg_name,
                 options_type,
                 handle_nested_types,
                 handle_dict_types,
@@ -282,16 +381,27 @@ fn build_args_and_setup(
 
         if arg.arg_type == "mock_url" {
             let fixture_id = &fixture.id;
-            arg_bindings.push(format!(
-                "    {var_name} = os.environ['MOCK_SERVER_URL'] + '/fixtures/{fixture_id}'"
-            ));
-            kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
+            let url_expr = if fixture.has_host_root_route() {
+                format!(
+                    "os.environ.get('MOCK_SERVER_{}') or os.environ['MOCK_SERVER_URL'] + '/fixtures/{fixture_id}'",
+                    fixture_id.to_uppercase()
+                )
+            } else {
+                format!("os.environ['MOCK_SERVER_URL'] + '/fixtures/{fixture_id}'")
+            };
+            arg_bindings.push(format!("    {var_name} = {url_expr}"));
+            kwarg_exprs.push(var_name.to_string());
             continue;
         }
 
         let value = resolve_field(&fixture.input, &arg.field);
 
         if value.is_null() && arg.optional {
+            // Emit None as a placeholder so subsequent positional args keep their
+            // index alignment. With kwarg emission this would just be skipped, but
+            // since we emit positional args (commit 40ff92c9), an omitted optional
+            // arg in the middle would shift later args into the wrong position.
+            kwarg_exprs.push("None".to_string());
             continue;
         }
 
@@ -302,7 +412,6 @@ fn build_args_and_setup(
                 &mut kwarg_exprs,
                 value,
                 var_name,
-                kwarg_name,
                 options_type,
                 options_via,
                 enum_fields,
@@ -325,12 +434,12 @@ fn build_args_and_setup(
                 _ => "None".to_string(),
             };
             arg_bindings.push(format!("    {var_name} = {default_val}"));
-            kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
+            kwarg_exprs.push(var_name.to_string());
             continue;
         }
 
         if arg.arg_type == "bytes" {
-            emit_bytes_arg(&mut arg_bindings, &mut kwarg_exprs, value, var_name, kwarg_name);
+            emit_bytes_arg(&mut arg_bindings, &mut kwarg_exprs, value, var_name);
             continue;
         }
 
@@ -341,7 +450,7 @@ fn build_args_and_setup(
             ""
         };
         arg_bindings.push(format!("    {var_name} = {literal}{noqa}"));
-        kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
+        kwarg_exprs.push(var_name.to_string());
     }
 
     (arg_bindings, kwarg_exprs)
@@ -354,7 +463,6 @@ fn emit_handle_arg(
     fixture: &Fixture,
     arg: &crate::config::ArgMapping,
     var_name: &str,
-    kwarg_name: &str,
     options_type: Option<&str>,
     handle_nested_types: &HashMap<String, String>,
     handle_dict_types: &HashSet<String>,
@@ -389,7 +497,7 @@ fn emit_handle_arg(
         let literal = json_to_python_literal(config_value);
         arg_bindings.push(format!("    {var_name} = {constructor_name}({literal})"));
     }
-    kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
+    kwarg_exprs.push(var_name.to_string());
 }
 
 fn build_handle_kwarg_value(
@@ -431,7 +539,6 @@ fn emit_json_object_arg(
     kwarg_exprs: &mut Vec<String>,
     value: &serde_json::Value,
     var_name: &str,
-    kwarg_name: &str,
     options_type: Option<&str>,
     options_via: &str,
     enum_fields: &HashMap<String, String>,
@@ -457,7 +564,7 @@ fn emit_json_object_arg(
                         })
                         .collect();
                     arg_bindings.push(format!("    {var_name} = [{}]", items.join(", ")));
-                    kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
+                    kwarg_exprs.push(var_name.to_string());
                     return true;
                 }
             }
@@ -469,14 +576,14 @@ fn emit_json_object_arg(
                 ""
             };
             arg_bindings.push(format!("    {var_name} = {literal}{noqa}"));
-            kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
+            kwarg_exprs.push(var_name.to_string());
             true
         }
         "json" => {
             let json_str = serde_json::to_string(value).unwrap_or_default();
             let escaped = escape_python(&json_str);
             arg_bindings.push(format!("    {var_name} = json.loads(\"{escaped}\")"));
-            kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
+            kwarg_exprs.push(var_name.to_string());
             true
         }
         "from_json" => {
@@ -484,7 +591,7 @@ fn emit_json_object_arg(
                 let json_str = serde_json::to_string(value).unwrap_or_default();
                 let escaped = escape_python(&json_str);
                 arg_bindings.push(format!("    {var_name} = {opts_type}.from_json(\"{escaped}\")"));
-                kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
+                kwarg_exprs.push(var_name.to_string());
                 true
             } else {
                 false
@@ -502,7 +609,7 @@ fn emit_json_object_arg(
                             .map(|obj| emit_python_batch_item(obj, elem_type))
                             .collect();
                         arg_bindings.push(format!("    {var_name} = [{}]", items.join(", ")));
-                        kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
+                        kwarg_exprs.push(var_name.to_string());
                         return true;
                     }
                 }
@@ -528,7 +635,7 @@ fn emit_json_object_arg(
                     .collect();
                 let constructor = format!("{opts_type}({})", kwargs.join(", "));
                 arg_bindings.push(format!("    {var_name} = {constructor}"));
-                kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
+                kwarg_exprs.push(var_name.to_string());
                 true
             } else {
                 false
@@ -542,7 +649,6 @@ fn emit_bytes_arg(
     kwarg_exprs: &mut Vec<String>,
     value: &serde_json::Value,
     var_name: &str,
-    kwarg_name: &str,
 ) {
     if let Some(raw) = value.as_str() {
         match classify_bytes_value(raw) {
@@ -562,7 +668,7 @@ fn emit_bytes_arg(
     } else {
         arg_bindings.push(format!("    {var_name} = None"));
     }
-    kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
+    kwarg_exprs.push(var_name.to_string());
 }
 
 /// Emit a Python batch item (BatchBytesItem or BatchFileItem) constructor.
@@ -675,7 +781,6 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &HashSet::new(),
-            None,
         );
         assert!(bindings.is_empty());
         assert!(exprs.is_empty());
@@ -686,7 +791,7 @@ mod tests {
         let mut bindings = Vec::new();
         let mut exprs = Vec::new();
         let value = serde_json::Value::String("pdf/memo.pdf".to_string());
-        emit_bytes_arg(&mut bindings, &mut exprs, &value, "content", "content");
+        emit_bytes_arg(&mut bindings, &mut exprs, &value, "content");
         assert!(bindings[0].contains("Path("), "got: {:?}", bindings[0]);
         assert!(bindings[0].contains("read_bytes"), "got: {:?}", bindings[0]);
     }
@@ -696,7 +801,7 @@ mod tests {
         let mut bindings = Vec::new();
         let mut exprs = Vec::new();
         let value = serde_json::Value::String("/9j/4AAQ".to_string());
-        emit_bytes_arg(&mut bindings, &mut exprs, &value, "data", "data");
+        emit_bytes_arg(&mut bindings, &mut exprs, &value, "data");
         assert!(bindings[0].contains("b64decode"), "got: {:?}", bindings[0]);
     }
 
@@ -709,7 +814,6 @@ mod tests {
             &mut bindings,
             &mut exprs,
             &value,
-            "opts",
             "opts",
             None,
             "dict",

@@ -8,7 +8,7 @@
 //! Enum wrappers live in `enums.rs`.
 
 use crate::gen_rust_crate::default_construction::{emit_default_construction_body, emit_direct_field_inits};
-use crate::gen_rust_crate::type_bridge::{bridge_type, needs_json_bridge};
+use crate::gen_rust_crate::type_bridge::{bridge_type, needs_json_bridge, swift_bridge_rust_type};
 use alef_codegen::generators::type_paths::resolve_type_path;
 use alef_core::ir::{CoreWrapper, FieldDef, TypeDef, TypeRef};
 use alef_core::keywords::swift_ident;
@@ -79,10 +79,21 @@ pub(crate) fn emit_type_wrapper(
 ) -> String {
     let mut out = String::new();
     let source_path = resolve_type_path(&ty.name, source_crate, type_paths);
-    out.push_str(&format!("pub struct {}(pub {});\n\n", ty.name, source_path));
+    out.push_str(&crate::template_env::render(
+        "struct_newtype.jinja",
+        minijinja::context! {
+            name => &ty.name,
+            source_path => &source_path,
+        },
+    ));
 
     if !ty.fields.is_empty() {
-        out.push_str(&format!("impl {} {{\n", ty.name));
+        out.push_str(&crate::template_env::render(
+            "impl_header.jinja",
+            minijinja::context! {
+                name => &ty.name,
+            },
+        ));
 
         // Constructor — params use bridge types (String for JSON-bridged fields)
         // and Option<bridge_ty> when the field is optional.
@@ -134,7 +145,13 @@ pub(crate) fn emit_type_wrapper(
             // Omit the constructor entirely — swift-bridge will not expose `init()` for
             // this type, which is correct: the host language can't construct it anyway.
         } else {
-            out.push_str(&format!("    pub fn new({}) -> {} {{\n", params.join(", "), ty.name));
+            out.push_str(&crate::template_env::render(
+                "fn_new_signature.jinja",
+                minijinja::context! {
+                    params => params.join(", "),
+                    name => &ty.name,
+                },
+            ));
 
             if needs_default_construction && ty.has_default {
                 let body = emit_default_construction_body(
@@ -148,7 +165,13 @@ pub(crate) fn emit_type_wrapper(
                 out.push_str(&body);
             } else {
                 let field_inits = emit_direct_field_inits(ty, type_paths, enum_names, no_serde_names, exclude_fields);
-                out.push_str(&format!("        {}({} {{\n", ty.name, source_path));
+                out.push_str(&crate::template_env::render(
+                    "struct_literal_open.jinja",
+                    minijinja::context! {
+                        name => &ty.name,
+                        source_path => &source_path,
+                    },
+                ));
                 for init in &field_inits {
                     out.push_str(init);
                     out.push_str(",\n");
@@ -199,8 +222,11 @@ fn emit_getters(
         // `extern_block::emit_extern_block_for_type` skips the extern declaration
         // for the same fields, so the swift-bridge surface stays consistent.
         if is_unbridgeable_getter(ty, field, exclude_fields, type_paths, no_serde_names) {
-            out.push_str(&format!(
-                "    // alef: skipped getter `{name}` — type cannot be bridged through swift-bridge\n"
+            out.push_str(&crate::template_env::render(
+                "getter_skip_comment.jinja",
+                minijinja::context! {
+                    name => &name,
+                },
             ));
             continue;
         }
@@ -210,11 +236,13 @@ fn emit_getters(
             bridge_ty_owned,
         };
         if needs_json_bridge(&field.ty) {
-            out.push_str(&format!(
-                "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ serde_json::to_string(&self.0.{name}).expect(\"serializable {name}\") }}\n",
-                getter_name = ctx.getter_name,
-                bridge_ty_owned = ctx.bridge_ty_owned,
-                name = ctx.name,
+            out.push_str(&crate::template_env::render(
+                "getter_json_bridge.jinja",
+                minijinja::context! {
+                    getter_name => &ctx.getter_name,
+                    return_type => &ctx.bridge_ty_owned,
+                    name => &ctx.name,
+                },
             ));
         } else if let TypeRef::Named(wrapper) = &field.ty {
             emit_named_getter(field, wrapper, &ctx, enum_names, out);
@@ -228,43 +256,72 @@ fn emit_getters(
         } else if matches!(field.ty, TypeRef::Bytes) {
             // bytes::Bytes bridges as Vec<u8>; convert with .to_vec() for the return.
             if field.optional {
-                out.push_str(&format!(
-                    "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ self.0.{name}.as_ref().map(|b| b.to_vec()) }}\n",
-                    getter_name = ctx.getter_name,
-                    bridge_ty_owned = ctx.bridge_ty_owned,
-                    name = ctx.name,
+                out.push_str(&crate::template_env::render(
+                    "getter_optional_bytes.jinja",
+                    minijinja::context! {
+                        getter_name => &ctx.getter_name,
+                        return_type => &ctx.bridge_ty_owned,
+                        name => &ctx.name,
+                    },
                 ));
             } else {
-                out.push_str(&format!(
-                    "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ self.0.{name}.to_vec() }}\n",
-                    getter_name = ctx.getter_name,
-                    bridge_ty_owned = ctx.bridge_ty_owned,
-                    name = ctx.name,
+                out.push_str(&crate::template_env::render(
+                    "getter_bytes.jinja",
+                    minijinja::context! {
+                        getter_name => &ctx.getter_name,
+                        return_type => &ctx.bridge_ty_owned,
+                        name => &ctx.name,
+                    },
+                ));
+            }
+        } else if matches!(field.ty, TypeRef::Duration) {
+            // Duration field: bridge type is u64 (millis), core type is std::time::Duration.
+            if field.optional {
+                out.push_str(&crate::template_env::render(
+                    "getter_optional_duration.jinja",
+                    minijinja::context! {
+                        getter_name => &ctx.getter_name,
+                        name => &ctx.name,
+                    },
+                ));
+            } else {
+                out.push_str(&crate::template_env::render(
+                    "getter_duration.jinja",
+                    minijinja::context! {
+                        getter_name => &ctx.getter_name,
+                        name => &ctx.name,
+                    },
                 ));
             }
         } else if ty.has_serde && matches!(&field.ty, TypeRef::Vec(_) | TypeRef::Primitive(_)) {
             // Vec<T> or Primitive fields in serde structs: use serde JSON round-trip.
             if field.optional {
-                out.push_str(&format!(
-                    "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ self.0.{name}.as_ref().and_then(|v| ::serde_json::to_value(v).ok().and_then(|j| ::serde_json::from_value(j).ok())) }}\n",
-                    getter_name = ctx.getter_name,
-                    bridge_ty_owned = ctx.bridge_ty_owned,
-                    name = ctx.name,
+                out.push_str(&crate::template_env::render(
+                    "getter_serde_optional.jinja",
+                    minijinja::context! {
+                        getter_name => &ctx.getter_name,
+                        return_type => &ctx.bridge_ty_owned,
+                        name => &ctx.name,
+                    },
                 ));
             } else {
-                out.push_str(&format!(
-                    "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ ::serde_json::to_value(&self.0.{name}).ok().and_then(|j| ::serde_json::from_value(j).ok()).unwrap_or_default() }}\n",
-                    getter_name = ctx.getter_name,
-                    bridge_ty_owned = ctx.bridge_ty_owned,
-                    name = ctx.name,
+                out.push_str(&crate::template_env::render(
+                    "getter_serde.jinja",
+                    minijinja::context! {
+                        getter_name => &ctx.getter_name,
+                        return_type => &ctx.bridge_ty_owned,
+                        name => &ctx.name,
+                    },
                 ));
             }
         } else {
-            out.push_str(&format!(
-                "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ self.0.{name}.clone() }}\n",
-                getter_name = ctx.getter_name,
-                bridge_ty_owned = ctx.bridge_ty_owned,
-                name = ctx.name,
+            out.push_str(&crate::template_env::render(
+                "getter_simple_clone.jinja",
+                minijinja::context! {
+                    getter_name => &ctx.getter_name,
+                    return_type => &ctx.bridge_ty_owned,
+                    name => &ctx.name,
+                },
             ));
         }
     }
@@ -299,8 +356,13 @@ fn emit_named_getter(
         } else {
             format!("self.0.{name}.clone().map({wrapper})")
         };
-        out.push_str(&format!(
-            "    pub fn {getter_name}(&self) -> Option<{wrapper}> {{ {getter_expr} }}\n"
+        out.push_str(&crate::template_env::render(
+            "getter_optional_named.jinja",
+            minijinja::context! {
+                getter_name => getter_name,
+                wrapper => wrapper,
+                getter_expr => &getter_expr,
+            },
         ));
     } else {
         let expr = if field.is_boxed {
@@ -322,7 +384,14 @@ fn emit_named_getter(
         } else {
             format!("{wrapper}(self.0.{name}.clone())")
         };
-        out.push_str(&format!("    pub fn {getter_name}(&self) -> {wrapper} {{ {expr} }}\n"));
+        out.push_str(&crate::template_env::render(
+            "getter_named.jinja",
+            minijinja::context! {
+                getter_name => getter_name,
+                wrapper => wrapper,
+                expr => &expr,
+            },
+        ));
     }
 }
 
@@ -334,9 +403,9 @@ fn emit_vec_getter(
     enum_names: &HashSet<&str>,
     out: &mut String,
 ) {
-    let name = &ctx.name;
-    let getter_name = &ctx.getter_name;
-    let bridge_ty_owned = &ctx.bridge_ty_owned;
+    let _name = &ctx.name;
+    let _getter_name = &ctx.getter_name;
+    let _bridge_ty_owned = &ctx.bridge_ty_owned;
     if let TypeRef::Named(wrapper) = inner {
         let is_enum = enum_names.contains(wrapper.as_str());
         // When the source field is Vec<Arc<T>>, cloning an element
@@ -349,49 +418,89 @@ fn emit_vec_getter(
             _ => format!("{wrapper}(elem.clone())"),
         };
         if field.optional {
-            out.push_str(&format!(
-                "    pub fn {getter_name}(&self) -> Option<Vec<{wrapper}>> {{ self.0.{name}.as_ref().map(|v| v.iter().map(|elem| {elem_expr}).collect()) }}\n"
+            out.push_str(&crate::template_env::render(
+                "getter_vec_named_optional.jinja",
+                minijinja::context! {
+                    getter_name => &ctx.getter_name,
+                    wrapper => wrapper,
+                    name => &ctx.name,
+                    elem_expr => &elem_expr,
+                },
             ));
         } else {
-            out.push_str(&format!(
-                "    pub fn {getter_name}(&self) -> Vec<{wrapper}> {{ self.0.{name}.iter().map(|elem| {elem_expr}).collect() }}\n"
+            out.push_str(&crate::template_env::render(
+                "getter_vec_named.jinja",
+                minijinja::context! {
+                    getter_name => &ctx.getter_name,
+                    wrapper => wrapper,
+                    name => &ctx.name,
+                    elem_expr => &elem_expr,
+                },
             ));
         }
     } else if !matches!(inner, TypeRef::Primitive(_) | TypeRef::Bytes) {
         // Vec<non-Primitive, non-Bytes>: use JSON round-trip for serde structs.
         if ty.has_serde {
             if field.optional {
-                out.push_str(&format!(
-                    "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ self.0.{name}.as_ref().and_then(|v| ::serde_json::to_value(v).ok().and_then(|j| ::serde_json::from_value(j).ok())) }}\n"
+                out.push_str(&crate::template_env::render(
+                    "getter_vec_complex_serde_optional.jinja",
+                    minijinja::context! {
+                        getter_name => &ctx.getter_name,
+                        return_type => &ctx.bridge_ty_owned,
+                        name => &ctx.name,
+                    },
                 ));
             } else {
-                out.push_str(&format!(
-                    "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ ::serde_json::to_value(&self.0.{name}).ok().and_then(|j| ::serde_json::from_value(j).ok()).unwrap_or_default() }}\n"
+                out.push_str(&crate::template_env::render(
+                    "getter_vec_complex_serde.jinja",
+                    minijinja::context! {
+                        getter_name => &ctx.getter_name,
+                        return_type => &ctx.bridge_ty_owned,
+                        name => &ctx.name,
+                    },
                 ));
             }
         } else {
             // Unreachable: `is_unbridgeable_getter` filters this case out before
             // `emit_vec_getter` is called, so non-serde Vec<Named> never lands here.
             // Emit a comment for visibility if the filter ever drifts out of sync.
-            out.push_str(&format!(
-                "    // alef: unreachable — Vec field `{name}` should have been skipped by is_unbridgeable_getter\n"
+            out.push_str(&crate::template_env::render(
+                "getter_vec_complex_skip.jinja",
+                minijinja::context! {
+                    name => &ctx.name,
+                },
             ));
         }
     } else {
         // Vec<Primitive> or Vec<Bytes>: use serde round-trip in serde structs.
         if ty.has_serde {
             if field.optional {
-                out.push_str(&format!(
-                    "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ self.0.{name}.as_ref().and_then(|v| ::serde_json::to_value(v).ok().and_then(|j| ::serde_json::from_value(j).ok())) }}\n"
+                out.push_str(&crate::template_env::render(
+                    "getter_vec_primitive_serde_optional.jinja",
+                    minijinja::context! {
+                        getter_name => &ctx.getter_name,
+                        return_type => &ctx.bridge_ty_owned,
+                        name => &ctx.name,
+                    },
                 ));
             } else {
-                out.push_str(&format!(
-                    "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ ::serde_json::to_value(&self.0.{name}).ok().and_then(|j| ::serde_json::from_value(j).ok()).unwrap_or_default() }}\n"
+                out.push_str(&crate::template_env::render(
+                    "getter_vec_primitive_serde.jinja",
+                    minijinja::context! {
+                        getter_name => &ctx.getter_name,
+                        return_type => &ctx.bridge_ty_owned,
+                        name => &ctx.name,
+                    },
                 ));
             }
         } else {
-            out.push_str(&format!(
-                "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ self.0.{name}.clone() }}\n"
+            out.push_str(&crate::template_env::render(
+                "getter_vec_primitive_clone.jinja",
+                minijinja::context! {
+                    getter_name => &ctx.getter_name,
+                    return_type => &ctx.bridge_ty_owned,
+                    name => &ctx.name,
+                },
             ));
         }
     }
@@ -411,21 +520,290 @@ fn emit_string_like_getter(ty: &TypeDef, field: &alef_core::ir::FieldDef, ctx: &
     // bridge, not String, so it must fall through to the plain clone() branch.
     if !ty.has_serde {
         if field.optional {
-            out.push_str(&format!(
-                "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ self.0.{name}.as_ref().map(|v| format!(\"{{v:?}}\")) }}\n"
+            out.push_str(&crate::template_env::render(
+                "getter_string_like_debug_optional.jinja",
+                minijinja::context! {
+                    getter_name => getter_name,
+                    return_type => bridge_ty_owned,
+                    name => name,
+                },
             ));
         } else {
-            out.push_str(&format!(
-                "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ format!(\"{{:?}}\", &self.0.{name}) }}\n"
+            out.push_str(&crate::template_env::render(
+                "getter_string_like_debug.jinja",
+                minijinja::context! {
+                    getter_name => getter_name,
+                    return_type => bridge_ty_owned,
+                    name => name,
+                },
             ));
         }
+    } else if matches!(field.ty, TypeRef::String)
+        && !field.sanitized
+        && matches!(field.core_wrapper, alef_core::ir::CoreWrapper::None)
+    {
+        // Plain String field (not sanitized from another type) — just clone/clone_opt.
+        // serde_json::to_string on a &String adds JSON quotes ("text" → "\"text\"").
+        out.push_str(&crate::template_env::render(
+            "getter_simple_clone.jinja",
+            minijinja::context! {
+                getter_name => getter_name,
+                return_type => bridge_ty_owned,
+                name => name,
+            },
+        ));
+    } else if matches!(field.ty, TypeRef::String)
+        && matches!(field.core_wrapper, alef_core::ir::CoreWrapper::Cow)
+        && !field.optional
+    {
+        // Cow<'static, str> field — use .to_string() to avoid JSON quoting.
+        out.push_str(&crate::template_env::render(
+            "getter_string_cow.jinja",
+            minijinja::context! {
+                getter_name => getter_name,
+                return_type => bridge_ty_owned,
+                name => name,
+            },
+        ));
+    } else if matches!(field.ty, TypeRef::String)
+        && matches!(field.core_wrapper, alef_core::ir::CoreWrapper::Cow)
+        && field.optional
+    {
+        // Option<Cow<'static, str>> field — map to String via .to_string().
+        out.push_str(&crate::template_env::render(
+            "getter_string_cow_optional.jinja",
+            minijinja::context! {
+                getter_name => getter_name,
+                return_type => bridge_ty_owned,
+                name => name,
+            },
+        ));
     } else if field.optional {
-        out.push_str(&format!(
-            "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ self.0.{name}.as_ref().and_then(|v| serde_json::to_string(v).ok()) }}\n"
+        out.push_str(&crate::template_env::render(
+            "getter_string_like_serde_optional.jinja",
+            minijinja::context! {
+                getter_name => getter_name,
+                return_type => bridge_ty_owned,
+                name => name,
+            },
         ));
     } else {
-        out.push_str(&format!(
-            "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ serde_json::to_string(&self.0.{name}).unwrap_or_default() }}\n"
+        out.push_str(&crate::template_env::render(
+            "getter_string_like_serde.jinja",
+            minijinja::context! {
+                getter_name => getter_name,
+                return_type => bridge_ty_owned,
+                name => name,
+            },
         ));
     }
+}
+
+/// Emit a `pub fn create_<type_name>(api_key: String, base_url: Option<String>) -> Result<TypeName, String>`
+/// constructor shim for an opaque type that exposes methods.
+///
+/// The source crate must provide `<TypeName>::new(api_key, base_url)` or a compatible constructor.
+/// This mirrors the `liter_llm::DefaultClient::new` pattern.
+///
+/// When the source crate's constructor signature differs (e.g. liter-llm's
+/// `DefaultClient::new(ClientConfig, Option<&str>)`), the caller can supply a
+/// custom body via `[crates.<crate>.swift] client_constructor_body."TypeName" = "..."`
+/// in alef.toml. The custom body is interpolated verbatim, with `{type_name}` and
+/// `{source_path}` placeholders available.
+pub(crate) fn emit_type_constructor_shim(
+    ty: &TypeDef,
+    source_crate: &str,
+    type_paths: &HashMap<String, String>,
+    custom_body: Option<&str>,
+) -> String {
+    let type_snake = ty.name.to_snake_case();
+    let fn_name = format!("create_{type_snake}");
+    let type_name = &ty.name;
+    let source_path = resolve_type_path(type_name, source_crate, type_paths);
+
+    if let Some(body) = custom_body {
+        let interpolated = body
+            .replace("{type_name}", type_name)
+            .replace("{source_path}", &source_path);
+        return format!(
+            "pub fn {fn_name}(api_key: String, base_url: Option<String>) -> Result<{type_name}, String> {{\n{interpolated}\n}}\n"
+        );
+    }
+
+    format!(
+        "pub fn {fn_name}(api_key: String, base_url: Option<String>) -> Result<{type_name}, String> {{\n    \
+         {source_path}::new(api_key, base_url)\n        \
+         .map_err(|e| e.to_string())\n        \
+         .map({type_name})\n}}\n"
+    )
+}
+
+/// Emit free function shims for each method on `ty`.
+///
+/// Each method `fn method_name(&self, param: T) -> Result<R, E>` becomes
+/// `pub fn type_name_method_name(client: &TypeName, param: BridgeT) -> Result<BridgeR, String>`.
+/// Async methods are blocked on a Tokio current-thread runtime (same pattern as function shims).
+pub(crate) fn emit_type_method_shims(
+    ty: &TypeDef,
+    _source_crate: &str,
+    _type_paths: &HashMap<String, String>,
+) -> String {
+    let type_snake = ty.name.to_snake_case();
+    let type_name = &ty.name;
+
+    let mut out = String::new();
+
+    // Bring trait providers into scope so trait methods on `client.0` resolve.
+    // Methods from inherent impls have `trait_source: None`; methods from trait
+    // impls record the fully qualified trait path (e.g. `liter_llm::client::LlmClient`).
+    // Without these `use` statements rustc emits `no method named X found` for every
+    // trait-provided method.
+    let mut trait_uses: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for method in &ty.methods {
+        if method.sanitized {
+            continue;
+        }
+        if let Some(path) = method.trait_source.as_deref() {
+            trait_uses.insert(path.to_string());
+        }
+    }
+    for path in &trait_uses {
+        out.push_str(&format!("#[allow(unused_imports)]\nuse {path};\n"));
+    }
+    if !trait_uses.is_empty() {
+        out.push('\n');
+    }
+
+    for method in &ty.methods {
+        if method.sanitized {
+            continue;
+        }
+        let method_snake = method.name.to_snake_case();
+        let fn_name = format!("{type_snake}_{method_snake}");
+
+        // Build param list: first param is `client: &TypeName`, then method params.
+        let mut params_vec: Vec<String> = vec![format!("client: &{type_name}")];
+        for p in &method.params {
+            let bridge_ty = bridge_type(&p.ty);
+            let bridge_ty = if p.optional && !needs_json_bridge(&p.ty) {
+                format!("Option<{bridge_ty}>")
+            } else {
+                bridge_ty
+            };
+            let name = swift_ident(&p.name.to_snake_case());
+            params_vec.push(format!("{name}: {bridge_ty}"));
+        }
+        let params_str = params_vec.join(", ");
+
+        let return_ty = if method.error_type.is_some() {
+            let ok_ty = bridge_type(&method.return_type);
+            if matches!(method.return_type, TypeRef::Unit) {
+                "Result<(), String>".to_string()
+            } else {
+                format!("Result<{ok_ty}, String>")
+            }
+        } else {
+            bridge_type(&method.return_type)
+        };
+
+        // Build call args for each method param (excluding the receiver).
+        //
+        // - Named newtype  → `arg.0` (unwrap to inner source-crate type)
+        // - Optional<Named> → `arg.map(|v| v.0)` (preserve None, unwrap Some)
+        // - String           → `&arg` (the underlying trait method usually takes `&str`)
+        // - JSON-bridged     → deserialize from the bridge String
+        // - Other primitives → pass through verbatim
+        let call_args: Vec<String> = method
+            .params
+            .iter()
+            .map(|p| {
+                let name = p.name.to_snake_case();
+                if needs_json_bridge(&p.ty) {
+                    let native_ty = swift_bridge_rust_type(&p.ty);
+                    return format!("serde_json::from_str::<{native_ty}>(&{name}).expect(\"valid JSON for {name}\")");
+                }
+                if p.optional {
+                    if let TypeRef::Named(_) = &p.ty {
+                        return format!("{name}.map(|v| v.0)");
+                    }
+                }
+                match &p.ty {
+                    TypeRef::Named(_) => format!("{name}.0"),
+                    TypeRef::String | TypeRef::Path => format!("&{name}"),
+                    _ => name,
+                }
+            })
+            .collect();
+        let call_args_str = call_args.join(", ");
+
+        // Resolve the method call on the inner type.
+        let inner_access = "client.0";
+        let method_call = format!("{inner_access}.{method_snake}({call_args_str})");
+
+        // Determine return wrapping: Named return types get wrapped in their newtype.
+        let json_wrap_ok = needs_json_bridge(&method.return_type);
+        let wrap_return = |source: String| -> String {
+            if json_wrap_ok {
+                return format!("serde_json::to_string(&({source})).expect(\"serializable return\")");
+            }
+            match &method.return_type {
+                TypeRef::Named(t) => format!("{t}({source})"),
+                TypeRef::Optional(inner) => {
+                    if let TypeRef::Named(t) = inner.as_ref() {
+                        format!("({source}).map({t})")
+                    } else {
+                        source
+                    }
+                }
+                TypeRef::String | TypeRef::Path => format!("{source}.to_string()"),
+                _ => source,
+            }
+        };
+
+        let body = if method.is_async {
+            let chain = if method.error_type.is_some() {
+                let ok_wrap = if json_wrap_ok {
+                    ".map(|v| serde_json::to_string(&v).expect(\"serializable return\"))".to_string()
+                } else {
+                    match &method.return_type {
+                        TypeRef::Named(t) => format!(".map({t})"),
+                        TypeRef::String | TypeRef::Path => ".map(|s| s.to_string())".to_string(),
+                        // `bytes::Bytes` is bridged as `Vec<u8>` in the swift-bridge surface.
+                        // The trait method returns `Bytes`; convert via `.to_vec()`.
+                        TypeRef::Bytes => ".map(|b| b.to_vec())".to_string(),
+                        _ => String::new(),
+                    }
+                };
+                format!("{method_call}.await.map_err(|e| e.to_string()){ok_wrap}")
+            } else {
+                wrap_return(format!("{method_call}.await"))
+            };
+            format!(
+                "    ::tokio::runtime::Builder::new_current_thread()\n        \
+                 .enable_all()\n        \
+                 .build()\n        \
+                 .expect(\"build tokio runtime\")\n        \
+                 .block_on(async {{ {chain} }})"
+            )
+        } else if method.error_type.is_some() {
+            let ok_wrap = if json_wrap_ok {
+                ".map(|v| serde_json::to_string(&v).expect(\"serializable return\"))".to_string()
+            } else {
+                match &method.return_type {
+                    TypeRef::Named(t) => format!(".map({t})"),
+                    TypeRef::String | TypeRef::Path => ".map(|s| s.to_string())".to_string(),
+                    TypeRef::Bytes => ".map(|b| b.to_vec())".to_string(),
+                    _ => String::new(),
+                }
+            };
+            format!("    {method_call}.map_err(|e| e.to_string()){ok_wrap}")
+        } else {
+            format!("    {}", wrap_return(method_call))
+        };
+
+        out.push_str(&format!(
+            "pub fn {fn_name}({params_str}) -> {return_ty} {{\n{body}\n}}\n"
+        ));
+    }
+    out
 }

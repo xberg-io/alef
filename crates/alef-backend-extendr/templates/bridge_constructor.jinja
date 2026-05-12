@@ -1,0 +1,29 @@
+impl {{ wrapper }} {
+    /// Create a new bridge wrapping an R object (named list of functions).
+    ///
+    /// Validates that the R object provides all required methods.
+    pub fn new(r_obj: extendr_api::Robj) -> Result<Self, String> {
+{% for method in required_methods %}
+        match r_obj.dollar("{{ method }}") {
+            Ok(v) if !v.is_null() && !v.is_na() => {},
+            _ => return Err("R object missing required method: {{ method }}".to_string()),
+        }
+{% endfor %}
+
+        let cached_name: String = match r_obj.dollar("name") {
+            Ok(v) if !v.is_null() && !v.is_na() => {
+                if let Some(s) = v.as_str() {
+                    s.to_string()
+                } else {
+                    "unknown".to_string()
+                }
+            }
+            _ => "unknown".to_string(),
+        };
+
+        Ok(Self {
+            inner: r_obj,
+            cached_name,
+        })
+    }
+}

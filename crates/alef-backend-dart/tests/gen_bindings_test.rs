@@ -21,6 +21,8 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
         core_wrapper: CoreWrapper::None,
         vec_inner_core_wrapper: CoreWrapper::None,
         newtype_wrapper: None,
+        serde_rename: None,
+        serde_flatten: false,
     }
 }
 
@@ -76,6 +78,7 @@ sources = ["src/lib.rs"]
 }
 
 #[test]
+#[ignore = "FRB style: types/enums/errors are emitted by flutter_rust_bridge, not alef"]
 fn struct_with_primitive_fields_emits_class() {
     let api = ApiSurface {
         crate_name: "demo".into(),
@@ -90,6 +93,7 @@ fn struct_with_primitive_fields_emits_class() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -119,6 +123,7 @@ fn struct_with_primitive_fields_emits_class() {
 }
 
 #[test]
+#[ignore = "FRB style: types/enums/errors are emitted by flutter_rust_bridge, not alef"]
 fn struct_with_optional_vec_map_fields() {
     let api = ApiSurface {
         crate_name: "demo".into(),
@@ -141,6 +146,7 @@ fn struct_with_optional_vec_map_fields() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -160,6 +166,7 @@ fn struct_with_optional_vec_map_fields() {
 }
 
 #[test]
+#[ignore = "FRB style: types/enums/errors are emitted by flutter_rust_bridge, not alef"]
 fn empty_struct_emits_empty_class() {
     let api = ApiSurface {
         crate_name: "demo".into(),
@@ -168,6 +175,7 @@ fn empty_struct_emits_empty_class() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -176,6 +184,7 @@ fn empty_struct_emits_empty_class() {
 }
 
 #[test]
+#[ignore = "FRB style: types/enums/errors are emitted by flutter_rust_bridge, not alef"]
 fn unit_enum_emits_dart_enum() {
     let api = ApiSurface {
         crate_name: "demo".into(),
@@ -207,12 +216,14 @@ fn unit_enum_emits_dart_enum() {
             doc: String::new(),
             cfg: None,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
 
             is_copy: false,
             has_serde: false,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -229,6 +240,7 @@ fn unit_enum_emits_dart_enum() {
 }
 
 #[test]
+#[ignore = "FRB style: types/enums/errors are emitted by flutter_rust_bridge, not alef"]
 fn data_bearing_enum_emits_sealed_class() {
     let api = ApiSurface {
         crate_name: "demo".into(),
@@ -260,12 +272,14 @@ fn data_bearing_enum_emits_sealed_class() {
             doc: String::new(),
             cfg: None,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
 
             is_copy: false,
             has_serde: false,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -312,25 +326,32 @@ fn simple_sync_function_emits_static_method() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
-    let content = &files[0].content;
+    let content = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("/src/demo_crate.dart"))
+        .map(|f| f.content.as_str())
+        .expect("missing src/demo_crate.dart");
+    // FRB style: wrappers are always-async (Future<...>) and call into the
+    // bridge-generated lib.dart with named parameters.
     assert!(
         content.contains("class DemoCrateBridge {"),
         "missing bridge class: {content}"
     );
     assert!(
-        content.contains("static int greetUser(String userName)"),
-        "missing method sig: {content}"
+        content.contains("static Future<int> greetUser(String userName) async {"),
+        "missing async wrapper signature: {content}"
     );
     assert!(
-        content.contains("return rust_bridge.greetUser(userName);"),
-        "missing bridge call body: {content}"
+        content.contains("return await rust_bridge.greetUser(userName: userName);"),
+        "missing awaited bridge call with named param: {content}"
     );
     assert!(
-        content.contains("import 'demo_crate_bridge_generated.dart' as rust_bridge;"),
-        "missing rust_bridge import: {content}"
+        content.contains("import 'demo_crate_bridge_generated/lib.dart' as rust_bridge;"),
+        "missing rust_bridge lib.dart import: {content}"
     );
 }
 
@@ -358,14 +379,16 @@ fn async_function_emits_future_return_and_async_keyword() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
-    let content = &files[0].content;
-    assert!(
-        content.contains("import 'dart:async';"),
-        "missing dart:async import: {content}"
-    );
+    let content = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("/src/demo_crate.dart"))
+        .map(|f| f.content.as_str())
+        .expect("missing src/demo_crate.dart");
+    // dart:async is no longer needed: Dart's core Future is in dart:core (auto-imported).
     assert!(
         content.contains("static Future<String> fetchData() async {"),
         "missing async method: {content}"
@@ -400,21 +423,28 @@ fn error_returning_function_emits_doc_comment() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
-    let content = &files[0].content;
+    let content = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("/src/demo_crate.dart"))
+        .map(|f| f.content.as_str())
+        .expect("missing src/demo_crate.dart");
     assert!(
         content.contains("/// throws ParseError on failure"),
         "missing error doc comment: {content}"
     );
+    // FRB style emits always-async wrappers — Future<String> rather than bare String.
     assert!(
-        content.contains("static String parseInput(String raw)"),
-        "missing method: {content}"
+        content.contains("static Future<String> parseInput(String raw) async {"),
+        "missing async parseInput method: {content}"
     );
 }
 
 #[test]
+#[ignore = "FRB style: types/enums/errors are emitted by flutter_rust_bridge, not alef"]
 fn error_type_emits_sealed_class_hierarchy() {
     let api = ApiSurface {
         crate_name: "demo".into(),
@@ -448,6 +478,7 @@ fn error_type_emits_sealed_class_hierarchy() {
             ],
             doc: String::new(),
         }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -472,6 +503,7 @@ fn error_type_emits_sealed_class_hierarchy() {
 }
 
 #[test]
+#[ignore = "FRB style: types/enums/errors are emitted by flutter_rust_bridge, not alef"]
 fn bytes_field_adds_typed_data_import() {
     let api = ApiSurface {
         crate_name: "demo".into(),
@@ -480,6 +512,7 @@ fn bytes_field_adds_typed_data_import() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -503,6 +536,7 @@ fn output_path_uses_module_name() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
     let mut config = make_config();
     config.name = "my-lib".to_string();
@@ -597,6 +631,7 @@ fn no_trait_bridges_does_not_emit_traits_dart() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -626,6 +661,7 @@ fn single_trait_bridge_emits_traits_dart_with_abstract_class() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend
@@ -666,6 +702,7 @@ fn traits_dart_path_is_under_lib_src() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend
@@ -712,6 +749,7 @@ fn multiple_trait_bridges_emit_multiple_abstract_classes() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let mut config = make_config();
@@ -792,6 +830,7 @@ fn excluded_trait_bridge_does_not_appear_in_traits_dart() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let mut config = make_config();
@@ -840,6 +879,7 @@ fn traits_dart_includes_typed_data_import_for_bytes_param() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend
@@ -876,6 +916,7 @@ fn traits_dart_doc_comment_shows_registration_pattern() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend
@@ -893,9 +934,139 @@ fn traits_dart_doc_comment_shows_registration_pattern() {
     );
 }
 
+// ── Dart-side trait bridge wrapper methods ──────────────────────────────────
+
+fn make_config_with_full_bridge(bridge_trait_name: &str) -> ResolvedCrateConfig {
+    let mut config = make_config();
+    config.trait_bridges = vec![TraitBridgeConfig {
+        trait_name: bridge_trait_name.to_string(),
+        super_trait: None,
+        registry_getter: Some("demo_crate::plugins::registry::get_ocr_backend_registry".to_string()),
+        register_fn: Some("register_ocr_backend".to_string()),
+        unregister_fn: Some("unregister_ocr_backend".to_string()),
+        clear_fn: Some("clear_ocr_backends".to_string()),
+        type_alias: None,
+        param_name: None,
+        register_extra_args: None,
+        exclude_languages: vec![],
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
+    }];
+    config
+}
+
+fn find_dart_src(files: &[alef_core::backend::GeneratedFile]) -> Option<&str> {
+    files
+        .iter()
+        .find(|f| {
+            let p = f.path.to_string_lossy();
+            p.ends_with(".dart") && p.contains("/lib/src/") && !p.ends_with("traits.dart")
+        })
+        .map(|f| f.content.as_str())
+}
+
+/// When `register_fn`, `unregister_fn`, and `clear_fn` are all set, the generated Dart
+/// wrapper class must contain matching static methods delegating to the FRB free functions.
+#[test]
+fn dart_bridge_class_emits_register_unregister_clear_wrappers_when_all_configured() {
+    let trait_def = make_trait(
+        "OcrBackend",
+        "demo_crate::OcrBackend",
+        vec![make_method(
+            "extract_text",
+            vec![make_param("data", TypeRef::Bytes)],
+            TypeRef::String,
+            true,
+        )],
+    );
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_def],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+    let config = make_config_with_full_bridge("OcrBackend");
+    let files = DartBackend.generate_bindings(&api, &config).unwrap();
+    let content = find_dart_src(&files).expect("src dart file should be emitted");
+
+    // register wrapper
+    assert!(
+        content.contains("static Future<void> registerOcrBackend(OcrBackendDartImpl impl) async {"),
+        "missing registerOcrBackend wrapper: {content}"
+    );
+    assert!(
+        content.contains("await rust_bridge.registerOcrBackend(impl: impl);"),
+        "registerOcrBackend must delegate to rust_bridge: {content}"
+    );
+
+    // unregister wrapper
+    assert!(
+        content.contains("static Future<void> unregisterOcrBackend(String name) async {"),
+        "missing unregisterOcrBackend wrapper: {content}"
+    );
+    assert!(
+        content.contains("await rust_bridge.unregisterOcrBackend(name: name);"),
+        "unregisterOcrBackend must delegate to rust_bridge: {content}"
+    );
+
+    // clear wrapper
+    assert!(
+        content.contains("static Future<void> clearOcrBackends() async {"),
+        "missing clearOcrBackends wrapper: {content}"
+    );
+    assert!(
+        content.contains("await rust_bridge.clearOcrBackends();"),
+        "clearOcrBackends must delegate to rust_bridge: {content}"
+    );
+}
+
+/// When `unregister_fn` and `clear_fn` are both None, neither wrapper should be emitted.
+#[test]
+fn dart_bridge_class_does_not_emit_unregister_or_clear_when_not_configured() {
+    let trait_def = make_trait(
+        "Validator",
+        "demo_crate::Validator",
+        vec![make_method(
+            "validate",
+            vec![make_param("input", TypeRef::String)],
+            TypeRef::Primitive(PrimitiveType::Bool),
+            false,
+        )],
+    );
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_def],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+    // make_config_with_bridge leaves register_fn / unregister_fn / clear_fn all None
+    let config = make_config_with_bridge("Validator");
+    let files = DartBackend.generate_bindings(&api, &config).unwrap();
+
+    // No Dart bridge class should be emitted at all when there are no functions
+    // and no bridge methods to emit.
+    let dart_src = find_dart_src(&files).expect("src dart file should still be emitted");
+    assert!(
+        !dart_src.contains("unregisterValidator"),
+        "no unregister wrapper should be emitted: {dart_src}"
+    );
+    assert!(
+        !dart_src.contains("clearValidators"),
+        "no clear wrapper should be emitted: {dart_src}"
+    );
+}
+
 // ── Bug regression: reserved Dart keyword `default` as enum variant name ────
 
 #[test]
+#[ignore = "FRB style: types/enums/errors are emitted by flutter_rust_bridge, not alef"]
 fn enum_variant_named_default_is_escaped() {
     // Regression for: HtmlTheme::Default emitting bare `default` which is a
     // Dart reserved keyword, causing a parse error.
@@ -929,11 +1100,13 @@ fn enum_variant_named_default_is_escaped() {
             doc: String::new(),
             cfg: None,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
             is_copy: false,
             has_serde: false,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -952,6 +1125,7 @@ fn enum_variant_named_default_is_escaped() {
 // ── Bug regression: numeric field name `0` from tuple-variant index ─────────
 
 #[test]
+#[ignore = "FRB style: types/enums/errors are emitted by flutter_rust_bridge, not alef"]
 fn tuple_variant_with_numeric_field_name_is_escaped() {
     // Regression for: FormatMetadata::Pdf(PdfMetadata) emitting `final String 0;`
     // when the IR uses the string "0" as the tuple-field name.
@@ -976,11 +1150,13 @@ fn tuple_variant_with_numeric_field_name_is_escaped() {
             doc: String::new(),
             cfg: None,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
             is_copy: false,
             has_serde: false,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -1001,6 +1177,7 @@ fn tuple_variant_with_numeric_field_name_is_escaped() {
 }
 
 #[test]
+#[ignore = "FRB style: types/enums/errors are emitted by flutter_rust_bridge, not alef"]
 fn error_message_template_strips_placeholders_and_escapes_special_chars() {
     // Templates carry `thiserror`-style `{name}` placeholders. The Dart Display
     // string must not leak those placeholders to runtime users — the resolved
@@ -1050,6 +1227,7 @@ fn error_message_template_strips_placeholders_and_escapes_special_chars() {
             ],
             doc: String::new(),
         }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();

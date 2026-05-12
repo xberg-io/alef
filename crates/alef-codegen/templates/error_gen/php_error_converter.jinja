@@ -1,0 +1,12 @@
+/// Convert a `{{ rust_path }}` error to a PHP exception.
+#[allow(dead_code)]
+fn {{ fn_name }}(e: {{ rust_path }}) -> ext_php_rs::exception::PhpException {
+    let msg = e.to_string();
+    #[allow(unreachable_patterns)]
+    match &e {
+{%- for pattern, variant_name in variants %}
+        {{ pattern }} => ext_php_rs::exception::PhpException::default(format!("[{{ variant_name }}] {}", msg)),
+{%- endfor %}
+        _ => ext_php_rs::exception::PhpException::default(msg),
+    }
+}

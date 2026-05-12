@@ -3,7 +3,7 @@ use ahash::AHashSet;
 use alef_adapters::AdapterBodies;
 use alef_codegen::builder::ImplBuilder;
 use alef_codegen::generators::{self, RustBindingConfig};
-use alef_codegen::shared::{constructor_parts, partition_methods};
+use alef_codegen::shared::partition_methods;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::ir::{EnumDef, EnumVariant, FieldDef, TypeDef, TypeRef};
 
@@ -130,9 +130,9 @@ pub(crate) fn gen_php_struct(
     // `gen_struct_methods`.
     let field_attrs_fn = |field: &FieldDef| -> Vec<String> {
         let mut attrs = if is_php_prop_scalar_with_enums(&field.ty, enum_names) {
-            // Use php(rename) to keep snake_case naming consistent with getter properties.
-            // Without this, ext-php-rs auto-converts to camelCase for #[php(prop)] fields.
-            vec![format!("php(prop, name = \"{}\")", field.name)]
+            // Convert field names to lowerCamelCase for PHP (e.g., mime_type -> mimeType)
+            let php_name = alef_codegen::naming::to_php_name(&field.name);
+            vec![format!("php(prop, name = \"{}\")", php_name)]
         } else {
             vec![]
         };
@@ -155,6 +155,43 @@ pub(crate) fn gen_php_struct(
         {
             attrs.push("serde(default = \"crate::serde_defaults::bool_true\")".to_string());
         }
+        // Enum-backed String fields (PHP maps unit enums to plain `String`) default to "" via
+        // `String::default()`, but the core enum doesn't accept `""` as a valid variant. Skip
+        // serializing the empty string so the core deserializer falls back to the enum's own
+        // `Default` (which always corresponds to a real variant).
+        if cfg.has_serde {
+            let enum_backed_string = match &field.ty {
+                TypeRef::Named(n) if enum_names.contains(n) => true,
+                TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Named(n) if enum_names.contains(n)),
+                _ => false,
+            };
+            if enum_backed_string {
+                if field.optional {
+                    attrs.push("serde(skip_serializing_if = \"Option::is_none\")".to_string());
+                } else {
+                    attrs.push("serde(skip_serializing_if = \"String::is_empty\")".to_string());
+                }
+            }
+        }
+        // SecurityLimits fields need custom serde defaults to match the Rust struct's Default impl.
+        // When JSON is missing a field, we want the security limit (e.g., 500MB) not 0.
+        if cfg.has_serde && typ.name == "SecurityLimits" && !field.optional {
+            match field.name.as_str() {
+                "max_archive_size"
+                | "max_compression_ratio"
+                | "max_files_in_archive"
+                | "max_nesting_depth"
+                | "max_entity_length"
+                | "max_content_size"
+                | "max_iterations"
+                | "max_xml_depth"
+                | "max_table_cells" => {
+                    let serde_attr = format!("serde(default = \"crate::serde_defaults::{}\")", field.name);
+                    attrs.push(serde_attr);
+                }
+                _ => {}
+            }
+        }
         attrs
     };
 
@@ -166,7 +203,11 @@ pub(crate) fn gen_php_struct(
         extra_derives.push("serde::Serialize");
         extra_derives.push("serde::Deserialize");
         let mut serde_struct_attrs: Vec<&str> = effective_struct_attrs.to_vec();
-        serde_struct_attrs.push("serde(default, rename_all = \"camelCase\")");
+        // No rename_all here: PHP class fields keep their core snake_case names so
+        // serde round-trips losslessly through `kreuzberg::Foo` (which is also snake_case).
+        // This lets us serialize the PHP-side config to JSON and deserialize it as the
+        // core config without any field-name translation.
+        serde_struct_attrs.push("serde(default)");
         let modified_cfg = RustBindingConfig {
             struct_attrs: &serde_struct_attrs,
             field_attrs: cfg.field_attrs,
@@ -191,6 +232,7 @@ pub(crate) fn gen_php_struct(
             cast_large_ints_to_f64: cfg.cast_large_ints_to_f64,
             named_non_opaque_params_by_ref: cfg.named_non_opaque_params_by_ref,
             lossy_skip_types: cfg.lossy_skip_types,
+            serializable_opaque_type_names: cfg.serializable_opaque_type_names,
         };
         generators::gen_struct_with_per_field_attrs(typ, mapper, &modified_cfg, field_attrs_fn)
     } else {
@@ -283,6 +325,159 @@ fn gen_struct_methods_impl(
                  }"
             .to_string();
             impl_builder.add_method(&constructor);
+
+            // Also generate a #[php(constructor)] for named construction.
+            // Include parameters for all scalar/Vec fields (required and optional).
+            // Omit complex optional fields (they default to None).
+            fn field_can_be_param(
+                ty: &alef_core::ir::TypeRef,
+                enum_names: &AHashSet<String>,
+                opaque_types: &AHashSet<String>,
+            ) -> bool {
+                match ty {
+                    alef_core::ir::TypeRef::Vec(inner) => {
+                        // Vec<NonOpaqueCustomType> cannot be a constructor param (requires error handling for FromZval)
+                        match inner.as_ref() {
+                            alef_core::ir::TypeRef::Named(name) => {
+                                // Only allow if it's opaque or an enum (which map to String)
+                                opaque_types.contains(name.as_str()) || enum_names.contains(name.as_str())
+                            }
+                            // Vec<serde_json::Value> does not implement FromZval; skip.
+                            alef_core::ir::TypeRef::Json => false,
+                            _ => true, // Vec<primitive>, Vec<String>, etc.
+                        }
+                    }
+                    alef_core::ir::TypeRef::Bytes => true,
+                    alef_core::ir::TypeRef::Optional(inner) => {
+                        // Optional scalar/Vec can be a param; optional complex cannot
+                        field_can_be_param(inner, enum_names, opaque_types)
+                    }
+                    _ => is_php_prop_scalar_with_enums(ty, enum_names),
+                }
+            }
+
+            // Only generate constructor if there's at least one representable required field (otherwise from_json is simpler)
+            let has_representable_required = typ
+                .fields
+                .iter()
+                .any(|f| !f.optional && field_can_be_param(&f.ty, enum_names, opaque_types));
+
+            if has_representable_required {
+                // Build parameter lines using gen_php_function_params logic for proper type conversions
+                // For Vec<NonOpaqueCustomType>, this converts to &ZendHashTable
+                let param_defs: Vec<alef_core::ir::ParamDef> = typ
+                    .fields
+                    .iter()
+                    // cfg-gated fields are absent from the binding struct — skip them so they
+                    // don't appear as constructor parameters or in the struct literal.
+                    .filter(|f| f.cfg.is_none())
+                    .filter(|f| field_can_be_param(&f.ty, enum_names, opaque_types))
+                    .map(|f| {
+                        let php_param_name = alef_codegen::naming::to_php_name(&f.name);
+                        // Non-optional Duration fields are stored as `Option<i64>` in the
+                        // binding when `has_serde` is enabled on a `has_default` type
+                        // (option_duration_on_defaults). The constructor signature must
+                        // match the field type or the struct init will fail to type-check.
+                        let optional =
+                            f.optional || (has_serde && typ.has_default && matches!(f.ty, TypeRef::Duration));
+                        alef_core::ir::ParamDef {
+                            name: php_param_name,
+                            ty: f.ty.clone(),
+                            optional,
+                            default: None,
+                            is_ref: false,
+                            is_mut: false,
+                            newtype_wrapper: None,
+                            sanitized: false,
+                            original_type: None,
+                            typed_default: None,
+                        }
+                    })
+                    .collect();
+
+                let param_lines =
+                    super::helpers::gen_php_function_params(&param_defs, mapper, opaque_types, &AHashSet::new());
+
+                // Generate let bindings for Vec<NonOpaqueCustomType> fields
+                let mut let_bindings = String::new();
+                for f in typ
+                    .fields
+                    .iter()
+                    .filter(|f| f.cfg.is_none())
+                    .filter(|f| field_can_be_param(&f.ty, enum_names, opaque_types))
+                {
+                    if let TypeRef::Vec(inner) = &f.ty {
+                        if let TypeRef::Named(name) = inner.as_ref() {
+                            if !opaque_types.contains(name.as_str()) && !enum_names.contains(name.as_str()) {
+                                // Vec<NonOpaqueCustomType> parameter needs conversion from ZendHashTable
+                                let php_param_name = alef_codegen::naming::to_php_name(&f.name);
+                                if f.optional {
+                                    let_bindings.push_str(&crate::template_env::render(
+                                        "php_let_binding_vec_named_optional.jinja",
+                                        minijinja::context! {
+                                            pname => php_param_name.as_str(),
+                                            core_import => core_import,
+                                            name => name.as_str(),
+                                        },
+                                    ));
+                                } else {
+                                    let_bindings.push_str(&crate::template_env::render(
+                                        "php_let_binding_vec_named.jinja",
+                                        minijinja::context! {
+                                            pname => php_param_name.as_str(),
+                                            core_import => core_import,
+                                            name => name.as_str(),
+                                        },
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+
+                let param_init = typ
+                    .fields
+                    .iter()
+                    // cfg-gated fields are absent from the binding struct — exclude them
+                    // from the struct literal to avoid "no field named X" errors.
+                    .filter(|f| f.cfg.is_none())
+                    .map(|f| {
+                        let php_param_name = alef_codegen::naming::to_php_name(&f.name);
+                        if field_can_be_param(&f.ty, enum_names, opaque_types) {
+                            // Check if this needs let-binding conversion
+                            if let TypeRef::Vec(inner) = &f.ty {
+                                if let TypeRef::Named(name) = inner.as_ref() {
+                                    if !opaque_types.contains(name.as_str()) && !enum_names.contains(name.as_str()) {
+                                        // Use the _core binding
+                                        return format!("{}: {}_core", f.name, php_param_name);
+                                    }
+                                }
+                            }
+                            // Bytes: param is PhpBytes (PHP-side); field is Vec<u8>. Unwrap.
+                            let is_bytes = matches!(&f.ty, TypeRef::Bytes)
+                                || matches!(&f.ty, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Bytes));
+                            if is_bytes {
+                                if f.optional {
+                                    return format!("{}: {}.map(|b| b.0)", f.name, php_param_name);
+                                }
+                                return format!("{}: {}.0", f.name, php_param_name);
+                            }
+                            // Params that are in the constructor
+                            format!("{}: {}", f.name, php_param_name)
+                        } else {
+                            // Complex fields default to None/Default
+                            format!("{}: Default::default()", f.name)
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let named_constructor = format!(
+                    "#[php(constructor)]\npub fn new(\n{param_lines}\n) -> Self {{\n    \
+                     {let_bindings}Self {{ {param_init} }}\n\
+                     }}"
+                );
+                impl_builder.add_method(&named_constructor);
+            }
         } else if has_named_params {
             let constructor = format!(
                 "pub fn __construct() -> PhpResult<Self> {{\n    \
@@ -298,11 +493,86 @@ fn gen_struct_methods_impl(
                 let config_method = alef_codegen::config_gen::gen_php_kwargs_constructor(typ, &map_fn);
                 impl_builder.add_method(&config_method);
             } else {
-                // Normal positional constructor
-                let (param_list, _, assignments) = constructor_parts(&typ.fields, &map_fn);
+                // Named constructor for non-Default types. Generate a factory method
+                // decorated with #[php(constructor)] that accepts named parameters.
+                // Use gen_php_function_params for proper Vec<NonOpaqueCustomType> handling
+                let param_defs: Vec<alef_core::ir::ParamDef> = typ
+                    .fields
+                    .iter()
+                    // cfg-gated fields are absent from the binding struct.
+                    .filter(|f| f.cfg.is_none())
+                    .map(|f| alef_core::ir::ParamDef {
+                        name: f.name.clone(),
+                        ty: f.ty.clone(),
+                        optional: f.optional,
+                        default: None,
+                        is_ref: false,
+                        is_mut: false,
+                        newtype_wrapper: None,
+                        sanitized: false,
+                        original_type: None,
+                        typed_default: None,
+                    })
+                    .collect();
+
+                let param_lines =
+                    super::helpers::gen_php_function_params(&param_defs, mapper, opaque_types, &AHashSet::new());
+
+                // Generate let bindings for Vec<NonOpaqueCustomType> fields
+                let mut let_bindings = String::new();
+                for f in typ.fields.iter().filter(|f| f.cfg.is_none()) {
+                    if let TypeRef::Vec(inner) = &f.ty {
+                        if let TypeRef::Named(name) = inner.as_ref() {
+                            if !opaque_types.contains(name.as_str()) && !enum_names.contains(name.as_str()) {
+                                // Vec<NonOpaqueCustomType> parameter needs conversion from ZendHashTable
+                                if f.optional {
+                                    let_bindings.push_str(&crate::template_env::render(
+                                        "php_let_binding_vec_named_optional.jinja",
+                                        minijinja::context! {
+                                            pname => f.name.as_str(),
+                                            core_import => core_import,
+                                            name => name.as_str(),
+                                        },
+                                    ));
+                                } else {
+                                    let_bindings.push_str(&crate::template_env::render(
+                                        "php_let_binding_vec_named.jinja",
+                                        minijinja::context! {
+                                            pname => f.name.as_str(),
+                                            core_import => core_import,
+                                            name => name.as_str(),
+                                        },
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+
+                let param_init = typ
+                    .fields
+                    .iter()
+                    // cfg-gated fields are absent from the binding struct.
+                    .filter(|f| f.cfg.is_none())
+                    .map(|f| {
+                        let php_param_name = alef_codegen::naming::to_php_name(&f.name);
+                        // Check if this needs let-binding conversion
+                        if let TypeRef::Vec(inner) = &f.ty {
+                            if let TypeRef::Named(name) = inner.as_ref() {
+                                if !opaque_types.contains(name.as_str()) && !enum_names.contains(name.as_str()) {
+                                    // Use the _core binding
+                                    return format!("{}: {}_core", f.name, php_param_name);
+                                }
+                            }
+                        }
+                        // Default: use php parameter name (camelCase) for the value
+                        format!("{}: {}", f.name, php_param_name)
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 let constructor = format!(
-                    "pub fn __construct({param_list}) -> Self {{\n    \
-                     Self {{ {assignments} }}\n\
+                    "#[php(constructor)]\npub fn new(\n{param_lines}\n) -> Self {{\n    \
+                     {let_bindings}Self {{ {param_init} }}\n\
                      }}"
                 );
                 impl_builder.add_method(&constructor);
@@ -318,6 +588,42 @@ fn gen_struct_methods_impl(
         }
         let effective_ty = &field.ty;
         if !is_php_prop_scalar_with_enums(effective_ty, enum_names) {
+            // ext-php-rs derives the PHP property name from the Rust method ident (stripping `get_`),
+            // *not* from the `#[php(name = ...)]` attribute (which only renames the PHP method).
+            // Use a camelCase Rust ident (`get_toolCalls`) so the resulting property is `toolCalls`,
+            // matching the `#[php(prop, name = "...")]` convention used for scalar fields.
+            let php_field_name = alef_codegen::naming::to_php_name(&field.name);
+            let getter_ident = format!("get_{php_field_name}");
+
+            // Untagged data enums and `TypeRef::Json` both map to `serde_json::Value` in
+            // the binding struct, but ext-php-rs has no IntoZval impl for `serde_json::Value`.
+            // Emit a JSON-string getter (Option<String>) so PHP can introspect the serialized
+            // form, while the actual round-trip through `from_json` uses the Value field directly.
+            // Map<_, Json> and Optional<Map<_, Json>> are caught here too — ext-php-rs 0.15.12+
+            // tightened HashMap IntoZval bounds to require V: IntoZval, which Value does not impl.
+            fn ty_is_or_wraps_json(t: &TypeRef) -> bool {
+                match t {
+                    TypeRef::Json => true,
+                    TypeRef::Optional(inner) | TypeRef::Vec(inner) => ty_is_or_wraps_json(inner),
+                    TypeRef::Map(_, v) => matches!(v.as_ref(), TypeRef::Json),
+                    _ => false,
+                }
+            }
+            let is_json_field = ty_is_or_wraps_json(&field.ty);
+            if ty_references_untagged_data_enum(&field.ty, &mapper.untagged_data_enum_names) || is_json_field {
+                let body = if field.optional {
+                    format!(
+                        "self.{name}.as_ref().and_then(|v| serde_json::to_string(v).ok())",
+                        name = field.name
+                    )
+                } else {
+                    format!("serde_json::to_string(&self.{name}).ok()", name = field.name)
+                };
+                let getter_method =
+                    format!("#[php(getter)]\npub fn {getter_ident}(&self) -> Option<String> {{\n    {body}\n}}");
+                impl_builder.add_method(&getter_method);
+                continue;
+            }
             let map_fn = |ty: &alef_core::ir::TypeRef| mapper.map_type(ty);
             let rust_return_type = if field.optional {
                 mapper.optional(&mapper.map_type(&field.ty))
@@ -325,7 +631,7 @@ fn gen_struct_methods_impl(
                 map_fn(&field.ty)
             };
             let getter_method = format!(
-                "#[php(getter)]\npub fn get_{field_name}(&self) -> {ret} {{\n    self.{field_name}.clone()\n}}",
+                "#[php(getter)]\npub fn {getter_ident}(&self) -> {ret} {{\n    self.{field_name}.clone()\n}}",
                 field_name = field.name,
                 ret = rust_return_type,
             );
@@ -397,6 +703,28 @@ pub(crate) fn is_tagged_data_enum(enum_def: &EnumDef) -> bool {
     enum_def.serde_tag.is_some() && enum_def.variants.iter().any(|v| !v.fields.is_empty())
 }
 
+/// Return true if an enum is an "untagged data enum" — has `#[serde(untagged)]` AND at
+/// least one variant carrying data (e.g. `Single(String) | Multiple(Vec<String>)`).
+/// These cannot be lowered to a single `String` in the PHP binding because the wire
+/// JSON shape varies per variant; they are mapped to `serde_json::Value` and converted
+/// to the typed core enum via `serde_json::from_value` in the binding→core `From` impl.
+pub(crate) fn is_untagged_data_enum(enum_def: &EnumDef) -> bool {
+    enum_def.serde_untagged && enum_def.variants.iter().any(|v| !v.fields.is_empty())
+}
+
+/// Returns true if `ty` references (directly or via Optional/Vec wrap) a Named type whose
+/// name is in `untagged_data_enum_names`.  Used to choose the correct getter / From-impl
+/// branch in the PHP binding code generator.
+pub(crate) fn ty_references_untagged_data_enum(ty: &TypeRef, untagged_data_enum_names: &AHashSet<String>) -> bool {
+    match ty {
+        TypeRef::Named(n) => untagged_data_enum_names.contains(n.as_str()),
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => {
+            ty_references_untagged_data_enum(inner, untagged_data_enum_names)
+        }
+        _ => false,
+    }
+}
+
 /// Compute the flat struct field name for a single field of a variant.
 ///
 /// For tuple variants (fields named `_0`, `_1`, …), the flat field name is derived from
@@ -425,7 +753,6 @@ fn flat_field_name(variant: &EnumVariant, field_index: usize) -> String {
 /// after the serde tag (defaulting to `"type"`). This lets `HashMap<String, SecuritySchemeInfo>`
 /// stay as `HashMap<String, SecuritySchemeInfo>` (the flat PHP class) with working `From` impls.
 pub(crate) fn gen_flat_data_enum(enum_def: &EnumDef, mapper: &PhpMapper, php_namespace: Option<&str>) -> String {
-    use std::fmt::Write as _;
     let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
 
     let php_attrs: String = if let Some(ns) = php_namespace {
@@ -437,13 +764,20 @@ pub(crate) fn gen_flat_data_enum(enum_def: &EnumDef, mapper: &PhpMapper, php_nam
     };
 
     let mut out = String::new();
-    writeln!(out, "{php_attrs}").ok();
-    writeln!(out, "#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]").ok();
-    writeln!(out, "pub struct {} {{", enum_def.name).ok();
+    out.push_str(&crate::template_env::render(
+        "php_flat_enum_struct_start.jinja",
+        minijinja::context! {
+            php_attrs => &php_attrs,
+            enum_name => &enum_def.name,
+        },
+    ));
     // Discriminator field
-    writeln!(out, "    #[php(prop, name = \"{tag_field}\")]").ok();
-    writeln!(out, "    #[serde(rename = \"{tag_field}\")]").ok();
-    writeln!(out, "    pub {tag_field}_tag: String,").ok();
+    out.push_str(&crate::template_env::render(
+        "php_flat_enum_tag_field.jinja",
+        minijinja::context! {
+            tag_field => tag_field,
+        },
+    ));
 
     // Collect all unique flat fields across variants, all made Optional.
     // For tuple variants each positional field gets a per-variant name so that
@@ -460,18 +794,25 @@ pub(crate) fn gen_flat_data_enum(enum_def: &EnumDef, mapper: &PhpMapper, php_nam
                 // field is already optional (field.optional == true), the mapped type
                 // is the inner type and we still wrap it in Option.
                 let field_ty = format!("Option<{mapped}>");
-                writeln!(out, "    #[serde(skip_serializing_if = \"Option::is_none\")]").ok();
-                writeln!(out, "    pub {flat_name}: {field_ty},").ok();
+                out.push_str(&crate::template_env::render(
+                    "php_flat_enum_option_field.jinja",
+                    minijinja::context! {
+                        flat_name => &flat_name,
+                        field_ty => &field_ty,
+                    },
+                ));
             }
         }
     }
-    out.push('}');
+    out.push_str(&crate::template_env::render(
+        "php_flat_enum_struct_end.jinja",
+        minijinja::Value::default(),
+    ));
     out
 }
 
 /// Generate `#[php_impl]` accessor methods and a `from_json` constructor for the flat data enum.
 pub(crate) fn gen_flat_data_enum_methods(enum_def: &EnumDef, mapper: &PhpMapper) -> String {
-    use std::fmt::Write as _;
     let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
     let mut impl_builder = ImplBuilder::new(&enum_def.name);
     impl_builder.add_attr("php_impl");
@@ -511,7 +852,9 @@ pub(crate) fn gen_flat_data_enum_methods(enum_def: &EnumDef, mapper: &PhpMapper)
     }
 
     let mut out = String::new();
-    writeln!(out, "{}", impl_builder.build()).ok();
+    let impl_code = impl_builder.build();
+    out.push_str(&impl_code);
+    out.push('\n');
     out
 }
 
@@ -544,7 +887,6 @@ fn apply_rename_all(name: &str, strategy: &str) -> String {
 /// for a tagged data enum lowered to a flat PHP class.
 pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &str) -> String {
     use alef_core::ir::{PrimitiveType, TypeRef};
-    use std::fmt::Write as _;
     let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
     let core_path = alef_codegen::conversions::core_enum_path(enum_def, core_import);
     let binding_name = &enum_def.name;
@@ -568,28 +910,28 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
     // Destructuring patterns for boxed fields use the raw IR name (e.g. `_0`);
     // sanitized fields are excluded from the pattern (bound with `_`-prefixed name),
     // Path fields are converted via `to_string_lossy()`, Usize/U64/Isize are cast to i64.
-    writeln!(out, "impl From<{core_path}> for {binding_name} {{").ok();
-    writeln!(out, "    fn from(val: {core_path}) -> Self {{").ok();
-    writeln!(out, "        match val {{").ok();
+    out.push_str(&crate::template_env::render(
+        "php_flat_enum_impl_from_start.jinja",
+        minijinja::context! {
+            core_path => &core_path,
+            binding_name => &binding_name,
+        },
+    ));
     for variant in &enum_def.variants {
         let tag_val = variant_tag_value(variant, enum_def);
         if variant.fields.is_empty() {
             // No variant fields: only the tag is set; all Option fields default to None.
             // `..Default::default()` is only needed when the struct has other fields.
-            if all_flat_fields.is_empty() {
-                writeln!(
-                    out,
-                    "            {core_path}::{name} => Self {{ {tag_field}_tag: \"{tag_val}\".to_string() }},",
-                    name = variant.name,
-                )
-                .ok();
-            } else {
-                writeln!(
-                    out,
-                    "            {core_path}::{name} => Self {{ {tag_field}_tag: \"{tag_val}\".to_string(), ..Default::default() }},",
-                    name = variant.name,
-                ).ok();
-            }
+            out.push_str(&crate::template_env::render(
+                "php_flat_enum_variant_match_empty.jinja",
+                minijinja::context! {
+                    core_path => &core_path,
+                    variant_name => &variant.name,
+                    tag_field => tag_field,
+                    tag_val => &tag_val,
+                    needs_default => !all_flat_fields.is_empty(),
+                },
+            ));
         } else {
             let is_tuple = alef_codegen::conversions::is_tuple_variant(&variant.fields);
             // Build destructuring pattern.
@@ -627,17 +969,19 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
                     .collect();
                 bindings.join(", ")
             };
-            if is_tuple {
-                write!(out, "            {core_path}::{}({pattern}) => Self {{", variant.name).ok();
+            let pattern_start = if is_tuple {
+                format!("            {core_path}::{}({pattern}) => Self {{", variant.name)
             } else {
-                write!(
-                    out,
-                    "            {core_path}::{}{{ {pattern} }} => Self {{",
-                    variant.name
-                )
-                .ok();
-            }
-            write!(out, " {tag_field}_tag: \"{tag_val}\".to_string(),").ok();
+                format!("            {core_path}::{}{{ {pattern} }} => Self {{", variant.name)
+            };
+            out.push_str(&pattern_start);
+            out.push_str(&crate::template_env::render(
+                "php_flat_enum_tag_assignment.jinja",
+                minijinja::context! {
+                    tag_field => tag_field,
+                    tag_val => &tag_val,
+                },
+            ));
             for (idx, f) in variant.fields.iter().enumerate() {
                 let flat_name = flat_field_name(variant, idx);
                 // The destructuring variable name:
@@ -651,43 +995,61 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
                 };
                 // f.optional means the core field is Option<T>; binding is always Option<T>.
                 let expr = flat_enum_core_to_binding_field_expr(f, &bound_var);
-                write!(out, " {flat_name}: {expr},").ok();
+                out.push_str(&crate::template_env::render(
+                    "php_flat_enum_variant_field.jinja",
+                    minijinja::context! {
+                        flat_name => &flat_name,
+                        expr => &expr,
+                    },
+                ));
             }
             // Omit `..Default::default()` when this variant's fields cover every flat struct
             // field — the struct update would have no effect and triggers `clippy::needless_update`.
             let variant_flat_names: std::collections::BTreeSet<String> =
                 (0..variant.fields.len()).map(|i| flat_field_name(variant, i)).collect();
             if variant_flat_names == all_flat_fields {
-                writeln!(out, " }},").ok();
+                out.push_str(" },\n");
             } else {
-                writeln!(out, " ..Default::default() }},").ok();
+                out.push_str(" ..Default::default() },\n");
             }
         }
     }
-    writeln!(out, "        }}").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out, "}}").ok();
-
-    writeln!(out).ok();
+    out.push_str(&crate::template_env::render(
+        "php_flat_enum_impl_match_end.jinja",
+        minijinja::Value::default(),
+    ));
 
     // --- binding → core: match on the tag field to reconstruct the correct variant ---
     // We use tag-value matching rather than serde round-trip to avoid serde field rename
     // mismatches between the flat struct (uses Rust snake_case names) and the core type
     // (may have #[serde(rename = "camelCase")] on individual variant fields).
-    writeln!(out, "impl From<{binding_name}> for {core_path} {{").ok();
-    writeln!(out, "    fn from(val: {binding_name}) -> Self {{").ok();
-    writeln!(out, "        match val.{tag_field}_tag.as_str() {{").ok();
+    out.push_str(&crate::template_env::render(
+        "php_flat_enum_impl_into_start.jinja",
+        minijinja::context! {
+            binding_name => &binding_name,
+            core_path => &core_path,
+            tag_field => tag_field,
+        },
+    ));
     for variant in &enum_def.variants {
         let tag_val = variant_tag_value(variant, enum_def);
         if variant.fields.is_empty() {
-            writeln!(out, "            \"{tag_val}\" => {core_path}::{},", variant.name).ok();
+            out.push_str(&crate::template_env::render(
+                "php_flat_enum_variant_match_into_empty.jinja",
+                minijinja::context! {
+                    tag_val => &tag_val,
+                    core_path => &core_path,
+                    variant_name => &variant.name,
+                },
+            ));
         } else {
             let is_tuple = alef_codegen::conversions::is_tuple_variant(&variant.fields);
-            if is_tuple {
-                write!(out, "            \"{tag_val}\" => {core_path}::{}(", variant.name).ok();
+            let pattern_start = if is_tuple {
+                format!("            \"{tag_val}\" => {core_path}::{}(", variant.name)
             } else {
-                write!(out, "            \"{tag_val}\" => {core_path}::{}{{", variant.name).ok();
-            }
+                format!("            \"{tag_val}\" => {core_path}::{}{{", variant.name)
+            };
+            out.push_str(&pattern_start);
             if is_tuple {
                 // Tuple variant: positional syntax uses `, ` separators.
                 let exprs: Vec<String> = variant
@@ -696,25 +1058,48 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
                     .enumerate()
                     .map(|(idx, f)| flat_enum_binding_to_core_field_expr(f, &flat_field_name(variant, idx)))
                     .collect();
-                write!(out, " {}", exprs.join(", ")).ok();
-                writeln!(out, " ),").ok();
+                out.push_str(&crate::template_env::render(
+                    "php_flat_enum_tuple_exprs.jinja",
+                    minijinja::context! {
+                        exprs_joined => exprs.join(", "),
+                    },
+                ));
+                out.push_str(" ),\n");
             } else {
                 // Struct variant: `field_name: <expr>,` for each field.
                 for (idx, f) in variant.fields.iter().enumerate() {
                     let flat_name = flat_field_name(variant, idx);
                     let expr = flat_enum_binding_to_core_field_expr(f, &flat_name);
-                    write!(out, " {flat_name}: {expr},").ok();
+                    out.push_str(&crate::template_env::render(
+                        "php_flat_enum_variant_field.jinja",
+                        minijinja::context! {
+                            flat_name => &flat_name,
+                            expr => &expr,
+                        },
+                    ));
                 }
-                writeln!(out, " }},").ok();
+                out.push_str(" },\n");
             }
         }
     }
     // Fallback to first variant (with all fields defaulted) for unrecognised tags.
     if let Some(first) = enum_def.variants.first() {
         if first.fields.is_empty() {
-            writeln!(out, "            _ => {core_path}::{},", first.name).ok();
+            out.push_str(&crate::template_env::render(
+                "php_flat_enum_fallback_variant_empty.jinja",
+                minijinja::context! {
+                    core_path => &core_path,
+                    variant_name => &first.name,
+                },
+            ));
         } else if alef_codegen::conversions::is_tuple_variant(&first.fields) {
-            write!(out, "            _ => {core_path}::{}(", first.name).ok();
+            out.push_str(&crate::template_env::render(
+                "php_flat_enum_fallback_variant_tuple_start.jinja",
+                minijinja::context! {
+                    core_path => &core_path,
+                    variant_name => &first.name,
+                },
+            ));
             let parts: Vec<String> = first
                 .fields
                 .iter()
@@ -726,24 +1111,44 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
                     }
                 })
                 .collect();
-            write!(out, " {}", parts.join(", ")).ok();
-            writeln!(out, " ),").ok();
+            out.push_str(&crate::template_env::render(
+                "php_flat_enum_tuple_exprs.jinja",
+                minijinja::context! {
+                    exprs_joined => parts.join(", "),
+                },
+            ));
+            out.push_str(" ),\n");
         } else {
-            write!(out, "            _ => {core_path}::{}{{", first.name).ok();
+            out.push_str(&crate::template_env::render(
+                "php_flat_enum_fallback_variant_struct_start.jinja",
+                minijinja::context! {
+                    core_path => &core_path,
+                    variant_name => &first.name,
+                },
+            ));
             for f in &first.fields {
+                // Pass only the expression (without "name: " prefix and without trailing comma)
+                // since php_flat_enum_fallback_variant_field.jinja adds "{{ field_name }}: {{ default_expr }},"
                 let default_expr = if f.is_boxed {
-                    format!("{name}: Box::new(Default::default()),", name = f.name)
+                    "Box::new(Default::default())".to_string()
                 } else {
-                    format!("{name}: Default::default(),", name = f.name)
+                    "Default::default()".to_string()
                 };
-                write!(out, " {default_expr}").ok();
+                out.push_str(&crate::template_env::render(
+                    "php_flat_enum_fallback_variant_field.jinja",
+                    minijinja::context! {
+                        field_name => &f.name,
+                        default_expr => &default_expr,
+                    },
+                ));
             }
-            writeln!(out, " }},").ok();
+            out.push_str(" },\n");
         }
     }
-    writeln!(out, "        }}").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out, "}}").ok();
+    out.push_str(&crate::template_env::render(
+        "php_flat_enum_impl_match_end.jinja",
+        minijinja::Value::default(),
+    ));
 
     // Suppress the unused import warning that would appear when TypeRef/PrimitiveType
     // are only referenced inside the helper closures above (Rust may not see the use).

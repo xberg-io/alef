@@ -1,9 +1,7 @@
 //! Python visitor method generation for e2e test callbacks.
 
-use std::fmt::Write as FmtWrite;
-
 use crate::escape::escape_python;
-use crate::fixture::CallbackAction;
+use crate::fixture::{CallbackAction, TemplateReturnForm};
 
 /// Emit a Python visitor method for a callback action.
 pub(super) fn emit_python_visitor_method(out: &mut String, method_name: &str, action: &CallbackAction) {
@@ -42,41 +40,42 @@ pub(super) fn emit_python_visitor_method(out: &mut String, method_name: &str, ac
         _ => "self, ctx, *args",
     };
 
-    let _ = writeln!(
-        out,
-        "        def {method_name}({params}):  # noqa: A002, ANN001, ANN202, ARG002"
-    );
-    // Python PyO3 binding accepts visit-result strings (case-insensitive: "continue", "skip",
-    // "preserve_html") or dicts with a `"custom"` / `"error"` key for the variants that carry
-    // a payload. The previously emitted `{"type": "Custom", "_0": "..."}` form looked like
-    // serde's tagged-enum representation but the binding never recognized it, so every visitor
-    // call silently fell through to Continue.
-    match action {
-        CallbackAction::Skip => {
-            let _ = writeln!(out, "            return \"skip\"");
-        }
-        CallbackAction::Continue => {
-            let _ = writeln!(out, "            return \"continue\"");
-        }
-        CallbackAction::PreserveHtml => {
-            let _ = writeln!(out, "            return \"preserve_html\"");
-        }
+    // Pre-compute action type and values
+    let (action_type, action_value, action_template, return_form) = match action {
+        CallbackAction::Skip => ("skip", String::new(), String::new(), "dict"),
+        CallbackAction::Continue => ("continue", String::new(), String::new(), "dict"),
+        CallbackAction::PreserveHtml => ("preserve_html", String::new(), String::new(), "dict"),
         CallbackAction::Custom { output } => {
             let escaped = escape_python(output);
-            let _ = writeln!(out, "            return {{\"custom\": \"{escaped}\"}}");
+            ("custom", escaped, String::new(), "dict")
         }
-        CallbackAction::CustomTemplate { template } => {
-            // Use single-quoted f-string so that double quotes inside the template
-            // (e.g. `QUOTE: "{text}"`) are not misinterpreted as string delimiters.
+        CallbackAction::CustomTemplate { template, return_form } => {
             let escaped_template = template
                 .replace('\\', "\\\\")
                 .replace('\'', "\\'")
                 .replace('\n', "\\n")
                 .replace('\r', "\\r")
                 .replace('\t', "\\t");
-            let _ = writeln!(out, "            return {{\"custom\": f'{escaped_template}'}}");
+            let form = match return_form {
+                TemplateReturnForm::Dict => "dict",
+                TemplateReturnForm::BareString => "bare_string",
+            };
+            ("custom_template", String::new(), escaped_template, form)
         }
-    }
+    };
+
+    let rendered = crate::template_env::render(
+        "python/visitor_method.jinja",
+        minijinja::context! {
+            method_name => method_name,
+            params => params,
+            action_type => action_type,
+            action_value => action_value,
+            action_template => action_template,
+            return_form => return_form,
+        },
+    );
+    out.push_str(&rendered);
 }
 
 #[cfg(test)]

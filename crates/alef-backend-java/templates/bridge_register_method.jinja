@@ -1,0 +1,25 @@
+    /** Register a {{ trait_pascal }} implementation via Panama FFM upcall stubs. */
+{% if has_super_trait %}    public static void register{{ trait_pascal }}(final I{{ trait_pascal }} impl) throws Exception {
+{% else %}    public static void register{{ trait_pascal }}(final I{{ trait_pascal }} impl, String name) throws Exception {
+{% endif %}        var bridge = new {{ bridge_class }}(impl);
+        try {
+            try (var nameArena = Arena.ofConfined()) {
+                var nameCs = nameArena.allocateFrom({{ name_expr }});
+                MemorySegment outErr = nameArena.allocate(ValueLayout.ADDRESS);
+                int rc = (int) NativeLib.{{ prefix_upper }}_REGISTER_{{ trait_snake_upper }}.invoke(nameCs, bridge.vtableSegment(), MemorySegment.NULL, outErr);
+                if (rc != 0) {
+                    MemorySegment errPtr = outErr.get(ValueLayout.ADDRESS, 0);
+                    String msg = errPtr.equals(MemorySegment.NULL) ? "registration failed (rc=" + rc + ")" : errPtr.reinterpret(Long.MAX_VALUE).getString(0);
+                    throw new RuntimeException("register{{ trait_pascal }}: " + msg);
+                }
+            }
+        } catch (Throwable t) {
+            bridge.close();
+            if (t instanceof Exception e) {
+                throw e;
+            } else {
+                throw new RuntimeException("Unexpected error during registration", t);
+            }
+        }
+        {{ registry_field }}.put({{ name_expr }}, bridge);
+    }

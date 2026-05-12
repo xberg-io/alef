@@ -1,0 +1,7 @@
+{% for line in lines %}
+{% if line %}
+{{ indent }} * {{ line }}
+{% else %}
+{{ indent }} *
+{% endif %}
+{% endfor %}

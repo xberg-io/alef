@@ -1,0 +1,49 @@
+// NodeContext carries context information passed to every visitor callback.
+// It is decoded from the JSON-encoded context string passed by the C layer.
+type NodeContext struct {
+	// NodeType is a coarse-grained node type tag.
+	NodeType NodeType `json:"node_type"`
+	// TagName is the HTML element tag name (e.g. "div").
+	TagName string `json:"tag_name"`
+	// Depth is the DOM depth (0 = root).
+	Depth uint `json:"depth"`
+	// IndexInParent is the 0-based sibling index.
+	IndexInParent uint `json:"index_in_parent"`
+	// ParentTag is the parent element tag name, or nil at the root.
+	ParentTag *string `json:"parent_tag"`
+	// IsInline is true when this element is treated as inline.
+	IsInline bool `json:"is_inline"`
+}
+
+// VisitResult controls conversion flow from a visitor callback.
+type VisitResult struct {
+	// Code is the numeric visit-result code (0=Continue, 1=Skip, 2=PreserveHTML, 3=Custom, 4=Error).
+	Code int32
+	// Custom is non-nil only for Custom (3) and Error (4) codes.
+	Custom *string
+}
+
+// VisitResultContinue returns a Continue VisitResult (proceed with default conversion).
+func VisitResultContinue() VisitResult {
+	return VisitResult{Code: 0}
+}
+
+// VisitResultSkip returns a Skip VisitResult (skip this element, use default output).
+func VisitResultSkip() VisitResult {
+	return VisitResult{Code: 1}
+}
+
+// VisitResultPreserveHTML returns a PreserveHTML VisitResult (keep original HTML).
+func VisitResultPreserveHTML() VisitResult {
+	return VisitResult{Code: 2}
+}
+
+// VisitResultCustom returns a Custom VisitResult with custom output.
+func VisitResultCustom(custom string) VisitResult {
+	return VisitResult{Code: 3, Custom: &custom}
+}
+
+// VisitResultError returns an Error VisitResult with an error message.
+func VisitResultError(msg string) VisitResult {
+	return VisitResult{Code: 4, Custom: &msg}
+}

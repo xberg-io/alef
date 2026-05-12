@@ -16,6 +16,7 @@ use alef_core::config::ResolvedCrateConfig;
 use alef_core::hash::{self, CommentStyle};
 use alef_core::template_versions as tv;
 use anyhow::Result;
+use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
 
 use super::E2eCodegen;
@@ -29,6 +30,7 @@ impl E2eCodegen for WasmCodegen {
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
         config: &ResolvedCrateConfig,
+        type_defs: &[alef_core::ir::TypeDef],
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
         let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
@@ -51,22 +53,15 @@ impl E2eCodegen for WasmCodegen {
 
         // Resolve package config — defaults to a co-located pkg/ directory shipped
         // by `wasm-pack build` next to the wasm crate.
-        // For projects with a core library name different from the package name,
-        // try both {config.name}-wasm and ts-pack-core-wasm (for tree-sitter-language-pack).
+        // When `[crates.output] wasm` is set explicitly, derive the pkg path from
+        // that value so that renamed WASM crates resolve correctly without any
+        // hardcoded special cases.
         let wasm_pkg = e2e_config.resolve_package("wasm");
         let pkg_path = wasm_pkg
             .as_ref()
             .and_then(|p| p.path.as_ref())
             .cloned()
-            .unwrap_or_else(|| {
-                let default_name = format!("../../crates/{}-wasm/pkg", config.name);
-                // Special case: tree-sitter-language-pack uses ts-pack-core-wasm
-                if config.name == "tree-sitter-language-pack" {
-                    "../../crates/ts-pack-core-wasm/pkg".to_string()
-                } else {
-                    default_name
-                }
-            });
+            .unwrap_or_else(|| config.wasm_crate_path());
         let pkg_name = wasm_pkg
             .as_ref()
             .and_then(|p| p.name.as_ref())
@@ -101,7 +96,7 @@ impl E2eCodegen for WasmCodegen {
                     // export that function and any test file referencing it
                     // would fail TS resolution. Drop the fixture entirely.
                     .filter(|f| {
-                        let cc = e2e_config.resolve_call(f.call.as_deref());
+                        let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
                         !cc.skip_languages.iter().any(|l| l == lang)
                     })
                     .filter(|f| {
@@ -128,14 +123,18 @@ impl E2eCodegen for WasmCodegen {
             .collect();
 
         let any_fixtures = active_per_group.iter().flat_map(|g| g.iter());
-        let has_http_fixtures = any_fixtures.clone().any(|f| f.is_http_test());
-        let has_non_http_fixtures = any_fixtures
-            .clone()
-            .any(|f| !f.is_http_test() && !f.assertions.is_empty());
+        // The wasm globalSetup spawns the mock server. It must run for any fixture
+        // that interpolates `${process.env.MOCK_SERVER_URL}` into a base URL —
+        // i.e. anything with `mock_response` (liter-llm shape) or `http`
+        // (kreuzberg/kreuzcrawl shape), not just raw `is_http_test`. The
+        // comment block below this line states the same intent; the previous
+        // condition (`f.is_http_test()`) only detected the consumer-style
+        // `http: { ... }` shape and missed the entire liter-llm fixture set.
+        let has_http_fixtures = any_fixtures.clone().any(|f| f.needs_mock_server());
         // file_path / bytes args are read off disk by the generated code at runtime;
         // we add a setup.ts chdir to test_documents so relative paths resolve.
         let has_file_fixtures = active_per_group.iter().flatten().any(|f| {
-            let cc = e2e_config.resolve_call(f.call.as_deref());
+            let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
             cc.args
                 .iter()
                 .any(|a| a.arg_type == "file_path" || a.arg_type == "bytes")
@@ -152,16 +151,23 @@ impl E2eCodegen for WasmCodegen {
         });
 
         // Generate vitest.config.ts — needs vite-plugin-wasm + topLevelAwait, plus
-        // optional globalSetup (for HTTP fixtures) and setupFiles (for chdir).
+        // optional globalSetup (for HTTP fixtures and any function-call test that
+        // hits the mock server via MOCK_SERVER_URL) and setupFiles (for chdir).
+        // Function-call e2e tests construct request URLs via
+        // `${process.env.MOCK_SERVER_URL}/fixtures/<id>`, so the mock server must
+        // be running and the env var set even when no raw HTTP fixtures exist.
+        let needs_global_setup = has_http_fixtures;
         files.push(GeneratedFile {
             path: output_base.join("vitest.config.ts"),
-            content: render_vitest_config(has_http_fixtures, has_file_fixtures),
+            content: render_vitest_config(needs_global_setup, has_file_fixtures),
             generated_header: true,
         });
 
-        // Generate globalSetup.ts only when at least one HTTP fixture is in scope —
-        // it spawns the rust mock-server.
-        if has_http_fixtures {
+        // Generate globalSetup.ts when any fixture requires the mock server —
+        // either an HTTP fixture (the original consumer) or any function-call
+        // fixture that interpolates `${process.env.MOCK_SERVER_URL}` into a
+        // base URL. It spawns the rust mock-server binary.
+        if needs_global_setup {
             files.push(GeneratedFile {
                 path: output_base.join("globalSetup.ts"),
                 content: render_global_setup(),
@@ -174,7 +180,7 @@ impl E2eCodegen for WasmCodegen {
         if has_file_fixtures {
             files.push(GeneratedFile {
                 path: output_base.join("setup.ts"),
-                content: render_file_setup(),
+                content: render_file_setup(&e2e_config.test_documents_dir),
                 generated_header: true,
             });
         }
@@ -186,9 +192,6 @@ impl E2eCodegen for WasmCodegen {
             content: render_tsconfig(),
             generated_header: false,
         });
-
-        // Suppress the unused-variable warning when no non-HTTP fixtures exist.
-        let _ = has_non_http_fixtures;
 
         // Resolve options_type from override (e.g. `WasmExtractionConfig`).
         let options_type = overrides.and_then(|o| o.options_type.clone());
@@ -211,7 +214,7 @@ impl E2eCodegen for WasmCodegen {
                 continue;
             }
             let filename = format!("{}.test.ts", sanitize_filename(&group.category));
-            let mut content = super::typescript::render_test_file(
+            let content = super::typescript::render_test_file(
                 lang,
                 &group.category,
                 active,
@@ -223,12 +226,17 @@ impl E2eCodegen for WasmCodegen {
                 &field_resolver,
                 client_factory,
                 e2e_config,
+                type_defs,
             );
 
-            // Inject WASM initialization code for Node.js environments.
-            // Pass the WASM crate name (e.g., "html-to-markdown-wasm") instead of the core crate name.
-            let wasm_crate_name = format!("{}-wasm", config.name);
-            content = inject_wasm_init(&content, &pkg_name, &wasm_crate_name);
+            // The local `pkg/` directory produced by `wasm-pack build --target nodejs`
+            // is already a Node-friendly self-initializing CJS module — `pkg/package.json`
+            // sets `"main"` to the JS entry, so test files can import the package by name
+            // (`from "<pkg_name>"`) with no subpath. The historical `dist-node` rewrite
+            // assumed a multi-distribution layout (`dist/`, `dist-node/`, `dist-web/`)
+            // that the alef-managed `wasm-pack build` does not produce; it is therefore
+            // intentionally absent here.
+            let _ = (&pkg_path, &config.name); // keep variables alive for future use
 
             files.push(GeneratedFile {
                 path: tests_base.join(filename),
@@ -271,183 +279,65 @@ fn render_package_json(
         crate::config::DependencyMode::Registry => pkg_version.to_string(),
         crate::config::DependencyMode::Local => format!("file:{pkg_path}"),
     };
-    format!(
-        r#"{{
-  "name": "{pkg_name}-e2e-wasm",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "scripts": {{
-    "test": "vitest run"
-  }},
-  "devDependencies": {{
-    "{pkg_name}": "{dep_value}",
-    "rollup": "{rollup}",
-    "vite-plugin-wasm": "{vite_plugin_wasm}",
-    "vitest": "{vitest}"
-  }}
-}}
-"#,
-        rollup = tv::npm::ROLLUP,
-        vite_plugin_wasm = tv::npm::VITE_PLUGIN_WASM,
-        vitest = tv::npm::VITEST,
+    crate::template_env::render(
+        "wasm/package.json.jinja",
+        minijinja::context! {
+            pkg_name => pkg_name,
+            dep_value => dep_value,
+            rollup => tv::npm::ROLLUP,
+            vite_plugin_wasm => tv::npm::VITE_PLUGIN_WASM,
+            vitest => tv::npm::VITEST,
+        },
     )
 }
 
 fn render_vitest_config(with_global_setup: bool, with_file_setup: bool) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
-    let setup_files_line = if with_file_setup {
-        "    setupFiles: ['./setup.ts'],\n"
-    } else {
-        ""
-    };
-    let global_setup_line = if with_global_setup {
-        "    globalSetup: './globalSetup.ts',\n"
-    } else {
-        ""
-    };
-    format!(
-        r#"{header}import {{ defineConfig }} from 'vitest/config';
-import wasm from 'vite-plugin-wasm';
-
-export default defineConfig({{
-  plugins: [wasm()],
-  test: {{
-    include: ['tests/**/*.test.ts'],
-{global_setup_line}{setup_files_line}  }},
-}});
-"#
+    crate::template_env::render(
+        "wasm/vitest.config.ts.jinja",
+        minijinja::context! {
+            header => header,
+            with_global_setup => with_global_setup,
+            with_file_setup => with_file_setup,
+        },
     )
 }
 
-fn render_file_setup() -> String {
+fn render_file_setup(test_documents_dir: &str) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
-    header
-        + r#"import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
-
-// Change to the test_documents directory so that fixture file paths like
-// "pdf/fake_memo.pdf" resolve correctly when vitest runs from e2e/wasm/.
-// setup.ts lives in e2e/wasm/; test_documents lives at the repository root,
-// two directories up: e2e/wasm/ -> e2e/ -> repo root -> test_documents/.
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const testDocumentsDir = join(__dirname, '..', '..', 'test_documents');
-process.chdir(testDocumentsDir);
-"#
+    let mut out = header;
+    out.push_str("import { fileURLToPath } from 'url';\n");
+    out.push_str("import { dirname, join } from 'path';\n\n");
+    out.push_str("// Change to the configured test-documents directory so that fixture file paths like\n");
+    out.push_str("// \"pdf/fake_memo.pdf\" resolve correctly when vitest runs from e2e/wasm/.\n");
+    out.push_str("// setup.ts lives in e2e/wasm/; the fixtures dir lives at the repository root,\n");
+    out.push_str("// two directories up: e2e/wasm/ -> e2e/ -> repo root.\n");
+    out.push_str("const __filename = fileURLToPath(import.meta.url);\n");
+    out.push_str("const __dirname = dirname(__filename);\n");
+    let _ = writeln!(
+        out,
+        "const testDocumentsDir = join(__dirname, '..', '..', '{test_documents_dir}');"
+    );
+    out.push_str("process.chdir(testDocumentsDir);\n");
+    out
 }
 
 fn render_global_setup() -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
-    format!(
-        r#"{header}import {{ spawn }} from 'child_process';
-import {{ resolve }} from 'path';
-
-let serverProcess: any;
-
-export async function setup() {{
-  // Mock server binary must be pre-built (e.g. by CI or `cargo build --manifest-path e2e/rust/Cargo.toml --bin mock-server --release`)
-  serverProcess = spawn(
-    resolve(__dirname, '../rust/target/release/mock-server'),
-    [resolve(__dirname, '../../fixtures')],
-    {{ stdio: ['pipe', 'pipe', 'inherit'] }}
-  );
-
-  const url = await new Promise<string>((resolve, reject) => {{
-    serverProcess.stdout.on('data', (data: Buffer) => {{
-      const match = data.toString().match(/MOCK_SERVER_URL=(.*)/);
-      if (match) resolve(match[1].trim());
-    }});
-    setTimeout(() => reject(new Error('Mock server startup timeout')), 30000);
-  }});
-
-  process.env.MOCK_SERVER_URL = url;
-}}
-
-export async function teardown() {{
-  if (serverProcess) {{
-    serverProcess.stdin.end();
-    serverProcess.kill();
-  }}
-}}
-"#
+    crate::template_env::render(
+        "wasm/globalSetup.ts.jinja",
+        minijinja::context! {
+            header => header,
+        },
     )
 }
 
 fn render_tsconfig() -> String {
-    r#"{
-  "compilerOptions": {
-    "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "strict": true,
-    "strictNullChecks": false,
-    "esModuleInterop": true,
-    "skipLibCheck": true
-  },
-  "include": ["tests/**/*.ts", "vitest.config.ts"]
-}
-"#
-    .to_string()
+    crate::template_env::render("wasm/tsconfig.jinja", minijinja::context! {})
 }
 
-/// Inject WASM initialization code for Node.js environments.
-///
-/// Injects top-level await for the async init() function from wasm-pack.
-/// This allows the WASM module to be initialized before tests run.
-/// Also injects chdir to test_documents before init() so file paths resolve.
-///
-/// # Arguments
-/// * `content` — the generated TypeScript test file content
-/// * `pkg_name` — the npm package name (e.g., "kreuzberg" or "@org/kreuzberg")
-/// * `_crate_name` — the Rust crate name (unused in async init pattern)
-fn inject_wasm_init(content: &str, pkg_name: &str, _crate_name: &str) -> String {
-    // The TypeScript renderer generates single-quoted imports; match both styles for robustness.
-    let from_marker_sq = format!("}} from '{pkg_name}';");
-    let from_marker_dq = format!("}} from \"{pkg_name}\";");
-    let from_marker = if content.contains(&from_marker_sq) {
-        from_marker_sq
-    } else {
-        from_marker_dq
-    };
-
-    // Find the closing `} from "pkg_name";` marker, then search backward for the matching `import {`
-    // to avoid accidentally patching an earlier import statement (e.g. `import { ... } from "vitest"`).
-    if let Some(from_pos) = content.find(&from_marker) {
-        let full_from_pos = from_pos + from_marker.len();
-        // Search backward from from_pos to find the last `import {` or `import init, {` before it.
-        let before_from = &content[..from_pos];
-        if let Some(import_pos) = before_from
-            .rfind("import {")
-            .or_else(|| before_from.rfind("import init, {"))
-        {
-            let import_section = &content[import_pos..full_from_pos];
-
-            // Already patched (contains `import init`) — nothing to do.
-            if import_section.contains("import init,") {
-                return content.to_string();
-            }
-
-            // For wasm-pack `--target bundler` (the default for projects bundled by
-            // Vite / vitest with vite-plugin-wasm), the wasm module is auto-initialized
-            // when it is imported — there is no `init` default export to call. Older
-            // alef releases injected `import init, { ... }` and `await init(...)`, which
-            // produced `TypeError: default is not a function` against modern wasm-bindgen
-            // packages.  We now only inject the chdir setup so relative-path fixtures
-            // resolve, and leave the import statement alone.
-            let _ = pkg_name;
-            let setup_code = concat!(
-                "import { fileURLToPath } from \"url\";\n",
-                "import { dirname, join } from \"path\";\n",
-                "const __filename = fileURLToPath(import.meta.url);\n",
-                "const __dirname = dirname(__filename);\n",
-                "const testDocumentsDir = join(__dirname, \"..\", \"..\", \"..\", \"test_documents\");\n",
-                "globalThis.process.chdir(testDocumentsDir);\n",
-            );
-
-            return content[..full_from_pos].to_string() + "\n" + setup_code + &content[full_from_pos..];
-        }
-    }
-
-    content.to_string()
-}
+// The historical `inject_wasm_init` post-processor rewrote test imports to a
+// `<pkg>/dist-node` subpath. It was removed because the alef-managed
+// `wasm-pack build --target nodejs` artifact is a flat self-initializing CJS
+// module — its `package.json` already sets `"main"` to the JS entry, so the
+// emitted `import … from "<pkg>"` resolves directly.

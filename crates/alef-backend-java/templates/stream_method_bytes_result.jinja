@@ -1,0 +1,10 @@
+            var outPtrHolder = arena.allocate(ValueLayout.ADDRESS);
+            var outLenHolder = arena.allocate(ValueLayout.JAVA_LONG);
+            var outCapHolder = arena.allocate(ValueLayout.JAVA_LONG);
+            int rc = (int) {{ ffi_handle }}.invoke({{ args_joined }}, outPtrHolder, outLenHolder, outCapHolder);
+{{ named_frees }}            byte[] result = readBytesResult(rc, outPtrHolder, outLenHolder, outCapHolder);
+{%- if optional %}
+            return result == null ? java.util.Optional.empty() : java.util.Optional.of(result);
+{%- else %}
+            return result;
+{%- endif %}

@@ -1,0 +1,126 @@
+{#- PHP assertion template for PHPUnit
+
+   Context variables:
+   - assertion_type: assertion type ("equals", "contains", etc.)
+   - field_expr: PHP expression for the field
+   - php_val: formatted PHP value (or empty string)
+   - has_php_val: bool
+   - trimmed_field_expr: field_expr with trim() wrapper
+   - is_string_val: bool
+   - field_is_array: bool indicating if field is an array type
+   - values_php: array of PHP-formatted strings
+   - contains_any_checks: array of PHP check strings
+   - n: number (as u64) or 0
+   - call_expr: method call expression
+   - check: method_result check type
+   - php_check_val: PHP check value (or empty)
+   - has_php_check_val: bool
+   - check_n: number for check (or 0)
+   - is_bool_val: bool
+   - bool_is_true: bool
+#}
+{% if assertion_type == "equals" %}
+{% if is_string_val %}
+    $this->assertEquals({{ php_val }}, {{ trimmed_field_expr }});
+{% else %}
+    $this->assertEquals({{ php_val }}, {{ field_expr }});
+{% endif %}
+{% elif assertion_type == "contains" %}
+{% if field_is_array %}
+    $found = false;
+    foreach ({{ field_expr }} as $item) {
+        if (str_contains((string)$item, {{ php_val }})) { $found = true; }
+    }
+    $this->assertTrue($found, 'expected array to contain string');
+{% else %}
+    $this->assertStringContainsString({{ php_val }}, {{ field_expr }});
+{% endif %}
+{% elif assertion_type == "contains_all" %}
+{% if field_is_array %}
+{% for val in values_php %}
+    $found = false;
+    foreach ({{ field_expr }} as $item) {
+        if (str_contains((string)$item, {{ val }})) { $found = true; }
+    }
+    $this->assertTrue($found, 'expected array to contain string');
+{% endfor %}
+{% else %}
+{% for val in values_php %}
+    $this->assertStringContainsString({{ val }}, {{ field_expr }});
+{% endfor %}
+{% endif %}
+{% elif assertion_type == "not_contains" %}
+{% for val in values_php %}
+    $this->assertStringNotContainsString({{ val }}, {{ field_expr }});
+{% endfor %}
+{% elif assertion_type == "not_empty" %}
+    $this->assertNotEmpty({{ field_expr }});
+{% elif assertion_type == "is_empty" %}
+    $this->assertEmpty({{ field_expr }});
+{% elif assertion_type == "contains_any" %}
+    $found = false;
+{% for check in contains_any_checks %}
+    if (str_contains({{ field_expr }}, {{ check }})) { $found = true; }
+{% endfor %}
+    $this->assertTrue($found, 'expected to contain at least one of the specified values');
+{% elif assertion_type == "greater_than" %}
+    $this->assertGreaterThan({{ php_val }}, {{ field_expr }});
+{% elif assertion_type == "less_than" %}
+    $this->assertLessThan({{ php_val }}, {{ field_expr }});
+{% elif assertion_type == "greater_than_or_equal" %}
+    $this->assertGreaterThanOrEqual({{ php_val }}, {{ field_expr }});
+{% elif assertion_type == "less_than_or_equal" %}
+    $this->assertLessThanOrEqual({{ php_val }}, {{ field_expr }});
+{% elif assertion_type == "starts_with" %}
+    $this->assertStringStartsWith({{ php_val }}, {{ field_expr }});
+{% elif assertion_type == "ends_with" %}
+    $this->assertStringEndsWith({{ php_val }}, {{ field_expr }});
+{% elif assertion_type == "min_length" %}
+    $this->assertGreaterThanOrEqual({{ n }}, strlen({{ field_expr }}));
+{% elif assertion_type == "max_length" %}
+    $this->assertLessThanOrEqual({{ n }}, strlen({{ field_expr }}));
+{% elif assertion_type == "count_min" %}
+    $this->assertGreaterThanOrEqual({{ n }}, count({{ field_expr }}));
+{% elif assertion_type == "count_equals" %}
+    $this->assertCount({{ n }}, {{ field_expr }});
+{% elif assertion_type == "is_true" %}
+    $this->assertTrue({{ field_expr }});
+{% elif assertion_type == "is_false" %}
+    $this->assertFalse({{ field_expr }});
+{% elif assertion_type == "method_result" %}
+{% if check == "equals" %}
+{% if is_bool_val %}
+{% if bool_is_true %}
+    $this->assertTrue({{ call_expr }});
+{% else %}
+    $this->assertFalse({{ call_expr }});
+{% endif %}
+{% else %}
+    $this->assertEquals({{ php_check_val }}, {{ call_expr }});
+{% endif %}
+{% elif check == "is_true" %}
+    $this->assertTrue({{ call_expr }});
+{% elif check == "is_false" %}
+    $this->assertFalse({{ call_expr }});
+{% elif check == "greater_than_or_equal" %}
+    $this->assertGreaterThanOrEqual({{ check_n }}, {{ call_expr }});
+{% elif check == "count_min" %}
+    $this->assertGreaterThanOrEqual({{ check_n }}, count({{ call_expr }}));
+{% elif check == "is_error" %}
+    $this->expectException(\Exception::class);
+    {{ call_expr }};
+{% elif check == "contains" %}
+    $found = false;
+    $result = {{ call_expr }};
+    if (is_array($result)) {
+        foreach ($result as $item) {
+            if (str_contains((string)$item, {{ php_check_val }})) { $found = true; }
+        }
+    } else {
+        $found = str_contains((string)$result, {{ php_check_val }});
+    }
+    $this->assertTrue($found, 'expected result to contain string');
+{% endif %}
+{% elif assertion_type == "matches_regex" %}
+    $this->assertMatchesRegularExpression({{ php_val }}, {{ field_expr }});
+{% endif %}

@@ -3,10 +3,10 @@ mod methods;
 pub(super) mod types;
 
 use functions::{gen_convert_with_visitor_wrapper, gen_function_wrapper};
-use methods::gen_method_wrapper;
+use methods::{gen_method_wrapper, gen_streaming_method_wrapper};
 use types::{
     gen_config_options, gen_enum_type, gen_last_error_helper, gen_opaque_type, gen_opaque_type_free_only,
-    gen_struct_type, gen_unmarshal_bytes_helper, is_tuple_field,
+    gen_struct_type, gen_unmarshal_bytes_helper, is_passthrough_raw_message_enum, is_tuple_field,
 };
 
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
@@ -15,7 +15,6 @@ use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{ApiSurface, TypeRef};
 use heck::ToPascalCase;
 use std::collections::HashSet;
-use std::fmt::Write;
 use std::path::PathBuf;
 
 pub struct GoBackend;
@@ -107,13 +106,21 @@ impl Backend for GoBackend {
         // These are independent of visitor_callbacks and generate trait_bridges.go.
         let has_plugin_bridges = config.trait_bridges.iter().any(|b| b.register_fn.is_some());
 
-        // Collect streaming adapter method names — their FFI signature uses callbacks
-        // which Go's CGO wrappers can't call directly.
-        let streaming_methods: HashSet<String> = config
+        // Map streaming adapter (owner_type, method_name) → item_type. The callback-based
+        // FFI export (`<prefix>_<type>_<method>`) cannot be driven from CGO, but the
+        // companion iterator-handle exports (`_start`, `_next`, `_free`) can — we emit a
+        // dedicated Go method that drives them and returns a typed channel.
+        // Adapters missing `owner_type` or `item_type` are skipped (treated as "no Go
+        // streaming method emitted") rather than producing broken code.
+        let streaming_methods: std::collections::HashMap<(String, String), String> = config
             .adapters
             .iter()
             .filter(|a| matches!(a.pattern, AdapterPattern::Streaming))
-            .map(|a| a.name.clone())
+            .filter_map(|a| {
+                let owner = a.owner_type.clone()?;
+                let item = a.item_type.clone()?;
+                Some(((owner, a.name.clone()), item))
+            })
             .collect();
 
         // Collect functions excluded from FFI generation. Go bindings call C symbols directly
@@ -317,7 +324,7 @@ fn gen_go_file(
     go_output_dir: &str,
     bridge_param_names: &HashSet<String>,
     bridge_type_aliases: &HashSet<String>,
-    streaming_methods: &HashSet<String>,
+    streaming_methods: &std::collections::HashMap<(String, String), String>,
     ffi_exclude_functions: &HashSet<String>,
     has_options_field_bridge: bool,
 ) -> String {
@@ -335,23 +342,23 @@ fn gen_go_file(
 
     // Package header and cgo directives.
     // The package comment must immediately precede the package declaration with no blank line.
-    writeln!(
-        out,
-        "// Package {} provides Go bindings for the {} library.",
-        pkg_name, config.name
-    )
-    .ok();
-    writeln!(out, "package {}\n", pkg_name).ok();
-    writeln!(out, "/*").ok();
-    writeln!(out, "#cgo CFLAGS: -I${{SRCDIR}}/{to_root}{ffi_crate_dir}/include").ok();
-    writeln!(
-        out,
-        "#cgo LDFLAGS: -L${{SRCDIR}}/{to_root}target/release -l{ffi_lib_name}"
-    )
-    .ok();
-    writeln!(out, "#include \"{}\"", ffi_header).ok();
-    writeln!(out, "*/\nimport \"C\"").ok();
-    writeln!(out).ok();
+    out.push_str(&crate::template_env::render(
+        "package_doc_and_declaration.jinja",
+        minijinja::context! {
+            pkg_name => pkg_name,
+            crate_name => &config.name,
+        },
+    ));
+    out.push_str(&crate::template_env::render(
+        "cgo_preamble_binding.jinja",
+        minijinja::context! {
+            to_root => &to_root,
+            ffi_crate_dir => ffi_crate_dir,
+            ffi_lib_name => ffi_lib_name,
+            ffi_header => ffi_header,
+        },
+    ));
+    out.push('\n');
     // Determine which imports are needed based on generated code.
     let has_opaque_types = api.types.iter().any(|t| t.is_opaque);
     // Functions that are not skipped (non-async or with non-Named returns) need json + unsafe.
@@ -360,61 +367,64 @@ fn gen_go_file(
     let has_non_static_methods = api.types.iter().any(|t| t.methods.iter().any(|m| !m.is_static));
     let needs_json_and_unsafe = has_sync_functions || has_non_static_methods;
 
-    let mut imports = vec!["\"fmt\""];
+    // NOTE: imports_basic.jinja renders each value as-is (no extra quoting).
+    // Pass bare package paths without surrounding quotes — the template does not add them.
+    let mut imports = vec!["fmt"];
     if needs_json_and_unsafe {
-        imports.insert(0, "\"encoding/json\"");
-        imports.push("\"unsafe\"");
+        imports.insert(0, "encoding/json");
+        imports.push("unsafe");
     } else if has_opaque_types {
         // Opaque types need unsafe for pointer wrapping even without JSON serialization.
-        imports.push("\"unsafe\"");
+        imports.push("unsafe");
     }
     if !api.errors.is_empty() {
-        imports.insert(1.min(imports.len()), "\"errors\"");
+        imports.insert(1.min(imports.len()), "errors");
     }
-    writeln!(
-        out,
-        "import (\n{}\n)\n",
-        imports
-            .iter()
-            .map(|i| format!("\t{}", i))
-            .collect::<Vec<_>>()
-            .join("\n")
-    )
-    .ok();
+    out.push_str(&crate::template_env::render(
+        "imports_basic.jinja",
+        minijinja::context! {
+            imports => imports,
+        },
+    ));
 
     // Error helper functions
-    writeln!(out, "{}\n", gen_last_error_helper(ffi_prefix)).ok();
+    out.push_str(&gen_last_error_helper(ffi_prefix));
+    out.push_str("\n\n");
 
     // Bytes helper: emitted once per package, used by every method/function
     // returning `TypeRef::Bytes`. Defining it here (rather than inline at each
     // call site) avoids repeated declarations and keeps a single place to
     // adjust ownership semantics.
-    writeln!(out, "{}\n", gen_unmarshal_bytes_helper()).ok();
+    out.push_str(&gen_unmarshal_bytes_helper());
+    out.push_str("\n\n");
 
     // Generate trait bridge exports (//export trampolines called by C)
     let has_plugin_bridges = config.trait_bridges.iter().any(|b| b.register_fn.is_some());
     if has_plugin_bridges {
-        writeln!(out, "// Trait bridge trampolines (exported to C)\n").ok();
-        for bridge_cfg in &config.trait_bridges {
-            if let Some(trait_def) = api.types.iter().find(|t| t.name == bridge_cfg.trait_name) {
-                // IR type names are already PascalCase from Rust source. Avoid
-                // ToPascalCase here — it mangles all-caps acronyms (GraphQL ->
-                // GraphQl) and disagrees with cbindgen's emitted C type name.
-                let pascal = trait_def.name.clone();
-                // Trait method trampolines
-                for method in &trait_def.methods {
-                    let export_name = format!("go{}{}", pascal, method.name.to_pascal_case());
-                    writeln!(out, "//export {}", export_name).ok();
-                }
-                // Plugin lifecycle trampolines
-                writeln!(out, "//export go{}Name", pascal).ok();
-                writeln!(out, "//export go{}Version", pascal).ok();
-                writeln!(out, "//export go{}Initialize", pascal).ok();
-                writeln!(out, "//export go{}Shutdown", pascal).ok();
-                writeln!(out, "//export go{}FreeUserData", pascal).ok();
-            }
-        }
-        writeln!(out).ok();
+        let bridges: Vec<_> = config
+            .trait_bridges
+            .iter()
+            .filter_map(|bridge_cfg| {
+                api.types
+                    .iter()
+                    .find(|t| t.name == bridge_cfg.trait_name)
+                    .map(|trait_def| {
+                        minijinja::Value::from_serialize(serde_json::json!({
+                            "pascal_name": trait_def.name,
+                            "methods": trait_def.methods.iter().map(|m| serde_json::json!({
+                                "name": m.name.to_pascal_case(),
+                            })).collect::<Vec<_>>(),
+                        }))
+                    })
+            })
+            .collect();
+        out.push_str(&crate::template_env::render(
+            "plugin_bridge_exports.jinja",
+            minijinja::context! {
+                bridges => bridges,
+            },
+        ));
+        out.push('\n');
     }
 
     // Generate error types: a single consolidated sentinel `var (...)` block
@@ -423,19 +433,11 @@ fn gen_go_file(
     // `ErrGraphQLValidationError` vs `ErrSchemaValidationError`), followed by
     // the per-error structured error struct + Error() method.
     if !api.errors.is_empty() {
-        writeln!(
-            out,
-            "{}\n",
-            alef_codegen::error_gen::gen_go_sentinel_errors(&api.errors)
-        )
-        .ok();
+        out.push_str(&alef_codegen::error_gen::gen_go_sentinel_errors(&api.errors));
+        out.push_str("\n\n");
         for error in &api.errors {
-            writeln!(
-                out,
-                "{}\n",
-                alef_codegen::error_gen::gen_go_error_struct(error, pkg_name)
-            )
-            .ok();
+            out.push_str(&alef_codegen::error_gen::gen_go_error_struct(error, pkg_name));
+            out.push_str("\n\n");
         }
     }
 
@@ -461,10 +463,18 @@ fn gen_go_file(
                 .iter()
                 .all(|v| v.fields.is_empty() || v.fields.iter().all(is_tuple_field))
         })
+        .filter(|e| !is_passthrough_raw_message_enum(e))
+        .map(|e| e.name.as_str())
+        .collect();
+    let passthrough_enum_names: std::collections::HashSet<&str> = api
+        .enums
+        .iter()
+        .filter(|e| is_passthrough_raw_message_enum(e))
         .map(|e| e.name.as_str())
         .collect();
     for enum_def in api.enums.iter().filter(|e| !visitor_types.contains(e.name.as_str())) {
-        writeln!(out, "{}\n", gen_enum_type(enum_def)).ok();
+        out.push_str(&gen_enum_type(enum_def));
+        out.push_str("\n\n");
     }
 
     // Error type names that are also opaque types — in this case the error struct emitted by
@@ -499,18 +509,22 @@ fn gen_go_file(
             // struct was already emitted by gen_go_error_types. Skip the duplicate struct
             // definition but still emit the Free() method.
             if error_names.contains(typ.name.as_str()) {
-                writeln!(out, "{}\n", gen_opaque_type_free_only(typ, ffi_prefix)).ok();
+                out.push_str(&gen_opaque_type_free_only(typ, ffi_prefix));
+                out.push_str("\n\n");
             } else {
-                writeln!(out, "{}\n", gen_opaque_type(typ, ffi_prefix)).ok();
+                out.push_str(&gen_opaque_type(typ, ffi_prefix));
+                out.push_str("\n\n");
             }
         } else {
-            writeln!(out, "{}\n", gen_struct_type(typ, &unit_enum_names)).ok();
+            out.push_str(&gen_struct_type(typ, &unit_enum_names));
+            out.push_str("\n\n");
             // Generate functional options pattern if type has defaults.
             // Skip "Update" types (e.g., ConversionOptionsUpdate) — they are partial update
             // structs that share field names with the primary config type, producing duplicate
             // With* function declarations.
             if typ.has_default && !typ.name.ends_with("Update") {
-                writeln!(out, "{}\n", gen_config_options(typ, &unit_enum_names)).ok();
+                out.push_str(&gen_config_options(typ, &unit_enum_names, &passthrough_enum_names));
+                out.push_str("\n\n");
             }
         }
     }
@@ -526,19 +540,17 @@ fn gen_go_file(
         // For the convert function with visitor support, wrap it with visitor-awareness logic
         // instead of generating the basic wrapper.
         if func.name == "convert" && has_options_field_bridge {
-            writeln!(
-                out,
-                "{}\n",
-                gen_convert_with_visitor_wrapper(func, ffi_prefix, &opaque_names)
-            )
-            .ok();
+            out.push_str(&gen_convert_with_visitor_wrapper(func, ffi_prefix, &opaque_names));
+            out.push_str("\n\n");
         } else {
-            writeln!(
-                out,
-                "{}\n",
-                gen_function_wrapper(func, ffi_prefix, &opaque_names, bridge_param_names, bridge_type_aliases)
-            )
-            .ok();
+            out.push_str(&gen_function_wrapper(
+                func,
+                ffi_prefix,
+                &opaque_names,
+                bridge_param_names,
+                bridge_type_aliases,
+            ));
+            out.push_str("\n\n");
         }
     }
 
@@ -562,7 +574,17 @@ fn gen_go_file(
             if method.is_static && matches!(method.return_type, TypeRef::Named(_)) {
                 continue;
             }
-            if streaming_methods.contains(&method.name) {
+            if let Some(item_type) = streaming_methods.get(&(typ.name.clone(), method.name.clone())) {
+                // Streaming method: drive the FFI iterator-handle exports and surface a typed
+                // Go channel instead of calling the callback-based wrapper directly.
+                out.push_str(&gen_streaming_method_wrapper(
+                    typ,
+                    method,
+                    ffi_prefix,
+                    item_type,
+                    &opaque_names,
+                ));
+                out.push_str("\n\n");
                 continue;
             }
             if ffi_exclude_functions.contains(&method.name) {
@@ -571,7 +593,8 @@ fn gen_go_file(
             if uses_ffi_enum_type(&method.params, &method.return_type, &ffi_enum_names, &opaque_names) {
                 continue;
             }
-            writeln!(out, "{}\n", gen_method_wrapper(typ, method, ffi_prefix, &opaque_names)).ok();
+            out.push_str(&gen_method_wrapper(typ, method, ffi_prefix, &opaque_names));
+            out.push_str("\n\n");
         }
     }
 
@@ -636,6 +659,7 @@ module = "github.com/test/test-lib"
             functions: vec![],
             enums: vec![],
             errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         };
         let backend = GoBackend;
         let files = backend.generate_bindings(&api, &config).unwrap();

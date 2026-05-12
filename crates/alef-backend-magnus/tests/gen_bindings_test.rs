@@ -25,6 +25,8 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
         core_wrapper: CoreWrapper::None,
         vec_inner_core_wrapper: CoreWrapper::None,
         newtype_wrapper: None,
+        serde_rename: None,
+        serde_flatten: false,
     }
 }
 
@@ -143,9 +145,11 @@ fn test_basic_generation() {
             is_copy: false,
             has_serde: false,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -236,6 +240,7 @@ fn test_type_mapping() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -302,9 +307,11 @@ fn test_enum_generation() {
             is_copy: false,
             has_serde: false,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -368,6 +375,7 @@ fn test_generated_header() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -469,6 +477,7 @@ fn test_methods_generation() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -566,6 +575,7 @@ fn test_error_types() {
             ],
             doc: "Validation error type".to_string(),
         }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -631,6 +641,7 @@ fn test_async_function() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -720,6 +731,7 @@ fn test_opaque_type() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -788,6 +800,7 @@ fn test_default_config() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -887,6 +900,7 @@ fn test_named_option_param_emits_magnus_value_with_to_json() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -941,6 +955,7 @@ mod trait_bridge {
             functions: vec![],
             enums: vec![],
             errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         }
     }
 
@@ -1308,6 +1323,8 @@ fn test_tagged_union_enum_vec_field_serde_marshalling() {
                         core_wrapper: CoreWrapper::None,
                         vec_inner_core_wrapper: CoreWrapper::None,
                         newtype_wrapper: None,
+                        serde_rename: None,
+                        serde_flatten: false,
                     }],
                     is_tuple: false,
                     doc: "Success with items".to_string(),
@@ -1330,6 +1347,8 @@ fn test_tagged_union_enum_vec_field_serde_marshalling() {
                         core_wrapper: CoreWrapper::None,
                         vec_inner_core_wrapper: CoreWrapper::None,
                         newtype_wrapper: None,
+                        serde_rename: None,
+                        serde_flatten: false,
                     }],
                     is_tuple: false,
                     doc: "Error with message".to_string(),
@@ -1342,9 +1361,11 @@ fn test_tagged_union_enum_vec_field_serde_marshalling() {
             is_copy: false,
             has_serde: false,
             serde_tag: Some("type".to_string()),
+            serde_untagged: false,
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -1414,6 +1435,8 @@ fn test_tuple_variant_vec_primitive_stays_as_vec() {
                     core_wrapper: CoreWrapper::None,
                     vec_inner_core_wrapper: CoreWrapper::None,
                     newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
                 }],
                 is_tuple: true,
                 doc: String::new(),
@@ -1425,9 +1448,11 @@ fn test_tuple_variant_vec_primitive_stays_as_vec() {
             is_copy: false,
             has_serde: false,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -1503,6 +1528,8 @@ fn test_tuple_variant_vec_named_stays_as_vec_and_uses_into() {
                     core_wrapper: CoreWrapper::None,
                     vec_inner_core_wrapper: CoreWrapper::None,
                     newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
                 }],
                 is_tuple: true,
                 doc: String::new(),
@@ -1514,9 +1541,11 @@ fn test_tuple_variant_vec_named_stays_as_vec_and_uses_into() {
             is_copy: false,
             has_serde: false,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -1577,6 +1606,8 @@ fn test_field_accessor_no_double_option_when_ty_is_optional() {
                 core_wrapper: CoreWrapper::None,
                 vec_inner_core_wrapper: CoreWrapper::None,
                 newtype_wrapper: None,
+                serde_rename: None,
+                serde_flatten: false,
             }],
             methods: vec![],
             is_opaque: false,
@@ -1595,6 +1626,7 @@ fn test_field_accessor_no_double_option_when_ty_is_optional() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -1613,5 +1645,95 @@ fn test_field_accessor_no_double_option_when_ty_is_optional() {
     assert!(
         content.contains("fn max_depth(&self) -> Option<usize>"),
         "field accessor must return Option<usize>:\n{content}"
+    );
+}
+
+#[test]
+fn test_visitor_bridge_debug_not_duplicated() {
+    use alef_backend_magnus::trait_bridge::gen_trait_bridge;
+    use alef_core::config::{BridgeBinding, TraitBridgeConfig};
+    use alef_core::ir::*;
+
+    let make_method_with_default = |name: &str| MethodDef {
+        name: name.to_string(),
+        params: vec![],
+        return_type: TypeRef::Unit,
+        is_async: false,
+        is_static: false,
+        error_type: None,
+        doc: String::new(),
+        receiver: Some(ReceiverKind::RefMut),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: true,
+    };
+
+    let trait_def = TypeDef {
+        name: "HtmlVisitor".to_string(),
+        rust_path: "html_to_markdown_rs::visitor::HtmlVisitor".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: (0..40)
+            .map(|i| make_method_with_default(&format!("visit_method_{i}")))
+            .collect(),
+        is_opaque: false,
+        is_clone: false,
+        is_copy: false,
+        is_trait: true,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+    };
+
+    let cfg = TraitBridgeConfig {
+        trait_name: "HtmlVisitor".to_string(),
+        super_trait: None,
+        registry_getter: None,
+        register_fn: None,
+        unregister_fn: None,
+        clear_fn: None,
+        type_alias: Some("VisitorHandle".to_string()),
+        param_name: Some("visitor".to_string()),
+        register_extra_args: None,
+        exclude_languages: vec![],
+        bind_via: BridgeBinding::OptionsField,
+        options_type: Some("ConversionOptions".to_string()),
+        options_field: None,
+    };
+
+    let api = ApiSurface {
+        crate_name: "html_to_markdown_rs".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let code = gen_trait_bridge(
+        &trait_def,
+        &cfg,
+        "html_to_markdown_rs",
+        "ConversionError",
+        "ConversionError::new({msg})",
+        &api,
+    );
+
+    let debug_count = code.matches("impl std::fmt::Debug for RbHtmlVisitorBridge").count();
+    assert_eq!(
+        debug_count,
+        1,
+        "Expected 1 Debug impl, got {}:\n{}",
+        debug_count,
+        &code[..code.len().min(2000)]
     );
 }

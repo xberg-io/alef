@@ -18,15 +18,11 @@ pub(super) fn gen_struct(
     has_serde: bool,
     opaque_types: &ahash::AHashSet<String>,
 ) -> String {
-    // Detect Buffer fields — `napi::bindgen_prelude::Buffer` does NOT impl Clone,
-    // Serialize, or Deserialize. When present we must skip the Clone derive
-    // (and emit a manual impl) and tag the fields with #[serde(skip)] so the
-    // serde derives can still apply to the rest of the struct.
-    let has_bytes_field = typ.fields.iter().any(|f| match &f.ty {
-        TypeRef::Bytes => true,
-        TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Bytes),
-        _ => false,
-    });
+    // Bytes fields in struct field position are now mapped to Vec<u8> (not Buffer) by
+    // map_bytes_field_type, so they implement Clone, Serialize, and Deserialize.
+    // The has_bytes_field flag previously indicated that we needed a manual Clone impl
+    // because Buffer is not Clone — that's no longer necessary.
+    let has_bytes_field = false;
 
     let mut struct_builder = StructBuilder::new(&format!("{prefix}{}", typ.name));
     // Use napi(object) so the struct can be used as function/method parameters (FromNapiValue)
@@ -47,6 +43,12 @@ pub(super) fn gen_struct(
     }
 
     for field in &typ.fields {
+        // Skip cfg-gated fields — they are absent from the binding struct.
+        // The binding struct must mirror the non-cfg surface only; cfg-gated fields
+        // live only in the core type and are filled by ..Default::default() in conversions.
+        if field.cfg.is_some() {
+            continue;
+        }
         // Opaque NAPI classes (e.g. JsVisitorHandle) cannot be embedded in `#[napi(object)]`
         // structs because they don't implement `FromNapiValue`. Use a raw JavaScript object
         // (`napi::bindgen_prelude::Object<'static>`) as the field type instead — the convert
@@ -54,6 +56,28 @@ pub(super) fn gen_struct(
         //
         // Returns (base_type, already_optional) where already_optional means the base_type
         // already includes the Option<> wrapper (either from TypeRef::Optional or opaque handling).
+        //
+        // IMPORTANT: For struct fields, `Bytes` must be mapped to `Vec<u8>` rather than
+        // `napi::bindgen_prelude::Buffer`. `Buffer` does not implement Clone, Serialize, or
+        // Deserialize, which causes derive failures on the containing struct. `Buffer` is only
+        // appropriate as a function parameter/return type where NAPI handles JS interop directly.
+        // Any container type (Map, Vec) whose value type is Bytes also uses `Vec<u8>` for the
+        // same reason.
+        let map_bytes_field_type = |ty: &TypeRef| -> String {
+            // Recursively replace Bytes with Vec<u8> in type positions that end up in struct fields.
+            fn replace_bytes(ty: &TypeRef, mapper: &NapiMapper) -> String {
+                match ty {
+                    TypeRef::Bytes => "Vec<u8>".to_string(),
+                    TypeRef::Optional(inner) => format!("Option<{}>", replace_bytes(inner, mapper)),
+                    TypeRef::Map(k, v) => {
+                        format!("HashMap<{}, {}>", replace_bytes(k, mapper), replace_bytes(v, mapper))
+                    }
+                    TypeRef::Vec(inner) => format!("Vec<{}>", replace_bytes(inner, mapper)),
+                    other => mapper.map_type(other),
+                }
+            }
+            replace_bytes(ty, mapper)
+        };
         let (base_type, already_optional): (String, bool) = match &field.ty {
             TypeRef::Named(name) if opaque_types.contains(name) => {
                 ("napi::bindgen_prelude::Object<'static>".to_string(), false)
@@ -64,13 +88,13 @@ pub(super) fn gen_struct(
                         // Optional<OpaqueClass> → Option<Object<'static>>
                         ("Option<napi::bindgen_prelude::Object<'static>>".to_string(), true)
                     } else {
-                        (mapper.map_type(&field.ty), true)
+                        (map_bytes_field_type(&field.ty), true)
                     }
                 } else {
-                    (mapper.map_type(&field.ty), true)
+                    (map_bytes_field_type(&field.ty), true)
                 }
             }
-            _ => (mapper.map_type(&field.ty), false),
+            _ => (map_bytes_field_type(&field.ty), false),
         };
         // For types with Default, make all fields optional so JS callers
         // can pass partial objects (missing fields get defaults).
@@ -79,20 +103,14 @@ pub(super) fn gen_struct(
         } else {
             base_type
         };
-        let js_name = to_node_name(&field.name);
+        // Honor `#[serde(rename = "...")]` on the core field so JS callers see the wire
+        // name (e.g. core `tool_type` with rename `"type"` is exposed to JS as `type`).
+        let js_name = field.serde_rename.clone().unwrap_or_else(|| to_node_name(&field.name));
         let mut attrs = if js_name != field.name {
             vec![format!("napi(js_name = \"{}\")", js_name)]
         } else {
             vec![]
         };
-        // Bytes fields use napi `Buffer`, which does NOT impl Serialize/Deserialize.
-        // Skip them in serde so the rest of the struct can still derive serde traits.
-        // `Buffer::default()` exists, so #[serde(skip)] is safe for both directions.
-        let is_bytes = matches!(&field.ty, TypeRef::Bytes)
-            || matches!(&field.ty, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Bytes));
-        if is_bytes && has_serde {
-            attrs.push("serde(skip)".to_string());
-        }
         // Opaque NAPI types (e.g. JsVisitorHandle) are stored as Object<'static>, which also
         // does NOT impl Serialize/Deserialize. Skip them too so serde derives still compile.
         let is_opaque_field = match &field.ty {
@@ -115,10 +133,18 @@ pub(super) fn gen_struct(
     if has_bytes_field {
         let struct_name = format!("{prefix}{}", typ.name);
         out.push('\n');
-        out.push_str(&format!(
-            "\nimpl Clone for {struct_name} {{\n    fn clone(&self) -> Self {{\n        Self {{\n"
+        out.push_str(&crate::template_env::render(
+            "clone_impl_header.jinja",
+            minijinja::context! {
+                struct_name => struct_name,
+            },
         ));
         for field in &typ.fields {
+            // Skip cfg-gated fields — they are not in the binding struct, so the
+            // manual Clone impl must not reference them.
+            if field.cfg.is_some() {
+                continue;
+            }
             let is_bytes_field = matches!(&field.ty, TypeRef::Bytes);
             let is_opt_bytes =
                 matches!(&field.ty, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Bytes));
@@ -144,7 +170,13 @@ pub(super) fn gen_struct(
             } else {
                 format!("self.{}.clone()", field.name)
             };
-            out.push_str(&format!("            {}: {},\n", field.name, expr));
+            out.push_str(&crate::template_env::render(
+                "clone_impl_field.jinja",
+                minijinja::context! {
+                    field_name => &field.name,
+                    expr => expr,
+                },
+            ));
         }
         out.push_str("        }\n    }\n}\n");
     }
@@ -160,6 +192,7 @@ pub(super) fn gen_opaque_struct_methods(
     opaque_types: &AHashSet<String>,
     prefix: &str,
     adapter_bodies: &alef_adapters::AdapterBodies,
+    streaming_item_types: &ahash::AHashMap<String, String>,
 ) -> String {
     let mut impl_builder = ImplBuilder::new(&format!("{prefix}{}", typ.name));
     impl_builder.add_attr("napi");
@@ -194,6 +227,7 @@ pub(super) fn gen_opaque_struct_methods(
             opaque_types,
             prefix,
             adapter_bodies,
+            streaming_item_types,
         ));
     }
     for method in &statics {
@@ -209,6 +243,7 @@ pub(super) fn gen_opaque_struct_methods(
 }
 
 /// Generate an opaque instance method that delegates to self.inner.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn gen_opaque_instance_method(
     method: &MethodDef,
     mapper: &NapiMapper,
@@ -217,9 +252,16 @@ pub(super) fn gen_opaque_instance_method(
     opaque_types: &AHashSet<String>,
     prefix: &str,
     adapter_bodies: &alef_adapters::AdapterBodies,
+    streaming_item_types: &ahash::AHashMap<String, String>,
 ) -> String {
     let params = function_params(&method.params, &|ty| mapper.map_type(ty));
-    let return_type = mapper.map_type(&method.return_type);
+    let adapter_key_for_stream = format!("{}.{}", typ.name, method.name);
+    let stream_item = streaming_item_types.get(&adapter_key_for_stream);
+    let return_type = if let Some(item) = stream_item {
+        format!("Vec<{prefix}{item}>")
+    } else {
+        mapper.map_type(&method.return_type)
+    };
     let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
 
     let js_name = to_node_name(&method.name);

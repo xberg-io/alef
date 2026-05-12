@@ -1,0 +1,23 @@
+// MarshalJSON encodes the untagged union by serialising the active variant.
+func (t {{ enum_name }}) MarshalJSON() ([]byte, error) {
+{% for variant in variants %}
+	if t.{{ variant.field }} != nil {
+		return json.Marshal(t.{{ variant.field }})
+	}
+{% endfor %}
+	return []byte("null"), nil
+}
+
+// UnmarshalJSON decodes an untagged union by trying each variant in order.
+func (t *{{ enum_name }}) UnmarshalJSON(data []byte) error {
+{% for variant in variants %}
+	{
+		var v {{ variant.ty }}
+		if err := json.Unmarshal(data, &v); err == nil {
+			t.{{ variant.field }} = &v
+			return nil
+		}
+	}
+{% endfor %}
+	return fmt.Errorf("{{ enum_name }}: cannot match any variant")
+}

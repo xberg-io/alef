@@ -1,0 +1,7 @@
+// Optional numeric primitive: {% if is_float %}NaN = None{% else %}max value of type = None{% endif %}
+
+let {{ rs_name }} = if {% if is_float %}{{ name }}.is_nan(){% else %}{{ name }} == {{ max_val }}{% endif %} {
+        None
+    } else {
+        Some({{ name }})
+    };

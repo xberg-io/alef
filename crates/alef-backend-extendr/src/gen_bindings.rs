@@ -7,7 +7,6 @@ use alef_core::config::{Language, ResolvedCrateConfig, resolve_output_dir};
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{ApiSurface, FunctionDef, TypeDef, TypeRef};
 use std::borrow::Cow;
-use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
 
 pub struct ExtendrBackend;
@@ -55,6 +54,7 @@ impl ExtendrBackend {
             // construct core structs emit Default::default() for those fields instead of
             // attempting .clone().into() which would fail to compile.
             lossy_skip_types,
+            serializable_opaque_type_names: &[],
         }
     }
 }
@@ -753,7 +753,10 @@ impl Backend for ExtendrBackend {
         // dispatchers live in extendr-wrappers.R which is regenerated below.
         let mut pkg_content = hash::header(CommentStyle::Hash);
         pkg_content.push('\n');
-        pkg_content.push_str(&format!("#' @useDynLib {package_name}, .registration = TRUE\n"));
+        pkg_content.push_str(&crate::template_env::render(
+            "r_use_dyn_lib.jinja",
+            minijinja::context! { package_name => package_name },
+        ));
         pkg_content.push_str("NULL\n");
         files.push(GeneratedFile {
             path: PathBuf::from(&r_wrapper_dir).join(format!("{package_name}.R")),
@@ -816,91 +819,60 @@ impl Backend for ExtendrBackend {
 fn gen_conversion_options_r(opts_type: &TypeDef) -> String {
     use alef_core::ir::PrimitiveType;
 
-    let mut out = String::with_capacity(2048);
-
-    // Function-level roxygen header
-    writeln!(
-        out,
-        "#' Create a ConversionOptions list for HTML-to-Markdown conversion"
-    )
-    .ok();
-    writeln!(out, "#'").ok();
-    writeln!(
-        out,
-        "#' All parameters default to `NULL`, which means the Rust default is used."
-    )
-    .ok();
-    writeln!(out, "#' Pass named arguments to override individual settings.").ok();
-    writeln!(out, "#'").ok();
-
-    // Per-field roxygen @param lines. Strip leading underscore from names —
-    // Rust uses `_ctx` etc. for unused default-impl params; R callers write without the prefix.
-    for field in &opts_type.fields {
-        let rname = field.name.trim_start_matches('_');
-        let doc_text = if field.doc.is_empty() {
-            rname.to_string()
-        } else {
-            let first = field.doc.lines().next().unwrap_or(rname);
-            first.trim_end_matches('.').to_string()
-        };
-        if field.cfg.is_some() {
-            writeln!(out, "#' @param {rname} (feature-gated) {doc_text}").ok();
-        } else {
-            writeln!(out, "#' @param {rname} {doc_text}").ok();
-        }
-    }
-
-    writeln!(
-        out,
-        "#' @return A named list suitable for the `options` argument of [convert()]."
-    )
-    .ok();
-    writeln!(out, "#' @export").ok();
-
-    // Function signature: all fields as NULL-defaulted params
+    // Build parameter list
     let params: Vec<String> = opts_type
         .fields
         .iter()
         .map(|f| format!("{} = NULL", f.name.trim_start_matches('_')))
         .collect();
-    writeln!(out, "conversion_options <- function(").ok();
-    for (i, param) in params.iter().enumerate() {
-        if i + 1 < params.len() {
-            writeln!(out, "  {param},").ok();
-        } else {
-            writeln!(out, "  {param}").ok();
-        }
-    }
-    writeln!(out, ") {{").ok();
 
-    // Body: collect non-NULL values into a list
-    writeln!(out, "  opts <- list()").ok();
-    for field in &opts_type.fields {
-        let rname = field.name.trim_start_matches('_');
-        // Integer coercion for numeric fields that map to Rust integer types
-        let needs_int = matches!(
-            &field.ty,
-            TypeRef::Primitive(PrimitiveType::U8)
-                | TypeRef::Primitive(PrimitiveType::U16)
-                | TypeRef::Primitive(PrimitiveType::U32)
-                | TypeRef::Primitive(PrimitiveType::U64)
-                | TypeRef::Primitive(PrimitiveType::I8)
-                | TypeRef::Primitive(PrimitiveType::I16)
-                | TypeRef::Primitive(PrimitiveType::I32)
-                | TypeRef::Primitive(PrimitiveType::I64)
-                | TypeRef::Primitive(PrimitiveType::Usize)
-        );
-        let assign_val = if needs_int {
-            format!("as.integer({rname})")
-        } else {
-            rname.to_string()
-        };
-        writeln!(out, "  if (!is.null({rname})) opts${rname} <- {assign_val}").ok();
-    }
-    writeln!(out, "  opts").ok();
-    writeln!(out, "}}").ok();
+    // Build field info for template
+    let fields: Vec<minijinja::Value> = opts_type
+        .fields
+        .iter()
+        .map(|field| {
+            let rname = field.name.trim_start_matches('_');
+            let doc_text = if field.doc.is_empty() {
+                rname.to_string()
+            } else {
+                let first = field.doc.lines().next().unwrap_or(rname);
+                first.trim_end_matches('.').to_string()
+            };
 
-    out
+            let needs_int = matches!(
+                &field.ty,
+                TypeRef::Primitive(PrimitiveType::U8)
+                    | TypeRef::Primitive(PrimitiveType::U16)
+                    | TypeRef::Primitive(PrimitiveType::U32)
+                    | TypeRef::Primitive(PrimitiveType::U64)
+                    | TypeRef::Primitive(PrimitiveType::I8)
+                    | TypeRef::Primitive(PrimitiveType::I16)
+                    | TypeRef::Primitive(PrimitiveType::I32)
+                    | TypeRef::Primitive(PrimitiveType::I64)
+                    | TypeRef::Primitive(PrimitiveType::Usize)
+            );
+            let assign_val = if needs_int {
+                format!("as.integer({rname})")
+            } else {
+                rname.to_string()
+            };
+
+            minijinja::context! {
+                rname => rname,
+                doc => doc_text,
+                cfg => field.cfg.is_some(),
+                assign_val => assign_val,
+            }
+        })
+        .collect();
+
+    crate::template_env::render(
+        "conversion_options.jinja",
+        minijinja::context! {
+            params => params,
+            fields => fields,
+        },
+    )
 }
 
 /// Returns true if the function return type cannot be handled by extendr's `#[extendr]` macro
@@ -953,8 +925,6 @@ fn gen_extendr_flat_data_enum_struct(
     mapper: &dyn alef_codegen::type_mapper::TypeMapper,
     cfg: &alef_codegen::generators::RustBindingConfig,
 ) -> String {
-    use std::fmt::Write;
-
     let name = &enum_def.name;
     let discriminator = enum_def.serde_tag.as_deref().unwrap_or("format_type");
     let mut out = String::with_capacity(1024);
@@ -965,22 +935,46 @@ fn gen_extendr_flat_data_enum_struct(
     derives.push("Default");
     derives.push("serde::Serialize");
     derives.push("serde::Deserialize");
-    writeln!(out, "#[derive({})]", derives.join(", ")).ok();
+    out.push_str(&crate::template_env::render(
+        "flat_enum_derive.jinja",
+        minijinja::context! {
+            derives => derives.join(", "),
+        },
+    ));
 
-    writeln!(out, "pub struct {name} {{").ok();
-    writeln!(out, "    pub {discriminator}: String,").ok();
+    out.push_str(&crate::template_env::render(
+        "flat_enum_struct_header.jinja",
+        minijinja::context! {
+            name => name,
+        },
+    ));
+    out.push_str(&crate::template_env::render(
+        "flat_enum_discriminator_field.jinja",
+        minijinja::context! {
+            discriminator => discriminator,
+        },
+    ));
 
     for variant in &enum_def.variants {
         if !variant.fields.is_empty() && variant.is_tuple {
             if let Some(first_field) = variant.fields.first() {
                 let field_name = heck::AsSnakeCase(variant.name.as_str()).to_string();
                 let inner_ty = mapper.map_type(&first_field.ty);
-                writeln!(out, "    pub {field_name}: Option<{inner_ty}>,").ok();
+                out.push_str(&crate::template_env::render(
+                    "flat_enum_variant_field.jinja",
+                    minijinja::context! {
+                        field_name => &field_name,
+                        inner_ty => &inner_ty,
+                    },
+                ));
             }
         }
     }
 
-    writeln!(out, "}}").ok();
+    out.push_str(&crate::template_env::render(
+        "flat_enum_struct_footer.jinja",
+        minijinja::context! {},
+    ));
     out
 }
 
@@ -989,8 +983,6 @@ fn gen_extendr_flat_data_enum_struct(
 /// The generic `gen_enum_from_core_to_binding` generates enum→enum arm matching which does
 /// not apply to flat structs. This function generates the correct struct-init form.
 fn gen_extendr_flat_data_enum_from_core(enum_def: &alef_core::ir::EnumDef, core_import: &str) -> String {
-    use std::fmt::Write;
-
     let name = &enum_def.name;
     let core_path = format!("{core_import}::{name}");
     let discriminator = enum_def.serde_tag.as_deref().unwrap_or("format_type");
@@ -1009,22 +1001,27 @@ fn gen_extendr_flat_data_enum_from_core(enum_def: &alef_core::ir::EnumDef, core_
         }
     };
 
-    writeln!(out, "impl From<{core_path}> for {name} {{").ok();
-    writeln!(out, "    fn from(val: {core_path}) -> Self {{").ok();
-    writeln!(out, "        match val {{").ok();
+    out.push_str(&crate::template_env::render(
+        "flat_enum_from_core_impl.jinja",
+        minijinja::context! {
+            core_path => &core_path,
+            name => name,
+        },
+    ));
 
     for variant in &enum_def.variants {
         let field_name = heck::AsSnakeCase(variant.name.as_str()).to_string();
         let wire_name = variant_wire_name(variant);
         if variant.fields.is_empty() {
-            writeln!(
-                out,
-                "            {core_path}::{vname} => Self {{ {disc}: \"{wire}\".to_string(), ..Default::default() }},",
-                vname = variant.name,
-                disc = discriminator,
-                wire = wire_name,
-            )
-            .ok();
+            out.push_str(&crate::template_env::render(
+                "flat_enum_from_core_variant_unit.jinja",
+                minijinja::context! {
+                    core_path => &core_path,
+                    vname => &variant.name,
+                    disc => discriminator,
+                    wire => &wire_name,
+                },
+            ));
         } else if variant.is_tuple {
             let first_field = variant.fields.first().unwrap();
             let is_boxed = first_field.is_boxed;
@@ -1041,28 +1038,28 @@ fn gen_extendr_flat_data_enum_from_core(enum_def: &alef_core::ir::EnumDef, core_
             } else {
                 "_0.into()".to_string()
             };
-            writeln!(
-                out,
-                "            {core_path}::{vname}(_0) => Self {{ {disc}: \"{wire}\".to_string(), {fname}: Some({expr}), ..Default::default() }},",
-                vname = variant.name,
-                disc = discriminator,
-                wire = wire_name,
-                fname = field_name,
-                expr = data_expr,
-            )
-            .ok();
+            out.push_str(&crate::template_env::render(
+                "flat_enum_from_core_variant_tuple.jinja",
+                minijinja::context! {
+                    core_path => &core_path,
+                    vname => &variant.name,
+                    disc => discriminator,
+                    wire => &wire_name,
+                    fname => &field_name,
+                    expr => &data_expr,
+                },
+            ));
         }
     }
 
-    writeln!(out, "        }}").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out, "}}").ok();
+    out.push_str(&crate::template_env::render(
+        "flat_enum_from_core_impl_footer.jinja",
+        minijinja::context! {},
+    ));
     out
 }
 
 fn gen_extendr_flat_data_enum_to_core(enum_def: &alef_core::ir::EnumDef, core_import: &str) -> String {
-    use std::fmt::Write;
-
     let name = &enum_def.name;
     let core_path = format!("{core_import}::{name}");
     let discriminator = enum_def.serde_tag.as_deref().unwrap_or("format_type");
@@ -1081,37 +1078,42 @@ fn gen_extendr_flat_data_enum_to_core(enum_def: &alef_core::ir::EnumDef, core_im
         }
     };
 
-    writeln!(out, "impl From<{name}> for {core_path} {{").ok();
-    writeln!(out, "    fn from(val: {name}) -> Self {{").ok();
-    writeln!(out, "        match val.{discriminator}.as_str() {{").ok();
+    out.push_str(&crate::template_env::render(
+        "flat_enum_from_binding_impl.jinja",
+        minijinja::context! {
+            name => name,
+            core_path => &core_path,
+            discriminator => discriminator,
+        },
+    ));
 
     for variant in &enum_def.variants {
         let field_name = heck::AsSnakeCase(variant.name.as_str()).to_string();
         let wire_name = variant_wire_name(variant);
         if variant.fields.is_empty() {
-            writeln!(
-                out,
-                "            \"{wire}\" => Self::{vname},",
-                wire = wire_name,
-                vname = variant.name
-            )
-            .ok();
+            out.push_str(&crate::template_env::render(
+                "flat_enum_from_binding_variant_unit.jinja",
+                minijinja::context! {
+                    wire => &wire_name,
+                    vname => &variant.name,
+                },
+            ));
         } else if variant.is_tuple {
-            writeln!(
-                out,
-                "            \"{wire}\" => Self::{vname}(val.{fname}.unwrap_or_default().into()),",
-                wire = wire_name,
-                vname = variant.name,
-                fname = field_name,
-            )
-            .ok();
+            out.push_str(&crate::template_env::render(
+                "flat_enum_from_binding_variant_tuple.jinja",
+                minijinja::context! {
+                    wire => &wire_name,
+                    vname => &variant.name,
+                    fname => &field_name,
+                },
+            ));
         }
     }
 
-    writeln!(out, "            _ => Self::default(),").ok();
-    writeln!(out, "        }}").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out, "}}").ok();
+    out.push_str(&crate::template_env::render(
+        "flat_enum_from_binding_impl_footer.jinja",
+        minijinja::context! {},
+    ));
     out
 }
 
@@ -1159,7 +1161,7 @@ fn gen_extendr_json_bridged_function(
 ) -> String {
     use alef_codegen::generators::binding_helpers::gen_call_args_cfg;
 
-    let err_map = ".map_err(|e| extendr_api::Error::Other(e.to_string()))";
+    let err_map = ".map_err(|e| extendr_api::Error::Other(e.to_string().replace(\":\", \"_\").replace(\"/\", \"_\").replace(\"-\", \"_\").chars().take(255).collect::<String>()))";
     let rt_new = format!("tokio::runtime::Runtime::new(){err_map}?");
 
     // Build the parameter list. For Vec<Struct> params (extendr-incompatible),
@@ -1181,22 +1183,26 @@ fn gen_extendr_json_bridged_function(
             };
             if param.optional {
                 sig_params.push(format!("{}: Option<String>", param.name));
-                body_preamble.push_str(&format!(
-                    "let {name}_core: Option<Vec<{ty}>> = {name}.as_deref()\n        \
-                     .map(|s| serde_json::from_str(s){err_map})\n        \
-                     .transpose()?;\n    ",
-                    name = param.name,
-                    ty = core_ty_path,
-                    err_map = err_map,
+                body_preamble.push_str(&crate::template_env::render(
+                    "json_vec_optional_preamble.jinja",
+                    minijinja::context! {
+                        name => &param.name,
+                        ty => &core_ty_path,
+                        err_map => &err_map,
+                    },
                 ));
+                body_preamble.push_str("    ");
             } else {
                 sig_params.push(format!("{}: String", param.name));
-                body_preamble.push_str(&format!(
-                    "let {name}_core: Vec<{ty}> = serde_json::from_str(&{name}){err_map}?;\n    ",
-                    name = param.name,
-                    ty = core_ty_path,
-                    err_map = err_map,
+                body_preamble.push_str(&crate::template_env::render(
+                    "json_vec_required_preamble.jinja",
+                    minijinja::context! {
+                        name => &param.name,
+                        ty => &core_ty_path,
+                        err_map => &err_map,
+                    },
                 ));
+                body_preamble.push_str("    ");
             }
         } else {
             // Use the standard binding type.
@@ -1263,17 +1269,25 @@ fn gen_extendr_json_bridged_function(
                 if !opaque_types.contains(n.as_str()) {
                     if param.optional {
                         // Nullable<&T>: use into_option() then map to core
-                        named_let_bindings.push_str(&format!(
-                            "let {name}_core: Option<{ci}::{n}> = {name}.into_option().map(|v| v.clone().into());\n    ",
-                            name = param.name,
-                            ci = core_import,
+                        named_let_bindings.push_str(&crate::template_env::render(
+                            "named_let_optional_binding.jinja",
+                            minijinja::context! {
+                                name => &param.name,
+                                ci => core_import,
+                                n => n,
+                            },
                         ));
+                        named_let_bindings.push_str("    ");
                     } else {
-                        named_let_bindings.push_str(&format!(
-                            "let {name}_core: {ci}::{n} = {name}.clone().into();\n    ",
-                            name = param.name,
-                            ci = core_import,
+                        named_let_bindings.push_str(&crate::template_env::render(
+                            "named_let_required_binding.jinja",
+                            minijinja::context! {
+                                name => &param.name,
+                                ci => core_import,
+                                n => n,
+                            },
                         ));
+                        named_let_bindings.push_str("    ");
                     }
                 }
             }
@@ -1586,7 +1600,10 @@ fn gen_extendr_wrappers_r(api: &ApiSurface, package_name: &str, input_type_names
     out.push_str("# wrap__<symbol> entry registered in extendr_module! to an R-callable\n");
     out.push_str("# function or class env.\n\n");
 
-    out.push_str(&format!("#' @useDynLib {package_name}, .registration = TRUE\n"));
+    out.push_str(&crate::template_env::render(
+        "r_use_dyn_lib.jinja",
+        minijinja::context! { package_name => package_name },
+    ));
     out.push_str("NULL\n\n");
 
     // Free functions. Every entry in `api.functions` is registered in extendr_module!.
@@ -1600,10 +1617,13 @@ fn gen_extendr_wrappers_r(api: &ApiSurface, package_name: &str, input_type_names
         call_args.push(format!("PACKAGE = \"{package_name}\""));
         let call_args_str = call_args.join(", ");
 
-        out.push_str("#' @export\n");
-        out.push_str(&format!(
-            "{name} <- function({params_sig}) .Call({call_args_str})\n\n",
-            name = func.name,
+        out.push_str(&crate::template_env::render(
+            "r_free_function_wrapper.jinja",
+            minijinja::context! {
+                func_name => &func.name,
+                params_sig => params_sig,
+                call_args_str => call_args_str,
+            },
         ));
     }
 
@@ -1615,7 +1635,10 @@ fn gen_extendr_wrappers_r(api: &ApiSurface, package_name: &str, input_type_names
             continue;
         }
 
-        out.push_str(&format!("{name} <- new.env(parent = emptyenv())\n\n", name = typ.name));
+        out.push_str(&crate::template_env::render(
+            "r_type_class_env.jinja",
+            minijinja::context! { type_name => &typ.name },
+        ));
 
         // Emit method bindings. Skip methods that are filtered out of the Rust impl
         // block — they have no `wrap__Type__method` symbol.
@@ -1642,10 +1665,14 @@ fn gen_extendr_wrappers_r(api: &ApiSurface, package_name: &str, input_type_names
             call_args.push(format!("PACKAGE = \"{package_name}\""));
             let call_args_str = call_args.join(", ");
 
-            out.push_str(&format!(
-                "{type_name}${method_name} <- function({params_sig}) .Call({call_args_str})\n\n",
-                type_name = typ.name,
-                method_name = method.name,
+            out.push_str(&crate::template_env::render(
+                "r_method_binding.jinja",
+                minijinja::context! {
+                    type_name => &typ.name,
+                    method_name => &method.name,
+                    params_sig => params_sig,
+                    call_args_str => call_args_str,
+                },
             ));
         }
 
@@ -1654,23 +1681,24 @@ fn gen_extendr_wrappers_r(api: &ApiSurface, package_name: &str, input_type_names
         // registers as `wrap__TypeName__from_json`. We emit the R wrapper here since from_json is
         // not part of the IR and gen_extendr_wrappers_r would otherwise skip it.
         if typ.has_default && !typ.fields.is_empty() && input_type_names.contains(&typ.name) {
-            out.push_str(&format!(
-                "{type_name}$from_json <- function(json) .Call(\"wrap__{type_name}__from_json\", json, PACKAGE = \"{package_name}\")\n\n",
-                type_name = typ.name,
+            out.push_str(&crate::template_env::render(
+                "r_from_json_factory.jinja",
+                minijinja::context! {
+                    type_name => &typ.name,
+                    package_name => package_name,
+                },
             ));
         }
 
         // Dispatch operators: `instance$method` and `instance[["method"]]` resolve via
         // the class env. The dispatcher captures `self` so instance methods see it.
-        out.push_str("#' @export\n");
-        out.push_str(&format!(
-            "`$.{type_name}` <- function(self, name) {{\n  func <- {type_name}[[name]]\n  environment(func) <- environment()\n  func\n}}\n\n",
-            type_name = typ.name
+        out.push_str(&crate::template_env::render(
+            "r_dollar_dispatch.jinja",
+            minijinja::context! { type_name => &typ.name },
         ));
-        out.push_str("#' @export\n");
-        out.push_str(&format!(
-            "`[[.{type_name}` <- `$.{type_name}`\n\n",
-            type_name = typ.name
+        out.push_str(&crate::template_env::render(
+            "r_bracket_dispatch.jinja",
+            minijinja::context! { type_name => &typ.name },
         ));
     }
 
@@ -1682,13 +1710,18 @@ fn gen_extendr_wrappers_r(api: &ApiSurface, package_name: &str, input_type_names
             continue;
         }
         let type_name = &e.name;
-        out.push_str(&format!("{type_name} <- new.env(parent = emptyenv())\n\n"));
-        out.push_str("#' @export\n");
-        out.push_str(&format!(
-            "`$.{type_name}` <- function(self, name) {{\n  func <- {type_name}[[name]]\n  environment(func) <- environment()\n  func\n}}\n\n"
+        out.push_str(&crate::template_env::render(
+            "r_type_class_env.jinja",
+            minijinja::context! { type_name => type_name },
         ));
-        out.push_str("#' @export\n");
-        out.push_str(&format!("`[[.{type_name}` <- `$.{type_name}`\n\n"));
+        out.push_str(&crate::template_env::render(
+            "r_dollar_dispatch.jinja",
+            minijinja::context! { type_name => type_name },
+        ));
+        out.push_str(&crate::template_env::render(
+            "r_bracket_dispatch.jinja",
+            minijinja::context! { type_name => type_name },
+        ));
     }
 
     out
@@ -1703,10 +1736,21 @@ fn gen_extendr_wrappers_r(api: &ApiSurface, package_name: &str, input_type_names
 fn gen_namespace(api: &ApiSurface, package_name: &str) -> String {
     let mut out = String::with_capacity(2 * 1024);
     out.push_str("# Generated by alef — do not edit.\n\n");
-    out.push_str(&format!("useDynLib({package_name}, .registration = TRUE)\n\n"));
+    // NAMESPACE requires the bare `useDynLib(...)` directive. The roxygen2 form
+    // (`#' @useDynLib ...`) only takes effect when present in `.R` source files
+    // processed by roxygen2 — emitting it directly into NAMESPACE leaves the
+    // shared library unloaded and every `.Call` site fails at runtime.
+    out.push_str(&crate::template_env::render(
+        "r_namespace_use_dyn_lib.jinja",
+        minijinja::context! { package_name => package_name },
+    ));
+    out.push('\n');
 
     for func in &api.functions {
-        out.push_str(&format!("export({})\n", func.name));
+        out.push_str(&crate::template_env::render(
+            "r_namespace_export.jinja",
+            minijinja::context! { name => &func.name },
+        ));
     }
 
     let excluded = collect_excluded_class_types(api);
@@ -1714,9 +1758,18 @@ fn gen_namespace(api: &ApiSurface, package_name: &str) -> String {
         if typ.is_trait || excluded.contains(&typ.name) {
             continue;
         }
-        out.push_str(&format!("export({})\n", typ.name));
-        out.push_str(&format!("S3method(\"$\", {})\n", typ.name));
-        out.push_str(&format!("S3method(\"[[\", {})\n", typ.name));
+        out.push_str(&crate::template_env::render(
+            "r_namespace_export.jinja",
+            minijinja::context! { name => &typ.name },
+        ));
+        out.push_str(&crate::template_env::render(
+            "r_namespace_s3method.jinja",
+            minijinja::context! { method_type => "$", name => &typ.name },
+        ));
+        out.push_str(&crate::template_env::render(
+            "r_namespace_s3method.jinja",
+            minijinja::context! { method_type => "[[", name => &typ.name },
+        ));
     }
 
     // Flat data enums are registered as classes in extendr_module! and need exports too.
@@ -1724,9 +1777,18 @@ fn gen_namespace(api: &ApiSurface, package_name: &str) -> String {
         if !is_flat_data_enum(e) {
             continue;
         }
-        out.push_str(&format!("export({})\n", e.name));
-        out.push_str(&format!("S3method(\"$\", {})\n", e.name));
-        out.push_str(&format!("S3method(\"[[\", {})\n", e.name));
+        out.push_str(&crate::template_env::render(
+            "r_namespace_export.jinja",
+            minijinja::context! { name => &e.name },
+        ));
+        out.push_str(&crate::template_env::render(
+            "r_namespace_s3method.jinja",
+            minijinja::context! { method_type => "$", name => &e.name },
+        ));
+        out.push_str(&crate::template_env::render(
+            "r_namespace_s3method.jinja",
+            minijinja::context! { method_type => "[[", name => &e.name },
+        ));
     }
 
     out
@@ -1776,6 +1838,8 @@ package_name = "testlib"
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         }
     }
 
@@ -1820,6 +1884,7 @@ package_name = "testlib"
             }],
             enums: vec![],
             errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         }
     }
 
@@ -1934,6 +1999,19 @@ package_name = "testlib"
         assert!(
             namespace.content.contains("S3method(\"$\", Config)"),
             "S3 dispatch operator must be registered: {}",
+            namespace.content
+        );
+        // NAMESPACE must use the bare `useDynLib(...)` directive — the roxygen2
+        // form (`#' @useDynLib ...`) is silently ignored by R when placed in
+        // NAMESPACE, leaving the .so unloaded and every `.Call` unresolved.
+        assert!(
+            namespace.content.contains("useDynLib(testlib, .registration = TRUE)"),
+            "NAMESPACE must contain bare useDynLib directive: {}",
+            namespace.content
+        );
+        assert!(
+            !namespace.content.contains("#' @useDynLib"),
+            "NAMESPACE must not contain roxygen2 useDynLib form: {}",
             namespace.content
         );
     }

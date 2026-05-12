@@ -1,0 +1,12 @@
+#[extendr]
+pub fn new_{{ type_name_lower }}(
+{% for field in params -%}
+    {{ field.name }}: {{ field.type }}{{ "," if not loop.last else "" }}
+{% endfor -%}
+) -> {{ type_name }} {
+    let mut __out = <{{ type_name }}>::default();
+{% for field in body_assignments -%}
+    {{ field.code }}
+{% endfor -%}
+    __out
+}

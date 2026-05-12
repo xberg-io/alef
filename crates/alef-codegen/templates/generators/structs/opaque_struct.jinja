@@ -1,0 +1,11 @@
+{%- if has_derives %}
+#[derive(Clone)]
+{%- endif %}
+{%- for attr in struct_attrs %}
+#[{{ attr }}]
+{%- endfor %}
+pub struct {{ struct_name }} {
+{%- if not omit_inner %}
+    inner: {{ inner_type }},
+{%- endif %}
+}

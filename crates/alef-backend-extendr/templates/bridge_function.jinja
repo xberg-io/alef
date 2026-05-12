@@ -1,0 +1,5 @@
+{% if has_error %}#[allow(clippy::missing_errors_doc)]
+{% endif %}#[extendr]
+pub fn {{ func_name }}({{ params_str }}) -> {{ ret }} {
+    {{ body }}
+}

@@ -1,0 +1,11 @@
+    // Trait Bridge FFI
+{% for bridge in bridges %}
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "{{ bridge.register_fn }}")]
+    internal static extern int Register{{ bridge.trait_name }}([MarshalAs(UnmanagedType.LPUTF8Str)] string name, IntPtr vtable, IntPtr userData, out IntPtr outError);
+
+{% if bridge.has_unregister %}
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "{{ bridge.unregister_fn }}")]
+    internal static extern int Unregister{{ bridge.trait_name }}([MarshalAs(UnmanagedType.LPUTF8Str)] string name, out IntPtr outError);
+{% endif %}
+{% endfor %}

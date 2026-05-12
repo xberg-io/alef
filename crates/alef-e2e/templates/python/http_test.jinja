@@ -1,0 +1,82 @@
+{#- Python HTTP test function template for pytest/urllib
+
+   Context variables:
+   - fn_name: sanitized test function name
+   - description: fixture description with period appended
+   - method: HTTP method (uppercase)
+   - path: fixture path
+   - headers_py: Python dict literal for headers
+   - has_body: bool
+   - body_py: Python literal for JSON body
+   - expected_status: HTTP status code
+   - has_text_body: bool
+   - text_py: Python literal for expected text body
+   - has_json_body: bool
+   - json_py: Python literal for expected JSON body
+   - has_partial_body: bool
+   - partial_body_checks: array of {key, py_val} dicts
+   - header_assertions: array of {name, assertion_type, value} dicts
+   - has_validation_errors: bool
+   - validation_errors: array of {loc_py, escaped_msg} dicts
+#}
+def test_{{ fn_name }}(mock_server: str) -> None:
+    """{{ description }}"""
+    import os  # noqa: PLC0415
+    import urllib.request  # noqa: PLC0415
+    base = os.environ.get("MOCK_SERVER_URL", mock_server)
+    url = f"{base}{{ path }}"
+    _headers = {{ headers_py }}
+{%- if has_body %}
+    import json  # noqa: PLC0415
+    _headers.setdefault("Content-Type", "application/json")
+    _body = json.dumps({{ body_py }}).encode()
+    _req = urllib.request.Request(url, data=_body, headers=_headers, method="{{ method }}")
+{%- else %}
+    _req = urllib.request.Request(url, headers=_headers, method="{{ method }}")
+{%- endif %}
+    class _NoRedirect(urllib.request.HTTPRedirectHandler):  # noqa: N801
+        def redirect_request(self, *args, **kwargs): return None  # noqa: E704
+    _opener = urllib.request.build_opener(_NoRedirect())
+    try:
+        response = _opener.open(_req)  # noqa: S310
+        status_code = response.status
+        resp_body = response.read()  # noqa: F841
+        resp_headers = dict(response.headers)  # noqa: F841
+    except urllib.error.HTTPError as _exc:
+        status_code = _exc.code
+        resp_body = _exc.read()  # noqa: F841
+        resp_headers = dict(_exc.headers)  # noqa: F841
+    assert status_code == {{ expected_status }}  # noqa: S101
+{%- if has_text_body %}
+    assert resp_body.decode() == {{ text_py }}  # noqa: S101
+{%- elif has_json_body %}
+    import json as _json  # noqa: PLC0415
+    data = _json.loads(resp_body)
+    assert data == {{ json_py }}  # noqa: S101
+{%- elif has_partial_body %}
+    import json as _json  # noqa: PLC0415
+    data = _json.loads(resp_body)
+{%- for check in partial_body_checks %}
+    assert data["{{ check.key }}"] == {{ check.py_val }}  # noqa: S101
+{%- endfor %}
+{%- endif %}
+{%- for assertion in header_assertions %}
+{%- if assertion.assertion_type == "present" %}
+    assert "{{ assertion.name }}" in resp_headers  # noqa: S101
+{%- elif assertion.assertion_type == "absent" %}
+    assert resp_headers.get("{{ assertion.name }}") is None  # noqa: S101
+{%- elif assertion.assertion_type == "uuid" %}
+    import re  # noqa: PLC0415
+    assert re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', resp_headers["{{ assertion.name }}"])  # noqa: S101
+{%- else %}
+    assert resp_headers["{{ assertion.name }}"] == "{{ assertion.value }}"  # noqa: S101
+{%- endif %}
+{%- endfor %}
+{%- if has_validation_errors %}
+    import json as _json  # noqa: PLC0415
+    _data = _json.loads(resp_body)
+    errors = _data.get("errors", [])
+{%- for ve in validation_errors %}
+    assert any(e["loc"] == [{{ ve.loc_py }}] and "{{ ve.escaped_msg }}" in e["msg"] for e in errors)  # noqa: S101
+{%- endfor %}
+{%- endif %}

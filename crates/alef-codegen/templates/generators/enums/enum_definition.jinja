@@ -1,0 +1,28 @@
+#[derive({{ derives }})]
+{%- if serde_rename_all %}
+#[serde(rename_all = "{{ serde_rename_all }}")]
+{%- endif %}
+{%- for attr in enum_attrs %}
+#[{{ attr }}]
+{%- endfor %}
+pub enum {{ enum_name }} {
+{%- for variant in variants %}
+{%- if variant.has_pyo3_rename %}
+    #[pyo3(name = "{{ variant.name }}_")]
+{%- endif %}
+{%- if variant.is_default %}
+    #[default]
+{%- endif %}
+{%- if variant.serde_rename %}
+    #[serde(rename = "{{ variant.serde_rename }}")]
+{%- endif %}
+    {{ variant.name }} = {{ variant.idx }},
+{%- endfor %}
+}
+{%- if is_pyo3 %}
+
+#[pymethods]
+impl {{ enum_name }} {
+{{ string_methods }}
+}
+{%- endif %}

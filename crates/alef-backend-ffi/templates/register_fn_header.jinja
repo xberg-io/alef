@@ -1,0 +1,25 @@
+/// Register a C plugin implementing `{{ trait_name }}` via a vtable.
+///
+/// # Parameters
+///
+/// - `name`: null-terminated UTF-8 plugin name. Must not be null.
+/// - `vtable`: vtable with function pointers implementing the trait.
+/// - `user_data`: opaque pointer forwarded to every vtable function.
+/// - `out_error`: receives a heap-allocated error string on failure.
+///
+/// # Safety
+///
+/// All function pointers in `vtable` must remain valid until the plugin is
+/// unregistered. `user_data` must be safe to use from any thread that calls
+/// into the plugin.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn {{ full_register_name }}(
+    name: *const std::ffi::c_char,
+    vtable: {{ vtable_name }},
+    user_data: *const std::ffi::c_void,
+    out_error: *mut *mut std::ffi::c_char,
+) -> i32 {
+    if name.is_null() {
+        ffi_set_out_error(out_error, "name must not be null");
+        return 1;
+    }

@@ -1,0 +1,7 @@
+            vtable.set(ValueLayout.ADDRESS, offset, MemorySegment.NULL);
+
+        } catch (ReflectiveOperationException e) {
+            arena.close();
+            throw new RuntimeException("Failed to create trait bridge stubs", e);
+        }
+    }

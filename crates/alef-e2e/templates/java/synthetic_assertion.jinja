@@ -1,0 +1,74 @@
+{#- Java synthetic field assertion template
+
+   Context variables:
+   - assertion_kind: "chunks_content", "chunks_heading_context", "chunks_embeddings", "first_chunk_heading",
+                     "embedding_dimensions", "embeddings_valid", "keywords", "metadata", "skipped", "result_is_simple"
+   - assertion_type: assertion type ("is_true", "is_false", "equals", "greater_than", etc.)
+   - pred: predicate expression for boolean assertions
+   - field_name: synthetic field name (for error messages)
+   - result_var: result variable name
+   - expr: expression to evaluate (for embedding_dimensions)
+   - java_val: Java formatted value string
+   - result_is_simple: whether result is a simple type (for embeddings)
+#}
+{%- if assertion_kind == "chunks_content" %}
+{%- if assertion_type == "is_true" %}
+        assertTrue({{ pred }}, "expected true");
+{%- elif assertion_type == "is_false" %}
+        assertFalse({{ pred }}, "expected false");
+{%- else %}
+        // skipped: unsupported assertion on synthetic field '{{ field_name }}'
+{%- endif %}
+{%- elif assertion_kind == "chunks_heading_context" %}
+{%- if assertion_type == "is_true" %}
+        assertTrue({{ pred }}, "expected true");
+{%- elif assertion_type == "is_false" %}
+        assertFalse({{ pred }}, "expected false");
+{%- else %}
+        // skipped: unsupported assertion on synthetic field '{{ field_name }}'
+{%- endif %}
+{%- elif assertion_kind == "chunks_embeddings" %}
+{%- if assertion_type == "is_true" %}
+        assertTrue({{ pred }}, "expected true");
+{%- elif assertion_type == "is_false" %}
+        assertFalse({{ pred }}, "expected false");
+{%- else %}
+        // skipped: unsupported assertion on synthetic field '{{ field_name }}'
+{%- endif %}
+{%- elif assertion_kind == "first_chunk_heading" %}
+{%- if assertion_type == "is_true" %}
+        assertTrue({{ pred }}, "expected true");
+{%- elif assertion_type == "is_false" %}
+        assertFalse({{ pred }}, "expected false");
+{%- else %}
+        // skipped: unsupported assertion on synthetic field '{{ field_name }}'
+{%- endif %}
+{%- elif assertion_kind == "embedding_dimensions" %}
+{%- if assertion_type == "equals" %}
+        assertEquals({{ java_val }}, {{ expr }});
+{%- elif assertion_type == "greater_than" %}
+        assertTrue({{ expr }} > {{ java_val }}, "expected > {{ java_val }}");
+{%- else %}
+        // skipped: unsupported assertion on '{{ field_name }}'
+{%- endif %}
+{%- elif assertion_kind == "embeddings_valid" or assertion_kind == "embeddings_finite" or assertion_kind == "embeddings_non_zero" or assertion_kind == "embeddings_normalized" %}
+{%- if assertion_type == "is_true" %}
+        assertTrue({{ pred }}, "expected true");
+{%- elif assertion_type == "is_false" %}
+        assertFalse({{ pred }}, "expected false");
+{%- else %}
+        // skipped: unsupported assertion on '{{ field_name }}'
+{%- endif %}
+{%- elif assertion_kind == "keywords" %}
+        // skipped: field '{{ field_name }}' not available on Java ExtractionResult
+{%- elif assertion_kind == "metadata" %}
+{%- if assertion_type == "not_empty" %}
+        assertTrue({{ result_var }}.metadata().title().isPresent() || {{ result_var }}.metadata().subject().isPresent() || !{{ result_var }}.metadata().additional().isEmpty(), "expected non-empty value");
+{%- elif assertion_type == "is_empty" %}
+        assertFalse({{ result_var }}.metadata().title().isPresent() || {{ result_var }}.metadata().subject().isPresent() || !{{ result_var }}.metadata().additional().isEmpty(), "expected empty value");
+{%- endif %}
+{%- elif assertion_kind == "skipped" %}
+        // skipped: field '{{ field_name }}' not available on result type
+{%- elif assertion_kind == "result_is_simple" %}
+        // skipped: result_is_simple, field '{{ field_name }}' not on simple result type
+{%- endif %}

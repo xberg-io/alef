@@ -1,11 +1,20 @@
 use ahash::AHashSet;
-use alef_core::config::ResolvedCrateConfig;
+use alef_core::config::{AdapterPattern, ResolvedCrateConfig};
 use alef_core::hash::{self, CommentStyle};
-use alef_core::ir::{ApiSurface, TypeRef};
+use alef_core::ir::{ApiSurface, MethodDef, TypeRef};
 use heck::ToSnakeCase;
-use std::fmt::Write;
 
-use super::marshal::{gen_ffi_layout, gen_function_descriptor};
+use super::marshal::{gen_ffi_layout, gen_function_descriptor, is_bytes_result};
+
+/// Detection mirroring `is_bytes_result` for `MethodDef` — `Result<Vec<u8>>`-returning
+/// methods use the (out_ptr, out_len, out_cap) triple FFI ABI.
+fn is_bytes_result_method(method: &MethodDef) -> bool {
+    if method.error_type.is_none() {
+        return false;
+    }
+    matches!(method.return_type, TypeRef::Bytes)
+        || matches!(&method.return_type, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Bytes))
+}
 
 pub(crate) fn gen_native_lib(
     api: &ApiSurface,
@@ -14,449 +23,9 @@ pub(crate) fn gen_native_lib(
     prefix: &str,
     has_visitor_pattern: bool,
 ) -> String {
-    // Generate the class body first, then scan it to determine which imports are needed.
-    let mut body = String::with_capacity(2048);
     // Derive the native library name from the FFI output path (directory name with hyphens replaced
     // by underscores), falling back to `{ffi_prefix}_ffi`.
     let lib_name = config.ffi_lib_name();
-
-    writeln!(body, "final class NativeLib {{").ok();
-    writeln!(body, "    private static final Linker LINKER = Linker.nativeLinker();").ok();
-    writeln!(body, "    private static SymbolLookup LIB;").ok();
-    writeln!(
-        body,
-        "    private static final String NATIVES_RESOURCE_ROOT = \"/natives\";"
-    )
-    .ok();
-    writeln!(
-        body,
-        "    private static final Object NATIVE_EXTRACT_LOCK = new Object();"
-    )
-    .ok();
-    writeln!(body, "    private static String cachedExtractKey;").ok();
-    writeln!(body, "    private static Path cachedExtractDir;").ok();
-    writeln!(body, "    private static String loadedLibraryName;").ok();
-    writeln!(body).ok();
-    writeln!(body, "    static {{").ok();
-    writeln!(body, "        loadNativeLibrary();").ok();
-    writeln!(body, "        try {{").ok();
-    writeln!(body, "            Arena arena = Arena.ofConfined();").ok();
-    writeln!(
-        body,
-        "            // Try the loaded library name first (for System.load() path case)"
-    )
-    .ok();
-    writeln!(body, "            try {{").ok();
-    writeln!(
-        body,
-        "                LIB = SymbolLookup.libraryLookup(loadedLibraryName, arena);"
-    )
-    .ok();
-    writeln!(body, "            }} catch (Throwable inner1) {{").ok();
-    writeln!(
-        body,
-        "                // Try with 'lib' prefix if not already present (for System.loadLibrary() case)"
-    )
-    .ok();
-    writeln!(body, "                String nameWithLib = loadedLibraryName.startsWith(\"lib\") ? loadedLibraryName : \"lib\" + loadedLibraryName;").ok();
-    writeln!(body, "                try {{").ok();
-    writeln!(
-        body,
-        "                    LIB = SymbolLookup.libraryLookup(nameWithLib, arena);"
-    )
-    .ok();
-    writeln!(body, "                }} catch (Throwable inner2) {{").ok();
-    writeln!(body, "                    // Last fallback: use LINKER.defaultLookup()").ok();
-    writeln!(body, "                    LIB = LINKER.defaultLookup();").ok();
-    writeln!(body, "                }}").ok();
-    writeln!(body, "            }}").ok();
-    writeln!(body, "        }} catch (Throwable e) {{").ok();
-    writeln!(body, "            throw new ExceptionInInitializerError(\"Failed to initialize library symbols: \" + e.getMessage());").ok();
-    writeln!(body, "        }}").ok();
-    writeln!(body, "    }}").ok();
-    writeln!(body).ok();
-    writeln!(body, "    private static void loadNativeLibrary() {{").ok();
-    writeln!(
-        body,
-        "        String osName = System.getProperty(\"os.name\", \"\").toLowerCase(java.util.Locale.ROOT);"
-    )
-    .ok();
-    writeln!(
-        body,
-        "        String osArch = System.getProperty(\"os.arch\", \"\").toLowerCase(java.util.Locale.ROOT);"
-    )
-    .ok();
-    writeln!(body).ok();
-    writeln!(body, "        String libName;").ok();
-    writeln!(body, "        String libExt;").ok();
-    writeln!(
-        body,
-        "        if (osName.contains(\"mac\") || osName.contains(\"darwin\")) {{"
-    )
-    .ok();
-    writeln!(body, "            libName = \"lib{}\";", lib_name).ok();
-    writeln!(body, "            libExt = \".dylib\";").ok();
-    writeln!(body, "        }} else if (osName.contains(\"win\")) {{").ok();
-    writeln!(body, "            libName = \"{}\";", lib_name).ok();
-    writeln!(body, "            libExt = \".dll\";").ok();
-    writeln!(body, "        }} else {{").ok();
-    writeln!(body, "            libName = \"lib{}\";", lib_name).ok();
-    writeln!(body, "            libExt = \".so\";").ok();
-    writeln!(body, "        }}").ok();
-    writeln!(body).ok();
-    writeln!(body, "        String nativesRid = resolveNativesRid(osName, osArch);").ok();
-    writeln!(
-        body,
-        "        String nativesDir = NATIVES_RESOURCE_ROOT + \"/\" + nativesRid;"
-    )
-    .ok();
-    writeln!(body).ok();
-    writeln!(
-        body,
-        "        Path extracted = tryExtractAndLoadFromResources(nativesDir, libName, libExt);"
-    )
-    .ok();
-    writeln!(body, "        if (extracted != null) {{").ok();
-    writeln!(body, "            return;").ok();
-    writeln!(body, "        }}").ok();
-    writeln!(body).ok();
-    writeln!(body, "        try {{").ok();
-    writeln!(body, "            System.loadLibrary(\"{}\");", lib_name).ok();
-    writeln!(body, "            // Find the full path by searching java.library.path").ok();
-    writeln!(
-        body,
-        "            loadedLibraryName = findLoadedLibraryPath(\"{}\", libName, libExt);",
-        lib_name
-    )
-    .ok();
-    writeln!(body, "        }} catch (UnsatisfiedLinkError e) {{").ok();
-    writeln!(
-        body,
-        "            String msg = \"Failed to load {} native library. Expected resource: \" + nativesDir + \"/\" + libName",
-        lib_name
-    ).ok();
-    writeln!(
-        body,
-        "                    + libExt + \" (RID: \" + nativesRid + \"). \""
-    )
-    .ok();
-    writeln!(
-        body,
-        "                    + \"Ensure the library is bundled in the JAR under natives/{{os-arch}}/, \""
-    )
-    .ok();
-    writeln!(
-        body,
-        "                    + \"or place it on the system library path (java.library.path).\";",
-    )
-    .ok();
-    writeln!(
-        body,
-        "            UnsatisfiedLinkError out = new UnsatisfiedLinkError(msg + \" Original error: \" + e.getMessage());"
-    )
-    .ok();
-    writeln!(body, "            out.initCause(e);").ok();
-    writeln!(body, "            throw out;").ok();
-    writeln!(body, "        }}").ok();
-    writeln!(body, "    }}").ok();
-    writeln!(body).ok();
-    writeln!(
-        body,
-        "    private static Path tryExtractAndLoadFromResources(String nativesDir, String libName, String libExt) {{"
-    )
-    .ok();
-    writeln!(
-        body,
-        "        String resourcePath = nativesDir + \"/\" + libName + libExt;"
-    )
-    .ok();
-    writeln!(
-        body,
-        "        URL resource = NativeLib.class.getResource(resourcePath);"
-    )
-    .ok();
-    writeln!(body, "        if (resource == null) {{").ok();
-    writeln!(body, "            return null;").ok();
-    writeln!(body, "        }}").ok();
-    writeln!(body).ok();
-    writeln!(body, "        try {{").ok();
-    writeln!(
-        body,
-        "            Path tempDir = extractOrReuseNativeDirectory(nativesDir);"
-    )
-    .ok();
-    writeln!(body, "            Path libPath = tempDir.resolve(libName + libExt);").ok();
-    writeln!(body, "            if (!Files.exists(libPath)) {{").ok();
-    writeln!(
-        body,
-        "                throw new UnsatisfiedLinkError(\"Missing extracted native library: \" + libPath);"
-    )
-    .ok();
-    writeln!(body, "            }}").ok();
-    writeln!(body, "            System.load(libPath.toAbsolutePath().toString());").ok();
-    writeln!(
-        body,
-        "            loadedLibraryName = libPath.toAbsolutePath().toString();"
-    )
-    .ok();
-    writeln!(body, "            return libPath;").ok();
-    writeln!(body, "        }} catch (Exception e) {{").ok();
-    writeln!(body, "            System.err.println(\"[NativeLib] Failed to extract and load native library from resources: \" + e.getMessage());").ok();
-    writeln!(body, "            return null;").ok();
-    writeln!(body, "        }}").ok();
-    writeln!(body, "    }}").ok();
-    writeln!(body).ok();
-    writeln!(
-        body,
-        "    private static Path extractOrReuseNativeDirectory(String nativesDir) throws Exception {{"
-    )
-    .ok();
-    writeln!(
-        body,
-        "        URL location = NativeLib.class.getProtectionDomain().getCodeSource().getLocation();"
-    )
-    .ok();
-    writeln!(body, "        if (location == null) {{").ok();
-    writeln!(
-        body,
-        "            throw new IllegalStateException(\"Missing code source location for {} JAR\");",
-        lib_name
-    )
-    .ok();
-    writeln!(body, "        }}").ok();
-    writeln!(body).ok();
-    writeln!(body, "        Path codePath = Path.of(location.toURI());").ok();
-    writeln!(
-        body,
-        "        String key = codePath.toAbsolutePath() + \"::\" + nativesDir;"
-    )
-    .ok();
-    writeln!(body).ok();
-    writeln!(body, "        synchronized (NATIVE_EXTRACT_LOCK) {{").ok();
-    writeln!(
-        body,
-        "            if (cachedExtractDir != null && key.equals(cachedExtractKey)) {{"
-    )
-    .ok();
-    writeln!(body, "                return cachedExtractDir;").ok();
-    writeln!(body, "            }}").ok();
-    writeln!(
-        body,
-        "            Path tempDir = Files.createTempDirectory(\"{}_native\");",
-        lib_name
-    )
-    .ok();
-    writeln!(body, "            tempDir.toFile().deleteOnExit();").ok();
-    writeln!(
-        body,
-        "            List<Path> extracted = extractNativeDirectory(codePath, nativesDir, tempDir);"
-    )
-    .ok();
-    writeln!(body, "            if (extracted.isEmpty()) {{").ok();
-    writeln!(body, "                throw new IllegalStateException(\"No native files extracted from resources dir: \" + nativesDir);").ok();
-    writeln!(body, "            }}").ok();
-    writeln!(body, "            cachedExtractKey = key;").ok();
-    writeln!(body, "            cachedExtractDir = tempDir;").ok();
-    writeln!(body, "            return tempDir;").ok();
-    writeln!(body, "        }}").ok();
-    writeln!(body, "    }}").ok();
-    writeln!(body).ok();
-    writeln!(body, "    private static List<Path> extractNativeDirectory(Path codePath, String nativesDir, Path destDir) throws Exception {{").ok();
-    writeln!(
-        body,
-        "        if (!Files.exists(destDir) || !Files.isDirectory(destDir)) {{"
-    )
-    .ok();
-    writeln!(
-        body,
-        "            throw new IllegalArgumentException(\"Destination directory does not exist: \" + destDir);"
-    )
-    .ok();
-    writeln!(body, "        }}").ok();
-    writeln!(body).ok();
-    writeln!(
-        body,
-        "        String prefix = nativesDir.startsWith(\"/\") ? nativesDir.substring(1) : nativesDir;"
-    )
-    .ok();
-    writeln!(body, "        if (!prefix.endsWith(\"/\")) {{").ok();
-    writeln!(body, "            prefix = prefix + \"/\";").ok();
-    writeln!(body, "        }}").ok();
-    writeln!(body).ok();
-    writeln!(body, "        if (Files.isDirectory(codePath)) {{").ok();
-    writeln!(body, "            Path nativesPath = codePath.resolve(prefix);").ok();
-    writeln!(
-        body,
-        "            if (!Files.exists(nativesPath) || !Files.isDirectory(nativesPath)) {{"
-    )
-    .ok();
-    writeln!(body, "                return List.of();").ok();
-    writeln!(body, "            }}").ok();
-    writeln!(body, "            return copyDirectory(nativesPath, destDir);").ok();
-    writeln!(body, "        }}").ok();
-    writeln!(body).ok();
-    writeln!(body, "        List<Path> extracted = new ArrayList<>();").ok();
-    writeln!(body, "        try (JarFile jar = new JarFile(codePath.toFile())) {{").ok();
-    writeln!(body, "            Enumeration<JarEntry> entries = jar.entries();").ok();
-    writeln!(body, "            while (entries.hasMoreElements()) {{").ok();
-    writeln!(body, "                JarEntry entry = entries.nextElement();").ok();
-    writeln!(body, "                String name = entry.getName();").ok();
-    writeln!(
-        body,
-        "                if (!name.startsWith(prefix) || entry.isDirectory()) {{"
-    )
-    .ok();
-    writeln!(body, "                    continue;").ok();
-    writeln!(body, "                }}").ok();
-    writeln!(
-        body,
-        "                String relative = name.substring(prefix.length());"
-    )
-    .ok();
-    writeln!(body, "                Path out = safeResolve(destDir, relative);").ok();
-    writeln!(body, "                Files.createDirectories(out.getParent());").ok();
-    writeln!(body, "                try (var in = jar.getInputStream(entry)) {{").ok();
-    writeln!(
-        body,
-        "                    Files.copy(in, out, StandardCopyOption.REPLACE_EXISTING);"
-    )
-    .ok();
-    writeln!(body, "                }}").ok();
-    writeln!(body, "                out.toFile().deleteOnExit();").ok();
-    writeln!(body, "                extracted.add(out);").ok();
-    writeln!(body, "            }}").ok();
-    writeln!(body, "        }}").ok();
-    writeln!(body, "        return extracted;").ok();
-    writeln!(body, "    }}").ok();
-    writeln!(body).ok();
-    writeln!(
-        body,
-        "    private static List<Path> copyDirectory(Path srcDir, Path destDir) throws Exception {{"
-    )
-    .ok();
-    writeln!(body, "        List<Path> copied = new ArrayList<>();").ok();
-    writeln!(body, "        try (var paths = Files.walk(srcDir)) {{").ok();
-    writeln!(body, "            for (Path src : (Iterable<Path>) paths::iterator) {{").ok();
-    writeln!(body, "                if (Files.isDirectory(src)) {{").ok();
-    writeln!(body, "                    continue;").ok();
-    writeln!(body, "                }}").ok();
-    writeln!(body, "                Path relative = srcDir.relativize(src);").ok();
-    writeln!(
-        body,
-        "                Path out = safeResolve(destDir, relative.toString());"
-    )
-    .ok();
-    writeln!(body, "                Files.createDirectories(out.getParent());").ok();
-    writeln!(
-        body,
-        "                Files.copy(src, out, StandardCopyOption.REPLACE_EXISTING);"
-    )
-    .ok();
-    writeln!(body, "                out.toFile().deleteOnExit();").ok();
-    writeln!(body, "                copied.add(out);").ok();
-    writeln!(body, "            }}").ok();
-    writeln!(body, "        }}").ok();
-    writeln!(body, "        return copied;").ok();
-    writeln!(body, "    }}").ok();
-    writeln!(body).ok();
-    writeln!(
-        body,
-        "    private static Path safeResolve(Path destDir, String relative) throws Exception {{"
-    )
-    .ok();
-    writeln!(
-        body,
-        "        Path normalizedDest = destDir.toAbsolutePath().normalize();"
-    )
-    .ok();
-    writeln!(body, "        Path out = normalizedDest.resolve(relative).normalize();").ok();
-    writeln!(body, "        if (!out.startsWith(normalizedDest)) {{").ok();
-    writeln!(body, "            throw new SecurityException(\"Blocked extracting native file outside destination directory: \" + relative);").ok();
-    writeln!(body, "        }}").ok();
-    writeln!(body, "        return out;").ok();
-    writeln!(body, "    }}").ok();
-    writeln!(body).ok();
-    writeln!(
-        body,
-        "    private static String resolveNativesRid(String osName, String osArch) {{"
-    )
-    .ok();
-    writeln!(body, "        String arch;").ok();
-    writeln!(
-        body,
-        "        if (osArch.contains(\"aarch64\") || osArch.contains(\"arm64\")) {{"
-    )
-    .ok();
-    writeln!(body, "            arch = \"arm64\";").ok();
-    writeln!(
-        body,
-        "        }} else if (osArch.contains(\"x86_64\") || osArch.contains(\"amd64\")) {{"
-    )
-    .ok();
-    writeln!(body, "            arch = \"x86_64\";").ok();
-    writeln!(body, "        }} else {{").ok();
-    writeln!(body, "            arch = osArch.replaceAll(\"[^a-z0-9_]+\", \"\");").ok();
-    writeln!(body, "        }}").ok();
-    writeln!(body).ok();
-    writeln!(body, "        String os;").ok();
-    writeln!(
-        body,
-        "        if (osName.contains(\"mac\") || osName.contains(\"darwin\")) {{"
-    )
-    .ok();
-    writeln!(body, "            os = \"macos\";").ok();
-    writeln!(body, "        }} else if (osName.contains(\"win\")) {{").ok();
-    writeln!(body, "            os = \"windows\";").ok();
-    writeln!(body, "        }} else {{").ok();
-    writeln!(body, "            os = \"linux\";").ok();
-    writeln!(body, "        }}").ok();
-    writeln!(body).ok();
-    writeln!(body, "        return os + \"-\" + arch;").ok();
-    writeln!(body, "    }}").ok();
-    writeln!(body).ok();
-    writeln!(
-        body,
-        "    private static String findLoadedLibraryPath(String libName, String fullLibName, String libExt) {{"
-    )
-    .ok();
-    writeln!(body, "        // Search java.library.path for the library file").ok();
-    writeln!(
-        body,
-        "        String javaLibPath = System.getProperty(\"java.library.path\");"
-    )
-    .ok();
-    writeln!(body, "        if (javaLibPath != null) {{").ok();
-    writeln!(
-        body,
-        "            for (String path : javaLibPath.split(File.pathSeparator)) {{"
-    )
-    .ok();
-    writeln!(
-        body,
-        "                Path libPath = Paths.get(path, fullLibName + libExt);"
-    )
-    .ok();
-    writeln!(body, "                if (java.nio.file.Files.exists(libPath)) {{").ok();
-    writeln!(body, "                    try {{").ok();
-    writeln!(body, "                        return libPath.toRealPath().toString();").ok();
-    writeln!(body, "                    }} catch (java.io.IOException e) {{").ok();
-    writeln!(
-        body,
-        "                        return libPath.toAbsolutePath().toString();"
-    )
-    .ok();
-    writeln!(body, "                    }}").ok();
-    writeln!(body, "                }}").ok();
-    writeln!(body, "            }}").ok();
-    writeln!(body, "        }}").ok();
-    writeln!(
-        body,
-        "        // Fallback: try just the library name (may work on some systems)"
-    )
-    .ok();
-    writeln!(body, "        return libName;").ok();
-    writeln!(body, "    }}").ok();
-    writeln!(body).ok();
 
     // Collect trait bridge handle names that will be emitted later, so we can skip them
     // in the functions loop (prevents duplicate handle emission with wrong descriptors).
@@ -488,6 +57,9 @@ pub(crate) fn gen_native_lib(
         .map(|c| c.exclude_functions.iter().cloned().collect())
         .unwrap_or_default();
 
+    // Collect function handles
+    let mut function_handles = Vec::new();
+
     // Generate method handles for free functions.
     // All functions get handles regardless of is_async — the FFI layer always exposes
     // synchronous C functions, and the Java async wrapper delegates to the sync method.
@@ -500,79 +72,96 @@ pub(crate) fn gen_native_lib(
         }
 
         let ffi_name = format!("{}_{}", prefix, func.name.to_lowercase());
-        let return_layout = gen_ffi_layout(&func.return_type);
-        let param_layouts: Vec<String> = func.params.iter().map(|p| gen_ffi_layout(&p.ty)).collect();
+
+        // Bytes-result functions use the out-param convention: JAVA_INT return +
+        // 3 trailing ADDRESS/ADDRESS/ADDRESS params for (out_ptr: *mut *mut u8, out_len: *mut usize, out_cap: *mut usize).
+        // For input Bytes parameters, expand them to (ADDRESS pointer, JAVA_LONG length) pairs.
+        let (return_layout, param_layouts) = if is_bytes_result(func) {
+            let mut layouts: Vec<String> = Vec::new();
+            for param in &func.params {
+                match &param.ty {
+                    TypeRef::Bytes => {
+                        // Input byte slice: expand to pointer + length
+                        layouts.push("ValueLayout.ADDRESS".to_string()); // pointer
+                        layouts.push("ValueLayout.JAVA_LONG".to_string()); // length
+                    }
+                    TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Bytes) => {
+                        // Optional byte slice: expand to pointer + length
+                        layouts.push("ValueLayout.ADDRESS".to_string());
+                        layouts.push("ValueLayout.JAVA_LONG".to_string());
+                    }
+                    other => {
+                        layouts.push(gen_ffi_layout(other));
+                    }
+                }
+            }
+            layouts.push("ValueLayout.ADDRESS".to_string()); // out_ptr: *mut *mut u8
+            layouts.push("ValueLayout.ADDRESS".to_string()); // out_len: *mut usize
+            layouts.push("ValueLayout.ADDRESS".to_string()); // out_cap: *mut usize
+            ("ValueLayout.JAVA_INT".to_string(), layouts)
+        } else {
+            let return_layout = gen_ffi_layout(&func.return_type);
+            let param_layouts: Vec<String> = func.params.iter().map(|p| gen_ffi_layout(&p.ty)).collect();
+            (return_layout, param_layouts)
+        };
 
         let layout_str = gen_function_descriptor(&return_layout, &param_layouts);
 
-        if ffi_excluded.contains(&func.name) {
+        let handle_code = if ffi_excluded.contains(&func.name) {
             // Use orElse(null) for FFI-excluded functions — their native symbol may be absent.
             // Callers must null-check before invoking these handles.
-            writeln!(body).ok();
-            writeln!(
-                body,
-                "    static final MethodHandle {} = LIB.find(\"{}\")",
-                handle_name, ffi_name
+            crate::template_env::render(
+                "method_handle_nullable.jinja",
+                minijinja::context! {
+                    handle_name => handle_name,
+                    ffi_name => ffi_name,
+                    layout => layout_str,
+                },
             )
-            .ok();
-            writeln!(body, "        .map(s -> LINKER.downcallHandle(s, {}))", layout_str).ok();
-            writeln!(body, "        .orElse(null);").ok();
         } else {
-            writeln!(
-                body,
-                "    static final MethodHandle {} = LINKER.downcallHandle(",
-                handle_name
+            crate::template_env::render(
+                "method_handle_normal.jinja",
+                minijinja::context! {
+                    handle_name => handle_name,
+                    ffi_name => ffi_name,
+                    layout => layout_str,
+                },
             )
-            .ok();
-            writeln!(body, "        LIB.find(\"{}\").orElseThrow(),", ffi_name).ok();
-            writeln!(body, "        {}", layout_str).ok();
-            writeln!(body, "    );").ok();
-        }
+        };
+        function_handles.push(handle_code);
     }
 
     // free_string handle for releasing FFI-allocated strings
     {
         let free_name = format!("{}_free_string", prefix);
         let handle_name = format!("{}_FREE_STRING", prefix.to_uppercase());
-        writeln!(body).ok();
-        writeln!(
-            body,
-            "    static final MethodHandle {} = LINKER.downcallHandle(",
-            handle_name
-        )
-        .ok();
-        writeln!(body, "        LIB.find(\"{}\").orElseThrow(),", free_name).ok();
-        writeln!(body, "        FunctionDescriptor.ofVoid(ValueLayout.ADDRESS)").ok();
-        writeln!(body, "    );").ok();
+        let handle_code = crate::template_env::render(
+            "method_handle_free.jinja",
+            minijinja::context! {
+                handle_name => handle_name,
+                ffi_name => free_name,
+            },
+        );
+        function_handles.push(handle_code);
+    }
+
+    // free_bytes handle for releasing byte buffers returned via the out-param convention.
+    // Signature: (ptr: ADDRESS, len: JAVA_LONG, cap: JAVA_LONG) -> void
+    {
+        let free_bytes_name = format!("{}_free_bytes", prefix);
+        let handle_name = format!("{}_FREE_BYTES", prefix.to_uppercase());
+        let handle_code = crate::template_env::render(
+            "method_handle_free_bytes.jinja",
+            minijinja::context! {
+                handle_name => handle_name,
+                ffi_name => free_bytes_name,
+            },
+        );
+        function_handles.push(handle_code);
     }
 
     // Error handling — use the FFI's last_error_code and last_error_context symbols
-    {
-        writeln!(
-            body,
-            "    static final MethodHandle {}_LAST_ERROR_CODE = LINKER.downcallHandle(",
-            prefix.to_uppercase()
-        )
-        .ok();
-        writeln!(body, "        LIB.find(\"{}_last_error_code\").orElseThrow(),", prefix).ok();
-        writeln!(body, "        FunctionDescriptor.of(ValueLayout.JAVA_INT)").ok();
-        writeln!(body, "    );").ok();
-
-        writeln!(
-            body,
-            "    static final MethodHandle {}_LAST_ERROR_CONTEXT = LINKER.downcallHandle(",
-            prefix.to_uppercase()
-        )
-        .ok();
-        writeln!(
-            body,
-            "        LIB.find(\"{}_last_error_context\").orElseThrow(),",
-            prefix
-        )
-        .ok();
-        writeln!(body, "        FunctionDescriptor.of(ValueLayout.ADDRESS)").ok();
-        writeln!(body, "    );").ok();
-    }
+    // (Note: these are emitted inline in the template, not via function_handles)
 
     // Track emitted handles to avoid duplicates (a type may appear both as
     // a function return type AND as an opaque type, or as both return and parameter type).
@@ -588,6 +177,9 @@ pub(crate) fn gen_native_lib(
         .filter(|t| t.is_opaque)
         .map(|t| t.name.clone())
         .collect();
+
+    // Collect accessor handles
+    let mut accessor_handles = Vec::new();
 
     // Accessor handles for Named return types (struct pointer → field accessor + free).
     // Also handles `Option<Named>` return types — the FFI layer flattens nullable returns
@@ -607,7 +199,7 @@ pub(crate) fn gen_native_lib(
         if let Some(name) = inner_named {
             let type_snake = name.to_snake_case();
             let type_upper = type_snake.to_uppercase();
-            let is_opaque = opaque_type_names.contains(name.as_str());
+            let _is_opaque = opaque_type_names.contains(name.as_str());
 
             // Emit `_to_json` method handle whenever the FFI exposes one for this type.
             // Both opaque and non-opaque types may have a `_to_json` exporter — the Java
@@ -617,32 +209,28 @@ pub(crate) fn gen_native_lib(
             let to_json_handle = format!("{}_{}_TO_JSON", prefix.to_uppercase(), type_upper);
             let to_json_ffi = format!("{}_{}_to_json", prefix, type_snake);
             if emitted_to_json_handles.insert(to_json_handle.clone()) {
-                writeln!(body).ok();
-                writeln!(
-                    body,
-                    "    static final MethodHandle {} = LIB.find(\"{}\")",
-                    to_json_handle, to_json_ffi
-                )
-                .ok();
-                writeln!(body, "        .map(s -> LINKER.downcallHandle(s, FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS)))").ok();
-                writeln!(body, "        .orElse(null);").ok();
+                let handle_code = crate::template_env::render(
+                    "method_handle_to_json.jinja",
+                    minijinja::context! {
+                        handle_name => to_json_handle,
+                        ffi_name => to_json_ffi,
+                    },
+                );
+                accessor_handles.push(handle_code);
             }
-            let _ = is_opaque;
 
             // _free: (struct_ptr) -> void
             let free_handle = format!("{}_{}_FREE", prefix.to_uppercase(), type_upper);
             let free_ffi = format!("{}_{}_free", prefix, type_snake);
             if emitted_free_handles.insert(free_handle.clone()) {
-                writeln!(body).ok();
-                writeln!(
-                    body,
-                    "    static final MethodHandle {} = LINKER.downcallHandle(",
-                    free_handle
-                )
-                .ok();
-                writeln!(body, "        LIB.find(\"{}\").orElseThrow(),", free_ffi).ok();
-                writeln!(body, "        FunctionDescriptor.ofVoid(ValueLayout.ADDRESS)").ok();
-                writeln!(body, "    );").ok();
+                let handle_code = crate::template_env::render(
+                    "method_handle_free.jinja",
+                    minijinja::context! {
+                        handle_name => free_handle,
+                        ffi_name => free_ffi,
+                    },
+                );
+                accessor_handles.push(handle_code);
             }
         }
     }
@@ -682,36 +270,28 @@ pub(crate) fn gen_native_lib(
                     let from_json_handle = format!("{}_{}_FROM_JSON", prefix.to_uppercase(), type_upper);
                     let from_json_ffi = format!("{}_{}_from_json", prefix, type_snake);
                     if emitted_from_json_handles.insert(from_json_handle.clone()) {
-                        writeln!(body).ok();
-                        writeln!(
-                            body,
-                            "    static final MethodHandle {} = LINKER.downcallHandle(",
-                            from_json_handle
-                        )
-                        .ok();
-                        writeln!(body, "        LIB.find(\"{}\").orElseThrow(),", from_json_ffi).ok();
-                        writeln!(
-                            body,
-                            "        FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS)"
-                        )
-                        .ok();
-                        writeln!(body, "    );").ok();
+                        let handle_code = crate::template_env::render(
+                            "method_handle_from_json.jinja",
+                            minijinja::context! {
+                                handle_name => from_json_handle,
+                                ffi_name => from_json_ffi,
+                            },
+                        );
+                        accessor_handles.push(handle_code);
                     }
 
                     // _free: (struct_ptr) -> void
                     let free_handle = format!("{}_{}_FREE", prefix.to_uppercase(), type_upper);
                     let free_ffi = format!("{}_{}_free", prefix, type_snake);
                     if emitted_free_handles.insert(free_handle.clone()) {
-                        writeln!(body).ok();
-                        writeln!(
-                            body,
-                            "    static final MethodHandle {} = LINKER.downcallHandle(",
-                            free_handle
-                        )
-                        .ok();
-                        writeln!(body, "        LIB.find(\"{}\").orElseThrow(),", free_ffi).ok();
-                        writeln!(body, "        FunctionDescriptor.ofVoid(ValueLayout.ADDRESS)").ok();
-                        writeln!(body, "    );").ok();
+                        let handle_code = crate::template_env::render(
+                            "method_handle_free.jinja",
+                            minijinja::context! {
+                                handle_name => free_handle,
+                                ffi_name => free_ffi,
+                            },
+                        );
+                        accessor_handles.push(handle_code);
                     }
                 }
             }
@@ -727,6 +307,9 @@ pub(crate) fn gen_native_lib(
         .map(|t| format!("{}Builder", t.name))
         .collect();
 
+    // Collect builder handles
+    let mut builder_handles = Vec::new();
+
     // Free handles for opaque types (handle pointer → void)
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         if typ.is_opaque && !builder_class_names.contains(&typ.name) {
@@ -735,23 +318,23 @@ pub(crate) fn gen_native_lib(
             let free_handle = format!("{}_{}_FREE", prefix.to_uppercase(), type_upper);
             let free_ffi = format!("{}_{}_free", prefix, type_snake);
             if emitted_free_handles.insert(free_handle.clone()) {
-                writeln!(body).ok();
-                writeln!(
-                    body,
-                    "    static final MethodHandle {} = LINKER.downcallHandle(",
-                    free_handle
-                )
-                .ok();
-                writeln!(body, "        LIB.find(\"{}\").orElseThrow(),", free_ffi).ok();
-                writeln!(body, "        FunctionDescriptor.ofVoid(ValueLayout.ADDRESS)").ok();
-                writeln!(body, "    );").ok();
+                let handle_code = crate::template_env::render(
+                    "method_handle_free.jinja",
+                    minijinja::context! {
+                        handle_name => free_handle,
+                        ffi_name => free_ffi,
+                    },
+                );
+                builder_handles.push(handle_code);
             }
         }
     }
 
-    // Trait bridge register/unregister FFI handles (de-duplicated with function-related handles)
+    // Collect trait handles
+    let mut trait_handles = Vec::new();
     let mut emitted_register_handles: AHashSet<String> = AHashSet::new();
     let mut emitted_unregister_handles: AHashSet<String> = AHashSet::new();
+    let mut emitted_clear_handles: AHashSet<String> = AHashSet::new();
 
     for bridge_cfg in &config.trait_bridges {
         if bridge_cfg
@@ -768,92 +351,373 @@ pub(crate) fn gen_native_lib(
         let register_handle_name = format!("{}_REGISTER_{}", prefix.to_uppercase(), trait_upper);
         let register_ffi_name = format!("{}_register_{}", prefix, trait_snake);
         if emitted_register_handles.insert(register_handle_name.clone()) {
-            writeln!(body).ok();
             // Use orElse(null): the register symbol may be absent when the trait bridge
             // is not compiled into the dylib. Callers must null-check before invoking.
-            writeln!(body, "    static final MethodHandle {} = LIB", register_handle_name).ok();
-            writeln!(body, "        .find(\"{}\")", register_ffi_name).ok();
-            writeln!(
-                body,
-                "        .map(s -> LINKER.downcallHandle(s, FunctionDescriptor.of(ValueLayout.JAVA_INT,"
-            )
-            .ok();
-            writeln!(
-                body,
-                "            ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS)))"
-            )
-            .ok();
-            writeln!(body, "        .orElse(null);").ok();
+            let handle_code = crate::template_env::render(
+                "method_handle_register.jinja",
+                minijinja::context! {
+                    handle_name => register_handle_name,
+                    ffi_name => register_ffi_name,
+                },
+            );
+            trait_handles.push(handle_code);
         }
 
-        // Unregister handle
-        let unregister_handle_name = format!("{}_UNREGISTER_{}", prefix.to_uppercase(), trait_upper);
-        let unregister_ffi_name = format!("{}_unregister_{}", prefix, trait_snake);
-        if emitted_unregister_handles.insert(unregister_handle_name.clone()) {
-            writeln!(body).ok();
-            // Use orElse(null): the unregister symbol may be absent when the trait bridge
-            // is not compiled into the dylib. Callers must null-check before invoking.
-            writeln!(body, "    static final MethodHandle {} = LIB", unregister_handle_name).ok();
-            writeln!(body, "        .find(\"{}\")", unregister_ffi_name).ok();
-            writeln!(body, "        .map(s -> LINKER.downcallHandle(s,").ok();
-            writeln!(
-                body,
-                "            FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS)))"
-            )
-            .ok();
-            writeln!(body, "        .orElse(null);").ok();
+        // Unregister handle — only emitted when unregister_fn is configured.
+        if bridge_cfg.unregister_fn.is_some() {
+            let unregister_handle_name = format!("{}_UNREGISTER_{}", prefix.to_uppercase(), trait_upper);
+            let unregister_ffi_name = format!("{}_unregister_{}", prefix, trait_snake);
+            if emitted_unregister_handles.insert(unregister_handle_name.clone()) {
+                // Use orElse(null): the unregister symbol may be absent when the trait bridge
+                // is not compiled into the dylib. Callers must null-check before invoking.
+                let handle_code = crate::template_env::render(
+                    "method_handle_unregister.jinja",
+                    minijinja::context! {
+                        handle_name => unregister_handle_name,
+                        ffi_name => unregister_ffi_name,
+                    },
+                );
+                trait_handles.push(handle_code);
+            }
+        }
+
+        // Clear handle — only emitted when clear_fn is configured.
+        if bridge_cfg.clear_fn.is_some() {
+            let clear_handle_name = format!("{}_CLEAR_{}", prefix.to_uppercase(), trait_upper);
+            let clear_ffi_name = format!("{}_clear_{}", prefix, trait_snake);
+            if emitted_clear_handles.insert(clear_handle_name.clone()) {
+                // Use orElse(null): the clear symbol may be absent when the trait bridge
+                // is not compiled into the dylib. Callers must null-check before invoking.
+                let handle_code = crate::template_env::render(
+                    "method_handle_clear.jinja",
+                    minijinja::context! {
+                        handle_name => clear_handle_name,
+                        ffi_name => clear_ffi_name,
+                    },
+                );
+                trait_handles.push(handle_code);
+            }
         }
     }
 
-    // Inject visitor FFI method handles when a trait bridge is configured.
-    if has_visitor_pattern {
-        body.push_str(&crate::gen_visitor::gen_native_lib_visitor_handles(prefix));
+    // Streaming-adapter method handles. For each `[[crates.adapters]]` entry with
+    // pattern = "streaming", emit three downcall handles for the FFI iterator-handle
+    // functions (`_start`, `_next`, `_free`) plus the request `_from_json`/`_free`
+    // and the chunk-item `_to_json`/`_free` accessors needed to drive the iterator
+    // from Java. The Java public method is emitted on the owner opaque handle class.
+    for adapter in &config.adapters {
+        if !matches!(adapter.pattern, AdapterPattern::Streaming) {
+            continue;
+        }
+        let Some(owner_type) = adapter.owner_type.as_deref() else {
+            continue;
+        };
+        let Some(item_type) = adapter.item_type.as_deref() else {
+            continue;
+        };
+        let Some(request_type) = adapter.params.first().map(|p| p.ty.as_str()).filter(|s| !s.is_empty()) else {
+            continue;
+        };
+
+        let owner_snake = owner_type.to_snake_case();
+        let owner_upper = owner_snake.to_uppercase();
+        let adapter_snake = adapter.name.to_snake_case();
+        let adapter_upper = adapter_snake.to_uppercase();
+        let prefix_upper = prefix.to_uppercase();
+
+        // _start: (client_ptr, request_ptr) -> stream_handle_ptr
+        let start_handle = format!("{prefix_upper}_{owner_upper}_{adapter_upper}_START");
+        let start_ffi = format!("{prefix}_{owner_snake}_{adapter_snake}_start");
+        let start_layout =
+            "FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS)".to_string();
+        accessor_handles.push(crate::template_env::render(
+            "method_handle_normal.jinja",
+            minijinja::context! {
+                handle_name => start_handle,
+                ffi_name => start_ffi,
+                layout => start_layout,
+            },
+        ));
+
+        // _next: (stream_handle_ptr) -> item_ptr
+        let next_handle = format!("{prefix_upper}_{owner_upper}_{adapter_upper}_NEXT");
+        let next_ffi = format!("{prefix}_{owner_snake}_{adapter_snake}_next");
+        let next_layout = "FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS)".to_string();
+        accessor_handles.push(crate::template_env::render(
+            "method_handle_normal.jinja",
+            minijinja::context! {
+                handle_name => next_handle,
+                ffi_name => next_ffi,
+                layout => next_layout,
+            },
+        ));
+
+        // _free: (stream_handle_ptr) -> void
+        let free_handle = format!("{prefix_upper}_{owner_upper}_{adapter_upper}_FREE");
+        let free_ffi = format!("{prefix}_{owner_snake}_{adapter_snake}_free");
+        accessor_handles.push(crate::template_env::render(
+            "method_handle_free.jinja",
+            minijinja::context! {
+                handle_name => free_handle,
+                ffi_name => free_ffi,
+            },
+        ));
+
+        // Request type _from_json + _free (used to marshal the request POJO into a
+        // pointer the FFI iterator-start expects).
+        let request_snake = request_type.to_snake_case();
+        let request_upper = request_snake.to_uppercase();
+
+        let req_from_json_handle = format!("{prefix_upper}_{request_upper}_FROM_JSON");
+        let req_from_json_ffi = format!("{prefix}_{request_snake}_from_json");
+        if emitted_from_json_handles.insert(req_from_json_handle.clone()) {
+            accessor_handles.push(crate::template_env::render(
+                "method_handle_from_json.jinja",
+                minijinja::context! {
+                    handle_name => req_from_json_handle,
+                    ffi_name => req_from_json_ffi,
+                },
+            ));
+        }
+        let req_free_handle = format!("{prefix_upper}_{request_upper}_FREE");
+        let req_free_ffi = format!("{prefix}_{request_snake}_free");
+        if emitted_free_handles.insert(req_free_handle.clone()) {
+            accessor_handles.push(crate::template_env::render(
+                "method_handle_free.jinja",
+                minijinja::context! {
+                    handle_name => req_free_handle,
+                    ffi_name => req_free_ffi,
+                },
+            ));
+        }
+
+        // Item type _to_json + _free (used to deserialize each chunk pointer back
+        // into a Java record).
+        let item_snake = item_type.to_snake_case();
+        let item_upper = item_snake.to_uppercase();
+        let item_to_json_handle = format!("{prefix_upper}_{item_upper}_TO_JSON");
+        let item_to_json_ffi = format!("{prefix}_{item_snake}_to_json");
+        if emitted_to_json_handles.insert(item_to_json_handle.clone()) {
+            accessor_handles.push(crate::template_env::render(
+                "method_handle_to_json.jinja",
+                minijinja::context! {
+                    handle_name => item_to_json_handle,
+                    ffi_name => item_to_json_ffi,
+                },
+            ));
+        }
+        let item_free_handle = format!("{prefix_upper}_{item_upper}_FREE");
+        let item_free_ffi = format!("{prefix}_{item_snake}_free");
+        if emitted_free_handles.insert(item_free_handle.clone()) {
+            accessor_handles.push(crate::template_env::render(
+                "method_handle_free.jinja",
+                minijinja::context! {
+                    handle_name => item_free_handle,
+                    ffi_name => item_free_ffi,
+                },
+            ));
+        }
     }
 
-    writeln!(body, "}}").ok();
+    // Method handles for instance methods on opaque types (chat, embed, moderate, …).
+    //
+    // Each FFI export is named `{prefix}_{owner_snake}_{method_snake}` and takes the
+    // opaque receiver pointer as its first argument. Streaming-adapter methods are
+    // excluded — those use the (`_start`, `_next`, `_free`) iterator-handle trio above.
+    // Bytes-result methods use the (out_ptr, out_len, out_cap) triple convention,
+    // mirroring `is_bytes_result` for free functions.
+    let streaming_adapter_method_keys: AHashSet<(String, String)> = config
+        .adapters
+        .iter()
+        .filter(|a| matches!(a.pattern, AdapterPattern::Streaming))
+        .filter_map(|a| {
+            let owner = a.owner_type.clone()?;
+            Some((owner, a.name.to_snake_case()))
+        })
+        .collect();
+    for typ in api.types.iter().filter(|t| t.is_opaque && !t.is_trait) {
+        for method in &typ.methods {
+            if method.is_static {
+                continue;
+            }
+            if streaming_adapter_method_keys.contains(&(typ.name.clone(), method.name.to_snake_case())) {
+                continue;
+            }
+            let owner_snake = typ.name.to_snake_case();
+            let owner_upper = owner_snake.to_uppercase();
+            let method_snake = method.name.to_snake_case();
+            let method_upper = method_snake.to_uppercase();
+            let handle_name = format!("{}_{}_{}", prefix.to_uppercase(), owner_upper, method_upper);
+            let ffi_name = format!("{}_{}_{}", prefix, owner_snake, method_snake);
 
-    // Now assemble the file with only the imports that are actually used in the body.
-    let mut out = String::with_capacity(body.len() + 512);
+            let mut param_layouts: Vec<String> = vec!["ValueLayout.ADDRESS".to_string()];
+            for p in &method.params {
+                param_layouts.push(gen_ffi_layout(&p.ty));
+            }
+            let return_layout = if is_bytes_result_method(method) {
+                param_layouts.push("ValueLayout.ADDRESS".to_string()); // out_ptr
+                param_layouts.push("ValueLayout.ADDRESS".to_string()); // out_len
+                param_layouts.push("ValueLayout.ADDRESS".to_string()); // out_cap
+                "ValueLayout.JAVA_INT".to_string()
+            } else {
+                gen_ffi_layout(&method.return_type)
+            };
+            let layout_str = gen_function_descriptor(&return_layout, &param_layouts);
 
+            let handle_code = crate::template_env::render(
+                "method_handle_normal.jinja",
+                minijinja::context! {
+                    handle_name => handle_name,
+                    ffi_name => ffi_name,
+                    layout => layout_str,
+                },
+            );
+            function_handles.push(handle_code);
+
+            // For Named return types, ensure the response struct's `_to_json` and `_free`
+            // helpers are registered so the instance-method body can deserialize and free.
+            let return_named = match &method.return_type {
+                TypeRef::Named(n) => Some(n.clone()),
+                TypeRef::Optional(inner) => match inner.as_ref() {
+                    TypeRef::Named(n) => Some(n.clone()),
+                    _ => None,
+                },
+                _ => None,
+            };
+            if let Some(name) = return_named {
+                let type_snake = name.to_snake_case();
+                let type_upper = type_snake.to_uppercase();
+                let to_json_handle = format!("{}_{}_TO_JSON", prefix.to_uppercase(), type_upper);
+                let to_json_ffi = format!("{}_{}_to_json", prefix, type_snake);
+                if emitted_to_json_handles.insert(to_json_handle.clone()) {
+                    accessor_handles.push(crate::template_env::render(
+                        "method_handle_to_json.jinja",
+                        minijinja::context! {
+                            handle_name => to_json_handle,
+                            ffi_name => to_json_ffi,
+                        },
+                    ));
+                }
+                let free_handle = format!("{}_{}_FREE", prefix.to_uppercase(), type_upper);
+                let free_ffi = format!("{}_{}_free", prefix, type_snake);
+                if emitted_free_handles.insert(free_handle.clone()) {
+                    accessor_handles.push(crate::template_env::render(
+                        "method_handle_free.jinja",
+                        minijinja::context! {
+                            handle_name => free_handle,
+                            ffi_name => free_ffi,
+                        },
+                    ));
+                }
+            }
+
+            // For Named param types, register their `_from_json` + `_free` helpers.
+            for p in &method.params {
+                let param_named = match &p.ty {
+                    TypeRef::Named(n) => Some(n.clone()),
+                    TypeRef::Optional(inner) => match inner.as_ref() {
+                        TypeRef::Named(n) => Some(n.clone()),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                if let Some(name) = param_named {
+                    let type_snake = name.to_snake_case();
+                    let type_upper = type_snake.to_uppercase();
+                    let from_json_handle = format!("{}_{}_FROM_JSON", prefix.to_uppercase(), type_upper);
+                    let from_json_ffi = format!("{}_{}_from_json", prefix, type_snake);
+                    if emitted_from_json_handles.insert(from_json_handle.clone()) {
+                        accessor_handles.push(crate::template_env::render(
+                            "method_handle_from_json.jinja",
+                            minijinja::context! {
+                                handle_name => from_json_handle,
+                                ffi_name => from_json_ffi,
+                            },
+                        ));
+                    }
+                    let free_handle = format!("{}_{}_FREE", prefix.to_uppercase(), type_upper);
+                    let free_ffi = format!("{}_{}_free", prefix, type_snake);
+                    if emitted_free_handles.insert(free_handle.clone()) {
+                        accessor_handles.push(crate::template_env::render(
+                            "method_handle_free.jinja",
+                            minijinja::context! {
+                                handle_name => free_handle,
+                                ffi_name => free_ffi,
+                            },
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    // Generate visitor FFI method handles when a trait bridge is configured.
+    let visitor_handles = if has_visitor_pattern {
+        crate::gen_visitor::gen_native_lib_visitor_handles(prefix)
+    } else {
+        String::new()
+    };
+
+    // Generate the class body first using the template
+    let class_body = crate::template_env::render(
+        "native_lib.jinja",
+        minijinja::context! {
+            class_name => "NativeLib",
+            lib_name => lib_name,
+            prefix => prefix,
+            prefix_upper => prefix.to_uppercase(),
+            function_handles => function_handles,
+            accessor_handles => accessor_handles,
+            builder_handles => builder_handles,
+            trait_handles => trait_handles,
+            visitor_handles => visitor_handles,
+        },
+    );
+
+    // Now assemble the file with the necessary imports
+    let mut out = String::with_capacity(class_body.len() + 512);
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
-    writeln!(out, "package {};", package).ok();
-    writeln!(out).ok();
-    if body.contains("Arena") {
-        writeln!(out, "import java.lang.foreign.Arena;").ok();
+    out.push_str("package ");
+    out.push_str(package);
+    out.push_str(";\n\n");
+
+    // Add imports based on what's in the generated class body
+    if class_body.contains("Arena") {
+        out.push_str("import java.lang.foreign.Arena;\n");
     }
-    if body.contains("FunctionDescriptor") {
-        writeln!(out, "import java.lang.foreign.FunctionDescriptor;").ok();
+    if class_body.contains("FunctionDescriptor") {
+        out.push_str("import java.lang.foreign.FunctionDescriptor;\n");
     }
-    if body.contains("Linker") {
-        writeln!(out, "import java.lang.foreign.Linker;").ok();
+    if class_body.contains("Linker") {
+        out.push_str("import java.lang.foreign.Linker;\n");
     }
-    if body.contains("MemorySegment") {
-        writeln!(out, "import java.lang.foreign.MemorySegment;").ok();
+    if class_body.contains("MemorySegment") {
+        out.push_str("import java.lang.foreign.MemorySegment;\n");
     }
-    if body.contains("SymbolLookup") {
-        writeln!(out, "import java.lang.foreign.SymbolLookup;").ok();
+    if class_body.contains("SymbolLookup") {
+        out.push_str("import java.lang.foreign.SymbolLookup;\n");
     }
-    if body.contains("ValueLayout") {
-        writeln!(out, "import java.lang.foreign.ValueLayout;").ok();
+    if class_body.contains("ValueLayout") {
+        out.push_str("import java.lang.foreign.ValueLayout;\n");
     }
-    if body.contains("MethodHandle") {
-        writeln!(out, "import java.lang.invoke.MethodHandle;").ok();
+    if class_body.contains("MethodHandle") {
+        out.push_str("import java.lang.invoke.MethodHandle;\n");
     }
     // Imports required by the JAR-extraction native loader (always present).
-    writeln!(out, "import java.io.File;").ok();
-    writeln!(out, "import java.net.URL;").ok();
-    writeln!(out, "import java.nio.file.Files;").ok();
-    writeln!(out, "import java.nio.file.Path;").ok();
-    writeln!(out, "import java.nio.file.Paths;").ok();
-    writeln!(out, "import java.nio.file.StandardCopyOption;").ok();
-    writeln!(out, "import java.util.ArrayList;").ok();
-    writeln!(out, "import java.util.Enumeration;").ok();
-    writeln!(out, "import java.util.List;").ok();
-    writeln!(out, "import java.util.jar.JarEntry;").ok();
-    writeln!(out, "import java.util.jar.JarFile;").ok();
-    writeln!(out).ok();
+    out.push_str("import java.io.File;\n");
+    out.push_str("import java.net.URL;\n");
+    out.push_str("import java.nio.file.Files;\n");
+    out.push_str("import java.nio.file.Path;\n");
+    out.push_str("import java.nio.file.Paths;\n");
+    out.push_str("import java.nio.file.StandardCopyOption;\n");
+    out.push_str("import java.util.ArrayList;\n");
+    out.push_str("import java.util.Enumeration;\n");
+    out.push_str("import java.util.List;\n");
+    out.push_str("import java.util.jar.JarEntry;\n");
+    out.push_str("import java.util.jar.JarFile;\n");
+    out.push('\n');
 
-    out.push_str(&body);
+    out.push_str(&class_body);
 
     out
 }

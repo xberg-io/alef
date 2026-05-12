@@ -1,0 +1,7 @@
+// {{ doc }} is the default no-op implementation.
+func (BaseVisitor) {{ method_name }}({{ params }}) VisitResult {
+{% for blank_id in blank_ids %}
+	_ = {{ blank_id }}
+{% endfor %}
+	return VisitResultContinue()
+}

@@ -1,0 +1,13 @@
+	var cErr *C.char
+	rc := C.{{ c_function }}(&cErr)
+
+	if rc != 0 {
+		msg := "failed to clear {{ trait_name }} plugins"
+		if cErr != nil {
+			msg = C.GoString(cErr)
+			C.free(unsafe.Pointer(cErr))
+		}
+		return fmt.Errorf("%s", msg)
+	}
+
+	return nil

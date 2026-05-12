@@ -45,6 +45,7 @@ fn make_empty_api() -> ApiSurface {
         enums: vec![],
         errors: vec![],
         functions: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     }
 }
 
@@ -241,6 +242,7 @@ fn unit_enum_emits_dart_enum() {
         ],
         serde_rename_all: None,
         serde_tag: None,
+        serde_untagged: false,
         cfg: None,
         is_copy: false,
         has_serde: false,

@@ -1,0 +1,42 @@
+{{ header }}
+package {{ package }};
+
+{% if needs_arena %}
+import java.lang.foreign.Arena;
+{% endif %}
+{% if needs_function_descriptor %}
+import java.lang.foreign.FunctionDescriptor;
+{% endif %}
+{% if needs_linker %}
+import java.lang.foreign.Linker;
+{% endif %}
+{% if needs_memory_segment %}
+import java.lang.foreign.MemorySegment;
+{% endif %}
+{% if needs_symbol_lookup %}
+import java.lang.foreign.SymbolLookup;
+{% endif %}
+{% if needs_value_layout %}
+import java.lang.foreign.ValueLayout;
+{% endif %}
+{% if needs_list %}
+import java.util.List;
+{% endif %}
+{% if needs_map %}
+import java.util.Map;
+{% endif %}
+{% if needs_optional %}
+import java.util.Optional;
+{% endif %}
+{% if needs_hash_map %}
+import java.util.HashMap;
+{% endif %}
+{% if needs_completable_future %}
+import java.util.concurrent.CompletableFuture;
+{% endif %}
+{% if needs_completion_exception %}
+import java.util.concurrent.CompletionException;
+{% endif %}
+{% if needs_object_mapper %}
+import com.fasterxml.jackson.databind.ObjectMapper;
+{% endif %}

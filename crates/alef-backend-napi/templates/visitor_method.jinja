@@ -1,0 +1,55 @@
+    fn {{ method_name }}({{ signature }}) -> {{ return_type }} {
+        let has_method = self.obj.has_named_property("{{ js_method_name }}").unwrap_or(false);
+        if !has_method {
+            return {{ return_type }}::Continue;
+        }
+
+        let func: napi::bindgen_prelude::Function<{{ args_tuple_ty }}, napi::bindgen_prelude::Unknown> = match self.obj.get_named_property("{{ js_method_name }}") {
+            Ok(f) => f,
+            Err(_) => return {{ return_type }}::Continue,
+        };
+
+{% if empty_args %}
+        let result = func.call(());
+{% else %}
+        let __env = self.env();
+{% for arg_expr in arg_exprs %}
+        let arg_{{ loop.index0 }}: napi::bindgen_prelude::Unknown = {{ arg_expr }};
+{% endfor %}
+        let result = func.call(napi::bindgen_prelude::FnArgs::from({{ tuple_args }}));
+{% endif %}
+
+        match result {
+            Err(_) => {{ return_type }}::Continue,
+            Ok(val) => {
+                if val.get_type().ok() == Some(napi::bindgen_prelude::ValueType::Object) {
+                    if let Ok(obj) = val.coerce_to_object() {
+                        if let Ok(cv) = obj.get_named_property::<napi::bindgen_prelude::Unknown>("custom") {
+                            if !matches!(cv.get_type().unwrap_or(napi::bindgen_prelude::ValueType::Undefined), napi::bindgen_prelude::ValueType::Undefined | napi::bindgen_prelude::ValueType::Null) {
+                                if let Ok(s) = cv.coerce_to_string().and_then(|s| s.into_utf8()).and_then(|s| s.into_owned()) {
+                                    return {{ return_type }}::Custom(s);
+                                }
+                            }
+                        }
+                        if let Ok(ev) = obj.get_named_property::<napi::bindgen_prelude::Unknown>("error") {
+                            if !matches!(ev.get_type().unwrap_or(napi::bindgen_prelude::ValueType::Undefined), napi::bindgen_prelude::ValueType::Undefined | napi::bindgen_prelude::ValueType::Null) {
+                                if let Ok(s) = ev.coerce_to_string().and_then(|s| s.into_utf8()).and_then(|s| s.into_owned()) {
+                                    return {{ return_type }}::Error(s);
+                                }
+                            }
+                        }
+                    }
+                }
+                if let Ok(s) = val.coerce_to_string().and_then(|s| s.into_utf8()).and_then(|s| s.into_owned()) {
+                    match s.to_lowercase().as_str() {
+                        "continue" => {{ return_type }}::Continue,
+                        "skip" => {{ return_type }}::Skip,
+                        "preserve_html" | "preservehtml" => {{ return_type }}::PreserveHtml,
+                        _ => {{ return_type }}::Custom(s),
+                    }
+                } else {
+                    {{ return_type }}::Continue
+                }
+            }
+        }
+    }

@@ -1,0 +1,46 @@
+impl {{ wrapper_name }} {
+    /// Create a new bridge wrapping a NAPI Object.
+    ///
+    /// Validates that the object provides all required methods.
+    pub fn new(js_obj: napi::bindgen_prelude::Object<'_>) -> napi::Result<Self> {
+{%- for method in required_methods %}
+        if !js_obj.has_named_property("{{ method.name }}").unwrap_or(false) {
+            return Err(napi::Error::new(
+                napi::Status::GenericFailure,
+                format!("Object missing required method: {}", "{{ method.name }}")
+            ));
+        }
+{%- endfor %}
+        // SAFETY: The JS object is owned by the Node.js runtime and lives for
+        // the duration of the enclosing #[napi] call. The bridge is only used
+        // synchronously during that same call, so 'static is safe here.
+        let js_obj: napi::bindgen_prelude::Object<'static> = unsafe {
+            std::mem::transmute(js_obj)
+        };
+
+        // Try to extract name from the object
+        let cached_name = match js_obj.get_named_property::<String>("name") {
+            Ok(n) => n,
+            Err(_) => "unknown".to_string(),
+        };
+
+        Ok(Self {
+            inner: js_obj,
+            cached_name,
+        })
+    }
+
+    /// Extract napi::Env from the stored Object.
+    fn env(&self) -> napi::Env {
+        // SAFETY: Object<'static> is 3 pointer-sized words; first word is napi_env.
+        let raw: [*mut std::ffi::c_void; 3] = unsafe { std::mem::transmute_copy(&self.inner) };
+        napi::Env::from_raw(raw[0] as napi::sys::napi_env)
+    }
+}
+
+// SAFETY: The bridge is created from a NAPI Object that is pinned to the
+// Node.js event loop thread. All access occurs on that thread. Send+Sync
+// are required by the Plugin trait but the bridge is never actually moved
+// across threads.
+unsafe impl Send for {{ wrapper_name }} {}
+unsafe impl Sync for {{ wrapper_name }} {}

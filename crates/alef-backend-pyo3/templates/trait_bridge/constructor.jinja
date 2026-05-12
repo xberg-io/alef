@@ -1,0 +1,26 @@
+impl {{ wrapper }} {
+    /// Create a new bridge wrapping a Python object.
+    ///
+    /// Validates that the Python object provides all required methods.
+    pub fn new(python_obj: Py<PyAny>) -> PyResult<Self> {
+        Python::attach(|py| {
+            let obj = python_obj.bind(py);
+{% for method in required_methods %}
+            if !obj.hasattr("{{ method.name }}").unwrap_or(false) {
+                return Err(pyo3::exceptions::PyAttributeError::new_err(
+                    "Python object missing required method: {{ method.name }}",
+                ));
+            }
+{% endfor %}
+            let cached_name: String = obj
+                .call_method0("name")
+                .and_then(|v| v.extract())
+                .unwrap_or_else(|_| "unknown".to_string());
+
+            Ok(Self {
+                inner: python_obj,
+                cached_name,
+            })
+        })
+    }
+}

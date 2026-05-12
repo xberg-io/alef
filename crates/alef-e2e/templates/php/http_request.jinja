@@ -1,0 +1,17 @@
+{#- PHP Guzzle HTTP request
+
+   Context variables:
+   - method: HTTP method (GET, POST, etc. - already uppercase)
+   - path: path with query params handled separately
+   - opts: list of Guzzle options lines
+   - response_var: variable name to bind the response to
+#}
+{%- if opts %}
+        ${{ response_var }} = $this->httpClient->request('{{ method }}', "{{ path }}", [
+{%- for opt in opts %}
+            {{ opt }},
+{%- endfor %}
+        ]);
+{%- else %}
+        ${{ response_var }} = $this->httpClient->request('{{ method }}', "{{ path }}");
+{%- endif %}

@@ -1,0 +1,8 @@
+    /// Return a null-terminated UTF-8 name string into `out_name`.
+    pub name_fn: Option<unsafe extern "C" fn(user_data: *const std::ffi::c_void, out_name: *mut *mut std::ffi::c_char)>,
+    /// Return a null-terminated UTF-8 version string into `out_version`.
+    pub version_fn: Option<unsafe extern "C" fn(user_data: *const std::ffi::c_void, out_version: *mut *mut std::ffi::c_char)>,
+    /// Initialise the plugin; return 0 on success, non-zero on failure (error text in `out_error`).
+    pub initialize_fn: Option<unsafe extern "C" fn(user_data: *const std::ffi::c_void, out_error: *mut *mut std::ffi::c_char) -> i32>,
+    /// Shut down the plugin; return 0 on success, non-zero on failure (error text in `out_error`).
+    pub shutdown_fn: Option<unsafe extern "C" fn(user_data: *const std::ffi::c_void, out_error: *mut *mut std::ffi::c_char) -> i32>,

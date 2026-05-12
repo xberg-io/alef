@@ -21,6 +21,8 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
         core_wrapper: CoreWrapper::None,
         vec_inner_core_wrapper: CoreWrapper::None,
         newtype_wrapper: None,
+        serde_rename: None,
+        serde_flatten: false,
     }
 }
 
@@ -87,6 +89,8 @@ fn make_config_with_nif(nif_module: &str) -> ResolvedCrateConfig {
         exclude_types: Vec::new(),
         run_wrapper: None,
         extra_lint_paths: Vec::new(),
+        element_constructors: Vec::new(),
+        json_object_wrapper: None,
     });
     config
 }
@@ -106,6 +110,7 @@ fn struct_emits_record_type() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = GleamBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -141,6 +146,7 @@ fn function_emits_external_binding() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = GleamBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -184,12 +190,14 @@ fn enum_emits_custom_type() {
             doc: String::new(),
             cfg: None,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
 
             is_copy: false,
             has_serde: false,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = GleamBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -211,6 +219,7 @@ fn optional_field_imports_option() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = GleamBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -253,6 +262,7 @@ fn error_emits_custom_type() {
             ],
             doc: String::new(),
         }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = GleamBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -294,12 +304,14 @@ fn enum_tuple_variant_emits_unlabeled_field() {
             doc: String::new(),
             cfg: None,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
 
             is_copy: false,
             has_serde: false,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = GleamBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -338,6 +350,7 @@ fn nif_module_override_uses_custom_name() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config_with_nif("custom_nif_atom");
@@ -432,6 +445,29 @@ fn make_bridge_cfg(trait_name: &str, register_fn: &str) -> TraitBridgeConfig {
     }
 }
 
+fn make_bridge_cfg_full(
+    trait_name: &str,
+    register_fn: &str,
+    unregister_fn: Option<&str>,
+    clear_fn: Option<&str>,
+) -> TraitBridgeConfig {
+    TraitBridgeConfig {
+        trait_name: trait_name.to_string(),
+        super_trait: None,
+        registry_getter: Some(format!("demo::get_{}_registry", trait_name.to_lowercase())),
+        register_fn: Some(register_fn.to_string()),
+        unregister_fn: unregister_fn.map(str::to_string),
+        clear_fn: clear_fn.map(str::to_string),
+        type_alias: None,
+        param_name: None,
+        register_extra_args: None,
+        exclude_languages: vec![],
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
+    }
+}
+
 fn make_config_with_bridges(bridges: Vec<TraitBridgeConfig>) -> ResolvedCrateConfig {
     let mut config = make_config();
     config.trait_bridges = bridges;
@@ -454,6 +490,7 @@ fn trait_bridge_single_method_emits_register_and_support_nifs() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config_with_bridges(vec![bridge_cfg]);
@@ -510,6 +547,7 @@ fn trait_bridge_multiple_bridges_emit_support_nifs_only_once() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config_with_bridges(vec![ocr_bridge, embedding_bridge]);
@@ -557,6 +595,7 @@ fn trait_bridge_emits_per_method_response_shim() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config_with_bridges(vec![bridge_cfg]);
@@ -599,6 +638,7 @@ fn trait_bridge_response_shim_uses_typed_return_and_error() {
         functions: vec![],
         enums: vec![],
         errors: vec![ocr_error],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config_with_bridges(vec![bridge_cfg]);
@@ -634,6 +674,7 @@ fn trait_bridge_response_shim_unit_return_emits_nil() {
         functions: vec![],
         enums: vec![],
         errors: vec![my_error],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config_with_bridges(vec![bridge_cfg]);
@@ -665,6 +706,7 @@ fn trait_bridge_multiple_methods_emit_one_shim_each() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config_with_bridges(vec![bridge_cfg]);
@@ -706,6 +748,7 @@ fn trait_bridge_response_shim_includes_doc_comment() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config_with_bridges(vec![bridge_cfg]);
@@ -715,5 +758,199 @@ fn trait_bridge_response_shim_includes_doc_comment() {
     assert!(
         content.contains("/// Send the `process_image` response back to the Rustler reply-registry."),
         "missing method doc comment: {content}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Trait bridge: unregistration function
+// ---------------------------------------------------------------------------
+
+#[test]
+fn trait_bridge_emits_unregistration_fn_when_configured() {
+    let trait_type = make_trait_type("OcrBackend", vec![make_method("process")]);
+    let bridge_cfg = make_bridge_cfg_full(
+        "OcrBackend",
+        "register_ocr_backend",
+        Some("unregister_ocr_backend"),
+        None,
+    );
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_type],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config_with_bridges(vec![bridge_cfg]);
+    let files = GleamBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    assert!(
+        content.contains("@external(erlang, \"Elixir.Demo.Native\", \"unregister_ocr_backend\")"),
+        "missing unregister @external annotation: {content}"
+    );
+    assert!(
+        content.contains("pub fn unregister_ocr_backend(name: String) -> Result(Nil, String)"),
+        "missing unregister fn signature: {content}"
+    );
+}
+
+#[test]
+fn trait_bridge_omits_unregistration_fn_when_not_configured() {
+    let trait_type = make_trait_type("OcrBackend", vec![make_method("process")]);
+    let bridge_cfg = make_bridge_cfg("OcrBackend", "register_ocr_backend");
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_type],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config_with_bridges(vec![bridge_cfg]);
+    let files = GleamBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    assert!(
+        !content.contains("unregister_ocr_backend"),
+        "unregister fn must not appear when unregister_fn is None: {content}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Trait bridge: clear function
+// ---------------------------------------------------------------------------
+
+#[test]
+fn trait_bridge_emits_clear_fn_when_configured() {
+    let trait_type = make_trait_type("OcrBackend", vec![make_method("process")]);
+    let bridge_cfg = make_bridge_cfg_full("OcrBackend", "register_ocr_backend", None, Some("clear_ocr_backends"));
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_type],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config_with_bridges(vec![bridge_cfg]);
+    let files = GleamBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    assert!(
+        content.contains("@external(erlang, \"Elixir.Demo.Native\", \"clear_ocr_backends\")"),
+        "missing clear @external annotation: {content}"
+    );
+    assert!(
+        content.contains("pub fn clear_ocr_backends() -> Result(Nil, String)"),
+        "missing clear fn signature: {content}"
+    );
+}
+
+#[test]
+fn trait_bridge_omits_clear_fn_when_not_configured() {
+    let trait_type = make_trait_type("OcrBackend", vec![make_method("process")]);
+    let bridge_cfg = make_bridge_cfg("OcrBackend", "register_ocr_backend");
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_type],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config_with_bridges(vec![bridge_cfg]);
+    let files = GleamBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    assert!(
+        !content.contains("clear_ocr_backends"),
+        "clear fn must not appear when clear_fn is None: {content}"
+    );
+}
+
+#[test]
+fn trait_bridge_emits_all_three_fns_when_fully_configured() {
+    let trait_type = make_trait_type("OcrBackend", vec![make_method("process")]);
+    let bridge_cfg = make_bridge_cfg_full(
+        "OcrBackend",
+        "register_ocr_backend",
+        Some("unregister_ocr_backend"),
+        Some("clear_ocr_backends"),
+    );
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_type],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config_with_bridges(vec![bridge_cfg]);
+    let files = GleamBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    assert!(
+        content.contains("pub fn register_ocr_backend(pid: Dynamic, plugin_name: String) -> Nil"),
+        "missing register fn: {content}"
+    );
+    assert!(
+        content.contains("pub fn unregister_ocr_backend(name: String) -> Result(Nil, String)"),
+        "missing unregister fn: {content}"
+    );
+    assert!(
+        content.contains("pub fn clear_ocr_backends() -> Result(Nil, String)"),
+        "missing clear fn: {content}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Regression: a non-trait type that has methods must be emitted ONCE as an
+// opaque resource. It must NOT also be emitted as a regular phantom/record
+// type by the data-type emission pass (gleam rejects duplicate type defs).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn non_trait_type_with_methods_emits_opaque_resource_only_once() {
+    let mut client = make_type("DefaultClient", vec![]);
+    client.methods = vec![make_method("chat")];
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![client],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config_with_nif("Elixir.Demo.Native");
+    let files = GleamBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    let normal_defs = content.matches("pub type DefaultClient").count();
+    let opaque_defs = content.matches("pub opaque type DefaultClient").count();
+    assert_eq!(opaque_defs, 1, "expected exactly one opaque emission: {content}");
+    // `pub type` is a substring of `pub opaque type`? No — they're distinct prefixes.
+    assert_eq!(
+        normal_defs, 0,
+        "non-trait type with methods must not be emitted as a regular type: {content}"
     );
 }

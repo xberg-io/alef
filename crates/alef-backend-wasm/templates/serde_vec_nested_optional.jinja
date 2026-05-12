@@ -1,0 +1,1 @@
+let {{ param_name }}: Option<{{ core_ty }}> = {{ param_name }}.map(|v| serde_wasm_bindgen::from_value::<{{ core_ty }}>(v){{ err_conv }}).transpose()?;

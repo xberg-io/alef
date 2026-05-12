@@ -1,0 +1,7 @@
+    {{ bridge_class }}(final I{{ trait_pascal }} impl) {
+        this.impl = impl;
+        this.arena = Arena.ofShared();
+        this.vtable = arena.allocate(VTABLE_SIZE);
+
+        try {
+            long offset = 0L;

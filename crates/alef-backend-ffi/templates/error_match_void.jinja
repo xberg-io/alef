@@ -1,0 +1,7 @@
+match result {
+        Ok(()) => 0,
+        Err(e) => {
+            set_last_error(2, &e.to_string());
+            -1
+        }
+    }

@@ -1,0 +1,118 @@
+{#- TypeScript assertion template using Vitest
+
+   Context variables:
+   - assertion_type: assertion type ("equals", "contains", etc.)
+   - field_expr: TypeScript expression for the field
+   - field_is_optional: bool
+   - js_val: JavaScript formatted value string (or empty string)
+   - has_js_val: bool
+   - is_string_val: bool
+   - values_js: array of JavaScript formatted strings
+   - n: number (as u64) or 0
+   - call_expr: method call expression
+   - check: method_result check type
+   - check_js_val: JavaScript formatted check value (or empty string)
+   - has_check_js_val: bool
+   - check_n: number for check (or 0)
+   - field_is_array: bool
+   - use_item_texts: bool (for array string containment)
+#}
+{% if assertion_type == "equals" %}
+{% if is_string_val %}
+{% if field_is_optional %}
+    expect(({{ field_expr }} ?? "").trim()).toBe({{ js_val }});
+{% else %}
+    expect({{ field_expr }}.trim()).toBe({{ js_val }});
+{% endif %}
+{% else %}
+    expect({{ field_expr }}).toBe({{ js_val }});
+{% endif %}
+{% elif assertion_type == "contains" %}
+{% if field_is_array and is_string_val %}
+    expect({{ field_expr }}.some((item) => _alefE2eItemTexts(item).some((text) => text.includes({{ js_val }})))).toBe(true);
+{% elif field_is_optional and is_string_val %}
+    expect({{ field_expr }} ?? "").toContain({{ js_val }});
+{% else %}
+    expect({{ field_expr }}).toContain({{ js_val }});
+{% endif %}
+{% elif assertion_type == "contains_all" %}
+{% for val in values_js %}
+{% if field_is_array and is_string_val %}
+    expect({{ field_expr }}.some((item) => _alefE2eItemTexts(item).some((text) => text.includes({{ val }})))).toBe(true);
+{% else %}
+    expect({{ field_expr }}).toContain({{ val }});
+{% endif %}
+{% endfor %}
+{% elif assertion_type == "not_contains" %}
+{% if field_is_array and is_string_val %}
+    expect({{ field_expr }}.some((item) => _alefE2eItemTexts(item).some((text) => text.includes({{ js_val }})))).toBe(false);
+{% else %}
+    expect({{ field_expr }}).not.toContain({{ js_val }});
+{% endif %}
+{% elif assertion_type == "not_empty" %}
+{# Polymorphic check: strings/arrays use length, objects use defined+non-null. #}
+{# Treats `{}` as "set" — fixture authors use `not_empty` on objects to assert the field is populated, not the object's key-count. #}
+    {
+        const _v = {{ field_expr }};
+        if (typeof _v === "string" || Array.isArray(_v)) {
+            expect(_v.length).toBeGreaterThan(0);
+        } else {
+            expect(_v).toBeDefined();
+            expect(_v).not.toBeNull();
+        }
+    }
+{% elif assertion_type == "is_empty" %}
+    expect(({{ field_expr }} ?? "").length).toBe(0);
+{% elif assertion_type == "contains_any" %}
+{% if field_is_array and is_string_val %}
+    expect([{{ values_js|join(", ") }}].some((v) => {{ field_expr }}.some((item) => _alefE2eItemTexts(item).some((text) => text.includes(v))))).toBe(true);
+{% else %}
+    expect([{{ values_js|join(", ") }}].some((v) => {{ field_expr }}.includes(v))).toBe(true);
+{% endif %}
+{% elif assertion_type == "greater_than" %}
+    expect({{ field_expr }}).toBeGreaterThan({{ js_val }});
+{% elif assertion_type == "less_than" %}
+    expect({{ field_expr }}).toBeLessThan({{ js_val }});
+{% elif assertion_type == "greater_than_or_equal" or assertion_type == "min" %}
+    expect({{ field_expr }}).toBeGreaterThanOrEqual({{ js_val }});
+{% elif assertion_type == "less_than_or_equal" or assertion_type == "max" %}
+    expect({{ field_expr }}).toBeLessThanOrEqual({{ js_val }});
+{% elif assertion_type == "starts_with" %}
+{% if field_is_optional %}
+    expect(({{ field_expr }} ?? "").startsWith({{ js_val }})).toBe(true);
+{% else %}
+    expect({{ field_expr }}.startsWith({{ js_val }})).toBe(true);
+{% endif %}
+{% elif assertion_type == "ends_with" %}
+    expect({{ field_expr }}.endsWith({{ js_val }})).toBe(true);
+{% elif assertion_type == "min_length" %}
+    expect({{ field_expr }}.length).toBeGreaterThanOrEqual({{ n }});
+{% elif assertion_type == "max_length" %}
+    expect({{ field_expr }}.length).toBeLessThanOrEqual({{ n }});
+{% elif assertion_type == "count_min" %}
+    expect({{ field_expr }}.length).toBeGreaterThanOrEqual({{ n }});
+{% elif assertion_type == "count_equals" %}
+    expect({{ field_expr }}.length).toBe({{ n }});
+{% elif assertion_type == "is_true" %}
+    expect({{ field_expr }}).toBe(true);
+{% elif assertion_type == "is_false" %}
+    expect({{ field_expr }}).toBe(false);
+{% elif assertion_type == "method_result" %}
+{% if check == "equals" %}
+    expect({{ call_expr }}).toBe({{ check_js_val }});
+{% elif check == "is_true" %}
+    expect({{ call_expr }}).toBe(true);
+{% elif check == "is_false" %}
+    expect({{ call_expr }}).toBe(false);
+{% elif check == "greater_than_or_equal" %}
+    expect({{ call_expr }}).toBeGreaterThanOrEqual({{ check_n }});
+{% elif check == "count_min" %}
+    expect({{ call_expr }}.length).toBeGreaterThanOrEqual({{ check_n }});
+{% elif check == "contains" %}
+    expect({{ call_expr }}).toContain({{ check_js_val }});
+{% elif check == "is_error" %}
+    expect(() => { {{ call_expr }}; }).toThrow();
+{% endif %}
+{% elif assertion_type == "matches_regex" %}
+    expect({{ field_expr }}).toMatch(/{{ expected_pattern }}/);
+{% endif %}

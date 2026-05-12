@@ -1,0 +1,11 @@
+	jsonBytesRecv, err := json.Marshal({{ receiver_name }})
+	if err != nil {
+		{{ err_action }}
+	}
+	tmpStrRecv := C.CString(string(jsonBytesRecv))
+	cRecv := C.{{ ffi_prefix }}_{{ type_snake }}_from_json(tmpStrRecv)
+	C.free(unsafe.Pointer(tmpStrRecv))
+	if cRecv == nil {
+		{{ from_json_err_action }}
+	}
+	defer C.{{ ffi_prefix }}_{{ type_snake }}_free(cRecv)

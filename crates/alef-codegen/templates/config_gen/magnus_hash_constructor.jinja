@@ -1,0 +1,11 @@
+fn new(args: &[magnus::Value]) -> Result<Self, magnus::Error> {
+    let ruby = unsafe { magnus::Ruby::get_unchecked() };
+    let args = magnus::scan_args::scan_args::<(), (Option<magnus::RHash>,), (), (), (), ()>(args)?;
+    let (kwargs_opt,) = args.optional;
+    let kwargs = kwargs_opt.unwrap_or_else(|| ruby.hash_new());
+    Ok(Self {
+{% for field in fields -%}
+        {{ field.name }}: {{ field.assignment }}
+{% endfor -%}
+    })
+}

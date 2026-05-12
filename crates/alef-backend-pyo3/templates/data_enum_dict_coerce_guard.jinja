@@ -1,0 +1,1 @@
+        {{ name }}=({{ accessor }} if isinstance({{ accessor }}, _rust.{{ enum_name }}) else _rust.{{ enum_name }}({{ accessor }})) if {{ accessor }} is not None else None,

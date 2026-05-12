@@ -11,6 +11,7 @@ pub mod field_access;
 pub mod fixture;
 pub mod format;
 pub mod scaffold;
+pub mod template_env;
 pub mod validate;
 
 use alef_core::backend::GeneratedFile;
@@ -51,10 +52,18 @@ pub fn default_e2e_languages(scaffolded: &[Language]) -> Vec<String> {
 ///
 /// Returns the list of generated files. The caller is responsible for writing
 /// them to disk.
+///
+/// `type_defs` is the IR type registry for the source crate. Pass
+/// `&api.types` from the extracted [`alef_core::ir::ApiSurface`]. It is
+/// forwarded to generators that need to introspect struct field types (e.g.
+/// the TypeScript/WASM backend uses it to auto-derive `nested_types` for
+/// wasm-bindgen class wrapping). Pass an empty slice when the registry is not
+/// available; generators will fall back to explicit call-override mappings.
 pub fn generate_e2e(
     config: &ResolvedCrateConfig,
     e2e_config: &E2eConfig,
     languages: Option<&[String]>,
+    type_defs: &[alef_core::ir::TypeDef],
 ) -> Result<Vec<GeneratedFile>> {
     let fixtures_dir = Path::new(&e2e_config.fixtures);
     let fixtures = load_fixtures(fixtures_dir)
@@ -93,6 +102,18 @@ pub fn generate_e2e(
 
     let all_groups = group_fixtures(&fixtures);
 
+    // Drop categories that are explicitly excluded from cross-language e2e
+    // codegen. These fixtures stay on disk for Rust integration tests but
+    // never reach binding generators.
+    let all_groups: Vec<_> = if e2e_config.exclude_categories.is_empty() {
+        all_groups
+    } else {
+        all_groups
+            .into_iter()
+            .filter(|g| !e2e_config.exclude_categories.contains(&g.category))
+            .collect()
+    };
+
     // In registry mode with a non-empty category filter, keep only the listed
     // categories so the generated test apps contain a curated subset.
     let groups: Vec<_> =
@@ -110,7 +131,7 @@ pub fn generate_e2e(
 
     let mut all_files = Vec::new();
     for generator in &generators {
-        let files = generator.generate(&groups, e2e_config, config)?;
+        let files = generator.generate(&groups, e2e_config, config, type_defs)?;
         info!("  [{}] generated {} file(s)", generator.language_name(), files.len());
         all_files.extend(files);
     }

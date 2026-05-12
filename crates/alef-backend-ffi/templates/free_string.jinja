@@ -1,0 +1,10 @@
+/// Free a string previously returned by this library.
+/// # Safety
+/// Pointer must have been returned by this library, or be null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn {{ prefix }}_free_string(ptr: *mut c_char) {
+    if !ptr.is_null() {
+        // SAFETY: ptr was allocated by CString::into_raw; caller ensures no aliases.
+        unsafe { drop(CString::from_raw(ptr)); }
+    }
+}

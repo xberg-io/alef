@@ -1,9 +1,8 @@
 use alef_codegen::naming::to_java_name;
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{PrimitiveType, TypeRef};
-use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
+use heck::{ToKebabCase, ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use std::collections::HashSet;
-use std::fmt::Write;
 
 /// Names that conflict with methods on `java.lang.Object` and are therefore
 /// illegal as record component names or method names in generated Java code.
@@ -182,21 +181,21 @@ pub(crate) fn emit_javadoc(out: &mut String, doc: &str, indent: &str) {
     if transformed.is_empty() {
         return;
     }
-    writeln!(out, "{indent}/**").ok();
-    for line in transformed.lines() {
-        // trim_end() ensures lines that are whitespace-only or escape to
-        // empty don't emit ` * \n` (trailing space) — that would conflict
-        // with the prek `trailing-whitespace` hook downstream and break the
-        // `alef-verify` hash on regenerate.
-        let escaped = escape_javadoc_line(line);
-        let trimmed = escaped.trim_end();
-        if trimmed.is_empty() {
-            writeln!(out, "{indent} *").ok();
-        } else {
-            writeln!(out, "{indent} * {trimmed}").ok();
-        }
-    }
-    writeln!(out, "{indent} */").ok();
+    out.push_str(indent);
+    out.push_str("/**\n");
+    let lines: Vec<String> = transformed
+        .lines()
+        .map(|line| escape_javadoc_line(line).trim_end().to_string())
+        .collect();
+    out.push_str(&crate::template_env::render(
+        "javadoc_lines.jinja",
+        minijinja::context! {
+            indent => indent,
+            lines => lines,
+        },
+    ));
+    out.push_str(indent);
+    out.push_str(" */\n");
 }
 
 /// Maximum line length before splitting record fields across multiple lines.
@@ -209,6 +208,8 @@ pub(crate) fn java_apply_rename_all(name: &str, rename_all: Option<&str>) -> Str
         Some("camelCase") => name.to_lower_camel_case(),
         Some("PascalCase") => name.to_pascal_case(),
         Some("SCREAMING_SNAKE_CASE") => name.to_snake_case().to_uppercase(),
+        Some("kebab-case") => name.to_kebab_case(),
+        Some("SCREAMING-KEBAB-CASE") => name.to_kebab_case().to_uppercase(),
         Some("lowercase") => name.to_lowercase(),
         Some("UPPERCASE") => name.to_uppercase(),
         _ => name.to_lowercase(),

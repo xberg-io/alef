@@ -1,0 +1,1 @@
+Arc::new({% if needs_mutex %}std::sync::Mutex::new({{ val }}){% else %}{{ val }}{% endif %})

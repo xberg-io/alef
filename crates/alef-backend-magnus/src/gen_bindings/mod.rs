@@ -2,6 +2,7 @@
 
 mod classes;
 pub mod functions;
+mod streaming;
 
 use ahash::AHashSet;
 use alef_codegen::builder::RustFileBuilder;
@@ -86,7 +87,8 @@ impl Backend for MagnusBackend {
             "allow(clippy::too_many_arguments, clippy::let_unit_value, clippy::needless_borrow, \
              clippy::map_identity, clippy::just_underscores_and_digits, clippy::unnecessary_cast, \
              clippy::unused_unit, clippy::unwrap_or_default, clippy::derivable_impls, \
-             clippy::needless_borrows_for_generic_args, clippy::unnecessary_fallible_conversions)",
+             clippy::needless_borrows_for_generic_args, clippy::unnecessary_fallible_conversions, \
+             clippy::type_complexity, clippy::useless_conversion, clippy::clone_on_copy)",
         );
         builder.add_import(
             "magnus::{function, method, prelude::*, Error, Ruby, IntoValueFromNative, try_convert::TryConvertOwned}",
@@ -112,6 +114,43 @@ impl Backend for MagnusBackend {
 
         // Compute module name early so it can be used for class paths in #[magnus::wrap]
         let module_name = get_module_name(&api.crate_name);
+
+        // Collect streaming adapters: for each, we generate a custom iterator
+        // wrapper struct + an instance method on the owning opaque type that
+        // drives the Rust core stream natively (yielding to Ruby blocks /
+        // returning an Enumerator). The default async-stub emission is bypassed
+        // for these methods.
+        let streaming_adapters: Vec<streaming::StreamingAdapter<'_>> = config
+            .adapters
+            .iter()
+            .filter_map(|a| streaming::StreamingAdapter::from_config(a, &module_name, &core_import))
+            .collect();
+        let streaming_method_names: AHashSet<String> = streaming_adapters.iter().map(|a| a.name.to_string()).collect();
+        let mut streaming_methods_by_owner: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
+        for adapter in &streaming_adapters {
+            streaming_methods_by_owner
+                .entry(adapter.owner_type.to_string())
+                .or_default()
+                .push(adapter.name.to_string());
+        }
+        let mut streaming_method_registrations: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
+        for adapter in &streaming_adapters {
+            streaming_method_registrations
+                .entry(adapter.owner_type.to_string())
+                .or_default()
+                .push(streaming::gen_streaming_method_registration(adapter));
+        }
+        let mut streaming_iterator_registrations: Vec<String> = Vec::new();
+        for adapter in &streaming_adapters {
+            streaming_iterator_registrations.extend(streaming::gen_iterator_registration(adapter));
+        }
+
+        // Add imports needed by the streaming generators.
+        if !streaming_adapters.is_empty() {
+            builder.add_import("futures::StreamExt as _");
+        }
 
         // Custom module declarations
         let custom_mods = config.custom_modules.for_language(Language::Ruby);
@@ -176,19 +215,59 @@ impl Backend for MagnusBackend {
             .map(|t| t.name.as_str())
             .collect();
 
+        // Emit a single module-level `default_timeout` helper when any struct field
+        // references it (per the `request_timeout` / `timeout` u64 default pattern in
+        // struct_def.rs.jinja). Skipping this when no struct uses it avoids dead-code
+        // warnings; emitting it here (rather than per-struct) avoids duplicate
+        // definitions when multiple structs share the helper.
+        let needs_default_timeout = api.types.iter().filter(|t| !t.is_trait && !t.is_opaque).any(|t| {
+            t.fields.iter().any(|f| {
+                let is_timeout_named = f.name == "request_timeout" || f.name == "timeout";
+                let is_u64_or_duration = matches!(
+                    f.ty,
+                    alef_core::ir::TypeRef::Primitive(alef_core::ir::PrimitiveType::U64)
+                        | alef_core::ir::TypeRef::Duration
+                );
+                is_timeout_named && is_u64_or_duration
+            })
+        });
+        if needs_default_timeout {
+            builder.add_item("fn default_timeout() -> u64 {\n    30000\n}");
+        }
+
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if exclude_types.contains(typ.name.as_str()) {
                 continue;
             }
             if typ.is_opaque {
                 builder.add_item(&classes::gen_opaque_struct(typ, &core_import, &module_name));
-                builder.add_item(&classes::gen_opaque_struct_methods(typ, &mapper, &opaque_types));
+                builder.add_item(&classes::gen_opaque_struct_methods(
+                    typ,
+                    &mapper,
+                    &opaque_types,
+                    &streaming_method_names,
+                ));
+                // Append streaming methods in a separate impl block so they sit
+                // alongside the auto-generated ones for this owner type.
+                let owner_streaming: Vec<&streaming::StreamingAdapter<'_>> =
+                    streaming_adapters.iter().filter(|a| a.owner_type == typ.name).collect();
+                if !owner_streaming.is_empty() {
+                    let mut impl_block = format!("impl {} {{\n", typ.name);
+                    for adapter in &owner_streaming {
+                        impl_block.push_str(&streaming::gen_streaming_method_body(adapter));
+                    }
+                    impl_block.push_str("}\n");
+                    builder.add_item(&impl_block);
+                }
             } else {
                 let generates_default =
                     typ.has_default && alef_codegen::generators::can_generate_default_impl(typ, &default_types);
                 builder.add_item(&classes::gen_struct(typ, &mapper, &module_name, api, generates_default));
                 if generates_default {
-                    builder.add_item(&alef_codegen::generators::gen_struct_default_impl(typ, ""));
+                    // Use Magnus-specific Default impl that delegates to core type's Default
+                    // instead of field-level defaults. This preserves core semantics
+                    // (e.g., SecurityLimits::default() returns proper limits, not 0).
+                    builder.add_item(&classes::gen_magnus_default_impl(typ, &core_import));
                 }
                 builder.add_item(&classes::gen_struct_methods(
                     typ,
@@ -277,6 +356,18 @@ impl Backend for MagnusBackend {
                     &config.error_constructor_expr(),
                     api,
                 );
+                let bridge_debug_count = bridge_code.matches("impl std::fmt::Debug").count();
+                if bridge_debug_count != 1 {
+                    eprintln!(
+                        "[ALEF BUG] gen_trait_bridge returned {} Debug impls (expected 1) for {}",
+                        bridge_debug_count, bridge_cfg.trait_name
+                    );
+                } else {
+                    eprintln!(
+                        "[ALEF OK] gen_trait_bridge returned {} Debug impl for {}",
+                        bridge_debug_count, bridge_cfg.trait_name
+                    );
+                }
                 builder.add_item(&bridge_code);
             }
         }
@@ -369,12 +460,22 @@ impl Backend for MagnusBackend {
         // Build adapter body map (consumed by generators via body substitution)
         let _adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::Ruby)?;
 
+        // Emit streaming iterator wrapper structs (e.g. ChatStreamIterator) plus
+        // their inherent `next_chunk` / `each` methods. These are appended after
+        // all opaque types so the iterator type names cannot shadow user types.
+        for adapter in &streaming_adapters {
+            builder.add_item(&streaming::gen_iterator_struct(adapter));
+        }
+
         builder.add_item(&functions::gen_module_init(
             &module_name,
             api,
             config,
             &exclude_functions,
             &exclude_types,
+            &streaming_methods_by_owner,
+            &streaming_iterator_registrations,
+            &streaming_method_registrations,
         ));
 
         let content = builder.build();
@@ -430,31 +531,70 @@ impl Backend for MagnusBackend {
 
         // Generate the main Ruby wrapper module file
         let mut content = hash::header(CommentStyle::Hash);
-        content.push_str("# frozen_string_literal: true\n\n");
-        content.push_str(&format!("require_relative '{gem_name_snake}/version'\n"));
-        content.push_str(&format!("require_relative '{gem_name_snake}/native'\n\n"));
-        content.push_str(&format!("module {module_name}\n"));
-        content.push_str("  # Re-export all types and functions from native extension\n");
-        content.push_str("end\n");
+        content.push_str(
+            crate::template_env::render(
+                "main_rb_wrapper.rb.jinja",
+                minijinja::context! {
+                    gem_name_snake => gem_name_snake,
+                    module_name => module_name,
+                },
+            )
+            .trim_end_matches('\n'),
+        );
+        content.push('\n');
 
         // Generate the native.rb file that requires the extension and re-exports its symbols
         let native_module_name = get_module_name(&api.crate_name);
         let mut native_content = hash::header(CommentStyle::Hash);
-        native_content.push_str("# frozen_string_literal: true\n\n");
-        native_content.push_str("require 'json'\n");
-        native_content.push_str(&format!("require '{ext_name}'\n\n"));
-        native_content.push_str(&format!("module {module_name}\n"));
-        native_content.push_str("  # Re-export all public module functions from the native extension\n");
-        native_content.push_str(&format!("  {native_module_name}.methods(false).each do |m|\n"));
-        native_content.push_str(&format!("    define_singleton_method(m) {{ |*args, **kwargs, &blk| {native_module_name}.public_send(m, *args, **kwargs, &blk) }}\n"));
-        native_content.push_str("  end\n\n");
-        native_content.push_str("  # Re-export all constants (classes, structs, etc.) from the native extension\n");
-        native_content.push_str(&format!("  {native_module_name}.constants.each do |c|\n"));
-        native_content.push_str(&format!(
-            "    const_set(c, {native_module_name}.const_get(c)) unless const_defined?(c)\n"
-        ));
+        native_content.push_str(
+            crate::template_env::render(
+                "native_rb_wrapper.rb.jinja",
+                minijinja::context! {
+                    ext_name => ext_name,
+                    module_name => module_name,
+                    native_module_name => native_module_name,
+                },
+            )
+            .trim_end_matches('\n'),
+        );
+
+        // Add Hash monkey-patch for internally-tagged enum accessors and field access
+        native_content
+            .push_str("\n\n# Add accessor methods to Hash-based internally-tagged enum instances\nclass Hash\n");
+        native_content.push_str("  # Support internally-tagged enum accessors like format.excel, format.email, etc.\n");
+        native_content.push_str("  # Also support direct field access like format.sheet_count\n");
+        native_content.push_str("  # rubocop:disable Metrics/CyclomaticComplexity\n");
+        native_content.push_str("  def method_missing(method_name, *args, &block)\n");
+        native_content.push_str("    # Try symbol key first (how Magnus converts JSON keys)\n");
+        native_content.push_str("    return self[method_name] if key?(method_name)\n\n");
+        native_content.push_str("    # Try string key\n");
+        native_content.push_str("    return self[method_name.to_s] if key?(method_name.to_s)\n\n");
+        native_content
+            .push_str("    # Check if this hash has a 'format_type' field (indicating an internally-tagged enum)\n");
+        native_content.push_str("    format_type = self[:'format_type'] || self['format_type']\n");
+        native_content.push_str("    return super unless format_type\n\n");
+        native_content.push_str("    # If the method name matches the format_type (snake_case), extract and return the variant's wrapped data\n");
+        native_content.push_str("    # Internally-tagged enums store variant data in the '_0' field (from alef's struct variant conversion)\n");
+        native_content.push_str(
+            "    # This allows format.excel to return the ExcelMetadata hash with sheet_count, sheet_names, etc.\n",
+        );
+        native_content.push_str("    snake_case_method = method_name.to_s.downcase\n");
+        native_content.push_str("    if snake_case_method == format_type.to_s.downcase\n");
+        native_content.push_str("      return self[:'_0'] || self['_0'] || self\n");
+        native_content.push_str("    end\n\n");
+        native_content.push_str("    super\n");
+        native_content.push_str("  end\n");
+        native_content.push_str("  # rubocop:enable Metrics/CyclomaticComplexity\n\n");
+        native_content.push_str("  def respond_to_missing?(method_name, include_private = false)\n");
+        native_content.push_str("    return true if key?(method_name) || key?(method_name.to_s)\n\n");
+        native_content.push_str("    format_type = self[:'format_type'] || self['format_type']\n");
+        native_content.push_str("    return false unless format_type\n\n");
+        native_content.push_str("    snake_case_method = method_name.to_s.downcase\n");
+        native_content.push_str("    snake_case_method == format_type.to_s.downcase || super\n");
         native_content.push_str("  end\n");
         native_content.push_str("end\n");
+
+        native_content.push('\n');
 
         // Generate the version file. RubyGems rejects cargo's dash-form prerelease
         // syntax (e.g. `Gem::Version.new("1.8.0-rc.2")` raises), so write the
@@ -468,10 +608,17 @@ impl Backend for MagnusBackend {
         let version = alef_core::version::to_rubygems_prerelease(&cargo_version);
 
         let mut version_content = hash::header(CommentStyle::Hash);
-        version_content.push_str("# frozen_string_literal: true\n\n");
-        version_content.push_str(&format!("module {module_name}\n"));
-        version_content.push_str(&format!("  VERSION = '{version}'\n"));
-        version_content.push_str("end\n");
+        version_content.push_str(
+            crate::template_env::render(
+                "version_rb_wrapper.rb.jinja",
+                minijinja::context! {
+                    module_name => module_name,
+                    version => version,
+                },
+            )
+            .trim_end_matches('\n'),
+        );
+        version_content.push('\n');
 
         let output_dir = resolve_output_dir(config.output_paths.get("ruby_lib"), &config.name, "packages/ruby/lib/");
 
@@ -554,6 +701,8 @@ gem_name = "test_lib"
                     core_wrapper: CoreWrapper::None,
                     vec_inner_core_wrapper: CoreWrapper::None,
                     newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
                 }],
                 methods: vec![],
                 is_opaque: false,
@@ -587,6 +736,7 @@ gem_name = "test_lib"
             }],
             enums: vec![],
             errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         }
     }
 

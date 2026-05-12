@@ -1,0 +1,6 @@
+/// Convert a `{{ rust_path }}` error to a Magnus runtime error.
+#[allow(dead_code)]
+fn {{ fn_name }}(e: {{ rust_path }}) -> magnus::Error {
+    let msg = e.to_string();
+    magnus::Error::new(unsafe { magnus::Ruby::get_unchecked() }.exception_runtime_error(), msg)
+}

@@ -30,6 +30,11 @@ pub struct ConversionConfig<'a> {
     /// Core→binding uses `.to_string()`, binding→core uses `Default::default()` (lossy).
     /// Used by PHP where serde_json::Value can't cross the extension boundary.
     pub json_to_string: bool,
+    /// When true, Json fields stay as `serde_json::Value` in the binding layer (no wrapping).
+    /// Core↔binding conversions are identity since both sides hold the same type.
+    /// Used by NAPI (with `serde-json` feature) so JS callers can pass arbitrary objects
+    /// directly without first stringifying them.
+    pub json_as_value: bool,
     /// When true, add synthetic metadata field conversion for ConversionResult.
     /// Only NAPI backend sets this (it adds metadata field to the struct).
     pub include_cfg_metadata: bool,
@@ -88,6 +93,16 @@ pub struct ConversionConfig<'a> {
     /// extendr uses f64 for large integers because R has no native 64-bit integer type.
     /// Binding→core: `as usize`/`as u64` casts; core→binding: `as f64` casts.
     pub cast_large_ints_to_f64: bool,
+    /// Names of untagged data enums (`#[serde(untagged)]` with at least one data variant —
+    /// e.g. `Single(String) | Multiple(Vec<String>)`). Fields referencing these types are
+    /// stored as `serde_json::Value` in the binding struct (the wire JSON shape varies per
+    /// variant, so we accept any value at the boundary). Used by the PHP backend; ext-php-rs
+    /// has no `FromZval`/`IntoZval` for typed Rust enums with mixed-shape variants, and the
+    /// only safe wire format is JSON-via-Value. Conversions:
+    ///
+    ///   - core→binding: `serde_json::to_value(val.<name>).unwrap_or_default()`
+    ///   - binding→core: `serde_json::from_value(val.<name>).unwrap_or_default()`
+    pub untagged_data_enum_names: Option<&'a AHashSet<String>>,
 }
 
 impl<'a> ConversionConfig<'a> {
@@ -165,6 +180,8 @@ mod tests {
                     core_wrapper: CoreWrapper::None,
                     vec_inner_core_wrapper: CoreWrapper::None,
                     newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
                 },
                 FieldDef {
                     name: "timeout".into(),
@@ -180,6 +197,8 @@ mod tests {
                     core_wrapper: CoreWrapper::None,
                     vec_inner_core_wrapper: CoreWrapper::None,
                     newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
                 },
                 FieldDef {
                     name: "backend".into(),
@@ -195,6 +214,8 @@ mod tests {
                     core_wrapper: CoreWrapper::None,
                     vec_inner_core_wrapper: CoreWrapper::None,
                     newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
                 },
             ],
             methods: vec![],
@@ -241,6 +262,7 @@ mod tests {
             is_copy: false,
             has_serde: false,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
         }
     }
@@ -299,6 +321,8 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         });
 
         let result = gen_from_binding_to_core(&typ, "my_crate");
@@ -332,6 +356,8 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         });
 
         let result = gen_from_core_to_binding(&typ, "my_crate", &AHashSet::new());
@@ -474,6 +500,8 @@ mod tests {
                 core_wrapper: CoreWrapper::Cow,
                 vec_inner_core_wrapper: CoreWrapper::None,
                 newtype_wrapper: None,
+                serde_rename: None,
+                serde_flatten: false,
             },
             FieldDef {
                 name: "structure".into(),
@@ -489,6 +517,8 @@ mod tests {
                 core_wrapper: CoreWrapper::None,
                 vec_inner_core_wrapper: CoreWrapper::None,
                 newtype_wrapper: None,
+                serde_rename: None,
+                serde_flatten: false,
             },
         ];
         let config = ConversionConfig {
@@ -542,6 +572,8 @@ mod tests {
             core_wrapper: CoreWrapper::Arc,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         }
     }
 

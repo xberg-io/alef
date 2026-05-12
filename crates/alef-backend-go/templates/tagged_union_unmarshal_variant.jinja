@@ -1,0 +1,3 @@
+	case "{{ wire_value }}":
+		t.{{ variant_go_name }} = &{{ go_struct_type }}{}
+		return json.Unmarshal(data, t.{{ variant_go_name }})

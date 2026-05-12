@@ -23,9 +23,11 @@ pub(crate) fn emit_default_construction_body(
     exclude_fields: &HashSet<String>,
 ) -> String {
     let mut out = String::new();
-    out.push_str(&format!(
-        "        let mut __target: {} = ::std::default::Default::default();\n",
-        source_path
+    out.push_str(&crate::template_env::render(
+        "default_construction_let_mut.jinja",
+        minijinja::context! {
+            source_path => source_path,
+        },
     ));
     for f in &ty.fields {
         let name = f.name.to_snake_case();
@@ -36,8 +38,11 @@ pub(crate) fn emit_default_construction_body(
         // Explicitly excluded fields: leave at Default::default() silently.
         let field_key = format!("{}.{}", ty.name, name);
         if exclude_fields.contains(&field_key) {
-            out.push_str(&format!(
-                "        // alef: excluded field `{name}` — actual type is not serializable, left at default\n"
+            out.push_str(&crate::template_env::render(
+                "default_field_excluded_comment.jinja",
+                minijinja::context! {
+                    name => &name,
+                },
             ));
             continue;
         }
@@ -63,19 +68,22 @@ pub(crate) fn emit_default_construction_body(
         if excluded_inner.is_some() {
             // The inner type is excluded (e.g. InternalDocument — no serde derive).
             // Leave the field at its Default value; the serde bridge can't work.
-            out.push_str(&format!(
-                "        // alef: skipped — field `{name}` contains excluded type, left at default\n"
+            out.push_str(&crate::template_env::render(
+                "default_field_inner_excluded.jinja",
+                minijinja::context! {
+                    name => &name,
+                },
             ));
         } else if needs_json_bridge(&f.ty) {
             // JSON-decode into a serde_json::Value, then assign as JSON-deserialized
             // typed value via reinterpret.
-            out.push_str(&format!(
-                "        if let Ok(v) = ::serde_json::from_str::<::serde_json::Value>(&{param}) {{\n"
+            out.push_str(&crate::template_env::render(
+                "default_field_json_bridge_read.jinja",
+                minijinja::context! {
+                    param => &param,
+                    name => &name,
+                },
             ));
-            out.push_str(&format!(
-                "            if let Ok(t) = ::serde_json::from_value(v) {{ __target.{name} = t; }}\n"
-            ));
-            out.push_str("        }\n");
         } else if let TypeRef::Named(n) = &f.ty {
             // Enum wrappers only have From<kreuzberg::T> for BridgeT (not the reverse),
             // so we cannot convert a bridge enum back to the source type via .into().
@@ -85,32 +93,66 @@ pub(crate) fn emit_default_construction_body(
             let is_enum = enum_names.contains(n.as_str());
             if is_enum {
                 // alef: enum fields in constructors are not converted back — leave at default
-                out.push_str(&format!(
-                    "        // alef: {name} ({n}) is an enum; reverse From not generated — left at default\n"
+                out.push_str(&crate::template_env::render(
+                    "default_field_enum_assign.jinja",
+                    minijinja::context! {
+                        name => &name,
+                        type_name => n,
+                    },
                 ));
             } else if f.optional {
                 // Optional Named field; wrap in Some(w.0), Box::new, or Arc::new if needed.
                 if f.is_boxed {
-                    out.push_str(&format!(
-                        "        if let Some(w) = {param} {{ __target.{name} = Some(Box::new(w.0)); }}\n"
+                    out.push_str(&crate::template_env::render(
+                        "default_field_optional_boxed_assign.jinja",
+                        minijinja::context! {
+                            param => &param,
+                            name => &name,
+                        },
                     ));
                 } else if matches!(f.core_wrapper, CoreWrapper::Arc) {
-                    out.push_str(&format!(
-                        "        if let Some(w) = {param} {{ __target.{name} = Some(std::sync::Arc::new(w.0)); }}\n"
+                    out.push_str(&crate::template_env::render(
+                        "default_field_optional_arc_assign.jinja",
+                        minijinja::context! {
+                            param => &param,
+                            name => &name,
+                        },
                     ));
                 } else {
-                    out.push_str(&format!(
-                        "        if let Some(w) = {param} {{ __target.{name} = Some(w.0); }}\n"
+                    out.push_str(&crate::template_env::render(
+                        "default_field_optional_plain_assign.jinja",
+                        minijinja::context! {
+                            param => &param,
+                            name => &name,
+                        },
                     ));
                 }
             } else if f.is_boxed {
                 // The source field is Box<T>; wrap in Box::new().
-                out.push_str(&format!("        __target.{name} = Box::new({param}.0);\n"));
+                out.push_str(&crate::template_env::render(
+                    "default_field_boxed_assign.jinja",
+                    minijinja::context! {
+                        param => &param,
+                        name => &name,
+                    },
+                ));
             } else if matches!(f.core_wrapper, CoreWrapper::Arc) {
                 // The source field is Arc<T>; wrap in Arc::new().
-                out.push_str(&format!("        __target.{name} = std::sync::Arc::new({param}.0);\n"));
+                out.push_str(&crate::template_env::render(
+                    "default_field_arc_assign.jinja",
+                    minijinja::context! {
+                        param => &param,
+                        name => &name,
+                    },
+                ));
             } else {
-                out.push_str(&format!("        __target.{name} = {param}.0;\n"));
+                out.push_str(&crate::template_env::render(
+                    "default_field_plain_assign.jinja",
+                    minijinja::context! {
+                        param => &param,
+                        name => &name,
+                    },
+                ));
             }
         } else if let TypeRef::Vec(inner) = &f.ty {
             // Vec<Named> fields: unwrap bridge wrappers element-wise.
@@ -118,8 +160,12 @@ pub(crate) fn emit_default_construction_body(
             if let TypeRef::Named(inner_n) = inner.as_ref() {
                 let is_enum = enum_names.contains(inner_n.as_str());
                 if is_enum {
-                    out.push_str(&format!(
-                        "        // alef: {name} (Vec<{inner_n}>) contains enum elements — left at default\n"
+                    out.push_str(&crate::template_env::render(
+                        "default_field_vec_named_enum_skip.jinja",
+                        minijinja::context! {
+                            name => &name,
+                            inner_name => inner_n,
+                        },
                     ));
                 } else {
                     // When the source field is Vec<Arc<T>>, wrap each element in Arc::new().
@@ -128,12 +174,22 @@ pub(crate) fn emit_default_construction_body(
                         _ => "w.0".to_string(),
                     };
                     if f.optional {
-                        out.push_str(&format!(
-                            "        if let Some(v) = {param} {{ __target.{name} = Some(v.into_iter().map(|w| {unwrap_expr}).collect()); }}\n"
+                        out.push_str(&crate::template_env::render(
+                            "default_field_vec_named_unwrap.jinja",
+                            minijinja::context! {
+                                param => &param,
+                                name => &name,
+                                unwrap_expr => &unwrap_expr,
+                            },
                         ));
                     } else {
-                        out.push_str(&format!(
-                            "        __target.{name} = {param}.into_iter().map(|w| {unwrap_expr}).collect();\n"
+                        out.push_str(&crate::template_env::render(
+                            "default_field_vec_named_unwrap_plain.jinja",
+                            minijinja::context! {
+                                param => &param,
+                                name => &name,
+                                unwrap_expr => &unwrap_expr,
+                            },
                         ));
                     }
                 }
@@ -144,21 +200,30 @@ pub(crate) fn emit_default_construction_body(
                 // target field type is inferred from __target.{name}. This handles
                 // Vec→Option<Vec>, Vec<String>→Vec<OtherType>, etc. gracefully:
                 // the deserialized JSON is coerced to whatever type kreuzberg uses.
-                out.push_str(&format!(
-                    "        if let Ok(__v) = ::serde_json::to_value({param}) {{\n"
+                out.push_str(&crate::template_env::render(
+                    "default_field_vec_serde_round_trip.jinja",
+                    minijinja::context! {
+                        param => &param,
+                        name => &name,
+                    },
                 ));
-                out.push_str(&format!(
-                    "            if let Ok(t) = ::serde_json::from_value(__v) {{ __target.{name} = t; }}\n"
-                ));
-                out.push_str("        }\n");
             } else if matches!(inner.as_ref(), TypeRef::Primitive(_) | TypeRef::Bytes) {
                 // Vec<Primitive> or Vec<Bytes> in non-serde struct: types should match.
-                out.push_str(&format!("        __target.{name} = {param};\n"));
+                out.push_str(&crate::template_env::render(
+                    "default_field_vec_primitive_assign.jinja",
+                    minijinja::context! {
+                        param => &param,
+                        name => &name,
+                    },
+                ));
             } else {
                 // Vec<non-Primitive> in non-serde struct: actual type may differ from IR.
                 // Leave at Default to avoid type mismatches.
-                out.push_str(&format!(
-                    "        // alef: {name} — Vec field type may differ from IR in non-serde struct, left at default\n"
+                out.push_str(&crate::template_env::render(
+                    "default_field_vec_non_primitive_comment.jinja",
+                    minijinja::context! {
+                        name => &name,
+                    },
                 ));
             }
         } else if matches!(f.ty, TypeRef::String | TypeRef::Path | TypeRef::Char | TypeRef::Json) {
@@ -168,33 +233,51 @@ pub(crate) fn emit_default_construction_body(
             // likely a non-serde type — leave at default to avoid compile errors.
             // Bytes (Vec<u8>) is excluded: bridges as Vec<u8> directly, not String.
             if !ty.has_serde {
-                out.push_str(&format!(
-                    "        // alef: {name} — String fallback in non-serde struct, left at default\n"
+                out.push_str(&crate::template_env::render(
+                    "default_field_string_like_non_serde_comment.jinja",
+                    minijinja::context! { name => &name },
                 ));
             } else if f.optional {
-                out.push_str(&format!("        if let Some(s) = {param} {{\n"));
-                out.push_str("            if let Ok(v) = ::serde_json::from_str::<::serde_json::Value>(&s) {\n");
-                out.push_str(&format!(
-                    "                if let Ok(t) = ::serde_json::from_value(v) {{ __target.{name} = Some(t); }}\n"
+                out.push_str(&crate::template_env::render(
+                    "default_field_string_like_optional_serde.jinja",
+                    minijinja::context! { param => &param, name => &name },
                 ));
-                out.push_str("            }\n        }\n");
             } else {
-                out.push_str(&format!(
-                    "        if let Ok(v) = ::serde_json::from_str::<::serde_json::Value>(&{param}) {{\n"
+                out.push_str(&crate::template_env::render(
+                    "default_field_string_like_serde.jinja",
+                    minijinja::context! { param => &param, name => &name },
                 ));
-                out.push_str(&format!(
-                    "            if let Ok(t) = ::serde_json::from_value(v) {{ __target.{name} = t; }}\n"
-                ));
-                out.push_str("        }\n");
             }
         } else if matches!(f.ty, TypeRef::Bytes) {
             // bytes::Bytes != Vec<u8>; convert with .into() so the assignment compiles.
-            out.push_str(&format!("        __target.{name} = {name}.into();\n"));
+            out.push_str(&crate::template_env::render(
+                "default_field_bytes_assign.jinja",
+                minijinja::context! { name => &name },
+            ));
+        } else if matches!(f.ty, TypeRef::Duration) {
+            // Duration bridges as u64 (millis) but the field type is std::time::Duration.
+            if f.optional {
+                out.push_str(&crate::template_env::render(
+                    "default_field_optional_duration_assign.jinja",
+                    minijinja::context! { param => &param, name => &name },
+                ));
+            } else {
+                out.push_str(&crate::template_env::render(
+                    "default_field_duration_assign.jinja",
+                    minijinja::context! { param => &param, name => &name },
+                ));
+            }
         } else {
-            out.push_str(&format!("        __target.{name} = {param};\n"));
+            out.push_str(&crate::template_env::render(
+                "default_field_generic_assign.jinja",
+                minijinja::context! { name => &name, param => &param },
+            ));
         }
     }
-    out.push_str(&format!("        {}(__target)\n", ty.name));
+    out.push_str(&crate::template_env::render(
+        "dc_construct_target.jinja",
+        minijinja::context! { ty_name => &ty.name },
+    ));
     out
 }
 
@@ -298,6 +381,13 @@ pub(crate) fn emit_direct_field_inits(
             } else if matches!(f.ty, TypeRef::Bytes) {
                 // bytes::Bytes != Vec<u8>; convert with .into().
                 format!("            {name}: {name}.into()")
+            } else if matches!(f.ty, TypeRef::Duration) {
+                // Duration bridges as u64 (millis); convert back to std::time::Duration.
+                if f.optional {
+                    format!("            {name}: {name}.map(std::time::Duration::from_millis)")
+                } else {
+                    format!("            {name}: std::time::Duration::from_millis({name})")
+                }
             } else {
                 format!("            {name}")
             }

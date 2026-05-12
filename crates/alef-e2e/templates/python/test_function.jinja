@@ -1,0 +1,34 @@
+{#- Python test function template
+
+   Context variables:
+   - skip_decorator: skip decorator line (or empty string)
+   - async_decorator: @pytest.mark.asyncio (or empty string)
+   - async_kw: "async " (or empty string)
+   - fn_name: function name without test_ prefix
+   - docstring: function docstring with period
+   - visitor_class: visitor class definition (or empty string)
+   - arg_bindings: string containing all argument binding lines
+   - call_expr: the function call expression
+   - is_error_assertion: bool
+   - error_assertion_block: error assertion code (or empty string)
+   - result_assertions: string containing result and all assertions
+#}
+{% if skip_decorator %}
+{{ skip_decorator }}
+{% endif %}
+{% if async_decorator %}
+{{ async_decorator }}
+{% endif %}
+{{ async_kw }}def test_{{ fn_name }}() -> None:
+    """{{ docstring }}"""
+{% if visitor_class %}
+{{ visitor_class }}
+{% endif %}
+{% if arg_bindings %}
+{{ arg_bindings }}
+{% endif %}
+{% if is_error_assertion %}
+{{ error_assertion_block }}
+{% else %}
+{{ result_assertions }}
+{% endif %}

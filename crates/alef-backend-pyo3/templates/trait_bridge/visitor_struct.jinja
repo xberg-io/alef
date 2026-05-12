@@ -1,0 +1,10 @@
+#[derive(Debug)]
+pub struct {{ struct_name }} {
+    python_obj: Py<PyAny>,
+}
+
+impl {{ struct_name }} {
+    pub fn new(python_obj: Py<PyAny>) -> Self {
+        Self { python_obj }
+    }
+}

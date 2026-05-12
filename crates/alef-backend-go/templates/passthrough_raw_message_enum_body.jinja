@@ -1,0 +1,21 @@
+// Variants: {{ variants }}
+
+type {{ enum_name }} json.RawMessage
+
+// MarshalJSON returns the stored bytes unchanged.
+func (e {{ enum_name }}) MarshalJSON() ([]byte, error) {
+	if len(e) == 0 {
+		return []byte("null"), nil
+	}
+	return []byte(e), nil
+}
+
+// UnmarshalJSON stores the raw bytes for round-trip serialization.
+func (e *{{ enum_name }}) UnmarshalJSON(data []byte) error {
+	if e == nil {
+		return nil
+	}
+	*e = make({{ enum_name }}, len(data))
+	copy(*e, data)
+	return nil
+}

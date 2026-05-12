@@ -1,0 +1,9 @@
+impl From<{{ core_path }}> for {{ binding_name }} {
+    fn from(val: {{ core_path }}) -> Self {
+        match val {
+{%- for arm in arms %}
+            {{ arm }}
+{%- endfor %}
+        }
+    }
+}

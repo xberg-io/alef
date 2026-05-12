@@ -35,6 +35,18 @@ pub(crate) fn scaffold_ruby_cargo(
         }
         all_deps.push_str("async-trait = \"0.1\"");
     }
+    // Streaming adapters require `futures` (BoxStream + StreamExt) in the
+    // generated Magnus iterator wrapper.
+    let has_streaming_adapter = config
+        .adapters
+        .iter()
+        .any(|a| matches!(a.pattern, alef_core::config::AdapterPattern::Streaming));
+    if has_streaming_adapter && !all_deps.contains("futures") {
+        if !all_deps.is_empty() {
+            all_deps.push('\n');
+        }
+        all_deps.push_str("futures = \"0.3\"");
+    }
 
     let extra_deps_section = if all_deps.is_empty() {
         String::new()

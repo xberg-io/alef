@@ -1,0 +1,36 @@
+/// Unregister a previously registered C plugin by name.
+///
+/// # Parameters
+///
+/// - `name`: null-terminated UTF-8 plugin name. Must not be null.
+/// - `out_error`: receives a heap-allocated error string on failure.
+///
+/// # Safety
+///
+/// `name` must point to a valid null-terminated C string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn {{ full_unregister_name }}(
+    name: *const std::ffi::c_char,
+    out_error: *mut *mut std::ffi::c_char,
+) -> i32 {
+    if name.is_null() {
+        ffi_set_out_error(out_error, "name must not be null");
+        return 1;
+    }
+    // SAFETY: name is non-null (checked above); it points to a valid C string.
+    let plugin_name = match unsafe { std::ffi::CStr::from_ptr(name) }.to_str() {
+        Ok(s) => s,
+        Err(_) => {
+            ffi_set_out_error(out_error, "name is not valid UTF-8");
+            return 1;
+        }
+    };
+
+    let registry = {{ registry_getter }}();
+    let mut registry = registry.write();
+    if let Err(e) = registry.remove(plugin_name) {
+        ffi_set_out_error(out_error, &e.to_string());
+        return 1;
+    }
+    0
+}

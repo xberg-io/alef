@@ -9,7 +9,6 @@ use alef_core::config::{BridgeBinding, TraitBridgeConfig};
 use alef_core::ir::{FieldDef, FunctionDef, MethodDef, ParamDef, PrimitiveType, TypeDef, TypeRef};
 use heck::ToSnakeCase;
 use std::collections::HashMap;
-use std::fmt::Write;
 
 /// Everything needed to generate a trait bridge for one trait.
 pub struct TraitBridgeSpec<'a> {
@@ -156,20 +155,31 @@ pub trait TraitBridgeGenerator {
 pub fn gen_bridge_wrapper_struct(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerator) -> String {
     let wrapper = spec.wrapper_name();
     let foreign_type = generator.foreign_object_type();
-    let mut out = String::with_capacity(512);
 
-    writeln!(
-        out,
-        "/// Wrapper that bridges a foreign {prefix} object to the `{trait_name}` trait.",
-        prefix = spec.wrapper_prefix,
-        trait_name = spec.trait_def.name,
+    crate::template_env::render(
+        "generators/trait_bridge/wrapper_struct.jinja",
+        minijinja::context! {
+            wrapper_prefix => spec.wrapper_prefix,
+            trait_name => &spec.trait_def.name,
+            wrapper_name => wrapper,
+            foreign_type => foreign_type,
+        },
     )
-    .ok();
-    writeln!(out, "pub struct {wrapper} {{").ok();
-    writeln!(out, "    inner: {foreign_type},").ok();
-    writeln!(out, "    cached_name: String,").ok();
-    write!(out, "}}").ok();
-    out
+}
+
+/// Generate `impl std::fmt::Debug for Wrapper`.
+///
+/// Required by trait bounds on `Plugin` super-trait (and many others) that
+/// extend `Debug`. Without this, generic plugin-pattern bridges fail to
+/// compile when the user's trait has a `Debug` super-trait bound.
+fn gen_bridge_debug_impl(spec: &TraitBridgeSpec) -> String {
+    let wrapper = spec.wrapper_name();
+    crate::template_env::render(
+        "generators/trait_bridge/debug_impl.jinja",
+        minijinja::context! {
+            wrapper_name => wrapper,
+        },
+    )
 }
 
 /// Generate `impl SuperTrait for Wrapper` when the bridge config specifies a super-trait.
@@ -195,19 +205,9 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
     // Build synthetic MethodDefs for the Plugin methods and delegate to the generator
     // for the actual call bodies. The Plugin trait interface is well-known: name(),
     // version(), initialize(), shutdown().
-    let mut out = String::with_capacity(1024);
-    writeln!(out, "impl {super_trait_path} for {wrapper} {{").ok();
-
-    // name() -> &str — uses cached field
-    writeln!(out, "    fn name(&self) -> &str {{").ok();
-    writeln!(out, "        &self.cached_name").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out).ok();
-
     let error_path = spec.error_path();
 
     // version() -> String — delegate to foreign object
-    writeln!(out, "    fn version(&self) -> String {{").ok();
     let version_method = MethodDef {
         name: "version".to_string(),
         params: vec![],
@@ -225,18 +225,8 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
         has_default_impl: false,
     };
     let version_body = generator.gen_sync_method_body(&version_method, spec);
-    for line in version_body.lines() {
-        writeln!(out, "        {}", line.trim_start()).ok();
-    }
-    writeln!(out, "    }}").ok();
-    writeln!(out).ok();
 
     // initialize() -> Result<(), ErrorType>
-    writeln!(
-        out,
-        "    fn initialize(&self) -> std::result::Result<(), {error_path}> {{"
-    )
-    .ok();
     let init_method = MethodDef {
         name: "initialize".to_string(),
         params: vec![],
@@ -254,18 +244,8 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
         has_default_impl: true,
     };
     let init_body = generator.gen_sync_method_body(&init_method, spec);
-    for line in init_body.lines() {
-        writeln!(out, "        {}", line.trim_start()).ok();
-    }
-    writeln!(out, "    }}").ok();
-    writeln!(out).ok();
 
     // shutdown() -> Result<(), ErrorType>
-    writeln!(
-        out,
-        "    fn shutdown(&self) -> std::result::Result<(), {error_path}> {{"
-    )
-    .ok();
     let shutdown_method = MethodDef {
         name: "shutdown".to_string(),
         params: vec![],
@@ -283,50 +263,58 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
         has_default_impl: true,
     };
     let shutdown_body = generator.gen_sync_method_body(&shutdown_method, spec);
-    for line in shutdown_body.lines() {
-        writeln!(out, "        {}", line.trim_start()).ok();
-    }
-    writeln!(out, "    }}").ok();
-    write!(out, "}}").ok();
-    Some(out)
+
+    // Split method bodies into lines for template iteration
+    let version_lines: Vec<&str> = version_body.lines().collect();
+    let init_lines: Vec<&str> = init_body.lines().collect();
+    let shutdown_lines: Vec<&str> = shutdown_body.lines().collect();
+
+    Some(crate::template_env::render(
+        "generators/trait_bridge/plugin_impl.jinja",
+        minijinja::context! {
+            super_trait_path => super_trait_path,
+            wrapper_name => wrapper,
+            error_path => error_path,
+            version_lines => version_lines,
+            init_lines => init_lines,
+            shutdown_lines => shutdown_lines,
+        },
+    ))
 }
 
 /// Generate `impl Trait for Wrapper` dispatching each method through the generator.
 ///
-/// Every method on the trait (including those with `has_default_impl`) gets a
-/// generated body that forwards to the foreign object.
+/// Methods with `has_default_impl = true` are NOT emitted — the trait's own default
+/// implementation is used instead.  Only required (non-defaulted) own methods get a
+/// generated vtable-forwarding body.
 pub fn gen_bridge_trait_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerator) -> String {
     let wrapper = spec.wrapper_name();
     let trait_path = spec.trait_path();
-    let mut out = String::with_capacity(2048);
 
-    // Add #[async_trait] when the trait has async methods (needed for async_trait macro compatibility).
-    // On non-Send targets (e.g. WASM), use `(?Send)` to drop the `Send` bound on futures.
+    // Check if the trait has async methods (needed for async_trait macro compatibility).
+    // Only own, required (non-default) methods need this check — those are the ones we emit.
     let has_async_methods = spec
         .trait_def
         .methods
         .iter()
-        .any(|m| m.is_async && m.trait_source.is_none());
-    if has_async_methods {
-        if generator.async_trait_is_send() {
-            writeln!(out, "#[async_trait::async_trait]").ok();
-        } else {
-            writeln!(out, "#[async_trait::async_trait(?Send)]").ok();
-        }
-    }
-    writeln!(out, "impl {trait_path} for {wrapper} {{").ok();
+        .any(|m| m.is_async && m.trait_source.is_none() && !m.has_default_impl);
+    let async_trait_is_send = generator.async_trait_is_send();
 
-    // Filter out methods inherited from super-traits (they're handled by gen_bridge_plugin_impl)
+    // Filter out:
+    // - Methods inherited from super-traits (handled by gen_bridge_plugin_impl)
+    // - Methods with a default impl (let the trait's own default take effect)
     let own_methods: Vec<_> = spec
         .trait_def
         .methods
         .iter()
-        .filter(|m| m.trait_source.is_none())
+        .filter(|m| m.trait_source.is_none() && !m.has_default_impl)
         .collect();
 
+    // Build method code with proper indentation
+    let mut methods_code = String::with_capacity(1024);
     for (i, method) in own_methods.iter().enumerate() {
         if i > 0 {
-            writeln!(out).ok();
+            methods_code.push_str("\n\n");
         }
 
         // Build the method signature
@@ -356,26 +344,80 @@ pub fn gen_bridge_trait_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridge
         // Return type — override the IR's error type with the configured crate error type
         // so the impl matches the actual trait definition (the IR may extract a different
         // error type like anyhow::Error from re-exports or type alias resolution).
+        // Pass `returns_ref` so Vec<T> is emitted as `&[elem]` when the trait returns a slice.
         let error_override = method.error_type.as_ref().map(|_| spec.error_path());
-        let ret = format_return_type(&method.return_type, error_override.as_deref(), &spec.type_paths);
-
-        writeln!(out, "    {async_kw}fn {}({all_params}) -> {ret} {{", method.name).ok();
+        let ret = format_return_type(
+            &method.return_type,
+            error_override.as_deref(),
+            &spec.type_paths,
+            method.returns_ref,
+        );
 
         // Generate body: async methods use Box::pin, sync methods call directly
-        let body = if method.is_async {
+        let raw_body = if method.is_async {
             generator.gen_async_method_body(method, spec)
         } else {
             generator.gen_sync_method_body(method, spec)
         };
 
-        for line in body.lines() {
-            writeln!(out, "        {line}").ok();
-        }
-        writeln!(out, "    }}").ok();
+        // When the trait method returns `&[&str]` (i.e. Vec<String> + returns_ref), the
+        // foreign bridge body returns an owned Vec<String> (via unwrap_or_default or similar).
+        // Wrap it with Box::leak so the &'static str slice satisfies the return type.
+        // This is correct for the plugin registration pattern: supported_mime_types() is
+        // called once per registration and the data is process-global.
+        //
+        // Exception: when the raw_body is already a reference to a cached
+        // `&'static [&'static str]` field (e.g. FFI's `self.{name}_strs` fast-path),
+        // there is nothing to leak — return it directly.
+        let raw_body_trimmed = raw_body.trim();
+        let body_is_static_slice = raw_body_trimmed.starts_with("self.") && raw_body_trimmed.ends_with("_strs");
+        let body = if method.returns_ref
+            && matches!(&method.return_type, alef_core::ir::TypeRef::Vec(inner) if matches!(inner.as_ref(), alef_core::ir::TypeRef::String))
+        {
+            if body_is_static_slice {
+                raw_body
+            } else {
+                format!(
+                    "let __types: Vec<String> = {{ {raw_body} }};\n\
+                     let __strs: Vec<&'static str> = __types.into_iter()\n\
+                         .map(|s| -> &'static str {{ Box::leak(s.into_boxed_str()) }})\n\
+                         .collect();\n\
+                     Box::leak(__strs.into_boxed_slice())"
+                )
+            }
+        } else {
+            raw_body
+        };
+
+        // Indent body lines
+        let indented_body = body
+            .lines()
+            .map(|line| format!("        {line}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        methods_code.push_str(&crate::template_env::render(
+            "generators/trait_bridge/trait_method.jinja",
+            minijinja::context! {
+                async_kw => async_kw,
+                method_name => &method.name,
+                all_params => all_params,
+                ret => ret,
+                indented_body => &indented_body,
+            },
+        ));
     }
 
-    write!(out, "}}").ok();
-    out
+    crate::template_env::render(
+        "generators/trait_bridge/trait_impl.jinja",
+        minijinja::context! {
+            has_async_methods => has_async_methods,
+            async_trait_is_send => async_trait_is_send,
+            trait_path => trait_path,
+            wrapper_name => wrapper,
+            methods_code => methods_code,
+        },
+    )
 }
 
 /// Generate the `register_xxx()` function that wraps a foreign object and
@@ -463,19 +505,20 @@ pub fn gen_bridge_all(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerat
 
     // Wrapper struct
     out.push_str(&gen_bridge_wrapper_struct(spec, generator));
-    writeln!(out).ok();
-    writeln!(out).ok();
+    out.push_str("\n\n");
+
+    // Debug impl (required by Plugin super-trait Debug bound)
+    out.push_str(&gen_bridge_debug_impl(spec));
+    out.push_str("\n\n");
 
     // Constructor (impl block with new())
     out.push_str(&generator.gen_constructor(spec));
-    writeln!(out).ok();
-    writeln!(out).ok();
+    out.push_str("\n\n");
 
     // Plugin super-trait impl (if applicable)
     if let Some(plugin_impl) = gen_bridge_plugin_impl(spec, generator) {
         out.push_str(&plugin_impl);
-        writeln!(out).ok();
-        writeln!(out).ok();
+        out.push_str("\n\n");
     }
 
     // Trait impl
@@ -483,24 +526,21 @@ pub fn gen_bridge_all(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerat
 
     // Registration function — only when register_fn is configured
     if let Some(reg_fn_code) = gen_bridge_registration_fn(spec, generator) {
-        writeln!(out).ok();
-        writeln!(out).ok();
+        out.push_str("\n\n");
         out.push_str(&reg_fn_code);
     }
 
     // Unregistration function — only when unregister_fn is configured AND
     // the backend has opted in (non-empty body).
     if let Some(unreg_fn_code) = gen_bridge_unregistration_fn(spec, generator) {
-        writeln!(out).ok();
-        writeln!(out).ok();
+        out.push_str("\n\n");
         out.push_str(&unreg_fn_code);
     }
 
     // Clear-all function — only when clear_fn is configured AND the backend
     // has opted in (non-empty body).
     if let Some(clear_fn_code) = gen_bridge_clear_fn(spec, generator) {
-        writeln!(out).ok();
-        writeln!(out).ok();
+        out.push_str("\n\n");
         out.push_str(&clear_fn_code);
     }
 
@@ -553,12 +593,39 @@ pub fn format_type_ref(ty: &alef_core::ir::TypeRef, type_paths: &HashMap<String,
 }
 
 /// Format a return type, wrapping in `Result` when an error type is present.
+///
+/// When `returns_ref` is `true` and the IR type is `Vec(T)`, the trait method
+/// actually returns `&[T]` (the IR collapses `&[T]` into `Vec<T>` + `returns_ref`
+/// flag). This function emits the correct reference slice type in that case so the
+/// generated bridge impl signature matches the actual trait definition.
+///
+/// For the FFI bridge the concrete element type of a `Vec<String>` with `returns_ref`
+/// is `&str`, yielding a return type of `&[&str]`.
 pub fn format_return_type(
     ty: &alef_core::ir::TypeRef,
     error_type: Option<&str>,
     type_paths: &HashMap<String, String>,
+    returns_ref: bool,
 ) -> String {
-    let inner = format_type_ref(ty, type_paths);
+    let inner = if returns_ref {
+        // Rewrite Vec<T> → &[elem_type] where elem_type is the ref-form of T.
+        if let alef_core::ir::TypeRef::Vec(elem) = ty {
+            let elem_str = match elem.as_ref() {
+                alef_core::ir::TypeRef::String => "&str".to_string(),
+                alef_core::ir::TypeRef::Bytes => "&[u8]".to_string(),
+                alef_core::ir::TypeRef::Named(name) => {
+                    let qualified = type_paths.get(name.as_str()).cloned().unwrap_or_else(|| name.clone());
+                    format!("&{qualified}")
+                }
+                other => format_type_ref(other, type_paths),
+            };
+            format!("&[{elem_str}]")
+        } else {
+            format_type_ref(ty, type_paths)
+        }
+    } else {
+        format_type_ref(ty, type_paths)
+    };
     match error_type {
         Some(err) => format!("std::result::Result<{inner}, {err}>"),
         None => inner,
@@ -961,6 +1028,8 @@ mod tests {
             core_wrapper: Default::default(),
             vec_inner_core_wrapper: Default::default(),
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         }
     }
 
@@ -1322,19 +1391,24 @@ mod tests {
 
     #[test]
     fn test_format_return_type_without_error() {
-        let result = format_return_type(&TypeRef::String, None, &HashMap::new());
+        let result = format_return_type(&TypeRef::String, None, &HashMap::new(), false);
         assert_eq!(result, "String");
     }
 
     #[test]
     fn test_format_return_type_with_error() {
-        let result = format_return_type(&TypeRef::String, Some("MyError"), &HashMap::new());
+        let result = format_return_type(&TypeRef::String, Some("MyError"), &HashMap::new(), false);
         assert_eq!(result, "std::result::Result<String, MyError>");
     }
 
     #[test]
     fn test_format_return_type_unit_with_error() {
-        let result = format_return_type(&TypeRef::Unit, Some("Box<dyn std::error::Error>"), &HashMap::new());
+        let result = format_return_type(
+            &TypeRef::Unit,
+            Some("Box<dyn std::error::Error>"),
+            &HashMap::new(),
+            false,
+        );
         assert_eq!(result, "std::result::Result<(), Box<dyn std::error::Error>>");
     }
 
@@ -1342,8 +1416,32 @@ mod tests {
     fn test_format_return_type_named_with_type_paths_and_error() {
         let mut paths = HashMap::new();
         paths.insert("Output".to_string(), "mylib::Output".to_string());
-        let result = format_return_type(&TypeRef::Named("Output".to_string()), Some("mylib::MyError"), &paths);
+        let result = format_return_type(
+            &TypeRef::Named("Output".to_string()),
+            Some("mylib::MyError"),
+            &paths,
+            false,
+        );
         assert_eq!(result, "std::result::Result<mylib::Output, mylib::MyError>");
+    }
+
+    #[test]
+    fn test_format_return_type_vec_string_with_returns_ref() {
+        // `fn supported_mime_types(&self) -> &[&str]` is extracted as
+        // `return_type = Vec(String), returns_ref = true`.
+        // The generated impl signature must emit `&[&str]`, not `Vec<String>`.
+        let result = format_return_type(&TypeRef::Vec(Box::new(TypeRef::String)), None, &HashMap::new(), true);
+        assert_eq!(result, "&[&str]", "Vec<String> + returns_ref must yield &[&str]");
+    }
+
+    #[test]
+    fn test_format_return_type_vec_no_returns_ref_unchanged() {
+        // Without returns_ref the type is unchanged.
+        let result = format_return_type(&TypeRef::Vec(Box::new(TypeRef::String)), None, &HashMap::new(), false);
+        assert_eq!(
+            result, "Vec<String>",
+            "Vec<String> without returns_ref must stay Vec<String>"
+        );
     }
 
     // ---------------------------------------------------------------------------

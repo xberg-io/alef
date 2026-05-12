@@ -1,0 +1,7 @@
+        .version_fn = struct {
+            fn thunk(user_data: ?*anyopaque, out_version: ?*?[*c]u8) callconv(.C) void {
+                _ = user_data;
+                _ = out_version;
+                unreachable; // override .version_fn in the returned vtable
+            }
+        }.thunk,

@@ -1,0 +1,9 @@
+	case "{{ wire_value }}":
+		if t.{{ variant_go_name }} != nil {
+			data, err := json.Marshal(t.{{ variant_go_name }})
+			if err != nil { return nil, err }
+			var m map[string]json.RawMessage
+			if err := json.Unmarshal(data, &m); err != nil { return nil, err }
+			m["{{ tag_name }}"] = []byte(`"{{ wire_value }}"`)
+			return json.Marshal(m)
+		}

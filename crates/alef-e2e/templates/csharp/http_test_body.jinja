@@ -1,0 +1,49 @@
+{#- C# HTTP test assertions rendering
+
+   Context variables:
+   - status: expected HTTP status code
+   - headers: list of header assertion objects
+   - has_json_body: boolean
+   - json_body_escaped: JSON body (if has_json_body)
+   - has_text_body: boolean
+   - text_body_escaped: text body (if has_text_body)
+   - has_partial_body: boolean
+   - partial_body_checks: list of objects with 'key_escaped' and 'value_escaped'
+   - has_validation_errors: boolean
+   - validation_errors: list of error messages
+#}
+        Assert.Equal({{ status }}, (int)response.StatusCode);
+{%- for header in headers %}
+{%- if header.assertion_type == "present" %}
+        Assert.True({{ header.target }}.Contains("{{ header.name_escaped }}"), "expected header {{ header.name_escaped }} to be present");
+{%- elif header.assertion_type == "absent" %}
+        Assert.False({{ header.target }}.Contains("{{ header.name_escaped }}"), "expected header {{ header.name_escaped }} to be absent");
+{%- elif header.assertion_type == "uuid" %}
+        Assert.True({{ header.target }}.TryGetValues("{{ header.name_escaped }}", out var _uuidHdr) && System.Text.RegularExpressions.Regex.IsMatch(string.Join(", ", _uuidHdr), @"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"), "header {{ header.name_escaped }} is not a UUID");
+{%- else %}
+        Assert.True({{ header.target }}.TryGetValues("{{ header.name_escaped }}", out var {{ header.var_name }}) && {{ header.var_name }}.Any(v => v.Contains("{{ header.value_escaped }}")), "header {{ header.name_escaped }} mismatch");
+{%- endif %}
+{%- endfor %}
+{%- if has_json_body %}
+        var bodyText = await response.Content.ReadAsStringAsync();
+        var body = JsonDocument.Parse(bodyText).RootElement;
+        var expectedBody = JsonDocument.Parse("{{ json_body_escaped }}").RootElement;
+        Assert.Equal(expectedBody.GetRawText(), body.GetRawText());
+{%- elif has_text_body %}
+        var bodyText = await response.Content.ReadAsStringAsync();
+        Assert.Equal("{{ text_body_escaped }}", bodyText.Trim());
+{%- endif %}
+{%- if has_partial_body %}
+        var partialBodyText = await response.Content.ReadAsStringAsync();
+        var partialBody = JsonDocument.Parse(partialBodyText).RootElement;
+{%- for check in partial_body_checks %}
+        var expected{{ check.var_name }} = JsonDocument.Parse("{{ check.value_escaped }}").RootElement;
+        Assert.True(partialBody.TryGetProperty("{{ check.key_escaped }}", out var _partialProp{{ check.var_name }}) && _partialProp{{ check.var_name }}.GetRawText() == expected{{ check.var_name }}.GetRawText(), "partial body field '{{ check.key_escaped }}' mismatch");
+{%- endfor %}
+{%- endif %}
+{%- if has_validation_errors %}
+        var validationBodyText = await response.Content.ReadAsStringAsync();
+{%- for error in validation_errors %}
+        Assert.Contains("{{ error.msg_escaped }}", validationBodyText);
+{%- endfor %}
+{%- endif %}

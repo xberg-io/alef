@@ -1,0 +1,19 @@
+let cached_name = self.cached_name.clone();
+
+let func: napi::bindgen_prelude::Function<{{ args_tuple_ty }}, napi::bindgen_prelude::Unknown> = match self.inner.get_named_property("{{ method_name }}") {
+    Ok(f) => f,
+    Err(e) => {
+        return Err({{ error_lookup }});
+    }
+};
+
+{% if empty_args %}
+let result = func.call(());
+{% else %}
+let result = func.call(napi::bindgen_prelude::FnArgs::from({{ tuple_args }}));
+{% endif %}
+
+match result {
+    Err(e) => Err({{ error_call }}),
+    Ok(_) => Ok(())
+}

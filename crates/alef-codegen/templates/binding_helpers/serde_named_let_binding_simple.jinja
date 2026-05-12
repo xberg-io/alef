@@ -1,0 +1,3 @@
+let {{ name }}_json = serde_json::to_string(&{{ name }}){{ err_conv }}?;
+{{ indent }}let {{ name }}_core: {{ core_path }} = serde_json::from_str(&{{ name }}_json){{ err_conv }}?;
+{{ indent -}}

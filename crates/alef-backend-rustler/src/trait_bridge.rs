@@ -24,7 +24,6 @@ use alef_codegen::generators::trait_bridge::{
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 use std::collections::HashMap;
-use std::fmt::Write;
 
 /// Rustler-specific trait bridge generator.
 /// Implements code generation for bridging Elixir modules to Rust traits via NIFs.
@@ -49,213 +48,111 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
     }
 
     fn gen_sync_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
-        let name = &method.name;
         let has_error = method.error_type.is_some();
-        let mut out = String::with_capacity(512);
 
-        // Clone params for the blocking closure
-        for p in &method.params {
-            if p.is_ref || matches!(&p.ty, TypeRef::String) {
-                writeln!(out, "let {0} = {0}.clone();", p.name).ok();
-            }
-        }
+        // Build clone_params array
+        let clone_params: Vec<minijinja::Value> = method
+            .params
+            .iter()
+            .filter(|p| p.is_ref || matches!(&p.ty, TypeRef::String))
+            .map(|p| {
+                minijinja::context! {
+                    name => p.name.clone()
+                }
+            })
+            .collect();
 
-        writeln!(out).ok();
-        writeln!(
-            out,
-            "let reply_id = TRAIT_REPLY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);"
-        )
-        .ok();
-        writeln!(
-            out,
-            "let (tx, rx) = tokio::sync::oneshot::channel::<Result<String, String>>();"
-        )
-        .ok();
-        writeln!(out, "TRAIT_REPLY_CHANNELS.lock().unwrap().insert(reply_id, tx);").ok();
-        writeln!(out).ok();
+        // Build params array with json_expr
+        let params: Vec<minijinja::Value> = method
+            .params
+            .iter()
+            .map(|p| {
+                let json_expr = build_json_arg(p);
+                minijinja::context! {
+                    name => p.name.clone(),
+                    json_expr => json_expr
+                }
+            })
+            .collect();
 
-        writeln!(out, "let pid = self.inner;").ok();
+        // Build error constructors
+        let error_deser = spec
+            .error_constructor
+            .replace("{msg}", "format!(\"Failed to deserialize response: {}\", _e)");
+        let error_msg = spec.error_constructor.replace("{msg}", "msg");
+        let error_closed = spec
+            .error_constructor
+            .replace("{msg}", "\"Channel closed before reply received\".to_string()");
 
-        // Build args JSON from parameters
-        writeln!(out, "let args_json = {{").ok();
-        writeln!(out, "    let mut args = serde_json::Map::new();").ok();
-        for p in &method.params {
-            let json_expr = build_json_arg(p);
-            writeln!(out, "    args.insert(\"{0}\".to_string(), {1});", p.name, json_expr).ok();
-        }
-        writeln!(out, "    serde_json::Value::Object(args).to_string()").ok();
-        writeln!(out, "}};").ok();
-        writeln!(out).ok();
+        let ctx = minijinja::context! {
+            clone_params => clone_params,
+            params => params,
+            method_name => method.name,
+            has_error => has_error,
+            error_deser => error_deser,
+            error_msg => error_msg,
+            error_closed => error_closed
+        };
 
-        writeln!(out, "let method = \"{}\";", name).ok();
-        writeln!(out).ok();
-
-        writeln!(out, "tokio::task::spawn_blocking(move || {{").ok();
-        writeln!(out, "    let mut env = rustler::OwnedEnv::new();").ok();
-        writeln!(out, "    let _ = env.send_and_clear(&pid, |env| {{").ok();
-        writeln!(
-            out,
-            "        (rustler::types::atom::Atom::from_str(env, \"trait_call\").unwrap(),\
-             method, args_json.as_str(), reply_id).encode(env)"
-        )
-        .ok();
-        writeln!(out, "    }});").ok();
-        writeln!(out, "}});").ok();
-        writeln!(out).ok();
-
-        writeln!(out, "match rx.blocking_recv() {{").ok();
-        if has_error {
-            let err_deser = spec
-                .error_constructor
-                .replace("{msg}", "format!(\"Failed to deserialize response: {}\", _e)");
-            let line = format!(
-                "    Ok(Ok(json)) => serde_json::from_str(&json).map_err(|_e| {}),",
-                err_deser
-            );
-            out.push_str(&line);
-            out.push('\n');
-            let err_msg = spec.error_constructor.replace("{msg}", "msg");
-            let line = format!("    Ok(Err(msg)) => Err({}),", err_msg);
-            out.push_str(&line);
-            out.push('\n');
-            let err_closed = spec
-                .error_constructor
-                .replace("{msg}", "\"Channel closed before reply received\".to_string()");
-            let line = format!("    Err(_) => Err({})", err_closed);
-            out.push_str(&line);
-            out.push('\n');
-        } else {
-            writeln!(
-                out,
-                "    Ok(Ok(json)) => serde_json::from_str(&json).unwrap_or_default(),"
-            )
-            .ok();
-            writeln!(out, "    _ => Default::default()").ok();
-        }
-        writeln!(out, "}}").ok();
-
-        out
+        crate::template_env::render("sync_method_body.rs.jinja", ctx)
     }
 
     fn gen_async_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
-        let name = &method.name;
         let has_error = method.error_type.is_some();
-        let mut out = String::with_capacity(512);
 
-        // Clone params so they can be moved into the blocking task
-        for p in &method.params {
-            if p.is_ref || matches!(&p.ty, TypeRef::String) {
-                writeln!(out, "let {0} = {0}.clone();", p.name).ok();
-            }
-        }
+        // Build param_clones array
+        let param_clones: Vec<minijinja::Value> = method
+            .params
+            .iter()
+            .filter(|p| p.is_ref || matches!(&p.ty, TypeRef::String))
+            .map(|p| {
+                minijinja::context! {
+                    name => p.name.clone()
+                }
+            })
+            .collect();
 
-        writeln!(out).ok();
-        writeln!(
-            out,
-            "let reply_id = TRAIT_REPLY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);"
-        )
-        .ok();
-        writeln!(
-            out,
-            "let (tx, rx) = tokio::sync::oneshot::channel::<Result<String, String>>();"
-        )
-        .ok();
-        writeln!(out, "TRAIT_REPLY_CHANNELS.lock().unwrap().insert(reply_id, tx);").ok();
-        writeln!(out).ok();
+        // Build args_json array with name and expr
+        let args_json: Vec<minijinja::Value> = method
+            .params
+            .iter()
+            .map(|p| {
+                let expr = build_json_arg(p);
+                minijinja::context! {
+                    name => p.name.clone(),
+                    expr => expr
+                }
+            })
+            .collect();
 
-        writeln!(out, "let pid = self.inner;").ok();
+        // Build error constructors
+        let error_deser = spec
+            .error_constructor
+            .replace("{msg}", "format!(\"Failed to deserialize response: {}\", _e)");
+        let error_msg = spec.error_constructor.replace("{msg}", "msg");
+        let error_closed = spec
+            .error_constructor
+            .replace("{msg}", "\"Channel closed before reply received\".to_string()");
 
-        // Build args JSON from parameters
-        writeln!(out, "let args_json = {{").ok();
-        writeln!(out, "    let mut args = serde_json::Map::new();").ok();
-        for p in &method.params {
-            let json_expr = build_json_arg(p);
-            writeln!(out, "    args.insert(\"{0}\".to_string(), {1});", p.name, json_expr).ok();
-        }
-        writeln!(out, "    serde_json::Value::Object(args).to_string()").ok();
-        writeln!(out, "}};").ok();
-        writeln!(out).ok();
+        let ctx = minijinja::context! {
+            param_clones => param_clones,
+            args_json => args_json,
+            method_name => method.name,
+            has_error => has_error,
+            error_deser => error_deser,
+            error_msg => error_msg,
+            error_closed => error_closed
+        };
 
-        writeln!(out, "let method = \"{}\";", name).ok();
-        writeln!(out).ok();
-
-        writeln!(out, "tokio::task::spawn_blocking(move || {{").ok();
-        writeln!(out, "    let mut env = rustler::OwnedEnv::new();").ok();
-        writeln!(out, "    let _ = env.send_and_clear(&pid, |env| {{").ok();
-        writeln!(
-            out,
-            "        (rustler::types::atom::Atom::from_str(env, \"trait_call\").unwrap(),\
-             method, args_json.as_str(), reply_id).encode(env)"
-        )
-        .ok();
-        writeln!(out, "    }});").ok();
-        writeln!(out, "}}).await;").ok();
-        writeln!(out).ok();
-
-        writeln!(out, "match rx.await {{").ok();
-        if has_error {
-            let err_deser = spec
-                .error_constructor
-                .replace("{msg}", "format!(\"Failed to deserialize response: {}\", _e)");
-            let line = format!(
-                "    Ok(Ok(json)) => serde_json::from_str(&json).map_err(|_e| {}),",
-                err_deser
-            );
-            out.push_str(&line);
-            out.push('\n');
-            let err_msg = spec.error_constructor.replace("{msg}", "msg");
-            let line = format!("    Ok(Err(msg)) => Err({}),", err_msg);
-            out.push_str(&line);
-            out.push('\n');
-            let err_closed = spec
-                .error_constructor
-                .replace("{msg}", "\"Channel closed before reply received\".to_string()");
-            let line = format!("    Err(_) => Err({})", err_closed);
-            out.push_str(&line);
-            out.push('\n');
-        } else {
-            writeln!(
-                out,
-                "    Ok(Ok(json)) => serde_json::from_str(&json).unwrap_or_default(),"
-            )
-            .ok();
-            writeln!(out, "    _ => Default::default()").ok();
-        }
-        writeln!(out, "}}").ok();
-
-        out
+        crate::template_env::render("trait_async_method_body.rs.jinja", ctx)
     }
 
     fn gen_constructor(&self, spec: &TraitBridgeSpec) -> String {
         let wrapper = spec.wrapper_name();
-        let mut out = String::with_capacity(512);
-
-        writeln!(out, "impl {wrapper} {{").ok();
-        writeln!(out, "    /// Create a new bridge wrapping an Elixir GenServer PID.").ok();
-        writeln!(out, "    ///").ok();
-        writeln!(
-            out,
-            "    /// The PID is copied (LocalPid is Copy + Send + Sync) and used to send"
-        )
-        .ok();
-        writeln!(
-            out,
-            "    /// messages to the backing GenServer. The plugin_name is cached for fast"
-        )
-        .ok();
-        writeln!(out, "    /// Plugin::name() lookups.").ok();
-        writeln!(
-            out,
-            "    pub fn new(pid: rustler::LocalPid, plugin_name: String) -> Self {{"
-        )
-        .ok();
-        writeln!(out, "        Self {{").ok();
-        writeln!(out, "            inner: pid,").ok();
-        writeln!(out, "            cached_name: plugin_name,").ok();
-        writeln!(out, "        }}").ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out, "}}").ok();
-        out
+        let ctx = minijinja::context! {
+            wrapper_name => wrapper
+        };
+        crate::template_env::render("trait_constructor.rs.jinja", ctx)
     }
 
     fn gen_unregistration_fn(&self, spec: &TraitBridgeSpec) -> String {
@@ -263,27 +160,11 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
             return String::new();
         };
         let host_path = alef_codegen::generators::trait_bridge::host_function_path(spec, unregister_fn);
-        let mut out = String::with_capacity(512);
-        writeln!(out, "#[rustler::nif]").ok();
-        writeln!(
-            out,
-            "pub fn {unregister_fn}(env: rustler::Env<'_>, name: String) -> rustler::Atom {{"
-        )
-        .ok();
-        writeln!(out, "    match {host_path}(&name) {{").ok();
-        writeln!(
-            out,
-            "        Ok(_) => rustler::types::atom::Atom::from_str(env, \"ok\").unwrap(),"
-        )
-        .ok();
-        writeln!(
-            out,
-            "        Err(_) => rustler::types::atom::Atom::from_str(env, \"error\").unwrap(),"
-        )
-        .ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out, "}}").ok();
-        out
+        let ctx = minijinja::context! {
+            unregister_fn => unregister_fn,
+            host_path => host_path
+        };
+        crate::template_env::render("trait_unregistration_fn.rs.jinja", ctx)
     }
 
     fn gen_clear_fn(&self, spec: &TraitBridgeSpec) -> String {
@@ -291,23 +172,11 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
             return String::new();
         };
         let host_path = alef_codegen::generators::trait_bridge::host_function_path(spec, clear_fn);
-        let mut out = String::with_capacity(512);
-        writeln!(out, "#[rustler::nif]").ok();
-        writeln!(out, "pub fn {clear_fn}(env: rustler::Env<'_>) -> rustler::Atom {{").ok();
-        writeln!(out, "    match {host_path}() {{").ok();
-        writeln!(
-            out,
-            "        Ok(_) => rustler::types::atom::Atom::from_str(env, \"ok\").unwrap(),"
-        )
-        .ok();
-        writeln!(
-            out,
-            "        Err(_) => rustler::types::atom::Atom::from_str(env, \"error\").unwrap(),"
-        )
-        .ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out, "}}").ok();
-        out
+        let ctx = minijinja::context! {
+            clear_fn => clear_fn,
+            host_path => host_path
+        };
+        crate::template_env::render("trait_clear_fn.rs.jinja", ctx)
     }
 
     fn gen_registration_fn(&self, spec: &TraitBridgeSpec) -> String {
@@ -320,94 +189,25 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
         let wrapper = spec.wrapper_name();
         let trait_path = spec.trait_path();
 
-        let mut out = String::with_capacity(1024);
-
-        writeln!(out, "#[rustler::nif]").ok();
-        writeln!(
-            out,
-            "pub fn {register_fn}(env: rustler::Env<'_>, genserver_pid: rustler::LocalPid, plugin_name: String) -> rustler::Atom {{"
-        )
-        .ok();
-
-        writeln!(out).ok();
-        writeln!(out, "    let bridge = {wrapper}::new(genserver_pid, plugin_name);").ok();
-        writeln!(out, "    let arc: Arc<dyn {trait_path}> = Arc::new(bridge);").ok();
-        writeln!(out).ok();
-
         // Register in plugin registry, including any extra arguments (e.g., priority for PostProcessor)
-        let extra_args = spec
-            .bridge_config
-            .register_extra_args
-            .as_deref()
-            .map(|a| format!(", {a}"))
-            .unwrap_or_default();
+        let extra_args = spec.bridge_config.register_extra_args.as_deref().unwrap_or_default();
 
-        writeln!(out, "    let registry = {registry_getter}();").ok();
-        writeln!(out, "    match registry.write().register(arc{extra_args}) {{").ok();
-        writeln!(
-            out,
-            "        Ok(_) => rustler::types::atom::Atom::from_str(env, \"ok\").unwrap(),"
-        )
-        .ok();
-        writeln!(
-            out,
-            "        Err(_) => rustler::types::atom::Atom::from_str(env, \"error\").unwrap(),"
-        )
-        .ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out, "}}").ok();
-        out
+        let ctx = minijinja::context! {
+            register_fn => register_fn,
+            wrapper_name => wrapper,
+            trait_path => trait_path,
+            registry_getter => registry_getter,
+            extra_args => extra_args
+        };
+        crate::template_env::render("trait_registration_fn.rs.jinja", ctx)
     }
 }
 
 impl RustlerBridgeGenerator {
     /// Generate support NIFs for completing trait calls from Elixir.
     pub fn gen_support_nifs(&self) -> String {
-        let mut out = String::with_capacity(1024);
-
-        writeln!(out, "/// Complete a pending trait call with a successful JSON result.").ok();
-        writeln!(
-            out,
-            "/// Called from Elixir GenServer after handling a trait method call."
-        )
-        .ok();
-        writeln!(out, "#[rustler::nif]").ok();
-        writeln!(
-            out,
-            "pub fn complete_trait_call(env: rustler::Env, reply_id: u64, result_json: String) -> rustler::Atom {{"
-        )
-        .ok();
-        writeln!(
-            out,
-            "    if let Some(tx) = TRAIT_REPLY_CHANNELS.lock().unwrap().remove(&reply_id) {{"
-        )
-        .ok();
-        writeln!(out, "        let _ = tx.send(Ok(result_json));").ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out, "    rustler::types::atom::ok()").ok();
-        writeln!(out, "}}").ok();
-        writeln!(out).ok();
-
-        writeln!(out, "/// Fail a pending trait call with an error message.").ok();
-        writeln!(out, "/// Called from Elixir GenServer if handling fails.").ok();
-        writeln!(out, "#[rustler::nif]").ok();
-        writeln!(
-            out,
-            "pub fn fail_trait_call(env: rustler::Env, reply_id: u64, error_message: String) -> rustler::Atom {{"
-        )
-        .ok();
-        writeln!(
-            out,
-            "    if let Some(tx) = TRAIT_REPLY_CHANNELS.lock().unwrap().remove(&reply_id) {{"
-        )
-        .ok();
-        writeln!(out, "        let _ = tx.send(Err(error_message));").ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out, "    rustler::types::atom::ok()").ok();
-        writeln!(out, "}}").ok();
-        writeln!(out).ok();
-
-        out
+        let ctx = minijinja::context! {};
+        crate::template_env::render("trait_support_nifs.rs.jinja", ctx)
     }
 }
 
@@ -429,6 +229,13 @@ pub fn gen_trait_bridge(
             api.enums
                 .iter()
                 .map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))),
+        )
+        // Include excluded types so trait methods referencing them (e.g. `&InternalDocument`)
+        // are qualified with the full Rust path rather than emitting the bare type name.
+        .chain(
+            api.excluded_type_paths
+                .iter()
+                .map(|(name, path)| (name.clone(), path.replace('-', "_"))),
         )
         .collect();
 
@@ -509,232 +316,78 @@ fn gen_visitor_bridge(out: &mut String, ctx: &VisitorBridgeCtx<'_>) {
         type_paths,
     } = ctx;
     // Helper: convert NodeContext to a Rustler NifMap term inside an OwnedEnv
-    writeln!(out, "fn nodecontext_to_elixir_map<'a>(").unwrap();
-    writeln!(out, "    env: rustler::Env<'a>,").unwrap();
-    writeln!(out, "    ctx: &{core_crate}::visitor::NodeContext,").unwrap();
-    writeln!(out, ") -> rustler::Term<'a> {{").unwrap();
-    writeln!(
-        out,
-        "    let mut pairs: Vec<(rustler::Term<'a>, rustler::Term<'a>)> = Vec::new();"
-    )
-    .unwrap();
-    // Encode node_type as a snake_case atom (e.g. DefinitionList -> :definition_list)
-    writeln!(out, "    {{").unwrap();
-    writeln!(out, "        let node_type_debug = format!(\"{{:?}}\", ctx.node_type);").unwrap();
-    writeln!(
-        out,
-        "        let node_type_snake: String = node_type_debug.chars().enumerate()"
-    )
-    .unwrap();
-    writeln!(out, "            .flat_map(|(i, c)| {{").unwrap();
-    writeln!(
-        out,
-        "                if c.is_uppercase() && i > 0 {{ vec!['_', c.to_lowercase().next().unwrap()] }}"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "                else if c.is_uppercase() {{ vec![c.to_lowercase().next().unwrap()] }}"
-    )
-    .unwrap();
-    writeln!(out, "                else {{ vec![c] }}").unwrap();
-    writeln!(out, "            }}).collect();").unwrap();
-    writeln!(
-        out,
-        "        pairs.push((rustler::types::atom::Atom::from_str(env, \"node_type\").unwrap().to_term(env), rustler::types::atom::Atom::from_str(env, &node_type_snake).unwrap().to_term(env)));"
-    )
-    .unwrap();
-    writeln!(out, "    }}").unwrap();
-    writeln!(
-        out,
-        "    pairs.push((rustler::types::atom::Atom::from_str(env, \"tag_name\").unwrap().to_term(env), ctx.tag_name.encode(env)));"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "    pairs.push((rustler::types::atom::Atom::from_str(env, \"depth\").unwrap().to_term(env), (ctx.depth as i64).encode(env)));"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "    pairs.push((rustler::types::atom::Atom::from_str(env, \"index_in_parent\").unwrap().to_term(env), (ctx.index_in_parent as i64).encode(env)));"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "    pairs.push((rustler::types::atom::Atom::from_str(env, \"is_inline\").unwrap().to_term(env), ctx.is_inline.encode(env)));"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "    let parent_tag_term = match &ctx.parent_tag {{ Some(s) => s.encode(env), None => rustler::types::atom::Atom::from_str(env, \"nil\").unwrap().to_term(env) }};"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "    pairs.push((rustler::types::atom::Atom::from_str(env, \"parent_tag\").unwrap().to_term(env), parent_tag_term));"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "    let attrs_pairs: Vec<(rustler::Term<'a>, rustler::Term<'a>)> = ctx.attributes.iter().map(|(k, v)| (k.encode(env), v.encode(env))).collect();"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "    let attrs_map = rustler::Term::map_from_pairs(env, &attrs_pairs).unwrap_or_else(|_| rustler::types::atom::Atom::from_str(env, \"nil\").unwrap().to_term(env));"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "    pairs.push((rustler::types::atom::Atom::from_str(env, \"attributes\").unwrap().to_term(env), attrs_map));"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "    rustler::Term::map_from_pairs(env, &pairs).unwrap_or_else(|_| rustler::types::atom::Atom::from_str(env, \"nil\").unwrap().to_term(env))"
-    )
-    .unwrap();
-    writeln!(out, "}}").unwrap();
-    writeln!(out).unwrap();
+    let ctx_helper = minijinja::context! {
+        core_crate => core_crate
+    };
+    out.push_str(&crate::template_env::render(
+        "visitor_bridge_helper.rs.jinja",
+        ctx_helper,
+    ));
 
     // Global channel registry: maps ref_id -> SyncSender so visitor_reply can unblock the bridge.
-    writeln!(
-        out,
-        "static VISITOR_REPLY_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "static VISITOR_CHANNELS: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<u64, std::sync::mpsc::SyncSender<Option<String>>>>> ="
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "    std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));"
-    )
-    .unwrap();
-    writeln!(out).unwrap();
+    out.push_str(&crate::template_env::render(
+        "visitor_bridge_globals.rs.jinja",
+        minijinja::context! {},
+    ));
 
     // Bridge struct: holds the caller PID and the visitor term in its OwnedEnv.
     // Both OwnedEnv and SavedTerm are Send, so the bridge can be moved to a system thread.
-    writeln!(out, "pub struct {struct_name} {{").unwrap();
-    writeln!(out, "    caller_pid: rustler::types::LocalPid,").unwrap();
-    writeln!(out, "    visitor_env: rustler::OwnedEnv,").unwrap();
-    writeln!(out, "    visitor_saved: rustler::env::SavedTerm,").unwrap();
-    writeln!(out, "}}").unwrap();
-    writeln!(out).unwrap();
+    let ctx_struct = minijinja::context! {
+        struct_name => struct_name
+    };
+    out.push_str(&crate::template_env::render(
+        "visitor_bridge_struct.rs.jinja",
+        ctx_struct,
+    ));
 
     // Manual Debug impl (required by HtmlVisitor bound: std::fmt::Debug)
-    writeln!(out, "impl std::fmt::Debug for {struct_name} {{").unwrap();
-    writeln!(
-        out,
-        "    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{"
-    )
-    .unwrap();
-    writeln!(out, "        write!(f, \"{struct_name}\")").unwrap();
-    writeln!(out, "    }}").unwrap();
-    writeln!(out, "}}").unwrap();
-    writeln!(out).unwrap();
+    let ctx_debug = minijinja::context! {
+        struct_name => struct_name
+    };
+    out.push_str(&crate::template_env::render("visitor_bridge_debug.rs.jinja", ctx_debug));
 
     // Constructor (called from BEAM thread — saves visitor term into an OwnedEnv)
-    writeln!(out, "impl {struct_name} {{").unwrap();
-    writeln!(
-        out,
-        "    pub fn new(env: rustler::Env<'_>, caller_pid: rustler::types::LocalPid, visitor_term: rustler::Term<'_>) -> Self {{"
-    )
-    .unwrap();
-    writeln!(out, "        let owned = rustler::OwnedEnv::new();").unwrap();
-    writeln!(out, "        let saved = owned.save(visitor_term);").unwrap();
-    writeln!(
-        out,
-        "        Self {{ caller_pid, visitor_env: owned, visitor_saved: saved }}"
-    )
-    .unwrap();
-    writeln!(out, "    }}").unwrap();
-    writeln!(out).unwrap();
-    // Constructor from pre-built OwnedEnv + SavedTerm (called from worker thread where
-    // the OwnedEnv was already populated on the BEAM thread before spawning).
-    writeln!(
-        out,
-        "    pub fn new_from_saved(caller_pid: rustler::types::LocalPid, visitor_env: rustler::OwnedEnv, visitor_saved: rustler::env::SavedTerm) -> Self {{"
-    )
-    .unwrap();
-    writeln!(out, "        Self {{ caller_pid, visitor_env, visitor_saved }}").unwrap();
-    writeln!(out, "    }}").unwrap();
-    writeln!(out, "}}").unwrap();
-    writeln!(out).unwrap();
+    let ctx_constructors = minijinja::context! {
+        struct_name => struct_name
+    };
+    out.push_str(&crate::template_env::render(
+        "visitor_bridge_constructors.rs.jinja",
+        ctx_constructors,
+    ));
 
     // Helper: send a visitor callback message and block waiting for the reply.
     // Encoded as: {:visitor_callback, ref_id, callback_atom, args_json_string}
-    writeln!(
-        out,
-        "fn visitor_send_and_wait(bridge: &{struct_name}, callback_name: &str, args_json: String) -> Option<String> {{"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "    let (tx, rx) = std::sync::mpsc::sync_channel::<Option<String>>(1);"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "    let ref_id = VISITOR_REPLY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);"
-    )
-    .unwrap();
-    writeln!(out, "    VISITOR_CHANNELS.lock().unwrap().insert(ref_id, tx);").unwrap();
-    writeln!(out, "    let pid = bridge.caller_pid;").unwrap();
-    writeln!(out, "    let cb_name = callback_name.to_string();").unwrap();
-    writeln!(out, "    let mut msg_env = rustler::OwnedEnv::new();").unwrap();
-    writeln!(out, "    let _ = msg_env.send_and_clear(&pid, |env| {{").unwrap();
-    writeln!(
-        out,
-        "        let tag = rustler::types::atom::Atom::from_str(env, \"visitor_callback\").unwrap().to_term(env);"
-    )
-    .unwrap();
-    writeln!(out, "        let ref_term = ref_id.encode(env);").unwrap();
-    writeln!(
-        out,
-        "        let name_term = rustler::types::atom::Atom::from_str(env, &cb_name).unwrap().to_term(env);"
-    )
-    .unwrap();
-    writeln!(out, "        let args_term = args_json.encode(env);").unwrap();
-    writeln!(
-        out,
-        "        rustler::types::tuple::make_tuple(env, &[tag, ref_term, name_term, args_term])"
-    )
-    .unwrap();
-    writeln!(out, "    }});").unwrap();
-    writeln!(out, "    let result = rx.recv().ok().flatten();").unwrap();
-    writeln!(out, "    VISITOR_CHANNELS.lock().unwrap().remove(&ref_id);").unwrap();
-    writeln!(out, "    result").unwrap();
-    writeln!(out, "}}").unwrap();
-    writeln!(out).unwrap();
+    let ctx_send_wait = minijinja::context! {
+        struct_name => struct_name
+    };
+    out.push_str(&crate::template_env::render(
+        "visitor_send_and_wait.rs.jinja",
+        ctx_send_wait,
+    ));
 
     // visitor_reply NIF: called by Elixir to unblock a waiting visitor callback.
     // Returns () which Rustler encodes as :ok.
-    writeln!(out, "#[rustler::nif]").unwrap();
-    writeln!(out, "pub fn visitor_reply(ref_id: u64, result: Option<String>) {{").unwrap();
-    writeln!(
-        out,
-        "    if let Some(tx) = VISITOR_CHANNELS.lock().unwrap().get(&ref_id) {{"
-    )
-    .unwrap();
-    writeln!(out, "        let _ = tx.send(result);").unwrap();
-    writeln!(out, "    }}").unwrap();
-    writeln!(out, "}}").unwrap();
-    writeln!(out).unwrap();
+    out.push_str(&crate::template_env::render(
+        "visitor_reply_nif.rs.jinja",
+        minijinja::context! {},
+    ));
 
     // Trait impl — each method sends callback message and waits for reply.
-    writeln!(out, "impl {trait_path} for {struct_name} {{").unwrap();
+    out.push_str(&crate::template_env::render(
+        "trait_impl_header.jinja",
+        minijinja::context! {
+            trait_path => trait_path,
+            struct_name => struct_name,
+        },
+    ));
     for method in &trait_type.methods {
         if method.trait_source.is_some() {
             continue;
         }
         gen_visitor_method_async(out, method, type_paths, struct_name);
     }
-    writeln!(out, "}}").unwrap();
-    writeln!(out).unwrap();
+    out.push_str("}\n");
+    out.push('\n');
 }
 
 /// Generate a single async visitor method that sends a callback message to the Elixir
@@ -765,22 +418,6 @@ fn gen_visitor_method_async(
         other => param_type(other, "", false, type_paths),
     };
 
-    writeln!(out, "    fn {name}({sig}) -> {ret_ty} {{").unwrap();
-
-    // Build a JSON object string from the method parameters for Elixir to decode.
-    writeln!(out, "        let mut args_map = serde_json::Map::new();").unwrap();
-    for p in &method.params {
-        let json_expr = build_json_arg(p);
-        // Strip leading `_` from the key so callers see "text" not "_text".
-        let key = p.name.strip_prefix('_').unwrap_or(&p.name);
-        writeln!(out, "        args_map.insert(\"{key}\".to_string(), {json_expr});").unwrap();
-    }
-    writeln!(
-        out,
-        "        let args_json = serde_json::Value::Object(args_map).to_string();"
-    )
-    .unwrap();
-
     // Convert method name from visit_* to handle_* for Elixir convention.
     // E.g., "visit_audio" -> "handle_audio"
     let handle_name = if let Some(suffix) = name.strip_prefix("visit_") {
@@ -789,34 +426,27 @@ fn gen_visitor_method_async(
         name.clone()
     };
 
-    // Send callback and wait for reply.
-    writeln!(
-        out,
-        "        let result = visitor_send_and_wait(self, \"{handle_name}\", args_json);"
-    )
-    .unwrap();
+    // Build args for the template
+    let args: Vec<minijinja::Value> = method
+        .params
+        .iter()
+        .map(|p| {
+            let json_expr = build_json_arg(p);
+            minijinja::context! {
+                key => p.name.clone(),
+                expr => json_expr
+            }
+        })
+        .collect();
 
-    // Parse the string reply into a VisitResult.
-    // Match on a lowercase copy for the keyword variants, but use the original
-    // string for Custom so that case is preserved in the output.
-    writeln!(out, "        match result {{").unwrap();
-    writeln!(out, "            None => {ret_ty}::Continue,").unwrap();
-    writeln!(out, "            Some(s) => {{").unwrap();
-    writeln!(out, "                let lower = s.to_lowercase();").unwrap();
-    writeln!(out, "                match lower.as_str() {{").unwrap();
-    writeln!(out, "                    \"continue\" => {ret_ty}::Continue,").unwrap();
-    writeln!(out, "                    \"skip\" => {ret_ty}::Skip,").unwrap();
-    writeln!(
-        out,
-        "                    \"preserve_html\" | \"preservehtml\" => {ret_ty}::PreserveHtml,"
-    )
-    .unwrap();
-    writeln!(out, "                    _ => {ret_ty}::Custom(s),").unwrap();
-    writeln!(out, "                }}").unwrap();
-    writeln!(out, "            }}").unwrap();
-    writeln!(out, "        }}").unwrap();
-    writeln!(out, "    }}").unwrap();
-    writeln!(out).unwrap();
+    let ctx = minijinja::context! {
+        method_name => name,
+        sig => sig,
+        ret_ty => ret_ty,
+        handle_name => handle_name,
+        args => args
+    };
+    out.push_str(&crate::template_env::render("visitor_method.rs.jinja", ctx));
 }
 
 /// Build a serde_json::Value expression for a visitor method parameter (for the args JSON object).
@@ -1084,10 +714,13 @@ pub fn gen_bridge_function(
 
     let func_name = &func.name;
     let mut out = String::with_capacity(2048);
-    writeln!(out, "#[rustler::nif]").ok();
-    writeln!(out, "pub fn {func_name}({params_str}) -> {ret} {{").ok();
-    writeln!(out, "    {body}").ok();
-    writeln!(out, "}}").ok();
+    let ctx = minijinja::context! {
+        func_name => func_name,
+        params_str => params_str,
+        ret => ret,
+        body => body
+    };
+    out.push_str(&crate::template_env::render("nif_function.rs.jinja", ctx));
 
     // Generate the async visitor NIF only when the bridge parameter is the visitor.
     // This NIF spawns a system thread, builds the bridge from the caller PID + visitor term,
@@ -1189,72 +822,22 @@ pub fn gen_bridge_function(
             })
             .collect();
 
-        writeln!(out).ok();
-        writeln!(
-            out,
-            "// Async visitor variant: spawns a system thread, sends result as a message."
-        )
-        .ok();
-        writeln!(out, "#[rustler::nif]").ok();
-        writeln!(
-            out,
-            "pub fn {func_name}_with_visitor({with_params_str}) -> Result<(), String> {{"
-        )
-        .ok();
-        writeln!(out, "    let pid = env.pid();").ok();
-        writeln!(out, "    {with_deser}").ok();
-
-        // Save visitor term + build owned env before spawning (must happen on BEAM thread)
-        writeln!(out, "    let mut visitor_owned_env = rustler::OwnedEnv::new();").ok();
-        writeln!(out, "    let visitor_saved = visitor_owned_env.save({param_name});").ok();
-        writeln!(out, "    {clone_stmts}").ok();
-
-        writeln!(out, "    std::thread::spawn(move || {{").ok();
-        writeln!(
-            out,
-            "        let bridge = {struct_name}::new_from_saved(pid, visitor_owned_env, visitor_saved);"
-        )
-        .ok();
-        writeln!(
-            out,
-            "        let {param_name}: Option<{handle_path}> = Some(std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path});"
-        )
-        .ok();
-        writeln!(out, "        let mut result_env = rustler::OwnedEnv::new();").ok();
-        writeln!(out, "        let _ = result_env.send_and_clear(&pid, |env| {{").ok();
-        writeln!(out, "            match {core_fn_path}({with_call_args_str}) {{").ok();
-        writeln!(out, "                Ok(val) => {{").ok();
-        writeln!(out, "                    let result: ConversionResult = val.into();").ok();
-        writeln!(
-            out,
-            "                    let ok_atom = rustler::types::atom::Atom::from_str(env, \"ok\").unwrap().to_term(env);"
-        )
-        .ok();
-        writeln!(out, "                    let result_term = result.encode(env);").ok();
-        writeln!(
-            out,
-            "                    rustler::types::tuple::make_tuple(env, &[ok_atom, result_term])"
-        )
-        .ok();
-        writeln!(out, "                }},").ok();
-        writeln!(out, "                Err(e) => {{").ok();
-        writeln!(
-            out,
-            "                    let err_atom = rustler::types::atom::Atom::from_str(env, \"error\").unwrap().to_term(env);"
-        )
-        .ok();
-        writeln!(out, "                    let reason = e.to_string().encode(env);").ok();
-        writeln!(
-            out,
-            "                    rustler::types::tuple::make_tuple(env, &[err_atom, reason])"
-        )
-        .ok();
-        writeln!(out, "                }},").ok();
-        writeln!(out, "            }}").ok();
-        writeln!(out, "        }});").ok();
-        writeln!(out, "    }});").ok();
-        writeln!(out, "    Ok(())").ok();
-        writeln!(out, "}}").ok();
+        out.push('\n');
+        let ctx = minijinja::context! {
+            func_name => func_name,
+            with_params_str => with_params_str,
+            with_deser => with_deser,
+            param_name => param_name,
+            clone_stmts => clone_stmts,
+            struct_name => struct_name,
+            handle_path => handle_path,
+            core_fn_path => core_fn_path,
+            with_call_args_str => with_call_args_str
+        };
+        out.push_str(&crate::template_env::render(
+            "nif_with_visitor_async_body.rs.jinja",
+            ctx,
+        ));
     }
 
     out
@@ -1372,10 +955,13 @@ pub fn gen_bridge_field_function(
     };
 
     let mut out = String::with_capacity(2048);
-    writeln!(out, "#[rustler::nif(schedule = \"DirtyCpu\")]").ok();
-    writeln!(out, "pub fn {func_name}({plain_params_str}) -> {ret} {{").ok();
-    writeln!(out, "    {plain_body}").ok();
-    writeln!(out, "}}").ok();
+    let ctx = minijinja::context! {
+        func_name => func_name,
+        params_str => plain_params_str,
+        ret => ret,
+        body => plain_body
+    };
+    out.push_str(&crate::template_env::render("dirty_cpu_nif_function.rs.jinja", ctx));
 
     // ── 2. Async visitor NIF ──────────────────────────────────────────────────
     // Signature: env + original params + `visitor: Term<'_>` at the end.
@@ -1445,77 +1031,19 @@ pub fn gen_bridge_field_function(
         .collect();
     let vis_call_args_str = vis_call_args.join(", ");
 
-    writeln!(out).ok();
-    writeln!(
-        out,
-        "// Async visitor variant: pops visitor from options, builds bridge, spawns thread."
-    )
-    .ok();
-    writeln!(out, "#[rustler::nif]").ok();
-    writeln!(
-        out,
-        "pub fn {func_name}_with_visitor({vis_params_str}) -> Result<(), String> {{"
-    )
-    .ok();
-    writeln!(out, "    let pid = env.pid();").ok();
-    writeln!(out, "    let mut visitor_owned_env = rustler::OwnedEnv::new();").ok();
-    writeln!(out, "    let visitor_saved = visitor_owned_env.save(visitor);").ok();
-    writeln!(out, "    {clone_stmts}").ok();
-    writeln!(out, "    std::thread::spawn(move || {{").ok();
-    writeln!(out, "        let _ = visitor_owned_env.send_and_clear(&pid, |env| {{").ok();
-    writeln!(out, "            let visitor_term = visitor_saved.load(env);").ok();
-    writeln!(out, "            {deser_stmts}").ok();
-    writeln!(
-        out,
-        "            // Run conversion and return result term to send back to BEAM"
-    )
-    .ok();
-    writeln!(
-        out,
-        "            let conversion_result = match {core_fn_path}({vis_call_args_str}) {{"
-    )
-    .ok();
-    writeln!(out, "                Ok(val) => {{").ok();
-    writeln!(
-        out,
-        "                    let result: ConversionResult = val.into();  // Convert from core::ConversionResult to NIF::ConversionResult"
-    )
-    .ok();
-    writeln!(out, "                    Ok(result)").ok();
-    writeln!(out, "                }},").ok();
-    writeln!(out, "                Err(e) => Err(e.to_string()),").ok();
-    writeln!(out, "            }};").ok();
-    writeln!(out, "            match conversion_result {{").ok();
-    writeln!(out, "                Ok(result) => {{").ok();
-    writeln!(
-        out,
-        "                    let ok_atom = rustler::types::atom::Atom::from_str(env, \"ok\").unwrap().to_term(env);"
-    )
-    .ok();
-    writeln!(
-        out,
-        "                    rustler::types::tuple::make_tuple(env, &[ok_atom, result.encode(env)])"
-    )
-    .ok();
-    writeln!(out, "                }},").ok();
-    writeln!(out, "                Err(reason) => {{").ok();
-    writeln!(
-        out,
-        "                    let err_atom = rustler::types::atom::Atom::from_str(env, \"error\").unwrap().to_term(env);"
-    )
-    .ok();
-    writeln!(out, "                    let reason_term = reason.encode(env);").ok();
-    writeln!(
-        out,
-        "                    rustler::types::tuple::make_tuple(env, &[err_atom, reason_term])"
-    )
-    .ok();
-    writeln!(out, "                }},").ok();
-    writeln!(out, "            }}").ok();
-    writeln!(out, "        }});").ok();
-    writeln!(out, "    }});").ok();
-    writeln!(out, "    Ok(())").ok();
-    writeln!(out, "}}").ok();
+    out.push('\n');
+    let ctx = minijinja::context! {
+        func_name => func_name,
+        vis_params_str => vis_params_str,
+        clone_stmts => clone_stmts,
+        deser_stmts => deser_stmts,
+        core_fn_path => core_fn_path,
+        vis_call_args_str => vis_call_args_str
+    };
+    out.push_str(&crate::template_env::render(
+        "nif_with_visitor_field_async_body.rs.jinja",
+        ctx,
+    ));
 
     out
 }

@@ -1,0 +1,13 @@
+    @Override public VisitResult {{ camel_method }}({{ params }}) {
+{%- if action_type == "skip" %}
+        return VisitResult.skip();
+{%- elif action_type == "continue" %}
+        return VisitResult.continue_();
+{%- elif action_type == "preserve_html" %}
+        return VisitResult.preserveHtml();
+{%- elif action_type == "custom_literal" %}
+        return VisitResult.custom("{{ action_value }}");
+{%- elif action_type == "custom_formatted" %}
+        return VisitResult.custom(String.format("{{ action_value }}", {{ format_args|join(", ") }}));
+{%- endif %}
+    }

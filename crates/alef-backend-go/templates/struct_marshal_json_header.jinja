@@ -1,0 +1,8 @@
+
+// MarshalJSON serializes `[]byte` fields as a JSON array of integers (the format
+// Rust's serde `Vec<u8>` deserializer expects) instead of Go's default base64 string.
+func (v {{ go_name }}) MarshalJSON() ([]byte, error) {
+	// Explicit shadow struct listing every field — embedding the original
+	// would cause both base64-string and int-array entries for the same JSON
+	// key. Bytes fields rendered as `[]int`; everything else copied verbatim.
+	aux := struct {

@@ -1,7 +1,6 @@
 use crate::type_map::is_void_return;
 use ahash::AHashSet;
 use alef_core::ir::TypeRef;
-use std::fmt::Write;
 
 /// Render an expression that produces a Copy-typed value, avoiding clippy::clone_on_copy.
 ///
@@ -30,95 +29,129 @@ pub(super) fn gen_value_to_c(
     enum_names: &AHashSet<String>,
     clone_names: &AHashSet<String>,
 ) -> String {
-    let mut out = String::with_capacity(2048);
     match ty {
         TypeRef::Primitive(p) => {
             // Bool needs cast to i32 for C ABI; other primitives may need deref if from Option
-            if matches!(p, alef_core::ir::PrimitiveType::Bool) {
-                writeln!(out, "{indent}{expr} as i32").ok();
+            let type_class = if matches!(p, alef_core::ir::PrimitiveType::Bool) {
+                "primitive_bool"
             } else {
-                writeln!(out, "{indent}{expr}").ok();
-            }
-        }
-        TypeRef::String | TypeRef::Char => {
-            writeln!(out, "{indent}match CString::new({expr}.to_string()) {{").ok();
-            writeln!(out, "{indent}    Ok(cs) => cs.into_raw(),").ok();
-            writeln!(out, "{indent}    Err(_) => std::ptr::null_mut(),").ok();
-            writeln!(out, "{indent}}}").ok();
-        }
-        TypeRef::Path => {
-            writeln!(
-                out,
-                "{indent}match CString::new({expr}.to_string_lossy().to_string()) {{"
+                "primitive_other"
+            };
+            crate::template_env::render(
+                "value_to_c_conversion.jinja",
+                minijinja::context! {
+                    type_class => type_class,
+                    expr => expr,
+                    indent => indent,
+                },
             )
-            .ok();
-            writeln!(out, "{indent}    Ok(cs) => cs.into_raw(),").ok();
-            writeln!(out, "{indent}    Err(_) => std::ptr::null_mut(),").ok();
-            writeln!(out, "{indent}}}").ok();
         }
-        TypeRef::Json => {
-            writeln!(out, "{indent}match serde_json::to_string(&{expr}) {{").ok();
-            writeln!(out, "{indent}    Ok(s) => match CString::new(s) {{").ok();
-            writeln!(out, "{indent}        Ok(cs) => cs.into_raw(),").ok();
-            writeln!(out, "{indent}        Err(_) => std::ptr::null_mut(),").ok();
-            writeln!(out, "{indent}    }},").ok();
-            writeln!(out, "{indent}    Err(_) => std::ptr::null_mut(),").ok();
-            writeln!(out, "{indent}}}").ok();
-        }
+        TypeRef::String | TypeRef::Char => crate::template_env::render(
+            "value_to_c_conversion.jinja",
+            minijinja::context! {
+                type_class => "string",
+                expr => expr,
+                indent => indent,
+            },
+        ),
+        TypeRef::Path => crate::template_env::render(
+            "value_to_c_conversion.jinja",
+            minijinja::context! {
+                type_class => "path",
+                expr => expr,
+                indent => indent,
+            },
+        ),
+        TypeRef::Json => crate::template_env::render(
+            "value_to_c_conversion.jinja",
+            minijinja::context! {
+                type_class => "json_or_vec_or_map",
+                expr => expr,
+                indent => indent,
+            },
+        ),
         TypeRef::Named(name) => {
             if enum_names.contains(name.as_str()) {
                 // Copy-typed enums: clippy::clone_on_copy fires on .clone(). Use auto-copy/deref.
                 let copy = copy_expr(expr);
-                writeln!(out, "{indent}Box::into_raw(Box::new({copy}))").ok();
+                crate::template_env::render(
+                    "value_to_c_conversion.jinja",
+                    minijinja::context! {
+                        type_class => "named_enum",
+                        expr => expr,
+                        copy_expr => &copy,
+                        indent => indent,
+                    },
+                )
             } else if clone_names.contains(name.as_str()) {
                 // Clone-capable struct: clone the borrowed reference into an owned box.
-                writeln!(out, "{indent}Box::into_raw(Box::new({expr}.clone()))").ok();
+                crate::template_env::render(
+                    "value_to_c_conversion.jinja",
+                    minijinja::context! {
+                        type_class => "named_clone",
+                        expr => expr,
+                        indent => indent,
+                    },
+                )
             } else {
                 // Non-Clone opaque type: the caller holds a borrow from the parent struct.
                 // Return a raw pointer alias — the C caller must not outlive the parent handle.
-                writeln!(out, "{indent}{expr} as *const _ as *mut _").ok();
+                crate::template_env::render(
+                    "value_to_c_conversion.jinja",
+                    minijinja::context! {
+                        type_class => "named_non_clone",
+                        expr => expr,
+                        indent => indent,
+                    },
+                )
             }
         }
         TypeRef::Vec(_) | TypeRef::Map(_, _) => {
             // Serialize as JSON
-            writeln!(out, "{indent}match serde_json::to_string(&{expr}) {{").ok();
-            writeln!(out, "{indent}    Ok(s) => match CString::new(s) {{").ok();
-            writeln!(out, "{indent}        Ok(cs) => cs.into_raw(),").ok();
-            writeln!(out, "{indent}        Err(_) => std::ptr::null_mut(),").ok();
-            writeln!(out, "{indent}    }},").ok();
-            writeln!(out, "{indent}    Err(_) => std::ptr::null_mut(),").ok();
-            writeln!(out, "{indent}}}").ok();
+            crate::template_env::render(
+                "value_to_c_conversion.jinja",
+                minijinja::context! {
+                    type_class => "json_or_vec_or_map",
+                    expr => expr,
+                    indent => indent,
+                },
+            )
         }
         TypeRef::Bytes => {
             // Return pointer; caller must also get length. Cast to *mut u8 to match FFI signature.
-            writeln!(out, "{indent}{expr}.as_ptr() as *mut u8").ok();
+            crate::template_env::render(
+                "value_to_c_conversion.jinja",
+                minijinja::context! {
+                    type_class => "bytes",
+                    expr => expr,
+                    indent => indent,
+                },
+            )
         }
-        TypeRef::Duration => {
-            writeln!(out, "{indent}{expr}.as_millis() as u64").ok();
-        }
-        TypeRef::Unit => {
-            // nothing to return
-        }
+        TypeRef::Duration => crate::template_env::render(
+            "value_to_c_conversion.jinja",
+            minijinja::context! {
+                type_class => "duration",
+                expr => expr,
+                indent => indent,
+            },
+        ),
+        TypeRef::Unit => String::new(),
         TypeRef::Optional(inner) => {
-            writeln!(out, "{indent}match &{expr} {{").ok();
-            writeln!(out, "{indent}    Some(val) => {{").ok();
-            write!(
-                out,
-                "{}",
-                gen_value_to_c("val", inner, &format!("{indent}        "), enum_names, clone_names)
+            let inner_conversion = gen_value_to_c("val", inner, &format!("{indent}        "), enum_names, clone_names);
+            let null_value = null_return_value(&TypeRef::Optional(inner.clone()));
+            crate::template_env::render(
+                "value_to_c_conversion.jinja",
+                minijinja::context! {
+                    type_class => "optional",
+                    expr => expr,
+                    indent => indent,
+                    inner_conversion => &inner_conversion,
+                    null_value => null_value,
+                },
             )
-            .ok();
-            writeln!(out, "{indent}    }}").ok();
-            writeln!(
-                out,
-                "{indent}    None => {},",
-                null_return_value(&TypeRef::Optional(inner.clone()))
-            )
-            .ok();
-            writeln!(out, "{indent}}}").ok();
         }
     }
-    out
 }
 
 /// Generate a type-appropriate unimplemented body for FFI (no todo!()).
@@ -176,87 +209,104 @@ pub(super) fn null_return_value(ty: &TypeRef) -> &'static str {
 // ---------------------------------------------------------------------------
 
 pub(super) fn gen_owned_value_to_c(expr: &str, ty: &TypeRef, indent: &str, _enum_names: &AHashSet<String>) -> String {
-    let mut out = String::with_capacity(2048);
     match ty {
         TypeRef::Primitive(prim) => match prim {
-            alef_core::ir::PrimitiveType::Bool => {
-                writeln!(out, "{indent}if {expr} {{").ok();
-                writeln!(out, "{indent}    1").ok();
-                writeln!(out, "{indent}}} else {{").ok();
-                writeln!(out, "{indent}    0").ok();
-                writeln!(out, "{indent}}}").ok();
-            }
-            _ => {
-                writeln!(out, "{indent}{expr}").ok();
-            }
+            alef_core::ir::PrimitiveType::Bool => crate::template_env::render(
+                "owned_value_to_c_bool.jinja",
+                minijinja::context! {
+                    expr => expr,
+                    indent => indent,
+                },
+            ),
+            _ => crate::template_env::render(
+                "value_to_c_conversion.jinja",
+                minijinja::context! {
+                    type_class => "primitive_other",
+                    expr => expr,
+                    indent => indent,
+                },
+            ),
         },
-        TypeRef::String | TypeRef::Char => {
-            writeln!(out, "{indent}match CString::new({expr}) {{").ok();
-            writeln!(out, "{indent}    Ok(cs) => cs.into_raw(),").ok();
-            writeln!(out, "{indent}    Err(_) => std::ptr::null_mut(),").ok();
-            writeln!(out, "{indent}}}").ok();
-        }
-        TypeRef::Json => {
-            writeln!(out, "{indent}match serde_json::to_string(&{expr}) {{").ok();
-            writeln!(out, "{indent}    Ok(s) => match CString::new(s) {{").ok();
-            writeln!(out, "{indent}        Ok(cs) => cs.into_raw(),").ok();
-            writeln!(out, "{indent}        Err(_) => std::ptr::null_mut(),").ok();
-            writeln!(out, "{indent}    }},").ok();
-            writeln!(out, "{indent}    Err(_) => std::ptr::null_mut(),").ok();
-            writeln!(out, "{indent}}}").ok();
-        }
-        TypeRef::Path => {
-            writeln!(
-                out,
-                "{indent}match CString::new({expr}.to_string_lossy().to_string()) {{"
-            )
-            .ok();
-            writeln!(out, "{indent}    Ok(cs) => cs.into_raw(),").ok();
-            writeln!(out, "{indent}    Err(_) => std::ptr::null_mut(),").ok();
-            writeln!(out, "{indent}}}").ok();
-        }
+        TypeRef::String | TypeRef::Char => crate::template_env::render(
+            "value_to_c_conversion.jinja",
+            minijinja::context! {
+                type_class => "string",
+                expr => expr,
+                indent => indent,
+            },
+        ),
+        TypeRef::Json => crate::template_env::render(
+            "value_to_c_conversion.jinja",
+            minijinja::context! {
+                type_class => "json_or_vec_or_map",
+                expr => expr,
+                indent => indent,
+            },
+        ),
+        TypeRef::Path => crate::template_env::render(
+            "value_to_c_conversion.jinja",
+            minijinja::context! {
+                type_class => "path",
+                expr => expr,
+                indent => indent,
+            },
+        ),
         TypeRef::Named(_) => {
-            // For owned values, .clone() is wasteful. Just box the value directly.
-            // (Copy enums auto-copy; non-Copy types move into Box::new.)
-            writeln!(out, "{indent}Box::into_raw(Box::new({expr}))").ok();
+            // For owned values, .clone() is wasteful AND incorrect when the type is non-Clone
+            // (opaque handles like Parser/Registry). Move the value into the Box.
+            crate::template_env::render(
+                "value_to_c_conversion.jinja",
+                minijinja::context! {
+                    type_class => "named_owned",
+                    expr => expr,
+                    indent => indent,
+                },
+            )
         }
-        TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-            writeln!(out, "{indent}match serde_json::to_string(&{expr}) {{").ok();
-            writeln!(out, "{indent}    Ok(s) => match CString::new(s) {{").ok();
-            writeln!(out, "{indent}        Ok(cs) => cs.into_raw(),").ok();
-            writeln!(out, "{indent}        Err(_) => std::ptr::null_mut(),").ok();
-            writeln!(out, "{indent}    }},").ok();
-            writeln!(out, "{indent}    Err(_) => std::ptr::null_mut(),").ok();
-            writeln!(out, "{indent}}}").ok();
-        }
+        TypeRef::Vec(_) | TypeRef::Map(_, _) => crate::template_env::render(
+            "value_to_c_conversion.jinja",
+            minijinja::context! {
+                type_class => "json_or_vec_or_map",
+                expr => expr,
+                indent => indent,
+            },
+        ),
         TypeRef::Bytes => {
             // Return pointer; assume out-param for length. Cast to *mut u8 to match FFI signature.
-            writeln!(out, "{indent}{expr}.as_ptr() as *mut u8").ok();
+            crate::template_env::render(
+                "value_to_c_conversion.jinja",
+                minijinja::context! {
+                    type_class => "bytes",
+                    expr => expr,
+                    indent => indent,
+                },
+            )
         }
         TypeRef::Optional(inner) => {
-            writeln!(out, "{indent}match {expr} {{").ok();
-            writeln!(out, "{indent}    Some(val) => {{").ok();
-            write!(
-                out,
-                "{}",
-                gen_owned_value_to_c("val", inner, &format!("{indent}        "), _enum_names)
+            let inner_conversion = gen_owned_value_to_c("val", inner, &format!("{indent}        "), _enum_names);
+            let null_value = null_return_value(&TypeRef::Optional(inner.clone()));
+            // Owned-context: consume the Option so val is owned T (not &T).
+            crate::template_env::render(
+                "value_to_c_conversion.jinja",
+                minijinja::context! {
+                    type_class => "optional_owned",
+                    expr => expr,
+                    indent => indent,
+                    inner_conversion => &inner_conversion,
+                    null_value => null_value,
+                },
             )
-            .ok();
-            writeln!(out, "{indent}    }}").ok();
-            writeln!(
-                out,
-                "{indent}    None => {},",
-                null_return_value(&TypeRef::Optional(inner.clone()))
-            )
-            .ok();
-            writeln!(out, "{indent}}}").ok();
         }
-        TypeRef::Duration => {
-            writeln!(out, "{indent}{expr}.as_millis() as u64").ok();
-        }
-        TypeRef::Unit => {}
+        TypeRef::Duration => crate::template_env::render(
+            "value_to_c_conversion.jinja",
+            minijinja::context! {
+                type_class => "duration",
+                expr => expr,
+                indent => indent,
+            },
+        ),
+        TypeRef::Unit => String::new(),
     }
-    out
 }
 
 // ---------------------------------------------------------------------------
@@ -297,30 +347,12 @@ pub(super) fn gen_cbindgen_toml(prefix: &str, api: &alef_core::ir::ApiSurface) -
         .collect::<Vec<_>>()
         .join("\n");
 
-    let after_includes = if forward_decls.is_empty() {
-        String::new()
-    } else {
-        format!("\nafter_includes = \"\"\"\n/* Opaque type forward declarations */\n{forward_decls}\n\"\"\"\n")
-    };
-
-    format!(
-        r#"# This file is auto-generated by alef. DO NOT EDIT.
-language = "C"
-include_guard = "{prefix_upper}_H"
-pragma_once = true
-autogen_warning = "/* This file is auto-generated by alef. DO NOT EDIT. */"
-{after_includes}
-[defines]
-"target_os = windows" = "SKIF_WINDOWS"
-
-[export]
-prefix = "{prefix_upper}"
-include = []
-exclude = []
-
-[fn]
-args = "vertical"
-"#
+    crate::template_env::render(
+        "cbindgen_toml.jinja",
+        minijinja::context! {
+            prefix_upper => &prefix_upper,
+            forward_decls => &forward_decls,
+        },
     )
 }
 
@@ -328,16 +360,32 @@ args = "vertical"
 // build.rs generation
 // ---------------------------------------------------------------------------
 
-pub(super) fn gen_build_rs(header_name: &str) -> String {
-    format!(
-        r#"// This file is auto-generated by alef. DO NOT EDIT.
-fn main() {{
-    let crate_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
-    cbindgen::generate(crate_dir)
-        .expect("Unable to generate C bindings")
-        .write_to_file("include/{header_name}");
-}}
-"#
+pub(super) fn gen_build_rs(header_name: &str, go_output_dir: Option<&str>) -> String {
+    let go_copy_step = match go_output_dir {
+        Some(go_dir) => {
+            let go_dir = go_dir.trim_end_matches('/');
+            let depth = std::path::Path::new(go_dir)
+                .components()
+                .filter(|c| matches!(c, std::path::Component::Normal(_)))
+                .count()
+                .max(1);
+            let to_root = "../".repeat(depth);
+            let dest_dir = format!("{to_root}{go_dir}/include");
+            format!(
+                "\n    let go_include_dir = std::path::Path::new(\"{dest_dir}\");\n    \
+                 std::fs::create_dir_all(go_include_dir).expect(\"Unable to create Go include directory\");\n    \
+                 std::fs::copy(\"include/{header_name}\", go_include_dir.join(\"{header_name}\"))\n        \
+                 .expect(\"Unable to copy header to Go include directory\");\n"
+            )
+        }
+        None => String::new(),
+    };
+    crate::template_env::render(
+        "build_rs.jinja",
+        minijinja::context! {
+            header_name => header_name,
+            go_copy_step => go_copy_step,
+        },
     )
 }
 
@@ -346,42 +394,11 @@ fn main() {{
 // ---------------------------------------------------------------------------
 
 pub(super) fn gen_last_error(prefix: &str) -> String {
-    format!(
-        r#"thread_local! {{
-    static LAST_ERROR_CODE: RefCell<i32> = const {{ RefCell::new(0) }};
-    static LAST_ERROR_CONTEXT: RefCell<Option<CString>> = const {{ RefCell::new(None) }};
-}}
-
-fn set_last_error(code: i32, message: &str) {{
-    LAST_ERROR_CODE.with_borrow_mut(|c| *c = code);
-    LAST_ERROR_CONTEXT.with_borrow_mut(|c| *c = CString::new(message).ok());
-}}
-
-fn clear_last_error() {{
-    LAST_ERROR_CODE.with_borrow_mut(|c| *c = 0);
-    LAST_ERROR_CONTEXT.with_borrow_mut(|c| *c = None);
-}}
-
-/// Return the last error code (0 means no error).
-/// # Safety
-/// Caller must ensure all pointer arguments are valid or null.
-/// Returned pointers must be freed with the appropriate free function.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn {prefix}_last_error_code() -> i32 {{
-    LAST_ERROR_CODE.with_borrow(|c| *c)
-}}
-
-/// Return the last error message. The pointer is valid until the next FFI call on this thread.
-/// # Safety
-/// Caller must ensure all pointer arguments are valid or null.
-/// Returned pointers must be freed with the appropriate free function.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn {prefix}_last_error_context() -> *const c_char {{
-    LAST_ERROR_CONTEXT.with_borrow(|ctx| {{
-        ctx.as_ref().map_or(std::ptr::null(), |c| c.as_ptr())
-    }})
-}}"#,
-        prefix = prefix
+    crate::template_env::render(
+        "last_error.jinja",
+        minijinja::context! {
+            prefix => prefix,
+        },
     )
 }
 
@@ -390,18 +407,11 @@ pub unsafe extern "C" fn {prefix}_last_error_context() -> *const c_char {{
 // ---------------------------------------------------------------------------
 
 pub(super) fn gen_free_string(prefix: &str) -> String {
-    format!(
-        r#"/// Free a string previously returned by this library.
-/// # Safety
-/// Pointer must have been returned by this library, or be null.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn {prefix}_free_string(ptr: *mut c_char) {{
-    if !ptr.is_null() {{
-        // SAFETY: ptr was allocated by CString::into_raw; caller ensures no aliases.
-        unsafe {{ drop(CString::from_raw(ptr)); }}
-    }}
-}}"#,
-        prefix = prefix
+    crate::template_env::render(
+        "free_string.jinja",
+        minijinja::context! {
+            prefix => prefix,
+        },
     )
 }
 
@@ -410,15 +420,40 @@ pub unsafe extern "C" fn {prefix}_free_string(ptr: *mut c_char) {{
 // ---------------------------------------------------------------------------
 
 pub(super) fn gen_version(prefix: &str) -> String {
+    crate::template_env::render(
+        "version_fn.jinja",
+        minijinja::context! {
+            prefix => prefix,
+        },
+    )
+}
+
+// ---------------------------------------------------------------------------
+// free_bytes
+// ---------------------------------------------------------------------------
+
+/// Generate a `{prefix}_free_bytes` companion that reconstructs and drops a
+/// heap-allocated `Vec<u8>` previously returned via the out-param convention
+/// (`out_ptr / out_len / out_cap`).
+///
+/// This is emitted once per FFI module alongside `{prefix}_free_string` so
+/// that callers can safely release byte buffers returned by functions whose
+/// Rust signature is `Result<Vec<u8>>`.
+pub(super) fn gen_free_bytes(prefix: &str) -> String {
     format!(
-        r#"/// Return the library version string. The pointer is static and must NOT be freed.
+        r#"/// Free a byte buffer previously returned by this library via out-params.
+/// `ptr`, `len`, and `cap` must match the values written by the library function,
+/// or the call must pass `ptr = null` (in which case it is a no-op).
 /// # Safety
-/// Caller must ensure all pointer arguments are valid or null.
-/// Returned pointers must be freed with the appropriate free function.
+/// Pointer must have been returned by this library (via out_ptr / out_len / out_cap
+/// out-params), or be null. The len and cap values must be unchanged since the call.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn {prefix}_version() -> *const c_char {{
-    static VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "\0");
-    VERSION.as_ptr() as *const c_char
+pub unsafe extern "C" fn {prefix}_free_bytes(ptr: *mut u8, len: usize, cap: usize) {{
+    if !ptr.is_null() {{
+        // SAFETY: ptr/len/cap were produced by Vec::into_raw_parts (or equivalent)
+        // by this library; caller must not have mutated them.
+        unsafe {{ drop(Vec::from_raw_parts(ptr, len, cap)); }}
+    }}
 }}"#,
         prefix = prefix
     )
@@ -427,12 +462,220 @@ pub unsafe extern "C" fn {prefix}_version() -> *const c_char {{
 /// Generate a lazily-initialized tokio runtime helper for blocking on async
 /// functions from synchronous FFI entry points.
 pub(super) fn gen_ffi_tokio_runtime() -> String {
-    r#"fn get_ffi_runtime() -> &'static tokio::runtime::Runtime {
-    use std::sync::OnceLock;
-    static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
-    RUNTIME.get_or_init(|| {
-        tokio::runtime::Runtime::new().expect("Failed to create tokio runtime")
-    })
-}"#
-    .to_string()
+    crate::template_env::render("ffi_tokio_runtime.jinja", minijinja::context! {})
+}
+
+// ---------------------------------------------------------------------------
+// Stream handle (iterator-based streaming for FFI consumers)
+// ---------------------------------------------------------------------------
+
+/// Generate the three iterator-handle functions for a streaming adapter:
+///
+/// - `{prefix}_{type_snake}_{name}_start` — create handle from client + request
+/// - `{prefix}_{type_snake}_{name}_next`  — advance stream, return boxed chunk or null
+/// - `{prefix}_{type_snake}_{name}_free`  — drop handle
+///
+/// Also emits the opaque handle struct that owns the tokio runtime + BoxStream.
+///
+/// The handle name is derived as `{PascalPrefix}{PascalOwnerType}{PascalName}StreamHandle`.
+/// The function prefix is `{prefix}_{owner_type_snake}_{adapter_name}`.
+///
+/// Error protocol: `_next` returns null on both clean end-of-stream AND error.
+/// After null, caller checks `{prefix}_last_error_code()` — 0 is clean end, non-zero is error.
+pub(super) fn gen_stream_handle_functions(
+    prefix: &str,
+    owner_type: &str,
+    adapter_name: &str,
+    core_path: &str,
+    item_type: &str,
+    request_type: &str,
+    core_import: &str,
+) -> String {
+    use heck::{ToPascalCase, ToSnakeCase};
+
+    let pascal_prefix = prefix.to_pascal_case();
+    let pascal_owner = owner_type.to_pascal_case();
+    let pascal_name = adapter_name.to_pascal_case();
+    let owner_snake = owner_type.to_snake_case();
+
+    let handle_name = format!("{pascal_prefix}{pascal_owner}{pascal_name}StreamHandle");
+    let fn_start = format!("{prefix}_{owner_snake}_{adapter_name}_start");
+    let fn_next = format!("{prefix}_{owner_snake}_{adapter_name}_next");
+    let fn_free = format!("{prefix}_{owner_snake}_{adapter_name}_free");
+
+    // Full item type path for the BoxStream generic
+    let core_item = format!("{core_import}::{item_type}");
+    // Error type is erased to a boxed trait object so the handle type is stable across
+    // error-type changes in core.  Uses only std — no anyhow dependency required.
+    let boxed_err = "Box<dyn std::error::Error + Send + Sync + 'static>";
+    let stream_ty = format!("futures_util::stream::BoxStream<'static, Result<{core_item}, {boxed_err}>>");
+    let owner_ty = format!("{core_import}::{owner_type}");
+
+    format!(
+        r#"/// Opaque handle owning a tokio runtime and a boxed chat-stream for iterator-style consumption.
+///
+/// Created by `{fn_start}`, advanced by `{fn_next}`, destroyed by `{fn_free}`.
+/// The handle is NOT thread-safe — callers must ensure only one thread calls `_next` at a time.
+pub struct {handle_name} {{
+    rt: tokio::runtime::Runtime,
+    stream: std::sync::Mutex<Option<{stream_ty}>>,
+}}
+
+/// Start a streaming chat completion and return an opaque iterator handle.
+///
+/// Returns null and sets `{prefix}_last_error_code` on failure (null pointers or stream-open error).
+/// On success the caller owns the returned pointer and MUST call `{fn_free}` when done.
+///
+/// # Safety
+/// `client` must be a non-null valid pointer to a live `{owner_ty}` produced by this library.
+/// `req` must be a non-null valid pointer to a live `{request_type}` produced by this library.
+/// Both pointers must remain valid until this function returns.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn {fn_start}(
+    client: *const {owner_ty},
+    req: *const {request_type},
+) -> *mut {handle_name} {{
+    clear_last_error();
+
+    if client.is_null() {{
+        set_last_error(99, "{fn_start}: client must not be NULL");
+        return std::ptr::null_mut();
+    }}
+    if req.is_null() {{
+        set_last_error(99, "{fn_start}: req must not be NULL");
+        return std::ptr::null_mut();
+    }}
+
+    // SAFETY: caller guarantees `client` is a non-null, valid, aligned pointer to a live
+    // `{owner_ty}` value. The reference does not outlive this function.
+    let client_ref = unsafe {{ &*client }};
+
+    // SAFETY: caller guarantees `req` is a non-null, valid, aligned pointer to a live
+    // `{request_type}` value. We clone it to obtain an owned request independent of the
+    // caller's lifetime.
+    let req_owned = unsafe {{ (*req).clone() }};
+
+    let rt = match tokio::runtime::Runtime::new() {{
+        Ok(r) => r,
+        Err(e) => {{
+            set_last_error(99, &format!("{fn_start}: failed to create tokio runtime: {{e}}"));
+            return std::ptr::null_mut();
+        }}
+    }};
+
+    let stream_result = rt.block_on(async {{ client_ref.{core_path}(req_owned).await }});
+
+    let raw_stream = match stream_result {{
+        Ok(s) => s,
+        Err(e) => {{
+            set_last_error(99, &format!("{fn_start}: failed to open stream: {{e}}"));
+            return std::ptr::null_mut();
+        }}
+    }};
+
+    // Map the stream's concrete error type to Box<dyn Error> to erase it from the handle type.
+    let mapped: {stream_ty} = {{
+        use futures_util::StreamExt;
+        Box::pin(raw_stream.map(|r| r.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync + 'static>)))
+    }};
+
+    let handle = Box::new({handle_name} {{
+        rt,
+        stream: std::sync::Mutex::new(Some(mapped)),
+    }});
+
+    Box::into_raw(handle)
+}}
+
+/// Advance the stream and return a heap-allocated chunk, or null.
+///
+/// Returns null in two cases:
+/// - Clean end-of-stream: `{prefix}_last_error_code()` returns 0.
+/// - Stream error: `{prefix}_last_error_code()` returns non-zero.
+///
+/// The returned pointer is heap-allocated and the caller MUST free it by calling
+/// `{prefix}_{owner_snake}_{item_type}_free` (or the appropriate type-free function).
+///
+/// # Safety
+/// `handle` must be a non-null valid pointer previously returned by `{fn_start}` and not yet
+/// freed. Calling `_next` after `_free` is undefined behaviour. The handle must not be shared
+/// across threads without external synchronisation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn {fn_next}(
+    handle: *mut {handle_name},
+) -> *mut {core_item} {{
+    clear_last_error();
+
+    if handle.is_null() {{
+        set_last_error(99, "{fn_next}: handle must not be NULL");
+        return std::ptr::null_mut();
+    }}
+
+    // SAFETY: caller guarantees `handle` is a non-null valid pointer produced by `{fn_start}`
+    // and not yet freed. We take a shared reference for the duration of this call.
+    let h = unsafe {{ &*handle }};
+
+    let mut guard = match h.stream.lock() {{
+        Ok(g) => g,
+        Err(_) => {{
+            set_last_error(99, "{fn_next}: stream mutex is poisoned");
+            return std::ptr::null_mut();
+        }}
+    }};
+
+    let stream = match guard.as_mut() {{
+        Some(s) => s,
+        None => {{
+            // Stream already exhausted or taken.
+            return std::ptr::null_mut();
+        }}
+    }};
+
+    use futures_util::StreamExt;
+    match h.rt.block_on(stream.next()) {{
+        Some(Ok(chunk)) => {{
+            // SAFETY: We box the chunk and transfer ownership to the caller via raw pointer.
+            // The caller must free it via the appropriate type-free function.
+            Box::into_raw(Box::new(chunk))
+        }}
+        Some(Err(e)) => {{
+            set_last_error(99, &format!("{fn_next}: stream error: {{e}}"));
+            std::ptr::null_mut()
+        }}
+        None => {{
+            // Clean end-of-stream — error code remains 0 (cleared at top of function).
+            *guard = None;
+            std::ptr::null_mut()
+        }}
+    }}
+}}
+
+/// Free a stream handle created by `{fn_start}`.
+///
+/// Safe to call with a null pointer (no-op). After this call the handle pointer is invalid.
+///
+/// # Safety
+/// `handle` must either be null or a valid pointer previously returned by `{fn_start}` and
+/// not yet freed. Double-free is undefined behaviour.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn {fn_free}(handle: *mut {handle_name}) {{
+    if !handle.is_null() {{
+        // SAFETY: `handle` was produced by Box::into_raw in `{fn_start}` and has not been freed.
+        // Reconstructing the Box transfers ownership back to Rust, which drops it at end of scope.
+        unsafe {{ drop(Box::from_raw(handle)); }}
+    }}
+}}"#,
+        handle_name = handle_name,
+        fn_start = fn_start,
+        fn_next = fn_next,
+        fn_free = fn_free,
+        prefix = prefix,
+        owner_ty = owner_ty,
+        request_type = request_type,
+        core_path = core_path,
+        stream_ty = stream_ty,
+        core_item = core_item,
+        owner_snake = owner_snake,
+        item_type = item_type,
+    )
 }

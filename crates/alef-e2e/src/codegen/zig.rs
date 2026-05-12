@@ -29,6 +29,7 @@ impl E2eCodegen for ZigE2eCodegen {
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
         config: &ResolvedCrateConfig,
+        _type_defs: &[alef_core::ir::TypeDef],
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
         let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
@@ -77,7 +78,7 @@ impl E2eCodegen for ZigE2eCodegen {
             &e2e_config.fields_optional,
             &e2e_config.result_fields,
             &e2e_config.fields_array,
-            &HashSet::new(),
+            &e2e_config.fields_method_calls,
         );
 
         // Generate test files per category and collect their names.
@@ -121,7 +122,14 @@ impl E2eCodegen for ZigE2eCodegen {
                 .unwrap_or(1),
             GeneratedFile {
                 path: output_base.join("build.zig"),
-                content: render_build_zig(&test_filenames),
+                content: render_build_zig(
+                    &test_filenames,
+                    &pkg_name,
+                    &module_name,
+                    &config.ffi_lib_name(),
+                    &config.ffi_crate_path(),
+                    &e2e_config.test_documents_relative_from(0),
+                ),
                 generated_header: false,
             },
         );
@@ -194,7 +202,14 @@ fn render_build_zig_zon(pkg_name: &str, pkg_path: &str, dep_mode: crate::config:
     )
 }
 
-fn render_build_zig(test_filenames: &[String]) -> String {
+fn render_build_zig(
+    test_filenames: &[String],
+    pkg_name: &str,
+    module_name: &str,
+    ffi_lib_name: &str,
+    ffi_crate_path: &str,
+    test_documents_path: &str,
+) -> String {
     if test_filenames.is_empty() {
         return r#"const std = @import("std");
 
@@ -208,10 +223,52 @@ pub fn build(b: *std.Build) void {
         .to_string();
     }
 
+    // The Zig build script wires up three names that all derive from the
+    // crate config:
+    //   * `ffi_lib_name`     — the dynamic library to link (e.g. `mylib_ffi`).
+    //   * `pkg_name`         — the Zig package directory and source file stem
+    //                          under `packages/zig/src/<pkg_name>.zig`.
+    //   * `module_name`      — the Zig `@import("...")` identifier other test
+    //                          files use to import the binding module.
+    // Callers pass these in resolved form so this function never embeds a
+    // downstream crate's name.
     let mut content = String::from("const std = @import(\"std\");\n\npub fn build(b: *std.Build) void {\n");
     content.push_str("    const target = b.standardTargetOptions(.{});\n");
     content.push_str("    const optimize = b.standardOptimizeOption(.{});\n");
-    content.push_str("    const test_step = b.step(\"test\", \"Run tests\");\n\n");
+    content.push_str("    const test_step = b.step(\"test\", \"Run tests\");\n");
+    let _ = writeln!(
+        content,
+        "    const ffi_path = b.option([]const u8, \"ffi_path\", \"Path to directory containing lib{ffi_lib_name}\") orelse \"../../target/debug\";"
+    );
+    let _ = writeln!(
+        content,
+        "    const ffi_include = b.option([]const u8, \"ffi_include_path\", \"Path to directory containing FFI header\") orelse \"{ffi_crate_path}/include\";"
+    );
+    let _ = writeln!(content);
+    let _ = writeln!(
+        content,
+        "    const {module_name}_module = b.addModule(\"{module_name}\", .{{"
+    );
+    let _ = writeln!(
+        content,
+        "        .root_source_file = b.path(\"../../packages/zig/src/{pkg_name}.zig\"),"
+    );
+    content.push_str("        .target = target,\n");
+    content.push_str("        .optimize = optimize,\n");
+    content.push_str("    });\n");
+    let _ = writeln!(
+        content,
+        "    {module_name}_module.addLibraryPath(.{{ .cwd_relative = ffi_path }});"
+    );
+    let _ = writeln!(
+        content,
+        "    {module_name}_module.addIncludePath(.{{ .cwd_relative = ffi_include }});"
+    );
+    let _ = writeln!(
+        content,
+        "    {module_name}_module.linkSystemLibrary(\"{ffi_lib_name}\", .{{}});"
+    );
+    let _ = writeln!(content);
 
     for filename in test_filenames {
         // Convert filename like "basic_test.zig" to a test name
@@ -221,11 +278,17 @@ pub fn build(b: *std.Build) void {
         content.push_str("        .target = target,\n");
         content.push_str("        .optimize = optimize,\n");
         content.push_str("    });\n");
+        content.push_str(&format!(
+            "    {test_name}_module.addImport(\"{module_name}\", {module_name}_module);\n"
+        ));
         content.push_str(&format!("    const {test_name}_tests = b.addTest(.{{\n"));
         content.push_str(&format!("        .root_module = {test_name}_module,\n"));
         content.push_str("    });\n");
         content.push_str(&format!(
             "    const {test_name}_run = b.addRunArtifact({test_name}_tests);\n"
+        ));
+        content.push_str(&format!(
+            "    {test_name}_run.setCwd(b.path(\"{test_documents_path}\"));\n"
         ));
         content.push_str(&format!("    test_step.dependOn(&{test_name}_run.step);\n\n"));
     }
@@ -275,7 +338,7 @@ impl client::TestClientRenderer for ZigTestClientRenderer {
         let _ = writeln!(out, "    var url_buf: [512]u8 = undefined;");
         let _ = writeln!(
             out,
-            "    const url = try std.fmt.bufPrint(&url_buf, \"{{s}}/fixtures/{fixture_id}\", .{{std.posix.getenv(\"MOCK_SERVER_URL\") orelse \"http://localhost:8080\"}});"
+            "    const url = try std.fmt.bufPrint(&url_buf, \"{{s}}/fixtures/{fixture_id}\", .{{if (std.c.getenv(\"MOCK_SERVER_URL\")) |v| std.mem.span(v) else \"http://localhost:8080\"}});"
         );
 
         // Headers
@@ -475,7 +538,7 @@ fn render_test_fn(
     module_name: &str,
 ) {
     // Resolve per-fixture call config.
-    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
     let lang = "zig";
     let call_overrides = call_config.overrides.get(lang);
     let function_name = call_overrides
@@ -484,19 +547,60 @@ fn render_test_fn(
         .unwrap_or_else(|| call_config.function.clone());
     let result_var = &call_config.result_var;
     let args = &call_config.args;
+    let is_async = call_overrides.and_then(|o| o.r#async).unwrap_or(call_config.r#async);
+    // Client factory: when set, the test instantiates a client object via
+    // `module.factory_fn(...)` and calls methods on the instance rather than
+    // calling top-level package functions directly.
+    // Mirrors the go codegen pattern (go.rs:981-1028 / CallOverride.client_factory).
+    let client_factory = call_overrides.and_then(|o| o.client_factory.as_deref()).or_else(|| {
+        e2e_config
+            .call
+            .overrides
+            .get(lang)
+            .and_then(|o| o.client_factory.as_deref())
+    });
+
+    // When `result_is_json_struct = true`, the Zig function returns `[]u8` JSON.
+    // The test parses it with `std.json.parseFromSlice(std.json.Value, ...)` and
+    // traverses the dynamic JSON object for field assertions.
+    //
+    // Client-factory methods on opaque handles always return JSON `[]u8` because
+    // the zig backend serializes struct results via the FFI's `*_to_json` helper
+    // (see alef-backend-zig/src/gen_bindings/opaque_handles.rs). Force the flag
+    // on whenever a client_factory is in play so the test path parses the JSON
+    // result rather than attempting direct field access on `[]u8`.
+    let result_is_json_struct = call_overrides.is_some_and(|o| o.result_is_json_struct) || client_factory.is_some();
 
     let test_name = fixture.id.to_snake_case();
     let description = &fixture.description;
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
-    let (setup_lines, args_str) = build_args_and_setup(&fixture.input, args, &fixture.id);
+    let (setup_lines, args_str, setup_needs_gpa) = build_args_and_setup(&fixture.input, args, &fixture.id, module_name);
+
+    // Pre-compute whether any assertion will emit code that references `result` /
+    // `allocator`. Used to decide whether to emit the GPA allocator binding.
+    let any_happy_emits_code = fixture
+        .assertions
+        .iter()
+        .any(|a| assertion_emits_code(a, field_resolver));
+    let any_non_error_emits_code = fixture
+        .assertions
+        .iter()
+        .filter(|a| a.assertion_type != "error")
+        .any(|a| assertion_emits_code(a, field_resolver));
 
     let _ = writeln!(out, "test \"{test_name}\" {{");
     let _ = writeln!(out, "    // {description}");
 
-    // Only emit allocator setup when setup lines actually need it (avoids unused-variable errors).
-    let needs_alloc = !setup_lines.is_empty();
-    if needs_alloc {
+    // Emit GPA allocator only when it will actually be used: setup lines that
+    // need GPA allocation (mock_url), or a JSON-struct result path where the test
+    // will call `std.json.parseFromSlice`. The binding is not needed for
+    // error-only paths or tests with no field assertions.
+    // Note: `bytes` arg setup uses c_allocator directly and does NOT require GPA.
+    let needs_gpa = setup_needs_gpa
+        || (result_is_json_struct && !expects_error && any_happy_emits_code)
+        || (result_is_json_struct && expects_error && any_non_error_emits_code);
+    if needs_gpa {
         let _ = writeln!(out, "    var gpa: std.heap.DebugAllocator(.{{}}) = .init;");
         let _ = writeln!(out, "    defer _ = gpa.deinit();");
         let _ = writeln!(out, "    const allocator = gpa.allocator();");
@@ -507,54 +611,385 @@ fn render_test_fn(
         let _ = writeln!(out, "    {line}");
     }
 
-    if expects_error {
-        // Stub: error-path tests are not yet callable without a real FFI handle_request.
+    // Client factory: when configured, instantiate a client object via the named
+    // constructor function and call the method on the instance.
+    // The client is pointed at MOCK_SERVER_URL/fixtures/<id> (mirrors go.rs:981-1028).
+    // When not configured, fall back to calling the top-level package function directly.
+    let call_prefix = if let Some(factory) = client_factory {
+        let fixture_id = &fixture.id;
         let _ = writeln!(
             out,
-            "    // TODO: call {module_name}.{function_name}({args_str}) and assert error"
+            "    const _mock_url = try std.fmt.allocPrintSentinel(std.heap.c_allocator, \"{{s}}/fixtures/{fixture_id}\", .{{if (std.c.getenv(\"MOCK_SERVER_URL\")) |v| std.mem.span(v) else \"http://localhost:8080\"}}, 0);"
         );
-        let _ = writeln!(out, "    _ = testing;");
-        let _ = writeln!(out, "}}");
-        return;
-    }
-
-    if fixture.assertions.is_empty() {
-        // No assertions: emit a compilation-only stub so the test passes trivially.
-        let _ = writeln!(out, "    // TODO: call {module_name}.{function_name}({args_str})");
-        let _ = writeln!(out, "    _ = testing;");
+        let _ = writeln!(out, "    defer std.heap.c_allocator.free(_mock_url);");
+        let _ = writeln!(
+            out,
+            "    var _client = try {module_name}.{factory}(\"test-key\", _mock_url, null, null, null);"
+        );
+        let _ = writeln!(out, "    defer _client.free();");
+        "_client".to_string()
     } else {
-        let _ = writeln!(
-            out,
-            "    const {result_var} = {module_name}.{function_name}({args_str});"
-        );
-        for assertion in &fixture.assertions {
-            render_assertion(out, assertion, result_var, field_resolver, enum_fields);
+        module_name.to_string()
+    };
+
+    if expects_error {
+        // Error-path test: use error union syntax `!T` and try-catch.
+        if is_async {
+            let _ = writeln!(
+                out,
+                "    // Note: async functions not yet fully supported; treating as sync"
+            );
+        }
+        if result_is_json_struct {
+            let _ = writeln!(
+                out,
+                "    const _result_json = {call_prefix}.{function_name}({args_str}) catch {{"
+            );
+        } else {
+            let _ = writeln!(
+                out,
+                "    const result = {call_prefix}.{function_name}({args_str}) catch {{"
+            );
+        }
+        let _ = writeln!(out, "        try testing.expect(true); // Error occurred as expected");
+        let _ = writeln!(out, "        return;");
+        let _ = writeln!(out, "    }};");
+        // Whether any non-error assertion will emit code that references `result`.
+        // If not, we must explicitly discard `result` to satisfy Zig's
+        // strict-unused-locals rule.
+        let any_emits_code = fixture
+            .assertions
+            .iter()
+            .filter(|a| a.assertion_type != "error")
+            .any(|a| assertion_emits_code(a, field_resolver));
+        if result_is_json_struct && any_emits_code {
+            let _ = writeln!(out, "    defer std.heap.c_allocator.free(_result_json);");
+            let _ = writeln!(
+                out,
+                "    var _parsed = try std.json.parseFromSlice(std.json.Value, allocator, _result_json, .{{}});"
+            );
+            let _ = writeln!(out, "    defer _parsed.deinit();");
+            let _ = writeln!(out, "    const {result_var} = &_parsed.value;");
+            let _ = writeln!(out, "    // Perform success assertions if any");
+            for assertion in &fixture.assertions {
+                if assertion.assertion_type != "error" {
+                    render_json_assertion(out, assertion, result_var, field_resolver);
+                }
+            }
+        } else if result_is_json_struct {
+            let _ = writeln!(out, "    _ = _result_json;");
+        } else if any_emits_code {
+            let _ = writeln!(out, "    // Perform success assertions if any");
+            for assertion in &fixture.assertions {
+                if assertion.assertion_type != "error" {
+                    render_assertion(out, assertion, result_var, field_resolver, enum_fields);
+                }
+            }
+        } else {
+            let _ = writeln!(out, "    _ = result;");
+        }
+    } else if fixture.assertions.is_empty() {
+        // No assertions: emit a call to verify compilation.
+        if is_async {
+            let _ = writeln!(
+                out,
+                "    // Note: async functions not yet fully supported; treating as sync"
+            );
+        }
+        if result_is_json_struct {
+            let _ = writeln!(
+                out,
+                "    const _result_json = try {call_prefix}.{function_name}({args_str});"
+            );
+            let _ = writeln!(out, "    defer std.heap.c_allocator.free(_result_json);");
+        } else {
+            let _ = writeln!(out, "    _ = try {call_prefix}.{function_name}({args_str});");
+        }
+    } else {
+        // Happy path: call and assert. Detect whether any assertion actually
+        // emits code that references `result` (some — like `not_error` — emit
+        // nothing) so we don't leave an unused local, which Zig 0.16 rejects.
+        if is_async {
+            let _ = writeln!(
+                out,
+                "    // Note: async functions not yet fully supported; treating as sync"
+            );
+        }
+        let any_emits_code = fixture
+            .assertions
+            .iter()
+            .any(|a| assertion_emits_code(a, field_resolver));
+        if result_is_json_struct {
+            // JSON struct path: parse result JSON and access fields dynamically.
+            let _ = writeln!(
+                out,
+                "    const _result_json = try {call_prefix}.{function_name}({args_str});"
+            );
+            let _ = writeln!(out, "    defer std.heap.c_allocator.free(_result_json);");
+            if any_emits_code {
+                let _ = writeln!(
+                    out,
+                    "    var _parsed = try std.json.parseFromSlice(std.json.Value, allocator, _result_json, .{{}});"
+                );
+                let _ = writeln!(out, "    defer _parsed.deinit();");
+                let _ = writeln!(out, "    const {result_var} = &_parsed.value;");
+                for assertion in &fixture.assertions {
+                    render_json_assertion(out, assertion, result_var, field_resolver);
+                }
+            }
+        } else if any_emits_code {
+            let _ = writeln!(
+                out,
+                "    const {result_var} = try {call_prefix}.{function_name}({args_str});"
+            );
+            for assertion in &fixture.assertions {
+                render_assertion(out, assertion, result_var, field_resolver, enum_fields);
+            }
+        } else {
+            let _ = writeln!(out, "    _ = try {call_prefix}.{function_name}({args_str});");
         }
     }
 
     let _ = writeln!(out, "}}");
 }
 
+// ---------------------------------------------------------------------------
+// JSON-struct assertion rendering (for result_is_json_struct = true)
+// ---------------------------------------------------------------------------
+
+/// Convert a dot-separated field path into a chain of `std.json.Value` lookups.
+///
+/// Each segment uses `.object.get("key").?` to traverse the JSON object tree.
+/// The final segment stops before the leaf-type accessor so callers can append
+/// the appropriate accessor (`.string`, `.integer`, `.array.items`, etc.).
+///
+/// Returns `(base_expr, last_key)` where `base_expr` already includes all
+/// intermediate `.object.get("…").?` dereferences up to (but not including)
+/// the leaf, and `last_key` is the last path segment.
+/// Variant names of `FormatMetadata` (snake_case, from `#[serde(rename_all = "snake_case")]`).
+/// These appear as typed accessors in fixture paths (e.g. `format.excel.sheet_count`)
+/// but are NOT JSON keys — `FormatMetadata` is internally tagged so variant fields are
+/// flattened directly into the `format` object alongside the `format_type` discriminant.
+const FORMAT_METADATA_VARIANTS: &[&str] = &[
+    "pdf",
+    "docx",
+    "excel",
+    "email",
+    "pptx",
+    "archive",
+    "image",
+    "xml",
+    "text",
+    "html",
+    "ocr",
+    "csv",
+    "bibtex",
+    "citation",
+    "fiction_book",
+    "dbf",
+    "jats",
+    "epub",
+    "pst",
+    "code",
+];
+
+fn json_path_expr(result_var: &str, field_path: &str) -> String {
+    let segments: Vec<&str> = field_path.split('.').collect();
+    let mut expr = result_var.to_string();
+    let mut prev_seg: Option<&str> = None;
+    for seg in &segments {
+        // Skip variant-name accessor segments that follow a `format` key.
+        // FormatMetadata is an internally-tagged enum (`#[serde(tag = "format_type")]`),
+        // so variant fields are flattened directly into the format object — there is no
+        // intermediate JSON key for the variant name.
+        if prev_seg == Some("format") && FORMAT_METADATA_VARIANTS.contains(seg) {
+            prev_seg = Some(seg);
+            continue;
+        }
+        // Handle array accessor notation: "links[]" → access the array, then first element.
+        if let Some(key) = seg.strip_suffix("[]") {
+            expr = format!("{expr}.object.get(\"{key}\").?.array.items[0]");
+        } else {
+            expr = format!("{expr}.object.get(\"{seg}\").?");
+        }
+        prev_seg = Some(seg);
+    }
+    expr
+}
+
+/// Render a single assertion for a JSON-struct result (result_is_json_struct = true).
+///
+/// The `result_var` variable is `*std.json.Value` (pointer to the parsed root object).
+/// Field paths are traversed via `.object.get("key").?` chains.
+fn render_json_assertion(out: &mut String, assertion: &Assertion, result_var: &str, field_resolver: &FieldResolver) {
+    // Skip assertions on fields that don't exist on the result type.
+    if let Some(f) = &assertion.field {
+        if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
+            let _ = writeln!(out, "    // skipped: field '{f}' not available on result type");
+            return;
+        }
+    }
+    // error/not_error are handled at the call level, not assertion level.
+    if matches!(assertion.assertion_type.as_str(), "not_error" | "error") {
+        return;
+    }
+
+    let raw_field_path = assertion.field.as_deref().unwrap_or("").trim();
+    let field_path = if raw_field_path.is_empty() {
+        raw_field_path.to_string()
+    } else {
+        field_resolver.resolve(raw_field_path).to_string()
+    };
+    let field_path = field_path.trim();
+
+    // "{array_field}.length" → strip suffix; use .array.items.len in the template.
+    let (field_path_for_expr, is_length_access) = if let Some(parent) = field_path.strip_suffix(".length") {
+        (parent, true)
+    } else {
+        (field_path, false)
+    };
+
+    let field_expr = if field_path_for_expr.is_empty() {
+        result_var.to_string()
+    } else {
+        json_path_expr(result_var, field_path_for_expr)
+    };
+
+    // Compute context variables for the template.
+    let zig_val = match &assertion.value {
+        Some(serde_json::Value::String(s)) => format!("\"{}\"", escape_zig(s)),
+        _ => String::new(),
+    };
+    let is_string_val = matches!(&assertion.value, Some(serde_json::Value::String(_)));
+    let is_bool_val = matches!(&assertion.value, Some(serde_json::Value::Bool(_)));
+    let bool_val = match &assertion.value {
+        Some(serde_json::Value::Bool(b)) if *b => "true",
+        _ => "false",
+    };
+    let is_null_val = matches!(&assertion.value, Some(serde_json::Value::Null));
+    let n = assertion.value.as_ref().map(json_to_zig).unwrap_or_default();
+    let has_n = assertion.value.as_ref().is_some_and(|v| v.is_number() || v.is_u64());
+    let values_list: Vec<String> = assertion
+        .values
+        .as_deref()
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|v| {
+            if let serde_json::Value::String(s) = v {
+                Some(format!("\"{}\"", escape_zig(s)))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    let rendered = crate::template_env::render(
+        "zig/json_assertion.jinja",
+        minijinja::context! {
+            assertion_type => assertion.assertion_type.as_str(),
+            field_expr => field_expr,
+            is_length_access => is_length_access,
+            zig_val => zig_val,
+            is_string_val => is_string_val,
+            is_bool_val => is_bool_val,
+            bool_val => bool_val,
+            is_null_val => is_null_val,
+            n => n,
+            has_n => has_n,
+            values_list => values_list,
+        },
+    );
+    out.push_str(&rendered);
+}
+
+/// Predicate matching `render_assertion`: returns true when the assertion
+/// would emit at least one statement that references the result variable.
+fn assertion_emits_code(assertion: &Assertion, field_resolver: &FieldResolver) -> bool {
+    if let Some(f) = &assertion.field {
+        if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
+            return false;
+        }
+    }
+    matches!(
+        assertion.assertion_type.as_str(),
+        "equals"
+            | "contains"
+            | "contains_all"
+            | "not_contains"
+            | "not_empty"
+            | "is_empty"
+            | "starts_with"
+            | "ends_with"
+            | "min_length"
+            | "max_length"
+            | "count_min"
+            | "count_equals"
+            | "is_true"
+            | "is_false"
+            | "greater_than"
+            | "less_than"
+            | "greater_than_or_equal"
+            | "less_than_or_equal"
+            | "contains_any"
+    )
+}
+
 /// Build setup lines and the argument list for the function call.
+///
+/// Returns `(setup_lines, args_str, setup_needs_gpa)` where `setup_needs_gpa`
+/// is `true` when at least one setup line requires the GPA `allocator` binding.
 fn build_args_and_setup(
     input: &serde_json::Value,
     args: &[crate::config::ArgMapping],
     fixture_id: &str,
-) -> (Vec<String>, String) {
+    _module_name: &str,
+) -> (Vec<String>, String, bool) {
     if args.is_empty() {
-        return (Vec::new(), String::new());
+        return (Vec::new(), String::new(), false);
     }
 
     let mut setup_lines: Vec<String> = Vec::new();
     let mut parts: Vec<String> = Vec::new();
+    let mut setup_needs_gpa = false;
 
     for arg in args {
         if arg.arg_type == "mock_url" {
+            let name = arg.name.clone();
+            let id_upper = fixture_id.to_uppercase();
             setup_lines.push(format!(
-                "var {} = try allocator.alloc(u8, std.fmt.bufPrint(undefined, \"{{s}}/fixtures/{fixture_id}\", .{{std.posix.getenv(\"MOCK_SERVER_URL\") orelse \"http://localhost:8080\"}}) catch 0)",
-                arg.name,
+                "const {name} = if (std.c.getenv(\"MOCK_SERVER_{id_upper}\")) |_pf| try std.fmt.allocPrint(allocator, \"{{s}}\", .{{std.mem.span(_pf)}}) else try std.fmt.allocPrint(allocator, \"{{s}}/fixtures/{fixture_id}\", .{{if (std.c.getenv(\"MOCK_SERVER_URL\")) |v| std.mem.span(v) else \"http://localhost:8080\"}});"
             ));
-            parts.push(arg.name.clone());
+            setup_lines.push(format!("defer allocator.free({name});"));
+            parts.push(name);
+            setup_needs_gpa = true;
+            continue;
+        }
+
+        // Handle args (engine handle): serialize config to JSON string literal, or null.
+        // The Zig binding accepts ?[]const u8 for engine params (creates handle internally).
+        if arg.arg_type == "handle" {
+            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+            let json_str = match input.get(field) {
+                Some(serde_json::Value::Null) | None => "null".to_string(),
+                Some(v) => format!("\"{}\"", escape_zig(&serde_json::to_string(v).unwrap_or_default())),
+            };
+            parts.push(json_str);
+            continue;
+        }
+
+        // The Zig wrapper accepts struct parameters (e.g. `ExtractionConfig`)
+        // as JSON `[]const u8`, converting them to opaque FFI handles via the
+        // `<prefix>_<snake>_from_json` helper at the binding layer. Emit the
+        // fixture's configuration value as a JSON string literal, falling back
+        // to `"{}"` when the fixture omits a config so callers exercise the
+        // default path.
+        if arg.name == "config" && arg.arg_type == "json_object" {
+            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+            let json_str = match input.get(field) {
+                Some(serde_json::Value::Null) | None => "{}".to_string(),
+                Some(v) => serde_json::to_string(v).unwrap_or_else(|_| "{}".to_string()),
+            };
+            parts.push(format!("\"{}\"", escape_zig(&json_str)));
             continue;
         }
 
@@ -562,7 +997,9 @@ fn build_args_and_setup(
         let val = input.get(field);
         match val {
             None | Some(serde_json::Value::Null) if arg.optional => {
-                continue;
+                // Zig functions don't have default arguments, so we must
+                // pass `null` explicitly for every optional parameter.
+                parts.push("null".to_string());
             }
             None | Some(serde_json::Value::Null) => {
                 let default_val = match arg.arg_type.as_str() {
@@ -570,17 +1007,43 @@ fn build_args_and_setup(
                     "int" | "integer" => "0".to_string(),
                     "float" | "number" => "0.0".to_string(),
                     "bool" | "boolean" => "false".to_string(),
+                    "json_object" => "\"{}\"".to_string(),
                     _ => "null".to_string(),
                 };
                 parts.push(default_val);
             }
             Some(v) => {
-                parts.push(json_to_zig(v));
+                // For `json_object` arguments other than `config` (handled
+                // above) the Zig binding accepts a JSON `[]const u8`, so we
+                // serialize the entire fixture value as a single JSON string
+                // literal rather than rendering it as a Zig array/struct.
+                if arg.arg_type == "json_object" {
+                    let json_str = serde_json::to_string(v).unwrap_or_default();
+                    parts.push(format!("\"{}\"", escape_zig(&json_str)));
+                } else if arg.arg_type == "bytes" {
+                    // `bytes` args are file paths in fixtures — read the file into a
+                    // local buffer. The cwd is set to test_documents/ at runtime.
+                    // Zig 0.16 uses std.Io.Dir.cwd() (not std.fs.cwd()) and requires
+                    // an `io` instance from std.testing.io in test context.
+                    if let serde_json::Value::String(path) = v {
+                        let var_name = format!("{}_bytes", arg.name);
+                        let epath = escape_zig(path);
+                        setup_lines.push(format!(
+                            "const {var_name} = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, \"{epath}\", std.heap.c_allocator, .unlimited);"
+                        ));
+                        setup_lines.push(format!("defer std.heap.c_allocator.free({var_name});"));
+                        parts.push(var_name);
+                    } else {
+                        parts.push(json_to_zig(v));
+                    }
+                } else {
+                    parts.push(json_to_zig(v));
+                }
             }
         }
     }
 
-    (setup_lines, parts.join(", "))
+    (setup_lines, parts.join(", "), setup_needs_gpa)
 }
 
 fn render_assertion(
@@ -693,7 +1156,25 @@ fn render_assertion(
         "count_equals" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(out, "    try testing.expectEqual({n}, {field_expr}.len);");
+                    // When there is no field (field_expr == result_var), the result
+                    // is `[]u8` JSON (e.g. batch functions). Parse the JSON array
+                    // and count its elements; `.len` would give byte count, not item count.
+                    let has_field = assertion.field.as_deref().is_some_and(|f| !f.is_empty());
+                    if has_field {
+                        let _ = writeln!(out, "    try testing.expectEqual({n}, {field_expr}.len);");
+                    } else {
+                        let _ = writeln!(out, "    {{");
+                        let _ = writeln!(
+                            out,
+                            "        var _cparse = try std.json.parseFromSlice(std.json.Value, std.heap.c_allocator, {field_expr}, .{{}});"
+                        );
+                        let _ = writeln!(out, "        defer _cparse.deinit();");
+                        let _ = writeln!(
+                            out,
+                            "        try testing.expectEqual({n}, _cparse.value.array.items.len);"
+                        );
+                        let _ = writeln!(out, "    }}");
+                    }
                 }
             }
         }
@@ -734,13 +1215,24 @@ fn render_assertion(
             }
         }
         "contains_any" => {
+            // At least ONE of the values must be found in the field (OR logic).
             if let Some(values) = &assertion.values {
-                for val in values {
-                    let zig_val = json_to_zig(val);
-                    let _ = writeln!(
-                        out,
-                        "    try testing.expect(std.mem.indexOf(u8, {field_expr}, {zig_val}) != null);"
-                    );
+                let string_values: Vec<String> = values
+                    .iter()
+                    .filter_map(|v| {
+                        if let serde_json::Value::String(s) = v {
+                            Some(format!(
+                                "std.mem.indexOf(u8, {field_expr}, \"{}\") != null",
+                                escape_zig(s)
+                            ))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                if !string_values.is_empty() {
+                    let condition = string_values.join(" or\n        ");
+                    let _ = writeln!(out, "    try testing.expect(\n        {condition}\n    );");
                 }
             }
         }

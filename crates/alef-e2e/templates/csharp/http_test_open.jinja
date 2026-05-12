@@ -1,0 +1,15 @@
+{#- C# HTTP test method header
+
+   Context variables:
+   - fn_name: sanitized function name (PascalCase)
+   - description: fixture description
+   - skip_reason: optional skip reason (if test is skipped)
+#}
+{%- if skip_reason %}
+    [Fact(Skip = "{{ skip_reason }}")]
+{%- else %}
+    [Fact]
+{%- endif %}
+    public async Task Test_{{ fn_name }}()
+    {
+        // {{ description }}

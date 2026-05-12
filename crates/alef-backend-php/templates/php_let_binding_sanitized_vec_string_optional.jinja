@@ -1,0 +1,1 @@
+let {{ pname }}_core: Option<Vec<_>> = {{ pname }}.map(|strs| strs.into_iter().map(|s| serde_json::from_str::<_>(&s).map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))).collect::<Result<Vec<_>, _>>()).transpose()?;

@@ -1,0 +1,33 @@
+let cached_name = self.cached_name.clone();
+
+let func: napi::bindgen_prelude::Function<{{ args_tuple_ty }}, napi::bindgen_prelude::Unknown> = match self.inner.get_named_property("{{ method_name }}") {
+    Ok(f) => f,
+    Err(e) => {
+        return Err({{ error_lookup }});
+    }
+};
+
+{% if empty_args %}
+let result = func.call(());
+{% else %}
+let result = func.call(napi::bindgen_prelude::FnArgs::from({{ tuple_args }}));
+{% endif %}
+
+match result {
+    Err(e) => Err({{ error_call }}),
+    Ok(val) => {
+        // Convert JS value to Rust type via string coercion
+        let s = val.coerce_to_string()
+            .and_then(|s| s.into_utf8())
+            .and_then(|s| s.into_owned())
+            .map_err(|e| {{ error_coercion }})?;
+        // null/empty is a protocol error for Result-returning methods: the JS
+        // implementation must always return a serialisable value, never null.
+        // Avoid requiring Default on the return type (excluded types like
+        // InternalDocument do not implement Default).
+        match s.as_str() {
+            "" | "null" => Err({{ error_parse }}),
+            _ => serde_json::from_str::<_>(&s).map_err(|_| {{ error_parse }})
+        }
+    }
+}

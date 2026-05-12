@@ -1,0 +1,6 @@
+// Optional bool: -1 = None, 0 = false, 1 = true
+let {{ rs_name }} = if {{ name }} < 0 {
+        None
+    } else {
+        Some({{ name }} != 0)
+    };

@@ -1,0 +1,12 @@
+if {{ name }}.is_null() {
+        set_last_error(1, "Null pointer passed for parameter '{{ name }}'");
+        {{ fail_ret }}
+    }
+    // SAFETY: null check above guarantees {{ name }} is a valid pointer; string is valid UTF-8 from caller.
+    let {{ rs_name }} = match unsafe { CStr::from_ptr({{ name }}) }.to_str() {
+        Ok(s) => s.to_string(),
+        Err(_) => {
+            set_last_error(1, "Invalid UTF-8 in parameter '{{ name }}'");
+            {{ fail_ret }}
+        }
+    };

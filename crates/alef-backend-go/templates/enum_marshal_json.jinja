@@ -1,0 +1,19 @@
+// MarshalJSON implements json.Marshaler for the enum type.
+func (e {{ enum_name }}) MarshalJSON() ([]byte, error) {
+{% if tag_field %}
+	// Internally-tagged enum: the wire form is always an object containing
+	// the `{{ tag_field }}` discriminator. If only Variant was set, populate
+	// the tag field from it before marshaling so the discriminator is preserved.
+	if e.{{ tag_field }} == "" && e.Variant != "" {
+		e.{{ tag_field }} = e.Variant
+	}
+	type alias {{ enum_name }}
+	return json.Marshal(alias(e))
+{% else %}
+	if e.Variant != "" {
+		return json.Marshal(e.Variant)
+	}
+	type alias {{ enum_name }}
+	return json.Marshal(alias(e))
+{% endif %}
+}

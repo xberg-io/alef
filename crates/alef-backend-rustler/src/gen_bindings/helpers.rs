@@ -7,6 +7,8 @@ use alef_core::ir::{FieldDef, TypeDef, TypeRef};
 use heck::{ToPascalCase, ToSnakeCase};
 use std::collections::HashMap;
 
+use crate::template_env;
+
 /// Get module name and prefix from config or derive from crate name.
 pub(super) fn get_module_info(_api: &alef_core::ir::ApiSurface, config: &ResolvedCrateConfig) -> (String, String) {
     let app_name = config.elixir_app_name();
@@ -60,7 +62,6 @@ pub(super) fn gen_native_ex(
     exclude_functions: &AHashSet<&str>,
     exclude_types: &AHashSet<&str>,
 ) -> String {
-    use std::fmt::Write;
     let mut out = String::with_capacity(1024);
 
     let repo_url = config.github_repo();
@@ -68,30 +69,13 @@ pub(super) fn gen_native_ex(
     let build_env_var = format!("{}_BUILD", app_name.to_uppercase());
 
     out.push_str(&hash::header(CommentStyle::Hash));
-    let _ = writeln!(out, "defmodule {app_module}.Native do");
-    let _ = writeln!(out, "  @moduledoc false");
-    let _ = writeln!(out);
-
-    let _ = writeln!(out, "  use RustlerPrecompiled,");
-    let _ = writeln!(out, "    otp_app: :{app_name},");
-    let _ = writeln!(out, "    crate: \"{app_name}_nif\",");
-    let _ = writeln!(out, "    base_url:");
-    let _ = writeln!(
-        out,
-        "      \"{repo_url}/releases/download/v#{{Mix.Project.config()[:version]}}\","
-    );
-    let _ = writeln!(out, "    version: Mix.Project.config()[:version],");
-    let _ = writeln!(
-        out,
-        "    targets: ~w(aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu),"
-    );
-    let _ = writeln!(out, "    nif_versions: [\"2.16\", \"2.17\"],");
-    let _ = writeln!(out, "    force_build:");
-    let _ = writeln!(
-        out,
-        "      System.get_env(\"{build_env_var}\") in [\"1\", \"true\"] or Mix.env() in [:test, :dev]"
-    );
-    let _ = writeln!(out);
+    let ctx = minijinja::context! {
+        app_module => app_module,
+        app_name => app_name,
+        repo_url => repo_url,
+        build_env_var => build_env_var,
+    };
+    out.push_str(&template_env::render("native_module_header.jinja", ctx));
 
     // Stubs for top-level API functions
     let mut last_was_multiline = true;
@@ -199,6 +183,15 @@ pub(super) fn gen_native_ex(
         );
     }
 
+    // Streaming-adapter method keys are emitted as start/next pairs below — skip
+    // them in the regular method-stub loop.
+    let streaming_method_keys: AHashSet<String> = config
+        .adapters
+        .iter()
+        .filter(|a| matches!(a.pattern, alef_core::config::AdapterPattern::Streaming))
+        .filter_map(|a| a.owner_type.as_deref().map(|owner| format!("{owner}.{}", a.name)))
+        .collect();
+
     // Stubs for type methods
     for typ in api
         .types
@@ -209,6 +202,7 @@ pub(super) fn gen_native_ex(
             .methods
             .iter()
             .filter(|m| !exclude_functions.contains(m.name.as_str()))
+            .filter(|m| !streaming_method_keys.contains(&format!("{}.{}", typ.name, m.name)))
         {
             let nif_fn_name = if method.is_async {
                 format!("{}_{}_async", typ.name.to_lowercase(), method.name)
@@ -228,7 +222,31 @@ pub(super) fn gen_native_ex(
         }
     }
 
-    let _ = writeln!(out, "end");
+    // Stubs for streaming-adapter NIF pairs: `{owner_lc}_{name}_start(_obj, _req)`
+    // and `{owner_lc}_{name}_next(_handle)`. Both NIFs are scheduled on DirtyCpu.
+    for adapter in config
+        .adapters
+        .iter()
+        .filter(|a| matches!(a.pattern, alef_core::config::AdapterPattern::Streaming))
+    {
+        let Some(owner) = adapter.owner_type.as_deref() else {
+            continue;
+        };
+        let owner_lc = owner.to_lowercase();
+        let start_fn = format!("{owner_lc}_{}_start", adapter.name);
+        let next_fn = format!("{owner_lc}_{}_next", adapter.name);
+        let mut start_params = vec!["_obj".to_string()];
+        for p in &adapter.params {
+            start_params.push(format!("_{}", elixir_safe_param_name(&p.name)));
+        }
+        last_was_multiline = write_nif_stub(&mut out, &start_fn, &start_params, last_was_multiline);
+        last_was_multiline = write_nif_stub(&mut out, &next_fn, &["_handle".to_string()], last_was_multiline);
+    }
+
+    out.push_str(&template_env::render(
+        "native_module_footer.jinja",
+        minijinja::context! {},
+    ));
     out
 }
 
@@ -250,7 +268,6 @@ pub(super) fn gen_native_ex(
 ///     do: :erlang.nif_error(:nif_not_loaded)
 /// ```
 fn write_nif_stub(out: &mut String, fn_name: &str, params: &[String], prev_was_multiline: bool) -> bool {
-    use std::fmt::Write;
     let args = params.join(", ");
     // Elixir convention: omit parens on zero-arg defs
     let sig = if args.is_empty() {
@@ -261,15 +278,12 @@ fn write_nif_stub(out: &mut String, fn_name: &str, params: &[String], prev_was_m
     // "  def <sig>, do: :erlang.nif_error(:nif_not_loaded)"
     let single_line_len = 6 + sig.len() + 40;
     if single_line_len > 120 {
-        if !prev_was_multiline {
-            let _ = writeln!(out);
-        }
-        let _ = writeln!(out, "  def {sig},");
-        let _ = writeln!(out, "    do: :erlang.nif_error(:nif_not_loaded)");
-        let _ = writeln!(out);
+        let ctx = minijinja::context! { sig => sig, prev_was_multiline => prev_was_multiline };
+        out.push_str(&template_env::render("nif_stub_multi_line.jinja", ctx));
         true
     } else {
-        let _ = writeln!(out, "  def {sig}, do: :erlang.nif_error(:nif_not_loaded)");
+        let ctx = minijinja::context! { sig => sig };
+        out.push_str(&template_env::render("nif_stub_single_line.jinja", ctx));
         false
     }
 }
@@ -281,38 +295,56 @@ pub(super) fn gen_elixir_struct_module(
     enum_defaults: &HashMap<String, String>,
     opaque_types: &AHashSet<String>,
 ) -> String {
-    use std::fmt::Write;
     let mut out = String::with_capacity(512);
 
     out.push_str(&hash::header(CommentStyle::Hash));
-    let _ = writeln!(out, "defmodule {app_module}.{} do", typ.name);
 
-    if !typ.doc.is_empty() {
-        let doc_first = doc_first_paragraph_joined(&typ.doc).replace('"', "\\\"");
-        let _ = writeln!(out, "  @moduledoc \"{doc_first}\"");
+    let doc_first = if !typ.doc.is_empty() {
+        doc_first_paragraph_joined(&typ.doc).replace('"', "\\\"")
     } else {
-        let _ = writeln!(out, "  @moduledoc false");
-    }
-    let _ = writeln!(out);
+        String::new()
+    };
+    let ctx = minijinja::context! {
+        app_module => app_module,
+        type_name => &typ.name,
+        has_doc => !typ.doc.is_empty(),
+        doc => doc_first,
+    };
+    out.push_str(&template_env::render("struct_module_header.jinja", ctx));
 
     // defstruct with defaults - use bare keyword list style (mix format compliant)
     let fields: Vec<_> = typ.fields.iter().collect();
     if fields.is_empty() {
-        let _ = writeln!(out, "  defstruct []");
+        out.push_str(&template_env::render("struct_empty.jinja", minijinja::context! {}));
     } else {
-        let _ = write!(out, "  defstruct ");
+        out.push_str("  defstruct ");
         for (i, field) in fields.iter().enumerate() {
             let default = elixir_field_default(field, &field.ty, enum_defaults, opaque_types);
             let name = field.name.to_snake_case();
             if i == 0 {
-                let _ = write!(out, "{name}: {default}");
+                out.push_str(&template_env::render(
+                    "elixir_enum_field_first.jinja",
+                    minijinja::context! {
+                        name => &name,
+                        default => &default,
+                    },
+                ));
             } else {
-                let _ = write!(out, ",\n            {name}: {default}");
+                out.push_str(&template_env::render(
+                    "elixir_enum_field_rest.jinja",
+                    minijinja::context! {
+                        name => &name,
+                        default => &default,
+                    },
+                ));
             }
         }
-        let _ = writeln!(out);
+        out.push('\n');
     }
-    let _ = writeln!(out, "end");
+    out.push_str(&template_env::render(
+        "struct_module_footer.jinja",
+        minijinja::context! {},
+    ));
     out
 }
 
@@ -436,19 +468,18 @@ pub(super) fn elixir_safe_param_name(name: &str) -> String {
 /// Data enums (one or more variants have fields) get a module with per-variant type aliases
 /// since Elixir has no single structural type for tagged union variants.
 pub(super) fn gen_elixir_enum_module(enum_def: &alef_core::ir::EnumDef, app_module: &str) -> String {
-    use std::fmt::Write;
     let mut out = String::with_capacity(256);
 
     out.push_str(&hash::header(CommentStyle::Hash));
-    let _ = writeln!(out, "defmodule {app_module}.{} do", enum_def.name);
 
-    if !enum_def.doc.is_empty() {
-        let doc_first = enum_def.doc.lines().next().unwrap_or("").replace('"', "\\\"");
-        let _ = writeln!(out, "  @moduledoc \"{doc_first}\"");
-    } else {
-        let _ = writeln!(out, "  @moduledoc false");
-    }
-    let _ = writeln!(out);
+    let doc_first = enum_def.doc.lines().next().unwrap_or("").replace('"', "\\\"");
+    let ctx = minijinja::context! {
+        app_module => app_module,
+        enum_name => &enum_def.name,
+        has_doc => !enum_def.doc.is_empty(),
+        doc => doc_first,
+    };
+    out.push_str(&template_env::render("enum_module_header.jinja", ctx));
 
     let is_simple = enum_def.variants.iter().all(|v| v.fields.is_empty());
 
@@ -464,43 +495,75 @@ pub(super) fn gen_elixir_enum_module(enum_def: &alef_core::ir::EnumDef, app_modu
         // Emit multi-line @type when the single-line form exceeds 120 chars
         let single_line = format!("  @type t :: {}", atom_arms.join(" | "));
         if single_line.len() <= 120 {
-            let _ = writeln!(out, "{single_line}");
+            out.push_str(&template_env::render(
+                "elixir_enum_type_single_line.jinja",
+                minijinja::context! {
+                    arms => &atom_arms.join(" | "),
+                },
+            ));
         } else {
-            let _ = writeln!(out, "  @type t ::");
+            out.push_str("  @type t ::\n");
             for (i, arm) in atom_arms.iter().enumerate() {
                 if i == 0 {
-                    let _ = writeln!(out, "          {arm}");
+                    out.push_str(&template_env::render(
+                        "elixir_enum_type_arm_first.jinja",
+                        minijinja::context! {
+                            arm => arm,
+                        },
+                    ));
                 } else {
-                    let _ = writeln!(out, "          | {arm}");
+                    out.push_str(&template_env::render(
+                        "elixir_enum_type_arm_rest.jinja",
+                        minijinja::context! {
+                            arm => arm,
+                        },
+                    ));
                 }
             }
         }
-        let _ = writeln!(out);
+        out.push('\n');
 
         // Module attributes for each variant value — convenient aliases
         for variant in &enum_def.variants {
             let atom_name = variant.name.to_snake_case();
             let attr_name = elixir_safe_attr_name(&atom_name);
-            let _ = writeln!(out, "  @{attr_name} :{atom_name}");
+            out.push_str(&template_env::render(
+                "elixir_enum_attr.jinja",
+                minijinja::context! {
+                    attr_name => &attr_name,
+                    atom_name => &atom_name,
+                },
+            ));
         }
-        let _ = writeln!(out);
+        out.push('\n');
         // Export the values so callers can reference MyEnum.variant_name/0
         for variant in &enum_def.variants {
             let atom_name = variant.name.to_snake_case();
             let attr_name = elixir_safe_attr_name(&atom_name);
-            let _ = writeln!(out, "  @spec {atom_name}() :: t()");
-            let _ = writeln!(out, "  def {atom_name}, do: @{attr_name}");
+            out.push_str(&template_env::render(
+                "elixir_enum_accessor.jinja",
+                minijinja::context! {
+                    atom_name => &atom_name,
+                    attr_name => &attr_name,
+                },
+            ));
         }
     } else {
         // Data enum: provide a @type t :: term() and per-variant type aliases
-        let _ = writeln!(out, "  @type t :: term()");
-        let _ = writeln!(out);
+        out.push_str("  @type t :: term()\n");
+        out.push('\n');
         for variant in &enum_def.variants {
             let variant_atom = format!(":{}", variant.name.to_snake_case());
             let type_name = elixir_safe_type_name(&variant.name.to_snake_case());
             if variant.fields.is_empty() {
                 // Unit variant: just an atom
-                let _ = writeln!(out, "  @type {type_name} :: {variant_atom}");
+                out.push_str(&template_env::render(
+                    "elixir_data_enum_unit_type.jinja",
+                    minijinja::context! {
+                        type_name => &type_name,
+                        variant_atom => &variant_atom,
+                    },
+                ));
             } else {
                 // Struct variant: a map with a type tag
                 let field_types: Vec<String> = variant
@@ -516,16 +579,22 @@ pub(super) fn gen_elixir_enum_module(enum_def: &alef_core::ir::EnumDef, app_modu
                         format!("{safe_name}: term()")
                     })
                     .collect();
-                let _ = writeln!(
-                    out,
-                    "  @type {type_name} :: %{{type: {variant_atom}, {}}}",
-                    field_types.join(", ")
-                );
+                out.push_str(&template_env::render(
+                    "elixir_data_enum_struct_type.jinja",
+                    minijinja::context! {
+                        type_name => &type_name,
+                        variant_atom => &variant_atom,
+                        field_types => field_types.join(", "),
+                    },
+                ));
             }
         }
     }
 
-    let _ = writeln!(out, "end");
+    out.push_str(&template_env::render(
+        "enum_module_footer.jinja",
+        minijinja::context! {},
+    ));
     out
 }
 

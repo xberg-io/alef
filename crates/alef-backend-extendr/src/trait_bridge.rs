@@ -11,7 +11,6 @@ use alef_codegen::generators::trait_bridge::{
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{MethodDef, TypeDef, TypeRef};
 use std::collections::HashMap;
-use std::fmt::Write;
 
 /// Extendr-specific trait bridge generator.
 /// Implements code generation for bridging R objects to Rust traits.
@@ -37,51 +36,28 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
     fn gen_sync_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
         let name = &method.name;
         let has_error = method.error_type.is_some();
-        let mut out = String::with_capacity(512);
-
-        // Check if the R object has this method
-        writeln!(out, "let maybe_fn = self.inner.dollar(\"{name}\");").ok();
-        writeln!(out, "let fn_robj = match maybe_fn {{").ok();
-        writeln!(out, "    Ok(v) if !v.is_null() && !v.is_na() => v,").ok();
-        if has_error {
-            writeln!(
-                out,
-                "    _ => return Err({}::KreuzbergError::Plugin {{",
-                spec.core_import
-            )
-            .ok();
-            writeln!(
-                out,
-                "        message: format!(\"Plugin '{{}}' missing method '{}'\", self.cached_name),",
-                name
-            )
-            .ok();
-            writeln!(out, "        plugin_name: self.cached_name.clone(),").ok();
-            writeln!(out, "    }}),").ok();
-        } else {
-            writeln!(out, "    _ => return Default::default(),").ok();
-        }
-        writeln!(out, "}};").ok();
 
         // Build argument list for the R function call
-        if method.params.is_empty() {
-            writeln!(out, "let result = fn_robj.call(extendr_api::Pairlist::new());").ok();
+        let (empty_args, args_pairs) = if method.params.is_empty() {
+            (true, String::new())
         } else {
             let args: Vec<String> = method.params.iter().map(build_extendr_arg).collect();
             let pairs: Vec<String> = method
                 .params
                 .iter()
                 .zip(args.iter())
-                // Strip leading underscore: Rust uses `_ctx` for unused default-impl params;
-                // R callers write `function(ctx, ...)` without the prefix.
                 .map(|(p, expr)| format!("(\"{}\", {})", p.name.trim_start_matches('_'), expr))
                 .collect();
-            let pairs_str = pairs.join(", ");
-            writeln!(out, "let args = extendr_api::Pairlist::from_pairs(&[{pairs_str}]);").ok();
-            writeln!(out, "let result = fn_robj.call(args);").ok();
-        }
+            (false, pairs.join(", "))
+        };
 
-        // Handle the result
+        // Determine which template to use based on return type
+        let template_name = match &method.return_type {
+            TypeRef::Unit => "sync_method_unit_return.jinja",
+            TypeRef::String | TypeRef::Char => "sync_method_string_return.jinja",
+            _ => "sync_method_complex_return.jinja",
+        };
+
         let ret_ty = match &method.return_type {
             TypeRef::Named(n) => self
                 .type_paths
@@ -91,168 +67,45 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
             other => format_type_ref(other, &self.type_paths),
         };
 
-        if matches!(method.return_type, TypeRef::Unit) {
-            writeln!(out, "match result {{").ok();
-            writeln!(out, "    Err(_) if {} => {{", if has_error { "true" } else { "false" }).ok();
-            if has_error {
-                writeln!(out, "        Err({}::KreuzbergError::Plugin {{", spec.core_import).ok();
-                writeln!(
-                    out,
-                    "            message: format!(\"Plugin '{{}}' method '{}' failed\", self.cached_name),",
-                    name
-                )
-                .ok();
-                writeln!(out, "            plugin_name: self.cached_name.clone(),").ok();
-                writeln!(out, "        }})").ok();
-            } else {
-                writeln!(out, "        Ok(())").ok();
-            }
-            writeln!(out, "    }}").ok();
-            writeln!(out, "    _ => {}", if has_error { "Ok(())" } else { "();" }).ok();
-            writeln!(out, "}}").ok();
-        } else {
-            writeln!(out, "match result {{").ok();
-            writeln!(out, "    Err(_) => {{").ok();
-            if has_error {
-                writeln!(out, "        Err({}::KreuzbergError::Plugin {{", spec.core_import).ok();
-                writeln!(
-                    out,
-                    "            message: format!(\"Plugin '{{}}' method '{}' failed\", self.cached_name),",
-                    name
-                )
-                .ok();
-                writeln!(out, "            plugin_name: self.cached_name.clone(),").ok();
-                writeln!(out, "        }})").ok();
-            } else {
-                writeln!(out, "        Default::default()").ok();
-            }
-            writeln!(out, "    }}").ok();
-            writeln!(out, "    Ok(val) => {{").ok();
-
-            // Try to extract as the expected type
-            match &method.return_type {
-                TypeRef::String | TypeRef::Char => {
-                    writeln!(out, "        if let Some(s) = val.as_str() {{").ok();
-                    writeln!(out, "            Ok(s.to_string())").ok();
-                    writeln!(out, "        }} else {{").ok();
-                    if has_error {
-                        writeln!(out, "            Err({}::KreuzbergError::Plugin {{", spec.core_import).ok();
-                        writeln!(out, "                message: format!(\"Plugin '{{}}' method '{}' returned invalid type\", self.cached_name),", name).ok();
-                        writeln!(out, "                plugin_name: self.cached_name.clone(),").ok();
-                        writeln!(out, "            }})").ok();
-                    } else {
-                        writeln!(out, "            Default::default()").ok();
-                    }
-                    writeln!(out, "        }}").ok();
-                }
-                _ => {
-                    // For complex types, try to serialize/deserialize via JSON
-                    writeln!(out, "        match serde_json::to_string(&val) {{").ok();
-                    writeln!(
-                        out,
-                        "            Ok(json_str) => serde_json::from_str::<{ret_ty}>(&json_str)"
-                    )
-                    .ok();
-                    writeln!(out, "                .map_err(|_| {{").ok();
-                    if has_error {
-                        writeln!(
-                            out,
-                            "                    {}::KreuzbergError::Plugin {{",
-                            spec.core_import
-                        )
-                        .ok();
-                        writeln!(out, "                        message: format!(\"Plugin '{{}}' method '{}' deserialization failed\", self.cached_name),", name).ok();
-                        writeln!(out, "                        plugin_name: self.cached_name.clone(),").ok();
-                        writeln!(out, "                    }}").ok();
-                    }
-                    writeln!(out, "                }})").ok();
-                    writeln!(out, "            Err(_) => {{").ok();
-                    if has_error {
-                        writeln!(
-                            out,
-                            "                Err({}::KreuzbergError::Plugin {{",
-                            spec.core_import
-                        )
-                        .ok();
-                        writeln!(out, "                    message: format!(\"Plugin '{{}}' method '{}' serialization failed\", self.cached_name),", name).ok();
-                        writeln!(out, "                    plugin_name: self.cached_name.clone(),").ok();
-                        writeln!(out, "                }})").ok();
-                    } else {
-                        writeln!(out, "                Default::default()").ok();
-                    }
-                    writeln!(out, "            }}").ok();
-                    writeln!(out, "        }}").ok();
-                }
-            }
-
-            writeln!(out, "    }}").ok();
-            writeln!(out, "}}").ok();
-        }
-
-        out
+        crate::template_env::render(
+            template_name,
+            minijinja::context! {
+                method_name => name,
+                has_error => has_error,
+                has_error_check => if has_error { "true" } else { "false" },
+                core_import => &spec.core_import,
+                empty_args => empty_args,
+                args_pairs => args_pairs,
+                return_type => ret_ty,
+            },
+        )
     }
 
     fn gen_async_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
-        // R is single-threaded. For async methods, we spawn_blocking to avoid
-        // blocking the main event loop, then call the sync method.
         let name = &method.name;
-        let mut out = String::with_capacity(1024);
 
-        writeln!(out, "let cached_name = self.cached_name.clone();").ok();
-        writeln!(out, "let r_obj = self.inner.clone();").ok();
-
-        // Clone params for the blocking closure
+        // Generate param cloning statements
+        let mut params_to_clone = Vec::new();
         for p in &method.params {
-            match (&p.ty, p.is_ref) {
-                (TypeRef::Bytes, true) => {
-                    writeln!(out, "let {0} = {0}.to_vec();", p.name).ok();
-                }
-                (TypeRef::Path, true) => {
-                    writeln!(out, "let {0}_str = {0}.to_string_lossy().to_string();", p.name).ok();
-                }
-                (TypeRef::Named(_), true) => {
-                    writeln!(
-                        out,
-                        "let {0}_json = serde_json::to_string({0}).unwrap_or_default();",
-                        p.name
-                    )
-                    .ok();
-                }
-                (_, true) => {
-                    writeln!(out, "let {0} = {0}.to_owned();", p.name).ok();
-                }
-                _ => {
-                    writeln!(out, "let {0} = {0}.clone();", p.name).ok();
-                }
-            }
+            let template_name = match (&p.ty, p.is_ref) {
+                (TypeRef::Bytes, true) => "async_param_clone_bytes_ref.jinja",
+                (TypeRef::Path, true) => "async_param_clone_path_ref.jinja",
+                (TypeRef::Named(_), true) => "async_param_clone_named_ref.jinja",
+                (_, true) => "async_param_clone_ref.jinja",
+                _ => "async_param_clone_value.jinja",
+            };
+            let clone_stmt = crate::template_env::render(
+                template_name,
+                minijinja::context! {
+                    name => &p.name,
+                },
+            );
+            params_to_clone.push(clone_stmt);
         }
 
-        writeln!(out).ok();
-        writeln!(out, "tokio::task::spawn_blocking(move || {{").ok();
-
-        // Call the R method synchronously within the blocking task
-        writeln!(out, "    let maybe_fn = r_obj.dollar(\"{name}\");").ok();
-        writeln!(out, "    let fn_robj = match maybe_fn {{").ok();
-        writeln!(out, "        Ok(v) if !v.is_null() && !v.is_na() => v,").ok();
-        writeln!(
-            out,
-            "        _ => return Err({}::KreuzbergError::Plugin {{",
-            spec.core_import
-        )
-        .ok();
-        writeln!(
-            out,
-            "            message: format!(\"Plugin '{{}}' missing method '{}'\", cached_name),",
-            name
-        )
-        .ok();
-        writeln!(out, "            plugin_name: cached_name.clone(),").ok();
-        writeln!(out, "        }}),").ok();
-        writeln!(out, "    }};").ok();
-
-        // Build call arguments
-        if method.params.is_empty() {
-            writeln!(out, "    let result = fn_robj.call(extendr_api::Pairlist::new());").ok();
+        // Build argument list for the R function call
+        let (empty_args, args_pairs) = if method.params.is_empty() {
+            (true, String::new())
         } else {
             let args: Vec<String> = method
                 .params
@@ -268,124 +121,41 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
                 .params
                 .iter()
                 .zip(args.iter())
-                // Strip leading underscore: Rust uses `_ctx` for unused default-impl params;
-                // R callers write `function(ctx, ...)` without the prefix.
                 .map(|(p, expr)| format!("(\"{}\", {})", p.name.trim_start_matches('_'), expr))
                 .collect();
-            let pairs_str = pairs.join(", ");
-            writeln!(out, "    let args = extendr_api::Pairlist::from_pairs(&[{pairs_str}]);").ok();
-            writeln!(out, "    let result = fn_robj.call(args);").ok();
-        }
-
-        let _ret_ty = match &method.return_type {
-            TypeRef::Named(n) => self
-                .type_paths
-                .get(n.as_str())
-                .map(|p| p.replace('-', "_"))
-                .unwrap_or_else(|| n.clone()),
-            other => format_type_ref(other, &self.type_paths),
+            (false, pairs.join(", "))
         };
 
-        // Parse the result (similar to sync case but in a blocking context)
-        writeln!(out, "    match result {{").ok();
-        writeln!(out, "        Err(_) => {{").ok();
-        writeln!(out, "            Err({}::KreuzbergError::Plugin {{", spec.core_import).ok();
-        writeln!(
-            out,
-            "                message: format!(\"Plugin '{{}}' method '{}' failed\", cached_name),",
-            name
-        )
-        .ok();
-        writeln!(out, "                plugin_name: cached_name.clone(),").ok();
-        writeln!(out, "            }})").ok();
-        writeln!(out, "        }}").ok();
-        writeln!(out, "        Ok(val) => {{").ok();
-
-        if matches!(method.return_type, TypeRef::Unit) {
-            writeln!(out, "            Ok(())").ok();
+        // Choose template based on return type
+        let template_name = if matches!(method.return_type, TypeRef::Unit) {
+            "async_method_unit_return.jinja"
         } else {
-            writeln!(out, "            if let Some(s) = val.as_str() {{").ok();
-            writeln!(out, "                Ok(s.to_string())").ok();
-            writeln!(out, "            }} else {{").ok();
-            writeln!(
-                out,
-                "                Err({}::KreuzbergError::Plugin {{",
-                spec.core_import
-            )
-            .ok();
-            writeln!(out, "                    message: format!(\"Plugin '{{}}' method '{}' returned invalid type\", cached_name),", name).ok();
-            writeln!(out, "                    plugin_name: cached_name.clone(),").ok();
-            writeln!(out, "                }})").ok();
-            writeln!(out, "            }}").ok();
-        }
+            "async_method_non_unit_return.jinja"
+        };
 
-        writeln!(out, "        }}").ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out, "}})").ok();
-        writeln!(out, ".await").ok();
-        writeln!(out, ".map_err(|e| {}::KreuzbergError::Plugin {{", spec.core_import).ok();
-        writeln!(out, "    message: format!(\"spawn_blocking failed: {{}}\", e),").ok();
-        writeln!(out, "    plugin_name: cached_name.clone(),").ok();
-        writeln!(out, "}})?").ok();
-
-        out
+        crate::template_env::render(
+            template_name,
+            minijinja::context! {
+                method_name => name,
+                core_import => &spec.core_import,
+                params_to_clone => params_to_clone,
+                empty_args => empty_args,
+                args_pairs => args_pairs,
+            },
+        )
     }
 
     fn gen_constructor(&self, spec: &TraitBridgeSpec) -> String {
         let wrapper = spec.wrapper_name();
-        let mut out = String::with_capacity(512);
+        let required_methods: Vec<String> = spec.required_methods().iter().map(|m| m.name.clone()).collect();
 
-        writeln!(out, "impl {wrapper} {{").ok();
-        writeln!(
-            out,
-            "    /// Create a new bridge wrapping an R object (named list of functions)."
+        crate::template_env::render(
+            "bridge_constructor.jinja",
+            minijinja::context! {
+                wrapper => wrapper,
+                required_methods => required_methods,
+            },
         )
-        .ok();
-        writeln!(out, "    ///").ok();
-        writeln!(
-            out,
-            "    /// Validates that the R object provides all required methods."
-        )
-        .ok();
-        writeln!(
-            out,
-            "    pub fn new(r_obj: extendr_api::Robj) -> Result<Self, String> {{"
-        )
-        .ok();
-
-        // Validate all required methods exist
-        for req_method in spec.required_methods() {
-            writeln!(out, "        match r_obj.dollar(\"{}\") {{", req_method.name).ok();
-            writeln!(out, "            Ok(v) if !v.is_null() && !v.is_na() => {{}},").ok();
-            writeln!(
-                out,
-                "            _ => return Err(\"R object missing required method: {}\".to_string()),",
-                req_method.name
-            )
-            .ok();
-            writeln!(out, "        }}").ok();
-        }
-
-        // Extract and cache name (call a name() method if available, else "unknown")
-        writeln!(out, "        let cached_name: String = match r_obj.dollar(\"name\") {{").ok();
-        writeln!(out, "            Ok(v) if !v.is_null() && !v.is_na() => {{").ok();
-        writeln!(out, "                if let Some(s) = v.as_str() {{").ok();
-        writeln!(out, "                    s.to_string()").ok();
-        writeln!(out, "                }} else {{").ok();
-        writeln!(out, "                    \"unknown\".to_string()").ok();
-        writeln!(out, "                }}").ok();
-        writeln!(out, "            }}").ok();
-        writeln!(out, "            _ => \"unknown\".to_string(),").ok();
-        writeln!(out, "        }};").ok();
-
-        writeln!(out).ok();
-        writeln!(out, "        Ok(Self {{").ok();
-        writeln!(out, "            inner: r_obj,").ok();
-        writeln!(out, "            cached_name,").ok();
-        writeln!(out, "        }})").ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out, "}}").ok();
-        out
     }
 
     fn gen_unregistration_fn(&self, spec: &TraitBridgeSpec) -> String {
@@ -393,12 +163,13 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
             return String::new();
         };
         let host_path = alef_codegen::generators::trait_bridge::host_function_path(spec, unregister_fn);
-        let mut out = String::with_capacity(512);
-        writeln!(out, "#[extendr]").ok();
-        writeln!(out, "pub fn {unregister_fn}(name: String) -> Result<(), String> {{").ok();
-        writeln!(out, "    {host_path}(&name).map_err(|e| format!(\"{{}}\", e))").ok();
-        writeln!(out, "}}").ok();
-        out
+        crate::template_env::render(
+            "unregistration_fn.jinja",
+            minijinja::context! {
+                unregister_fn => unregister_fn,
+                host_path => host_path,
+            },
+        )
     }
 
     fn gen_clear_fn(&self, spec: &TraitBridgeSpec) -> String {
@@ -406,12 +177,13 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
             return String::new();
         };
         let host_path = alef_codegen::generators::trait_bridge::host_function_path(spec, clear_fn);
-        let mut out = String::with_capacity(512);
-        writeln!(out, "#[extendr]").ok();
-        writeln!(out, "pub fn {clear_fn}() -> Result<(), String> {{").ok();
-        writeln!(out, "    {host_path}().map_err(|e| format!(\"{{}}\", e))").ok();
-        writeln!(out, "}}").ok();
-        out
+        crate::template_env::render(
+            "clear_fn.jinja",
+            minijinja::context! {
+                clear_fn => clear_fn,
+                host_path => host_path,
+            },
+        )
     }
 
     fn gen_registration_fn(&self, spec: &TraitBridgeSpec) -> String {
@@ -424,55 +196,25 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
         let wrapper = spec.wrapper_name();
         let trait_path = spec.trait_path();
 
-        let mut out = String::with_capacity(1024);
-
-        writeln!(out, "#[extendr]").ok();
-        writeln!(
-            out,
-            "pub fn {register_fn}(r_backend: extendr_api::Robj) -> Result<(), String> {{"
-        )
-        .ok();
-
-        // Validate required methods
         let req_methods = spec.required_methods();
-        if !req_methods.is_empty() {
-            writeln!(
-                out,
-                "    let required_methods = [{}];",
-                req_methods
-                    .iter()
-                    .map(|m| format!("\"{}\"", m.name))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
-            .ok();
-            writeln!(out, "    for method in &required_methods {{").ok();
-            writeln!(out, "        match r_backend.dollar(method) {{").ok();
-            writeln!(out, "            Ok(v) if !v.is_null() && !v.is_na() => {{}},").ok();
-            writeln!(
-                out,
-                "            _ => return Err(format!(\"Backend missing required method: {{}}\", method)),"
-            )
-            .ok();
-            writeln!(out, "        }}").ok();
-            writeln!(out, "    }}").ok();
-        }
+        let has_methods = !req_methods.is_empty();
+        let required_methods_list = req_methods
+            .iter()
+            .map(|m| format!("\"{}\"", m.name))
+            .collect::<Vec<_>>()
+            .join(", ");
 
-        writeln!(out).ok();
-        writeln!(out, "    let wrapper = {wrapper}::new(r_backend)?;").ok();
-        writeln!(out, "    let arc: Arc<dyn {trait_path}> = Arc::new(wrapper);").ok();
-        writeln!(out).ok();
-
-        // Register in the plugin registry
-        writeln!(out, "    let registry = {registry_getter}();").ok();
-        writeln!(out, "    let mut registry = registry.write().map_err(|e| {{").ok();
-        writeln!(out, "        format!(\"Failed to acquire registry lock: {{}}\", e)").ok();
-        writeln!(out, "    }})?;").ok();
-        writeln!(out, "    registry.register(arc).map_err(|e| {{").ok();
-        writeln!(out, "        format!(\"Failed to register backend: {{}}\", e)").ok();
-        writeln!(out, "    }})").ok();
-        writeln!(out, "}}").ok();
-        out
+        crate::template_env::render(
+            "registration_fn.jinja",
+            minijinja::context! {
+                register_fn => register_fn,
+                wrapper => wrapper,
+                trait_path => trait_path,
+                registry_getter => registry_getter,
+                required_methods => has_methods,
+                required_methods_list => required_methods_list,
+            },
+        )
     }
 }
 
@@ -497,6 +239,13 @@ pub fn gen_trait_bridge(
             api.enums
                 .iter()
                 .map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))),
+        )
+        // Include excluded types so trait methods referencing them (e.g. `&InternalDocument`)
+        // are qualified with the full Rust path rather than emitting the bare type name.
+        .chain(
+            api.excluded_type_paths
+                .iter()
+                .map(|(name, path)| (name.clone(), path.replace('-', "_"))),
         )
         .collect();
 
@@ -552,75 +301,23 @@ fn gen_visitor_bridge(
     core_crate: &str,
     type_paths: &std::collections::HashMap<String, String>,
 ) {
-    // Helper: convert NodeContext to an R list (Robj)
-    writeln!(out, "fn nodecontext_to_robj(").unwrap();
-    writeln!(out, "    ctx: &{core_crate}::visitor::NodeContext,").unwrap();
-    writeln!(out, ") -> extendr_api::Robj {{").unwrap();
-    writeln!(out, "    use extendr_api::prelude::*;").unwrap();
-    writeln!(
-        out,
-        "    let attrs_pairs: Vec<(&str, extendr_api::Robj)> = ctx.attributes.iter()"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "        .map(|(k, v)| (k.as_str(), extendr_api::Robj::from(v.as_str())))"
-    )
-    .unwrap();
-    writeln!(out, "        .collect();").unwrap();
-    writeln!(
-        out,
-        "    let attrs: extendr_api::Robj = List::from_pairs(attrs_pairs).into();"
-    )
-    .unwrap();
-    writeln!(out, "    list!(").unwrap();
-    writeln!(out, "        node_type = format!(\"{{:?}}\", ctx.node_type),").unwrap();
-    writeln!(out, "        tag_name = ctx.tag_name.as_str(),").unwrap();
-    writeln!(out, "        depth = ctx.depth as i32,").unwrap();
-    writeln!(out, "        index_in_parent = ctx.index_in_parent as i32,").unwrap();
-    writeln!(out, "        is_inline = ctx.is_inline,").unwrap();
-    writeln!(out, "        parent_tag = ctx.parent_tag.as_deref().unwrap_or(\"\"),").unwrap();
-    writeln!(out, "        attributes = attrs,").unwrap();
-    writeln!(out, "    ).into()").unwrap();
-    writeln!(out, "}}").unwrap();
-    writeln!(out).unwrap();
-
-    // Bridge struct — Robj may not implement Debug, so we derive it manually.
-    writeln!(out, "pub struct {struct_name} {{").unwrap();
-    writeln!(out, "    r_obj: extendr_api::Robj,").unwrap();
-    writeln!(out, "}}").unwrap();
-    writeln!(out).unwrap();
-
-    // Manual Debug impl (Robj does not derive Debug)
-    writeln!(out, "impl std::fmt::Debug for {struct_name} {{").unwrap();
-    writeln!(
-        out,
-        "    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{"
-    )
-    .unwrap();
-    writeln!(out, "        write!(f, \"{struct_name}\")").unwrap();
-    writeln!(out, "    }}").unwrap();
-    writeln!(out, "}}").unwrap();
-    writeln!(out).unwrap();
-
-    // Constructor
-    writeln!(out, "impl {struct_name} {{").unwrap();
-    writeln!(out, "    pub fn new(r_obj: extendr_api::Robj) -> Self {{").unwrap();
-    writeln!(out, "        Self {{ r_obj }}").unwrap();
-    writeln!(out, "    }}").unwrap();
-    writeln!(out, "}}").unwrap();
-    writeln!(out).unwrap();
-
-    // Trait impl — each method checks for a list element and calls it
-    writeln!(out, "impl {trait_path} for {struct_name} {{").unwrap();
+    let mut method_impls = String::with_capacity(4096);
     for method in &trait_type.methods {
         if method.trait_source.is_some() {
             continue;
         }
-        gen_visitor_method_extendr(out, method, type_paths);
+        gen_visitor_method_extendr(&mut method_impls, method, type_paths);
     }
-    writeln!(out, "}}").unwrap();
-    writeln!(out).unwrap();
+
+    out.push_str(&crate::template_env::render(
+        "visitor_bridge.jinja",
+        minijinja::context! {
+            core_crate => core_crate,
+            struct_name => struct_name,
+            trait_path => trait_path,
+            method_impls => method_impls,
+        },
+    ));
 }
 
 /// Generate a single visitor method that checks if the R list has an element with this name
@@ -631,16 +328,15 @@ fn gen_visitor_method_extendr(
     type_paths: &std::collections::HashMap<String, String>,
 ) {
     let name = &method.name;
-    // R conventions: snake_case method names (same as Rust)
 
     let mut sig_parts = vec!["&mut self".to_string()];
     for p in &method.params {
         let ty_str = visitor_param_type(&p.ty, p.is_ref, p.optional, type_paths);
         sig_parts.push(format!("{}: {}", p.name, ty_str));
     }
-    let sig = sig_parts.join(", ");
+    let signature = sig_parts.join(", ");
 
-    let ret_ty = match &method.return_type {
+    let return_type = match &method.return_type {
         TypeRef::Named(n) => type_paths
             .get(n.as_str())
             .map(|p| p.replace('-', "_"))
@@ -648,91 +344,26 @@ fn gen_visitor_method_extendr(
         other => param_type(other, "", false, type_paths),
     };
 
-    writeln!(out, "    fn {name}({sig}) -> {ret_ty} {{").unwrap();
-    writeln!(out, "        use extendr_api::prelude::*;").unwrap();
+    let empty_args = method.params.is_empty();
+    let args: Vec<String> = method.params.iter().map(build_extendr_arg).collect();
+    let args_pairs: Vec<String> = method
+        .params
+        .iter()
+        .zip(args.iter())
+        .map(|(p, expr)| format!("(\"{}\", {})", p.name.trim_start_matches('_'), expr))
+        .collect();
+    let args_pairs = args_pairs.join(", ");
 
-    // Check if the list has an element with this name by attempting dollar indexing
-    writeln!(out, "        let maybe_fn = self.r_obj.dollar(\"{name}\");").unwrap();
-    writeln!(out, "        let fn_robj = match maybe_fn {{").unwrap();
-    writeln!(out, "            Ok(v) if !v.is_null() && !v.is_na() => v,").unwrap();
-    writeln!(out, "            _ => return {ret_ty}::Continue,").unwrap();
-    writeln!(out, "        }};").unwrap();
-
-    // Build argument list for the R function call
-    if method.params.is_empty() {
-        writeln!(out, "        let result = fn_robj.call(extendr_api::Pairlist::new());").unwrap();
-    } else {
-        // Build arg expressions
-        let args: Vec<String> = method.params.iter().map(build_extendr_arg).collect();
-        let pairs: Vec<String> = method
-            .params
-            .iter()
-            .zip(args.iter())
-            // Strip leading underscore: Rust uses `_ctx` for unused default-impl params;
-            // R callers write `function(ctx, ...)` without the prefix.
-            .map(|(p, expr)| format!("(\"{}\", {})", p.name.trim_start_matches('_'), expr))
-            .collect();
-        let pairs_str = pairs.join(", ");
-        writeln!(
-            out,
-            "        let args = extendr_api::Pairlist::from_pairs(&[{pairs_str}]);"
-        )
-        .unwrap();
-        writeln!(out, "        let result = fn_robj.call(args);").unwrap();
-    }
-
-    // Parse VisitResult from the R return value
-    writeln!(out, "        match result {{").unwrap();
-    writeln!(out, "            Err(_) => {ret_ty}::Continue,").unwrap();
-    writeln!(out, "            Ok(val) => {{").unwrap();
-    // Try string first ("skip", "continue", "preserve_html")
-    writeln!(out, "                if let Some(s) = val.as_str() {{").unwrap();
-    writeln!(out, "                    match s.to_lowercase().as_str() {{").unwrap();
-    writeln!(out, "                        \"continue\" => {ret_ty}::Continue,").unwrap();
-    writeln!(out, "                        \"skip\" => {ret_ty}::Skip,").unwrap();
-    writeln!(
-        out,
-        "                        \"preserve_html\" | \"preservehtml\" => {ret_ty}::PreserveHtml,"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "                        other => {ret_ty}::Custom(other.to_string()),"
-    )
-    .unwrap();
-    writeln!(out, "                    }}").unwrap();
-    writeln!(out, "                }} else if val.is_null() || val.is_na() {{").unwrap();
-    writeln!(out, "                    {ret_ty}::Continue").unwrap();
-    writeln!(out, "                }} else {{").unwrap();
-    // Try named list: list(custom = "text") or list(error = "text")
-    writeln!(
-        out,
-        "                    if let Ok(custom_val) = val.dollar(\"custom\") {{"
-    )
-    .unwrap();
-    writeln!(out, "                        if let Some(s) = custom_val.as_str() {{").unwrap();
-    writeln!(out, "                            {ret_ty}::Custom(s.to_string())").unwrap();
-    writeln!(out, "                        }} else {{").unwrap();
-    writeln!(out, "                            {ret_ty}::Continue").unwrap();
-    writeln!(out, "                        }}").unwrap();
-    writeln!(
-        out,
-        "                    }} else if let Ok(error_val) = val.dollar(\"error\") {{"
-    )
-    .unwrap();
-    writeln!(out, "                        if let Some(s) = error_val.as_str() {{").unwrap();
-    writeln!(out, "                            {ret_ty}::Error(s.to_string())").unwrap();
-    writeln!(out, "                        }} else {{").unwrap();
-    writeln!(out, "                            {ret_ty}::Continue").unwrap();
-    writeln!(out, "                        }}").unwrap();
-    writeln!(out, "                    }} else {{").unwrap();
-    writeln!(out, "                        {ret_ty}::Continue").unwrap();
-    writeln!(out, "                    }}").unwrap();
-    writeln!(out, "                }}").unwrap();
-    writeln!(out, "            }}").unwrap();
-    writeln!(out, "        }}").unwrap();
-    writeln!(out, "    }}").unwrap();
-    writeln!(out).unwrap();
+    out.push_str(&crate::template_env::render(
+        "visitor_method.jinja",
+        minijinja::context! {
+            method_name => name,
+            signature => signature,
+            return_type => return_type,
+            empty_args => empty_args,
+            args_pairs => args_pairs,
+        },
+    ));
 }
 
 /// Build a single extendr `Pairlist` arg expression for a visitor method parameter.
@@ -905,15 +536,19 @@ pub fn gen_bridge_function(
                     _ => String::new(),
                 }
             );
-            if p.optional || matches!(&p.ty, TypeRef::Optional(_)) {
-                format!(
-                    "let {name}_core: Option<{core_path}> = {name}.as_deref()\
-                     .filter(|s| *s != \"NULL\")\
-                     .map(|s| serde_json::from_str(s){err_conv}).transpose()?;\n    "
-                )
+            let template_name = if p.optional || matches!(&p.ty, TypeRef::Optional(_)) {
+                "serde_named_optional_binding.jinja"
             } else {
-                format!("let {name}_core: {core_path} = serde_json::from_str(&{name}){err_conv}?;\n    ")
-            }
+                "serde_named_required_binding.jinja"
+            };
+            crate::template_env::render(
+                template_name,
+                minijinja::context! {
+                    name => name,
+                    core_path => core_path,
+                    err_conv => err_conv,
+                },
+            )
         })
         .collect();
 
@@ -988,14 +623,14 @@ pub fn gen_bridge_function(
     };
 
     let func_name = &func.name;
-    let mut out = String::with_capacity(1024);
-    if func.error_type.is_some() {
-        writeln!(out, "#[allow(clippy::missing_errors_doc)]").ok();
-    }
-    writeln!(out, "#[extendr]").ok();
-    writeln!(out, "pub fn {func_name}({params_str}) -> {ret} {{").ok();
-    writeln!(out, "    {body}").ok();
-    writeln!(out, "}}").ok();
-
-    out
+    crate::template_env::render(
+        "bridge_function.jinja",
+        minijinja::context! {
+            has_error => func.error_type.is_some(),
+            func_name => func_name,
+            params_str => params_str,
+            ret => ret,
+            body => body,
+        },
+    )
 }

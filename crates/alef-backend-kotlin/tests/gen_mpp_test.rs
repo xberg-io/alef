@@ -30,6 +30,8 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
         core_wrapper: CoreWrapper::None,
         vec_inner_core_wrapper: CoreWrapper::None,
         newtype_wrapper: None,
+        serde_rename: None,
+        serde_flatten: false,
     }
 }
 
@@ -127,6 +129,7 @@ fn mpp_emits_five_files() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
     let config = make_mpp_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -152,6 +155,7 @@ fn mpp_common_contains_expect_object() {
         )],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
     let config = make_mpp_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -201,6 +205,7 @@ fn mpp_jvm_contains_actual_object_with_bridge() {
         )],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
     let config = make_mpp_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -237,6 +242,7 @@ fn mpp_native_contains_actual_object_with_mem_scoped() {
         )],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
     let config = make_mpp_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -276,6 +282,7 @@ fn mpp_dtos_only_in_common_main() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
     let config = make_mpp_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -320,6 +327,7 @@ fn mpp_def_file_has_correct_fields() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
     let config = make_mpp_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -356,6 +364,7 @@ fn mpp_gradle_uses_multiplatform_plugin() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
     let config = make_mpp_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -420,12 +429,14 @@ fn mpp_sealed_enum_in_common_main() {
             ],
             cfg: None,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
 
             is_copy: false,
             has_serde: false,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
     let config = make_mpp_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -466,6 +477,7 @@ fn mpp_error_sealed_class_in_common_main() {
                 doc: String::new(),
             }],
         }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
     let config = make_mpp_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();

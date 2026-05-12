@@ -1,0 +1,17 @@
+{#- Ruby HTTP test method template
+
+   Context variables:
+   - fn_name: sanitized function name
+   - description: fixture description with escaped quotes
+   - skip_reason: optional skip reason (if test is skipped)
+#}
+{%- if skip_reason %}
+  describe '{{ fn_name }}' do
+    it '{{ description }}' do
+      skip '{{ skip_reason }}'
+    end
+  end
+{%- else %}
+  describe '{{ fn_name }}' do
+    it '{{ description }}' do
+{%- endif %}

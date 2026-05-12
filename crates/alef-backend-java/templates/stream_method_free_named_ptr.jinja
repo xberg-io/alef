@@ -1,0 +1,1 @@
+{{ indent }}if (!{{ c_name }}.equals(MemorySegment.NULL)) { try { {{ free_handle }}.invoke({{ c_name }}); } catch (Throwable ignore) {} }

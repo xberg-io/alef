@@ -10,10 +10,7 @@ pub(super) fn gen_enum(enum_def: &EnumDef, prefix: &str) -> String {
     let mut lines = vec![];
     let doc = emit_rustdoc(&enum_def.doc);
     if !doc.is_empty() {
-        // emit_rustdoc includes trailing newlines; push each line individually
-        for line in doc.lines() {
-            lines.push(line.to_string());
-        }
+        lines.push(doc);
     }
     lines.extend([
         "#[wasm_bindgen]".to_string(),
@@ -69,6 +66,7 @@ mod tests {
             is_copy: true,
             has_serde: false,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
         }
     }

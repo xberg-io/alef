@@ -1,0 +1,31 @@
+{#- PHP HTTP response assertions
+
+   Context variables:
+   - response_var: variable name of the response object (optional, used internally)
+   - status_code: expected HTTP status code
+   - headers: list of header assertions (each with assertion_code)
+   - body_assertion: optional body assertion code
+   - partial_body: optional partial body assertions (list of field assertions)
+   - validation_errors: optional validation error messages to check
+#}
+{%- if status_code %}
+        $this->assertEquals({{ status_code }}, $response->getStatusCode());
+{%- endif %}
+{%- for header in headers %}
+        {{ header.assertion_code }}
+{%- endfor %}
+{%- if body_assertion %}
+        {{ body_assertion }}
+{%- endif %}
+{%- if partial_body %}
+        $body = json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);
+{%- for field in partial_body %}
+        {{ field.assertion_code }}
+{%- endfor %}
+{%- endif %}
+{%- if validation_errors %}
+        $body = json_decode((string) $response->getBody(), true);
+{%- for error in validation_errors %}
+        {{ error.assertion_code }}
+{%- endfor %}
+{%- endif %}

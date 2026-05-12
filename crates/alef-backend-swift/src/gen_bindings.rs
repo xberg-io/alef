@@ -2,7 +2,7 @@ use alef_codegen::keywords::swift_ident;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile, PostBuildStep};
 use alef_core::config::{Language, ResolvedCrateConfig, resolve_output_dir};
-use alef_core::ir::{ApiSurface, EnumDef, EnumVariant, ErrorDef, TypeDef};
+use alef_core::ir::{ApiSurface, EnumDef, EnumVariant, ErrorDef, FunctionDef, MethodDef, TypeRef};
 use heck::ToLowerCamelCase;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -57,30 +57,34 @@ impl Backend for SwiftBackend {
 
         let mut body = String::new();
 
-        // Compute the set of non-trait types that should be emitted as typealiases to RustBridge.X.
-        // This includes ALL non-trait enums and structs (both Codable and non-Codable).
-        // swift-bridge generates opaque Swift classes for these, not enums or structs.
-        // Emitting typealiases makes them pass through without conversion, avoiding:
-        //   1. Invalid enum pattern matching on opaque classes
-        //   2. Type mismatches between Codable wrappers and RustBridge opaque types
-        //   3. Need for bidirectional JSON serialization
-        // Tradeoff: users interact with RustBridge opaque types directly rather than
-        // idiomatic Swift wrappers. This is acceptable for the current phase where
-        // swift-bridge handling is incomplete.
-        let non_codable_types: std::collections::HashSet<&str> = api
-            .enums
+        // Emit typealiases for all struct types exposed by swift-bridge.
+        // swift-bridge exposes types that are declared in the extern "Rust" block,
+        // so we generate typealiases for all non-excluded types to provide a
+        // stable Swift API that references RustBridge types.
+        // Skip opaque handle types with methods — those get a full class wrapper below
+        // instead of a typealias.
+        for ty in api
+            .types
             .iter()
-            .map(|e| e.name.as_str())
-            .chain(api.types.iter().filter(|t| !t.is_trait).map(|t| t.name.as_str()))
-            .collect();
-
-        for ty in api.types.iter().filter(|t| !exclude_types.contains(t.name.as_str())) {
-            emit_struct(ty, &mut body, &mapper, &non_codable_types);
+            .filter(|t| !t.is_trait && !exclude_types.contains(t.name.as_str()))
+            .filter(|t| t.methods.is_empty() || !t.is_opaque && t.has_serde)
+        {
+            emit_doc_comment(&ty.doc, "", &mut body);
+            body.push_str(&crate::template_env::render(
+                "typealias.jinja",
+                minijinja::context! {
+                    name => &ty.name,
+                },
+            ));
             body.push('\n');
         }
 
+        // Enums are emitted as native Swift enums with unit variants only.
+        // They are NOT typealiased to RustBridge since swift-bridge's automatic generation
+        // is unreliable (not all enum types are exposed). Instead, we emit them directly
+        // as Swift enums that mirror the unit variants from the Rust bridge enum wrapper.
         for en in api.enums.iter().filter(|e| !exclude_types.contains(e.name.as_str())) {
-            emit_enum(en, &mut body, &mapper, &non_codable_types);
+            emit_enum(en, &mut body, &mapper);
             body.push('\n');
         }
 
@@ -89,11 +93,25 @@ impl Backend for SwiftBackend {
             body.push('\n');
         }
 
-        // Function wrappers intentionally not emitted: swift-bridge's RustVec/RustString
-        // primitive containers cannot be losslessly converted to Swift Array/String at
-        // codegen time (RustVec<T> has no [T] initializer, generic-param inference fails
-        // across protocol boundaries, etc.). Consumers call RustBridge functions
-        // directly; the typealiases above keep `Kreuzberg.SomeType` as a stable name.
+        // Emit Swift class wrappers only for opaque handle types that expose methods.
+        // Opaque types (is_opaque=true or has_serde=false) cannot be JSON-serialised and
+        // are accessed exclusively through C FFI handles — a class wrapper is appropriate.
+        // Serialisable struct types keep their `typealias` declaration above.
+        for ty in api.types.iter().filter(|t| {
+            !t.is_trait
+                && !exclude_types.contains(t.name.as_str())
+                && !t.methods.is_empty()
+                && (t.is_opaque || !t.has_serde)
+        }) {
+            emit_client_class(ty.name.as_str(), &ty.methods, &mapper, &mut body);
+            body.push('\n');
+        }
+
+        // Emit lightweight convenience overloads for functions whose first parameter
+        // is TypeRef::Bytes or TypeRef::Path. Discovery is IR-driven: the emitter
+        // walks api.functions and detects candidates by signature shape, never by name.
+        emit_convenience_wrappers(api, &mut body);
+
         let _ = module_name;
 
         let mut content = String::new();
@@ -148,56 +166,49 @@ impl Backend for SwiftBackend {
     }
 }
 
-/// Emits a Swift `public struct` for the given `TypeDef`.
-/// All non-trait structs are emitted as typealiases to RustBridge.X.
-fn emit_struct(
-    ty: &TypeDef,
-    out: &mut String,
-    _mapper: &SwiftMapper,
-    non_codable_types: &std::collections::HashSet<&str>,
-) {
-    // All structs become typealiases to the RustBridge opaque class
-    if non_codable_types.contains(ty.name.as_str()) {
-        emit_doc_comment(&ty.doc, "", out);
-        out.push_str(&format!("public typealias {} = RustBridge.{}\n", ty.name, ty.name));
-        return;
-    }
-
-    // Trait types fall through but shouldn't happen in practice
-    emit_doc_comment(&ty.doc, "", out);
-    out.push_str(&format!("public struct {} {{\n", ty.name));
-    out.push_str("}\n");
-}
-
-/// Emits a Swift `public enum` for the given `EnumDef`.
-/// All non-trait enums are emitted as typealiases to RustBridge.X.
-fn emit_enum(
-    en: &EnumDef,
-    out: &mut String,
-    mapper: &SwiftMapper,
-    non_codable_types: &std::collections::HashSet<&str>,
-) {
-    // All enums become typealiases to the RustBridge opaque class
-    if non_codable_types.contains(en.name.as_str()) {
-        emit_doc_comment(&en.doc, "", out);
-        out.push_str(&format!("public typealias {} = RustBridge.{}\n", en.name, en.name));
-        return;
-    }
-
+/// Emits a Swift enum or typealias for the given `EnumDef`.
+/// Non-Codable enums (`has_serde: false`) become typealiases to RustBridge.X.
+/// Codable enums (`has_serde: true`) are emitted as native Swift enums.
+fn emit_enum(en: &EnumDef, out: &mut String, mapper: &SwiftMapper) {
     emit_doc_comment(&en.doc, "", out);
+
+    if !en.has_serde {
+        out.push_str(&crate::template_env::render(
+            "typealias.jinja",
+            minijinja::context! {
+                name => &en.name,
+            },
+        ));
+        return;
+    }
 
     let all_unit = en.variants.iter().all(|v| v.fields.is_empty());
 
     if all_unit {
-        out.push_str(&format!("public enum {} {{\n", en.name));
+        out.push_str(&crate::template_env::render(
+            "swift_enum_header.jinja",
+            minijinja::context! {
+                name => &en.name,
+            },
+        ));
         for variant in &en.variants {
             emit_doc_comment(&variant.doc, "    ", out);
             let case_name = swift_ident(&variant.name.to_lower_camel_case());
-            out.push_str(&format!("    case {case_name}\n"));
+            out.push_str(&crate::template_env::render(
+                "enum_case_unit.jinja",
+                minijinja::context! {
+                    case_name => &case_name,
+                },
+            ));
         }
         out.push_str("}\n");
     } else {
-        out.push_str(&format!("public enum {} {{\n", en.name));
+        out.push_str(&crate::template_env::render(
+            "swift_enum_header.jinja",
+            minijinja::context! {
+                name => &en.name,
+            },
+        ));
         for variant in &en.variants {
             emit_variant_with_data(variant, out, mapper);
         }
@@ -210,7 +221,12 @@ fn emit_variant_with_data(variant: &EnumVariant, out: &mut String, mapper: &Swif
     emit_doc_comment(&variant.doc, "    ", out);
     let case_name = swift_ident(&variant.name.to_lower_camel_case());
     if variant.fields.is_empty() {
-        out.push_str(&format!("    case {case_name}\n"));
+        out.push_str(&crate::template_env::render(
+            "enum_case_unit.jinja",
+            minijinja::context! {
+                case_name => &case_name,
+            },
+        ));
     } else {
         let assoc: Vec<String> = variant
             .fields
@@ -222,7 +238,13 @@ fn emit_variant_with_data(variant: &EnumVariant, out: &mut String, mapper: &Swif
                 format!("{label}: {ty_str}")
             })
             .collect();
-        out.push_str(&format!("    case {case_name}({})\n", assoc.join(", ")));
+        out.push_str(&crate::template_env::render(
+            "enum_case_with_data.jinja",
+            minijinja::context! {
+                case_name => &case_name,
+                associated_values => assoc.join(", "),
+            },
+        ));
     }
 }
 
@@ -242,12 +264,22 @@ fn swift_associated_label(name: &str, idx: usize) -> String {
 /// Emits a Swift `Error`-conforming `public enum` for the given `ErrorDef`.
 fn emit_error(error: &ErrorDef, out: &mut String, mapper: &SwiftMapper) {
     emit_doc_comment(&error.doc, "", out);
-    out.push_str(&format!("public enum {}: Error {{\n", error.name));
+    out.push_str(&crate::template_env::render(
+        "error_enum_header.jinja",
+        minijinja::context! {
+            name => &error.name,
+        },
+    ));
     for variant in &error.variants {
         emit_doc_comment(&variant.doc, "    ", out);
         let case_name = swift_ident(&variant.name.to_lower_camel_case());
         if variant.is_unit || variant.fields.is_empty() {
-            out.push_str(&format!("    case {case_name}(message: String)\n"));
+            out.push_str(&crate::template_env::render(
+                "error_case.jinja",
+                minijinja::context! {
+                    case_name => &case_name,
+                },
+            ));
         } else {
             let mut assoc: Vec<String> = Vec::with_capacity(variant.fields.len() + 1);
             let mut seen_message = false;
@@ -268,9 +300,134 @@ fn emit_error(error: &ErrorDef, out: &mut String, mapper: &SwiftMapper) {
             if !seen_message {
                 assoc.insert(0, "message: String".to_string());
             }
-            out.push_str(&format!("    case {case_name}({})\n", assoc.join(", ")));
+            out.push_str(&crate::template_env::render(
+                "error_case_with_data.jinja",
+                minijinja::context! {
+                    case_name => &case_name,
+                    associated_values => assoc.join(", "),
+                },
+            ));
         }
     }
+    out.push_str("}\n");
+}
+
+/// Emits a Swift `public final class` wrapper for an opaque Rust type that exposes methods.
+///
+/// The class holds an inner `RustBridge.<TypeName>` instance and re-exposes each method
+/// via a public Swift API that delegates to a free function generated by the bridge crate.
+/// The constructor reads `api_key` and optional `base_url` from Swift, matching the
+/// `createDefaultClient`/`defaultClientChat` pattern produced in the Rust bridge crate.
+///
+/// Naming conventions (all snake-case in Rust, all camelCase in Swift):
+/// - Constructor bridge fn: `create_<snake_type_name>` → camelCase `create<PascalTypeName>`
+/// - Method bridge fn: `<snake_type_name>_<method_name>` → camelCase `<camelTypeName><PascalMethod>`
+fn emit_client_class(type_name: &str, methods: &[MethodDef], mapper: &impl TypeMapper, out: &mut String) {
+    use heck::ToSnakeCase;
+
+    // Swift-bridge free functions bridging this class.
+    let snake_name = type_name.to_snake_case();
+    let constructor_fn = swift_ident(&format!("create_{snake_name}").to_lower_camel_case());
+
+    out.push_str(&format!("public final class {type_name} {{\n"));
+    out.push_str(&format!("    private let inner: RustBridge.{type_name}\n"));
+    out.push_str("    public init(apiKey: String, baseUrl: String? = nil) throws {\n");
+    // swift-bridge generates the constructor as a free function with positional
+    // parameters (no argument labels). Calling it with `apiKey:baseUrl:` labels
+    // would not match the generated signature.
+    out.push_str(&format!(
+        "        self.inner = try RustBridge.{constructor_fn}(apiKey, baseUrl)\n"
+    ));
+    out.push_str("    }\n");
+
+    for method in methods {
+        // Skip async-less, sanitized, or static methods.
+        if method.sanitized {
+            continue;
+        }
+        let method_snake = method.name.to_snake_case();
+        let method_camel = swift_ident(&method_snake.to_lower_camel_case());
+        let bridge_fn_snake = format!("{snake_name}_{method_snake}");
+        let bridge_fn_camel = swift_ident(&bridge_fn_snake.to_lower_camel_case());
+
+        // Build parameter list for the Swift public method (excluding self/receiver).
+        let params: Vec<String> = method
+            .params
+            .iter()
+            .map(|p| {
+                let swift_name = swift_ident(&p.name.to_lower_camel_case());
+                let ty_str = if p.optional {
+                    format!("{}?", mapper.map_type(&p.ty))
+                } else {
+                    mapper.map_type(&p.ty)
+                };
+                format!("_ {swift_name}: {ty_str}")
+            })
+            .collect();
+        let params_str = params.join(", ");
+
+        // Build argument list for forwarding to the bridge function.
+        let args: Vec<String> = method
+            .params
+            .iter()
+            .map(|p| swift_ident(&p.name.to_lower_camel_case()))
+            .collect();
+        let args_str = if args.is_empty() {
+            String::new()
+        } else {
+            format!(", {}", args.join(", "))
+        };
+
+        let return_ty = mapper.map_type(&method.return_type);
+        let throws_clause = if method.error_type.is_some() { " throws" } else { "" };
+        let async_clause = if method.is_async { " async" } else { "" };
+        let return_clause = if matches!(method.return_type, TypeRef::Unit) {
+            String::new()
+        } else {
+            format!(" -> {return_ty}")
+        };
+
+        // Emit `/// doc` when available.
+        if !method.doc.is_empty() {
+            for line in method.doc.lines() {
+                out.push_str(&format!("    /// {line}\n"));
+            }
+        }
+        out.push_str(&format!(
+            "    public func {method_camel}({params_str}){async_clause}{throws_clause}{return_clause} {{\n"
+        ));
+        if matches!(method.return_type, TypeRef::Unit) {
+            out.push_str(&format!(
+                "        {throws_kw}RustBridge.{bridge_fn_camel}(self.inner{args_str})\n",
+                throws_kw = if method.error_type.is_some() { "try " } else { "" }
+            ));
+        } else {
+            let await_kw = if method.is_async { "await " } else { "" };
+            let try_kw = if method.error_type.is_some() { "try " } else { "" };
+            // swift-bridge bridges `Vec<u8>` as `RustVec<UInt8>` on the Swift side.
+            // The host wrapper exposes `Data` (per `SwiftMapper::bytes()`) — convert
+            // by iterating the RustVec into a Swift array, then wrapping in `Data`.
+            let bytes_suffix = if matches!(method.return_type, TypeRef::Bytes) {
+                ".map { Data($0.map { $0 }) }"
+            } else {
+                ""
+            };
+            if bytes_suffix.is_empty() {
+                out.push_str(&format!(
+                    "        return {try_kw}{await_kw}RustBridge.{bridge_fn_camel}(self.inner{args_str})\n"
+                ));
+            } else {
+                // For Bytes returns we can't chain `.map` on a throwing call directly,
+                // so capture the RustVec into a local and convert.
+                out.push_str(&format!(
+                    "        let _bytes = {try_kw}{await_kw}RustBridge.{bridge_fn_camel}(self.inner{args_str})\n"
+                ));
+                out.push_str("        return Data(_bytes.map { $0 })\n");
+            }
+        }
+        out.push_str("    }\n");
+    }
+
     out.push_str("}\n");
 }
 
@@ -279,10 +436,530 @@ fn emit_doc_comment(doc: &str, indent: &str, out: &mut String) {
     if doc.is_empty() {
         return;
     }
-    for line in doc.lines() {
-        out.push_str(indent);
-        out.push_str("/// ");
-        out.push_str(line);
-        out.push('\n');
+    out.push_str(&crate::template_env::render(
+        "doc_comment.jinja",
+        minijinja::context! {
+            indent => indent,
+            lines => doc.lines().collect::<Vec<_>>(),
+        },
+    ));
+}
+
+/// Returns `true` if the first parameter of `func_def` has the given `TypeRef` shape.
+fn first_param_is(func_def: &FunctionDef, ty: &TypeRef) -> bool {
+    func_def.params.first().map(|p| &p.ty == ty).unwrap_or(false)
+}
+
+/// Emits Swift convenience overloads for functions whose first parameter is
+/// `TypeRef::Bytes` or `TypeRef::Path`.
+///
+/// Detection is entirely IR-driven — no function names are hardcoded. The emitter
+/// scans `api.functions` for non-async functions that:
+///
+/// - Have `TypeRef::Bytes` as their first parameter → emit a `String` overload
+///   (UTF-8 encoded) and a `[UInt8]` overload, both delegating to the sync bridge
+///   function via `makeByteVec`.
+/// - Have `TypeRef::Path` as their first parameter → emit a `String` path overload
+///   with the remaining parameters forwarded unchanged.
+///
+/// The `makeByteVec` helper converts a Swift `[UInt8]` to `RustVec<UInt8>` using
+/// the push-based API that swift-bridge exposes at runtime.
+///
+/// ## Skipped emissions
+///
+/// A convenience overload is skipped when the public wrapper name would collide
+/// with the bridge function name (`wrapper_name == swift_inner`). Swift overload
+/// resolution prefers the labeled overload from the *current* file when looking
+/// up the inner positional call, so the wrapper would recursively resolve to
+/// itself instead of the unlabeled bridge function. There is no clean way to
+/// disambiguate (module-prefix qualification of free functions is rejected by
+/// the Swift compiler). Users needing a `String`/`[UInt8]` ergonomic flavor for
+/// these functions can call the bridge function directly with `makeByteVec`.
+fn emit_convenience_wrappers(api: &ApiSurface, out: &mut String) {
+    // Collect the names of all functions in the surface for O(1) lookup.
+    let all_names: std::collections::HashSet<&str> = api.functions.iter().map(|f| f.name.as_str()).collect();
+
+    let bytes_candidates: Vec<&FunctionDef> = api
+        .functions
+        .iter()
+        .filter(|f| first_param_is(f, &TypeRef::Bytes) && !f.is_async && !convenience_name_shadows_bridge(f))
+        .collect();
+
+    let path_candidates: Vec<&FunctionDef> = api
+        .functions
+        .iter()
+        .filter(|f| first_param_is(f, &TypeRef::Path) && !f.is_async && !convenience_name_shadows_bridge(f))
+        .collect();
+
+    if bytes_candidates.is_empty() && path_candidates.is_empty() {
+        return;
     }
+
+    out.push_str("// MARK: - Convenience Wrapper Functions\n");
+    out.push_str("// These wrappers bridge String / [UInt8] inputs to RustBridge's\n");
+    out.push_str("// RustVec<UInt8> requirement. The config parameter must be a fully\n");
+    out.push_str("// constructed opaque type (built via the generated initializer);\n");
+    out.push_str("// JSON-config decoding is not available because swift-bridge opaque\n");
+    out.push_str("// proxy classes are not Codable Swift structs.\n\n");
+
+    // Only emit makeByteVec when there is at least one bytes candidate.
+    if !bytes_candidates.is_empty() {
+        out.push_str("/// Converts a Swift `[UInt8]` array to a `RustVec<UInt8>` by pushing each byte.\n");
+        out.push_str("/// swift-bridge's `RustVec<T>` runtime only exposes `init()` and `push(value:)`;\n");
+        out.push_str("/// no array-initializer shorthand exists.\n");
+        out.push_str("private func makeByteVec(_ bytes: [UInt8]) -> RustVec<UInt8> {\n");
+        out.push_str("    let vec = RustVec<UInt8>()\n");
+        out.push_str("    for b in bytes { vec.push(value: b) }\n");
+        out.push_str("    return vec\n");
+        out.push_str("}\n\n");
+    }
+
+    for func in &bytes_candidates {
+        emit_bytes_overloads(func, &all_names, out);
+    }
+
+    for func in &path_candidates {
+        emit_path_overload(func, &all_names, out);
+    }
+
+    // Emit e2e-test wrappers when the api surface exposes the kreuzberg-style
+    // helper types (`ExtractionConfig`, `BatchBytesItem`, `BatchFileItem`). These
+    // wrappers depend on the JSON-factory shims emitted by the Rust bridge crate
+    // (`extractionConfigFromJson`, `batchBytesItemFromJson`, `batchFileItemFromJson`),
+    // which are gated by the same structural check in `gen_rust_crate::emit_lib_rs`.
+    // No-op for binding crates that don't expose these specific types.
+    if api_has_e2e_helper_types(api) {
+        emit_e2e_wrappers(out);
+    }
+}
+
+/// Returns `true` when the api surface exposes the kreuzberg-style e2e helper
+/// types (`ExtractionConfig`, `BatchBytesItem`, `BatchFileItem`), all serde-enabled.
+/// Mirrors `gen_rust_crate::api_has_e2e_types` so the Swift wrapper helpers and
+/// the Rust-side JSON-factory shims are emitted together.
+fn api_has_e2e_helper_types(api: &ApiSurface) -> bool {
+    let required = ["ExtractionConfig", "BatchBytesItem", "BatchFileItem"];
+    required
+        .iter()
+        .all(|name| api.types.iter().any(|t| !t.is_trait && t.has_serde && t.name == *name))
+}
+
+/// Emits the e2e-test helper wrappers used by the generated Swift e2e test layer.
+///
+/// Hardcoded for kreuzberg-style symbols (`extractBytes`, `extractFile`,
+/// `batchExtract*`, `extractionConfigFromJson`); emission is gated structurally
+/// by `api_has_e2e_helper_types`, so this is a no-op for binding crates that
+/// don't expose those types.
+fn emit_e2e_wrappers(out: &mut String) {
+    out.push_str("// MARK: - E2e Test Convenience Wrappers\n");
+    out.push_str("// JSON-config and file-loading wrappers used exclusively by the generated e2e tests.\n\n");
+
+    // Helper: resolveFixturePath - resolves a fixture file path.
+    // Uses FIXTURES_DIR env var (set by CI / task runner) when available; falls
+    // back to the path as-is (interpreted relative to the process working directory).
+    out.push_str("private func resolveFixturePath(_ name: String) -> URL {\n");
+    out.push_str("    if let dir = ProcessInfo.processInfo.environment[\"FIXTURES_DIR\"] {\n");
+    out.push_str("        return URL(fileURLWithPath: dir).appendingPathComponent(name)\n");
+    out.push_str("    }\n");
+    out.push_str("    return URL(fileURLWithPath: name)\n");
+    out.push_str("}\n\n");
+
+    // extractBytesSync(filePath:mimeType:configJson:)
+    out.push_str("/// E2e wrapper: reads `filePath` into bytes, deserialises `configJson` -> ExtractionConfig.\n");
+    out.push_str("public func extractBytesSync(\n");
+    out.push_str("    _ filePath: String,\n");
+    out.push_str("    _ mimeType: String,\n");
+    out.push_str("    _ configJson: String\n");
+    out.push_str(") throws -> ExtractionResult {\n");
+    out.push_str("    let url = resolveFixturePath(filePath)\n");
+    out.push_str("    let data = try Data(contentsOf: url)\n");
+    out.push_str("    let config = try extractionConfigFromJson(configJson)\n");
+    out.push_str("    return try extractBytesSync(makeByteVec(data.map { $0 }), mimeType, config)\n");
+    out.push_str("}\n\n");
+
+    // extractBytes(filePath:mimeType:configJson:) - async wrapper for API surface compatibility.
+    out.push_str(
+        "/// E2e wrapper (async): reads `filePath` into bytes, deserialises `configJson` -> ExtractionConfig.\n",
+    );
+    out.push_str("public func extractBytes(\n");
+    out.push_str("    _ filePath: String,\n");
+    out.push_str("    _ mimeType: String,\n");
+    out.push_str("    _ configJson: String\n");
+    out.push_str(") async throws -> ExtractionResult {\n");
+    out.push_str("    let url = resolveFixturePath(filePath)\n");
+    out.push_str("    let data = try Data(contentsOf: url)\n");
+    out.push_str("    let config = try extractionConfigFromJson(configJson)\n");
+    out.push_str("    return try extractBytesSync(makeByteVec(data.map { $0 }), mimeType, config)\n");
+    out.push_str("}\n\n");
+
+    // extractFileSync(path:mimeType:configJson:) - 3-arg form
+    out.push_str("/// E2e wrapper: resolves fixture path, deserialises `configJson` -> ExtractionConfig, then calls extractFileSync.\n");
+    out.push_str("public func extractFileSync(\n");
+    out.push_str("    _ path: String,\n");
+    out.push_str("    _ mimeType: String?,\n");
+    out.push_str("    _ configJson: String\n");
+    out.push_str(") throws -> ExtractionResult {\n");
+    out.push_str("    let resolvedPath = resolveFixturePath(path).path\n");
+    out.push_str("    let config = try extractionConfigFromJson(configJson)\n");
+    out.push_str("    return try extractFileSync(resolvedPath, mimeType, config)\n");
+    out.push_str("}\n\n");
+
+    // extractFileSync(path:configJson:) - 2-arg form (no mimeType)
+    out.push_str(
+        "/// E2e wrapper: resolves fixture path, deserialises `configJson` -> ExtractionConfig, nil mimeType.\n",
+    );
+    out.push_str("public func extractFileSync(\n");
+    out.push_str("    _ path: String,\n");
+    out.push_str("    _ configJson: String\n");
+    out.push_str(") throws -> ExtractionResult {\n");
+    out.push_str("    let resolvedPath = resolveFixturePath(path).path\n");
+    out.push_str("    let config = try extractionConfigFromJson(configJson)\n");
+    out.push_str("    return try extractFileSync(resolvedPath, nil, config)\n");
+    out.push_str("}\n\n");
+
+    // extractFile(path:mimeType:configJson:) - async 3-arg form
+    out.push_str(
+        "/// E2e wrapper (async): resolves fixture path, deserialises `configJson` -> ExtractionConfig, then calls extractFileSync.\n",
+    );
+    out.push_str("public func extractFile(\n");
+    out.push_str("    _ path: String,\n");
+    out.push_str("    _ mimeType: String?,\n");
+    out.push_str("    _ configJson: String\n");
+    out.push_str(") async throws -> ExtractionResult {\n");
+    out.push_str("    let resolvedPath = resolveFixturePath(path).path\n");
+    out.push_str("    let config = try extractionConfigFromJson(configJson)\n");
+    out.push_str("    return try extractFileSync(resolvedPath, mimeType, config)\n");
+    out.push_str("}\n\n");
+
+    // extractFile(path:configJson:) - async 2-arg form (no mimeType)
+    out.push_str("/// E2e wrapper (async): resolves fixture path, deserialises `configJson` -> ExtractionConfig, nil mimeType.\n");
+    out.push_str("public func extractFile(\n");
+    out.push_str("    _ path: String,\n");
+    out.push_str("    _ configJson: String\n");
+    out.push_str(") async throws -> ExtractionResult {\n");
+    out.push_str("    let resolvedPath = resolveFixturePath(path).path\n");
+    out.push_str("    let config = try extractionConfigFromJson(configJson)\n");
+    out.push_str("    return try extractFileSync(resolvedPath, nil, config)\n");
+    out.push_str("}\n\n");
+
+    // batchExtractBytesSync(jsonItems:)
+    // Returns [ExtractionResultRef] - the element type from RustVec<ExtractionResult> iteration.
+    out.push_str("/// E2e wrapper: deserialises each JSON string in `jsonItems` -> BatchBytesItem.\n");
+    out.push_str("public func batchExtractBytesSync(\n");
+    out.push_str("    _ jsonItems: [String]\n");
+    out.push_str(") throws -> [ExtractionResultRef] {\n");
+    out.push_str("    var items = RustVec<BatchBytesItem>()\n");
+    out.push_str("    for json in jsonItems {\n");
+    out.push_str("        items.push(value: try batchBytesItemFromJson(json))\n");
+    out.push_str("    }\n");
+    out.push_str("    let config = try extractionConfigFromJson(\"{}\")\n");
+    out.push_str("    return try batchExtractBytesSync(items, config).map { $0 }\n");
+    out.push_str("}\n\n");
+
+    // batchExtractBytes(jsonItems:) - async wrapper for API surface compatibility.
+    out.push_str("/// E2e wrapper (async): deserialises each JSON string in `jsonItems` -> BatchBytesItem.\n");
+    out.push_str("public func batchExtractBytes(\n");
+    out.push_str("    _ jsonItems: [String]\n");
+    out.push_str(") async throws -> [ExtractionResultRef] {\n");
+    out.push_str("    var items = RustVec<BatchBytesItem>()\n");
+    out.push_str("    for json in jsonItems {\n");
+    out.push_str("        items.push(value: try batchBytesItemFromJson(json))\n");
+    out.push_str("    }\n");
+    out.push_str("    let config = try extractionConfigFromJson(\"{}\")\n");
+    out.push_str("    return try batchExtractBytesSync(items, config).map { $0 }\n");
+    out.push_str("}\n\n");
+
+    // batchExtractFilesSync(jsonItems:)
+    out.push_str("/// E2e wrapper: deserialises each JSON string in `jsonItems` -> BatchFileItem.\n");
+    out.push_str("public func batchExtractFilesSync(\n");
+    out.push_str("    _ jsonItems: [String]\n");
+    out.push_str(") throws -> [ExtractionResultRef] {\n");
+    out.push_str("    var items = RustVec<BatchFileItem>()\n");
+    out.push_str("    for json in jsonItems {\n");
+    out.push_str("        items.push(value: try batchFileItemFromJson(json))\n");
+    out.push_str("    }\n");
+    out.push_str("    let config = try extractionConfigFromJson(\"{}\")\n");
+    out.push_str("    return try batchExtractFilesSync(items, config).map { $0 }\n");
+    out.push_str("}\n\n");
+
+    // batchExtractFiles(jsonItems:) - async wrapper for API surface compatibility.
+    out.push_str("/// E2e wrapper (async): deserialises each JSON string in `jsonItems` -> BatchFileItem.\n");
+    out.push_str("public func batchExtractFiles(\n");
+    out.push_str("    _ jsonItems: [String]\n");
+    out.push_str(") async throws -> [ExtractionResultRef] {\n");
+    out.push_str("    var items = RustVec<BatchFileItem>()\n");
+    out.push_str("    for json in jsonItems {\n");
+    out.push_str("        items.push(value: try batchFileItemFromJson(json))\n");
+    out.push_str("    }\n");
+    out.push_str("    let config = try extractionConfigFromJson(\"{}\")\n");
+    out.push_str("    return try batchExtractFilesSync(items, config).map { $0 }\n");
+    out.push_str("}\n\n");
+
+    // detectMimeTypeFromBytes(_ filePath: String) - e2e file-path overload
+    out.push_str("/// E2e wrapper: reads `filePath` into bytes and calls detectMimeTypeFromBytes.\n");
+    out.push_str("public func detectMimeTypeFromBytes(\n");
+    out.push_str("    _ filePath: String\n");
+    out.push_str(") throws -> String {\n");
+    out.push_str("    let url = resolveFixturePath(filePath)\n");
+    out.push_str("    let data = try Data(contentsOf: url)\n");
+    out.push_str("    return try detectMimeTypeFromBytes(makeByteVec(data.map { $0 })).toString()\n");
+    out.push_str("}\n");
+}
+
+/// Emits String and [UInt8] convenience overloads for a function whose first param
+/// is `TypeRef::Bytes`. The overloads delegate to the function itself via `makeByteVec`.
+///
+/// The wrapper function name is derived by stripping the `_sync` suffix from the
+/// function name (if present) and converting to camelCase. The inner call uses
+/// the camelCased name of the function directly (which swift-bridge exposes).
+///
+/// The convenience overload always uses a labeled first parameter (`content:`),
+/// while the underlying bridge function exposes an unlabeled first parameter
+/// (`_ content: RustVec<UInt8>`). Swift overload resolution distinguishes these
+/// by argument label inclusion, so a positional inner call `swift_inner(makeByteVec(...))`
+/// resolves unambiguously to the bridge function even when `wrapper_name == swift_inner`.
+///
+/// We previously qualified the inner call with `RustBridge.` to "bypass shadowing",
+/// but Swift does not allow `ModuleName.functionName` qualification of free functions
+/// imported from another module — the call `RustBridge.detectMimeTypeFromBytes(...)`
+/// fails with "module 'RustBridge' has no member named 'detectMimeTypeFromBytes'".
+fn emit_bytes_overloads(func: &FunctionDef, _all_names: &std::collections::HashSet<&str>, out: &mut String) {
+    let swift_inner = swift_ident(&func.name.to_lower_camel_case());
+    // Wrapper name: strip trailing "Sync" for the public-facing overload name.
+    let wrapper_name = if swift_inner.ends_with("Sync") {
+        swift_inner[..swift_inner.len() - 4].to_string()
+    } else {
+        swift_inner.clone()
+    };
+    // Inner call is always the unqualified bridge function name. Argument-label
+    // disambiguation handles the case where wrapper_name == swift_inner.
+    let inner_call = swift_inner.clone();
+
+    // Collect remaining params (everything after the first Bytes param).
+    let trailing_params: Vec<&alef_core::ir::ParamDef> = func.params.iter().skip(1).collect();
+
+    // Return type name (Named types are used as Swift type names directly).
+    let return_ty = swift_return_type(&func.return_type);
+    let throws_clause = if func.error_type.is_some() { " throws" } else { "" };
+    let return_suffix = swift_return_conversion_suffix(&func.return_type);
+
+    let trailing_param_text = render_trailing_params(trailing_params.iter().copied());
+    let trailing_args = render_trailing_args(trailing_params.iter().copied());
+
+    out.push_str(&crate::template_env::render(
+        "swift_bytes_string_overload.jinja",
+        minijinja::context! {
+            wrapper_name => &wrapper_name,
+            trailing_params => &trailing_param_text,
+            throws_clause => throws_clause,
+            return_ty => &return_ty,
+            inner_call => &inner_call,
+            trailing_args => &trailing_args,
+            return_suffix => &return_suffix,
+        },
+    ));
+
+    out.push_str(&crate::template_env::render(
+        "swift_bytes_array_overload.jinja",
+        minijinja::context! {
+            wrapper_name => &wrapper_name,
+            trailing_params => &trailing_param_text,
+            throws_clause => throws_clause,
+            return_ty => &return_ty,
+            inner_call => &inner_call,
+            trailing_args => &trailing_args,
+            return_suffix => &return_suffix,
+        },
+    ));
+}
+
+/// Emits a String path convenience overload for a function whose first param is
+/// `TypeRef::Path`. The wrapper accepts `path: String` instead of a `URL` or `Path`
+/// and delegates to the camelCased bridge function directly.
+///
+/// The convenience overload uses the labeled `path:` first parameter; the bridge
+/// function uses an unlabeled first parameter, so positional inner calls resolve
+/// unambiguously without `RustBridge.` qualification (which Swift rejects for
+/// free functions imported from another module).
+fn emit_path_overload(func: &FunctionDef, _all_names: &std::collections::HashSet<&str>, out: &mut String) {
+    let swift_inner = swift_ident(&func.name.to_lower_camel_case());
+    let wrapper_name = if swift_inner.ends_with("Sync") {
+        swift_inner[..swift_inner.len() - 4].to_string()
+    } else {
+        swift_inner.clone()
+    };
+    let inner_call = swift_inner.clone();
+
+    let trailing_params: Vec<&alef_core::ir::ParamDef> = func.params.iter().skip(1).collect();
+    let return_ty = swift_return_type(&func.return_type);
+    let throws_clause = if func.error_type.is_some() { " throws" } else { "" };
+    let return_suffix = swift_return_conversion_suffix(&func.return_type);
+
+    let trailing_param_text = render_trailing_params_with_defaults(trailing_params.iter().copied());
+    let trailing_args = render_trailing_args(trailing_params.iter().copied());
+
+    out.push_str(&crate::template_env::render(
+        "swift_path_overload.jinja",
+        minijinja::context! {
+            wrapper_name => &wrapper_name,
+            trailing_params => &trailing_param_text,
+            throws_clause => throws_clause,
+            return_ty => &return_ty,
+            inner_call => &inner_call,
+            trailing_args => &trailing_args,
+            return_suffix => &return_suffix,
+        },
+    ));
+}
+
+/// Emits trailing parameters (after the first) as `, paramName: Type` additions
+/// to the current function signature line, without default values.
+fn render_trailing_params<'a>(params: impl Iterator<Item = &'a alef_core::ir::ParamDef>) -> String {
+    let mut out = String::new();
+    for p in params {
+        let swift_name = p.name.to_lower_camel_case();
+        let ty_str = if p.optional {
+            format!("{}?", swift_type_name(&p.ty))
+        } else {
+            swift_type_name(&p.ty)
+        };
+        out.push_str(&crate::template_env::render(
+            "swift_trailing_param.jinja",
+            minijinja::context! {
+                swift_name => &swift_name,
+                ty_str => &ty_str,
+            },
+        ));
+    }
+    out
+}
+
+/// Like `emit_trailing_params` but emits ` = nil` for optional parameters,
+/// producing Swift-idiomatic default arguments.
+fn render_trailing_params_with_defaults<'a>(params: impl Iterator<Item = &'a alef_core::ir::ParamDef>) -> String {
+    let mut out = String::new();
+    for p in params {
+        let swift_name = p.name.to_lower_camel_case();
+        if p.optional {
+            let ty_str = swift_type_name(&p.ty);
+            out.push_str(&crate::template_env::render(
+                "swift_trailing_param_optional_default.jinja",
+                minijinja::context! {
+                    swift_name => &swift_name,
+                    ty_str => &ty_str,
+                },
+            ));
+        } else {
+            let ty_str = swift_type_name(&p.ty);
+            out.push_str(&crate::template_env::render(
+                "swift_trailing_param.jinja",
+                minijinja::context! {
+                    swift_name => &swift_name,
+                    ty_str => &ty_str,
+                },
+            ));
+        }
+    }
+    out
+}
+
+fn render_trailing_args<'a>(params: impl Iterator<Item = &'a alef_core::ir::ParamDef>) -> String {
+    let mut out = String::new();
+    for p in params {
+        let swift_name = p.name.to_lower_camel_case();
+        out.push_str(&crate::template_env::render(
+            "swift_trailing_arg.jinja",
+            minijinja::context! {
+                swift_name => &swift_name,
+            },
+        ));
+    }
+    out
+}
+
+/// Maps a `TypeRef` to its Swift type name string for use in function signatures.
+/// Only covers the subset of types that appear in convenience-overload signatures.
+fn swift_type_name(ty: &TypeRef) -> String {
+    match ty {
+        TypeRef::String => "String".to_string(),
+        TypeRef::Bytes => "[UInt8]".to_string(),
+        TypeRef::Path => "String".to_string(),
+        TypeRef::Named(name) => name.clone(),
+        TypeRef::Optional(inner) => format!("{}?", swift_type_name(inner)),
+        TypeRef::Vec(inner) => format!("[{}]", swift_type_name(inner)),
+        TypeRef::Map(k, v) => format!("[{}: {}]", swift_type_name(k), swift_type_name(v)),
+        TypeRef::Primitive(p) => {
+            use alef_core::ir::PrimitiveType;
+            match p {
+                PrimitiveType::Bool => "Bool",
+                PrimitiveType::U8 => "UInt8",
+                PrimitiveType::U16 => "UInt16",
+                PrimitiveType::U32 => "UInt32",
+                PrimitiveType::U64 => "UInt64",
+                PrimitiveType::I8 => "Int8",
+                PrimitiveType::I16 => "Int16",
+                PrimitiveType::I32 => "Int32",
+                PrimitiveType::I64 => "Int64",
+                PrimitiveType::Usize => "UInt",
+                PrimitiveType::Isize => "Int",
+                PrimitiveType::F32 => "Float",
+                PrimitiveType::F64 => "Double",
+            }
+            .to_string()
+        }
+        TypeRef::Unit => "Void".to_string(),
+        TypeRef::Json => "String".to_string(),
+        TypeRef::Duration => "Duration".to_string(),
+        TypeRef::Char => "Character".to_string(),
+    }
+}
+
+/// Maps a function's return `TypeRef` to the Swift return type string.
+fn swift_return_type(ty: &TypeRef) -> String {
+    swift_type_name(ty)
+}
+
+/// Returns the conversion suffix needed to bridge swift-bridge's runtime return
+/// types to the Swift-native types declared in the convenience-wrapper
+/// signatures.
+///
+/// swift-bridge maps a Rust `String` return (bare or inside `Result<String, _>`)
+/// directly to a Swift-native `String` — no `RustString` wrapping. Likewise, a
+/// `Result<T, _>` return is unwrapped through `try`, leaving the bare Swift
+/// type. The only conversions we need to apply are for `RustVec<T>` returns
+/// (Bytes, `Vec<primitive>`), which are exposed as a `Sequence` of native
+/// elements but not as a Swift `Array` — we use `.map { $0 }` to materialise.
+///
+/// Returns the empty string for return types that need no conversion (Swift
+/// `String`, opaque `Named` types, primitives, `Void`).
+fn swift_return_conversion_suffix(ty: &TypeRef) -> String {
+    match ty {
+        TypeRef::Bytes => ".map { $0 }".to_string(),
+        TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(_)) => ".map { $0 }".to_string(),
+        _ => String::new(),
+    }
+}
+
+/// Returns true when emitting a convenience overload for `func` would produce a
+/// public wrapper whose name collides with the bridge function name (i.e. the
+/// camelCased function name without a `_sync` suffix to strip). When that
+/// happens, the unlabeled positional inner call inside the wrapper resolves to
+/// the wrapper itself (Swift's overload resolution prefers in-file declarations
+/// over imports, and the convenience overload's labels do not disambiguate
+/// against unlabeled candidates because Swift treats labeled-vs-unlabeled as
+/// the same overload key when no exact label match exists). The result is a
+/// "no exact matches in call to global function" compile error.
+///
+/// Module-prefix qualification (`RustBridge.fn(...)`) is rejected by the Swift
+/// compiler for free functions imported from another module. We therefore skip
+/// emitting the convenience overload entirely; the bridge function is still
+/// callable directly with `makeByteVec(...)`.
+fn convenience_name_shadows_bridge(func: &FunctionDef) -> bool {
+    let swift_inner = swift_ident(&func.name.to_lower_camel_case());
+    let wrapper_name = if swift_inner.ends_with("Sync") {
+        swift_inner[..swift_inner.len() - 4].to_string()
+    } else {
+        swift_inner.clone()
+    };
+    wrapper_name == swift_inner
 }

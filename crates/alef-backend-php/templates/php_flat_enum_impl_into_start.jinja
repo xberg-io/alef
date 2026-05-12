@@ -1,0 +1,4 @@
+
+impl From<{{ binding_name }}> for {{ core_path }} {
+    fn from(val: {{ binding_name }}) -> Self {
+        match val.{{ tag_field }}_tag.as_str() {

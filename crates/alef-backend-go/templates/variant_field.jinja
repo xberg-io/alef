@@ -1,0 +1,4 @@
+{% for line in doc_lines -%}
+	// {{ line }}
+{% endfor -%}
+	{{ field_name }} *{{ field_type }} `json:"{{ json_field_name }},omitempty"`

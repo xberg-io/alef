@@ -1,0 +1,1 @@
+serde_json::from_str::<{{ ret_ty }}>(&json).map_err(|e| Box::from(e.to_string()) as Box<dyn std::error::Error + Send + Sync>)

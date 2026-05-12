@@ -2,50 +2,76 @@
 
 use alef_codegen::generators::trait_bridge::{TraitBridgeGenerator, TraitBridgeSpec};
 use alef_core::ir::{MethodDef, TypeRef};
-use std::fmt::Write;
 
 use super::FfiBridgeGenerator;
 
 impl FfiBridgeGenerator {
     /// Generate the `impl {Bridge} { pub unsafe fn new(...) }` constructor block.
+    ///
+    /// For required methods that return `&[T]` (IR: `Vec(T)` + `returns_ref = true`), an
+    /// extra cache-and-leak block is emitted: the vtable fn pointer is called once at
+    /// construction, the JSON result is deserialised into a `Vec<String>`, each string is
+    /// leaked into a `'static str`, and the resulting slice is stored in the bridge struct.
+    /// The trait impl then returns from that field directly, satisfying the `&[&str]` return
+    /// type without any per-call vtable overhead or lifetime gymnastics.
     pub(super) fn gen_constructor_impl(&self, spec: &TraitBridgeSpec) -> String {
         let bridge = self.bridge_name(spec);
         let vtable = self.vtable_name(spec);
-        let mut out = String::with_capacity(512);
 
-        writeln!(out, "impl {bridge} {{").ok();
-        writeln!(
-            out,
-            "    /// Create a new bridge from a vtable and opaque user_data pointer."
+        // Collect required methods with `Vec(T) + returns_ref` that need a cache field.
+        let slice_cache_methods: Vec<&alef_core::ir::MethodDef> = spec
+            .required_methods()
+            .into_iter()
+            .filter(|m| m.returns_ref && matches!(&m.return_type, alef_core::ir::TypeRef::Vec(_)))
+            .collect();
+
+        if slice_cache_methods.is_empty() {
+            return crate::template_env::render(
+                "constructor_impl.jinja",
+                minijinja::context! {
+                    bridge_name => &bridge,
+                    vtable_name => &vtable,
+                },
+            );
+        }
+
+        // Build the slice-cache initialisation blocks and the field initialisers.
+        let mut cache_init_blocks = String::new();
+        let mut field_inits = String::new();
+
+        for method in &slice_cache_methods {
+            let fname = &method.name;
+            let field = format!("{fname}_strs");
+
+            // Emit the block that calls the vtable fn once and leaks the result into
+            // `&'static [&'static str]`.  The block is safe to emit in an `unsafe fn`
+            // context; individual unsafe sub-expressions are annotated inline.
+            cache_init_blocks.push_str(&crate::template_env::render(
+                "constructor_slice_cache_init.jinja",
+                minijinja::context! {
+                    method_name => fname,
+                    field_name => &field,
+                },
+            ));
+
+            field_inits.push_str(&crate::template_env::render(
+                "constructor_field_init.jinja",
+                minijinja::context! {
+                    field => &field,
+                },
+            ));
+        }
+
+        // Generate the constructor with cache init blocks injected before `Self { ... }`.
+        crate::template_env::render(
+            "constructor_impl_with_cache.jinja",
+            minijinja::context! {
+                bridge_name => &bridge,
+                vtable_name => &vtable,
+                cache_init_blocks => &cache_init_blocks,
+                field_inits => &field_inits,
+            },
         )
-        .ok();
-        writeln!(out, "    ///").ok();
-        writeln!(out, "    /// # Safety").ok();
-        writeln!(out, "    ///").ok();
-        writeln!(
-            out,
-            "    /// `vtable` must remain valid for the lifetime of the returned bridge."
-        )
-        .ok();
-        writeln!(
-            out,
-            "    /// `user_data` must be valid for any thread that calls methods on this bridge."
-        )
-        .ok();
-        writeln!(out, "    /// All required fn pointers in `vtable` must be non-null.").ok();
-        writeln!(
-            out,
-            "    pub unsafe fn new(name: String, vtable: {vtable}, user_data: *const std::ffi::c_void) -> Self {{"
-        )
-        .ok();
-        writeln!(
-            out,
-            "        Self {{ vtable, user_data, cached_name: name, cached_version: String::new() }}"
-        )
-        .ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out, "}}").ok();
-        out
     }
 
     /// Generate the `extern "C"` register and unregister functions.
@@ -71,183 +97,53 @@ impl FfiBridgeGenerator {
 
         let mut out = String::with_capacity(2048);
 
-        // --- register function ---
-        writeln!(
-            out,
-            "/// Register a C plugin implementing `{}` via a vtable.",
-            spec.trait_def.name
-        )
-        .ok();
-        writeln!(out, "///").ok();
-        writeln!(out, "/// # Parameters").ok();
-        writeln!(out, "///").ok();
-        writeln!(
-            out,
-            "/// - `name`: null-terminated UTF-8 plugin name. Must not be null."
-        )
-        .ok();
-        writeln!(
-            out,
-            "/// - `vtable`: vtable with function pointers implementing the trait."
-        )
-        .ok();
-        writeln!(
-            out,
-            "/// - `user_data`: opaque pointer forwarded to every vtable function."
-        )
-        .ok();
-        writeln!(
-            out,
-            "/// - `out_error`: receives a heap-allocated error string on failure."
-        )
-        .ok();
-        writeln!(out, "///").ok();
-        writeln!(out, "/// # Safety").ok();
-        writeln!(out, "///").ok();
-        writeln!(
-            out,
-            "/// All function pointers in `vtable` must remain valid until the plugin is"
-        )
-        .ok();
-        writeln!(
-            out,
-            "/// unregistered. `user_data` must be safe to use from any thread that calls"
-        )
-        .ok();
-        writeln!(out, "/// into the plugin.").ok();
-        writeln!(out, "#[unsafe(no_mangle)]").ok();
-        writeln!(out, "pub unsafe extern \"C\" fn {full_register_name}(").ok();
-        writeln!(out, "    name: *const std::ffi::c_char,").ok();
-        writeln!(out, "    vtable: {vtable},").ok();
-        writeln!(out, "    user_data: *const std::ffi::c_void,").ok();
-        writeln!(out, "    out_error: *mut *mut std::ffi::c_char,").ok();
-        writeln!(out, ") -> i32 {{").ok();
-        writeln!(out, "    if name.is_null() {{").ok();
-        writeln!(out, "        ffi_set_out_error(out_error, \"name must not be null\");").ok();
-        writeln!(out, "        return 1;").ok();
-        writeln!(out, "    }}").ok();
+        // --- register function header ---
+        out.push_str(&crate::template_env::render(
+            "register_fn_header.jinja",
+            minijinja::context! {
+                trait_name => &spec.trait_def.name,
+                full_register_name => &full_register_name,
+                vtable_name => &vtable,
+            },
+        ));
 
         // Validate required fn pointers (non-default methods must be non-null)
         for method in spec.required_methods() {
-            writeln!(out, "    if vtable.{}.is_none() {{", method.name).ok();
-            writeln!(
-                out,
-                "        ffi_set_out_error(out_error, \"vtable.{} must not be null\");",
-                method.name
-            )
-            .ok();
-            writeln!(out, "        return 1;").ok();
-            writeln!(out, "    }}").ok();
+            out.push_str(&crate::template_env::render(
+                "register_fn_vtable_check.jinja",
+                minijinja::context! {
+                    method_name => &method.name,
+                },
+            ));
         }
 
-        writeln!(
-            out,
-            "    // SAFETY: name is non-null (checked above); it points to a valid C string."
-        )
-        .ok();
-        writeln!(
-            out,
-            "    let plugin_name = match unsafe {{ std::ffi::CStr::from_ptr(name) }}.to_str() {{"
-        )
-        .ok();
-        writeln!(out, "        Ok(s) => s.to_owned(),").ok();
-        writeln!(out, "        Err(_) => {{").ok();
-        writeln!(
-            out,
-            "            ffi_set_out_error(out_error, \"name is not valid UTF-8\");"
-        )
-        .ok();
-        writeln!(out, "            return 1;").ok();
-        writeln!(out, "        }}").ok();
-        writeln!(out, "    }};").ok();
-        writeln!(out).ok();
-        writeln!(
-            out,
-            "    // SAFETY: vtable and user_data validity is the caller's responsibility."
-        )
-        .ok();
-        writeln!(
-            out,
-            "    let bridge = unsafe {{ {bridge}::new(plugin_name, vtable, user_data) }};"
-        )
-        .ok();
-        writeln!(out, "    let arc: Arc<dyn {trait_path}> = Arc::new(bridge);").ok();
-        writeln!(out).ok();
-        writeln!(out, "    let registry = {registry_getter}();").ok();
-        writeln!(out, "    let mut registry = registry.write();").ok();
-
-        // Generate register call with optional extra args (e.g., priority for PostProcessor)
+        // --- register function body ---
         let register_call = if let Some(extra_args) = &spec.bridge_config.register_extra_args {
             format!("registry.register(arc, {extra_args})")
         } else {
             "registry.register(arc)".to_string()
         };
 
-        writeln!(out, "    if let Err(e) = {register_call} {{").ok();
-        writeln!(out, "        ffi_set_out_error(out_error, &e.to_string());").ok();
-        writeln!(out, "        return 1;").ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out, "    0").ok();
-        writeln!(out, "}}").ok();
-        writeln!(out).ok();
+        out.push_str(&crate::template_env::render(
+            "register_fn_body.jinja",
+            minijinja::context! {
+                bridge_name => &bridge,
+                trait_path => &trait_path,
+                registry_getter => registry_getter,
+                register_call => &register_call,
+            },
+        ));
+
+        out.push('\n');
 
         // --- unregister function ---
-        writeln!(out, "/// Unregister a previously registered C plugin by name.").ok();
-        writeln!(out, "///").ok();
-        writeln!(out, "/// # Parameters").ok();
-        writeln!(out, "///").ok();
-        writeln!(
-            out,
-            "/// - `name`: null-terminated UTF-8 plugin name. Must not be null."
-        )
-        .ok();
-        writeln!(
-            out,
-            "/// - `out_error`: receives a heap-allocated error string on failure."
-        )
-        .ok();
-        writeln!(out, "///").ok();
-        writeln!(out, "/// # Safety").ok();
-        writeln!(out, "///").ok();
-        writeln!(out, "/// `name` must point to a valid null-terminated C string.").ok();
-        writeln!(out, "#[unsafe(no_mangle)]").ok();
-        writeln!(out, "pub unsafe extern \"C\" fn {full_unregister_name}(").ok();
-        writeln!(out, "    name: *const std::ffi::c_char,").ok();
-        writeln!(out, "    out_error: *mut *mut std::ffi::c_char,").ok();
-        writeln!(out, ") -> i32 {{").ok();
-        writeln!(out, "    if name.is_null() {{").ok();
-        writeln!(out, "        ffi_set_out_error(out_error, \"name must not be null\");").ok();
-        writeln!(out, "        return 1;").ok();
-        writeln!(out, "    }}").ok();
-        writeln!(
-            out,
-            "    // SAFETY: name is non-null (checked above); it points to a valid C string."
-        )
-        .ok();
-        writeln!(
-            out,
-            "    let plugin_name = match unsafe {{ std::ffi::CStr::from_ptr(name) }}.to_str() {{"
-        )
-        .ok();
-        writeln!(out, "        Ok(s) => s,").ok();
-        writeln!(out, "        Err(_) => {{").ok();
-        writeln!(
-            out,
-            "            ffi_set_out_error(out_error, \"name is not valid UTF-8\");"
-        )
-        .ok();
-        writeln!(out, "            return 1;").ok();
-        writeln!(out, "        }}").ok();
-        writeln!(out, "    }};").ok();
-        writeln!(out).ok();
-        writeln!(out, "    let registry = {registry_getter}();").ok();
-        writeln!(out, "    let mut registry = registry.write();").ok();
-        writeln!(out, "    if let Err(e) = registry.remove(plugin_name) {{").ok();
-        writeln!(out, "        ffi_set_out_error(out_error, &e.to_string());").ok();
-        writeln!(out, "        return 1;").ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out, "    0").ok();
-        writeln!(out, "}}").ok();
+        out.push_str(&crate::template_env::render(
+            "unregister_fn.jinja",
+            minijinja::context! {
+                full_unregister_name => &full_unregister_name,
+                registry_getter => registry_getter,
+            },
+        ));
 
         out
     }
@@ -270,22 +166,32 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
     }
 
     fn gen_sync_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
-        self.gen_vtable_call_body(method, spec)
+        // `inside_closure = false`: errors must use the trait's actual error type,
+        // not `Box<dyn Error>`, because the body is emitted directly in the trait impl.
+        self.gen_vtable_call_body(method, spec, false)
     }
 
     fn gen_async_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
+        // Short-circuit: slice-cache methods (returns_ref + Vec) return from a pre-populated
+        // `&'static [&'static str]` field.  No async work is needed.
+        if method.returns_ref && matches!(&method.return_type, TypeRef::Vec(_)) {
+            return format!("self.{}_strs\n", method.name);
+        }
+
         // For async methods we block-on inside a spawn_blocking call, mirroring
         // the Go/Java/C# strategy of running synchronous C callbacks on a thread pool.
         // The sync body references `self.vtable.*` and `self.user_data`; inside the
         // closure we have local `vtable` / `user_data` bindings instead.
         let sync_body = self
-            .gen_vtable_call_body(method, spec)
+            // `inside_closure = true`: the body runs inside a `_SendFn` closure
+            // whose return type is `Box<dyn Error + Send + Sync>`, so `Box::from` is correct.
+            .gen_vtable_call_body(method, spec, true)
             .replace("self.vtable.", "vtable.")
             .replace("self.user_data", "user_data");
         let has_error = method.error_type.is_some();
         let core_import = &self.core_import;
         let method_name = &method.name;
-        let cached_name_clone = if has_error {
+        let _cached_name_clone = if has_error {
             "let _cached_name = self.cached_name.clone();\n"
         } else {
             ""
@@ -296,51 +202,105 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
 
         // *const c_void is !Send, but the caller guarantees thread-safety via the vtable
         // API contract. Wrap the entire closure in a Send newtype to bypass the check.
-        writeln!(out, "struct _SendFn<F>(F);").ok();
-        writeln!(
-            out,
-            "// SAFETY: caller guarantees vtable fn pointers and user_data are valid across threads."
-        )
-        .ok();
-        writeln!(out, "unsafe impl<F> Send for _SendFn<F> {{}}").ok();
-        writeln!(out, "impl<F: FnOnce() -> R, R> _SendFn<F> {{").ok();
-        writeln!(out, "    fn call(self) -> R {{ (self.0)() }}").ok();
-        writeln!(out, "}}").ok();
-        writeln!(out).ok();
-        writeln!(out, "{cached_name_clone}let vtable = self.vtable;").ok();
-        writeln!(out, "let user_data = self.user_data;").ok();
+        out.push_str(
+            "struct _SendFn<F>(F);
+",
+        );
+        out.push_str("// SAFETY: caller guarantees vtable fn pointers and user_data are valid across threads.\n");
+        out.push_str(
+            "unsafe impl<F> Send for _SendFn<F> {}
+",
+        );
+        out.push_str(
+            "impl<F: FnOnce() -> R, R> _SendFn<F> {
+",
+        );
+        out.push_str(
+            "    fn call(self) -> R { (self.0)() }
+",
+        );
+        out.push_str(
+            "}
+",
+        );
+        out.push('\n');
+        out.push_str(&crate::template_env::render(
+            "ffi_async_cached_name_init.jinja",
+            minijinja::context! {
+                has_cached_name => has_error,
+            },
+        ));
+        out.push_str(
+            "let user_data = self.user_data;
+",
+        );
         for p in &method.params {
             let clone_expr = match &p.ty {
                 TypeRef::Path => format!("{}.to_path_buf()", p.name),
                 TypeRef::Bytes => format!("{}.to_vec()", p.name),
+                // &str is not Clone-into-owned by itself — `.clone()` returns &str (same lifetime).
+                // Use `.to_string()` so the closure captures an owned String that is 'static.
+                TypeRef::String | TypeRef::Char if p.is_ref => format!("{}.to_string()", p.name),
                 _ => format!("{}.clone()", p.name),
             };
-            writeln!(out, "let {} = {clone_expr};", p.name).ok();
+            out.push_str(&crate::template_env::render(
+                "ffi_async_capture_param.jinja",
+                minijinja::context! {
+                    param_name => &p.name,
+                    expr => &clone_expr,
+                },
+            ));
         }
-        writeln!(out).ok();
+        out.push('\n');
 
-        writeln!(out, "let _task = _SendFn(move || {{").ok();
-        writeln!(out, "    // Inline the sync body:").ok();
+        out.push_str(
+            "let _task = _SendFn(move || {
+",
+        );
+        out.push_str(
+            "    // Inline the sync body:
+",
+        );
         for line in sync_body.lines() {
-            writeln!(out, "    {line}").ok();
+            out.push_str(&crate::template_env::render(
+                "ffi_async_body_indent.jinja",
+                minijinja::context! {
+                    line => line,
+                },
+            ));
         }
-        writeln!(out, "}});").ok();
-        writeln!(out, "tokio::task::spawn_blocking(move || _task.call())").ok();
-        writeln!(out, ".await").ok();
+        out.push_str(
+            "});
+",
+        );
+        out.push_str(
+            "tokio::task::spawn_blocking(move || _task.call())
+",
+        );
+        out.push_str(
+            ".await
+",
+        );
         if has_error {
             let inner_error_constructor = spec.make_error("e.to_string()");
-            writeln!(
-                out,
-                ".map_err(|e| {core_import}::KreuzbergError::Plugin {{ message: format!(\"spawn_blocking failed in {method_name}: {{}}\", e), plugin_name: String::new() }})?",
-            )
-            .ok();
-            writeln!(
-                out,
-                ".map_err(|e: Box<dyn std::error::Error + Send + Sync>| {inner_error_constructor})",
-            )
-            .ok();
+            out.push_str(&crate::template_env::render(
+                "ffi_async_map_err_method.jinja",
+                minijinja::context! {
+                    core_import => &core_import,
+                    method_name => &method_name,
+                },
+            ));
+            out.push_str(&crate::template_env::render(
+                "ffi_async_box_error_map.jinja",
+                minijinja::context! {
+                    inner_error_constructor => &inner_error_constructor,
+                },
+            ));
         } else {
-            writeln!(out, ".unwrap_or_else(|_| Default::default())").ok();
+            out.push_str(
+                ".unwrap_or_else(|_| Default::default())
+",
+            );
         }
         out
     }
@@ -427,6 +387,7 @@ mod tests {
             core_import: "my_lib".to_string(),
             type_paths: HashMap::new(),
             error_type: "MyError".to_string(),
+            plugin_error_constructor: None,
         }
     }
 

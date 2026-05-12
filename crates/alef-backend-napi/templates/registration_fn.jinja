@@ -1,0 +1,12 @@
+#[napi]
+pub fn {{ register_fn }}(obj: napi::bindgen_prelude::Object) -> napi::Result<()> {
+    let bridge = {{ wrapper }}::new(obj)?;
+    let arc: Arc<dyn {{ trait_path }}> = Arc::new(bridge);
+
+    let registry = {{ registry_getter }}();
+    let mut registry = registry.write();
+    registry.register(arc{{ extra_args }}).map_err(|e| napi::Error::new(
+        napi::Status::GenericFailure,
+        format!("Failed to register backend: {}", e)
+    ))
+}

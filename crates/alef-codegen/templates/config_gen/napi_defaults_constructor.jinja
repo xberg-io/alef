@@ -1,0 +1,10 @@
+pub fn new(mut env: napi::Env, obj: napi::Object) -> napi::Result<Self> {
+{% for field in fields -%}
+    let {{ field.name }}: {{ field.type }} = obj.get("{{ field.name }}").unwrap_or({{ field.default }})?;
+{% endfor -%}
+    Ok(Self {
+{% for field in fields -%}
+        {{ field.name }},
+{% endfor -%}
+    })
+}

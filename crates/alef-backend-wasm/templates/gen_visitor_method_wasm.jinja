@@ -1,0 +1,53 @@
+fn {{ name }}({{ sig }}) -> {{ ret_ty }} {
+    let key = wasm_bindgen::JsValue::from_str("{{ js_name }}");
+    let has_method = js_sys::Reflect::has(&self.js_obj, &key).unwrap_or(false);
+    if !has_method {
+        return {{ ret_ty }}::Continue;
+    }
+
+    let func_val = match js_sys::Reflect::get(&self.js_obj, &key) {
+        Ok(f) => f,
+        Err(_) => return {{ ret_ty }}::Continue,
+    };
+    let func: js_sys::Function = match func_val.dyn_into() {
+        Ok(f) => f,
+        Err(_) => return {{ ret_ty }}::Continue,
+    };
+
+    let args = js_sys::Array::new();
+{% for param in params %}
+    args.push(&{{ param }});
+{% endfor %}
+
+    let result = func.apply(&self.js_obj, &args);
+
+    match result {
+        Err(_) => {{ ret_ty }}::Continue,
+        Ok(val) => {
+            if let Some(s) = val.as_string() {
+                match s.to_lowercase().as_str() {
+                    "continue" => {{ ret_ty }}::Continue,
+                    "skip" => {{ ret_ty }}::Skip,
+                    "preserve_html" | "preservehtml" => {{ ret_ty }}::PreserveHtml,
+                    _ => {{ ret_ty }}::Custom(s),
+                }
+            } else if val.is_object() {
+                let custom_key = wasm_bindgen::JsValue::from_str("custom");
+                let error_key = wasm_bindgen::JsValue::from_str("error");
+                if let Ok(cv) = js_sys::Reflect::get(&val, &custom_key) {
+                    if let Some(s) = cv.as_string() {
+                        return {{ ret_ty }}::Custom(s);
+                    }
+                }
+                if let Ok(ev) = js_sys::Reflect::get(&val, &error_key) {
+                    if ev.as_string().is_some() {
+                        return {{ ret_ty }}::Continue;
+                    }
+                }
+                {{ ret_ty }}::Continue
+            } else {
+                {{ ret_ty }}::Continue
+            }
+        }
+    }
+}

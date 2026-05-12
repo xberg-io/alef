@@ -1,0 +1,13 @@
+	var cErr *C.char
+	rc := C.{{ c_function }}(cName, &cErr)
+
+	if rc != 0 {
+		msg := "failed to unregister {{ trait_name }}"
+		if cErr != nil {
+			msg = C.GoString(cErr)
+			C.free(unsafe.Pointer(cErr))
+		}
+		return fmt.Errorf("%s", msg)
+	}
+
+	return nil

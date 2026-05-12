@@ -1,0 +1,64 @@
+/// <summary>Static helpers for registering trait implementations</summary>
+public static class {{ trait_pascal }}Registry {
+
+    private static readonly ConcurrentDictionary<string, {{ trait_pascal }}Bridge> _bridges =
+        new ConcurrentDictionary<string, {{ trait_pascal }}Bridge>();
+
+    /// <summary>Register a {{ trait_pascal }} implementation</summary>
+
+{% if has_super_trait %}
+    public static void Register(I{{ trait_pascal }} impl) {
+        if (impl == null)
+            throw new ArgumentNullException(nameof(impl));
+
+        var name = impl.Name;
+
+{% else %}
+    public static void Register(I{{ trait_pascal }} impl, string name) {
+        if (impl == null)
+            throw new ArgumentNullException(nameof(impl));
+
+{% endif %}
+
+        var bridge = new {{ trait_pascal }}Bridge(impl);
+
+        try {
+            var userDataHandle = GCHandle.Alloc(bridge, GCHandleType.Normal);
+            var userData = GCHandle.ToIntPtr(userDataHandle);
+            var vtablePtr = bridge._vtable;
+
+            var result = NativeMethods.Register{{ trait_pascal }}(name, vtablePtr, userData, out var outError);
+            if (result != 0) {
+                userDataHandle.Free();
+                bridge.Dispose();
+                var errorMsg = Marshal.PtrToStringUTF8(outError) ?? "Unknown error";
+                Marshal.FreeCoTaskMem(outError);
+                throw new InvalidOperationException($"Failed to register {name}: {errorMsg}");
+            }
+
+            _bridges.TryAdd(name, bridge);
+        } catch {
+            bridge.Dispose();
+            throw;
+        }
+    }
+
+{% if has_unregister %}
+    /// <summary>Unregister a {{ trait_pascal }} implementation</summary>
+    public static void Unregister(string name) {
+        if (string.IsNullOrEmpty(name))
+            throw new ArgumentException("Name cannot be empty", nameof(name));
+
+        var result = NativeMethods.Unregister{{ trait_pascal }}(name, out var outError);
+        if (result != 0) {
+            var errorMsg = Marshal.PtrToStringUTF8(outError) ?? "Unknown error";
+            Marshal.FreeCoTaskMem(outError);
+            throw new InvalidOperationException($"Failed to unregister {name}: {errorMsg}");
+        }
+
+        if (_bridges.TryRemove(name, out var bridge)) {
+            bridge.Dispose();
+        }
+    }
+{% endif %}
+}

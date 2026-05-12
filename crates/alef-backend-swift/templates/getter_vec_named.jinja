@@ -1,0 +1,3 @@
+    pub fn {{ getter_name }}(&self) -> Vec<{{ wrapper }}> {
+        self.0.{{ name }}.iter().map(|elem| {{ elem_expr }}).collect()
+    }

@@ -22,8 +22,7 @@ use heck::ToPascalCase;
 /// `Register{Trait}(impl {Trait}) error` builds the C vtable, calls the C registration
 /// function, and returns any error. The handle remains valid for the lifetime of the
 /// plugin; a corresponding `Unregister{Trait}(name string) error` removes it.
-use std::fmt::Write;
-
+///
 /// Generate the complete trait_bridges.go file content for all configured trait bridges.
 ///
 /// `pkg_name`: Go package name (e.g., `"kreuzberg"`).
@@ -46,16 +45,18 @@ pub fn gen_trait_bridges_file(
     let mut out = String::with_capacity(16_384);
 
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
-    writeln!(out, "package {pkg_name}").ok();
-    writeln!(out).ok();
-
-    // CGo preamble for trait bridges
-    writeln!(out, "/*").ok();
-    writeln!(out, "#cgo CFLAGS: -I${{SRCDIR}}/{to_root}{ffi_crate_dir}/include").ok();
-    writeln!(out, "#include \"{ffi_header}\"").ok();
-    writeln!(out, "#include <stdlib.h>").ok();
-    writeln!(out, "#include <string.h>").ok();
-    writeln!(out).ok();
+    // NOTE: package_and_cgo.jinja already emits "package {name}\n\n/*\n#cgo..."
+    // so we render it directly — do NOT push a separate "/*\n" before this call.
+    out.push_str(&crate::template_env::render(
+        "package_and_cgo.jinja",
+        minijinja::context! {
+            pkg_name => pkg_name,
+            to_root => to_root,
+            ffi_crate_dir => ffi_crate_dir,
+            ffi_header => ffi_header,
+        },
+    ));
+    out.push('\n');
 
     // Forward-declare all exported Go trampolines
     for bridge_cfg in &config.trait_bridges {
@@ -64,35 +65,70 @@ pub fn gen_trait_bridges_file(
             for method in &trait_def.methods {
                 let export_name = format!("go{}{}", &pascal, method.name.to_pascal_case());
                 let c_sig = c_trampoline_signature(&export_name, method);
-                writeln!(out, "extern int32_t {}({});", export_name, c_sig).ok();
+                out.push_str(&crate::template_env::render(
+                    "extern_trampoline_decl.jinja",
+                    minijinja::context! {
+                        export_name => export_name,
+                        c_sig => c_sig,
+                    },
+                ));
             }
             // Plugin lifecycle trampolines
-            writeln!(out, "extern int32_t go{}Name(void*, char**, char**);", pascal).ok();
-            writeln!(out, "extern int32_t go{}Version(void*, char**, char**);", pascal).ok();
-            writeln!(out, "extern int32_t go{}Initialize(void*, char**);", pascal).ok();
-            writeln!(out, "extern int32_t go{}Shutdown(void*, char**);", pascal).ok();
-            writeln!(out, "extern void go{}FreeUserData(void*);", pascal).ok();
+            out.push_str(&crate::template_env::render(
+                "plugin_trampoline_decl.jinja",
+                minijinja::context! {
+                    pascal => pascal.clone(),
+                    method => "Name",
+                },
+            ));
+            out.push_str(&crate::template_env::render(
+                "plugin_trampoline_decl.jinja",
+                minijinja::context! {
+                    pascal => pascal.clone(),
+                    method => "Version",
+                },
+            ));
+            out.push_str(&crate::template_env::render(
+                "plugin_trampoline_decl.jinja",
+                minijinja::context! {
+                    pascal => pascal.clone(),
+                    method => "Initialize",
+                },
+            ));
+            out.push_str(&crate::template_env::render(
+                "plugin_trampoline_decl.jinja",
+                minijinja::context! {
+                    pascal => pascal.clone(),
+                    method => "Shutdown",
+                },
+            ));
+            out.push_str(&crate::template_env::render(
+                "plugin_free_user_data_extern.jinja",
+                minijinja::context! {
+                    pascal => &pascal,
+                },
+            ));
         }
     }
 
-    writeln!(out, "*/").ok();
-    writeln!(out, "import \"C\"").ok();
-    writeln!(out).ok();
+    out.push_str("*/\n");
+    out.push_str("import \"C\"\n");
+    out.push('\n');
 
-    writeln!(out, "import (").ok();
-    writeln!(out, "\t\"encoding/base64\"").ok();
-    writeln!(out, "\t\"encoding/json\"").ok();
-    writeln!(out, "\t\"fmt\"").ok();
-    writeln!(out, "\t\"runtime/cgo\"").ok();
-    writeln!(out, "\t\"unsafe\"").ok();
-    writeln!(out, ")").ok();
-    writeln!(out).ok();
+    out.push_str("import (\n");
+    out.push_str("\t\"encoding/base64\"\n");
+    out.push_str("\t\"encoding/json\"\n");
+    out.push_str("\t\"fmt\"\n");
+    out.push_str("\t\"runtime/cgo\"\n");
+    out.push_str("\t\"unsafe\"\n");
+    out.push_str(")\n");
+    out.push('\n');
 
     // Generate interfaces, trampolines, and registration functions for each bridge
     for bridge_cfg in &config.trait_bridges {
         if let Some(trait_def) = api.types.iter().find(|t| t.name == bridge_cfg.trait_name) {
             gen_trait_bridge(&mut out, trait_def, bridge_cfg, ffi_prefix, crate_name);
-            writeln!(out).ok();
+            out.push('\n');
         }
     }
 
@@ -103,7 +139,7 @@ pub fn gen_trait_bridges_file(
 fn gen_trait_bridge(
     out: &mut String,
     trait_def: &TypeDef,
-    _bridge_cfg: &TraitBridgeConfig,
+    bridge_cfg: &TraitBridgeConfig,
     ffi_prefix: &str,
     crate_name: &str,
 ) {
@@ -123,44 +159,70 @@ fn gen_trait_bridge(
     // =========================================================================
     // Go interface
     // =========================================================================
-    writeln!(
-        out,
-        "// {trait_name} defines the Go interface for the {trait_name} trait."
-    )
-    .ok();
-    writeln!(out, "type {trait_name} interface {{").ok();
+    out.push_str(&crate::template_env::render(
+        "trait_interface_header.jinja",
+        minijinja::context! {
+            name => trait_name,
+        },
+    ));
 
     // Plugin methods (name, version, initialize, shutdown)
-    writeln!(out, "\t// Name returns the plugin name.").ok();
-    writeln!(out, "\tName() string").ok();
-    writeln!(out).ok();
+    out.push_str(&crate::template_env::render(
+        "plugin_method_signature.jinja",
+        minijinja::context! {
+            doc => "Name returns the plugin name.",
+            method => "Name",
+            return_type => "string",
+        },
+    ));
 
-    writeln!(out, "\t// Version returns the plugin version.").ok();
-    writeln!(out, "\tVersion() string").ok();
-    writeln!(out).ok();
+    out.push_str(&crate::template_env::render(
+        "plugin_method_signature.jinja",
+        minijinja::context! {
+            doc => "Version returns the plugin version.",
+            method => "Version",
+            return_type => "string",
+        },
+    ));
 
-    writeln!(out, "\t// Initialize is called when the plugin is loaded.").ok();
-    writeln!(out, "\tInitialize() error").ok();
-    writeln!(out).ok();
+    out.push_str(&crate::template_env::render(
+        "plugin_method_signature.jinja",
+        minijinja::context! {
+            doc => "Initialize is called when the plugin is loaded.",
+            method => "Initialize",
+            return_type => "error",
+        },
+    ));
 
-    writeln!(out, "\t// Shutdown is called when the plugin is unloaded.").ok();
-    writeln!(out, "\tShutdown() error").ok();
-    writeln!(out).ok();
+    out.push_str(&crate::template_env::render(
+        "plugin_method_signature.jinja",
+        minijinja::context! {
+            doc => "Shutdown is called when the plugin is unloaded.",
+            method => "Shutdown",
+            return_type => "error",
+        },
+    ));
 
     // Trait methods
     for method in &trait_def.methods {
         gen_interface_method(out, method);
     }
 
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
+    out.push_str("}\n");
+    out.push('\n');
 
     // =========================================================================
     // Exported trampolines
     // =========================================================================
     for method in &trait_def.methods {
         let export_name = format!("go{}{}", &trait_pascal, method.name.to_pascal_case());
-        writeln!(out, "//export {}", export_name).ok();
+        out.push_str(&crate::template_env::render(
+            "export_marker.jinja",
+            minijinja::context! {
+                name => &export_name,
+            },
+        ));
+        out.push('\n');
         gen_trampoline(out, trait_name, &trait_pascal, method);
     }
 
@@ -170,130 +232,185 @@ fn gen_trait_bridge(
     // =========================================================================
     // Registration function
     // =========================================================================
-    writeln!(
-        out,
-        "// Register{trait_name} registers a {trait_name} implementation with the C runtime."
-    )
-    .ok();
-    writeln!(out, "func Register{trait_name}(impl {trait_name}) error {{").ok();
-    writeln!(out, "\thandle := cgo.NewHandle(impl)").ok();
-    writeln!(out).ok();
+    out.push_str(&crate::template_env::render(
+        "register_function_header.jinja",
+        minijinja::context! {
+            name => trait_name,
+        },
+    ));
 
-    writeln!(
-        out,
-        "\t// Build the C vtable  DEBUG:c_vtable_struct={}",
-        c_vtable_struct
-    )
-    .ok();
-    writeln!(out, "\tvtable := C.{}{{", c_vtable_struct).ok();
+    out.push_str(&crate::template_env::render(
+        "vtable_struct_init.jinja",
+        minijinja::context! {
+            c_vtable_struct => &c_vtable_struct,
+        },
+    ));
 
     // Set up vtable function pointers (via //export trampolines)
     // cgo declares function pointers as *[0]byte, so cast via unsafe.Pointer
     for method in &trait_def.methods {
         let export_name = format!("go{}{}", &trait_pascal, method.name.to_pascal_case());
-        writeln!(
-            out,
-            "\t\t{}: (*[0]byte)(unsafe.Pointer(C.{})),",
-            &method.name, export_name
-        )
-        .ok();
+        out.push_str(&crate::template_env::render(
+            "register_vtable_method_field.jinja",
+            minijinja::context! {
+                method_name => &method.name,
+                export_name => export_name,
+            },
+        ));
     }
 
     // Plugin method pointers (cbindgen suffixes lifecycle hooks with `_fn`).
-    writeln!(
-        out,
-        "\t\tname_fn: (*[0]byte)(unsafe.Pointer(C.go{}Name)),",
-        &trait_pascal
-    )
-    .ok();
-    writeln!(
-        out,
-        "\t\tversion_fn: (*[0]byte)(unsafe.Pointer(C.go{}Version)),",
-        &trait_pascal
-    )
-    .ok();
-    writeln!(
-        out,
-        "\t\tinitialize_fn: (*[0]byte)(unsafe.Pointer(C.go{}Initialize)),",
-        &trait_pascal
-    )
-    .ok();
-    writeln!(
-        out,
-        "\t\tshutdown_fn: (*[0]byte)(unsafe.Pointer(C.go{}Shutdown)),",
-        &trait_pascal
-    )
-    .ok();
+    out.push_str(&crate::template_env::render(
+        "plugin_trampoline_lifecycle.jinja",
+        minijinja::context! {
+            field => "name_fn",
+            pascal => &trait_pascal,
+            method => "Name",
+        },
+    ));
+    out.push_str(&crate::template_env::render(
+        "plugin_trampoline_lifecycle.jinja",
+        minijinja::context! {
+            field => "version_fn",
+            pascal => &trait_pascal,
+            method => "Version",
+        },
+    ));
+    out.push_str(&crate::template_env::render(
+        "plugin_trampoline_lifecycle.jinja",
+        minijinja::context! {
+            field => "initialize_fn",
+            pascal => &trait_pascal,
+            method => "Initialize",
+        },
+    ));
+    out.push_str(&crate::template_env::render(
+        "plugin_trampoline_lifecycle.jinja",
+        minijinja::context! {
+            field => "shutdown_fn",
+            pascal => &trait_pascal,
+            method => "Shutdown",
+        },
+    ));
 
     // free_user_data deletes the cgo.Handle when the bridge is dropped by Rust
-    writeln!(
-        out,
-        "\t\tfree_user_data: (*[0]byte)(unsafe.Pointer(C.go{}FreeUserData)),",
-        &trait_pascal
-    )
-    .ok();
+    out.push_str(&crate::template_env::render(
+        "vtable_free_user_data_field.jinja",
+        minijinja::context! {
+            pascal => &trait_pascal,
+        },
+    ));
 
-    writeln!(out, "\t}}").ok();
-    writeln!(out).ok();
+    out.push_str("\t}\n");
+    out.push('\n');
 
-    writeln!(out, "\t// Call C registration").ok();
-    writeln!(out, "\tcName := C.CString(impl.Name())").ok();
-    writeln!(out, "\tdefer C.free(unsafe.Pointer(cName))").ok();
-    writeln!(out).ok();
-
-    writeln!(out, "\tvar cErr *C.char").ok();
-    writeln!(out, "\trc := C.{}_register_{trait_snake}(", ffi_prefix).ok();
-    writeln!(out, "\t\tcName,").ok();
-    writeln!(out, "\t\tvtable,").ok();
-    writeln!(out, "\t\tunsafe.Pointer(uintptr(handle)),").ok();
-    writeln!(out, "\t\t&cErr,").ok();
-    writeln!(out, "\t)").ok();
-    writeln!(out).ok();
-
-    writeln!(out, "\tif rc != 0 {{").ok();
-    writeln!(out, "\t\tmsg := \"failed to register {trait_name}\"").ok();
-    writeln!(out, "\t\tif cErr != nil {{").ok();
-    writeln!(out, "\t\t\tmsg = C.GoString(cErr)").ok();
-    writeln!(out, "\t\t\tC.free(unsafe.Pointer(cErr))").ok();
-    writeln!(out, "\t\t}}").ok();
-    writeln!(out, "\t\thandle.Delete()").ok();
-    writeln!(out, "\t\treturn fmt.Errorf(\"%s\", msg)").ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out).ok();
-
-    writeln!(out, "\treturn nil").ok();
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
+    out.push_str(&crate::template_env::render(
+        "register_c_call.jinja",
+        minijinja::context! {
+            c_function => format!("{}_register_{}", ffi_prefix, trait_snake),
+            trait_name => trait_name,
+        },
+    ));
+    out.push_str("}\n");
+    out.push('\n');
 
     // =========================================================================
     // Unregistration function
     // =========================================================================
-    writeln!(
-        out,
-        "// Unregister{trait_name} unregisters a {trait_name} implementation."
-    )
-    .ok();
-    writeln!(out, "func Unregister{trait_name}(name string) error {{").ok();
-    writeln!(out, "\tcName := C.CString(name)").ok();
-    writeln!(out, "\tdefer C.free(unsafe.Pointer(cName))").ok();
-    writeln!(out).ok();
+    out.push_str(&crate::template_env::render(
+        "unregister_function_header.jinja",
+        minijinja::context! {
+            name => trait_name,
+        },
+    ));
 
-    writeln!(out, "\tvar cErr *C.char").ok();
-    writeln!(out, "\trc := C.{}_unregister_{trait_snake}(cName, &cErr)", ffi_prefix).ok();
-    writeln!(out).ok();
+    out.push_str(&crate::template_env::render(
+        "unregister_c_call.jinja",
+        minijinja::context! {
+            c_function => format!("{}_unregister_{}", ffi_prefix, trait_snake),
+            trait_name => trait_name,
+        },
+    ));
+    out.push_str("}\n");
 
-    writeln!(out, "\tif rc != 0 {{").ok();
-    writeln!(out, "\t\tmsg := \"failed to unregister {trait_name}\"").ok();
-    writeln!(out, "\t\tif cErr != nil {{").ok();
-    writeln!(out, "\t\t\tmsg = C.GoString(cErr)").ok();
-    writeln!(out, "\t\t\tC.free(unsafe.Pointer(cErr))").ok();
-    writeln!(out, "\t\t}}").ok();
-    writeln!(out, "\t\treturn fmt.Errorf(\"%s\", msg)").ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out).ok();
+    // =========================================================================
+    // Config-driven unregistration / clear functions (opt-in via bridge_cfg)
+    // =========================================================================
+    let unregister_block = gen_unregistration_fn(bridge_cfg, ffi_prefix, trait_name);
+    if !unregister_block.is_empty() {
+        out.push('\n');
+        out.push_str(&unregister_block);
+    }
 
-    writeln!(out, "\treturn nil").ok();
-    writeln!(out, "}}").ok();
+    let clear_block = gen_clear_fn(bridge_cfg, ffi_prefix, trait_name);
+    if !clear_block.is_empty() {
+        out.push('\n');
+        out.push_str(&clear_block);
+    }
+}
+
+/// Generate a config-driven unregistration wrapper.
+///
+/// Returns an empty string when `bridge_cfg.unregister_fn` is `None`.
+/// Otherwise emits a Go function whose name is `bridge_cfg.unregister_fn`,
+/// accepting a `name string` parameter and calling the C-exported
+/// `{ffi_prefix}_unregister_{trait_snake}` function via cgo.
+fn gen_unregistration_fn(bridge_cfg: &TraitBridgeConfig, ffi_prefix: &str, trait_name: &str) -> String {
+    let Some(fn_name) = bridge_cfg.unregister_fn.as_deref() else {
+        return String::new();
+    };
+    let trait_snake = heck::AsSnakeCase(trait_name).to_string();
+    let c_function = format!("{}_unregister_{}", ffi_prefix, trait_snake);
+
+    let mut out = String::new();
+    out.push_str(&crate::template_env::render(
+        "unregister_fn_header.jinja",
+        minijinja::context! {
+            fn_name => fn_name,
+            trait_name => trait_name,
+        },
+    ));
+    out.push_str(&crate::template_env::render(
+        "unregister_c_call.jinja",
+        minijinja::context! {
+            c_function => c_function,
+            trait_name => trait_name,
+        },
+    ));
+    out.push_str("}\n");
+    out
+}
+
+/// Generate a config-driven clear-all wrapper.
+///
+/// Returns an empty string when `bridge_cfg.clear_fn` is `None`.
+/// Otherwise emits a Go function whose name is `bridge_cfg.clear_fn`,
+/// taking no arguments and calling the C-exported
+/// `{ffi_prefix}_clear_{trait_snake}` function via cgo.
+fn gen_clear_fn(bridge_cfg: &TraitBridgeConfig, ffi_prefix: &str, trait_name: &str) -> String {
+    let Some(fn_name) = bridge_cfg.clear_fn.as_deref() else {
+        return String::new();
+    };
+    let trait_snake = heck::AsSnakeCase(trait_name).to_string();
+    let c_function = format!("{}_clear_{}", ffi_prefix, trait_snake);
+
+    let mut out = String::new();
+    out.push_str(&crate::template_env::render(
+        "clear_function_header.jinja",
+        minijinja::context! {
+            fn_name => fn_name,
+            name => trait_name,
+        },
+    ));
+    out.push_str(&crate::template_env::render(
+        "clear_c_call.jinja",
+        minijinja::context! {
+            c_function => c_function,
+            trait_name => trait_name,
+        },
+    ));
+    out.push_str("}\n");
+    out
 }
 
 /// Generate the Go interface method signature for a trait method.
@@ -317,16 +434,16 @@ fn gen_interface_method(out: &mut String, method: &MethodDef) {
     };
 
     let params_str = params.join(", ");
-    writeln!(out, "\t// {}.", method.name).ok();
-    writeln!(
-        out,
-        "\t{}({}) {}",
-        method.name.to_pascal_case(),
-        params_str,
-        return_type
-    )
-    .ok();
-    writeln!(out).ok();
+    out.push_str(&crate::template_env::render(
+        "trait_interface_method.jinja",
+        minijinja::context! {
+            doc => &method.name,
+            method_name => method.name.to_pascal_case(),
+            params => params_str,
+            return_type => return_type,
+        },
+    ));
+    out.push('\n');
 }
 
 /// Generate one trampoline function (implementation without //export).
@@ -334,28 +451,38 @@ fn gen_interface_method(out: &mut String, method: &MethodDef) {
 fn gen_trampoline(out: &mut String, trait_name: &str, trait_pascal: &str, method: &MethodDef) {
     let export_name = format!("go{}{}", trait_pascal, method.name.to_pascal_case());
 
-    writeln!(out, "func {}(", export_name).ok();
-    writeln!(out, "\tuserData unsafe.Pointer,").ok();
-
+    let mut params = vec!["userData unsafe.Pointer".to_string()];
     for p in &method.params {
         let c_type = rust_to_c_type(&p.ty);
-        writeln!(out, "\t{} {},", p.name, c_type).ok();
+        params.push(format!("{} {}", p.name, c_type));
     }
-
-    // Add outResult if method returns a value (non-unit return type)
     if !matches!(method.return_type, TypeRef::Unit) {
-        writeln!(out, "\toutResult **C.char,").ok();
+        params.push("outResult **C.char".to_string());
     }
-    writeln!(out, "\toutError **C.char,").ok();
-    writeln!(out, ") C.int32_t {{").ok();
+    params.push("outError **C.char".to_string());
+
+    out.push_str(&crate::template_env::render(
+        "trampoline_signature.jinja",
+        minijinja::context! {
+            name => export_name,
+            params => params,
+        },
+    ));
+    out.push('\n');
 
     // Retrieve the Go object from the handle
-    writeln!(out, "\thandle := cgo.Handle(uintptr(unsafe.Pointer(userData)))").ok();
-    writeln!(out, "\timpl, ok := handle.Value().({trait_name})").ok();
-    writeln!(out, "\tif !ok {{").ok();
-    writeln!(out, "\t\treturn 1  // error: invalid handle").ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out).ok();
+    out.push_str("\thandle := cgo.Handle(uintptr(unsafe.Pointer(userData)))\n");
+    out.push_str(&crate::template_env::render(
+        "handle_type_assertion.jinja",
+        minijinja::context! {
+            type_name => trait_name,
+        },
+    ));
+    out.push('\n');
+    out.push_str("\tif !ok {\n");
+    out.push_str("\t\treturn 1  // error: invalid handle\n");
+    out.push_str("\t}\n");
+    out.push('\n');
 
     // Convert C parameters to Go
     for p in &method.params {
@@ -368,160 +495,235 @@ fn gen_trampoline(out: &mut String, trait_name: &str, trait_pascal: &str, method
         call_args.push(format!("go{}", capitalize(&p.name)));
     }
 
-    writeln!(out, "\t// Call the method").ok();
+    out.push_str("\t// Call the method\n");
     if method.error_type.is_some() {
         // Method returns (value?, error)
         match &method.return_type {
             TypeRef::Unit => {
                 // Just returns error
-                writeln!(
-                    out,
-                    "\terr := impl.{}({})",
-                    method.name.to_pascal_case(),
-                    call_args.join(", ")
-                )
-                .ok();
+                out.push_str(&crate::template_env::render(
+                    "impl_method_call_err.jinja",
+                    minijinja::context! {
+                        method => method.name.to_pascal_case(),
+                        args => call_args.join(", "),
+                    },
+                ));
+                out.push('\n');
             }
             _ => {
                 // Returns (value, error)
-                writeln!(
-                    out,
-                    "\tresult, err := impl.{}({})",
-                    method.name.to_pascal_case(),
-                    call_args.join(", ")
-                )
-                .ok();
+                out.push_str(&crate::template_env::render(
+                    "impl_method_call_result_err.jinja",
+                    minijinja::context! {
+                        method => method.name.to_pascal_case(),
+                        args => call_args.join(", "),
+                    },
+                ));
+                out.push('\n');
             }
         }
-        writeln!(out, "\tif err != nil {{").ok();
-        writeln!(out, "\t\tcErr := C.CString(err.Error())").ok();
-        writeln!(out, "\t\t*outError = cErr").ok();
-        writeln!(out, "\t\treturn 1").ok();
-        writeln!(out, "\t}}").ok();
+        out.push_str("\tif err != nil {\n");
+        out.push_str("\t\tcErr := C.CString(err.Error())\n");
+        out.push_str("\t\t*outError = cErr\n");
+        out.push_str("\t\treturn 1\n");
+        out.push_str("\t}\n");
 
         // Encode result if not Unit
         if !matches!(&method.return_type, TypeRef::Unit) {
-            writeln!(out, "\tjsonBytes, _ := json.Marshal(result)").ok();
-            writeln!(out, "\tcResult := C.CString(string(jsonBytes))").ok();
-            writeln!(out, "\t*outResult = cResult").ok();
+            out.push_str("\tjsonBytes, _ := json.Marshal(result)\n");
+            out.push_str("\tcResult := C.CString(string(jsonBytes))\n");
+            out.push_str("\t*outResult = cResult\n");
         }
     } else {
         // Method returns only value (no error)
-        writeln!(
-            out,
-            "\tresult := impl.{}({})",
-            method.name.to_pascal_case(),
-            call_args.join(", ")
-        )
-        .ok();
+        out.push_str(&crate::template_env::render(
+            "impl_method_call_result.jinja",
+            minijinja::context! {
+                method => method.name.to_pascal_case(),
+                args => call_args.join(", "),
+            },
+        ));
+        out.push('\n');
 
         // Encode result if not Unit
         if !matches!(&method.return_type, TypeRef::Unit) {
-            writeln!(out, "\tjsonBytes, _ := json.Marshal(result)").ok();
-            writeln!(out, "\tcResult := C.CString(string(jsonBytes))").ok();
-            writeln!(out, "\t*outResult = cResult").ok();
+            out.push_str("\tjsonBytes, _ := json.Marshal(result)\n");
+            out.push_str("\tcResult := C.CString(string(jsonBytes))\n");
+            out.push_str("\t*outResult = cResult\n");
         }
     }
 
-    writeln!(out, "\treturn 0  // success").ok();
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
+    out.push_str("\treturn 0  // success\n");
+    out.push_str("}\n");
+    out.push('\n');
 }
 
 /// Generate trampolines for plugin methods: Name, Version, Initialize, Shutdown.
 fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_pascal: &str) {
     // Name trampoline
-    writeln!(out, "//export go{}Name", trait_pascal).ok();
-    writeln!(
-        out,
-        "func go{}Name(userData unsafe.Pointer, outResult **C.char, outError **C.char) C.int32_t {{",
-        trait_pascal
-    )
-    .ok();
-    writeln!(out, "\thandle := cgo.Handle(uintptr(unsafe.Pointer(userData)))").ok();
-    writeln!(out, "\timpl, ok := handle.Value().({trait_name})").ok();
-    writeln!(out, "\tif !ok {{").ok();
-    writeln!(out, "\t\treturn 1").ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "\tname := impl.Name()").ok();
-    writeln!(out, "\tcName := C.CString(name)").ok();
-    writeln!(out, "\t*outResult = cName").ok();
-    writeln!(out, "\treturn 0").ok();
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
+    out.push_str(&crate::template_env::render(
+        "export_marker.jinja",
+        minijinja::context! {
+            name => format!("go{trait_pascal}Name"),
+        },
+    ));
+    out.push('\n');
+    out.push_str(&crate::template_env::render(
+        "plugin_method_trampoline_header.jinja",
+        minijinja::context! {
+            pascal => &trait_pascal,
+            method => "Name",
+            params => "userData unsafe.Pointer, outResult **C.char, outError **C.char",
+        },
+    ));
+    out.push('\n');
+    out.push_str("\thandle := cgo.Handle(uintptr(unsafe.Pointer(userData)))\n");
+    out.push_str(&crate::template_env::render(
+        "handle_type_assertion.jinja",
+        minijinja::context! {
+            type_name => trait_name,
+        },
+    ));
+    out.push('\n');
+    out.push_str("\tif !ok {\n");
+    out.push_str("\t\treturn 1\n");
+    out.push_str("\t}\n");
+    out.push_str("\tname := impl.Name()\n");
+    out.push_str("\tcName := C.CString(name)\n");
+    out.push_str("\t*outResult = cName\n");
+    out.push_str("\treturn 0\n");
+    out.push_str("}\n");
+    out.push('\n');
 
     // Version trampoline
-    writeln!(out, "//export go{}Version", trait_pascal).ok();
-    writeln!(
-        out,
-        "func go{}Version(userData unsafe.Pointer, outResult **C.char, outError **C.char) C.int32_t {{",
-        trait_pascal
-    )
-    .ok();
-    writeln!(out, "\thandle := cgo.Handle(uintptr(unsafe.Pointer(userData)))").ok();
-    writeln!(out, "\timpl, ok := handle.Value().({trait_name})").ok();
-    writeln!(out, "\tif !ok {{").ok();
-    writeln!(out, "\t\treturn 1").ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "\tversion := impl.Version()").ok();
-    writeln!(out, "\tcVersion := C.CString(version)").ok();
-    writeln!(out, "\t*outResult = cVersion").ok();
-    writeln!(out, "\treturn 0").ok();
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
+    out.push_str(&crate::template_env::render(
+        "export_marker.jinja",
+        minijinja::context! {
+            name => format!("go{trait_pascal}Version"),
+        },
+    ));
+    out.push('\n');
+    out.push_str(&crate::template_env::render(
+        "plugin_method_trampoline_header.jinja",
+        minijinja::context! {
+            pascal => &trait_pascal,
+            method => "Version",
+            params => "userData unsafe.Pointer, outResult **C.char, outError **C.char",
+        },
+    ));
+    out.push('\n');
+    out.push_str("\thandle := cgo.Handle(uintptr(unsafe.Pointer(userData)))\n");
+    out.push_str(&crate::template_env::render(
+        "handle_type_assertion.jinja",
+        minijinja::context! {
+            type_name => trait_name,
+        },
+    ));
+    out.push('\n');
+    out.push_str("\tif !ok {\n");
+    out.push_str("\t\treturn 1\n");
+    out.push_str("\t}\n");
+    out.push_str("\tversion := impl.Version()\n");
+    out.push_str("\tcVersion := C.CString(version)\n");
+    out.push_str("\t*outResult = cVersion\n");
+    out.push_str("\treturn 0\n");
+    out.push_str("}\n");
+    out.push('\n');
 
     // Initialize trampoline
-    writeln!(out, "//export go{}Initialize", trait_pascal).ok();
-    writeln!(
-        out,
-        "func go{}Initialize(userData unsafe.Pointer, outError **C.char) C.int32_t {{",
-        trait_pascal
-    )
-    .ok();
-    writeln!(out, "\thandle := cgo.Handle(uintptr(unsafe.Pointer(userData)))").ok();
-    writeln!(out, "\timpl, ok := handle.Value().({trait_name})").ok();
-    writeln!(out, "\tif !ok {{").ok();
-    writeln!(out, "\t\treturn 1").ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "\terr := impl.Initialize()").ok();
-    writeln!(out, "\tif err != nil {{").ok();
-    writeln!(out, "\t\tcErr := C.CString(err.Error())").ok();
-    writeln!(out, "\t\t*outError = cErr").ok();
-    writeln!(out, "\t\treturn 1").ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "\treturn 0").ok();
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
+    out.push_str(&crate::template_env::render(
+        "export_marker.jinja",
+        minijinja::context! {
+            name => format!("go{trait_pascal}Initialize"),
+        },
+    ));
+    out.push('\n');
+    out.push_str(&crate::template_env::render(
+        "plugin_method_trampoline_header.jinja",
+        minijinja::context! {
+            pascal => &trait_pascal,
+            method => "Initialize",
+            params => "userData unsafe.Pointer, outError **C.char",
+        },
+    ));
+    out.push('\n');
+    out.push_str("\thandle := cgo.Handle(uintptr(unsafe.Pointer(userData)))\n");
+    out.push_str(&crate::template_env::render(
+        "handle_type_assertion.jinja",
+        minijinja::context! {
+            type_name => trait_name,
+        },
+    ));
+    out.push('\n');
+    out.push_str("\tif !ok {\n");
+    out.push_str("\t\treturn 1\n");
+    out.push_str("\t}\n");
+    out.push_str("\terr := impl.Initialize()\n");
+    out.push_str("\tif err != nil {\n");
+    out.push_str("\t\tcErr := C.CString(err.Error())\n");
+    out.push_str("\t\t*outError = cErr\n");
+    out.push_str("\t\treturn 1\n");
+    out.push_str("\t}\n");
+    out.push_str("\treturn 0\n");
+    out.push_str("}\n");
+    out.push('\n');
 
     // Shutdown trampoline
-    writeln!(out, "//export go{}Shutdown", trait_pascal).ok();
-    writeln!(
-        out,
-        "func go{}Shutdown(userData unsafe.Pointer, outError **C.char) C.int32_t {{",
-        trait_pascal
-    )
-    .ok();
-    writeln!(out, "\thandle := cgo.Handle(uintptr(unsafe.Pointer(userData)))").ok();
-    writeln!(out, "\timpl, ok := handle.Value().({trait_name})").ok();
-    writeln!(out, "\tif !ok {{").ok();
-    writeln!(out, "\t\treturn 1").ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "\terr := impl.Shutdown()").ok();
-    writeln!(out, "\tif err != nil {{").ok();
-    writeln!(out, "\t\tcErr := C.CString(err.Error())").ok();
-    writeln!(out, "\t\t*outError = cErr").ok();
-    writeln!(out, "\t\treturn 1").ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "\treturn 0").ok();
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
+    out.push_str(&crate::template_env::render(
+        "export_marker.jinja",
+        minijinja::context! {
+            name => format!("go{trait_pascal}Shutdown"),
+        },
+    ));
+    out.push('\n');
+    out.push_str(&crate::template_env::render(
+        "plugin_method_trampoline_header.jinja",
+        minijinja::context! {
+            pascal => &trait_pascal,
+            method => "Shutdown",
+            params => "userData unsafe.Pointer, outError **C.char",
+        },
+    ));
+    out.push('\n');
+    out.push_str("\thandle := cgo.Handle(uintptr(unsafe.Pointer(userData)))\n");
+    out.push_str(&crate::template_env::render(
+        "handle_type_assertion.jinja",
+        minijinja::context! {
+            type_name => trait_name,
+        },
+    ));
+    out.push('\n');
+    out.push_str("\tif !ok {\n");
+    out.push_str("\t\treturn 1\n");
+    out.push_str("\t}\n");
+    out.push_str("\terr := impl.Shutdown()\n");
+    out.push_str("\tif err != nil {\n");
+    out.push_str("\t\tcErr := C.CString(err.Error())\n");
+    out.push_str("\t\t*outError = cErr\n");
+    out.push_str("\t\treturn 1\n");
+    out.push_str("\t}\n");
+    out.push_str("\treturn 0\n");
+    out.push_str("}\n");
+    out.push('\n');
 
     // FreeUserData trampoline — called by Rust Drop to delete the cgo.Handle
-    writeln!(out, "//export go{}FreeUserData", trait_pascal).ok();
-    writeln!(out, "func go{}FreeUserData(userData unsafe.Pointer) {{", trait_pascal).ok();
-    writeln!(out, "\tcgo.Handle(uintptr(unsafe.Pointer(userData))).Delete()").ok();
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
+    out.push_str(&crate::template_env::render(
+        "export_marker.jinja",
+        minijinja::context! {
+            name => format!("go{trait_pascal}FreeUserData"),
+        },
+    ));
+    out.push('\n');
+    out.push_str(&crate::template_env::render(
+        "plugin_free_user_data_func.jinja",
+        minijinja::context! {
+            pascal => &trait_pascal,
+        },
+    ));
+    out.push('\n');
+    out.push_str("\tcgo.Handle(uintptr(unsafe.Pointer(userData))).Delete()\n");
+    out.push_str("}\n");
+    out.push('\n');
 }
 
 /// Build the C trampoline function signature for extern declaration in the CGo preamble.
@@ -644,69 +846,147 @@ fn gen_param_conversion(out: &mut String, param: &alef_core::ir::ParamDef) {
     let var_name = format!("go{}", capitalize(&param.name));
     match &param.ty {
         TypeRef::String | TypeRef::Char | TypeRef::Path => {
-            writeln!(out, "\tgo{} := C.GoString({})", capitalize(&param.name), param.name).ok();
-            writeln!(out).ok();
+            out.push_str(&crate::template_env::render(
+                "go_string_cast.jinja",
+                minijinja::context! {
+                    name => capitalize(&param.name),
+                    param => param.name.as_str(),
+                },
+            ));
+            out.push('\n');
         }
         TypeRef::Bytes => {
             // Bytes are JSON-encoded (base64) like other complex types across FFI
-            writeln!(out, "\tvar {} []byte", var_name).ok();
-            writeln!(out, "\tif {} != nil {{", param.name).ok();
-            writeln!(out, "\t\tvar b64str string").ok();
-            writeln!(
-                out,
-                "\t\tjson.Unmarshal([]byte(C.GoString((*C.char)(unsafe.Pointer({})))), &b64str)",
-                param.name
-            )
-            .ok();
-            writeln!(
-                out,
-                "\t\tif decoded, err := base64.StdEncoding.DecodeString(b64str); err == nil {{"
-            )
-            .ok();
-            writeln!(out, "\t\t\t{} = decoded", var_name).ok();
-            writeln!(out, "\t\t}}").ok();
-            writeln!(out, "\t}}").ok();
-            writeln!(out).ok();
+            out.push_str(&crate::template_env::render(
+                "var_bytes_decl.jinja",
+                minijinja::context! {
+                    var_name => &var_name,
+                },
+            ));
+            out.push_str(&crate::template_env::render(
+                "if_nil_check.jinja",
+                minijinja::context! {
+                    param => param.name.as_str(),
+                },
+            ));
+            out.push_str("\t\tvar b64str string\n");
+            out.push_str(&crate::template_env::render(
+                "json_unmarshal_unsafe.jinja",
+                minijinja::context! {
+                    param => param.name.as_str(),
+                },
+            ));
+            out.push('\n');
+            out.push_str("\t\tif decoded, err := base64.StdEncoding.DecodeString(b64str); err == nil {\n");
+            out.push_str(&crate::template_env::render(
+                "var_assign.jinja",
+                minijinja::context! {
+                    var => &var_name,
+                    expr => "decoded",
+                },
+            ));
+            out.push_str("\t\t}\n");
+            out.push_str("\t}\n");
+            out.push('\n');
         }
         TypeRef::Vec(_) => {
             // Vec types unmarshal directly from JSON array
             let go_type = rust_to_go_type(&param.ty);
-            writeln!(out, "\tvar {} {}", var_name, go_type).ok();
-            writeln!(out, "\tif {} != nil {{", param.name).ok();
-            writeln!(
-                out,
-                "\t\tjson.Unmarshal([]byte(C.GoString({})), &{})",
-                param.name, var_name
-            )
-            .ok();
-            writeln!(out, "\t}}").ok();
-            writeln!(out).ok();
+            out.push_str(&crate::template_env::render(
+                "var_type_decl.jinja",
+                minijinja::context! {
+                    var_name => &var_name,
+                    type_name => &go_type,
+                },
+            ));
+            out.push_str(&crate::template_env::render(
+                "if_nil_check.jinja",
+                minijinja::context! {
+                    param => param.name.as_str(),
+                },
+            ));
+            out.push_str(&crate::template_env::render(
+                "json_unmarshal_simple.jinja",
+                minijinja::context! {
+                    param => param.name.as_str(),
+                    var_name => &var_name,
+                },
+            ));
+            out.push('\n');
+            out.push_str("\t}\n");
+            out.push('\n');
         }
         TypeRef::Map(_, _) | TypeRef::Named(_) => {
             // Map and named types unmarshal as map[string]interface{}
             let go_type = rust_to_go_type(&param.ty);
-            writeln!(out, "\tvar {} {}", var_name, go_type).ok();
-            writeln!(out, "\tif {} != nil {{", param.name).ok();
-            writeln!(out, "\t\tvar rawData interface{{}}").ok();
-            writeln!(out, "\t\tjson.Unmarshal([]byte(C.GoString({})), &rawData)", param.name).ok();
-            writeln!(out, "\t\tif m, ok := rawData.(map[string]interface{{}}); ok {{").ok();
-            writeln!(out, "\t\t\t{} = m", var_name).ok();
-            writeln!(out, "\t\t}}").ok();
-            writeln!(out, "\t}}").ok();
-            writeln!(out).ok();
+            out.push_str(&crate::template_env::render(
+                "var_type_decl.jinja",
+                minijinja::context! {
+                    var_name => &var_name,
+                    type_name => &go_type,
+                },
+            ));
+            out.push_str(&crate::template_env::render(
+                "if_nil_check.jinja",
+                minijinja::context! {
+                    param => param.name.as_str(),
+                },
+            ));
+            out.push_str("\t\tvar rawData interface{}\n");
+            out.push_str(&crate::template_env::render(
+                "json_unmarshal_rawdata.jinja",
+                minijinja::context! {
+                    param => param.name.as_str(),
+                },
+            ));
+            out.push('\n');
+            out.push_str("\t\tif m, ok := rawData.(map[string]interface{}); ok {\n");
+            out.push_str(&crate::template_env::render(
+                "var_assign_m.jinja",
+                minijinja::context! {
+                    var => &var_name,
+                },
+            ));
+            out.push('\n');
+            out.push_str("\t\t}\n");
+            out.push_str("\t}\n");
+            out.push('\n');
         }
         TypeRef::Optional(_) => {
             // Optional types
             let go_type = rust_to_go_type(&param.ty);
-            writeln!(out, "\tvar {} {}", var_name, go_type).ok();
-            writeln!(out, "\tif {} != nil {{", param.name).ok();
-            writeln!(out, "\t\tvar rawData interface{{}}").ok();
-            writeln!(out, "\t\tjson.Unmarshal([]byte(C.GoString({})), &rawData)", param.name).ok();
-            writeln!(out, "\t\tif m, ok := rawData.(map[string]interface{{}}); ok {{").ok();
-            writeln!(out, "\t\t\t{} = m", var_name).ok();
-            writeln!(out, "\t\t}}").ok();
-            writeln!(out, "\t}}").ok();
-            writeln!(out).ok();
+            out.push_str(&crate::template_env::render(
+                "var_type_decl.jinja",
+                minijinja::context! {
+                    var_name => &var_name,
+                    type_name => &go_type,
+                },
+            ));
+            out.push_str(&crate::template_env::render(
+                "if_nil_check.jinja",
+                minijinja::context! {
+                    param => param.name.as_str(),
+                },
+            ));
+            out.push_str("\t\tvar rawData interface{}\n");
+            out.push_str(&crate::template_env::render(
+                "json_unmarshal_rawdata.jinja",
+                minijinja::context! {
+                    param => param.name.as_str(),
+                },
+            ));
+            out.push('\n');
+            out.push_str("\t\tif m, ok := rawData.(map[string]interface{}); ok {\n");
+            out.push_str(&crate::template_env::render(
+                "var_assign_m.jinja",
+                minijinja::context! {
+                    var => &var_name,
+                },
+            ));
+            out.push('\n');
+            out.push_str("\t\t}\n");
+            out.push_str("\t}\n");
+            out.push('\n');
         }
         TypeRef::Primitive(p) => {
             use alef_core::ir::PrimitiveType::*;
@@ -732,12 +1012,26 @@ fn gen_param_conversion(out: &mut String, param: &alef_core::ir::ParamDef) {
                     format!("{}({})", go_type, param.name)
                 }
             };
-            writeln!(out, "\t{} := {}", var_name, cast).ok();
-            writeln!(out).ok();
+            out.push_str(&crate::template_env::render(
+                "var_assign_cast.jinja",
+                minijinja::context! {
+                    var_name => &var_name,
+                    cast => &cast,
+                },
+            ));
+            out.push('\n');
+            out.push('\n');
         }
         _ => {
-            writeln!(out, "\t{} := {}", var_name, param.name).ok();
-            writeln!(out).ok();
+            out.push_str(&crate::template_env::render(
+                "var_assign_cast.jinja",
+                minijinja::context! {
+                    var_name => &var_name,
+                    cast => param.name.as_str(),
+                },
+            ));
+            out.push('\n');
+            out.push('\n');
         }
     }
 }
@@ -817,5 +1111,72 @@ mod tests {
                 crate_name, trait_name
             );
         }
+    }
+
+    #[test]
+    fn gen_unregistration_fn_returns_empty_when_none() {
+        let cfg = alef_core::config::TraitBridgeConfig {
+            trait_name: "OcrBackend".to_string(),
+            unregister_fn: None,
+            clear_fn: None,
+            ..Default::default()
+        };
+        let result = gen_unregistration_fn(&cfg, "kreuzberg", "OcrBackend");
+        assert!(result.is_empty(), "expected empty output when unregister_fn is None");
+    }
+
+    #[test]
+    fn gen_unregistration_fn_emits_wrapper_when_set() {
+        let cfg = alef_core::config::TraitBridgeConfig {
+            trait_name: "OcrBackend".to_string(),
+            unregister_fn: Some("unregister_ocr_backend".to_string()),
+            clear_fn: None,
+            ..Default::default()
+        };
+        let result = gen_unregistration_fn(&cfg, "kreuzberg", "OcrBackend");
+        assert!(
+            !result.is_empty(),
+            "expected non-empty output when unregister_fn is set"
+        );
+        assert!(
+            result.contains("func unregister_ocr_backend(name string) error"),
+            "generated function signature not found in:\n{result}"
+        );
+        assert!(
+            result.contains("C.kreuzberg_unregister_ocr_backend"),
+            "C call not found in:\n{result}"
+        );
+    }
+
+    #[test]
+    fn gen_clear_fn_returns_empty_when_none() {
+        let cfg = alef_core::config::TraitBridgeConfig {
+            trait_name: "OcrBackend".to_string(),
+            unregister_fn: None,
+            clear_fn: None,
+            ..Default::default()
+        };
+        let result = gen_clear_fn(&cfg, "kreuzberg", "OcrBackend");
+        assert!(result.is_empty(), "expected empty output when clear_fn is None");
+    }
+
+    #[test]
+    fn gen_clear_fn_emits_wrapper_when_set() {
+        let cfg = alef_core::config::TraitBridgeConfig {
+            trait_name: "OcrBackend".to_string(),
+            unregister_fn: None,
+            clear_fn: Some("clear_ocr_backends".to_string()),
+            ..Default::default()
+        };
+        let result = gen_clear_fn(&cfg, "kreuzberg", "OcrBackend");
+        assert!(!result.is_empty(), "expected non-empty output when clear_fn is set");
+        assert!(
+            result.contains("func clear_ocr_backends() error"),
+            "generated function signature not found in:\n{result}"
+        );
+        assert!(
+            result.contains("C.kreuzberg_clear_ocr_backend"),
+            "C call not found in:\n{result}"
+        );
     }
 }

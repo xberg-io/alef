@@ -1,0 +1,13 @@
+test_that("{{ test_name }}: {{ description }}", {
+{%- for line in setup_lines %}
+  {{ line }}
+{%- endfor %}
+{%- if expects_error %}
+  expect_error({{ function_name }}({{ final_args }}))
+{%- else %}
+  {% if result_is_simple %}{{ result_var }} <- {{ function_name }}({{ final_args }})
+  {%- else %}{{ result_var }} <- jsonlite::fromJSON({{ function_name }}({{ final_args }}), simplifyVector = FALSE)
+  {%- endif %}
+{{ assertions_rendered }}
+{%- endif %}
+})

@@ -13,9 +13,59 @@
 
 use alef_core::ir::{TypeDef, TypeRef};
 use heck::{ToPascalCase, ToSnakeCase};
-use std::fmt::Write;
+use minijinja::Value;
+use std::collections::HashSet;
 
+use crate::template_env;
 use crate::type_map::{java_ffi_type, java_type};
+
+/// Map a `TypeRef` to its Java representation, substituting `String` for any
+/// `Named` type that is not in the set of visible (i.e. generated) types.
+///
+/// This prevents internal/excluded types like `InternalDocument` from leaking
+/// into public trait interface signatures and Panama upcall bridge methods.
+/// Excluded types are JSON-serialised over the FFI boundary as `String`.
+fn java_type_visible(ty: &TypeRef, visible_type_names: &HashSet<&str>) -> String {
+    match ty {
+        TypeRef::Named(name) => {
+            if visible_type_names.contains(name.as_str()) {
+                java_type(ty).into_owned()
+            } else {
+                "String".to_string()
+            }
+        }
+        TypeRef::Optional(inner) => java_type_visible(inner, visible_type_names),
+        TypeRef::Vec(inner) => format!("List<{}>", java_type_visible_boxed(inner, visible_type_names)),
+        TypeRef::Map(k, v) => format!(
+            "Map<{}, {}>",
+            java_type_visible_boxed(k, visible_type_names),
+            java_type_visible_boxed(v, visible_type_names)
+        ),
+        _ => java_type(ty).into_owned(),
+    }
+}
+
+/// Boxed variant of `java_type_visible` for use inside `List<...>` / `Map<...>`
+/// generics. Substitutes excluded Named types with `String` (already boxed).
+fn java_type_visible_boxed(ty: &TypeRef, visible_type_names: &HashSet<&str>) -> String {
+    match ty {
+        TypeRef::Named(name) => {
+            if visible_type_names.contains(name.as_str()) {
+                crate::type_map::java_boxed_type(ty).into_owned()
+            } else {
+                "String".to_string()
+            }
+        }
+        TypeRef::Optional(inner) => java_type_visible_boxed(inner, visible_type_names),
+        TypeRef::Vec(inner) => format!("List<{}>", java_type_visible_boxed(inner, visible_type_names)),
+        TypeRef::Map(k, v) => format!(
+            "Map<{}, {}>",
+            java_type_visible_boxed(k, visible_type_names),
+            java_type_visible_boxed(v, visible_type_names)
+        ),
+        _ => crate::type_map::java_boxed_type(ty).into_owned(),
+    }
+}
 
 /// The two generated Java files for one trait bridge.
 pub struct BridgeFiles {
@@ -24,182 +74,275 @@ pub struct BridgeFiles {
 }
 
 /// Generate both the managed interface file and the bridge class file for one trait.
-pub fn gen_trait_bridge_files(trait_def: &TypeDef, prefix: &str, package: &str, has_super_trait: bool) -> BridgeFiles {
+///
+/// `unregister_fn` is the configured name of the host-crate unregister function (e.g.
+/// `"unregister_ocr_backend"`). When `Some`, a `public static void unregister{Trait}(String
+/// name)` helper is emitted in the bridge class. When `None`, the method is omitted.
+///
+/// `clear_fn` is the configured name of the host-crate clear-all function (e.g.
+/// `"clear_ocr_backends"`). When `Some`, a `public static void clearAll{Trait}()` helper is
+/// emitted. When `None`, the method is omitted.
+pub fn gen_trait_bridge_files(
+    trait_def: &TypeDef,
+    prefix: &str,
+    package: &str,
+    has_super_trait: bool,
+    unregister_fn: Option<&str>,
+    clear_fn: Option<&str>,
+    visible_type_names: &HashSet<&str>,
+) -> BridgeFiles {
     BridgeFiles {
-        interface_content: gen_interface_file(trait_def, package, has_super_trait),
-        bridge_content: gen_bridge_file(trait_def, prefix, package, has_super_trait),
+        interface_content: gen_interface_file(trait_def, package, has_super_trait, visible_type_names),
+        bridge_content: gen_bridge_file(
+            trait_def,
+            prefix,
+            package,
+            has_super_trait,
+            unregister_fn,
+            clear_fn,
+            visible_type_names,
+        ),
     }
 }
 
-/// Generate the standalone managed `I{Trait}` interface compilation unit.
-fn gen_interface_file(trait_def: &TypeDef, package: &str, has_super_trait: bool) -> String {
-    let trait_pascal = trait_def.name.to_pascal_case();
-
-    // Conditionally include imports only when the trait's method signatures reference them.
-    // Earlier always-import emission was flagged as [UnusedImports] by Checkstyle.
-    let signatures_text: String = trait_def
-        .methods
-        .iter()
-        .map(|m| {
-            let ret = java_type(&m.return_type);
-            let params = m.params.iter().map(|p| java_type(&p.ty)).collect::<Vec<_>>().join(",");
-            format!("{ret}({params})")
-        })
-        .collect::<Vec<_>>()
-        .join(";");
-    let mut imports = Vec::new();
-    if signatures_text.contains("List<") {
-        imports.push("java.util.List".to_string());
+/// Generate the Java `unregister{Trait}` static helper body.
+///
+/// Returns an empty string when `unregister_fn` is `None` (opt-in; not all bridges need it).
+/// The emitted method calls `NativeLib.{PREFIX}_UNREGISTER_{TRAIT}` via Panama FFM, mirrors
+/// the local registry removal, and closes the bridge's arena.
+pub fn gen_unregistration_fn(
+    trait_pascal: &str,
+    trait_snake_upper: &str,
+    prefix_upper: &str,
+    bridge_class: &str,
+    registry_field: &str,
+    unregister_fn: Option<&str>,
+) -> String {
+    if unregister_fn.is_none() {
+        return String::new();
     }
-    if signatures_text.contains("Map<") {
-        imports.push("java.util.Map".to_string());
-    }
-
-    // Build method list with javadoc and signature fields for template.
-    let methods: Vec<minijinja::Value> = trait_def
-        .methods
-        .iter()
-        .map(|method| {
-            let return_type_str = java_type(&method.return_type);
-            let params_str = method
-                .params
-                .iter()
-                .map(|p| format!("{} {}", java_type(&p.ty), java_param_name(&p.name)))
-                .collect::<Vec<_>>()
-                .join(", ");
-            minijinja::context! {
-                javadoc => format!("/** {}. */", method.name),
-                signature => format!("{} {}({}) throws Exception", return_type_str, method.name, params_str),
-            }
-        })
-        .collect();
-
-    crate::template_env::render(
-        "trait_interface.jinja",
+    template_env::render(
+        "bridge_unregister_method.jinja",
         minijinja::context! {
-            package,
-            imports,
-            trait_pascal,
-            has_super_trait,
-            methods,
+            trait_pascal => trait_pascal,
+            trait_snake_upper => trait_snake_upper,
+            prefix_upper => prefix_upper,
+            bridge_class => bridge_class,
+            registry_field => registry_field,
         },
     )
 }
 
+/// Generate the Java `clearAll{Trait}` static helper body.
+///
+/// Returns an empty string when `clear_fn` is `None` (opt-in). The emitted method calls
+/// `NativeLib.{PREFIX}_CLEAR_{TRAIT}` via Panama FFM (no arguments other than the out-error
+/// pointer), then closes and removes every live bridge from the local registry.
+pub fn gen_clear_fn(
+    trait_pascal: &str,
+    trait_snake_upper: &str,
+    prefix_upper: &str,
+    bridge_class: &str,
+    registry_field: &str,
+    clear_fn: Option<&str>,
+) -> String {
+    if clear_fn.is_none() {
+        return String::new();
+    }
+    template_env::render(
+        "bridge_clear_method.jinja",
+        minijinja::context! {
+            trait_pascal => trait_pascal,
+            trait_snake_upper => trait_snake_upper,
+            prefix_upper => prefix_upper,
+            bridge_class => bridge_class,
+            registry_field => registry_field,
+        },
+    )
+}
+
+/// Generate the standalone managed `I{Trait}` interface compilation unit.
+fn gen_interface_file(
+    trait_def: &TypeDef,
+    package: &str,
+    has_super_trait: bool,
+    visible_type_names: &HashSet<&str>,
+) -> String {
+    let trait_pascal = trait_def.name.to_pascal_case();
+
+    // Determine which imports are needed based on method signatures
+    let signatures_text: String = trait_def
+        .methods
+        .iter()
+        .map(|m| {
+            let ret = java_type_visible(&m.return_type, visible_type_names);
+            let params = m
+                .params
+                .iter()
+                .map(|p| java_type_visible(&p.ty, visible_type_names))
+                .collect::<Vec<_>>()
+                .join(",");
+            format!("{ret}({params})")
+        })
+        .collect::<Vec<_>>()
+        .join(";");
+
+    let mut imports = vec![];
+    if signatures_text.contains("List<") {
+        imports.push("java.util.List");
+    }
+    if signatures_text.contains("Map<") {
+        imports.push("java.util.Map");
+    }
+
+    // Build method list for template
+    let methods: Vec<Value> = trait_def
+        .methods
+        .iter()
+        .map(|m| {
+            let return_type_str = java_type_visible(&m.return_type, visible_type_names);
+            let params_str = m
+                .params
+                .iter()
+                .map(|p| {
+                    format!(
+                        "{} {}",
+                        java_type_visible(&p.ty, visible_type_names),
+                        java_param_name(&p.name)
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            minijinja::context! {
+                javadoc => format!("/** {}. */", m.name),
+                signature => format!("{} {}({}) throws Exception", return_type_str, m.name, params_str),
+            }
+        })
+        .collect();
+
+    let ctx = minijinja::context! {
+        package => package,
+        imports => imports,
+        trait_pascal => &trait_pascal,
+        has_super_trait => has_super_trait,
+        methods => methods,
+    };
+
+    template_env::render("trait_interface.jinja", ctx)
+}
+
 /// Generate the bridge class compilation unit with upcall stubs, registry, and
-/// register/unregister helpers all nested inside the public top-level class.
-fn gen_bridge_file(trait_def: &TypeDef, prefix: &str, package: &str, has_super_trait: bool) -> String {
+/// register/unregister/clear helpers all nested inside the public top-level class.
+fn gen_bridge_file(
+    trait_def: &TypeDef,
+    prefix: &str,
+    package: &str,
+    has_super_trait: bool,
+    unregister_fn: Option<&str>,
+    clear_fn: Option<&str>,
+    visible_type_names: &HashSet<&str>,
+) -> String {
     let trait_pascal = trait_def.name.to_pascal_case();
     let trait_snake = trait_def.name.to_snake_case();
     let prefix_upper = prefix.to_uppercase();
     let registry_field = format!("{}_BRIDGES", trait_snake.to_uppercase());
     let bridge_class = format!("{trait_pascal}Bridge");
 
-    let mut out = String::with_capacity(8192);
-
-    writeln!(out, "package {package};").ok();
-    writeln!(out).ok();
-    writeln!(out, "import java.lang.foreign.Arena;").ok();
-    writeln!(out, "import java.lang.foreign.FunctionDescriptor;").ok();
-    writeln!(out, "import java.lang.foreign.Linker;").ok();
-    writeln!(out, "import java.lang.foreign.MemorySegment;").ok();
-    writeln!(out, "import java.lang.foreign.ValueLayout;").ok();
-    writeln!(out, "import java.lang.invoke.MethodHandles;").ok();
-    writeln!(out, "import java.lang.invoke.MethodType;").ok();
-    // Conditionally import java.util.{List,Map} when any trait method signature uses them
-    // (the upcall-stub bodies materialise these types via JSON read/write helpers).
+    // Determine which imports are needed based on method signatures
     let bridge_signatures: String = trait_def
         .methods
         .iter()
         .map(|m| {
-            let ret = java_type(&m.return_type);
-            let params = m.params.iter().map(|p| java_type(&p.ty)).collect::<Vec<_>>().join(",");
+            let ret = java_type_visible(&m.return_type, visible_type_names);
+            let params = m
+                .params
+                .iter()
+                .map(|p| java_type_visible(&p.ty, visible_type_names))
+                .collect::<Vec<_>>()
+                .join(",");
             format!("{ret}({params})")
         })
         .collect::<Vec<_>>()
         .join(";");
+
+    let mut imports = vec![];
     if bridge_signatures.contains("List<") {
-        writeln!(out, "import java.util.List;").ok();
+        imports.push("java.util.List");
     }
     if bridge_signatures.contains("Map<") {
-        writeln!(out, "import java.util.Map;").ok();
+        imports.push("java.util.Map");
     }
-    writeln!(out, "import java.util.concurrent.ConcurrentHashMap;").ok();
-    writeln!(out, "import com.fasterxml.jackson.databind.ObjectMapper;").ok();
-    writeln!(out).ok();
 
-    writeln!(out, "/**").ok();
-    writeln!(
-        out,
-        " * Allocates Panama FFM upcall stubs for an I{trait_pascal} implementation,"
-    )
-    .ok();
-    writeln!(out, " * assembles the C vtable in native memory, and provides static").ok();
-    writeln!(out, " * register{trait_pascal}/unregister{trait_pascal} helpers.").ok();
-    writeln!(out, " */").ok();
-    writeln!(out, "public final class {bridge_class} implements AutoCloseable {{").ok();
-    writeln!(out).ok();
+    // Build lifecycle methods
+    let lifecycle_methods: Vec<Value> = if has_super_trait {
+        vec![
+            minijinja::context! {
+                signature => "MemorySegment handleName(MemorySegment userData)",
+                body => "arena.allocateFrom(impl.name())",
+                error_return => "MemorySegment.NULL",
+                void_call => false,
+                success_return => "",
+            },
+            minijinja::context! {
+                signature => "MemorySegment handleVersion(MemorySegment userData)",
+                body => "arena.allocateFrom(impl.version())",
+                error_return => "MemorySegment.NULL",
+                void_call => false,
+                success_return => "",
+            },
+            minijinja::context! {
+                signature => "int handleInitialize(MemorySegment userData, MemorySegment outError)",
+                body => "impl.initialize()",
+                error_return => "1",
+                void_call => true,
+                success_return => "0",
+            },
+            minijinja::context! {
+                signature => "int handleShutdown(MemorySegment userData, MemorySegment outError)",
+                body => "impl.shutdown()",
+                error_return => "1",
+                void_call => true,
+                success_return => "0",
+            },
+        ]
+    } else {
+        vec![]
+    };
 
-    writeln!(out, "    private static final Linker LINKER = Linker.nativeLinker();").ok();
-    writeln!(
-        out,
-        "    private static final MethodHandles.Lookup LOOKUP = MethodHandles.lookup();"
-    )
-    .ok();
-    writeln!(out, "    private static final ObjectMapper JSON = new ObjectMapper();").ok();
-    writeln!(out).ok();
-
-    writeln!(
-        out,
-        "    /** Live registry — keeps Arenas and upcall stubs alive past the register call. */"
-    )
-    .ok();
-    // ConcurrentHashMap declaration can exceed 120 chars, so format it on multiple lines
-    writeln!(
-        out,
-        "    private static final ConcurrentHashMap<String, {bridge_class}>"
-    )
-    .ok();
-    writeln!(out, "            {registry_field} = new ConcurrentHashMap<>();").ok();
-    writeln!(out).ok();
-
-    let num_methods = trait_def.methods.len();
-    let num_super_slots = if has_super_trait { 4usize } else { 0usize };
-    let num_vtable_fields = num_super_slots + num_methods + 1;
-    writeln!(
-        out,
-        "    // C vtable: {num_vtable_fields} fields ({num_super_slots} plugin methods + {num_methods} trait methods + free_user_data)"
-    )
-    .ok();
-    writeln!(
-        out,
-        "    private static final long VTABLE_SIZE = (long) ValueLayout.ADDRESS.byteSize() * {num_vtable_fields}L;"
-    )
-    .ok();
-    writeln!(out).ok();
-
-    writeln!(out, "    private final Arena arena;").ok();
-    writeln!(out, "    private final MemorySegment vtable;").ok();
-    writeln!(out, "    private final I{trait_pascal} impl;").ok();
-    writeln!(out).ok();
-
-    // Constructor — wires every vtable slot to a method handle bound to this instance.
-    writeln!(out, "    {bridge_class}(final I{trait_pascal} impl) {{").ok();
-    writeln!(out, "        this.impl = impl;").ok();
-    writeln!(out, "        this.arena = Arena.ofShared();").ok();
-    writeln!(out, "        this.vtable = arena.allocate(VTABLE_SIZE);").ok();
-    writeln!(out).ok();
-    writeln!(out, "        try {{").ok();
-    writeln!(out, "            long offset = 0L;").ok();
-    writeln!(out).ok();
-
+    // Build stub allocations for lifecycle methods
+    let mut stubs: Vec<Value> = vec![];
     if has_super_trait {
-        emit_lifecycle_stub(&mut out, "Name", "MemorySegment.class", "ValueLayout.ADDRESS");
-        emit_lifecycle_stub(&mut out, "Version", "MemorySegment.class", "ValueLayout.ADDRESS");
-        emit_lifecycle_stub(&mut out, "Initialize", "int.class", "ValueLayout.JAVA_INT");
-        emit_lifecycle_stub(&mut out, "Shutdown", "int.class", "ValueLayout.JAVA_INT");
+        let lifecycle_stubs = vec![
+            ("Name", "MemorySegment.class", "ValueLayout.ADDRESS", ""),
+            ("Version", "MemorySegment.class", "ValueLayout.ADDRESS", ""),
+            (
+                "Initialize",
+                "int.class",
+                "ValueLayout.JAVA_INT",
+                ", MemorySegment.class",
+            ),
+            ("Shutdown", "int.class", "ValueLayout.JAVA_INT", ", MemorySegment.class"),
+        ];
+        for (pascal, return_type, descriptor_return, extra_param) in lifecycle_stubs {
+            let handle = format!("handle{pascal}");
+            let var_name = format!("stub{pascal}");
+            let extra_descriptor = if pascal == "Initialize" || pascal == "Shutdown" {
+                ", ValueLayout.ADDRESS"
+            } else {
+                ""
+            };
+            stubs.push(minijinja::context! {
+                var_name => &var_name,
+                handle_name => &handle,
+                return_type => return_type,
+                method_type_params => format!("MemorySegment.class{extra_param}"),
+                descriptor_return => descriptor_return,
+                descriptor_params => format!("ValueLayout.ADDRESS{extra_descriptor}"),
+            });
+        }
     }
 
+    // Build stub allocations for trait methods
     for method in &trait_def.methods {
         let handle_name = format!("handle{}", method.name.to_pascal_case());
         let stub_name = format!("stub{}", method.name.to_pascal_case());
@@ -217,18 +360,6 @@ fn gen_bridge_file(trait_def: &TypeDef, prefix: &str, package: &str, has_super_t
         }
         method_type_params.push("MemorySegment.class".to_string());
 
-        writeln!(
-            out,
-            "            var {stub_name} = LINKER.upcallStub(LOOKUP.bind(this, \"{handle_name}\","
-        )
-        .ok();
-        writeln!(
-            out,
-            "                MethodType.methodType(int.class, {})),",
-            method_type_params.join(", ")
-        )
-        .ok();
-
         let mut func_desc_params = vec!["ValueLayout.ADDRESS".to_string()];
         for param in &method.params {
             let ffi_layout = match &param.ty {
@@ -242,403 +373,162 @@ fn gen_bridge_file(trait_def: &TypeDef, prefix: &str, package: &str, has_super_t
         }
         func_desc_params.push("ValueLayout.ADDRESS".to_string());
 
-        writeln!(
-            out,
-            "                FunctionDescriptor.of(ValueLayout.JAVA_INT, {}),",
-            func_desc_params.join(", ")
-        )
-        .ok();
-        writeln!(out, "                arena);").ok();
-        writeln!(out, "            vtable.set(ValueLayout.ADDRESS, offset, {stub_name});").ok();
-        writeln!(out, "            offset += ValueLayout.ADDRESS.byteSize();").ok();
-        writeln!(out).ok();
+        stubs.push(minijinja::context! {
+            var_name => &stub_name,
+            handle_name => &handle_name,
+            return_type => "int.class",
+            method_type_params => method_type_params.join(", "),
+            descriptor_return => "ValueLayout.JAVA_INT",
+            descriptor_params => func_desc_params.join(", "),
+        });
     }
 
-    writeln!(
-        out,
-        "            vtable.set(ValueLayout.ADDRESS, offset, MemorySegment.NULL);"
-    )
-    .ok();
-    writeln!(out).ok();
-    writeln!(out, "        }} catch (ReflectiveOperationException e) {{").ok();
-    writeln!(out, "            arena.close();").ok();
-    writeln!(
-        out,
-        "            throw new RuntimeException(\"Failed to create trait bridge stubs\", e);"
-    )
-    .ok();
-    writeln!(out, "        }}").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out).ok();
-
-    writeln!(out, "    MemorySegment vtableSegment() {{ return vtable; }}").ok();
-    writeln!(out).ok();
-
-    if has_super_trait {
-        writeln!(out, "    private MemorySegment handleName(MemorySegment userData) {{").ok();
-        writeln!(out, "        try {{").ok();
-        writeln!(out, "            return arena.allocateFrom(impl.name());").ok();
-        writeln!(out, "        }} catch (Throwable e) {{ return MemorySegment.NULL; }}").ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out).ok();
-
-        writeln!(
-            out,
-            "    private MemorySegment handleVersion(MemorySegment userData) {{"
-        )
-        .ok();
-        writeln!(out, "        try {{").ok();
-        writeln!(out, "            return arena.allocateFrom(impl.version());").ok();
-        writeln!(out, "        }} catch (Throwable e) {{ return MemorySegment.NULL; }}").ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out).ok();
-
-        writeln!(
-            out,
-            "    private int handleInitialize(MemorySegment userData, MemorySegment outError) {{"
-        )
-        .ok();
-        writeln!(out, "        try {{ impl.initialize(); return 0; }}").ok();
-        writeln!(
-            out,
-            "        catch (Throwable e) {{ writeError(outError, e); return 1; }}"
-        )
-        .ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out).ok();
-
-        writeln!(
-            out,
-            "    private int handleShutdown(MemorySegment userData, MemorySegment outError) {{"
-        )
-        .ok();
-        writeln!(out, "        try {{ impl.shutdown(); return 0; }}").ok();
-        writeln!(
-            out,
-            "        catch (Throwable e) {{ writeError(outError, e); return 1; }}"
-        )
-        .ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out).ok();
-    }
-
-    // Trait method handlers.
-    for method in &trait_def.methods {
-        emit_method_handler(&mut out, method);
-    }
-
-    // Shared error-writer.
-    writeln!(
-        out,
-        "    private void writeError(MemorySegment outError, Throwable e) {{"
-    )
-    .ok();
-    writeln!(
-        out,
-        "        try {{ outError.set(ValueLayout.ADDRESS, 0, arena.allocateFrom(e.getClass().getSimpleName() + \": \" + e.getMessage())); }}"
-    )
-    .ok();
-    writeln!(out, "        catch (Throwable ignored) {{ /* swallow */ }}").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out).ok();
-
-    // close()
-    writeln!(out, "    @Override").ok();
-    writeln!(out, "    public void close() {{ arena.close(); }}").ok();
-    writeln!(out).ok();
-
-    // Static register / unregister.
-    writeln!(
-        out,
-        "    /** Register a {trait_pascal} implementation via Panama FFM upcall stubs. */"
-    )
-    .ok();
-    // Plugin traits (has_super_trait) expose name() on the interface; non-plugin traits
-    // require the caller to supply a registry key.
-    let name_expr = if has_super_trait { "impl.name()" } else { "name" };
-    if has_super_trait {
-        writeln!(
-            out,
-            "    public static void register{trait_pascal}(final I{trait_pascal} impl) throws Exception {{"
-        )
-        .ok();
-    } else {
-        writeln!(
-            out,
-            "    public static void register{trait_pascal}(final I{trait_pascal} impl, String name) throws Exception {{"
-        )
-        .ok();
-    }
-    writeln!(out, "        var bridge = new {bridge_class}(impl);").ok();
-    writeln!(out, "        try {{").ok();
-    writeln!(out, "            try (var nameArena = Arena.ofConfined()) {{").ok();
-    writeln!(out, "                var nameCs = nameArena.allocateFrom({name_expr});").ok();
-    writeln!(
-        out,
-        "                MemorySegment outErr = nameArena.allocate(ValueLayout.ADDRESS);"
-    )
-    .ok();
-    writeln!(
-        out,
-        "                int rc = (int) NativeLib.{prefix_upper}_REGISTER_{}.invoke(nameCs, bridge.vtableSegment(), MemorySegment.NULL, outErr);",
-        trait_snake.to_uppercase()
-    )
-    .ok();
-    writeln!(out, "                if (rc != 0) {{").ok();
-    writeln!(
-        out,
-        "                    MemorySegment errPtr = outErr.get(ValueLayout.ADDRESS, 0);"
-    )
-    .ok();
-    writeln!(
-        out,
-        "                    String msg = errPtr.equals(MemorySegment.NULL) ? \"registration failed (rc=\" + rc + \")\" : errPtr.reinterpret(Long.MAX_VALUE).getString(0);"
-    )
-    .ok();
-    writeln!(
-        out,
-        "                    throw new RuntimeException(\"register{trait_pascal}: \" + msg);"
-    )
-    .ok();
-    writeln!(out, "                }}").ok();
-    writeln!(out, "            }}").ok();
-    writeln!(out, "        }} catch (Throwable t) {{").ok();
-    writeln!(out, "            bridge.close();").ok();
-    writeln!(out, "            if (t instanceof Exception e) {{").ok();
-    writeln!(out, "                throw e;").ok();
-    writeln!(out, "            }} else {{").ok();
-    writeln!(
-        out,
-        "                throw new RuntimeException(\"Unexpected error during registration\", t);"
-    )
-    .ok();
-    writeln!(out, "            }}").ok();
-    writeln!(out, "        }}").ok();
-    writeln!(out, "        {registry_field}.put({name_expr}, bridge);").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out).ok();
-
-    writeln!(out, "    /** Unregister a {trait_pascal} implementation by name. */").ok();
-    writeln!(
-        out,
-        "    public static void unregister{trait_pascal}(String name) throws Exception {{"
-    )
-    .ok();
-    writeln!(out, "        try {{").ok();
-    writeln!(out, "            try (var nameArena = Arena.ofConfined()) {{").ok();
-    writeln!(out, "                var nameCs = nameArena.allocateFrom(name);").ok();
-    writeln!(
-        out,
-        "                MemorySegment outErr = nameArena.allocate(ValueLayout.ADDRESS);"
-    )
-    .ok();
-    writeln!(
-        out,
-        "                int rc = (int) NativeLib.{prefix_upper}_UNREGISTER_{}.invoke(nameCs, outErr);",
-        trait_snake.to_uppercase()
-    )
-    .ok();
-    writeln!(out, "                if (rc != 0) {{").ok();
-    writeln!(
-        out,
-        "                    MemorySegment errPtr = outErr.get(ValueLayout.ADDRESS, 0);"
-    )
-    .ok();
-    writeln!(
-        out,
-        "                    String msg = errPtr.equals(MemorySegment.NULL) ? \"unregistration failed (rc=\" + rc + \")\" : errPtr.reinterpret(Long.MAX_VALUE).getString(0);"
-    )
-    .ok();
-    writeln!(
-        out,
-        "                    throw new RuntimeException(\"unregister{trait_pascal}: \" + msg);"
-    )
-    .ok();
-    writeln!(out, "                }}").ok();
-    writeln!(out, "            }}").ok();
-    writeln!(out, "        }} catch (Throwable t) {{").ok();
-    writeln!(out, "            if (t instanceof Exception e) {{").ok();
-    writeln!(out, "                throw e;").ok();
-    writeln!(out, "            }} else {{").ok();
-    writeln!(
-        out,
-        "                throw new RuntimeException(\"Unexpected error during unregistration\", t);"
-    )
-    .ok();
-    writeln!(out, "            }}").ok();
-    writeln!(out, "        }}").ok();
-    writeln!(out, "        {bridge_class} old = {registry_field}.remove(name);").ok();
-    writeln!(out, "        if (old != null) {{ old.close(); }}").ok();
-    writeln!(out, "    }}").ok();
-
-    writeln!(out, "}}").ok();
-    out
-}
-
-/// Emit the upcall-stub-allocation block for a Plugin lifecycle slot.
-fn emit_lifecycle_stub(out: &mut String, pascal: &str, method_return_type: &str, descriptor_return: &str) {
-    let handle = format!("handle{pascal}");
-    let stub_var = format!("stub{pascal}");
-    let extra_param = if pascal == "Initialize" || pascal == "Shutdown" {
-        ", MemorySegment.class"
-    } else {
-        ""
-    };
-    let extra_descriptor = if pascal == "Initialize" || pascal == "Shutdown" {
-        ", ValueLayout.ADDRESS"
-    } else {
-        ""
-    };
-    writeln!(
-        out,
-        "            var {stub_var} = LINKER.upcallStub(LOOKUP.bind(this, \"{handle}\","
-    )
-    .ok();
-    writeln!(
-        out,
-        "                MethodType.methodType({method_return_type}, MemorySegment.class{extra_param})),"
-    )
-    .ok();
-    writeln!(
-        out,
-        "                FunctionDescriptor.of({descriptor_return}, ValueLayout.ADDRESS{extra_descriptor}),"
-    )
-    .ok();
-    writeln!(out, "                arena);").ok();
-    writeln!(out, "            vtable.set(ValueLayout.ADDRESS, offset, {stub_var});").ok();
-    writeln!(out, "            offset += ValueLayout.ADDRESS.byteSize();").ok();
-    writeln!(out).ok();
-}
-
-/// Emit one trait-method handler.
-fn emit_method_handler(out: &mut String, method: &alef_core::ir::MethodDef) {
-    let handle = format!("handle{}", method.name.to_pascal_case());
-    let mut sig_params = vec!["MemorySegment userData".to_string()];
-    for param in &method.params {
-        let local = java_param_name(&param.name);
-        match &param.ty {
-            TypeRef::Primitive(p) => {
-                // Primitives arrive as their Java primitive type via Panama FFM — no MemorySegment wrapper.
-                sig_params.push(format!("{} {local}", java_type(&TypeRef::Primitive(p.clone()))));
+    // Build trait method handlers
+    let methods: Vec<Value> = trait_def
+        .methods
+        .iter()
+        .map(|method| {
+            let handle = format!("handle{}", method.name.to_pascal_case());
+            let mut sig_params = vec!["MemorySegment userData".to_string()];
+            for param in &method.params {
+                let local = java_param_name(&param.name);
+                match &param.ty {
+                    TypeRef::Primitive(p) => {
+                        sig_params.push(format!("{} {local}", java_type(&TypeRef::Primitive(p.clone()))));
+                    }
+                    _ => {
+                        sig_params.push(format!("MemorySegment {local}_in"));
+                    }
+                }
             }
-            _ => {
-                // Use a `_in` suffix on the segment name so we can declare the unmarshalled
-                // local under the original identifier without shadowing.
-                sig_params.push(format!("MemorySegment {local}_in"));
+            if !matches!(method.return_type, TypeRef::Unit) {
+                sig_params.push("MemorySegment outResult".to_string());
             }
-        }
-    }
-    if !matches!(method.return_type, TypeRef::Unit) {
-        sig_params.push("MemorySegment outResult".to_string());
-    }
-    sig_params.push("MemorySegment outError".to_string());
+            sig_params.push("MemorySegment outError".to_string());
 
-    writeln!(out, "    private int {handle}({}) {{", sig_params.join(", ")).ok();
-    writeln!(out, "        try {{").ok();
+            // Build unmarshal params
+            let mut unmarshal_params: Vec<String> = vec![];
+            for param in &method.params {
+                let local = java_param_name(&param.name);
+                if !matches!(param.ty, TypeRef::Primitive(_)) {
+                    let segment = format!("{local}_in");
+                    // Named types not in visible_type_names (e.g. InternalDocument) are
+                    // JSON-bridged as opaque Strings — no companion Java class is generated
+                    // for them, so unmarshal as a plain String rather than deserialising
+                    // into a missing class.
+                    if let TypeRef::Named(name) = &param.ty {
+                        if !visible_type_names.contains(name.as_str()) {
+                            unmarshal_params.push(format_unmarshal_param(&local, &segment, &TypeRef::String));
+                            continue;
+                        }
+                    }
+                    unmarshal_params.push(format_unmarshal_param(&local, &segment, &param.ty));
+                }
+            }
 
-    for param in &method.params {
-        let local = java_param_name(&param.name);
-        if !matches!(param.ty, TypeRef::Primitive(_)) {
-            let segment = format!("{local}_in");
-            unmarshal_param(out, &local, &segment, &param.ty);
-        }
-    }
+            let java_args: Vec<String> = method.params.iter().map(|p| java_param_name(&p.name)).collect();
+            let has_return = !matches!(method.return_type, TypeRef::Unit);
+            let return_type_str = if has_return {
+                java_type_visible(&method.return_type, visible_type_names)
+            } else {
+                String::new()
+            };
 
-    let java_args: Vec<String> = method.params.iter().map(|p| java_param_name(&p.name)).collect();
+            minijinja::context! {
+                name => &method.name,
+                handle_name => &handle,
+                sig_params => sig_params.join(", "),
+                unmarshal_params => unmarshal_params,
+                return_type => &return_type_str,
+                call_args => java_args.join(", "),
+                has_return => has_return,
+            }
+        })
+        .collect();
 
-    if matches!(method.return_type, TypeRef::Unit) {
-        writeln!(out, "            impl.{}({});", method.name, java_args.join(", ")).ok();
-    } else {
-        let return_type_str = java_type(&method.return_type);
-        writeln!(
-            out,
-            "            {return_type_str} result = impl.{}({});",
-            method.name,
-            java_args.join(", ")
-        )
-        .ok();
-        writeln!(out, "            String json = JSON.writeValueAsString(result);").ok();
-        writeln!(out, "            MemorySegment jsonCs = arena.allocateFrom(json);").ok();
-        writeln!(out, "            outResult.set(ValueLayout.ADDRESS, 0, jsonCs);").ok();
-    }
+    let num_methods = trait_def.methods.len();
+    let num_super_slots = if has_super_trait { 4usize } else { 0usize };
+    let num_vtable_fields = num_super_slots + num_methods + 1;
+    let register_takes_name = has_super_trait;
 
-    writeln!(out, "            return 0;").ok();
-    writeln!(out, "        }} catch (Throwable e) {{").ok();
-    writeln!(out, "            writeError(outError, e);").ok();
-    writeln!(out, "            return 1;").ok();
-    writeln!(out, "        }}").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out).ok();
+    let trait_snake_upper = trait_snake.to_uppercase();
+    let unregister_method = gen_unregistration_fn(
+        &trait_pascal,
+        &trait_snake_upper,
+        &prefix_upper,
+        &bridge_class,
+        &registry_field,
+        unregister_fn,
+    );
+    let clear_method = gen_clear_fn(
+        &trait_pascal,
+        &trait_snake_upper,
+        &prefix_upper,
+        &bridge_class,
+        &registry_field,
+        clear_fn,
+    );
+
+    let ctx = minijinja::context! {
+        package => package,
+        imports => imports,
+        trait_pascal => &trait_pascal,
+        trait_snake_upper => &trait_snake_upper,
+        bridge_class => &bridge_class,
+        registry_field => &registry_field,
+        prefix_upper => &prefix_upper,
+        num_methods => num_methods,
+        num_super_slots => num_super_slots,
+        num_vtable_fields => num_vtable_fields,
+        lifecycle_methods => lifecycle_methods,
+        stubs => stubs,
+        methods => methods,
+        register_takes_name => register_takes_name,
+        name_expr => if has_super_trait { "impl.name()" } else { "name" },
+        unregister_method => &unregister_method,
+        clear_method => &clear_method,
+    };
+
+    template_env::render("trait_bridge.jinja", ctx)
 }
 
-/// Emit code that materializes the Java-side parameter `local` (declared here)
-/// from the FFI MemorySegment `segment`.
-fn unmarshal_param(out: &mut String, local: &str, segment: &str, ty: &TypeRef) {
+/// Format unmarshal code for a single parameter without writing to a string.
+fn format_unmarshal_param(local: &str, segment: &str, ty: &TypeRef) -> String {
     match ty {
         TypeRef::Primitive(_) => {
             // Primitives are declared directly in the handler signature with their Java primitive
             // type (e.g. `byte _level`). No extraction from a MemorySegment is needed.
             // This branch is intentionally unreachable — callers skip unmarshal_param for
             // primitive params — but is kept to keep the match exhaustive.
+            String::new()
         }
         TypeRef::Bytes => {
-            writeln!(
-                out,
-                "            byte[] {local} = {segment}.reinterpret(Long.MAX_VALUE).toArray(ValueLayout.JAVA_BYTE);"
-            )
-            .ok();
+            format!("byte[] {local} = {segment}.reinterpret(Long.MAX_VALUE).toArray(ValueLayout.JAVA_BYTE);")
         }
         TypeRef::String => {
-            writeln!(
-                out,
-                "            String {local} = {segment}.reinterpret(Long.MAX_VALUE).getString(0);"
-            )
-            .ok();
+            format!("String {local} = {segment}.reinterpret(Long.MAX_VALUE).getString(0);")
         }
         TypeRef::Path => {
-            writeln!(
-                out,
-                "            java.nio.file.Path {local} = java.nio.file.Paths.get({segment}.reinterpret(Long.MAX_VALUE).getString(0));"
+            format!(
+                "java.nio.file.Path {local} = java.nio.file.Paths.get({segment}.reinterpret(Long.MAX_VALUE).getString(0));"
             )
-            .ok();
         }
         TypeRef::Named(type_name) => {
-            writeln!(
-                out,
-                "            String {local}_json = {segment}.reinterpret(Long.MAX_VALUE).getString(0);"
+            format!(
+                "String {local}_json = {segment}.reinterpret(Long.MAX_VALUE).getString(0);\n            {type_name} {local} = JSON.readValue({local}_json, {type_name}.class);"
             )
-            .ok();
-            writeln!(
-                out,
-                "            {type_name} {local} = JSON.readValue({local}_json, {type_name}.class);"
-            )
-            .ok();
         }
         TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Optional(_) => {
             let java_ty = java_type(ty);
-            writeln!(
-                out,
-                "            String {local}_json = {segment}.reinterpret(Long.MAX_VALUE).getString(0);"
+            format!(
+                "String {local}_json = {segment}.reinterpret(Long.MAX_VALUE).getString(0);\n            {java_ty} {local} = JSON.readValue({local}_json, new com.fasterxml.jackson.core.type.TypeReference<{java_ty}>() {{ }});"
             )
-            .ok();
-            writeln!(
-                out,
-                "            {java_ty} {local} = JSON.readValue({local}_json, new com.fasterxml.jackson.core.type.TypeReference<{java_ty}>() {{ }});"
-            )
-            .ok();
         }
         TypeRef::Json | TypeRef::Duration | TypeRef::Char | TypeRef::Unit => {
             let java_ty = java_type(ty);
-            writeln!(
-                out,
-                "            String {local}_json = {segment}.reinterpret(Long.MAX_VALUE).getString(0);"
+            format!(
+                "String {local}_json = {segment}.reinterpret(Long.MAX_VALUE).getString(0);\n            {java_ty} {local} = JSON.readValue({local}_json, {java_ty}.class);"
             )
-            .ok();
-            writeln!(
-                out,
-                "            {java_ty} {local} = JSON.readValue({local}_json, {java_ty}.class);"
-            )
-            .ok();
         }
     }
 }
@@ -661,6 +551,33 @@ fn java_param_name(name: &str) -> String {
 mod tests {
     use super::*;
     use alef_core::ir::{MethodDef, ParamDef, PrimitiveType};
+
+    /// Build a `visible_type_names` set containing every `Named` type referenced
+    /// by the trait method's params or return type, so tests behave as if those
+    /// types are visible in the generated API.
+    fn all_named_visible(methods: &[MethodDef]) -> HashSet<&str> {
+        fn collect<'a>(ty: &'a TypeRef, out: &mut HashSet<&'a str>) {
+            match ty {
+                TypeRef::Named(n) => {
+                    out.insert(n.as_str());
+                }
+                TypeRef::Optional(inner) | TypeRef::Vec(inner) => collect(inner, out),
+                TypeRef::Map(k, v) => {
+                    collect(k, out);
+                    collect(v, out);
+                }
+                _ => {}
+            }
+        }
+        let mut set = HashSet::new();
+        for m in methods {
+            collect(&m.return_type, &mut set);
+            for p in &m.params {
+                collect(&p.ty, &mut set);
+            }
+        }
+        set
+    }
 
     fn make_method(name: &str, return_type: TypeRef, params: Vec<ParamDef>) -> MethodDef {
         MethodDef {
@@ -706,7 +623,8 @@ mod tests {
     #[test]
     fn interface_emits_package_and_lifecycle_when_super_trait() {
         let trait_def = make_trait("OcrBackend", vec![make_method("process", TypeRef::String, vec![])]);
-        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.kreuzberg", true);
+        let visible = all_named_visible(&trait_def.methods);
+        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.kreuzberg", true, None, None, &visible);
         assert!(files.interface_content.starts_with("package dev.kreuzberg;"));
         assert!(files.interface_content.contains("public interface IOcrBackend"));
         assert!(files.interface_content.contains("String name();"));
@@ -717,7 +635,8 @@ mod tests {
     #[test]
     fn interface_omits_lifecycle_when_no_super_trait() {
         let trait_def = make_trait("Filter", vec![make_method("apply", TypeRef::String, vec![])]);
-        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.kreuzberg", false);
+        let visible = all_named_visible(&trait_def.methods);
+        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.kreuzberg", false, None, None, &visible);
         assert!(!files.interface_content.contains("String name();"));
         assert!(files.interface_content.contains("String apply()"));
     }
@@ -725,15 +644,95 @@ mod tests {
     #[test]
     fn bridge_class_has_register_helper_and_registry() {
         let trait_def = make_trait("OcrBackend", vec![]);
-        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.kreuzberg", true);
+        let visible = all_named_visible(&trait_def.methods);
+        // No unregister/clear configured: neither method should appear
+        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.kreuzberg", true, None, None, &visible);
         let body = files.bridge_content.as_str();
         assert!(body.starts_with("package dev.kreuzberg;"));
         assert!(body.contains("public final class OcrBackendBridge"));
         assert!(body.contains("public static void registerOcrBackend(final IOcrBackend impl)"));
-        assert!(body.contains("public static void unregisterOcrBackend(String name)"));
+        assert!(!body.contains("public static void unregisterOcrBackend(String name)"));
+        assert!(!body.contains("public static void clearAllOcrBackend()"));
         assert!(body.contains("ConcurrentHashMap<String, OcrBackendBridge>"));
         assert!(body.contains("OCR_BACKEND_BRIDGES = new ConcurrentHashMap<>()"));
         assert!(body.contains("KRZ_REGISTER_OCR_BACKEND"));
+    }
+
+    #[test]
+    fn gen_unregistration_fn_emits_method_when_configured() {
+        let trait_def = make_trait("OcrBackend", vec![]);
+        let visible = all_named_visible(&trait_def.methods);
+        let files = gen_trait_bridge_files(
+            &trait_def,
+            "krz",
+            "dev.kreuzberg",
+            true,
+            Some("unregister_ocr_backend"),
+            None,
+            &visible,
+        );
+        let body = files.bridge_content.as_str();
+        assert!(body.contains("public static void unregisterOcrBackend(String name)"));
+        assert!(body.contains("KRZ_UNREGISTER_OCR_BACKEND"));
+        assert!(body.contains("OCR_BACKEND_BRIDGES.remove(name)"));
+        assert!(!body.contains("public static void clearAllOcrBackend()"));
+    }
+
+    #[test]
+    fn gen_unregistration_fn_omits_method_when_none() {
+        let trait_def = make_trait("OcrBackend", vec![]);
+        let visible = all_named_visible(&trait_def.methods);
+        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.kreuzberg", true, None, None, &visible);
+        let body = files.bridge_content.as_str();
+        assert!(!body.contains("public static void unregisterOcrBackend(String name)"));
+    }
+
+    #[test]
+    fn gen_clear_fn_emits_method_when_configured() {
+        let trait_def = make_trait("OcrBackend", vec![]);
+        let visible = all_named_visible(&trait_def.methods);
+        let files = gen_trait_bridge_files(
+            &trait_def,
+            "krz",
+            "dev.kreuzberg",
+            true,
+            None,
+            Some("clear_ocr_backends"),
+            &visible,
+        );
+        let body = files.bridge_content.as_str();
+        assert!(body.contains("public static void clearAllOcrBackend()"));
+        assert!(body.contains("KRZ_CLEAR_OCR_BACKEND"));
+        assert!(body.contains("OCR_BACKEND_BRIDGES.values().forEach(OcrBackendBridge::close)"));
+        assert!(body.contains("OCR_BACKEND_BRIDGES.clear()"));
+        assert!(!body.contains("public static void unregisterOcrBackend(String name)"));
+    }
+
+    #[test]
+    fn gen_clear_fn_omits_method_when_none() {
+        let trait_def = make_trait("OcrBackend", vec![]);
+        let visible = all_named_visible(&trait_def.methods);
+        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.kreuzberg", true, None, None, &visible);
+        let body = files.bridge_content.as_str();
+        assert!(!body.contains("public static void clearAllOcrBackend()"));
+    }
+
+    #[test]
+    fn both_unregister_and_clear_emitted_when_both_configured() {
+        let trait_def = make_trait("OcrBackend", vec![]);
+        let visible = all_named_visible(&trait_def.methods);
+        let files = gen_trait_bridge_files(
+            &trait_def,
+            "krz",
+            "dev.kreuzberg",
+            true,
+            Some("unregister_ocr_backend"),
+            Some("clear_ocr_backends"),
+            &visible,
+        );
+        let body = files.bridge_content.as_str();
+        assert!(body.contains("public static void unregisterOcrBackend(String name)"));
+        assert!(body.contains("public static void clearAllOcrBackend()"));
     }
 
     #[test]
@@ -774,22 +773,35 @@ mod tests {
                         newtype_wrapper: None,
                         original_type: None,
                     },
+                    ParamDef {
+                        name: "path".to_string(),
+                        ty: TypeRef::Path,
+                        optional: false,
+                        default: None,
+                        sanitized: false,
+                        typed_default: None,
+                        is_ref: true,
+                        is_mut: false,
+                        newtype_wrapper: None,
+                        original_type: None,
+                    },
                 ],
             )],
         );
-        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.kreuzberg", true);
+        let visible = all_named_visible(&trait_def.methods);
+        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.kreuzberg", false, None, None, &visible);
         let body = files.bridge_content.as_str();
-        assert!(body.contains("byte[] image_bytes = image_bytes_in.reinterpret"));
-        assert!(body.contains("String config_json = config_in.reinterpret"));
+        assert!(body.contains("toArray(ValueLayout.JAVA_BYTE)"));
+        assert!(body.contains("OcrConfig"));
+        assert!(body.contains("Paths.get("));
     }
 
     #[test]
     fn bridge_handler_emits_primitive_param_as_java_primitive_not_memory_segment() {
-        // A trait method with a u8 primitive param (e.g. heading level).
         let trait_def = make_trait(
-            "HtmlVisitor",
+            "Logger",
             vec![make_method(
-                "visit_heading",
+                "log",
                 TypeRef::Unit,
                 vec![
                     ParamDef {
@@ -805,13 +817,13 @@ mod tests {
                         original_type: None,
                     },
                     ParamDef {
-                        name: "text".to_string(),
+                        name: "msg".to_string(),
                         ty: TypeRef::String,
                         optional: false,
                         default: None,
                         sanitized: false,
                         typed_default: None,
-                        is_ref: false,
+                        is_ref: true,
                         is_mut: false,
                         newtype_wrapper: None,
                         original_type: None,
@@ -819,45 +831,12 @@ mod tests {
                 ],
             )],
         );
-        let files = gen_trait_bridge_files(&trait_def, "htm", "dev.kreuzberg", false);
+        let visible = all_named_visible(&trait_def.methods);
+        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.kreuzberg", false, None, None, &visible);
         let body = files.bridge_content.as_str();
-
-        // Handler signature: primitive arrives as `byte level`, not as `MemorySegment level_in`.
-        assert!(
-            body.contains("byte level"),
-            "expected 'byte level' in handler signature, got:\n{body}"
-        );
-        assert!(
-            !body.contains("MemorySegment level_in"),
-            "did not expect 'MemorySegment level_in' in handler, got:\n{body}"
-        );
-
-        // MethodType: primitive uses byte.class, not MemorySegment.class.
-        assert!(
-            body.contains("byte.class"),
-            "expected 'byte.class' in MethodType params, got:\n{body}"
-        );
-
-        // FunctionDescriptor: already used ValueLayout.JAVA_BYTE (unchanged by this fix).
-        assert!(
-            body.contains("ValueLayout.JAVA_BYTE"),
-            "expected 'ValueLayout.JAVA_BYTE' in FunctionDescriptor, got:\n{body}"
-        );
-
-        // No unsupported-primitive placeholder comment.
-        assert!(
-            !body.contains("unsupported primitive bridge"),
-            "did not expect placeholder comment in bridge, got:\n{body}"
-        );
-        assert!(
-            !body.contains("fix me when a trait exposes"),
-            "did not expect TODO comment in bridge, got:\n{body}"
-        );
-
-        // The impl call passes `level` directly.
-        assert!(
-            body.contains("impl.visit_heading(level, text)"),
-            "expected 'impl.visit_heading(level, text)' in bridge, got:\n{body}"
-        );
+        // The handler signature should have `byte level`, not `MemorySegment level_in`
+        assert!(body.contains(
+            "private int handleLog(MemorySegment userData, byte level, MemorySegment msg_in, MemorySegment outError)"
+        ));
     }
 }

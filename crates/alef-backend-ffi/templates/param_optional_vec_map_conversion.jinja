@@ -1,0 +1,20 @@
+let {{ rs_name }} = if {{ name }}.is_null() {
+        None
+    } else {
+        // SAFETY: null check above guarantees {{ name }} is a valid pointer; string is valid UTF-8 from caller.
+        match unsafe { CStr::from_ptr({{ name }}) }.to_str() {
+            Ok(s) => {
+                match serde_json::from_str{{ turbofish }}(s) {
+                    Ok(v) => Some(v),
+                    Err(e) => {
+                        set_last_error(2, &format!("Invalid JSON in parameter '{{ name }}': {}", e));
+                        {{ fail_ret }}
+                    }
+                }
+            }
+            Err(_) => {
+                set_last_error(1, "Invalid UTF-8 in parameter '{{ name }}'");
+                {{ fail_ret }}
+            }
+        }
+    };

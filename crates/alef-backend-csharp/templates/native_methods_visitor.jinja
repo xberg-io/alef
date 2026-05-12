@@ -1,0 +1,10 @@
+
+    // Visitor FFI (HtmlVisitorBridge)
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "{{ fn_bridge_new }}")]
+    internal static extern IntPtr HtmlVisitorBridgeNew(IntPtr vtable, IntPtr userData);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "{{ fn_bridge_free }}")]
+    internal static extern void HtmlVisitorBridgeFree(IntPtr bridge);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "{{ fn_options_set }}")]
+    internal static extern int ConversionOptionsSetVisitor(IntPtr options, IntPtr visitor);

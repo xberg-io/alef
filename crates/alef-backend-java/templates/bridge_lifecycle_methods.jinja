@@ -1,0 +1,21 @@
+    private MemorySegment handleName(MemorySegment userData) {
+        try {
+            return arena.allocateFrom(impl.name());
+        } catch (Throwable e) { return MemorySegment.NULL; }
+    }
+
+    private MemorySegment handleVersion(MemorySegment userData) {
+        try {
+            return arena.allocateFrom(impl.version());
+        } catch (Throwable e) { return MemorySegment.NULL; }
+    }
+
+    private int handleInitialize(MemorySegment userData, MemorySegment outError) {
+        try { impl.initialize(); return 0; }
+        catch (Throwable e) { writeError(outError, e); return 1; }
+    }
+
+    private int handleShutdown(MemorySegment userData, MemorySegment outError) {
+        try { impl.shutdown(); return 0; }
+        catch (Throwable e) { writeError(outError, e); return 1; }
+    }

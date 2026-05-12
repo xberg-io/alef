@@ -1,0 +1,16 @@
+{%- if doc_comment %}
+{{ doc_comment }}
+{% endif -%}
+{% if has_safety_doc -%}
+/// # Safety
+{{ safety_doc }}
+{% endif -%}
+{% if allow_clippy %}#[allow({{ allow_clippy }})]
+{% endif -%}
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn {{ fn_name }}(
+{% for param in params -%}
+{{ param }}{% if not loop.last %},
+{% endif %}
+{% endfor -%}
+){% if return_type %} -> {{ return_type }}{% endif %} {

@@ -1,6 +1,8 @@
 //! Shared code generation utilities for all language backends.
 //! Provides struct/enum/function generators, type mapping, and conversion helpers.
 
+pub(crate) mod template_env;
+
 pub mod builder;
 pub mod c_consumer;
 pub mod config_gen;

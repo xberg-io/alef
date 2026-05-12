@@ -1,0 +1,5 @@
+{% if optional -%}
+let {{ name }}_refs: Vec<&str> = {{ name }}.as_ref().map(|v| v.iter().map(|s| s.as_str()).collect()).unwrap_or_default();
+{%- else -%}
+let {{ name }}_refs: Vec<&str> = {{ name }}.iter().map(|s| s.as_str()).collect();
+{%- endif %}

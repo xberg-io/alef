@@ -1,0 +1,70 @@
+{#- C# test method template
+
+   Context variables:
+   - is_skipped: bool - whether to skip this test
+   - skip_reason: string - skip reason for [Fact(Skip = "...")]
+   - description: fixture description
+   - return_type: "async Task" or "void"
+   - method_name: test method name (PascalCase)
+   - async_kw: "await " or empty string
+   - call_target: target object for function call (class or client instance)
+   - setup_lines: array of setup statement strings
+   - call_expr: the function call expression
+   - expects_error: bool
+   - exception_class: exception class name to catch
+   - client_factory_setup: client factory setup code (or empty string)
+   - has_usable_assertion: bool - whether there's a result to assert on
+   - result_var: result variable name
+   - assertions_body: string containing all rendered assertions
+#}
+{%- if is_skipped %}
+    [Fact(Skip = "{{ skip_reason }}")]
+    public void Test_{{ method_name }}()
+    {
+        // {{ description }}
+    }
+{%- elif expects_error %}
+    [Fact]
+    public {{ return_type }} Test_{{ method_name }}()
+    {
+        // {{ description }}
+{% if client_factory_setup %}
+{{ client_factory_setup }}
+{% endif %}
+{% if return_type == "async Task" %}
+        await Assert.ThrowsAnyAsync<{{ exception_class }}>(async () =>
+        {
+{% for line in setup_lines %}
+            {{ line }}
+{% endfor %}
+            await {{ call_target }}.{{ call_expr }};
+        });
+{% else %}
+        Assert.ThrowsAny<{{ exception_class }}>(() =>
+        {
+{% for line in setup_lines %}
+            {{ line }}
+{% endfor %}
+            {{ call_target }}.{{ call_expr }};
+        });
+{% endif %}
+    }
+{%- else %}
+    [Fact]
+    public {{ return_type }} Test_{{ method_name }}()
+    {
+        // {{ description }}
+{% if client_factory_setup %}
+{{ client_factory_setup }}
+{% endif %}
+{% for line in setup_lines %}
+        {{ line }}
+{% endfor %}
+{% if has_usable_assertion %}
+        var {{ result_var }} = {{ async_kw }}{{ call_target }}.{{ call_expr }};
+{{ assertions_body }}
+{% else %}
+        {{ async_kw }}{{ call_target }}.{{ call_expr }};
+{% endif %}
+    }
+{%- endif %}

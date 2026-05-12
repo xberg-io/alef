@@ -45,6 +45,7 @@ impl NapiBackend {
             cast_large_ints_to_f64: false,
             named_non_opaque_params_by_ref: false,
             lossy_skip_types: &[],
+            serializable_opaque_type_names: &[],
         }
     }
 }
@@ -155,6 +156,21 @@ impl Backend for NapiBackend {
         // Build adapter body map before type iteration so bodies are available for method generation.
         let adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::Node)?;
 
+        // Map "OwnerType.method" -> streaming item type. The napi backend needs to
+        // override the IR-declared `String` return type with `Vec<{prefix}{item}>`
+        // for streaming adapters, since the generated body returns chunks directly
+        // as a JS array instead of a serialized JSON string.
+        let streaming_item_types: ahash::AHashMap<String, String> = config
+            .adapters
+            .iter()
+            .filter(|a| matches!(a.pattern, alef_core::config::AdapterPattern::Streaming))
+            .filter_map(|a| {
+                let owner = a.owner_type.as_deref()?;
+                let item = a.item_type.as_deref()?;
+                Some((format!("{owner}.{}", a.name), item.to_string()))
+            })
+            .collect();
+
         // JsVisitorRef: a thin wrapper around napi::Object that implements Clone.
         // This newtype makes Object<'static> work with napi(object) field derivations,
         // which require Clone. Uses std::sync::Arc to make the handle cheaply cloneable.
@@ -238,6 +254,7 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
                     &opaque_types,
                     &prefix,
                     &adapter_bodies,
+                    &streaming_item_types,
                 ));
             } else {
                 // Non-opaque structs use #[napi(object)] — plain JS objects without methods.
@@ -275,7 +292,20 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
                 continue;
             }
             let bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges);
-            let options_field_bridge = crate::trait_bridge::find_options_field_binding(func, &config.trait_bridges);
+            let options_field_bridge = crate::trait_bridge::find_options_field_binding(func, &config.trait_bridges)
+                // Only use the options-field path when the bridge field actually survives
+                // into the binding struct. If the core field is `#[cfg(...)]`-gated, the
+                // struct generator strips it and the generated bridge code would reference
+                // a missing field, producing `E0609 no field` at compile time.
+                .filter(|(_, bridge_cfg)| {
+                    let Some(field_name) = bridge_cfg.resolved_options_field() else { return false; };
+                    let Some(options_type) = bridge_cfg.options_type.as_deref() else { return false; };
+                    api.types
+                        .iter()
+                        .filter(|t| t.name == options_type)
+                        .flat_map(|t| t.fields.iter())
+                        .any(|f| f.cfg.is_none() && f.name == field_name)
+                });
             // Skip sanitized functions when there's no trait bridge that can replace the
             // sanitized parameter — such functions cannot be auto-delegated. Functions
             // whose only "sanitized" param is a configured trait_bridge param (e.g.
@@ -351,6 +381,9 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
             // for opaque-type fields (e.g. visitor: Object<'static>) instead of trying to
             // convert them via Into — these fields are handled separately via bridge code.
             opaque_types: Some(&opaque_types),
+            // Json fields are stored as serde_json::Value in the binding so JS
+            // callers can pass objects/arrays/scalars directly.
+            json_as_value: true,
             ..Default::default()
         };
         // From/Into conversions using shared parameterized generators
@@ -374,7 +407,9 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
             }
         }
         for e in &api.enums {
-            let is_tagged_data_enum = e.serde_tag.is_some() && e.variants.iter().any(|v| !v.fields.is_empty());
+            let has_data_variants = e.variants.iter().any(|v| !v.fields.is_empty());
+            let is_tagged_data_enum = e.serde_tag.is_some() && has_data_variants;
+            let is_untagged_data_enum = e.serde_untagged && has_data_variants;
             if is_tagged_data_enum {
                 // Tagged data enums use flattened struct — generate custom conversions
                 builder.add_item(&methods::gen_tagged_enum_binding_to_core(
@@ -388,6 +423,28 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
                     &core_import,
                     &prefix,
                     &struct_names,
+                ));
+            } else if is_untagged_data_enum {
+                // Untagged data enums are wrapped around serde_json::Value — bridge via serde.
+                let binding_name = format!("{prefix}{}", e.name);
+                let core_path = alef_codegen::conversions::core_enum_path_remapped(
+                    e,
+                    &core_import,
+                    napi_conv_config.source_crate_remaps,
+                );
+                builder.add_item(&format!(
+                    "impl From<{binding_name}> for {core_path} {{\n    \
+                         fn from(val: {binding_name}) -> Self {{\n        \
+                             serde_json::from_value(val.0).unwrap_or_default()\n    \
+                         }}\n\
+                     }}\n"
+                ));
+                builder.add_item(&format!(
+                    "impl From<{core_path}> for {binding_name} {{\n    \
+                         fn from(val: {core_path}) -> Self {{\n        \
+                             Self(serde_json::to_value(val).unwrap_or_default())\n    \
+                         }}\n\
+                     }}\n"
                 ));
             } else {
                 if input_types.contains(&e.name) && alef_codegen::conversions::can_generate_enum_conversion(e) {

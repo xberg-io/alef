@@ -1,0 +1,90 @@
+{%- if assertion_type == "equals" -%}
+{%- if java_val == "" -%}
+{#- value: null in fixture; the Optional wrapper should be empty (underlying @Nullable was null) -#}
+        assertTrue({{ field_expr|replace(".orElse(\"\")", "")|replace(".orElse(0L)", "") }}.isEmpty(), "expected null");
+{%- elif is_string_val -%}
+        assertEquals({{ java_val }}, {{ string_expr }}.trim());
+{%- elif is_numeric_val and ".orElse(\"\")" in field_expr -%}
+        assertEquals({{ java_val }}, {{ field_expr|replace(".orElse(\"\")", ".orElse(0L)") }});
+{%- else -%}
+        assertEquals({{ java_val }}, {{ field_expr }});
+{%- endif -%}
+{%- elif assertion_type == "contains" -%}
+{%- if field_is_array -%}
+        assertTrue({{ string_expr }}.toString().contains({{ java_val }}), "expected to contain: " + {{ java_val }});
+{%- else -%}
+        assertTrue({{ string_expr }}.contains({{ java_val }}), "expected to contain: " + {{ java_val }});
+{%- endif -%}
+{%- elif assertion_type == "contains_all" -%}
+{%- for val in values_java -%}
+{%- if field_is_array -%}
+        assertTrue({{ string_expr }}.toString().contains({{ val }}), "expected to contain: " + {{ val }});
+{%- else -%}
+        assertTrue({{ string_expr }}.contains({{ val }}), "expected to contain: " + {{ val }});
+{%- endif -%}
+{%- endfor -%}
+{%- elif assertion_type == "not_contains" -%}
+{%- if field_is_array -%}
+        assertFalse({{ string_expr }}.toString().contains({{ java_val }}), "expected NOT to contain: " + {{ java_val }});
+{%- else -%}
+        assertFalse({{ string_expr }}.contains({{ java_val }}), "expected NOT to contain: " + {{ java_val }});
+{%- endif -%}
+{%- elif assertion_type == "not_empty" -%}
+        assertFalse({{ field_expr }}.isEmpty(), "expected non-empty value");
+{%- elif assertion_type == "is_empty" -%}
+        assertTrue({{ field_expr }}.isEmpty(), "expected empty value");
+{%- elif assertion_type == "contains_any" -%}
+        assertTrue({{ contains_any_expr }}, "expected to contain at least one of the specified values");
+{%- elif assertion_type == "greater_than" -%}
+        assertTrue({{ field_expr }} > {{ java_val }}, "expected > {{ java_val }}");
+{%- elif assertion_type == "less_than" -%}
+        assertTrue({{ field_expr }} < {{ java_val }}, "expected < {{ java_val }}");
+{%- elif assertion_type == "greater_than_or_equal" -%}
+        assertTrue({{ field_expr }} >= {{ java_val }}, "expected >= {{ java_val }}");
+{%- elif assertion_type == "less_than_or_equal" -%}
+        assertTrue({{ field_expr }} <= {{ java_val }}, "expected <= {{ java_val }}");
+{%- elif assertion_type == "starts_with" -%}
+        assertTrue({{ string_expr }}.startsWith({{ java_val }}), "expected to start with: " + {{ java_val }});
+{%- elif assertion_type == "ends_with" -%}
+        assertTrue({{ string_expr }}.endsWith({{ java_val }}), "expected to end with: " + {{ java_val }});
+{%- elif assertion_type == "min_length" -%}
+        assertTrue({{ length_expr }} >= {{ n }}, "expected length >= {{ n }}");
+{%- elif assertion_type == "max_length" -%}
+        assertTrue({{ length_expr }} <= {{ n }}, "expected length <= {{ n }}");
+{%- elif assertion_type == "count_min" -%}
+        assertTrue({{ field_expr }}.size() >= {{ n }}, "expected at least {{ n }} elements");
+{%- elif assertion_type == "count_equals" -%}
+        assertEquals({{ n }}, {{ field_expr }}.size(), "expected exactly {{ n }} elements");
+{%- elif assertion_type == "is_true" -%}
+        assertTrue({{ field_expr }}, "expected true");
+{%- elif assertion_type == "is_false" -%}
+        assertFalse({{ field_expr }}, "expected false");
+{%- elif assertion_type == "method_result" -%}
+{%- if check == "equals" -%}
+{%- if is_bool_val -%}
+{%- if bool_is_true -%}
+        assertTrue({{ call_expr }});
+{%- else -%}
+        assertFalse({{ call_expr }});
+{%- endif -%}
+{%- elif method_returns_collection -%}
+        assertEquals({{ java_val }}, {{ call_expr }}.size());
+{%- else -%}
+        assertEquals({{ java_val }}, {{ call_expr }});
+{%- endif -%}
+{%- elif check == "is_true" -%}
+        assertTrue({{ call_expr }});
+{%- elif check == "is_false" -%}
+        assertFalse({{ call_expr }});
+{%- elif check == "greater_than_or_equal" -%}
+        assertTrue({{ call_expr }} >= {{ check_n }}, "expected >= {{ check_n }}");
+{%- elif check == "count_min" -%}
+        assertTrue({{ call_expr }}.size() >= {{ check_n }}, "expected at least {{ check_n }} elements");
+{%- elif check == "is_error" -%}
+        assertThrows(Exception.class, () -> { {{ call_expr }}; });
+{%- elif check == "contains" -%}
+        assertTrue({{ call_expr }}.contains({{ java_val }}), "expected to contain: " + {{ java_val }});
+{%- endif -%}
+{%- elif assertion_type == "matches_regex" -%}
+        assertTrue({{ string_expr }}.matches({{ java_val }}), "expected value to match regex: " + {{ java_val }});
+{%- endif -%}

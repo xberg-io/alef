@@ -1,0 +1,24 @@
+impl From<{{ binding_name }}> for {{ core_path }} {
+    fn from(val: {{ binding_name }}) -> Self {
+        match val.{{ tag_field }}_tag.as_str() {
+{%- for variant in variants %}
+    {%- if variant.is_empty %}
+            "{{ variant.tag_value }}" => Self::{{ variant.name }},
+    {%- elif variant.is_tuple %}
+            "{{ variant.tag_value }}" => Self::{{ variant.name }}({{ variant.field_exprs | join(", ") }}),
+    {%- else %}
+            "{{ variant.tag_value }}" => Self::{{ variant.name }} { {{ variant.field_inits | join(", ") }} },
+    {%- endif %}
+{%- endfor %}
+{%- if default_variant %}
+    {%- if default_variant.is_empty %}
+            _ => Self::{{ default_variant.name }},
+    {%- elif default_variant.is_tuple %}
+            _ => Self::{{ default_variant.name }}({{ default_variant.defaults | join(", ") }}),
+    {%- else %}
+            _ => Self::{{ default_variant.name }} { {{ default_variant.default_fields | join(", ") }} },
+    {%- endif %}
+{%- endif %}
+        }
+    }
+}

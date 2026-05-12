@@ -1,0 +1,11 @@
+{%- if has_too_many_args %}
+#[allow(clippy::too_many_arguments)]
+{%- endif %}
+#[must_use]
+{%- if needs_signature %}
+{{ signature_prefix }}{{ sig_defaults }}{{ signature_suffix }}
+{%- endif %}
+{{ constructor_attr }}
+pub fn new({{ param_list }}) -> Self {
+    Self { {{ assignments }} }
+}

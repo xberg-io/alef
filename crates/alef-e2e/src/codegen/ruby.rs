@@ -7,7 +7,9 @@ use crate::codegen::resolve_field;
 use crate::config::E2eConfig;
 use crate::escape::{ruby_string_literal, ruby_template_to_interpolation, sanitize_filename, sanitize_ident};
 use crate::field_access::FieldResolver;
-use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup, ValidationErrorExpectation};
+use crate::fixture::{
+    Assertion, CallbackAction, Fixture, FixtureGroup, TemplateReturnForm, ValidationErrorExpectation,
+};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::ResolvedCrateConfig;
 use alef_core::hash::{self, CommentStyle};
@@ -30,6 +32,7 @@ impl E2eCodegen for RubyCodegen {
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
         config: &ResolvedCrateConfig,
+        _type_defs: &[alef_core::ir::TypeDef],
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
         let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
@@ -83,11 +86,14 @@ impl E2eCodegen for RubyCodegen {
         });
 
         // Check if any fixture is an HTTP test (needs mock server bootstrap).
-        let has_http_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.is_http_test());
+        let has_http_fixtures = groups
+            .iter()
+            .flat_map(|g| g.fixtures.iter())
+            .any(|f| f.needs_mock_server());
 
         // Check if any fixture uses file_path or bytes args (needs chdir to test_documents).
         let has_file_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| {
-            let cc = e2e_config.resolve_call(f.call.as_deref());
+            let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
             cc.args
                 .iter()
                 .any(|a| a.arg_type == "file_path" || a.arg_type == "bytes")
@@ -97,7 +103,11 @@ impl E2eCodegen for RubyCodegen {
         if has_file_fixtures || has_http_fixtures {
             files.push(GeneratedFile {
                 path: output_base.join("spec").join("spec_helper.rb"),
-                content: render_spec_helper(has_file_fixtures, has_http_fixtures),
+                content: render_spec_helper(
+                    has_file_fixtures,
+                    has_http_fixtures,
+                    &e2e_config.test_documents_relative_from(1),
+                ),
                 generated_header: true,
             });
         }
@@ -187,44 +197,48 @@ fn render_gemfile(
         crate::config::DependencyMode::Registry => format!("gem '{gem_name}', '{gem_version}'"),
         crate::config::DependencyMode::Local => format!("gem '{gem_name}', path: '{gem_path}'"),
     };
-    format!(
-        "# frozen_string_literal: true\n\
-         \n\
-         source 'https://rubygems.org'\n\
-         \n\
-         {gem_line}\n\
-         gem 'rspec', '{rspec}'\n\
-         gem 'rubocop', '{rubocop}'\n\
-         gem 'rubocop-rspec', '{rubocop_rspec}'\n\
-         gem 'faraday', '{faraday}'\n",
-        rspec = tv::gem::RSPEC_E2E,
-        rubocop = tv::gem::RUBOCOP_E2E,
-        rubocop_rspec = tv::gem::RUBOCOP_RSPEC_E2E,
-        faraday = tv::gem::FARADAY,
+    crate::template_env::render(
+        "ruby/Gemfile.jinja",
+        minijinja::context! {
+            gem_line => gem_line,
+            rspec => tv::gem::RSPEC_E2E,
+            rubocop => tv::gem::RUBOCOP_E2E,
+            rubocop_rspec => tv::gem::RUBOCOP_RSPEC_E2E,
+            faraday => tv::gem::FARADAY,
+        },
     )
 }
 
-fn render_spec_helper(has_file_fixtures: bool, has_http_fixtures: bool) -> String {
+fn render_spec_helper(has_file_fixtures: bool, has_http_fixtures: bool, test_documents_path: &str) -> String {
     let header = hash::header(CommentStyle::Hash);
     let mut out = header;
     out.push_str("# frozen_string_literal: true\n");
 
     if has_file_fixtures {
-        out.push_str(
-            r#"
-# Change to the test_documents directory so that fixture file paths like
-# "pdf/fake_memo.pdf" resolve correctly when running rspec from e2e/ruby/.
-# spec_helper.rb lives in e2e/ruby/spec/; test_documents lives at the
-# repository root, three directories up: spec/ -> e2e/ruby/ -> e2e/ -> root.
-_test_documents = File.expand_path('../../../test_documents', __dir__)
-Dir.chdir(_test_documents) if Dir.exist?(_test_documents)
-"#,
+        let _ = writeln!(out);
+        let _ = writeln!(
+            out,
+            "# Change to the configured test-documents directory so that fixture file paths like"
         );
+        let _ = writeln!(
+            out,
+            "# \"pdf/fake_memo.pdf\" resolve correctly when running rspec from e2e/ruby/."
+        );
+        let _ = writeln!(
+            out,
+            "# spec_helper.rb lives in e2e/ruby/spec/; the fixtures dir resolves three directories up."
+        );
+        let _ = writeln!(
+            out,
+            "_test_documents = File.expand_path('{test_documents_path}', __dir__)"
+        );
+        let _ = writeln!(out, "Dir.chdir(_test_documents) if Dir.exist?(_test_documents)");
     }
 
     if has_http_fixtures {
         out.push_str(
             r#"
+require 'json'
 require 'open3'
 
 # Spawn the mock-server binary and set MOCK_SERVER_URL for all tests.
@@ -236,8 +250,24 @@ RSpec.configure do |config|
       warn "mock-server binary not found at #{bin} — run: cargo build --manifest-path e2e/rust/Cargo.toml --bin mock-server --release"
     end
     stdin, stdout, _stderr, _wait = Open3.popen3(bin, fixtures_dir)
-    url = stdout.readline.strip.split('=', 2).last
-    ENV['MOCK_SERVER_URL'] = url
+    # Read startup lines: MOCK_SERVER_URL= then optional MOCK_SERVERS=.
+    url = nil
+    8.times do
+      line = stdout.readline.strip rescue break
+      if line.start_with?('MOCK_SERVER_URL=')
+        url = line.split('=', 2).last
+        ENV['MOCK_SERVER_URL'] = url
+      elsif line.start_with?('MOCK_SERVERS=')
+        json_val = line.split('=', 2).last
+        ENV['MOCK_SERVERS'] = json_val
+        JSON.parse(json_val).each do |fid, furl|
+          ENV["MOCK_SERVER_#{fid.upcase}"] = furl
+        end
+        break
+      elsif url
+        break
+      end
+    end
     # Drain stdout in background.
     Thread.new { stdout.read }
     # Store stdin so we can close it on teardown.
@@ -256,44 +286,7 @@ end
 }
 
 fn render_rubocop_yaml() -> String {
-    r#"# Generated by alef e2e — do not edit.
-AllCops:
-  NewCops: enable
-  TargetRubyVersion: 3.2
-  SuggestExtensions: false
-
-plugins:
-  - rubocop-rspec
-
-# --- Justified suppressions for generated test code ---
-
-# Generated tests are verbose by nature (setup + multiple assertions).
-Metrics/BlockLength:
-  Enabled: false
-Metrics/MethodLength:
-  Enabled: false
-Layout/LineLength:
-  Enabled: false
-
-# Generated tests use multiple assertions per example for thorough verification.
-RSpec/MultipleExpectations:
-  Enabled: false
-RSpec/ExampleLength:
-  Enabled: false
-
-# Generated tests describe categories as strings, not classes.
-RSpec/DescribeClass:
-  Enabled: false
-
-# Fixture-driven tests may produce identical assertion bodies for different inputs.
-RSpec/RepeatedExample:
-  Enabled: false
-
-# Error-handling tests use bare raise_error (exception type not known at generation time).
-RSpec/UnspecifiedException:
-  Enabled: false
-"#
-    .to_string()
+    crate::template_env::render("ruby/rubocop.yml.jinja", minijinja::context! {})
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -317,32 +310,21 @@ fn render_spec_file(
         .get("ruby")
         .and_then(|o| o.client_factory.as_deref());
 
-    let mut out = String::new();
-    out.push_str(&hash::header(CommentStyle::Hash));
-    let _ = writeln!(out, "# frozen_string_literal: true");
-    let _ = writeln!(out);
-
-    // Require the gem (single quotes).
+    // Build requires list
     let require_name = if module_path.is_empty() { gem_name } else { module_path };
-    let _ = writeln!(out, "require '{}'", require_name.replace('-', "_"));
-    let _ = writeln!(out, "require 'json'");
+    let mut requires = vec![require_name.replace('-', "_"), "json".to_string()];
 
     let has_http = fixtures.iter().any(|f| f.is_http_test());
     if needs_spec_helper || has_http {
-        // spec_helper sets up Dir.chdir and/or mock server.
-        let _ = writeln!(out, "require_relative 'spec_helper'");
+        requires.push("spec_helper".to_string());
     }
-    let _ = writeln!(out);
 
     // Build the Ruby module/class qualifier for calls.
     let call_receiver = class_name
         .map(|s| s.to_string())
         .unwrap_or_else(|| ruby_module_name(module_path));
 
-    let _ = writeln!(out, "RSpec.describe '{}' do", category);
-
-    // Emit a shared helper for array field contains assertions — extracts text
-    // representations from each item so `.include?` works on struct arrays.
+    // Check for array contains assertions
     let has_array_contains = fixtures.iter().any(|fixture| {
         fixture.assertions.iter().any(|a| {
             matches!(a.assertion_type.as_str(), "contains" | "contains_all" | "not_contains")
@@ -351,116 +333,116 @@ fn render_spec_file(
                     .is_some_and(|f| !f.is_empty() && field_resolver.is_array(field_resolver.resolve(f)))
         })
     });
-    if has_array_contains {
-        let _ = writeln!(out);
-        let _ = writeln!(out, "  def alef_e2e_item_texts(item)");
-        let _ = writeln!(
-            out,
-            "    [:kind, :name, :signature, :path, :alias, :text, :source].filter_map do |attr|"
-        );
-        let _ = writeln!(out, "      item.respond_to?(attr) ? item.send(attr).to_s : nil");
-        let _ = writeln!(out, "    end");
-        let _ = writeln!(out, "  end");
-    }
 
-    // Emit a shared client helper when there are HTTP tests.
-    if has_http {
-        let _ = writeln!(
-            out,
-            "  let(:mock_server_url) {{ ENV.fetch('MOCK_SERVER_URL', 'http://localhost:8080') }}"
-        );
-        let _ = writeln!(out);
-    }
-
-    let mut first = true;
+    // Build examples
+    let mut examples = Vec::new();
     for fixture in fixtures {
-        if !first {
-            let _ = writeln!(out);
-        }
-        first = false;
-
         if fixture.http.is_some() {
+            // HTTP example is handled separately (uses shared driver)
+            let mut out = String::new();
             render_http_example(&mut out, fixture);
+            examples.push(out);
         } else {
-            // Non-HTTP fixtures that have no usable assertions:
-            // - if they carry a not_error assertion, emit expect { }.not_to raise_error
-            // - otherwise emit a pending skip
+            // Resolve per-fixture call config so we can detect streaming up front.
+            let fixture_call = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
+            let fixture_call_overrides = fixture_call.overrides.get("ruby");
+            let raw_function_name = fixture_call_overrides
+                .and_then(|o| o.function.as_ref())
+                .cloned()
+                .unwrap_or_else(|| fixture_call.function.clone());
+
             let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
             let has_not_error = fixture.assertions.iter().any(|a| a.assertion_type == "not_error");
             let has_usable = has_usable_assertion(fixture, field_resolver, result_is_simple);
-            if !expects_error && !has_usable {
+            let is_streaming = raw_function_name == "chat_stream";
+
+            // Non-HTTP, non-streaming fixtures with no usable assertions stay pending.
+            // A fixture whose only assertion is `not_error` is still testable — it
+            // verifies the call does not raise, so route it to render_example.
+            if !expects_error && !has_usable && !has_not_error && !is_streaming {
                 let test_name = sanitize_ident(&fixture.id);
                 let description = fixture.description.replace('\'', "\\'");
-                if has_not_error {
-                    let fixture_call = e2e_config.resolve_call(fixture.call.as_deref());
-                    let fixture_call_overrides = fixture_call.overrides.get("ruby");
-                    let fixture_function_name = fixture_call_overrides
-                        .and_then(|o| o.function.as_ref())
-                        .cloned()
-                        .unwrap_or_else(|| fixture_call.function.clone());
-                    let fixture_args = &fixture_call.args;
-                    let fixture_options_type = fixture_call_overrides
-                        .and_then(|o| o.options_type.as_deref())
-                        .or(options_type);
-                    let (setup_lines, args_str) = build_args_and_setup(
-                        &fixture.input,
-                        fixture_args,
-                        &call_receiver,
-                        fixture_options_type,
-                        enum_fields,
-                        result_is_simple,
-                        &fixture.id,
-                    );
-                    let call_expr = format!("{call_receiver}.{fixture_function_name}({args_str})");
-                    let _ = writeln!(out, "  it '{test_name}: {description}' do");
-                    for line in &setup_lines {
-                        let _ = writeln!(out, "    {line}");
-                    }
-                    let _ = writeln!(out, "    expect {{ {call_expr} }}.not_to raise_error");
-                    let _ = writeln!(out, "  end");
-                } else {
-                    let _ = writeln!(out, "  it '{test_name}: {description}' do");
-                    let _ = writeln!(out, "    skip 'Non-HTTP fixture cannot be tested via Net::HTTP'");
-                    let _ = writeln!(out, "  end");
-                }
+                let mut out = String::new();
+                out.push_str(&format!("  it '{test_name}: {description}' do\n"));
+                out.push_str("    skip 'Non-HTTP fixture cannot be tested via Net::HTTP'\n");
+                out.push_str("  end\n");
+                examples.push(out);
             } else {
-                // Resolve per-fixture call config (supports named calls via fixture.call field).
-                let fixture_call = e2e_config.resolve_call(fixture.call.as_deref());
-                let fixture_call_overrides = fixture_call.overrides.get("ruby");
-                let fixture_function_name = fixture_call_overrides
-                    .and_then(|o| o.function.as_ref())
-                    .cloned()
-                    .unwrap_or_else(|| fixture_call.function.clone());
+                // Streaming methods do not take the `_async` suffix — Magnus emits
+                // `chat_stream` as a block-yielding method. All other async Rust
+                // methods are bound with the `_async` suffix.
+                let fixture_function_name = if is_streaming {
+                    raw_function_name
+                } else if fixture_call.r#async && !raw_function_name.ends_with("_async") {
+                    format!("{raw_function_name}_async")
+                } else {
+                    raw_function_name
+                };
                 let fixture_result_var = &fixture_call.result_var;
                 let fixture_args = &fixture_call.args;
-                // Per-fixture client_factory: prefer fixture-level override, then default.
                 let fixture_client_factory = fixture_call_overrides
                     .and_then(|o| o.client_factory.as_deref())
                     .or(client_factory);
-                // Per-fixture options_type: prefer fixture-level override, then global default.
                 let fixture_options_type = fixture_call_overrides
                     .and_then(|o| o.options_type.as_deref())
                     .or(options_type);
-                render_example(
-                    &mut out,
-                    fixture,
-                    &fixture_function_name,
-                    &call_receiver,
-                    fixture_result_var,
-                    fixture_args,
-                    field_resolver,
-                    fixture_options_type,
-                    enum_fields,
-                    result_is_simple,
-                    e2e_config,
-                    fixture_client_factory,
-                );
+
+                let fixture_extra_args: Vec<String> =
+                    fixture_call_overrides.map(|o| o.extra_args.clone()).unwrap_or_default();
+                // Use per-fixture-call result_is_simple so per-call overrides like
+                // `speech` (returns bytes) take precedence over the top-level call default.
+                let fixture_result_is_simple =
+                    fixture_call.result_is_simple || fixture_call_overrides.is_some_and(|o| o.result_is_simple);
+                // Per-call enum_fields take precedence — e.g. `[crates.e2e.calls.create_batch.overrides.ruby] enum_fields`
+                // labels `status = "BatchStatus"` for the batch lifecycle, but the global
+                // `[crates.e2e.call.overrides.ruby]` map only carries chat-shape entries.
+                let fixture_enum_fields: &HashMap<String, String> =
+                    fixture_call_overrides.map(|o| &o.enum_fields).unwrap_or(enum_fields);
+                let example = if is_streaming {
+                    render_chat_stream_example(
+                        fixture,
+                        &fixture_function_name,
+                        &call_receiver,
+                        fixture_args,
+                        fixture_options_type,
+                        fixture_enum_fields,
+                        e2e_config,
+                        fixture_client_factory,
+                        &fixture_extra_args,
+                    )
+                } else {
+                    render_example(
+                        fixture,
+                        &fixture_function_name,
+                        &call_receiver,
+                        fixture_result_var,
+                        fixture_args,
+                        field_resolver,
+                        fixture_options_type,
+                        fixture_enum_fields,
+                        fixture_result_is_simple,
+                        e2e_config,
+                        fixture_client_factory,
+                        &fixture_extra_args,
+                    )
+                };
+                examples.push(example);
             }
         }
     }
 
-    let _ = writeln!(out, "end");
-    out
+    let header = hash::header(CommentStyle::Hash);
+    crate::template_env::render(
+        "ruby/test_file.jinja",
+        minijinja::context! {
+            category => category,
+            requires => requires,
+            has_array_contains => has_array_contains,
+            has_http => has_http,
+            examples => examples,
+            header => header,
+        },
+    )
 }
 
 /// Check if a fixture has at least one assertion that will produce an executable
@@ -514,55 +496,65 @@ impl client::TestClientRenderer for RubyTestClientRenderer {
     /// the shared driver short-circuits before emitting any assertions.
     fn render_test_open(&self, out: &mut String, fn_name: &str, description: &str, skip_reason: Option<&str>) {
         let escaped_description = description.replace('\'', "\\'");
-        let _ = writeln!(out, "  describe '{fn_name}' do");
-        if let Some(reason) = skip_reason {
-            let _ = writeln!(out, "    it '{escaped_description}' do");
-            let _ = writeln!(out, "      skip '{reason}'");
-            // NB: the shared driver calls render_test_close immediately after render_test_open
-            // for skipped fixtures, so the closing `end`s are emitted there.
-        } else {
-            let _ = writeln!(out, "    it '{escaped_description}' do");
-        }
+        let rendered = crate::template_env::render(
+            "ruby/http_test.jinja",
+            minijinja::context! {
+                fn_name => fn_name,
+                description => escaped_description,
+                skip_reason => skip_reason,
+            },
+        );
+        out.push_str(&rendered);
     }
 
     /// Close the inner `it` block and the outer `describe` block.
     fn render_test_close(&self, out: &mut String) {
-        let _ = writeln!(out, "    end");
-        let _ = writeln!(out, "  end");
+        let rendered = crate::template_env::render("ruby/http_test_close.jinja", minijinja::context! {});
+        out.push_str(&rendered);
     }
 
     /// Emit a `Net::HTTP` request to the mock server using the path from `ctx`.
     fn render_call(&self, out: &mut String, ctx: &client::CallCtx<'_>) {
         let method = ctx.method.to_uppercase();
         let method_class = http_method_class(&method);
-        let _ = writeln!(out, "      require 'net/http'");
-        let _ = writeln!(out, "      require 'uri'");
-        let _ = writeln!(out, "      require 'json'");
-        let _ = writeln!(out, "      _uri = URI.parse(\"#{{mock_server_url}}{}\")", ctx.path);
-        let _ = writeln!(out, "      _http = Net::HTTP.new(_uri.host, _uri.port)");
-        let _ = writeln!(out, "      _http.use_ssl = _uri.scheme == 'https'");
-        let _ = writeln!(out, "      _req = Net::HTTP::{method_class}.new(_uri.request_uri)");
 
         let has_body = ctx
             .body
             .is_some_and(|b| !matches!(b, serde_json::Value::String(s) if s.is_empty()));
-        if has_body {
-            let ruby_body = json_to_ruby(ctx.body.unwrap());
-            let _ = writeln!(out, "      _req.body = {ruby_body}.to_json");
-            let _ = writeln!(out, "      _req['Content-Type'] = 'application/json'");
-        }
 
-        for (k, v) in ctx.headers {
-            // Skip Content-Type when already set from the body above.
-            if has_body && k.to_lowercase() == "content-type" {
-                continue;
-            }
-            let rk = ruby_string_literal(k);
-            let rv = ruby_string_literal(v);
-            let _ = writeln!(out, "      _req[{rk}] = {rv}");
-        }
+        let ruby_body = if has_body {
+            json_to_ruby(ctx.body.unwrap())
+        } else {
+            String::new()
+        };
 
-        let _ = writeln!(out, "      {} = _http.request(_req)", ctx.response_var);
+        let headers: Vec<minijinja::Value> = ctx
+            .headers
+            .iter()
+            .filter(|(k, _)| {
+                // Skip Content-Type when already set from the body above.
+                !(has_body && k.to_lowercase() == "content-type")
+            })
+            .map(|(k, v)| {
+                minijinja::context! {
+                    key_literal => ruby_string_literal(k),
+                    value_literal => ruby_string_literal(v),
+                }
+            })
+            .collect();
+
+        let rendered = crate::template_env::render(
+            "ruby/http_request.jinja",
+            minijinja::context! {
+                method_class => method_class,
+                path => ctx.path,
+                has_body => has_body,
+                ruby_body => ruby_body,
+                headers => headers,
+                response_var => ctx.response_var,
+            },
+        );
+        out.push_str(&rendered);
     }
 
     /// Emit `expect(response.code.to_i).to eq(status)`.
@@ -570,7 +562,7 @@ impl client::TestClientRenderer for RubyTestClientRenderer {
     /// Net::HTTP returns the HTTP status as a `String`; `.to_i` converts it for
     /// comparison with the integer literal from the fixture.
     fn render_assert_status(&self, out: &mut String, response_var: &str, status: u16) {
-        let _ = writeln!(out, "      expect({response_var}.code.to_i).to eq({status})");
+        out.push_str(&format!("      expect({response_var}.code.to_i).to eq({status})\n"));
     }
 
     /// Emit a header assertion using `response[header_key]`.
@@ -579,24 +571,24 @@ impl client::TestClientRenderer for RubyTestClientRenderer {
     fn render_assert_header(&self, out: &mut String, response_var: &str, name: &str, expected: &str) {
         let header_key = name.to_lowercase();
         let header_expr = format!("{response_var}[{}]", ruby_string_literal(&header_key));
-        match expected {
+        let assertion = match expected {
             "<<present>>" => {
-                let _ = writeln!(out, "      expect({header_expr}).not_to be_nil");
+                format!("      expect({header_expr}).not_to be_nil\n")
             }
             "<<absent>>" => {
-                let _ = writeln!(out, "      expect({header_expr}).to be_nil");
+                format!("      expect({header_expr}).to be_nil\n")
             }
             "<<uuid>>" => {
-                let _ = writeln!(
-                    out,
-                    "      expect({header_expr}).to match(/\\A[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}}\\z/i)"
-                );
+                format!(
+                    "      expect({header_expr}).to match(/\\A[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}}\\z/i)\n"
+                )
             }
             literal => {
                 let ruby_val = ruby_string_literal(literal);
-                let _ = writeln!(out, "      expect({header_expr}).to eq({ruby_val})");
+                format!("      expect({header_expr}).to eq({ruby_val})\n")
             }
-        }
+        };
+        out.push_str(&assertion);
     }
 
     /// Emit a full JSON body equality assertion.
@@ -607,15 +599,14 @@ impl client::TestClientRenderer for RubyTestClientRenderer {
         match expected {
             serde_json::Value::String(s) => {
                 let ruby_val = ruby_string_literal(s);
-                let _ = writeln!(out, "      expect({response_var}.body).to eq({ruby_val})");
+                out.push_str(&format!("      expect({response_var}.body).to eq({ruby_val})\n"));
             }
             _ => {
                 let ruby_val = json_to_ruby(expected);
-                let _ = writeln!(
-                    out,
-                    "      _body = {response_var}.body && !{response_var}.body.empty? ? JSON.parse({response_var}.body) : nil"
-                );
-                let _ = writeln!(out, "      expect(_body).to eq({ruby_val})");
+                out.push_str(&format!(
+                    "      _body = {response_var}.body && !{response_var}.body.empty? ? JSON.parse({response_var}.body) : nil\n"
+                ));
+                out.push_str(&format!("      expect(_body).to eq({ruby_val})\n"));
             }
         }
     }
@@ -623,11 +614,11 @@ impl client::TestClientRenderer for RubyTestClientRenderer {
     /// Emit partial body assertions: one `expect(_body[key]).to eq(val)` per field.
     fn render_assert_partial_body(&self, out: &mut String, response_var: &str, expected: &serde_json::Value) {
         if let Some(obj) = expected.as_object() {
-            let _ = writeln!(out, "      _body = JSON.parse({response_var}.body)");
+            out.push_str(&format!("      _body = JSON.parse({response_var}.body)\n"));
             for (key, val) in obj {
                 let ruby_key = ruby_string_literal(key);
                 let ruby_val = json_to_ruby(val);
-                let _ = writeln!(out, "      expect(_body[{ruby_key}]).to eq({ruby_val})");
+                out.push_str(&format!("      expect(_body[{ruby_key}]).to eq({ruby_val})\n"));
             }
         }
     }
@@ -642,12 +633,11 @@ impl client::TestClientRenderer for RubyTestClientRenderer {
     ) {
         for err in errors {
             let msg_lit = ruby_string_literal(&err.msg);
-            let _ = writeln!(out, "      _body = JSON.parse({response_var}.body)");
-            let _ = writeln!(out, "      _errors = _body['errors'] || []");
-            let _ = writeln!(
-                out,
-                "      expect(_errors.map {{ |e| e['msg'] }}).to include({msg_lit})"
-            );
+            out.push_str(&format!("      _body = JSON.parse({response_var}.body)\n"));
+            out.push_str("      _errors = _body['errors'] || []\n");
+            out.push_str(&format!(
+                "      expect(_errors.map {{ |e| e['msg'] }}).to include({msg_lit})\n"
+            ));
         }
     }
 }
@@ -670,14 +660,15 @@ fn render_http_example(out: &mut String, fixture: &Fixture) {
             let description = fixture.description.replace('\'', "\\'");
             let method = http.request.method.to_uppercase();
             let path = &http.request.path;
-            let _ = writeln!(out, "  describe '{method} {path}' do");
-            let _ = writeln!(out, "    it '{description}' do");
-            let _ = writeln!(
-                out,
-                "      skip 'HTTP 101 WebSocket upgrade cannot be tested via Net::HTTP'"
+            let rendered = crate::template_env::render(
+                "ruby/http_101_skip.jinja",
+                minijinja::context! {
+                    method => method,
+                    path => path,
+                    description => description,
+                },
             );
-            let _ = writeln!(out, "    end");
-            let _ = writeln!(out, "  end");
+            out.push_str(&rendered);
         }
         return;
     }
@@ -696,12 +687,305 @@ fn http_method_class(method: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Chat-stream test rendering — block iteration with local aggregation
+// ---------------------------------------------------------------------------
+
+/// Render an RSpec example for a `chat_stream` fixture.
+///
+/// The Ruby binding's `chat_stream` is block-yielding: each yielded value is a
+/// `LiterLlm::ChatCompletionChunk`. The codegen builds local aggregator vars
+/// (`chunks`, `stream_content`, `stream_complete`, plus optional
+/// `last_finish_reason`, `tool_calls_json`, `total_tokens`) inside the block and
+/// then emits assertions on those locals — never on response pseudo-fields.
+#[allow(clippy::too_many_arguments)]
+fn render_chat_stream_example(
+    fixture: &Fixture,
+    function_name: &str,
+    call_receiver: &str,
+    args: &[crate::config::ArgMapping],
+    options_type: Option<&str>,
+    enum_fields: &HashMap<String, String>,
+    e2e_config: &E2eConfig,
+    client_factory: Option<&str>,
+    extra_args: &[String],
+) -> String {
+    let test_name = sanitize_ident(&fixture.id);
+    let description = fixture.description.replace('\'', "\\'");
+    let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
+    let fixture_id = fixture.id.clone();
+
+    let (mut setup_lines, args_str) = build_args_and_setup(
+        &fixture.input,
+        args,
+        call_receiver,
+        options_type,
+        enum_fields,
+        false,
+        fixture,
+    );
+
+    let mut final_args = args_str;
+    if !extra_args.is_empty() {
+        let extra_str = extra_args.join(", ");
+        if final_args.is_empty() {
+            final_args = extra_str;
+        } else {
+            final_args = format!("{final_args}, {extra_str}");
+        }
+    }
+
+    // Detect which aggregators a fixture's assertions actually need so we don't
+    // emit unused locals (rubocop trips on assigned-but-unread vars).
+    let mut needs_finish_reason = false;
+    let mut needs_tool_calls_json = false;
+    let mut needs_tool_calls_0_function_name = false;
+    let mut needs_total_tokens = false;
+    for a in &fixture.assertions {
+        if let Some(f) = a.field.as_deref() {
+            match f {
+                "finish_reason" => needs_finish_reason = true,
+                "tool_calls" => needs_tool_calls_json = true,
+                "tool_calls[0].function.name" => needs_tool_calls_0_function_name = true,
+                "usage.total_tokens" => needs_total_tokens = true,
+                _ => {}
+            }
+        }
+    }
+
+    let mut out = String::new();
+    out.push_str(&format!("  it '{test_name}: {description}' do\n"));
+
+    // Client construction.
+    let has_mock = fixture.mock_response.is_some() || fixture.http.is_some();
+    let api_key_var = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref());
+    if let Some(cf) = client_factory {
+        if has_mock && let Some(key_var) = api_key_var {
+            let mock_url_expr = format!("\"#{{ENV['MOCK_SERVER_URL']}}/fixtures/{fixture_id}\"");
+            out.push_str(&format!("    api_key = ENV['{key_var}']\n"));
+            out.push_str("    if api_key && !api_key.empty?\n");
+            out.push_str(&format!(
+                "      warn \"{test_name}: using real API ({key_var} is set)\"\n"
+            ));
+            out.push_str(&format!("      client = {call_receiver}.{cf}(api_key)\n"));
+            out.push_str("    else\n");
+            out.push_str(&format!(
+                "      warn \"{test_name}: using mock server ({key_var} not set)\"\n"
+            ));
+            out.push_str(&format!("      mock_url = {mock_url_expr}\n"));
+            out.push_str(&format!("      client = {call_receiver}.{cf}('test-key', mock_url)\n"));
+            out.push_str("    end\n");
+        } else if has_mock {
+            let base_url_expr = if fixture.has_host_root_route() {
+                let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
+                format!("(ENV.fetch('{env_key}', nil) || ENV.fetch('MOCK_SERVER_URL') + '/fixtures/{fixture_id}')")
+            } else {
+                format!("ENV.fetch('MOCK_SERVER_URL') + '/fixtures/{fixture_id}'")
+            };
+            out.push_str(&format!(
+                "    client = {call_receiver}.{cf}('test-key', {base_url_expr})\n"
+            ));
+        } else if let Some(key_var) = api_key_var {
+            out.push_str(&format!("    api_key = ENV['{key_var}']\n"));
+            out.push_str(&format!("    skip '{key_var} not set' unless api_key\n"));
+            out.push_str(&format!("    client = {call_receiver}.{cf}(api_key)\n"));
+        } else {
+            out.push_str(&format!("    client = {call_receiver}.{cf}('test-key')\n"));
+        }
+    }
+
+    // Visitor (rare for streaming, but support it for parity).
+    if let Some(visitor_spec) = &fixture.visitor {
+        let _ = build_ruby_visitor(&mut setup_lines, visitor_spec);
+    }
+    for line in &setup_lines {
+        out.push_str(&format!("    {line}\n"));
+    }
+
+    let call_expr = if client_factory.is_some() {
+        format!("client.{function_name}({final_args})")
+    } else {
+        format!("{call_receiver}.{function_name}({final_args})")
+    };
+
+    if expects_error {
+        out.push_str(&format!("    expect {{ {call_expr} {{ |_chunk| }} }}.to raise_error\n"));
+        out.push_str("  end\n");
+        return out;
+    }
+
+    // Build aggregators inside a block so the iterator drives the stream synchronously.
+    out.push_str("    chunks = []\n");
+    out.push_str("    stream_content = ''.dup\n");
+    out.push_str("    stream_complete = false\n");
+    if needs_finish_reason {
+        out.push_str("    last_finish_reason = nil\n");
+    }
+    if needs_tool_calls_json {
+        out.push_str("    tool_calls_json = nil\n");
+    }
+    if needs_tool_calls_0_function_name {
+        out.push_str("    tool_calls_0_function_name = nil\n");
+    }
+    if needs_total_tokens {
+        out.push_str("    total_tokens = nil\n");
+    }
+    out.push_str(&format!("    {call_expr} do |chunk|\n"));
+    out.push_str("      chunks << chunk\n");
+    out.push_str("      choice = chunk.choices && chunk.choices[0]\n");
+    out.push_str("      if choice\n");
+    out.push_str("        delta = choice.delta\n");
+    out.push_str("        if delta && delta.content\n");
+    out.push_str("          stream_content << delta.content\n");
+    out.push_str("        end\n");
+    if needs_finish_reason {
+        out.push_str("        if choice.finish_reason\n");
+        out.push_str("          last_finish_reason = choice.finish_reason.to_s\n");
+        out.push_str("        end\n");
+    }
+    if needs_tool_calls_json || needs_tool_calls_0_function_name {
+        out.push_str("        tcs = delta && delta.tool_calls\n");
+        out.push_str("        if tcs && !tcs.empty?\n");
+        if needs_tool_calls_json {
+            out.push_str(
+                "          tool_calls_json ||= tcs.map { |tc| { 'function' => { 'name' => (tc.function && tc.function.name rescue nil) } } }.to_json\n",
+            );
+        }
+        if needs_tool_calls_0_function_name {
+            out.push_str(
+                "          tool_calls_0_function_name ||= (tcs[0].function && tcs[0].function.name rescue nil)\n",
+            );
+        }
+        out.push_str("        end\n");
+    }
+    out.push_str("      end\n");
+    if needs_total_tokens {
+        out.push_str("      if chunk.usage && chunk.usage.total_tokens\n");
+        out.push_str("        total_tokens = chunk.usage.total_tokens\n");
+        out.push_str("      end\n");
+    }
+    out.push_str("    end\n");
+    out.push_str("    stream_complete = true\n");
+
+    // Render assertions on the local aggregator vars.
+    for assertion in &fixture.assertions {
+        emit_chat_stream_assertion(&mut out, assertion, e2e_config);
+    }
+
+    // Always assert that the stream completed cleanly so non-empty test bodies
+    // are guaranteed by RSpec's at-least-one-expectation requirement.
+    if !fixture
+        .assertions
+        .iter()
+        .any(|a| a.field.as_deref() == Some("stream_complete"))
+    {
+        out.push_str("    expect(stream_complete).to be(true)\n");
+    }
+
+    out.push_str("  end\n");
+    out
+}
+
+/// Map a streaming fixture assertion to an `expect` call on the local aggregator
+/// variable produced by [`render_chat_stream_example`]. Pseudo-fields like
+/// `chunks` / `stream_content` / `stream_complete` resolve to the in-block locals,
+/// not response accessors.
+fn emit_chat_stream_assertion(out: &mut String, assertion: &Assertion, _e2e_config: &E2eConfig) {
+    let atype = assertion.assertion_type.as_str();
+    if atype == "not_error" || atype == "error" {
+        return;
+    }
+    let field = assertion.field.as_deref().unwrap_or("");
+
+    enum Kind {
+        Chunks,
+        Bool,
+        Str,
+        IntTokens,
+        Json,
+        Unsupported,
+    }
+
+    let (expr, kind) = match field {
+        "chunks" => ("chunks", Kind::Chunks),
+        "stream_content" => ("stream_content", Kind::Str),
+        "stream_complete" => ("stream_complete", Kind::Bool),
+        "no_chunks_after_done" => ("stream_complete", Kind::Bool),
+        "finish_reason" => ("last_finish_reason", Kind::Str),
+        "tool_calls" => ("tool_calls_json", Kind::Json),
+        "tool_calls[0].function.name" => ("tool_calls_0_function_name", Kind::Str),
+        "usage.total_tokens" => ("total_tokens", Kind::IntTokens),
+        _ => ("", Kind::Unsupported),
+    };
+
+    if matches!(kind, Kind::Unsupported) {
+        out.push_str(&format!(
+            "    # skipped: streaming assertion on unsupported field '{field}'\n"
+        ));
+        return;
+    }
+
+    match (atype, &kind) {
+        ("count_min", Kind::Chunks) => {
+            if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                out.push_str(&format!("    expect({expr}.length).to be >= {n}\n"));
+            }
+        }
+        ("count_equals", Kind::Chunks) => {
+            if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                out.push_str(&format!("    expect({expr}.length).to eq({n})\n"));
+            }
+        }
+        ("equals", Kind::Str) => {
+            if let Some(val) = &assertion.value {
+                let rb_val = json_to_ruby(val);
+                out.push_str(&format!("    expect({expr}.to_s).to eq({rb_val})\n"));
+            }
+        }
+        ("contains", Kind::Str) => {
+            if let Some(val) = &assertion.value {
+                let rb_val = json_to_ruby(val);
+                out.push_str(&format!("    expect({expr}.to_s).to include({rb_val})\n"));
+            }
+        }
+        ("not_empty", Kind::Str) => {
+            out.push_str(&format!("    expect({expr}.to_s).not_to be_empty\n"));
+        }
+        ("not_empty", Kind::Json) => {
+            out.push_str(&format!("    expect({expr}).not_to be_nil\n"));
+        }
+        ("is_empty", Kind::Str) => {
+            out.push_str(&format!("    expect({expr}.to_s).to be_empty\n"));
+        }
+        ("is_true", Kind::Bool) => {
+            out.push_str(&format!("    expect({expr}).to be(true)\n"));
+        }
+        ("is_false", Kind::Bool) => {
+            out.push_str(&format!("    expect({expr}).to be(false)\n"));
+        }
+        ("greater_than_or_equal", Kind::IntTokens) => {
+            if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                out.push_str(&format!("    expect({expr}).to be >= {n}\n"));
+            }
+        }
+        ("equals", Kind::IntTokens) => {
+            if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                out.push_str(&format!("    expect({expr}).to eq({n})\n"));
+            }
+        }
+        _ => {
+            out.push_str(&format!(
+                "    # skipped: streaming assertion '{atype}' on field '{field}' not supported\n"
+            ));
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Function-call test rendering
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::too_many_arguments)]
 fn render_example(
-    out: &mut String,
     fixture: &Fixture,
     function_name: &str,
     call_receiver: &str,
@@ -713,10 +997,12 @@ fn render_example(
     result_is_simple: bool,
     e2e_config: &E2eConfig,
     client_factory: Option<&str>,
-) {
+    extra_args: &[String],
+) -> String {
     let test_name = sanitize_ident(&fixture.id);
     let description = fixture.description.replace('\'', "\\'");
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
+    let fixture_id = fixture.id.clone();
 
     let (mut setup_lines, args_str) = build_args_and_setup(
         &fixture.input,
@@ -725,7 +1011,7 @@ fn render_example(
         options_type,
         enum_fields,
         result_is_simple,
-        &fixture.id,
+        fixture,
     );
 
     // Build visitor if present and add to setup
@@ -734,13 +1020,23 @@ fn render_example(
         visitor_arg = build_ruby_visitor(&mut setup_lines, visitor_spec);
     }
 
-    let final_args = if visitor_arg.is_empty() {
+    let mut final_args = if visitor_arg.is_empty() {
         args_str
     } else if args_str.is_empty() {
         visitor_arg
     } else {
         format!("{args_str}, {visitor_arg}")
     };
+
+    // Append per-fixture extra_args (e.g. trailing `nil` for `list_files(purpose)`).
+    if !extra_args.is_empty() {
+        let extra_str = extra_args.join(", ");
+        if final_args.is_empty() {
+            final_args = extra_str;
+        } else {
+            final_args = format!("{final_args}, {extra_str}");
+        }
+    }
 
     // When client_factory is configured, create a client instance and call methods on it.
     let call_expr = if client_factory.is_some() {
@@ -749,43 +1045,45 @@ fn render_example(
         format!("{call_receiver}.{function_name}({final_args})")
     };
 
-    let _ = writeln!(out, "  it '{test_name}: {description}' do");
+    // Check if any non-error assertion actually uses the result variable.
+    let has_usable = has_usable_assertion(fixture, field_resolver, result_is_simple);
 
-    // Emit client creation before setup lines when using client_factory.
-    if let Some(factory) = client_factory {
-        let fixture_id = &fixture.id;
-        let _ = writeln!(
-            out,
-            "    client = {call_receiver}.{factory}('test-key', ENV.fetch('MOCK_SERVER_URL') + '/fixtures/{fixture_id}')"
+    // Render all assertions upfront into a string
+    let mut assertions_rendered = String::new();
+    for assertion in &fixture.assertions {
+        render_assertion(
+            &mut assertions_rendered,
+            assertion,
+            result_var,
+            field_resolver,
+            result_is_simple,
+            e2e_config,
+            enum_fields,
         );
     }
 
-    for line in &setup_lines {
-        let _ = writeln!(out, "    {line}");
-    }
-
-    if expects_error {
-        let _ = writeln!(out, "    expect {{ {call_expr} }}.to raise_error");
-        let _ = writeln!(out, "  end");
-        return;
-    }
-
-    // Check if any non-error assertion actually uses the result variable.
-    let has_usable = has_usable_assertion(fixture, field_resolver, result_is_simple);
-    let _ = writeln!(out, "    {result_var} = {call_expr}");
-
-    for assertion in &fixture.assertions {
-        render_assertion(out, assertion, result_var, field_resolver, result_is_simple, e2e_config);
-    }
-
-    // When all assertions were skipped (fields unavailable), the example has no
-    // expect() calls, which triggers rubocop's RSpec/NoExpectationExample cop.
-    // Emit a minimal placeholder expectation so rubocop is satisfied.
-    if !has_usable {
-        let _ = writeln!(out, "    expect({result_var}).not_to be_nil");
-    }
-
-    let _ = writeln!(out, "  end");
+    let has_mock = fixture.mock_response.is_some() || fixture.http.is_some();
+    let api_key_var = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref());
+    let has_mock_and_key = has_mock && api_key_var.is_some();
+    crate::template_env::render(
+        "ruby/test_function.jinja",
+        minijinja::context! {
+            test_name => test_name,
+            description => description,
+            expects_error => expects_error,
+            setup_lines => setup_lines,
+            call_expr => call_expr,
+            result_var => result_var,
+            assertions_rendered => assertions_rendered,
+            has_usable => has_usable,
+            client_factory => client_factory,
+            fixture_id => fixture_id,
+            call_receiver => call_receiver,
+            has_mock => has_mock,
+            api_key_var => api_key_var,
+            has_mock_and_key => has_mock_and_key,
+        },
+    )
 }
 
 /// Build setup lines (e.g. handle creation) and the argument list for the function call.
@@ -821,7 +1119,7 @@ fn emit_ruby_batch_item_array(arr: &serde_json::Value, elem_type: &str) -> Strin
                                 "nil".to_string()
                             };
                             Some(format!(
-                                "Kreuzberg::{}.new({}, \"{}\", {})",
+                                "Kreuzberg::{}.new(content: {}, mime_type: \"{}\", config: {})",
                                 elem_type, content_code, mime_type, config_arg
                             ))
                         }
@@ -837,7 +1135,10 @@ fn emit_ruby_batch_item_array(arr: &serde_json::Value, elem_type: &str) -> Strin
                             } else {
                                 "nil".to_string()
                             };
-                            Some(format!("Kreuzberg::{}.new(\"{}\", {})", elem_type, path, config_arg))
+                            Some(format!(
+                                "Kreuzberg::{}.new(path: \"{}\", config: {})",
+                                elem_type, path, config_arg
+                            ))
                         }
                         _ => None,
                     }
@@ -859,8 +1160,9 @@ fn build_args_and_setup(
     options_type: Option<&str>,
     enum_fields: &HashMap<String, String>,
     result_is_simple: bool,
-    fixture_id: &str,
+    fixture: &crate::fixture::Fixture,
 ) -> (Vec<String>, String) {
+    let fixture_id = &fixture.id;
     if args.is_empty() {
         // No args config: pass the whole input only when it's non-empty.
         // Functions with no parameters have empty input and must be called
@@ -889,10 +1191,18 @@ fn build_args_and_setup(
                 parts.push("nil".to_string());
             }
             skipped_optional_count = 0;
-            setup_lines.push(format!(
-                "{} = \"#{{ENV.fetch('MOCK_SERVER_URL')}}/fixtures/{fixture_id}\"",
-                arg.name,
-            ));
+            if fixture.has_host_root_route() {
+                let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
+                setup_lines.push(format!(
+                    "{} = ENV.fetch('{env_key}', nil) || \"#{{ENV.fetch('MOCK_SERVER_URL')}}/fixtures/{fixture_id}\"",
+                    arg.name,
+                ));
+            } else {
+                setup_lines.push(format!(
+                    "{} = \"#{{ENV.fetch('MOCK_SERVER_URL')}}/fixtures/{fixture_id}\"",
+                    arg.name,
+                ));
+            }
             parts.push(arg.name.clone());
             continue;
         }
@@ -1052,7 +1362,47 @@ fn render_assertion(
     field_resolver: &FieldResolver,
     result_is_simple: bool,
     e2e_config: &E2eConfig,
+    per_call_enum_fields: &HashMap<String, String>,
 ) {
+    // For simple-result methods (e.g. `speech` returning bytes), every field-based
+    // assertion targets the result itself — there's no struct to access. Drop
+    // length-only assertions onto the result directly and skip anything else.
+    if result_is_simple {
+        if let Some(f) = &assertion.field {
+            if !f.is_empty() {
+                match assertion.assertion_type.as_str() {
+                    "not_empty" => {
+                        out.push_str(&format!("    expect({result_var}.to_s).not_to be_empty\n"));
+                        return;
+                    }
+                    "is_empty" => {
+                        out.push_str(&format!("    expect({result_var}.to_s).to be_empty\n"));
+                        return;
+                    }
+                    "count_equals" => {
+                        if let Some(val) = &assertion.value {
+                            let rb_val = json_to_ruby(val);
+                            out.push_str(&format!("    expect({result_var}.length).to eq({rb_val})\n"));
+                        }
+                        return;
+                    }
+                    "count_min" => {
+                        if let Some(val) = &assertion.value {
+                            let rb_val = json_to_ruby(val);
+                            out.push_str(&format!("    expect({result_var}.length).to be >= {rb_val}\n"));
+                        }
+                        return;
+                    }
+                    _ => {
+                        out.push_str(&format!(
+                            "    # skipped: field '{f}' not applicable for simple result type\n"
+                        ));
+                        return;
+                    }
+                }
+            }
+        }
+    }
     // Handle synthetic / derived fields before the is_valid_for_result check
     // so they are never treated as struct attribute accesses on the result.
     if let Some(f) = &assertion.field {
@@ -1061,16 +1411,15 @@ fn render_assertion(
                 let pred = format!("({result_var}.chunks || []).all? {{ |c| c.content && !c.content.empty? }}");
                 match assertion.assertion_type.as_str() {
                     "is_true" => {
-                        let _ = writeln!(out, "    expect({pred}).to be(true)");
+                        out.push_str(&format!("    expect({pred}).to be(true)\n"));
                     }
                     "is_false" => {
-                        let _ = writeln!(out, "    expect({pred}).to be(false)");
+                        out.push_str(&format!("    expect({pred}).to be(false)\n"));
                     }
                     _ => {
-                        let _ = writeln!(
-                            out,
-                            "    # skipped: unsupported assertion type on synthetic field '{f}'"
-                        );
+                        out.push_str(&format!(
+                            "    # skipped: unsupported assertion type on synthetic field '{f}'\n"
+                        ));
                     }
                 }
                 return;
@@ -1080,16 +1429,15 @@ fn render_assertion(
                     format!("({result_var}.chunks || []).all? {{ |c| !c.embedding.nil? && !c.embedding.empty? }}");
                 match assertion.assertion_type.as_str() {
                     "is_true" => {
-                        let _ = writeln!(out, "    expect({pred}).to be(true)");
+                        out.push_str(&format!("    expect({pred}).to be(true)\n"));
                     }
                     "is_false" => {
-                        let _ = writeln!(out, "    expect({pred}).to be(false)");
+                        out.push_str(&format!("    expect({pred}).to be(false)\n"));
                     }
                     _ => {
-                        let _ = writeln!(
-                            out,
-                            "    # skipped: unsupported assertion type on synthetic field '{f}'"
-                        );
+                        out.push_str(&format!(
+                            "    # skipped: unsupported assertion type on synthetic field '{f}'\n"
+                        ));
                     }
                 }
                 return;
@@ -1102,26 +1450,23 @@ fn render_assertion(
                     "count_equals" => {
                         if let Some(val) = &assertion.value {
                             let rb_val = json_to_ruby(val);
-                            let _ = writeln!(out, "    expect({result_var}.length).to eq({rb_val})");
+                            out.push_str(&format!("    expect({result_var}.length).to eq({rb_val})\n"));
                         }
                     }
                     "count_min" => {
                         if let Some(val) = &assertion.value {
                             let rb_val = json_to_ruby(val);
-                            let _ = writeln!(out, "    expect({result_var}.length).to be >= {rb_val}");
+                            out.push_str(&format!("    expect({result_var}.length).to be >= {rb_val}\n"));
                         }
                     }
                     "not_empty" => {
-                        let _ = writeln!(out, "    expect({result_var}).not_to be_empty");
+                        out.push_str(&format!("    expect({result_var}).not_to be_empty\n"));
                     }
                     "is_empty" => {
-                        let _ = writeln!(out, "    expect({result_var}).to be_empty");
+                        out.push_str(&format!("    expect({result_var}).to be_empty\n"));
                     }
                     _ => {
-                        let _ = writeln!(
-                            out,
-                            "    # skipped: unsupported assertion type on synthetic field 'embeddings'"
-                        );
+                        out.push_str("    # skipped: unsupported assertion type on synthetic field 'embeddings'\n");
                     }
                 }
                 return;
@@ -1132,19 +1477,18 @@ fn render_assertion(
                     "equals" => {
                         if let Some(val) = &assertion.value {
                             let rb_val = json_to_ruby(val);
-                            let _ = writeln!(out, "    expect({expr}).to eq({rb_val})");
+                            out.push_str(&format!("    expect({expr}).to eq({rb_val})\n"));
                         }
                     }
                     "greater_than" => {
                         if let Some(val) = &assertion.value {
                             let rb_val = json_to_ruby(val);
-                            let _ = writeln!(out, "    expect({expr}).to be > {rb_val}");
+                            out.push_str(&format!("    expect({expr}).to be > {rb_val}\n"));
                         }
                     }
                     _ => {
-                        let _ = writeln!(
-                            out,
-                            "    # skipped: unsupported assertion type on synthetic field 'embedding_dimensions'"
+                        out.push_str(
+                            "    # skipped: unsupported assertion type on synthetic field 'embedding_dimensions'\n",
                         );
                     }
                 }
@@ -1168,16 +1512,15 @@ fn render_assertion(
                 };
                 match assertion.assertion_type.as_str() {
                     "is_true" => {
-                        let _ = writeln!(out, "    expect({pred}).to be(true)");
+                        out.push_str(&format!("    expect({pred}).to be(true)\n"));
                     }
                     "is_false" => {
-                        let _ = writeln!(out, "    expect({pred}).to be(false)");
+                        out.push_str(&format!("    expect({pred}).to be(false)\n"));
                     }
                     _ => {
-                        let _ = writeln!(
-                            out,
-                            "    # skipped: unsupported assertion type on synthetic field '{f}'"
-                        );
+                        out.push_str(&format!(
+                            "    # skipped: unsupported assertion type on synthetic field '{f}'\n"
+                        ));
                     }
                 }
                 return;
@@ -1185,7 +1528,9 @@ fn render_assertion(
             // ---- keywords / keywords_count ----
             // Ruby ExtractionResult does not expose extracted_keywords; skip.
             "keywords" | "keywords_count" => {
-                let _ = writeln!(out, "    # skipped: field '{f}' not available on Ruby ExtractionResult");
+                out.push_str(&format!(
+                    "    # skipped: field '{f}' not available on Ruby ExtractionResult\n"
+                ));
                 return;
             }
             _ => {}
@@ -1195,7 +1540,7 @@ fn render_assertion(
     // Skip assertions on fields that don't exist on the result type.
     if let Some(f) = &assertion.field {
         if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
-            let _ = writeln!(out, "    # skipped: field '{f}' not available on result type");
+            out.push_str(&format!("    # skipped: field '{f}' not available on result type\n"));
             return;
         }
     }
@@ -1226,9 +1571,23 @@ fn render_assertion(
     };
 
     // For string equality, strip trailing whitespace to handle trailing newlines
-    // from the converter.
+    // from the converter. Ruby enum fields (Magnus binds Rust enums as Symbols),
+    // are coerced to String via .to_s so `eq("stop")` matches `:stop`. Look up the
+    // field in both the global `[crates.e2e] fields_enum` set AND the per-call
+    // override `[crates.e2e.calls.<x>.overrides.<lang>] enum_fields = { ... }` —
+    // downstream config that already labels e.g. `status = "BatchStatus"` for the
+    // Java/C#/Python sides should apply here too without a Ruby-only duplicate.
+    let field_is_enum = assertion.field.as_deref().filter(|f| !f.is_empty()).is_some_and(|f| {
+        let resolved = field_resolver.resolve(f);
+        e2e_config.fields_enum.contains(f)
+            || e2e_config.fields_enum.contains(resolved)
+            || per_call_enum_fields.contains_key(f)
+            || per_call_enum_fields.contains_key(resolved)
+    });
     let stripped_field_expr = if result_is_simple {
         format!("{field_expr}.to_s.strip")
+    } else if field_is_enum {
+        format!("{field_expr}.to_s")
     } else {
         field_expr.clone()
     };
@@ -1244,148 +1603,223 @@ fn render_assertion(
     match assertion.assertion_type.as_str() {
         "equals" => {
             if let Some(expected) = &assertion.value {
-                // Use be(true)/be(false) for booleans (RSpec/BeEq).
-                if let Some(b) = expected.as_bool() {
-                    let _ = writeln!(out, "    expect({stripped_field_expr}).to be({b})");
-                } else {
-                    let rb_val = json_to_ruby(expected);
-                    let _ = writeln!(out, "    expect({stripped_field_expr}).to eq({rb_val})");
-                }
+                let is_boolean_val = expected.as_bool().is_some();
+                let bool_val = expected
+                    .as_bool()
+                    .map(|b| if b { "true" } else { "false" })
+                    .unwrap_or("");
+                let rb_val = json_to_ruby(expected);
+
+                let rendered = crate::template_env::render(
+                    "ruby/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "equals",
+                        stripped_field_expr => stripped_field_expr.clone(),
+                        is_boolean_val => is_boolean_val,
+                        bool_val => bool_val,
+                        expected_val => rb_val,
+                    },
+                );
+                out.push_str(&rendered);
             }
         }
         "contains" => {
             if let Some(expected) = &assertion.value {
                 let rb_val = json_to_ruby(expected);
-                if field_is_array && expected.is_string() {
-                    // Array of structs: check if any item's text representation contains the value.
-                    let _ = writeln!(
-                        out,
-                        "    expect({field_expr}.any? {{ |item| alef_e2e_item_texts(item).any? {{ |t| t.include?({rb_val}) }} }}).to be(true)"
-                    );
-                } else {
-                    // Use .to_s to handle both String and Symbol (enum) fields
-                    let _ = writeln!(out, "    expect({field_expr}.to_s).to include({rb_val})");
-                }
+                let rendered = crate::template_env::render(
+                    "ruby/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "contains",
+                        field_expr => field_expr.clone(),
+                        field_is_array => field_is_array && expected.is_string(),
+                        expected_val => rb_val,
+                    },
+                );
+                out.push_str(&rendered);
             }
         }
         "contains_all" => {
             if let Some(values) = &assertion.values {
-                for val in values {
-                    let rb_val = json_to_ruby(val);
-                    if field_is_array && val.is_string() {
-                        let _ = writeln!(
-                            out,
-                            "    expect({field_expr}.any? {{ |item| alef_e2e_item_texts(item).any? {{ |t| t.include?({rb_val}) }} }}).to be(true)"
-                        );
-                    } else {
-                        let _ = writeln!(out, "    expect({field_expr}.to_s).to include({rb_val})");
-                    }
-                }
+                let values_list: Vec<String> = values.iter().map(json_to_ruby).collect();
+                let rendered = crate::template_env::render(
+                    "ruby/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "contains_all",
+                        field_expr => field_expr.clone(),
+                        field_is_array => field_is_array,
+                        values_list => values_list,
+                    },
+                );
+                out.push_str(&rendered);
             }
         }
         "not_contains" => {
             if let Some(expected) = &assertion.value {
                 let rb_val = json_to_ruby(expected);
-                if field_is_array && expected.is_string() {
-                    let _ = writeln!(
-                        out,
-                        "    expect({field_expr}.any? {{ |item| alef_e2e_item_texts(item).any? {{ |t| t.include?({rb_val}) }} }}).to be(false)"
-                    );
-                } else {
-                    let _ = writeln!(out, "    expect({field_expr}.to_s).not_to include({rb_val})");
-                }
+                let rendered = crate::template_env::render(
+                    "ruby/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "not_contains",
+                        field_expr => field_expr.clone(),
+                        field_is_array => field_is_array && expected.is_string(),
+                        expected_val => rb_val,
+                    },
+                );
+                out.push_str(&rendered);
             }
         }
         "not_empty" => {
-            if result_is_simple {
-                let _ = writeln!(out, "    expect({field_expr}.to_s).not_to be_empty");
-            } else {
-                let _ = writeln!(out, "    expect({field_expr}).not_to be_empty");
-            }
+            let rendered = crate::template_env::render(
+                "ruby/assertion.jinja",
+                minijinja::context! {
+                    assertion_type => "not_empty",
+                    field_expr => field_expr.clone(),
+                },
+            );
+            out.push_str(&rendered);
         }
         "is_empty" => {
-            // Handle nil (None) as empty for optional fields
-            let _ = writeln!(out, "    expect({field_expr}.nil? || {field_expr}.empty?).to be(true)");
+            let rendered = crate::template_env::render(
+                "ruby/assertion.jinja",
+                minijinja::context! {
+                    assertion_type => "is_empty",
+                    field_expr => field_expr.clone(),
+                },
+            );
+            out.push_str(&rendered);
         }
         "contains_any" => {
             if let Some(values) = &assertion.values {
                 let items: Vec<String> = values.iter().map(json_to_ruby).collect();
-                let arr_str = items.join(", ");
-                let _ = writeln!(
-                    out,
-                    "    expect([{arr_str}].any? {{ |v| {field_expr}.to_s.include?(v) }}).to be(true)"
+                let rendered = crate::template_env::render(
+                    "ruby/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "contains_any",
+                        field_expr => field_expr.clone(),
+                        values_list => items,
+                    },
                 );
+                out.push_str(&rendered);
             }
         }
         "greater_than" => {
             if let Some(val) = &assertion.value {
                 let rb_val = json_to_ruby(val);
-                let _ = writeln!(out, "    expect({field_expr}).to be > {rb_val}");
+                let rendered = crate::template_env::render(
+                    "ruby/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "greater_than",
+                        field_expr => field_expr.clone(),
+                        expected_val => rb_val,
+                    },
+                );
+                out.push_str(&rendered);
             }
         }
         "less_than" => {
             if let Some(val) = &assertion.value {
                 let rb_val = json_to_ruby(val);
-                let _ = writeln!(out, "    expect({field_expr}).to be < {rb_val}");
+                let rendered = crate::template_env::render(
+                    "ruby/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "less_than",
+                        field_expr => field_expr.clone(),
+                        expected_val => rb_val,
+                    },
+                );
+                out.push_str(&rendered);
             }
         }
         "greater_than_or_equal" => {
             if let Some(val) = &assertion.value {
                 let rb_val = json_to_ruby(val);
-                let _ = writeln!(out, "    expect({field_expr}).to be >= {rb_val}");
+                let rendered = crate::template_env::render(
+                    "ruby/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "greater_than_or_equal",
+                        field_expr => field_expr.clone(),
+                        expected_val => rb_val,
+                    },
+                );
+                out.push_str(&rendered);
             }
         }
         "less_than_or_equal" => {
             if let Some(val) = &assertion.value {
                 let rb_val = json_to_ruby(val);
-                let _ = writeln!(out, "    expect({field_expr}).to be <= {rb_val}");
+                let rendered = crate::template_env::render(
+                    "ruby/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "less_than_or_equal",
+                        field_expr => field_expr.clone(),
+                        expected_val => rb_val,
+                    },
+                );
+                out.push_str(&rendered);
             }
         }
         "starts_with" => {
             if let Some(expected) = &assertion.value {
                 let rb_val = json_to_ruby(expected);
-                let _ = writeln!(out, "    expect({field_expr}).to start_with({rb_val})");
+                let rendered = crate::template_env::render(
+                    "ruby/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "starts_with",
+                        field_expr => field_expr.clone(),
+                        expected_val => rb_val,
+                    },
+                );
+                out.push_str(&rendered);
             }
         }
         "ends_with" => {
             if let Some(expected) = &assertion.value {
                 let rb_val = json_to_ruby(expected);
-                let _ = writeln!(out, "    expect({field_expr}).to end_with({rb_val})");
+                let rendered = crate::template_env::render(
+                    "ruby/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "ends_with",
+                        field_expr => field_expr.clone(),
+                        expected_val => rb_val,
+                    },
+                );
+                out.push_str(&rendered);
             }
         }
-        "min_length" => {
+        "min_length" | "max_length" | "count_min" | "count_equals" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(out, "    expect({field_expr}.length).to be >= {n}");
-                }
-            }
-        }
-        "max_length" => {
-            if let Some(val) = &assertion.value {
-                if let Some(n) = val.as_u64() {
-                    let _ = writeln!(out, "    expect({field_expr}.length).to be <= {n}");
-                }
-            }
-        }
-        "count_min" => {
-            if let Some(val) = &assertion.value {
-                if let Some(n) = val.as_u64() {
-                    let _ = writeln!(out, "    expect({field_expr}.length).to be >= {n}");
-                }
-            }
-        }
-        "count_equals" => {
-            if let Some(val) = &assertion.value {
-                if let Some(n) = val.as_u64() {
-                    let _ = writeln!(out, "    expect({field_expr}.length).to eq({n})");
+                    let rendered = crate::template_env::render(
+                        "ruby/assertion.jinja",
+                        minijinja::context! {
+                            assertion_type => assertion.assertion_type.as_str(),
+                            field_expr => field_expr.clone(),
+                            check_n => n,
+                        },
+                    );
+                    out.push_str(&rendered);
                 }
             }
         }
         "is_true" => {
-            let _ = writeln!(out, "    expect({field_expr}).to be true");
+            let rendered = crate::template_env::render(
+                "ruby/assertion.jinja",
+                minijinja::context! {
+                    assertion_type => "is_true",
+                    field_expr => field_expr.clone(),
+                },
+            );
+            out.push_str(&rendered);
         }
         "is_false" => {
-            let _ = writeln!(out, "    expect({field_expr}).to be false");
+            let rendered = crate::template_env::render(
+                "ruby/assertion.jinja",
+                minijinja::context! {
+                    assertion_type => "is_false",
+                    field_expr => field_expr.clone(),
+                },
+            );
+            out.push_str(&rendered);
         }
         "method_result" => {
             if let Some(method_name) = &assertion.method {
@@ -1402,48 +1836,56 @@ fn render_assertion(
                 let call_expr =
                     build_ruby_method_call(&call_receiver, result_var, method_name, assertion.args.as_ref());
                 let check = assertion.check.as_deref().unwrap_or("is_true");
-                match check {
+
+                let (check_val_str, is_boolean_check, bool_check_val, check_n_val) = match check {
                     "equals" => {
                         if let Some(val) = &assertion.value {
-                            if let Some(b) = val.as_bool() {
-                                let _ = writeln!(out, "    expect({call_expr}).to be {b}");
-                            } else {
-                                let rb_val = json_to_ruby(val);
-                                let _ = writeln!(out, "    expect({call_expr}).to eq({rb_val})");
-                            }
+                            let is_bool = val.as_bool().is_some();
+                            let bool_str = val.as_bool().map(|b| if b { "true" } else { "false" }).unwrap_or("");
+                            let rb_val = json_to_ruby(val);
+                            (rb_val, is_bool, bool_str.to_string(), 0)
+                        } else {
+                            (String::new(), false, String::new(), 0)
                         }
-                    }
-                    "is_true" => {
-                        let _ = writeln!(out, "    expect({call_expr}).to be true");
-                    }
-                    "is_false" => {
-                        let _ = writeln!(out, "    expect({call_expr}).to be false");
                     }
                     "greater_than_or_equal" => {
                         if let Some(val) = &assertion.value {
-                            let rb_val = json_to_ruby(val);
-                            let _ = writeln!(out, "    expect({call_expr}).to be >= {rb_val}");
+                            (json_to_ruby(val), false, String::new(), 0)
+                        } else {
+                            (String::new(), false, String::new(), 0)
                         }
                     }
                     "count_min" => {
                         if let Some(val) = &assertion.value {
                             let n = val.as_u64().unwrap_or(0);
-                            let _ = writeln!(out, "    expect({call_expr}.length).to be >= {n}");
+                            (String::new(), false, String::new(), n)
+                        } else {
+                            (String::new(), false, String::new(), 0)
                         }
-                    }
-                    "is_error" => {
-                        let _ = writeln!(out, "    expect {{ {call_expr} }}.to raise_error");
                     }
                     "contains" => {
                         if let Some(val) = &assertion.value {
-                            let rb_val = json_to_ruby(val);
-                            let _ = writeln!(out, "    expect({call_expr}).to include({rb_val})");
+                            (json_to_ruby(val), false, String::new(), 0)
+                        } else {
+                            (String::new(), false, String::new(), 0)
                         }
                     }
-                    other_check => {
-                        panic!("Ruby e2e generator: unsupported method_result check type: {other_check}");
-                    }
-                }
+                    _ => (String::new(), false, String::new(), 0),
+                };
+
+                let rendered = crate::template_env::render(
+                    "ruby/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "method_result",
+                        call_expr => call_expr,
+                        check => check,
+                        check_val => check_val_str,
+                        is_boolean_check => is_boolean_check,
+                        bool_check_val => bool_check_val,
+                        check_n => check_n_val,
+                    },
+                );
+                out.push_str(&rendered);
             } else {
                 panic!("Ruby e2e generator: method_result assertion missing 'method' field");
             }
@@ -1451,7 +1893,15 @@ fn render_assertion(
         "matches_regex" => {
             if let Some(expected) = &assertion.value {
                 let rb_val = json_to_ruby(expected);
-                let _ = writeln!(out, "    expect({field_expr}).to match({rb_val})");
+                let rendered = crate::template_env::render(
+                    "ruby/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "matches_regex",
+                        field_expr => field_expr.clone(),
+                        expected_val => rb_val,
+                    },
+                );
+                out.push_str(&rendered);
             }
         }
         "not_error" => {
@@ -1555,7 +2005,6 @@ fn build_ruby_visitor(setup_lines: &mut Vec<String>, visitor_spec: &crate::fixtu
 
 /// Emit a Ruby visitor method for a callback action.
 fn emit_ruby_visitor_method(setup_lines: &mut Vec<String>, method_name: &str, action: &CallbackAction) {
-    let snake_method = method_name;
     let params = match method_name {
         "visit_link" => "ctx, href, text, title",
         "visit_image" => "ctx, src, alt, title",
@@ -1589,27 +2038,38 @@ fn emit_ruby_visitor_method(setup_lines: &mut Vec<String>, method_name: &str, ac
         _ => "ctx",
     };
 
-    setup_lines.push(format!("  def {snake_method}({params})"));
-    match action {
-        CallbackAction::Skip => {
-            setup_lines.push("    'skip'".to_string());
-        }
-        CallbackAction::Continue => {
-            setup_lines.push("    'continue'".to_string());
-        }
-        CallbackAction::PreserveHtml => {
-            setup_lines.push("    'preserve_html'".to_string());
-        }
+    // Pre-compute action type and values
+    let (action_type, action_value, return_form) = match action {
+        CallbackAction::Skip => ("skip", String::new(), "dict"),
+        CallbackAction::Continue => ("continue", String::new(), "dict"),
+        CallbackAction::PreserveHtml => ("preserve_html", String::new(), "dict"),
         CallbackAction::Custom { output } => {
             let escaped = ruby_string_literal(output);
-            setup_lines.push(format!("    {{ custom: {escaped} }}"));
+            ("custom", escaped, "dict")
         }
-        CallbackAction::CustomTemplate { template } => {
+        CallbackAction::CustomTemplate { template, return_form } => {
             let interpolated = ruby_template_to_interpolation(template);
-            setup_lines.push(format!("    {{ custom: \"{interpolated}\" }}"));
+            let form = match return_form {
+                TemplateReturnForm::Dict => "dict",
+                TemplateReturnForm::BareString => "bare_string",
+            };
+            ("custom_template", format!("\"{interpolated}\""), form)
         }
+    };
+
+    let rendered = crate::template_env::render(
+        "ruby/visitor_method.jinja",
+        minijinja::context! {
+            method_name => method_name,
+            params => params,
+            action_type => action_type,
+            action_value => action_value,
+            return_form => return_form,
+        },
+    );
+    for line in rendered.lines() {
+        setup_lines.push(line.to_string());
     }
-    setup_lines.push("  end".to_string());
 }
 
 /// Classify a fixture string value that maps to a `bytes` argument.

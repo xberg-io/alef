@@ -1,0 +1,23 @@
+#[extendr]
+pub fn {{ register_fn }}(r_backend: extendr_api::Robj) -> Result<(), String> {
+{% if required_methods %}
+    let required_methods = [{{ required_methods_list }}];
+    for method in &required_methods {
+        match r_backend.dollar(method) {
+            Ok(v) if !v.is_null() && !v.is_na() => {},
+            _ => return Err(format!("Backend missing required method: {}", method)),
+        }
+    }
+
+{% endif %}
+    let wrapper = {{ wrapper }}::new(r_backend)?;
+    let arc: Arc<dyn {{ trait_path }}> = Arc::new(wrapper);
+
+    let registry = {{ registry_getter }}();
+    let mut registry = registry.write().map_err(|e| {
+        format!("Failed to acquire registry lock: {}", e)
+    })?;
+    registry.register(arc).map_err(|e| {
+        format!("Failed to register backend: {}", e)
+    })
+}

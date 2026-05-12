@@ -1,0 +1,13 @@
+
+    fn __str__(&self) -> PyResult<String> {
+        serde_json::to_value({{ value_expr }})
+            .map(|value| match value {
+                serde_json::Value::String(value) => value,
+                other => other.to_string(),
+            })
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to serialize {{ name }}: {e}")))
+    }
+
+    fn __repr__(&self) -> PyResult<String> {
+        self.__str__()
+    }

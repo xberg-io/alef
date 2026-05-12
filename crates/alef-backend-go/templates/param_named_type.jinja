@@ -1,0 +1,18 @@
+	jsonBytes{{ c_name }}, err := json.Marshal({{ go_param }})
+	if err != nil {
+		{{ err_action }}
+	}
+	// When the parameter is a nil pointer (Option<&T> on the Rust side), json.Marshal
+	// emits "null" which the FFI's _from_json rejects. Substitute "{}" so a default
+	// instance is constructed instead — semantically equivalent to None for query types
+	// whose fields are all optional with serde(default).
+	if string(jsonBytes{{ c_name }}) == "null" {
+		jsonBytes{{ c_name }} = []byte("{}")
+	}
+	tmpStr{{ c_name }} := C.CString(string(jsonBytes{{ c_name }}))
+	{{ c_name }} := C.{{ ffi_prefix }}_{{ type_snake }}_from_json(tmpStr{{ c_name }})
+	C.free(unsafe.Pointer(tmpStr{{ c_name }}))
+	if {{ c_name }} == nil {
+		{{ from_json_err_action }}
+	}
+	defer C.{{ ffi_prefix }}_{{ type_snake }}_free({{ c_name }})

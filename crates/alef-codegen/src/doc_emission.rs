@@ -529,9 +529,15 @@ pub fn render_jsdoc_sections(sections: &RustdocSections) -> String {
                 out.push('\n');
             }
             if desc.is_empty() {
-                out.push_str(&format!("@param {name}"));
+                out.push_str(&crate::template_env::render(
+                    "doc_jsdoc_param.jinja",
+                    minijinja::context! { name => &name },
+                ));
             } else {
-                out.push_str(&format!("@param {name} - {desc}"));
+                out.push_str(&crate::template_env::render(
+                    "doc_jsdoc_param_desc.jinja",
+                    minijinja::context! { name => &name, desc => &desc },
+                ));
             }
         }
     }
@@ -539,13 +545,19 @@ pub fn render_jsdoc_sections(sections: &RustdocSections) -> String {
         if !out.is_empty() {
             out.push('\n');
         }
-        out.push_str(&format!("@returns {}", ret.trim()));
+        out.push_str(&crate::template_env::render(
+            "doc_jsdoc_returns.jinja",
+            minijinja::context! { content => ret.trim() },
+        ));
     }
     if let Some(err) = sections.errors.as_deref() {
         if !out.is_empty() {
             out.push('\n');
         }
-        out.push_str(&format!("@throws {}", err.trim()));
+        out.push_str(&crate::template_env::render(
+            "doc_jsdoc_throws.jinja",
+            minijinja::context! { content => err.trim() },
+        ));
     }
     if let Some(example) = sections.example.as_deref() {
         if !out.is_empty() {
@@ -577,9 +589,15 @@ pub fn render_javadoc_sections(sections: &RustdocSections, throws_class: &str) -
                 out.push('\n');
             }
             if desc.is_empty() {
-                out.push_str(&format!("@param {name}"));
+                out.push_str(&crate::template_env::render(
+                    "doc_javadoc_param.jinja",
+                    minijinja::context! { name => &name },
+                ));
             } else {
-                out.push_str(&format!("@param {name} {desc}"));
+                out.push_str(&crate::template_env::render(
+                    "doc_javadoc_param_desc.jinja",
+                    minijinja::context! { name => &name, desc => &desc },
+                ));
             }
         }
     }
@@ -587,13 +605,19 @@ pub fn render_javadoc_sections(sections: &RustdocSections, throws_class: &str) -
         if !out.is_empty() {
             out.push('\n');
         }
-        out.push_str(&format!("@return {}", ret.trim()));
+        out.push_str(&crate::template_env::render(
+            "doc_javadoc_return.jinja",
+            minijinja::context! { content => ret.trim() },
+        ));
     }
     if let Some(err) = sections.errors.as_deref() {
         if !out.is_empty() {
             out.push('\n');
         }
-        out.push_str(&format!("@throws {throws_class} {}", err.trim()));
+        out.push_str(&crate::template_env::render(
+            "doc_javadoc_throws.jinja",
+            minijinja::context! { throws_class => throws_class, content => err.trim() },
+        ));
     }
     out
 }
@@ -623,21 +647,33 @@ pub fn render_csharp_xml_sections(sections: &RustdocSections, exception_class: &
         for (name, desc) in parse_arguments_bullets(args) {
             out.push('\n');
             if desc.is_empty() {
-                out.push_str(&format!("<param name=\"{name}\"></param>"));
+                out.push_str(&crate::template_env::render(
+                    "doc_csharp_param.jinja",
+                    minijinja::context! { name => &name },
+                ));
             } else {
-                out.push_str(&format!("<param name=\"{name}\">{desc}</param>"));
+                out.push_str(&crate::template_env::render(
+                    "doc_csharp_param_desc.jinja",
+                    minijinja::context! { name => &name, desc => &desc },
+                ));
             }
         }
     }
     if let Some(ret) = sections.returns.as_deref() {
         out.push('\n');
-        out.push_str(&format!("<returns>{}</returns>", ret.trim()));
+        out.push_str(&crate::template_env::render(
+            "doc_csharp_returns.jinja",
+            minijinja::context! { content => ret.trim() },
+        ));
     }
     if let Some(err) = sections.errors.as_deref() {
         out.push('\n');
-        out.push_str(&format!(
-            "<exception cref=\"{exception_class}\">{}</exception>",
-            err.trim()
+        out.push_str(&crate::template_env::render(
+            "doc_csharp_exception.jinja",
+            minijinja::context! {
+                exception_class => exception_class,
+                content => err.trim(),
+            },
         ));
     }
     if let Some(example) = sections.example.as_deref() {
@@ -674,9 +710,15 @@ pub fn render_phpdoc_sections(sections: &RustdocSections, throws_class: &str) ->
                 out.push('\n');
             }
             if desc.is_empty() {
-                out.push_str(&format!("@param mixed ${name}"));
+                out.push_str(&crate::template_env::render(
+                    "doc_phpdoc_param.jinja",
+                    minijinja::context! { name => &name },
+                ));
             } else {
-                out.push_str(&format!("@param mixed ${name} {desc}"));
+                out.push_str(&crate::template_env::render(
+                    "doc_phpdoc_param_desc.jinja",
+                    minijinja::context! { name => &name, desc => &desc },
+                ));
             }
         }
     }
@@ -684,13 +726,19 @@ pub fn render_phpdoc_sections(sections: &RustdocSections, throws_class: &str) ->
         if !out.is_empty() {
             out.push('\n');
         }
-        out.push_str(&format!("@return {}", ret.trim()));
+        out.push_str(&crate::template_env::render(
+            "doc_phpdoc_return.jinja",
+            minijinja::context! { content => ret.trim() },
+        ));
     }
     if let Some(err) = sections.errors.as_deref() {
         if !out.is_empty() {
             out.push('\n');
         }
-        out.push_str(&format!("@throws {throws_class} {}", err.trim()));
+        out.push_str(&crate::template_env::render(
+            "doc_phpdoc_throws.jinja",
+            minijinja::context! { throws_class => throws_class, content => err.trim() },
+        ));
     }
     if let Some(example) = sections.example.as_deref() {
         if !out.is_empty() {
@@ -718,9 +766,15 @@ pub fn render_doxygen_sections(sections: &RustdocSections) -> String {
                 out.push('\n');
             }
             if desc.is_empty() {
-                out.push_str(&format!("\\param {name}"));
+                out.push_str(&crate::template_env::render(
+                    "doc_doxygen_param.jinja",
+                    minijinja::context! { name => &name },
+                ));
             } else {
-                out.push_str(&format!("\\param {name} {desc}"));
+                out.push_str(&crate::template_env::render(
+                    "doc_doxygen_param_desc.jinja",
+                    minijinja::context! { name => &name, desc => &desc },
+                ));
             }
         }
     }
@@ -728,13 +782,19 @@ pub fn render_doxygen_sections(sections: &RustdocSections) -> String {
         if !out.is_empty() {
             out.push('\n');
         }
-        out.push_str(&format!("\\return {}", ret.trim()));
+        out.push_str(&crate::template_env::render(
+            "doc_doxygen_return.jinja",
+            minijinja::context! { content => ret.trim() },
+        ));
     }
     if let Some(err) = sections.errors.as_deref() {
         if !out.is_empty() {
             out.push('\n');
         }
-        out.push_str(&format!("Errors: {}", err.trim()));
+        out.push_str(&crate::template_env::render(
+            "doc_doxygen_errors.jinja",
+            minijinja::context! { content => err.trim() },
+        ));
     }
     if let Some(example) = sections.example.as_deref() {
         if !out.is_empty() {

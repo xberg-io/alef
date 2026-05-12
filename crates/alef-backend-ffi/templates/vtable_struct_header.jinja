@@ -1,0 +1,10 @@
+/// VTable for C plugin bridges implementing the `{{ trait_name }}` trait.
+///
+/// # Safety
+///
+/// All function pointers must be valid for the lifetime of any bridge created from
+/// this vtable.  `free_user_data`, when non-null, is called once with `user_data`
+/// when the bridge is dropped.
+#[derive(Copy, Clone)]
+#[repr(C)]
+pub struct {{ vtable_name }} {

@@ -1,0 +1,7 @@
+#[derive(Clone, Default)]
+#[wasm_bindgen]
+pub struct {{ struct_name }} {
+{%- for field in fields %}
+    {{ field.name }}: {{ field.field_type }},
+{%- endfor %}
+}

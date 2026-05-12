@@ -254,7 +254,7 @@ pub mod maven {
     pub const KOTLIN_JVM_PLUGIN: &str = "2.3.21";
 
     // renovate: datasource=maven depName=org.jetbrains.kotlinx:kotlinx-coroutines-core
-    pub const KOTLINX_COROUTINES_CORE: &str = "1.10.2";
+    pub const KOTLINX_COROUTINES_CORE: &str = "1.11.0";
 
     // renovate: datasource=maven depName=net.java.dev.jna:jna
     pub const JNA: &str = "5.18.1";
@@ -329,11 +329,17 @@ pub mod toolchain {
     // minimum supported Zig; manual bump required
     pub const MIN_ZIG_VERSION: &str = "0.16.0";
 
-    // version range; manual bump required
-    pub const DART_SDK_CONSTRAINT: &str = ">=3.0.0 <4.0.0";
+    // version range; manual bump required.
+    // 3.3.0 is the minimum that supports `extension type` declarations, which
+    // flutter_rust_bridge 2.x emits in `frb_generated.web.dart` for WASM-side
+    // module bindings. Lower SDKs analyze cleanly for native-only builds but
+    // fail when the .web.dart file is in scope.
+    pub const DART_SDK_CONSTRAINT: &str = ">=3.3.0 <4.0.0";
 
-    // JVM bytecode target for Kotlin/Java scaffolds and e2e; manual bump required
-    pub const JVM_TARGET: &str = "21";
+    // JVM bytecode target for Kotlin/Java scaffolds and e2e; manual bump required.
+    // 25 is required because the Foreign Function & Memory API (used by the alef-emitted
+    // Java facade) was finalized in JDK 22 and is no longer available as a preview.
+    pub const JVM_TARGET: &str = "25";
 
     // minimum macOS deployment target for swift-bridge bindings; manual bump required
     pub const SWIFT_MIN_MACOS: &str = "13.0";
@@ -367,17 +373,17 @@ pub mod precommit {
     pub const CARGO_MACHETE_REV: &str = "v0.9.2";
 
     // renovate: datasource=github-tags packageName=EmbarkStudios/cargo-deny
-    pub const CARGO_DENY_REV: &str = "0.19.4";
+    pub const CARGO_DENY_REV: &str = "0.19.6";
 
     // renovate: datasource=github-tags packageName=rvben/rumdl-pre-commit
-    pub const RUMDL_REV: &str = "v0.1.90";
+    pub const RUMDL_REV: &str = "v0.1.91";
 
     // renovate: datasource=github-tags packageName=crate-ci/typos
-    pub const TYPOS_REV: &str = "v1.46.0";
+    pub const TYPOS_REV: &str = "v1.46.1";
 
     // renovate: datasource=github-tags packageName=kreuzberg-dev/pre-commit-hooks
     pub const KREUZBERG_PRECOMMIT_HOOKS_REV: &str = "v1.0.0";
 
     // alef rev: managed by sync-versions hook, no renovate marker
-    pub const ALEF_REV: &str = "v0.14.30";
+    pub const ALEF_REV: &str = "v0.15.43";
 }

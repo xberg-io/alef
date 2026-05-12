@@ -1,0 +1,6 @@
+
+    static final MethodHandle {{ handle_name }} = LIB
+        .find("{{ ffi_name }}")
+        .map(s -> LINKER.downcallHandle(s, FunctionDescriptor.of(ValueLayout.JAVA_INT,
+            ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS)))
+        .orElse(null);

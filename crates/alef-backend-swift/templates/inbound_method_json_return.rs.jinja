@@ -1,0 +1,2 @@
+        let json = {{ call_expr }};
+        ::serde_json::from_str::<{{ native_ty }}>(&json).expect("swift {{ trait_snake }}.{{ method_snake }} returned invalid JSON")

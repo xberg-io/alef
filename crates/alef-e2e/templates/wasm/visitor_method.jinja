@@ -1,0 +1,26 @@
+{#- WebAssembly visitor method template (identical to TypeScript)
+
+   Context variables:
+   - camel_method: camelCase method name (e.g., "visitText")
+   - params: parameter list (e.g., "ctx: any, text: any")
+   - action_type: "skip", "continue", "preserve_html", "custom", "custom_template"
+   - action_value: escaped string value (for custom)
+   - action_template: template string with ${...} interpolation (for custom_template)
+#}
+    {{ camel_method }}({{ params }}): string | { custom: string } {
+{% if action_type == "skip" %}
+        return "skip";
+{% elif action_type == "continue" %}
+        return "continue";
+{% elif action_type == "preserve_html" %}
+        return "preserve_html";
+{% elif action_type == "custom" %}
+        return { custom: "{{ action_value }}" };
+{% elif action_type == "custom_template" %}
+{% if return_form == "bare_string" %}
+        return `{{ action_template }}`;
+{% else %}
+        return { custom: `{{ action_template }}` };
+{% endif %}
+{% endif %}
+    },

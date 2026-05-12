@@ -5,6 +5,11 @@ use crate::escape::rust_raw_string;
 /// Render a single argument binding and expression for a Rust e2e test call.
 ///
 /// Returns `(binding_lines, call_expression)`.
+///
+/// `test_documents_dir` is the configured fixture-binary directory name (see
+/// [`E2eConfig::test_documents_dir`]). It is concatenated at compile time with
+/// the `CARGO_MANIFEST_DIR` so that fixture-relative paths resolve from any
+/// `cargo` invocation cwd.
 #[allow(clippy::too_many_arguments)]
 pub fn render_rust_arg(
     name: &str,
@@ -16,10 +21,11 @@ pub fn render_rust_arg(
     mock_base_url: Option<&str>,
     owned: bool,
     element_type: Option<&str>,
+    test_documents_dir: &str,
 ) -> (Vec<String>, String) {
     if arg_type == "mock_url" {
         let lines = vec![format!(
-            "let {name} = format!(\"{{}}/fixtures/{{}}\", std::env::var(\"MOCK_SERVER_URL\").expect(\"MOCK_SERVER_URL not set\"), \"{fixture_id}\");"
+            "let {name} = format!(\"{{}}/fixtures/{{}}\", common::mock_server_url(), \"{fixture_id}\");"
         )];
         return (lines, format!("&{name}"));
     }
@@ -82,7 +88,7 @@ pub fn render_rust_arg(
         if let serde_json::Value::String(path_str) = value {
             // File-path value: load via std::fs::read at test-run time.
             let binding = format!(
-                "let {name} = std::fs::read(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../../test_documents/{path_str}\")).expect(\"test_documents/{path_str} must exist\");"
+                "let {name} = std::fs::read(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../../{test_documents_dir}/{path_str}\")).expect(\"{test_documents_dir}/{path_str} must exist\");"
             );
             let call_expr = if owned { name.to_string() } else { format!("&{name}") };
             return (vec![binding], call_expr);
@@ -101,7 +107,7 @@ pub fn render_rust_arg(
     if arg_type == "file_path" {
         if let serde_json::Value::String(path_str) = value {
             let binding = format!(
-                "let {name}: &str = concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../../test_documents/\", \"{path_str}\");"
+                "let {name}: &str = concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../../{test_documents_dir}/\", \"{path_str}\");"
             );
             return (vec![binding], name.to_string());
         }
@@ -249,15 +255,13 @@ pub fn json_to_rust_literal(value: &serde_json::Value, arg_type: &str) -> String
     }
 }
 
-/// Resolve the visitor trait name based on module.
-pub fn resolve_visitor_trait(module: &str) -> String {
-    // For html_to_markdown modules, use HtmlVisitor
-    if module.contains("html_to_markdown") {
-        "HtmlVisitor".to_string()
-    } else {
-        // Default fallback for other modules
-        "Visitor".to_string()
-    }
+/// Resolve the visitor trait name from the Rust e2e call override config.
+///
+/// Returns `Some(trait_name)` when `visitor_trait` is configured in the Rust
+/// override, or `None` when unconfigured. Callers must treat `None` as a
+/// codegen error when a fixture declares a `visitor` block.
+pub fn resolve_visitor_trait(rust_override: Option<&crate::config::CallOverride>) -> Option<String> {
+    rust_override.and_then(|o| o.visitor_trait.clone())
 }
 
 /// Emit a Rust visitor method for a callback action.
@@ -343,7 +347,7 @@ pub fn emit_rust_visitor_method(out: &mut String, method_name: &str, action: &cr
 
     // Determine which names the template references (only relevant for CustomTemplate).
     let template_vars: std::collections::HashSet<String> =
-        if let crate::fixture::CallbackAction::CustomTemplate { template } = action {
+        if let crate::fixture::CallbackAction::CustomTemplate { template, .. } = action {
             // Extract `{name}` patterns from the template string.
             let mut vars = std::collections::HashSet::new();
             let mut chars = template.chars().peekable();
@@ -399,7 +403,7 @@ pub fn emit_rust_visitor_method(out: &mut String, method_name: &str, action: &cr
             let escaped = crate::escape::escape_rust(output);
             let _ = writeln!(out, "            VisitResult::Custom(\"{escaped}\".to_string())");
         }
-        crate::fixture::CallbackAction::CustomTemplate { template } => {
+        crate::fixture::CallbackAction::CustomTemplate { template, .. } => {
             // For any template-referenced param that is `Option<T>`, emit a shadow
             // `let name = name.unwrap_or_default();` so the format! string can use it.
             for (name, ty) in raw_params {
@@ -438,8 +442,21 @@ mod tests {
     }
 
     #[test]
-    fn resolve_visitor_trait_html_to_markdown() {
-        assert_eq!(resolve_visitor_trait("html_to_markdown"), "HtmlVisitor");
-        assert_eq!(resolve_visitor_trait("other_module"), "Visitor");
+    fn resolve_visitor_trait_uses_config() {
+        use crate::config::CallOverride;
+
+        let override_with_trait = CallOverride {
+            visitor_trait: Some("HtmlVisitor".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(
+            resolve_visitor_trait(Some(&override_with_trait)),
+            Some("HtmlVisitor".to_string())
+        );
+
+        let override_without_trait = CallOverride::default();
+        assert_eq!(resolve_visitor_trait(Some(&override_without_trait)), None);
+
+        assert_eq!(resolve_visitor_trait(None), None);
     }
 }

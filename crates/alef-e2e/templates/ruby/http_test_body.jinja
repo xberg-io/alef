@@ -1,0 +1,45 @@
+{#- Ruby HTTP test assertions rendering
+
+   Context variables:
+   - status: expected HTTP status
+   - headers: list of header assertion objects with 'name', 'assertion_type', and 'value'
+   - has_json_body: boolean
+   - json_val: JSON value (if has_json_body)
+   - has_text_body: boolean
+   - text_body: text value (if has_text_body)
+   - has_partial_body: boolean
+   - partial_body_checks: list of objects with 'key' and 'value'
+   - has_validation_errors: boolean
+   - validation_errors: list of error messages
+#}
+      expect(response.code.to_i).to eq({{ status }})
+{%- for header in headers %}
+{%- if header.assertion_type == "present" %}
+      expect(response['{{ header.name }}']).not_to be_nil
+{%- elif header.assertion_type == "absent" %}
+      expect(response['{{ header.name }}']).to be_nil
+{%- elif header.assertion_type == "uuid" %}
+      expect(response['{{ header.name }}']).to match(/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/i)
+{%- else %}
+      expect(response['{{ header.name }}']).to eq({{ header.value }})
+{%- endif %}
+{%- endfor %}
+{%- if has_json_body %}
+      _body = response.body && !response.body.empty? ? JSON.parse(response.body) : nil
+      expect(_body).to eq({{ json_val }})
+{%- elif has_text_body %}
+      expect(response.body).to eq('{{ text_body }}')
+{%- endif %}
+{%- if has_partial_body %}
+      _body = JSON.parse(response.body)
+{%- for check in partial_body_checks %}
+      expect(_body['{{ check.key }}']).to eq({{ check.value }})
+{%- endfor %}
+{%- endif %}
+{%- if has_validation_errors %}
+{%- for error in validation_errors %}
+      _body = JSON.parse(response.body)
+      _errors = _body['errors'] || []
+      expect(_errors.map { |e| e['msg'] }).to include('{{ error.msg }}')
+{%- endfor %}
+{%- endif %}

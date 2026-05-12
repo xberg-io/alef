@@ -1,0 +1,11 @@
+{#- Java HTTP 101 test skip template
+
+   Context variables:
+   - method_name: test method name (UpperCamelCase)
+   - description: fixture description
+#}
+    @Test
+    void test{{ method_name }}() {
+        // {{ description }}
+        org.junit.jupiter.api.Assumptions.assumeTrue(false, "Skipped: Java HttpClient cannot handle 101 Switching Protocols responses");
+    }

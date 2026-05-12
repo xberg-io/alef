@@ -1,0 +1,16 @@
+// NodeContext carries context information passed to every visitor callback.
+// It is decoded from the JSON-encoded context string passed by the C layer.
+type NodeContext struct {
+	// NodeType is a coarse-grained node type tag.
+	NodeType NodeType `json:"node_type"`
+	// TagName is the HTML element tag name (e.g. "div").
+	TagName string `json:"tag_name"`
+	// Depth is the DOM depth (0 = root).
+	Depth uint `json:"depth"`
+	// IndexInParent is the 0-based sibling index.
+	IndexInParent uint `json:"index_in_parent"`
+	// ParentTag is the parent element tag name, or nil at the root.
+	ParentTag *string `json:"parent_tag"`
+	// IsInline is true when this element is treated as inline.
+	IsInline bool `json:"is_inline"`
+}

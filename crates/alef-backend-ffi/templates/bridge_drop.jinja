@@ -1,0 +1,9 @@
+impl Drop for {{ bridge_name }} {
+    fn drop(&mut self) {
+        if let Some(free_fn) = self.vtable.free_user_data {
+            // SAFETY: free_fn is a valid function pointer; user_data is the pointer
+            // originally provided at registration. Called exactly once here.
+            unsafe { free_fn(self.user_data as *mut std::ffi::c_void) }
+        }
+    }
+}

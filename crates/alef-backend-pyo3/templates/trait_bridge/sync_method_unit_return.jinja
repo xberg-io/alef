@@ -1,0 +1,12 @@
+Python::attach(|py| {
+    {{ call }}
+        .map(|_| ())
+{% if has_error %}
+        .map_err(|e| {{ core_import }}::KreuzbergError::Plugin {
+            message: format!("Plugin '{}' method '{{ method_name }}' failed: {}", self.cached_name, e),
+            plugin_name: self.cached_name.clone(),
+        })
+{% else %}
+        .unwrap_or(())
+{% endif %}
+})

@@ -32,16 +32,31 @@ environment:
 dependencies:
   # FRB runtime is pure-Dart; works in both Flutter and server-Dart contexts.
   flutter_rust_bridge: '{flutter_rust_bridge}'
+  # FRB codegen-2.x emits `@freezed` sealed classes annotated with these.
+  freezed_annotation: '^2.4.0'
+  json_annotation: '^4.9.0'
 dev_dependencies:
   test: '{test_package}'
   lints: '{lints}'
+  # Required by flutter_rust_bridge_codegen 2.x for sealed classes.
+  freezed: '^2.5.0'
+  build_runner: '^2.4.0'
+  json_serializable: '^6.8.0'
 "#,
         name = pubspec_name,
         description = meta.description,
         version = version,
     );
 
-    let analysis_options_yaml = "include: package:lints/recommended.yaml\n\nlinter:\n  rules:\n    - avoid_empty_else\n    - avoid_print\n    - avoid_relative_lib_imports\n    - avoid_returning_null\n    - avoid_returning_null_for_future\n    - avoid_returning_this\n    - avoid_slow_async_io\n    - cancel_subscriptions\n    - close_sinks\n    - comment_references\n    - control_flow_in_finally\n    - empty_statements\n    - hash_and_equals\n    - invariant_booleans\n    - iterable_contains_unrelated_type\n    - list_remove_unrelated_type\n    - literal_only_boolean_expressions\n    - no_adjacent_strings_in_list\n    - no_duplicate_case_values\n    - prefer_void_to_null\n    - throw_in_finally\n    - unnecessary_statements\n    - unrelated_type_equality_checks\n";
+    // Linter rule list intentionally excludes lints removed in Dart 3.x:
+    //   - avoid_returning_null, avoid_returning_null_for_future (removed in 3.3)
+    //   - invariant_booleans (removed in 3.0)
+    //   - iterable_contains_unrelated_type, list_remove_unrelated_type (removed in 3.0)
+    //
+    // The `analyzer.exclude` block silences analysis on flutter_rust_bridge-generated
+    // files: those use inline-class extension types and reference unignored frb
+    // types that the analyzer can't resolve until codegen has run.
+    let analysis_options_yaml = "include: package:lints/recommended.yaml\n\nanalyzer:\n  exclude:\n    - lib/src/frb/**\n    - lib/src/kreuzberg_bridge_generated/**\n    - example/**\n    - lib/src/traits.dart\n\nlinter:\n  rules:\n    - avoid_empty_else\n    - avoid_print\n    - avoid_relative_lib_imports\n    - avoid_returning_this\n    - avoid_slow_async_io\n    - cancel_subscriptions\n    - close_sinks\n    - comment_references\n    - control_flow_in_finally\n    - empty_statements\n    - hash_and_equals\n    - literal_only_boolean_expressions\n    - no_adjacent_strings_in_list\n    - no_duplicate_case_values\n    - prefer_void_to_null\n    - throw_in_finally\n    - unnecessary_statements\n    - unrelated_type_equality_checks\n";
 
     let gitignore = ".dart_tool/\nbuild/\npubspec.lock\n";
 

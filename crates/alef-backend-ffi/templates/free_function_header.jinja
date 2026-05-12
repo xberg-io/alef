@@ -1,0 +1,17 @@
+{%- if doc_comment %}
+{{ doc_comment }}
+{% endif -%}
+/// # Safety
+/// Caller must ensure all pointer arguments are valid or null.
+/// Returned pointers must be freed with the appropriate free function.
+{% if allow_clippy -%}
+#[allow({{ allow_clippy }})]
+{% endif -%}
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn {{ fn_name }}(
+{% for param in params -%}
+{{ param }}{% if not loop.last %},
+{% endif %}
+{% endfor -%}
+){% if return_type %} -> {{ return_type }}{% endif %} {
+    clear_last_error();

@@ -19,20 +19,38 @@ pub(crate) fn emit_helpers(prefix: &str, out: &mut String) {
     let error_context_symbol = c_consumer::last_error_context_symbol(prefix);
 
     out.push_str("/// Free a string allocated by the FFI layer.\n");
-    out.push_str(&format!(
-        "/// The pointer must have been returned by a `{prefix}_*` C function.\n"
+    out.push_str(&crate::template_env::render(
+        "helper_free_string_doc1.jinja",
+        minijinja::context! {
+            prefix => prefix,
+        },
     ));
     out.push_str("/// Do NOT call this twice on the same pointer.\n");
     out.push_str("pub fn _free_string(ptr: [*c]u8) void {\n");
-    out.push_str(&format!("    c.{free_symbol}(ptr);\n"));
+    out.push_str(&crate::template_env::render(
+        "helper_free_string_doc2.jinja",
+        minijinja::context! {
+            free_symbol => free_symbol,
+        },
+    ));
     out.push_str("}\n\n");
 
     out.push_str("/// Retrieve the last error set by the FFI layer, if any.\n");
     out.push_str("/// Returns a slice into thread-local storage valid until the next FFI call.\n");
     out.push_str("pub fn _last_error() ?[]const u8 {\n");
-    out.push_str(&format!("    const _code = c.{error_code_symbol}();\n"));
+    out.push_str(&crate::template_env::render(
+        "helper_last_error_code.jinja",
+        minijinja::context! {
+            symbol => error_code_symbol,
+        },
+    ));
     out.push_str("    if (_code == 0) return null;\n");
-    out.push_str(&format!("    const _ctx = c.{error_context_symbol}();\n"));
+    out.push_str(&crate::template_env::render(
+        "helper_last_error_ctx.jinja",
+        minijinja::context! {
+            symbol => error_context_symbol,
+        },
+    ));
     out.push_str("    if (_ctx == null) return null;\n");
     out.push_str("    return std.mem.sliceTo(_ctx, 0);\n");
     out.push_str("}\n\n");
@@ -41,7 +59,7 @@ pub(crate) fn emit_helpers(prefix: &str, out: &mut String) {
     out.push_str("/// Coarse fallback: returns the first declared variant. Per-code dispatch\n");
     out.push_str("/// will replace this once the IR exposes per-variant numeric codes.\n");
     out.push_str("inline fn _first_error(comptime E: type) E {\n");
-    out.push_str("    const fields = @typeInfo(E).ErrorSet orelse return @as(E, error.Unknown);\n");
+    out.push_str("    const fields = @typeInfo(E).error_set orelse return @as(E, error.Unknown);\n");
     out.push_str("    if (fields.len == 0) unreachable;\n");
     out.push_str("    return @field(E, fields[0].name);\n");
     out.push_str("}\n");

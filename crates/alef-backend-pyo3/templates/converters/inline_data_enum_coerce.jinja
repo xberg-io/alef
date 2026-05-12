@@ -1,0 +1,2 @@
+        if "{{ field_name }}" in value and value["{{ field_name }}"] is not None and not isinstance(value["{{ field_name }}"], _rust.{{ enum_name }}):
+            value["{{ field_name }}"] = _rust.{{ enum_name }}(value["{{ field_name }}"])

@@ -1,0 +1,25 @@
+{#- C# test file template
+
+   Context variables:
+   - header: file header comment
+   - using_imports: string containing all using import statements
+   - category: test category name for the summary comment
+   - namespace: namespace name
+   - test_class: test class name
+   - config_options_field: the shared ConfigOptions static field definition
+   - fixtures_body: string containing all rendered test methods
+   - visitor_class_decls: string containing all visitor class declarations
+#}
+{{ header }}
+{{ using_imports }}
+namespace {{ namespace }}
+{
+    /// <summary>E2e tests for category: {{ category }}.</summary>
+    public class {{ test_class }}
+    {
+        {{ config_options_field }}
+
+{{ fixtures_body }}
+{{ visitor_class_decls }}
+    }
+}

@@ -1,0 +1,33 @@
+{#- Python test file template
+
+   Context variables:
+   - header: file header comment
+   - docstring: file docstring (e.g., "E2e tests for category: ...")
+   - stdlib_imports: list of stdlib import strings
+   - thirdparty_bare: list of bare import strings
+   - thirdparty_from: list of from-import strings
+   - helper_functions: string containing helper function definitions (e.g., _alef_e2e_text, _alef_e2e_item_texts)
+   - fixtures_body: string containing all rendered test functions and fixtures
+#}
+{{ header }}
+"""{{ docstring }}"""
+
+{% if stdlib_imports %}
+{% for imp in stdlib_imports %}
+{{ imp }}
+{% endfor %}
+{% endif %}
+{% if thirdparty_bare %}
+{% for imp in thirdparty_bare %}
+{{ imp }}
+{% endfor %}
+{% endif %}
+{% if thirdparty_from %}
+{% for imp in thirdparty_from %}
+{{ imp }}
+{% endfor %}
+{% endif %}
+
+{{ helper_functions }}
+
+{{ fixtures_body }}

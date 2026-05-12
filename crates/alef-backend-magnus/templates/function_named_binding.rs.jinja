@@ -1,0 +1,7 @@
+{% if mode == "optional" -%}
+let {{ binding_name }}: Option<{{ core_import }}::{{ type_name }}> = match {{ binding_name }} { Some(_v) if !_v.is_nil() => { let binding_val: {{ type_name }} = {{ type_name }}::try_convert(_v).map_err(|e| magnus::Error::new(unsafe { Ruby::get_unchecked() }.exception_type_error(), e.to_string()))?; Some(binding_val.into()) }, _ => None };
+{%- elif mode == "default" -%}
+let {{ binding_name }}: {{ core_import }}::{{ type_name }} = match {{ binding_name }} { Some(_v) if !_v.is_nil() => { let binding_val: {{ type_name }} = {{ type_name }}::try_convert(_v).map_err(|e| magnus::Error::new(unsafe { Ruby::get_unchecked() }.exception_type_error(), e.to_string()))?; binding_val.into() }, _ => Default::default() };
+{%- else -%}
+let {{ binding_name }}: {{ core_import }}::{{ type_name }} = { let binding_val: {{ type_name }} = {{ type_name }}::try_convert({{ binding_name }}).map_err(|e| magnus::Error::new(unsafe { Ruby::get_unchecked() }.exception_type_error(), e.to_string()))?; binding_val.into() };
+{%- endif %}

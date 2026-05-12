@@ -1,0 +1,7 @@
+            // TODO unsupported parameter type for {{ param_name }}
+            throw new {{ exception_class }}("{{ method_name }}: unsupported parameter shape", (Throwable) null);
+        } catch (Throwable e) {
+            if (e instanceof {{ exception_class }} ex) { throw ex; }
+            throw new {{ exception_class }}("{{ method_name }}: failed", e);
+        }
+    }

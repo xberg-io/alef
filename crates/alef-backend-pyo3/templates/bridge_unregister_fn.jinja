@@ -1,0 +1,3 @@
+def {{ unregister_fn }}(name: str) -> None:
+    """Unregister the named {{ unregister_fn }} backend."""
+    return _rust.{{ unregister_fn }}(name=name)

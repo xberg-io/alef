@@ -1,0 +1,4 @@
+                if (!optionsPtr.equals(MemorySegment.NULL)) {
+                    NativeLib.{{ pu }}_CONVERSION_OPTIONS_FREE.invoke(optionsPtr);
+                    optionsPtr = MemorySegment.NULL;
+                }

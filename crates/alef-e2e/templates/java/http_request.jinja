@@ -1,0 +1,25 @@
+{#- Java HTTP request builder using java.net.http.HttpClient
+
+   Context variables:
+   - method: HTTP method (GET, POST, etc. - already uppercase)
+   - path: path with query params already built in
+   - body_publisher: the BodyPublisher expression for the request body
+   - content_type: content-type to set (only when body is present)
+   - headers_lines: list of header setup lines
+   - cookies_line: cookie header line (optional)
+   - response_var: variable name to bind the response to
+#}
+        java.net.URI uri = java.net.URI.create(baseUrl + "{{ path }}");
+        var builder = java.net.http.HttpRequest.newBuilder(uri)
+            .method("{{ method }}", {{ body_publisher }});
+{%- if content_type %}
+        builder = builder.header("Content-Type", "{{ content_type }}");
+{%- endif %}
+{%- for header_line in headers_lines %}
+        {{ header_line }}
+{%- endfor %}
+{%- if cookies_line %}
+        {{ cookies_line }}
+{%- endif %}
+        var {{ response_var }} = java.net.http.HttpClient.newHttpClient()
+            .send(builder.build(), java.net.http.HttpResponse.BodyHandlers.ofString());

@@ -1,0 +1,3 @@
+let {{ param_name }}_core: Vec<{{ core_path }}> = {{ param_name }}.into_iter()
+    .map(|s| serde_json::from_str::<{{ core_path }}>(&s){{ err_conv }})
+    .collect::<Result<Vec<_>, _>>()?;

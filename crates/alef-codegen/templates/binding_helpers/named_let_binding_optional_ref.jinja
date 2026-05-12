@@ -1,0 +1,2 @@
+let {{ name }}_owned: Option<{{ core_type_path }}> = {{ name }}.map(Into::into);
+    let {{ name }}_core = {{ name }}_owned.as_ref();

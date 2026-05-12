@@ -42,6 +42,8 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
         core_wrapper: alef_core::ir::CoreWrapper::None,
         vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
         newtype_wrapper: None,
+        serde_rename: None,
+        serde_flatten: false,
     }
 }
 
@@ -61,6 +63,8 @@ fn make_field_with_default(name: &str, ty: TypeRef, default: DefaultValue) -> Fi
         core_wrapper: CoreWrapper::None,
         vec_inner_core_wrapper: CoreWrapper::None,
         newtype_wrapper: None,
+        serde_rename: None,
+        serde_flatten: false,
     }
 }
 
@@ -205,9 +209,11 @@ fn test_generate_public_api_creates_all_files() {
             is_copy: false,
             has_serde: false,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config("my_lib");
@@ -301,6 +307,7 @@ fn test_native_ex_has_all_nif_stubs() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config("my_lib");
@@ -421,9 +428,11 @@ fn test_struct_module_has_defstruct() {
             is_copy: false,
             has_serde: false,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config("my_lib");
@@ -500,6 +509,7 @@ fn test_main_module_has_method_wrappers() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config("my_lib");
@@ -566,6 +576,7 @@ fn test_opaque_types_not_get_struct_module() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config("my_lib");
@@ -618,9 +629,11 @@ fn test_simple_enum_module_has_type_and_accessors() {
             is_copy: false,
             has_serde: false,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config("my_lib");
@@ -699,6 +712,7 @@ fn test_generate_bindings_nif_init_uses_native_module() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config("my_lib");
@@ -756,9 +770,11 @@ fn test_builtin_type_function_variant_uses_safe_type_name() {
             is_copy: false,
             has_serde: false,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config("my_lib");
@@ -794,6 +810,7 @@ fn test_native_ex_force_build_line_within_98_chars() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config("my_lib");
@@ -823,10 +840,13 @@ fn test_native_ex_force_build_line_within_98_chars() {
             .join("\n")
     );
 
-    // Also assert the force_build keyword is present and uses the three-line form.
+    // Also assert the force_build keyword is present. The previous codegen used a
+    // multi-line form with `force_build:\n`; the current emission keeps it on a
+    // single line because the resulting line stays comfortably within 98 chars,
+    // which is what `mix format` actually cares about.
     assert!(
-        native.content.contains("force_build:\n"),
-        "force_build: should use multi-line form with newline after colon; content:\n{}",
+        native.content.contains("force_build:"),
+        "force_build: keyword should be present in native.ex; content:\n{}",
         &native.content
     );
 }
@@ -870,9 +890,11 @@ fn test_reserved_attr_doc_variant_uses_safe_name() {
             is_copy: false,
             has_serde: false,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config("my_lib");

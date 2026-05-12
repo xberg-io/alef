@@ -2,18 +2,22 @@ use crate::conversions::helpers::{core_prim_str, needs_f64_cast, needs_i32_cast}
 use crate::generators::{AsyncPattern, RustBindingConfig};
 use ahash::AHashSet;
 use alef_core::ir::{CoreWrapper, ParamDef, TypeDef, TypeRef};
-use std::fmt::Write;
 
 /// Helper: wrap an opaque inner value in the correct smart pointer expression.
 ///
 /// - Plain opaque types use `Arc::new(val)`.
 /// - Mutex-wrapped opaque types use `Arc::new(std::sync::Mutex::new(val))`.
 fn arc_wrap(val: &str, name: &str, mutex_types: &AHashSet<String>) -> String {
-    if mutex_types.contains(name) {
-        format!("Arc::new(std::sync::Mutex::new({val}))")
-    } else {
-        format!("Arc::new({val})")
-    }
+    let needs_mutex = mutex_types.contains(name);
+    crate::template_env::render(
+        "binding_helpers/arc_wrap.jinja",
+        minijinja::context! {
+            val => val,
+            needs_mutex => needs_mutex,
+        },
+    )
+    .trim_end_matches('\n')
+    .to_string()
 }
 
 /// Wrap a core-call result for opaque delegation methods.
@@ -214,7 +218,14 @@ pub fn wrap_return(
 /// is the inner type (e.g. `u32`). Access `.0` to unwrap the newtype.
 pub fn apply_return_newtype_unwrap(expr: &str, return_newtype_wrapper: &Option<String>) -> String {
     match return_newtype_wrapper {
-        Some(_) => format!("({expr}).0"),
+        Some(_) => crate::template_env::render(
+            "binding_helpers/return_newtype_unwrap.jinja",
+            minijinja::context! {
+                expr => expr,
+            },
+        )
+        .trim_end_matches('\n')
+        .to_string(),
         None => expr.to_string(),
     }
 }
@@ -677,75 +688,81 @@ pub(super) fn gen_named_let_bindings_by_ref(
             TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
                 let promoted = crate::shared::is_promoted_optional(params, idx);
                 let core_type_path = format!("{core_import}::{name}");
-                if p.optional {
-                    // Nullable<&T>: use into_option() then clone+convert each element
-                    write!(
-                        bindings,
-                        "let {name}_core: Option<{core_type_path}> = {name}.into_option().map(|v| v.clone().into());\n    ",
-                        name = p.name
+                let binding = if p.optional {
+                    crate::template_env::render(
+                        "binding_helpers/named_let_binding_by_ref_optional.jinja",
+                        minijinja::context! {
+                            name => &p.name,
+                            core_type_path => &core_type_path,
+                        },
                     )
-                    .ok();
                 } else if promoted {
-                    // Promoted-optional (Nullable<&T>): expect not-null then clone+convert
-                    write!(
-                        bindings,
-                        "let {name}_core: {core_type_path} = {name}.into_option().expect(\"'{name}' is required\").clone().into();\n    ",
-                        name = p.name
+                    crate::template_env::render(
+                        "binding_helpers/named_let_binding_by_ref_promoted.jinja",
+                        minijinja::context! {
+                            name => &p.name,
+                            core_type_path => &core_type_path,
+                        },
                     )
-                    .ok();
                 } else {
-                    // Required &T: clone and convert
-                    write!(
-                        bindings,
-                        "let {name}_core: {core_type_path} = {name}.clone().into();\n    ",
-                        name = p.name
+                    crate::template_env::render(
+                        "binding_helpers/named_let_binding_by_ref_simple.jinja",
+                        minijinja::context! {
+                            name => &p.name,
+                            core_type_path => &core_type_path,
+                        },
                     )
-                    .ok();
-                }
+                };
+                bindings.push_str(&binding);
+                bindings.push_str("\n    ");
             }
             TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str())) => {
-                if p.optional {
-                    write!(
-                        bindings,
-                        "let {name}_core = {name}.as_ref().map(|v| v.iter().map(|x| x.clone().into()).collect()).unwrap_or_default();\n    ",
-                        name = p.name
+                let binding = if p.optional {
+                    crate::template_env::render(
+                        "binding_helpers/vec_named_let_binding_by_ref_optional.jinja",
+                        minijinja::context! {
+                            name => &p.name,
+                        },
                     )
-                    .ok();
                 } else {
                     let promoted = crate::shared::is_promoted_optional(params, idx);
                     if promoted {
-                        write!(
-                            bindings,
-                            "let {name}_core: Vec<_> = {name}.expect(\"'{name}' is required\").into_iter().map(Into::into).collect();\n    ",
-                            name = p.name
+                        crate::template_env::render(
+                            "binding_helpers/vec_named_let_binding_by_ref_promoted.jinja",
+                            minijinja::context! {
+                                name => &p.name,
+                            },
                         )
-                        .ok();
                     } else {
-                        write!(
-                            bindings,
-                            "let {name}_core: Vec<_> = {name}.into_iter().map(Into::into).collect();\n    ",
-                            name = p.name
+                        crate::template_env::render(
+                            "binding_helpers/vec_named_let_binding_by_ref_simple.jinja",
+                            minijinja::context! {
+                                name => &p.name,
+                            },
                         )
-                        .ok();
                     }
-                }
+                };
+                bindings.push_str(&binding);
+                bindings.push_str("\n    ");
             }
             TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref => {
-                if p.optional {
-                    write!(
-                        bindings,
-                        "let {name}_refs: Vec<&str> = {name}.as_ref().map(|v| v.iter().map(|s| s.as_str()).collect()).unwrap_or_default();\n    ",
-                        name = p.name
+                let binding = if p.optional {
+                    crate::template_env::render(
+                        "binding_helpers/vec_string_refs_binding_optional.jinja",
+                        minijinja::context! {
+                            name => &p.name,
+                        },
                     )
-                    .ok();
                 } else {
-                    write!(
-                        bindings,
-                        "let {name}_refs: Vec<&str> = {name}.iter().map(|s| s.as_str()).collect();\n    ",
-                        name = p.name
+                    crate::template_env::render(
+                        "binding_helpers/vec_string_refs_binding_simple.jinja",
+                        minijinja::context! {
+                            name => &p.name,
+                        },
                     )
-                    .ok();
-                }
+                };
+                bindings.push_str(&binding);
+                bindings.push_str("\n    ");
             }
             _ => {}
         }
@@ -765,124 +782,114 @@ fn gen_named_let_bindings_inner(
             TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
                 let promoted = promote && crate::shared::is_promoted_optional(params, idx);
                 let core_type_path = format!("{}::{}", core_import, name);
-                if p.optional {
+                let binding = if p.optional {
                     if p.is_ref {
-                        // Option<T> (binding) -> Option<&CoreT> (core expects reference to core type)
-                        // Split into two bindings to avoid temporary value dropped while borrowed (E0716)
-                        write!(
-                            bindings,
-                            "let {name}_owned: Option<{core_type_path}> = {name}.map(Into::into);\n    let {name}_core = {name}_owned.as_ref();\n    ",
-                            name = p.name
+                        crate::template_env::render(
+                            "binding_helpers/named_let_binding_optional_ref.jinja",
+                            minijinja::context! {
+                                name => &p.name,
+                                core_type_path => &core_type_path,
+                            },
                         )
-                        .ok();
                     } else {
-                        write!(
-                            bindings,
-                            "let {}_core: Option<{core_type_path}> = {}.map(Into::into);\n    ",
-                            p.name, p.name
+                        crate::template_env::render(
+                            "binding_helpers/named_let_binding_optional.jinja",
+                            minijinja::context! {
+                                name => &p.name,
+                                core_type_path => &core_type_path,
+                            },
                         )
-                        .ok();
                     }
                 } else if promoted {
-                    // Promoted-optional Named: caller may pass null/undefined when the binding
-                    // signature has Option<T>. Use `unwrap_or_default()` so JS/Python `undefined`
-                    // becomes a default-constructed instance (binding types always derive Default).
-                    write!(
-                        bindings,
-                        "let {}_core: {core_type_path} = {}.unwrap_or_default().into();\n    ",
-                        p.name, p.name
+                    crate::template_env::render(
+                        "binding_helpers/named_let_binding_promoted.jinja",
+                        minijinja::context! {
+                            name => &p.name,
+                            core_type_path => &core_type_path,
+                        },
                     )
-                    .ok();
                 } else {
-                    // Non-optional: add explicit type annotation to help type inference
-                    write!(
-                        bindings,
-                        "let {}_core: {core_type_path} = {}.into();\n    ",
-                        p.name, p.name
+                    crate::template_env::render(
+                        "binding_helpers/named_let_binding_simple.jinja",
+                        minijinja::context! {
+                            name => &p.name,
+                            core_type_path => &core_type_path,
+                        },
                     )
-                    .ok();
-                }
+                };
+                bindings.push_str(&binding);
+                bindings.push_str("\n    ");
             }
             TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str())) => {
                 let promoted = promote && crate::shared::is_promoted_optional(params, idx);
-                if p.optional && p.is_ref {
-                    // Option<Vec<Named>> with is_ref: convert to Option<Vec<CoreType>>, then use as_deref()
-                    // This ensures elements are converted from binding to core type.
-                    write!(
-                        bindings,
-                        "let {}_core: Option<Vec<_>> = {}.as_ref().map(|v| v.iter().map(|x| x.clone().into()).collect());\n    ",
-                        p.name, p.name
+                let binding = if p.optional && p.is_ref {
+                    crate::template_env::render(
+                        "binding_helpers/vec_named_let_binding_optional.jinja",
+                        minijinja::context! {
+                            name => &p.name,
+                        },
                     )
-                    .ok();
                 } else if p.optional {
-                    // Option<Vec<Named>> without is_ref: convert to concrete Vec
-                    write!(
-                        bindings,
-                        "let {}_core = {}.as_ref().map(|v| v.iter().map(|x| x.clone().into()).collect()).unwrap_or_default();\n    ",
-                        p.name, p.name
+                    crate::template_env::render(
+                        "binding_helpers/vec_named_let_binding_optional_no_ref.jinja",
+                        minijinja::context! {
+                            name => &p.name,
+                        },
                     )
-                    .ok();
                 } else if promoted {
-                    // Promoted-optional: unwrap then convert
-                    write!(
-                        bindings,
-                        "let {}_core: Vec<_> = {}.expect(\"'{}' is required\").into_iter().map(Into::into).collect();\n    ",
-                        p.name, p.name, p.name
+                    crate::template_env::render(
+                        "binding_helpers/vec_named_let_binding_promoted.jinja",
+                        minijinja::context! {
+                            name => &p.name,
+                        },
                     )
-                    .ok();
-                } else if p.is_ref {
-                    // Non-optional Vec<Named> with is_ref=true: generate let binding for conversion
-                    write!(
-                        bindings,
-                        "let {}_core: Vec<_> = {}.into_iter().map(Into::into).collect();\n    ",
-                        p.name, p.name
-                    )
-                    .ok();
                 } else {
-                    // Vec<Named>: convert each element
-                    write!(
-                        bindings,
-                        "let {}_core: Vec<_> = {}.into_iter().map(Into::into).collect();\n    ",
-                        p.name, p.name
+                    crate::template_env::render(
+                        "binding_helpers/vec_named_let_binding_simple.jinja",
+                        minijinja::context! {
+                            name => &p.name,
+                        },
                     )
-                    .ok();
-                }
+                };
+                bindings.push_str(&binding);
+                bindings.push_str("\n    ");
             }
             // Vec<String> with is_ref=true: core expects &[&str].
             // Convert Vec<String> to Vec<&str> via intermediate binding.
             TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref => {
-                write!(
-                    bindings,
-                    "let {n}_refs: Vec<&str> = {n}.iter().map(|s| s.as_str()).collect();\n    ",
-                    n = p.name,
-                )
-                .ok();
+                let binding = if p.optional {
+                    crate::template_env::render(
+                        "binding_helpers/vec_string_refs_binding_optional.jinja",
+                        minijinja::context! {
+                            name => &p.name,
+                        },
+                    )
+                } else {
+                    crate::template_env::render(
+                        "binding_helpers/vec_string_refs_binding_simple.jinja",
+                        minijinja::context! {
+                            name => &p.name,
+                        },
+                    )
+                };
+                bindings.push_str(&binding);
+                bindings.push_str("\n    ");
             }
             // Sanitized Vec<String> (originally Vec<tuple>): deserialize each JSON string.
             TypeRef::Vec(inner)
                 if matches!(inner.as_ref(), TypeRef::String) && p.sanitized && p.original_type.is_some() =>
             {
-                if p.optional {
-                    write!(
-                        bindings,
-                        "let {n}_core: Option<Vec<_>> = {n}.map(|strs| \
-                         strs.into_iter()\n    \
-                         .filter_map(|s| serde_json::from_str(&s).ok())\n    \
-                         .collect()\n    \
-                         );\n    ",
-                        n = p.name,
-                    )
-                    .ok();
+                let template = if p.optional {
+                    "binding_helpers/sanitized_vec_string_filter_optional.jinja"
                 } else {
-                    write!(
-                        bindings,
-                        "let {n}_core: Vec<_> = {n}.into_iter()\n    \
-                         .filter_map(|s| serde_json::from_str(&s).ok())\n    \
-                         .collect();\n    ",
-                        n = p.name,
-                    )
-                    .ok();
-                }
+                    "binding_helpers/sanitized_vec_string_filter_simple.jinja"
+                };
+                bindings.push_str(&crate::template_env::render(
+                    template,
+                    minijinja::context! {
+                        name => &p.name,
+                    },
+                ));
             }
             _ => {}
         }
@@ -910,45 +917,38 @@ pub fn gen_serde_let_bindings(
             TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
                 let core_path = format!("{}::{}", core_import, name);
                 if p.optional {
-                    write!(
-                        bindings,
-                        "let {name}_core: Option<{core_path}> = {name}.map(|v| {{\n\
-                         {indent}    let json = serde_json::to_string(&v){err_conv}?;\n\
-                         {indent}    serde_json::from_str(&json){err_conv}\n\
-                         {indent}}}).transpose()?;\n{indent}",
-                        name = p.name,
-                        core_path = core_path,
-                        err_conv = err_conv,
-                        indent = indent,
-                    )
-                    .ok();
+                    bindings.push_str(&crate::template_env::render(
+                        "binding_helpers/serde_named_let_binding_optional.jinja",
+                        minijinja::context! {
+                            name => &p.name,
+                            core_path => core_path,
+                            err_conv => err_conv,
+                            indent => indent,
+                        },
+                    ));
                 } else if promoted {
                     // Promoted-optional: param is required in core but wrapped in Option<T>
                     // in the binding because an earlier param is optional. Use unwrap_or_default()
                     // so JS callers can omit it (pass undefined/null) to get default behaviour.
-                    write!(
-                        bindings,
-                        "let {name}_core: {core_path} = {name}.map(|v| {{\n\
-                         {indent}    let json = serde_json::to_string(&v){err_conv}?;\n\
-                         {indent}    serde_json::from_str::<{core_path}>(&json){err_conv}\n\
-                         {indent}}}).transpose()?{indent}.unwrap_or_default();\n{indent}",
-                        name = p.name,
-                        core_path = core_path,
-                        err_conv = err_conv,
-                        indent = indent,
-                    )
-                    .ok();
+                    bindings.push_str(&crate::template_env::render(
+                        "binding_helpers/serde_named_let_binding_promoted.jinja",
+                        minijinja::context! {
+                            name => &p.name,
+                            core_path => core_path,
+                            err_conv => err_conv,
+                            indent => indent,
+                        },
+                    ));
                 } else {
-                    write!(
-                        bindings,
-                        "let {name}_json = serde_json::to_string(&{name}){err_conv}?;\n\
-                         {indent}let {name}_core: {core_path} = serde_json::from_str(&{name}_json){err_conv}?;\n{indent}",
-                        name = p.name,
-                        core_path = core_path,
-                        err_conv = err_conv,
-                        indent = indent,
-                    )
-                    .ok();
+                    bindings.push_str(&crate::template_env::render(
+                        "binding_helpers/serde_named_let_binding_simple.jinja",
+                        minijinja::context! {
+                            name => &p.name,
+                            core_path => core_path,
+                            err_conv => err_conv,
+                            indent => indent,
+                        },
+                    ));
                 }
             }
             TypeRef::Vec(inner) => {
@@ -956,59 +956,43 @@ pub fn gen_serde_let_bindings(
                     if !opaque_types.contains(name.as_str()) {
                         let core_path = format!("{}::{}", core_import, name);
                         if p.optional {
-                            write!(
-                                bindings,
-                                "let {name}_core: Option<Vec<{core_path}>> = {name}.map(|v| {{\n\
-                                 {indent}    let json = serde_json::to_string(&v){err_conv}?;\n\
-                                 {indent}    serde_json::from_str(&json){err_conv}\n\
-                                 {indent}}}).transpose()?;\n{indent}",
-                                name = p.name,
-                                core_path = core_path,
-                                err_conv = err_conv,
-                                indent = indent,
-                            )
-                            .ok();
+                            bindings.push_str(&crate::template_env::render(
+                                "binding_helpers/serde_vec_named_optional.jinja",
+                                minijinja::context! {
+                                    name => &p.name,
+                                    core_path => core_path,
+                                    err_conv => err_conv,
+                                    indent => indent,
+                                },
+                            ));
                         } else {
-                            write!(
-                                bindings,
-                                "let {name}_json = serde_json::to_string(&{name}){err_conv}?;\n\
-                                 {indent}let {name}_core: Vec<{core_path}> = serde_json::from_str(&{name}_json){err_conv}?;\n{indent}",
-                                name = p.name,
-                                core_path = core_path,
-                                err_conv = err_conv,
-                                indent = indent,
-                            )
-                            .ok();
+                            bindings.push_str(&crate::template_env::render(
+                                "binding_helpers/serde_vec_named_simple.jinja",
+                                minijinja::context! {
+                                    name => &p.name,
+                                    core_path => core_path,
+                                    err_conv => err_conv,
+                                    indent => indent,
+                                },
+                            ));
                         }
                     }
                 } else if matches!(inner.as_ref(), TypeRef::String) && p.sanitized && p.original_type.is_some() {
                     // Sanitized Vec<tuple>: binding accepts Vec<String> (JSON-encoded tuple items).
                     // Deserialize each JSON string as a tuple using serde_json.
-                    if p.optional {
-                        write!(
-                            bindings,
-                            "let {n}_core: Option<Vec<_>> = {n}.map(|strs| {{\n\
-                             {indent}    strs.into_iter()\n\
-                             {indent}    .map(|s| serde_json::from_str::<_>(&s){err_conv})\n\
-                             {indent}    .collect::<Result<Vec<_>, _>>()\n\
-                             {indent}}}).transpose()?;\n{indent}",
-                            n = p.name,
-                            err_conv = err_conv,
-                            indent = indent,
-                        )
-                        .ok();
+                    let template = if p.optional {
+                        "binding_helpers/serde_sanitized_vec_string_optional.jinja"
                     } else {
-                        write!(
-                            bindings,
-                            "let {n}_core: Vec<_> = {n}.into_iter()\n\
-                             {indent}.map(|s| serde_json::from_str::<_>(&s){err_conv})\n\
-                             {indent}.collect::<Result<Vec<_>, _>>()?;\n{indent}",
-                            n = p.name,
-                            err_conv = err_conv,
-                            indent = indent,
-                        )
-                        .ok();
-                    }
+                        "binding_helpers/serde_sanitized_vec_string_simple.jinja"
+                    };
+                    bindings.push_str(&crate::template_env::render(
+                        template,
+                        minijinja::context! {
+                            name => &p.name,
+                            err_conv => err_conv,
+                            indent => indent,
+                        },
+                    ));
                 }
             }
             _ => {}
@@ -1131,9 +1115,20 @@ fn gen_lossy_binding_to_core_fields_inner(
     };
     let mut out = format!("{allow}let {mut_kw}core_self = {core_path} {{\n");
     for field in &typ.fields {
+        // Skip cfg-gated fields — they are absent from the binding struct.
+        // The ..Default::default() spread below fills them when the feature is enabled.
+        if field.cfg.is_some() {
+            continue;
+        }
         let name = &field.name;
         if field.sanitized && field.core_wrapper != CoreWrapper::Cow {
-            writeln!(out, "            {name}: Default::default(),").ok();
+            out.push_str(&crate::template_env::render(
+                "binding_helpers/struct_field_default.jinja",
+                minijinja::context! {
+                    name => &field.name,
+                },
+            ));
+            out.push('\n');
             continue;
         }
         // Opaque-type fields (Arc-wrapped handles, trait bridge aliases) have no From impl
@@ -1148,7 +1143,13 @@ fn gen_lossy_binding_to_core_fields_inner(
             _ => false,
         };
         if is_opaque_named {
-            writeln!(out, "            {name}: Default::default(),").ok();
+            out.push_str(&crate::template_env::render(
+                "binding_helpers/struct_field_default.jinja",
+                minijinja::context! {
+                    name => &field.name,
+                },
+            ));
+            out.push('\n');
             continue;
         }
         // Skip types: output-only types (e.g. flat data enums) that have no From impl
@@ -1161,7 +1162,12 @@ fn gen_lossy_binding_to_core_fields_inner(
             _ => false,
         };
         if is_skip_named {
-            writeln!(out, "            {name}: Default::default(),").ok();
+            out.push_str(&crate::template_env::render(
+                "binding_helpers/default_field.jinja",
+                minijinja::context! {
+                    name => &name,
+                },
+            ));
             continue;
         }
         let expr = match &field.ty {
@@ -1381,7 +1387,14 @@ fn gen_lossy_binding_to_core_fields_inner(
         } else {
             expr
         };
-        writeln!(out, "            {name}: {expr},").ok();
+        out.push_str(&crate::template_env::render(
+            "binding_helpers/struct_field_line.jinja",
+            minijinja::context! {
+                name => &field.name,
+                expr => &expr,
+            },
+        ));
+        out.push('\n');
     }
     // Use ..Default::default() to fill cfg-gated fields stripped from the IR
     if typ.has_stripped_cfg_fields {
@@ -1445,10 +1458,13 @@ pub fn gen_async_body(
             } else {
                 (return_wrap.to_string(), String::new())
             };
-            format!(
-                "pyo3_async_runtimes::tokio::future_into_py(py, async move {{\n            \
-                 {result_handling}\n            \
-                 {extra_binding}Ok({ok_expr})\n        }})"
+            crate::template_env::render(
+                "binding_helpers/async_body_pyo3.jinja",
+                minijinja::context! {
+                    result_handling => result_handling,
+                    extra_binding => extra_binding,
+                    ok_expr => ok_expr,
+                },
             )
         }
         AsyncPattern::WasmNativeAsync => {
@@ -1467,9 +1483,12 @@ pub fn gen_async_body(
             } else {
                 return_wrap
             };
-            format!(
-                "{result_handling}\n        \
-                 Ok({ok_expr})"
+            crate::template_env::render(
+                "binding_helpers/async_body_wasm.jinja",
+                minijinja::context! {
+                    result_handling => result_handling,
+                    ok_expr => ok_expr,
+                },
             )
         }
         AsyncPattern::NapiNativeAsync => {
@@ -1483,61 +1502,41 @@ pub fn gen_async_body(
             } else {
                 format!("let result = {core_call}.await;")
             };
-            if !has_error && !is_unit_return {
+            let (needs_ok_wrapper, ok_expr) = if !has_error && !is_unit_return {
                 // No error type: return value directly without Ok() wrapper
-                format!(
-                    "{result_handling}\n            \
-                     {return_wrap}"
-                )
+                (false, return_wrap.to_string())
             } else {
-                let ok_expr = if is_unit_return && !has_error {
-                    "()"
+                let expr = if is_unit_return && !has_error {
+                    "()".to_string()
                 } else {
-                    return_wrap
+                    return_wrap.to_string()
                 };
-                format!(
-                    "{result_handling}\n            \
-                     Ok({ok_expr})"
-                )
-            }
+                (true, expr)
+            };
+            crate::template_env::render(
+                "binding_helpers/async_body_napi.jinja",
+                minijinja::context! {
+                    result_handling => result_handling,
+                    needs_ok_wrapper => needs_ok_wrapper,
+                    ok_expr => ok_expr,
+                    return_wrap => return_wrap,
+                },
+            )
         }
         AsyncPattern::TokioBlockOn => {
-            // tokio::runtime::Runtime::new() returns io::Result<Runtime>, which cannot be
-            // converted to extendr_api::Error via `?`. Use map_err to bridge the error.
             let rt_new = "tokio::runtime::Runtime::new()\
                           .map_err(|e| extendr_api::Error::Other(e.to_string()))?";
-            if has_error {
-                if is_opaque {
-                    format!(
-                        "let rt = {rt_new};\n        \
-                         let result = rt.block_on(async {{ {core_call}.await.map_err(|e| e.into()) }})?;\n        \
-                         {return_wrap}"
-                    )
-                } else {
-                    format!(
-                        "let rt = {rt_new};\n        \
-                         rt.block_on(async {{ {core_call}.await.map_err(|e| e.into()) }})"
-                    )
-                }
-            } else if is_opaque {
-                if is_unit_return {
-                    format!(
-                        "let rt = {rt_new};\n        \
-                         rt.block_on(async {{ {core_call}.await }});"
-                    )
-                } else {
-                    format!(
-                        "let rt = {rt_new};\n        \
-                         let result = rt.block_on(async {{ {core_call}.await }});\n        \
-                         {return_wrap}"
-                    )
-                }
-            } else {
-                format!(
-                    "let rt = {rt_new};\n        \
-                     rt.block_on(async {{ {core_call}.await }})"
-                )
-            }
+            crate::template_env::render(
+                "binding_helpers/async_body_tokio.jinja",
+                minijinja::context! {
+                    has_error => has_error,
+                    is_opaque => is_opaque,
+                    is_unit_return => is_unit_return,
+                    core_call => core_call,
+                    return_wrap => return_wrap,
+                    rt_new => rt_new,
+                },
+            )
         }
         AsyncPattern::None => "todo!(\"async not supported by backend\")".to_string(),
     };

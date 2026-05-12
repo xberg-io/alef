@@ -1,0 +1,25 @@
+#[wasm_bindgen(js_name = "{{ camel }}")]
+pub fn {{ register_fn }}(backend: wasm_bindgen::JsValue) -> Result<(), wasm_bindgen::JsValue> {
+{%- if required_methods %}
+    let required_methods = vec![
+{%- for method in required_methods %}
+        "{{ method.js_name }}",
+{%- endfor %}
+    ];
+
+    for method_name in required_methods {
+        if !js_sys::Reflect::has(&backend, &wasm_bindgen::JsValue::from_str(method_name)).unwrap_or(false) {
+            return Err(wasm_bindgen::JsValue::from_str(&format!("Backend missing required method: {}", method_name)));
+        }
+    }
+{%- endif %}
+
+    let wrapper = {{ wrapper }}::new(backend)
+        .map_err(|e| wasm_bindgen::JsValue::from_str(&e))?;
+    let arc: std::sync::Arc<dyn {{ trait_path }}> = std::sync::Arc::new(wrapper);
+
+    let registry = {{ registry_getter }}();
+    let mut registry = registry.write();
+    registry.register(arc{{ extra }})
+        .map_err(|e| wasm_bindgen::JsValue::from_str(&e.to_string()))
+}

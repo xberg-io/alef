@@ -26,6 +26,7 @@ impl E2eCodegen for ElixirCodegen {
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
         config: &ResolvedCrateConfig,
+        _type_defs: &[alef_core::ir::TypeDef],
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
         let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
@@ -52,12 +53,15 @@ impl E2eCodegen for ElixirCodegen {
             .cloned()
             .unwrap_or_else(|| call.function.clone());
         // Elixir facade exports async variants with `_async` suffix when the call is async.
-        // Append the suffix only if not already present.
-        let function_name = if call.r#async && !base_function_name.ends_with("_async") {
-            format!("{base_function_name}_async")
-        } else {
-            base_function_name
-        };
+        // Append the suffix only if not already present and the function isn't a streaming
+        // entry-point — streaming wrappers (e.g. `defaultclient_chat_stream`) drive the
+        // FFI iterator handle and aren't async-callable in the OpenAI sense.
+        let function_name =
+            if call.r#async && !base_function_name.ends_with("_async") && !base_function_name.ends_with("_stream") {
+                format!("{base_function_name}_async")
+            } else {
+                base_function_name
+            };
         let options_type = overrides.and_then(|o| o.options_type.clone());
         let options_default_fn = overrides.and_then(|o| o.options_via.clone());
         let empty_enum_fields = HashMap::new();
@@ -78,7 +82,7 @@ impl E2eCodegen for ElixirCodegen {
                 if f.needs_mock_server() {
                     return true;
                 }
-                let cc = e2e_config.resolve_call(f.call.as_deref());
+                let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
                 let elixir_override = cc
                     .overrides
                     .get("elixir")
@@ -90,7 +94,10 @@ impl E2eCodegen for ElixirCodegen {
         // Resolve package reference (path or version) for the NIF dependency.
         let pkg_ref = e2e_config.resolve_package(lang);
         let pkg_path = if has_nif_tests {
-            pkg_ref.as_ref().and_then(|p| p.path.as_deref()).unwrap_or("")
+            pkg_ref
+                .as_ref()
+                .and_then(|p| p.path.as_deref())
+                .unwrap_or("../../packages/elixir")
         } else {
             ""
         };
@@ -185,15 +192,43 @@ fixtures_dir = Path.expand("../../../fixtures", __DIR__)
 if File.exists?(mock_server_bin) do
   port = Port.open({:spawn_executable, mock_server_bin}, [
     :binary,
-    :line,
+    # Use a large line buffer (default 1024 truncates `MOCK_SERVERS={...}` lines for
+    # fixture sets with many host-root routes, splitting them into `:noeol` chunks
+    # that the prefix-match clauses below would never see).
+    {:line, 65_536},
     args: [fixtures_dir]
   ])
-  receive do
-    {^port, {:data, {:eol, "MOCK_SERVER_URL=" <> url}}} ->
-      System.put_env("MOCK_SERVER_URL", url)
-  after
-    30_000 ->
-      raise "mock-server startup timeout"
+  # Read startup lines: MOCK_SERVER_URL= then MOCK_SERVERS= (always emitted, possibly `{}`).
+  # The standalone mock-server prints noisy stderr lines BEFORE the stdout sentinels;
+  # selective receive ignores anything that doesn't match the two prefix patterns.
+  # Each iteration only halts after the MOCK_SERVERS= line is processed.
+  {url, _} =
+    Enum.reduce_while(1..16, {nil, port}, fn _, {url_acc, p} ->
+      receive do
+        {^p, {:data, {:eol, "MOCK_SERVER_URL=" <> u}}} ->
+          {:cont, {u, p}}
+
+        {^p, {:data, {:eol, "MOCK_SERVERS=" <> json_val}}} ->
+          System.put_env("MOCK_SERVERS", json_val)
+          case Jason.decode(json_val) do
+            {:ok, servers} ->
+              Enum.each(servers, fn {fid, furl} ->
+                System.put_env("MOCK_SERVER_#{String.upcase(fid)}", furl)
+              end)
+
+            _ ->
+              :ok
+          end
+
+          {:halt, {url_acc, p}}
+      after
+        30_000 ->
+          raise "mock-server startup timeout"
+      end
+    end)
+
+  if url != nil do
+    System.put_env("MOCK_SERVER_URL", url)
   end
 end
 "#
@@ -654,7 +689,7 @@ fn render_test_case(
     }
 
     // Resolve per-fixture call config (falls back to default if fixture.call is None).
-    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
     let lang = "elixir";
     let call_overrides = call_config.overrides.get(lang);
 
@@ -699,7 +734,7 @@ fn render_test_case(
         } else {
             elixir_module_name(&raw_module)
         };
-        let resolved_fn = if call_config.r#async && !base_fn.ends_with("_async") {
+        let resolved_fn = if call_config.r#async && !base_fn.ends_with("_async") && !base_fn.ends_with("_stream") {
             format!("{base_fn}_async")
         } else {
             base_fn
@@ -714,6 +749,10 @@ fn render_test_case(
     };
 
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
+    // Validation-category fixtures expect engine creation itself to fail (bad config).
+    // Other expects_error fixtures (e.g. error_*) construct a valid engine and expect the
+    // *operation under test* to fail. We need different shapes for these two cases.
+    let validation_creation_failure = expects_error && fixture.resolved_category() == "validation";
 
     // When the fixture uses a named call, use the args and options from that call's config.
     let (
@@ -764,6 +803,7 @@ fn render_test_case(
         )
     };
 
+    let test_documents_path = e2e_config.test_documents_relative_from(0);
     let (mut setup_lines, args_str) = build_args_and_setup(
         &fixture.input,
         resolved_args,
@@ -771,9 +811,10 @@ fn render_test_case(
         resolved_options_type,
         resolved_options_default_fn,
         resolved_enum_fields_ref,
-        &fixture.id,
+        fixture,
         resolved_handle_struct_type,
         resolved_handle_atom_list_fields_ref,
+        &test_documents_path,
     );
 
     // Build visitor if present — it will be injected into the options map.
@@ -818,19 +859,118 @@ fn render_test_case(
             .and_then(|o| o.client_factory.as_deref())
     });
 
+    // Append per-call extra_args (e.g. trailing `nil` for `list_files(client, query)`)
+    // so Elixir matches the binding's positional arity. Mirrors the same override the
+    // Ruby/Go/Node codegens already honor.
+    let extra_args: Vec<String> = call_overrides.map(|o| o.extra_args.clone()).unwrap_or_default();
+    let final_args_with_extras = if extra_args.is_empty() {
+        final_args
+    } else if final_args.is_empty() {
+        extra_args.join(", ")
+    } else {
+        format!("{final_args}, {}", extra_args.join(", "))
+    };
+
     // Prefix the client variable to the args when client_factory is set.
     let effective_args = if client_factory.is_some() {
-        if final_args.is_empty() {
+        if final_args_with_extras.is_empty() {
             "client".to_string()
         } else {
-            format!("client, {final_args}")
+            format!("client, {final_args_with_extras}")
         }
     } else {
-        final_args
+        final_args_with_extras
     };
+
+    // Real-API smoke fixtures (no mock_response, no http) must be env-gated on the
+    // configured `env.api_key_var` so absent keys yield a deterministic skip rather
+    // than a spurious "no mock route" failure. Mirrors the Python conftest skip.
+    let has_mock = fixture.mock_response.is_some() || fixture.http.is_some();
+    let api_key_var_opt = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref());
+    let needs_api_key_skip = !has_mock && api_key_var_opt.is_some();
+    // When the fixture has both a mock and an api_key_var, generate env-fallback code:
+    // use the real API when the key is set, otherwise fall back to the mock server.
+    let needs_env_fallback = has_mock && api_key_var_opt.is_some();
 
     let _ = writeln!(out, "  describe \"{test_name}\" do");
     let _ = writeln!(out, "    test \"{test_label}\" do");
+
+    if needs_api_key_skip {
+        let api_key_var = api_key_var_opt.unwrap_or("");
+        let _ = writeln!(out, "      if System.get_env(\"{api_key_var}\") in [nil, \"\"] do");
+        let _ = writeln!(out, "        # {api_key_var} not set — skipping live smoke test");
+        let _ = writeln!(out, "        :ok");
+        let _ = writeln!(out, "      else");
+    }
+
+    // Validation-category fixtures: engine/handle creation itself is expected to fail.
+    // Transform the first `{:ok, _} = ...` setup line into `assert {:error, _} = ...`
+    // and stop emission there, since the rest of the test body would be unreachable.
+    if validation_creation_failure {
+        let mut emitted_error_assertion = false;
+        for line in &setup_lines {
+            if !emitted_error_assertion && line.starts_with("{:ok,") {
+                if let Some(rhs) = line.split_once('=').map(|x| x.1) {
+                    let rhs = rhs.trim();
+                    let _ = writeln!(out, "      assert {{:error, _}} = {rhs}");
+                    emitted_error_assertion = true;
+                } else {
+                    let _ = writeln!(out, "      {line}");
+                }
+            } else {
+                let _ = writeln!(out, "      {line}");
+            }
+        }
+        if !emitted_error_assertion {
+            let _ = writeln!(
+                out,
+                "      assert {{:error, _}} = {module_path}.{function_name}({effective_args})"
+            );
+        }
+        if needs_api_key_skip {
+            let _ = writeln!(out, "      end");
+        }
+        let _ = writeln!(out, "    end");
+        let _ = writeln!(out, "  end");
+        return;
+    }
+
+    // Non-validation expects_error fixtures (error_*, etc.): engine creation succeeds.
+    // Emit setup as-is and assert that the *operation under test* fails. The
+    // call body still references `client` (e.g. `defaultclient_chat_async(client, …)`),
+    // so we must emit the same `{:ok, client} = create_client(...)` line that the
+    // non-error path below uses — without it the generated test fails to compile
+    // with `undefined variable "client"`.
+    if expects_error {
+        for line in &setup_lines {
+            let _ = writeln!(out, "      {line}");
+        }
+        if let Some(factory) = client_factory {
+            let fixture_id = &fixture.id;
+            let base_url_expr = if fixture.has_host_root_route() {
+                let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
+                format!(
+                    "(System.get_env(\"{env_key}\") || (System.get_env(\"MOCK_SERVER_URL\") || \"\") <> \"/fixtures/{fixture_id}\")"
+                )
+            } else {
+                format!("(System.get_env(\"MOCK_SERVER_URL\") || \"\") <> \"/fixtures/{fixture_id}\"")
+            };
+            let _ = writeln!(
+                out,
+                "      {{:ok, client}} = {module_path}.{factory}(\"test-key\", {base_url_expr})"
+            );
+        }
+        let _ = writeln!(
+            out,
+            "      assert {{:error, _}} = {module_path}.{function_name}({effective_args})"
+        );
+        if needs_api_key_skip {
+            let _ = writeln!(out, "      end");
+        }
+        let _ = writeln!(out, "    end");
+        let _ = writeln!(out, "  end");
+        return;
+    }
 
     for line in &setup_lines {
         let _ = writeln!(out, "      {line}");
@@ -839,10 +979,53 @@ fn render_test_case(
     // Emit client creation when client_factory is configured.
     if let Some(factory) = client_factory {
         let fixture_id = &fixture.id;
-        let _ = writeln!(
-            out,
-            "      {{:ok, client}} = {module_path}.{factory}(\"test-key\", (System.get_env(\"MOCK_SERVER_URL\") || \"\") <> \"/fixtures/{fixture_id}\")"
-        );
+        if needs_env_fallback {
+            // Fixture has both a mock and an api_key_var: use the real API when the key is
+            // set, otherwise fall back to the mock server.
+            let api_key_var = api_key_var_opt.unwrap_or("");
+            let mock_url_expr = if fixture.has_host_root_route() {
+                let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
+                format!(
+                    "System.get_env(\"{env_key}\") || (System.get_env(\"MOCK_SERVER_URL\") || \"\") <> \"/fixtures/{fixture_id}\""
+                )
+            } else {
+                format!("(System.get_env(\"MOCK_SERVER_URL\") || \"\") <> \"/fixtures/{fixture_id}\"")
+            };
+            let _ = writeln!(out, "      api_key_val = System.get_env(\"{api_key_var}\")");
+            let _ = writeln!(
+                out,
+                "      {{api_key_val, base_url_val}} = if api_key_val && api_key_val != \"\" do"
+            );
+            let _ = writeln!(
+                out,
+                "        IO.puts(\"{fixture_id}: using real API ({api_key_var} is set)\")"
+            );
+            let _ = writeln!(out, "        {{api_key_val, nil}}");
+            let _ = writeln!(out, "      else");
+            let _ = writeln!(
+                out,
+                "        IO.puts(\"{fixture_id}: using mock server ({api_key_var} not set)\")"
+            );
+            let _ = writeln!(out, "        {{nil, {mock_url_expr}}}");
+            let _ = writeln!(out, "      end");
+            let _ = writeln!(
+                out,
+                "      {{:ok, client}} = {module_path}.{factory}(api_key_val, base_url_val)"
+            );
+        } else {
+            let base_url_expr = if fixture.has_host_root_route() {
+                let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
+                format!(
+                    "(System.get_env(\"{env_key}\") || (System.get_env(\"MOCK_SERVER_URL\") || \"\") <> \"/fixtures/{fixture_id}\")"
+                )
+            } else {
+                format!("(System.get_env(\"MOCK_SERVER_URL\") || \"\") <> \"/fixtures/{fixture_id}\"")
+            };
+            let _ = writeln!(
+                out,
+                "      {{:ok, client}} = {module_path}.{factory}(\"test-key\", {base_url_expr})"
+            );
+        }
     }
 
     // Use returns_result from the Elixir override if present, otherwise from base config
@@ -850,20 +1033,11 @@ fn render_test_case(
         .and_then(|o| o.returns_result)
         .unwrap_or(call_config.returns_result || client_factory.is_some());
 
-    if expects_error {
-        if returns_result {
-            let _ = writeln!(
-                out,
-                "      assert {{:error, _}} = {module_path}.{function_name}({effective_args})"
-            );
-        } else {
-            // Non-Result function — just call and discard; error detection not meaningful.
-            let _ = writeln!(out, "      _result = {module_path}.{function_name}({effective_args})");
-        }
-        let _ = writeln!(out, "    end");
-        let _ = writeln!(out, "  end");
-        return;
-    }
+    // Some calls (e.g. speech, file_content) return raw bytes rather than a struct.
+    // When the call is marked `result_is_simple`, treat the bound `result` variable as
+    // the value itself so assertions on a logical "audio"/"content" field map to the
+    // bare binary instead of a struct accessor that doesn't exist.
+    let result_is_simple = call_config.result_is_simple || call_overrides.is_some_and(|o| o.result_is_simple);
 
     if returns_result {
         let _ = writeln!(
@@ -879,9 +1053,21 @@ fn render_test_case(
     }
 
     for assertion in &fixture.assertions {
-        render_assertion(out, assertion, &result_var, field_resolver, &module_path);
+        render_assertion(
+            out,
+            assertion,
+            &result_var,
+            field_resolver,
+            &module_path,
+            &e2e_config.fields_enum,
+            resolved_enum_fields_ref,
+            result_is_simple,
+        );
     }
 
+    if needs_api_key_skip {
+        let _ = writeln!(out, "      end");
+    }
     let _ = writeln!(out, "    end");
     let _ = writeln!(out, "  end");
 }
@@ -938,10 +1124,12 @@ fn build_args_and_setup(
     options_type: Option<&str>,
     options_default_fn: Option<&str>,
     enum_fields: &HashMap<String, String>,
-    fixture_id: &str,
+    fixture: &crate::fixture::Fixture,
     _handle_struct_type: Option<&str>,
     _handle_atom_list_fields: &std::collections::HashSet<String>,
+    test_documents_path: &str,
 ) -> (Vec<String>, String) {
+    let fixture_id = &fixture.id;
     if args.is_empty() {
         // No args config: pass the whole input only when it's non-empty.
         // Functions with no parameters (e.g. language_count) have empty input
@@ -962,10 +1150,18 @@ fn build_args_and_setup(
 
     for arg in args {
         if arg.arg_type == "mock_url" {
-            setup_lines.push(format!(
-                "{} = (System.get_env(\"MOCK_SERVER_URL\") || \"\") <> \"/fixtures/{fixture_id}\"",
-                arg.name,
-            ));
+            if fixture.has_host_root_route() {
+                let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
+                setup_lines.push(format!(
+                    "{} = System.get_env(\"{env_key}\") || (System.get_env(\"MOCK_SERVER_URL\") || \"\") <> \"/fixtures/{fixture_id}\"",
+                    arg.name,
+                ));
+            } else {
+                setup_lines.push(format!(
+                    "{} = (System.get_env(\"MOCK_SERVER_URL\") || \"\") <> \"/fixtures/{fixture_id}\"",
+                    arg.name,
+                ));
+            }
             parts.push(arg.name.clone());
             continue;
         }
@@ -975,8 +1171,12 @@ fn build_args_and_setup(
             // The NIF now accepts config as an optional JSON string (not a NifStruct/NifMap)
             // so that partial maps work: serde_json::from_str respects #[serde(default)].
             let constructor_name = format!("create_{}", arg.name.to_snake_case());
-            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-            let config_value = input.get(field).unwrap_or(&serde_json::Value::Null);
+            let config_value = if arg.field == "input" {
+                input
+            } else {
+                let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+                input.get(field).unwrap_or(&serde_json::Value::Null)
+            };
             let name = &arg.name;
             if config_value.is_null()
                 || config_value.is_object() && config_value.as_object().is_some_and(|o| o.is_empty())
@@ -996,8 +1196,12 @@ fn build_args_and_setup(
             continue;
         }
 
-        let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-        let val = input.get(field);
+        let val = if arg.field == "input" {
+            Some(input)
+        } else {
+            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+            input.get(field)
+        };
         match val {
             None | Some(serde_json::Value::Null) if arg.optional => {
                 // Elixir functions have fixed positional arity — pass nil for optional args
@@ -1021,7 +1225,7 @@ fn build_args_and_setup(
                 // relative to the e2e/elixir/ directory where `mix test` runs.
                 if arg.arg_type == "file_path" {
                     if let Some(path_str) = v.as_str() {
-                        let full_path = format!("../../test_documents/{path_str}");
+                        let full_path = format!("{test_documents_path}/{path_str}");
                         parts.push(format!("\"{}\"", escape_elixir(&full_path)));
                         continue;
                     }
@@ -1041,8 +1245,9 @@ fn build_args_and_setup(
                                     .find('/')
                                     .is_some_and(|slash_pos| slash_pos > 0 && raw[slash_pos + 1..].contains('.'));
                             if is_file_path {
-                                // Looks like "dir/file.ext" — read from test_documents.
-                                let full_path = format!("../../test_documents/{raw}");
+                                // Looks like "dir/file.ext" — read from the
+                                // configured test-documents directory.
+                                let full_path = format!("{test_documents_path}/{raw}");
                                 let escaped = escape_elixir(&full_path);
                                 setup_lines.push(format!("{var_name} = File.read!(\"{escaped}\")"));
                                 parts.push(var_name.to_string());
@@ -1127,12 +1332,16 @@ fn is_numeric_expr(field_expr: &str) -> bool {
     field_expr.starts_with("length(")
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_assertion(
     out: &mut String,
     assertion: &Assertion,
     result_var: &str,
     field_resolver: &FieldResolver,
     module_path: &str,
+    fields_enum: &std::collections::HashSet<String>,
+    per_call_enum_fields: &HashMap<String, String>,
+    result_is_simple: bool,
 ) {
     // Handle synthetic / derived fields before the is_valid_for_result check
     // so they are never treated as struct field accesses on the result.
@@ -1281,25 +1490,55 @@ fn render_assertion(
     }
 
     // Skip assertions on fields that don't exist on the result type.
-    if let Some(f) = &assertion.field {
-        if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
-            let _ = writeln!(out, "      # skipped: field '{f}' not available on result type");
-            return;
+    // When `result_is_simple`, the bound result is the value itself (e.g. a binary)
+    // so `is_valid_for_result` is meaningless — fall through and emit the assertion
+    // against the bare result_var below.
+    if !result_is_simple {
+        if let Some(f) = &assertion.field {
+            if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
+                let _ = writeln!(out, "      # skipped: field '{f}' not available on result type");
+                return;
+            }
         }
     }
 
-    let field_expr = match &assertion.field {
-        Some(f) if !f.is_empty() => field_resolver.accessor(f, "elixir", result_var),
-        _ => result_var.to_string(),
+    // result_is_simple: when the call returns the value itself (e.g. a binary for
+    // `speech` / `file_content`), bypass the field accessor and assert against the
+    // bound `result` variable directly.
+    let field_expr = if result_is_simple {
+        result_var.to_string()
+    } else {
+        match &assertion.field {
+            Some(f) if !f.is_empty() => field_resolver.accessor(f, "elixir", result_var),
+            _ => result_var.to_string(),
+        }
     };
 
     // Only wrap in String.trim/0 when the expression is actually a string.
     // Numeric expressions (e.g., length(...)) must not be wrapped.
     let is_numeric = is_numeric_expr(&field_expr);
+    // Detect whether the field resolves to an enum type. Rustler binds Rust
+    // enums as atoms (e.g. `:stop`), so calling `String.trim/1` on them raises
+    // FunctionClauseError. Coerce via `to_string/1` before string ops. Look up
+    // both the global `[crates.e2e] fields_enum` set AND the per-call override
+    // `[crates.e2e.calls.<x>.overrides.elixir] enum_fields = { ... }` so a single
+    // config entry already populated for the C#/Java/Python sides applies here.
+    let field_is_enum = assertion.field.as_deref().filter(|f| !f.is_empty()).is_some_and(|f| {
+        let resolved = field_resolver.resolve(f);
+        fields_enum.contains(f)
+            || fields_enum.contains(resolved)
+            || per_call_enum_fields.contains_key(f)
+            || per_call_enum_fields.contains_key(resolved)
+    });
+    let coerced_field_expr = if field_is_enum {
+        format!("to_string({field_expr})")
+    } else {
+        field_expr.clone()
+    };
     let trimmed_field_expr = if is_numeric {
         field_expr.clone()
     } else {
-        format!("String.trim({field_expr})")
+        format!("String.trim({coerced_field_expr})")
     };
 
     // Detect whether the assertion field resolves to an array type so that
@@ -1318,6 +1557,8 @@ fn render_assertion(
                 let is_string_expected = expected.is_string();
                 if is_string_expected && !is_numeric {
                     let _ = writeln!(out, "      assert {trimmed_field_expr} == {elixir_val}");
+                } else if field_is_enum {
+                    let _ = writeln!(out, "      assert {coerced_field_expr} == {elixir_val}");
                 } else {
                     let _ = writeln!(out, "      assert {field_expr} == {elixir_val}");
                 }
@@ -1658,7 +1899,7 @@ fn emit_elixir_visitor_method(out: &mut String, method_name: &str, action: &Call
             let escaped = escape_elixir(output);
             let _ = writeln!(out, "        {{:custom, \"{escaped}\"}}");
         }
-        CallbackAction::CustomTemplate { template } => {
+        CallbackAction::CustomTemplate { template, .. } => {
             // Build a <> concatenation expression so {key} placeholders are substituted
             // from the args map at runtime without embedding double-quoted strings inside
             // a double-quoted string literal.
@@ -1725,7 +1966,7 @@ fn fixture_has_elixir_callable(fixture: &Fixture, e2e_config: &E2eConfig) -> boo
     if fixture.is_http_test() {
         return false;
     }
-    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
     let elixir_override = call_config
         .overrides
         .get("elixir")

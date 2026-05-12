@@ -1,0 +1,11 @@
+/// Build an `I{{ trait_name }}` vtable for a concrete Zig type `T`.
+///
+/// `T` must implement every method of `{{ trait_name }}` as a plain Zig function.
+/// Each slot is wrapped in a `callconv(.C)` thunk that casts `user_data`
+/// back to `*T` and forwards the call.
+///
+/// # Usage
+/// ```zig
+/// const vtable = make_{{ snake }}_vtable(MyType, &my_instance);
+/// _ = register_{{ snake }}("my-impl", vtable, &my_instance, &out_error);
+/// ```

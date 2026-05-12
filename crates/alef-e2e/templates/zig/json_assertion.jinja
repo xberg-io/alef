@@ -1,0 +1,104 @@
+{#- Zig JSON-struct assertion template.
+    Field values come from std.json.Value; type tags accessed with .string/.integer/.bool/.array/.object.
+
+    Context variables:
+    - assertion_type: string
+    - field_expr:      Zig expression resolving to std.json.Value (already traversed via .object.get)
+    - is_length_access: bool — field_expr resolves to an array; use .array.items.len for comparisons
+    - zig_val:         escaped Zig string literal (e.g. "\"hello\""), empty string when unused
+    - is_string_val:   bool
+    - is_bool_val:     bool
+    - bool_val:        "true" or "false"
+    - is_null_val:     bool
+    - n:               numeric literal string
+    - has_n:           bool
+    - values_list:     list of Zig string literals (for contains_all / contains_any)
+#}
+{% if assertion_type == "equals" %}
+{% if is_string_val %}
+    try testing.expectEqualStrings({{ zig_val }}, {{ field_expr }}.string);
+{% elif is_bool_val %}
+    try testing.expectEqual({{ bool_val }}, {{ field_expr }}.bool);
+{% elif is_null_val %}
+    try testing.expectEqual(.null, {{ field_expr }});
+{% elif is_length_access %}
+    try testing.expectEqual({{ n }}, {{ field_expr }}.array.items.len);
+{% else %}
+    try testing.expectEqual({{ n }}, {{ field_expr }}.integer);
+{% endif %}
+{% elif assertion_type == "contains" %}
+    {
+        const _jv = {{ field_expr }};
+        const _js = if (_jv == .string) _jv.string else try std.json.Stringify.valueAlloc(std.heap.c_allocator, _jv, .{});
+        defer if (_jv != .string) std.heap.c_allocator.free(_js);
+        try testing.expect(std.mem.indexOf(u8, _js, {{ zig_val }}) != null);
+    }
+{% elif assertion_type == "contains_all" %}
+{% for val in values_list %}
+    {
+        const _jva{{ loop.index0 }} = {{ field_expr }};
+        const _jsa{{ loop.index0 }} = if (_jva{{ loop.index0 }} == .string) _jva{{ loop.index0 }}.string else try std.json.Stringify.valueAlloc(std.heap.c_allocator, _jva{{ loop.index0 }}, .{});
+        defer if (_jva{{ loop.index0 }} != .string) std.heap.c_allocator.free(_jsa{{ loop.index0 }});
+        try testing.expect(std.mem.indexOf(u8, _jsa{{ loop.index0 }}, {{ val }}) != null);
+    }
+{% endfor %}
+{% elif assertion_type == "not_contains" %}
+    {
+        const _jvnc = {{ field_expr }};
+        const _jsnc = if (_jvnc == .string) _jvnc.string else try std.json.Stringify.valueAlloc(std.heap.c_allocator, _jvnc, .{});
+        defer if (_jvnc != .string) std.heap.c_allocator.free(_jsnc);
+        try testing.expect(std.mem.indexOf(u8, _jsnc, {{ zig_val }}) == null);
+    }
+{% elif assertion_type == "not_empty" %}
+    try testing.expect({{ field_expr }} != .null);
+{% elif assertion_type == "is_empty" %}
+    {
+        const _iv = {{ field_expr }};
+        try testing.expect(_iv == .null or (_iv == .string and _iv.string.len == 0));
+    }
+{% elif assertion_type == "min_length" %}
+    try testing.expect({{ field_expr }}.string.len >= {{ n }});
+{% elif assertion_type == "count_min" %}
+    try testing.expect({{ field_expr }}.array.items.len >= {{ n }});
+{% elif assertion_type == "count_equals" %}
+    try testing.expectEqual({{ n }}, {{ field_expr }}.array.items.len);
+{% elif assertion_type == "greater_than" %}
+{% if is_length_access %}
+    try testing.expect({{ field_expr }}.array.items.len > {{ n }});
+{% else %}
+    try testing.expect({{ field_expr }}.integer > {{ n }});
+{% endif %}
+{% elif assertion_type == "less_than" %}
+{% if is_length_access %}
+    try testing.expect({{ field_expr }}.array.items.len < {{ n }});
+{% else %}
+    try testing.expect({{ field_expr }}.integer < {{ n }});
+{% endif %}
+{% elif assertion_type == "greater_than_or_equal" %}
+{% if is_length_access %}
+    try testing.expect({{ field_expr }}.array.items.len >= {{ n }});
+{% else %}
+    try testing.expect({{ field_expr }}.integer >= {{ n }});
+{% endif %}
+{% elif assertion_type == "less_than_or_equal" %}
+{% if is_length_access %}
+    try testing.expect({{ field_expr }}.array.items.len <= {{ n }});
+{% else %}
+    try testing.expect({{ field_expr }}.integer <= {{ n }});
+{% endif %}
+{% elif assertion_type == "is_true" %}
+    try testing.expect({{ field_expr }}.bool);
+{% elif assertion_type == "is_false" %}
+    try testing.expect(!{{ field_expr }}.bool);
+{% elif assertion_type == "starts_with" %}
+    try testing.expect(std.mem.startsWith(u8, {{ field_expr }}.string, {{ zig_val }}));
+{% elif assertion_type == "ends_with" %}
+    try testing.expect(std.mem.endsWith(u8, {{ field_expr }}.string, {{ zig_val }}));
+{% elif assertion_type == "contains_any" %}
+    try testing.expect(
+{% for val in values_list %}
+        std.mem.indexOf(u8, {{ field_expr }}.string, {{ val }}) != null{% if not loop.last %} or{% endif %}
+
+{% endfor %}
+    );
+{% endif %}

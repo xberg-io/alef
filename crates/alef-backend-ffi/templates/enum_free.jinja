@@ -1,0 +1,10 @@
+/// Free a heap-allocated `{{ enum_name }}` returned by a pointer-returning FFI function.
+/// # Safety
+/// Pointer must have been returned by this library, or be null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn {{ prefix }}_{{ enum_snake }}_free(ptr: *mut {{ qualified }}) {
+    if !ptr.is_null() {
+        // SAFETY: ptr was allocated by Box::into_raw; caller ensures no aliases.
+        unsafe { drop(Box::from_raw(ptr)); }
+    }
+}

@@ -14,10 +14,13 @@ use alef_adapters::AdapterBodies;
 use alef_core::config::AdapterPattern;
 
 use functions::{gen_free_function, gen_method_wrapper, gen_streaming_method_wrapper};
-use helpers::{gen_build_rs, gen_cbindgen_toml, gen_ffi_tokio_runtime, gen_free_string, gen_last_error, gen_version};
+use helpers::{
+    gen_build_rs, gen_cbindgen_toml, gen_ffi_tokio_runtime, gen_free_bytes, gen_free_string, gen_last_error,
+    gen_version,
+};
 use types::{
-    gen_enum_free, gen_enum_from_i32, gen_enum_from_json, gen_enum_to_i32, gen_enum_to_json, gen_field_accessor,
-    gen_type_free, gen_type_from_json, gen_type_to_json,
+    gen_enum_free, gen_enum_from_i32, gen_enum_from_json, gen_enum_to_i32, gen_enum_to_json, gen_enum_to_string,
+    gen_field_accessor, gen_type_free, gen_type_from_json, gen_type_to_json,
 };
 
 pub struct FfiBackend;
@@ -58,6 +61,12 @@ impl Backend for FfiBackend {
             .unwrap_or_else(|| std::path::Path::new("."))
             .to_path_buf();
 
+        let go_output_dir = if config.targets(Language::Go) {
+            config.output_paths.get("go").map(|p| p.to_string_lossy().into_owned())
+        } else {
+            None
+        };
+
         let files = vec![
             GeneratedFile {
                 path: PathBuf::from(&output_dir).join("lib.rs"),
@@ -71,7 +80,7 @@ impl Backend for FfiBackend {
             },
             GeneratedFile {
                 path: parent_dir.join("build.rs"),
-                content: gen_build_rs(&header_name),
+                content: gen_build_rs(&header_name, go_output_dir.as_deref()),
                 generated_header: false,
             },
         ];
@@ -100,7 +109,7 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
     // extracted as static methods on Y, then the FFI wrapper signature normalizes the param
     // to Self. The generated `Y::from(arg: Y)` resolves to the blanket `From<T> for T`
     // (identity) at runtime; the wrapper is preserved for ABI stability.
-    builder.add_inner_attribute("allow(clippy::too_many_arguments, clippy::let_unit_value, clippy::needless_borrow, clippy::redundant_locals, dropping_references, clippy::unnecessary_cast, clippy::unused_unit, clippy::unwrap_or_default, clippy::derivable_impls, clippy::needless_borrows_for_generic_args, clippy::unnecessary_fallible_conversions, clippy::useless_conversion)");
+    builder.add_inner_attribute("allow(clippy::too_many_arguments, clippy::let_unit_value, clippy::needless_borrow, clippy::redundant_locals, dropping_references, clippy::unnecessary_cast, clippy::unused_unit, clippy::unwrap_or_default, clippy::derivable_impls, clippy::needless_borrows_for_generic_args, clippy::unnecessary_fallible_conversions, clippy::useless_conversion, clippy::type_complexity)");
 
     // Imports
     builder.add_import("std::ffi::{c_char, CStr, CString}");
@@ -189,6 +198,9 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
     // free_string helper
     builder.add_item(&gen_free_string(prefix));
 
+    // free_bytes helper — companion for functions returning Result<Vec<u8>> via out-params
+    builder.add_item(&gen_free_bytes(prefix));
+
     // version helper
     builder.add_item(&gen_version(prefix));
 
@@ -208,6 +220,35 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
              pub type LiterLlmStreamCallback =\n    \
              unsafe extern \"C\" fn(chunk_json: *const std::ffi::c_char, user_data: *mut std::ffi::c_void);",
         );
+
+        // Also emit iterator-handle functions for each streaming adapter.
+        // These provide a pull-based alternative to the callback-based wrappers so that
+        // language bindings without native async (Go, Ruby, Java, C#, Elixir, C) can drive
+        // the stream in a simple while loop without holding a C function pointer.
+        for adapter in config
+            .adapters
+            .iter()
+            .filter(|a| matches!(a.pattern, AdapterPattern::Streaming))
+        {
+            let Some(owner_type) = adapter.owner_type.as_deref() else {
+                continue;
+            };
+            let Some(item_type) = adapter.item_type.as_deref() else {
+                continue;
+            };
+            let Some(request_type) = adapter.request_type.as_deref() else {
+                continue;
+            };
+            builder.add_item(&helpers::gen_stream_handle_functions(
+                prefix,
+                owner_type,
+                &adapter.name,
+                &adapter.core_path,
+                item_type,
+                request_type,
+                &core_import,
+            ));
+        }
     }
 
     // Collect the set of type names excluded via [ffi] exclude_types.
@@ -328,7 +369,10 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
                 }
             }
         }
-        // Also check struct field accessors and method returns that yield enum pointers
+        // Also check struct field accessors and method returns that yield enum pointers.
+        // Field accessors (gen_field_accessor) emit `*mut Enum` returns whenever a struct
+        // field's type is a Named enum, so any such field implies a heap-allocated enum
+        // pointer that callers must free / stringify — match the function path above.
         for typ in api.types.iter().filter(|t| !t.is_trait) {
             for method in &typ.methods {
                 let return_named = match &method.return_type {
@@ -343,6 +387,24 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
                     _ => None,
                 };
                 if let Some(name) = return_named {
+                    if api.enums.iter().any(|e| e.name == name) {
+                        enum_pointer_return.insert(name);
+                    }
+                }
+            }
+            for field in &typ.fields {
+                let field_named = match &field.ty {
+                    alef_core::ir::TypeRef::Named(n) => Some(n.clone()),
+                    alef_core::ir::TypeRef::Optional(inner) => {
+                        if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
+                            Some(n.clone())
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                };
+                if let Some(name) = field_named {
                     if api.enums.iter().any(|e| e.name == name) {
                         enum_pointer_return.insert(name);
                     }
@@ -384,11 +446,16 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
             let needs_from_json = enum_pointer_param.contains(&enum_def.name);
             let has_serde = enum_def.has_serde;
 
-            // Generate _free (and _to_json for serialization) for return-type enums.
+            // Generate _free (and _to_json / _to_string for serialization) for return-type enums.
             if needs_free && emitted_enum_free.insert(enum_def.name.clone()) {
                 builder.add_item(&gen_enum_free(enum_def, prefix, &core_import));
                 if has_serde {
                     builder.add_item(&gen_enum_to_json(enum_def, prefix, &core_import));
+                    // _to_string yields the bare unit-variant string (no JSON quotes).
+                    // Required by C callers that compare enum values to fixture strings.
+                    if alef_codegen::conversions::can_generate_enum_conversion(enum_def) {
+                        builder.add_item(&gen_enum_to_string(enum_def, prefix, &core_import));
+                    }
                 }
             }
             if needs_from_json && has_serde {
@@ -540,6 +607,7 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
 
         let error_type_name = config.error_type_name();
         let error_constructor = config.error_constructor_expr();
+        let plugin_error_constructor = config.ffi_plugin_error_constructor();
         for bridge_cfg in &config.trait_bridges {
             if let Some(trait_def) = trait_map.get(bridge_cfg.trait_name.as_str()) {
                 let bridge_code = crate::trait_bridge::gen_trait_bridge(
@@ -549,6 +617,7 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
                     &core_import,
                     &error_type_name,
                     &error_constructor,
+                    plugin_error_constructor.as_deref(),
                     api,
                 );
                 builder.add_item(&bridge_code);
@@ -641,6 +710,8 @@ visitor_callbacks = true
                         core_wrapper: alef_core::ir::CoreWrapper::None,
                         vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                         newtype_wrapper: None,
+                        serde_rename: None,
+                        serde_flatten: false,
                     },
                     FieldDef {
                         name: "name".to_string(),
@@ -656,6 +727,8 @@ visitor_callbacks = true
                         core_wrapper: alef_core::ir::CoreWrapper::None,
                         vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                         newtype_wrapper: None,
+                        serde_rename: None,
+                        serde_flatten: false,
                     },
                     FieldDef {
                         name: "verbose".to_string(),
@@ -671,6 +744,8 @@ visitor_callbacks = true
                         core_wrapper: alef_core::ir::CoreWrapper::None,
                         vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                         newtype_wrapper: None,
+                        serde_rename: None,
+                        serde_flatten: false,
                     },
                 ],
                 methods: vec![],
@@ -741,9 +816,11 @@ visitor_callbacks = true
                 is_copy: false,
                 has_serde: false,
                 serde_tag: None,
+                serde_untagged: false,
                 serde_rename_all: None,
             }],
             errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         }
     }
 
@@ -781,6 +858,131 @@ sources = ["src/lib.rs"]
         assert!(lib.content.contains("my_lib_extract"));
         assert!(lib.content.contains("my_lib_output_format_from_i32"));
         assert!(lib.content.contains("my_lib_output_format_from_str"));
+    }
+
+    /// Build an `ApiSurface` whose only function returns the unit-variant enum
+    /// `Color` (`has_serde: true`) by pointer. Used to exercise emission of
+    /// `_to_string` accessors alongside `_free` / `_to_json`.
+    fn enum_return_api() -> ApiSurface {
+        ApiSurface {
+            crate_name: "my-lib".to_string(),
+            version: "1.0.0".to_string(),
+            types: vec![],
+            functions: vec![FunctionDef {
+                name: "current_color".to_string(),
+                rust_path: "my_lib::current_color".to_string(),
+                original_rust_path: String::new(),
+                params: vec![],
+                return_type: TypeRef::Named("Color".to_string()),
+                is_async: false,
+                error_type: None,
+                doc: "Currently selected color.".to_string(),
+                cfg: None,
+                sanitized: false,
+                return_sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+            }],
+            enums: vec![EnumDef {
+                name: "Color".to_string(),
+                rust_path: "my_lib::Color".to_string(),
+                original_rust_path: String::new(),
+                variants: vec![
+                    EnumVariant {
+                        name: "Red".to_string(),
+                        fields: vec![],
+                        is_tuple: false,
+                        doc: String::new(),
+                        is_default: false,
+                        serde_rename: None,
+                    },
+                    EnumVariant {
+                        name: "Green".to_string(),
+                        fields: vec![],
+                        is_tuple: false,
+                        doc: String::new(),
+                        is_default: false,
+                        serde_rename: None,
+                    },
+                ],
+                doc: "Colors.".to_string(),
+                cfg: None,
+                is_copy: false,
+                has_serde: true,
+                serde_tag: None,
+                serde_untagged: false,
+                serde_rename_all: None,
+            }],
+            errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn test_emits_enum_to_string_for_pointer_return_enum() {
+        let api = enum_return_api();
+        let config = sample_config();
+        let backend = FfiBackend;
+
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+        // Sanity: pointer-return enum lifecycle helpers are emitted.
+        assert!(
+            lib.content.contains("my_lib_color_free"),
+            "expected my_lib_color_free in emitted lib.rs"
+        );
+        assert!(
+            lib.content.contains("my_lib_color_to_json"),
+            "expected my_lib_color_to_json in emitted lib.rs"
+        );
+
+        // The new accessor: takes *const Color, returns *mut c_char.
+        assert!(
+            lib.content
+                .contains("pub unsafe extern \"C\" fn my_lib_color_to_string("),
+            "expected pub unsafe extern \"C\" fn my_lib_color_to_string in emitted lib.rs"
+        );
+        assert!(
+            lib.content.contains("ptr: *const my_lib::Color)"),
+            "to_string should accept *const Color"
+        );
+        assert!(
+            lib.content.contains("-> *mut c_char"),
+            "to_string should return *mut c_char"
+        );
+        // Body should extract the unit-variant name via serde, not via JSON-with-quotes.
+        assert!(
+            lib.content.contains("serde_json::to_value(val)"),
+            "to_string should use serde_json::to_value"
+        );
+        assert!(
+            lib.content.contains(".as_str()"),
+            "to_string should call .as_str() to strip JSON quotes"
+        );
+    }
+
+    #[test]
+    fn test_omits_enum_to_string_when_enum_not_returned() {
+        // The default sample_api() uses `OutputFormat` only as a non-return enum
+        // (no function returns it, no struct field has it), so neither _free nor
+        // _to_string should be emitted.
+        let api = sample_api();
+        let config = sample_config();
+        let backend = FfiBackend;
+
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+        assert!(
+            !lib.content.contains("my_lib_output_format_to_string"),
+            "expected NO my_lib_output_format_to_string when enum is not returned by pointer"
+        );
+        assert!(
+            !lib.content.contains("my_lib_output_format_free"),
+            "expected NO my_lib_output_format_free when enum is not returned by pointer"
+        );
     }
 
     #[test]
@@ -1116,6 +1318,8 @@ header_name = "mylib.h"
                     core_wrapper: alef_core::ir::CoreWrapper::None,
                     vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                     newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
                 }],
                 methods: vec![],
                 is_opaque: false,
@@ -1134,6 +1338,7 @@ header_name = "mylib.h"
             functions: vec![],
             enums: vec![],
             errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         };
         let config = sample_config();
         let backend = FfiBackend;
@@ -1187,6 +1392,8 @@ header_name = "mylib.h"
                 core_wrapper: alef_core::ir::CoreWrapper::None,
                 vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                 newtype_wrapper: None,
+                serde_rename: None,
+                serde_flatten: false,
             }],
             methods: vec![],
             is_opaque: false,
@@ -1229,6 +1436,7 @@ header_name = "mylib.h"
             functions: vec![],
             enums: vec![],
             errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         }
     }
 
@@ -1342,6 +1550,270 @@ options_type = "ConversionOptions"
         assert!(
             !lib.content.contains("convert(&html_str, options_rs, visitor_handle"),
             "convert_with_visitor must NOT pass visitor as 3rd arg in OptionsField path"
+        );
+    }
+
+    /// Fix 1 regression test: `type_ref_to_rust_type` must use the configured `core_import`
+    /// for `TypeRef::Named` variants, not a hard-coded `"kreuzberg"` prefix.
+    ///
+    /// When a crate uses `core_import = "my_custom_lib"`, generated Vec/Map turbofish type
+    /// annotations that reference Named types must use `my_custom_lib::TypeName`, not
+    /// `kreuzberg::TypeName`.
+    #[test]
+    fn test_core_import_parameterization_uses_configured_import_not_hardcoded_kreuzberg() {
+        let config = resolved_one(
+            r#"
+[workspace]
+languages = ["ffi"]
+
+[[crates]]
+name = "my-custom-lib"
+sources = ["src/lib.rs"]
+core_import = "my_custom_lib"
+"#,
+        );
+        let api = sample_api();
+        let backend = FfiBackend;
+
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+        // The generated code must not contain the old hard-coded kreuzberg prefix
+        // in any type annotation position.  (It may legitimately appear in doc comments
+        // or string literals, but never as a Rust path qualifier in generated code.)
+        assert!(
+            !lib.content.contains("kreuzberg::"),
+            "generated code must not hard-code 'kreuzberg::' when core_import is 'my_custom_lib'; got:\n{}",
+            &lib.content[..lib.content.len().min(2000)]
+        );
+        // The configured import must appear as a qualifier for core types
+        assert!(
+            lib.content.contains("my_custom_lib::"),
+            "generated code must use the configured core_import 'my_custom_lib::' as a type qualifier"
+        );
+    }
+
+    /// Fix 2 regression test: functions returning `Result<Vec<u8>>` must use the out-param
+    /// convention (i32 return + out_ptr/out_len/out_cap parameters) and the module must
+    /// include a companion `{prefix}_free_bytes` function.
+    #[test]
+    fn test_bytes_result_return_uses_out_params_and_emits_free_bytes() {
+        let api = ApiSurface {
+            crate_name: "my-lib".to_string(),
+            version: "1.0.0".to_string(),
+            types: vec![],
+            functions: vec![FunctionDef {
+                name: "render_page".to_string(),
+                rust_path: "my_lib::render_page".to_string(),
+                original_rust_path: String::new(),
+                params: vec![ParamDef {
+                    name: "page_index".to_string(),
+                    ty: TypeRef::Primitive(PrimitiveType::U32),
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                }],
+                return_type: TypeRef::Bytes,
+                is_async: false,
+                error_type: Some("MyError".to_string()),
+                doc: "Render a page to PNG bytes.".to_string(),
+                cfg: None,
+                sanitized: false,
+                return_sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+            }],
+            enums: vec![],
+            errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
+        };
+        let config = sample_config();
+        let backend = FfiBackend;
+
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+        // The function must use out-params, not return *mut u8 directly
+        assert!(
+            lib.content.contains("out_ptr: *mut *mut u8"),
+            "Result<Vec<u8>> function must have out_ptr out-param"
+        );
+        assert!(
+            lib.content.contains("out_len: *mut usize"),
+            "Result<Vec<u8>> function must have out_len out-param"
+        );
+        assert!(
+            lib.content.contains("out_cap: *mut usize"),
+            "Result<Vec<u8>> function must have out_cap out-param"
+        );
+        // The function must return i32, not *mut u8
+        assert!(
+            lib.content.contains("fn my_lib_render_page("),
+            "function must be emitted with the correct FFI name"
+        );
+        // Vec::into_raw_parts must be used to decompose the result
+        assert!(
+            lib.content.contains("into_raw_parts()"),
+            "Result<Vec<u8>> success arm must use Vec::into_raw_parts()"
+        );
+        // The module must include a free_bytes companion
+        assert!(
+            lib.content.contains("fn my_lib_free_bytes("),
+            "module must include my_lib_free_bytes companion function"
+        );
+        assert!(
+            lib.content.contains("Vec::from_raw_parts(ptr, len, cap)"),
+            "free_bytes must reconstruct and drop the Vec via Vec::from_raw_parts"
+        );
+    }
+
+    /// Verify that a `Streaming` adapter causes codegen to emit the three iterator-handle
+    /// functions (`_start`, `_next`, `_free`) plus the opaque handle struct.
+    #[test]
+    fn test_streaming_adapter_emits_iterator_handle_functions() {
+        let config = resolved_one(
+            r#"
+[workspace]
+languages = ["ffi"]
+
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "ml"
+
+[[crates.adapters]]
+name = "chat_stream"
+pattern = "streaming"
+core_path = "chat_stream"
+owner_type = "DefaultClient"
+item_type = "ChatChunk"
+error_type = "MyError"
+request_type = "my_lib::ChatRequest"
+
+[[crates.adapters.params]]
+name = "req"
+type = "ChatRequest"
+"#,
+        );
+        let api = ApiSurface {
+            crate_name: "my-lib".to_string(),
+            version: "1.0.0".to_string(),
+            types: vec![TypeDef {
+                name: "DefaultClient".to_string(),
+                rust_path: "my_lib::DefaultClient".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![MethodDef {
+                    name: "chat_stream".to_string(),
+                    params: vec![],
+                    return_type: TypeRef::Unit,
+                    is_async: true,
+                    is_static: false,
+                    error_type: Some("MyError".to_string()),
+                    doc: String::new(),
+                    sanitized: false,
+                    returns_ref: false,
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    receiver: Some(ReceiverKind::Ref),
+                    trait_source: None,
+                    has_default_impl: false,
+                }],
+                is_opaque: true,
+                is_clone: false,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+            }],
+            functions: vec![],
+            enums: vec![],
+            errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
+        };
+        let backend = FfiBackend;
+
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+        // Opaque handle struct must be present
+        assert!(
+            lib.content.contains("MlDefaultClientChatStreamStreamHandle"),
+            "handle struct must be emitted: got\n{}",
+            &lib.content[..lib.content.len().min(3000)]
+        );
+
+        // All three exported functions must be present
+        assert!(
+            lib.content.contains("fn ml_default_client_chat_stream_start("),
+            "_start function must be emitted"
+        );
+        assert!(
+            lib.content.contains("fn ml_default_client_chat_stream_next("),
+            "_next function must be emitted"
+        );
+        assert!(
+            lib.content.contains("fn ml_default_client_chat_stream_free("),
+            "_free function must be emitted"
+        );
+
+        // Functions must be #[unsafe(no_mangle)] extern "C"
+        assert!(
+            lib.content.contains("#[unsafe(no_mangle)]"),
+            "functions must be marked #[unsafe(no_mangle)]"
+        );
+        assert!(
+            lib.content
+                .contains("pub unsafe extern \"C\" fn ml_default_client_chat_stream_start"),
+            "_start must be pub unsafe extern C"
+        );
+        assert!(
+            lib.content
+                .contains("pub unsafe extern \"C\" fn ml_default_client_chat_stream_next"),
+            "_next must be pub unsafe extern C"
+        );
+        assert!(
+            lib.content
+                .contains("pub unsafe extern \"C\" fn ml_default_client_chat_stream_free"),
+            "_free must be pub unsafe extern C"
+        );
+
+        // _next must return a pointer to the item type
+        assert!(
+            lib.content.contains("-> *mut my_lib::ChatChunk"),
+            "_next must return *mut my_lib::ChatChunk"
+        );
+
+        // _free must be null-safe
+        assert!(
+            lib.content.contains("if !handle.is_null()"),
+            "_free must check for null before dropping"
+        );
+
+        // SAFETY comments must be present
+        assert!(
+            lib.content.contains("// SAFETY:"),
+            "generated code must include SAFETY comments on unsafe blocks"
+        );
+
+        // Error protocol: _next sets last_error on stream errors
+        assert!(
+            lib.content.contains("set_last_error"),
+            "_next must call set_last_error on error"
         );
     }
 }

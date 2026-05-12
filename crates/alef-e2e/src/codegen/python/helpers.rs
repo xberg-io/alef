@@ -71,6 +71,19 @@ pub(super) fn resolve_enum_fields(e2e_config: &E2eConfig) -> &HashMap<String, St
         .unwrap_or(&EMPTY)
 }
 
+/// Resolve per-call result-field enum mappings from the Python override config.
+///
+/// Returns the `assert_enum_fields` map from the Python override block for
+/// `call_config`, falling back to an empty map when no override is present.
+pub(super) fn resolve_assert_enum_fields(call_config: &crate::config::CallConfig) -> &HashMap<String, String> {
+    static EMPTY: std::sync::LazyLock<HashMap<String, String>> = std::sync::LazyLock::new(HashMap::new);
+    call_config
+        .overrides
+        .get("python")
+        .map(|o| &o.assert_enum_fields)
+        .unwrap_or(&EMPTY)
+}
+
 /// Resolve handle nested type mappings from the Python override config.
 pub(super) fn resolve_handle_nested_types(e2e_config: &E2eConfig) -> &HashMap<String, String> {
     static EMPTY: std::sync::LazyLock<HashMap<String, String>> = std::sync::LazyLock::new(HashMap::new);

@@ -1,0 +1,31 @@
+// {{ type_name }} is a configuration type.
+type {{ type_name }} struct {
+{% for field in fields -%}
+    {{ field.field_name }} {{ field.go_type }}
+{% endfor -%}
+}
+
+// {{ type_name }}Option is a functional option for {{ type_name }}.
+type {{ type_name }}Option func(*{{ type_name }})
+
+{% for field in fields -%}
+// With{{ type_name }}{{ field.pascal_name }} sets the {{ field.name }}.
+func With{{ type_name }}{{ field.pascal_name }}(val {{ field.go_type }}) {{ type_name }}Option {
+    return func(c *{{ type_name }}) {
+        c.{{ field.field_name }} = val
+    }
+}
+
+{% endfor -%}
+// New{{ type_name }} creates a new {{ type_name }} with default values and applies options.
+func New{{ type_name }}(opts ...{{ type_name }}Option) *{{ type_name }} {
+    c := &{{ type_name }} {
+{% for field in fields -%}
+        {{ field.field_name }}: {{ field.default }},
+{% endfor -%}
+    }
+    for _, opt := range opts {
+        opt(c)
+    }
+    return c
+}

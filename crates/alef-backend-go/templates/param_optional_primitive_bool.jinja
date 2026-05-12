@@ -1,0 +1,8 @@
+	var {{ c_name }} {{ cgo_ty }} = 255
+	if {{ go_param }} != nil {
+		if *{{ go_param }} {
+			{{ c_name }} = 1
+		} else {
+			{{ c_name }} = 0
+		}
+	}

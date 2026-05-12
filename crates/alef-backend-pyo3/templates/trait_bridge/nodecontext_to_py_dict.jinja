@@ -1,0 +1,18 @@
+fn nodecontext_to_py_dict<'py>(
+    py: Python<'py>,
+    ctx: &{{ core_crate }}::visitor::NodeContext,
+) -> pyo3::Bound<'py, pyo3::types::PyDict> {
+    let d = pyo3::types::PyDict::new(py);
+    d.set_item("node_type", format!("{:?}", ctx.node_type)).unwrap_or(());
+    d.set_item("tag_name", &ctx.tag_name).unwrap_or(());
+    d.set_item("depth", ctx.depth).unwrap_or(());
+    d.set_item("index_in_parent", ctx.index_in_parent).unwrap_or(());
+    d.set_item("is_inline", ctx.is_inline).unwrap_or(());
+    d.set_item("parent_tag", ctx.parent_tag.as_deref()).unwrap_or(());
+    let attrs = pyo3::types::PyDict::new(py);
+    for (k, v) in &ctx.attributes {
+        attrs.set_item(k, v).unwrap_or(());
+    }
+    d.set_item("attributes", attrs).unwrap_or(());
+    d
+}

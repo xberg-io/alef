@@ -1,0 +1,58 @@
+#[derive(Clone)]
+#[pyclass(frozen)]
+pub struct {{ name }} {
+    pub(crate) inner: {{ core_path }},
+}
+
+#[pymethods]
+impl {{ name }} {
+{%- if has_sanitized %}
+{{ string_methods_content }}
+{{ variant_accessors_content }}
+{{ serde_tag_content }}
+{%- else %}
+    #[new]
+    fn new(py: Python<'_>, value: &Bound<'_, pyo3::types::PyAny>) -> PyResult<Self> {
+        // Accept either a Python dict (full tagged-union shape) or a string
+        // (the unit variant name). Strings are wrapped in `"..."` so serde_json
+        // can deserialize into a unit-variant of the tagged enum.
+        let json_str: String = if let Ok(s) = value.extract::<String>() {
+            serde_json::to_string(&s).map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Invalid {{ name }}: {e}")))?
+        } else {
+            let json_mod = py.import("json")?;
+            json_mod.call_method1("dumps", (value,))?.extract()?
+        };
+        let inner: {{ core_path }} = serde_json::from_str(&json_str)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Invalid {{ name }}: {e}")))?;
+        Ok(Self { inner })
+    }
+{{ string_methods_content }}
+{{ variant_accessors_content }}
+{{ serde_tag_content }}
+{%- endif %}
+}
+
+impl From<{{ name }}> for {{ core_path }} {
+    fn from(val: {{ name }}) -> Self { val.inner }
+}
+
+impl From<{{ core_path }}> for {{ name }} {
+    fn from(val: {{ core_path }}) -> Self { Self { inner: val } }
+}
+
+impl serde::Serialize for {{ name }} {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.inner.serialize(serializer)
+    }
+}
+
+impl Default for {{ name }} {
+    fn default() -> Self { Self { inner: Default::default() } }
+}
+
+impl<'de> serde::Deserialize<'de> for {{ name }} {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let inner = {{ core_path }}::deserialize(deserializer)?;
+        Ok(Self { inner })
+    }
+}

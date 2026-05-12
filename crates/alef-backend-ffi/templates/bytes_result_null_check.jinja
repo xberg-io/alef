@@ -1,0 +1,4 @@
+    if out_ptr.is_null() || out_len.is_null() || out_cap.is_null() {
+        set_last_error(1, "Null out-param pointer for byte buffer return");
+        return -1;
+    }

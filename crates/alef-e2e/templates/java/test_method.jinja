@@ -1,0 +1,44 @@
+{#- Java test method template for JUnit 5
+
+   Context variables:
+   - method_name: method name (UpperCamelCase)
+   - description: fixture description
+   - builder_expressions: string containing pre-generated builder expressions (or empty)
+   - setup_lines: list of setup line strings (e.g., handle creation)
+   - throws_clause: " throws Exception" or ""
+   - expects_error: boolean
+   - call_expr: the complete function call expression
+   - result_var: result variable name
+   - assertions_body: string containing all rendered assertions
+#}
+
+    @Test
+    void test{{ method_name }}(){{ throws_clause }} {
+        // {{ description }}
+{% if expects_error %}
+        // Wrap setup_lines + call_expr inside the lambda so error fixtures
+        // catch failures at *any* step — including `<Type>.fromJson(...)`
+        // calls that throw on malformed JSON (e.g. error fixtures with an
+        // invalid enum value like `"purpose":"invalid-purpose"`). Mirrors
+        // the C# `Assert.ThrowsAnyAsync(() => client.X(Type.FromJson(...)))`
+        // pattern.
+        assertThrows(Exception.class, () -> {
+{% if builder_expressions %}
+{{ builder_expressions }}
+{% endif %}
+{% for line in setup_lines %}
+            {{ line }}
+{% endfor %}
+            {{ call_expr }};
+        });
+{% else %}
+{% if builder_expressions %}
+{{ builder_expressions }}
+{% endif %}
+{% for line in setup_lines %}
+        {{ line }}
+{% endfor %}
+        var {{ result_var }} = {{ call_expr }};
+{{ assertions_body }}
+{% endif %}
+    }

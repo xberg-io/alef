@@ -1,0 +1,4 @@
+	var {{ c_name }} {{ cgo_ty }} = {{ cgo_ty }}({{ sentinel }})
+	if {{ go_param }} != nil {
+		{{ c_name }} = {{ cgo_ty }}({{ go_ty }}(*{{ go_param }}))
+	}

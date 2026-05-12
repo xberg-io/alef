@@ -1,0 +1,9 @@
+    MemorySegment vtableSegment() { return vtable; }
+
+    private void writeError(MemorySegment outError, Throwable e) {
+        try { outError.set(ValueLayout.ADDRESS, 0, arena.allocateFrom(e.getClass().getSimpleName() + ": " + e.getMessage())); }
+        catch (Throwable ignored) { /* swallow */ }
+    }
+
+    @Override
+    public void close() { arena.close(); }

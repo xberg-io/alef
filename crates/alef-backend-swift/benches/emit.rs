@@ -23,6 +23,8 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
         core_wrapper: CoreWrapper::None,
         vec_inner_core_wrapper: CoreWrapper::None,
         newtype_wrapper: None,
+        serde_rename: None,
+        serde_flatten: false,
     }
 }
 
@@ -84,6 +86,7 @@ fn make_enum(name: &str, variant_count: usize) -> EnumDef {
         doc: String::new(),
         cfg: None,
         serde_tag: None,
+        serde_untagged: false,
         serde_rename_all: None,
 
         is_copy: false,
@@ -189,6 +192,7 @@ fn make_synthetic_api() -> ApiSurface {
         functions,
         enums,
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     }
 }
 

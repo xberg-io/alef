@@ -2,8 +2,8 @@ use alef_backend_swift::SwiftBackend;
 use alef_core::backend::Backend;
 use alef_core::config::{ResolvedCrateConfig, new_config::NewAlefConfig};
 use alef_core::ir::{
-    ApiSurface, CoreWrapper, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef, ParamDef,
-    PrimitiveType, TypeDef, TypeRef,
+    ApiSurface, CoreWrapper, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef, MethodDef, ParamDef,
+    PrimitiveType, ReceiverKind, TypeDef, TypeRef,
 };
 
 fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
@@ -21,6 +21,8 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
         core_wrapper: CoreWrapper::None,
         vec_inner_core_wrapper: CoreWrapper::None,
         newtype_wrapper: None,
+        serde_rename: None,
+        serde_flatten: false,
     }
 }
 
@@ -112,6 +114,7 @@ fn make_basic_api() -> ApiSurface {
             is_copy: false,
             has_serde: false,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
         }],
         errors: vec![ErrorDef {
@@ -140,6 +143,7 @@ fn make_basic_api() -> ApiSurface {
             ],
             doc: "Errors emitted by demo operations.".to_string(),
         }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     }
 }
 
@@ -233,6 +237,7 @@ fn snapshot_conversion_struct_with_named_types() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_basic_config();
@@ -301,9 +306,11 @@ fn snapshot_conversion_enum_with_data() {
             is_copy: false,
             has_serde: false,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_basic_config();
@@ -362,6 +369,7 @@ fn snapshot_conversion_vec_of_named() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_basic_config();
@@ -370,6 +378,199 @@ fn snapshot_conversion_vec_of_named() {
         insta::assert_snapshot!(
             format!(
                 "snapshot_conversion_vec__{}",
+                file.path.display().to_string().replace('/', "__")
+            ),
+            &file.content
+        );
+    }
+}
+
+fn make_method(name: &str, params: Vec<ParamDef>, return_type: TypeRef, is_async: bool, fallible: bool) -> MethodDef {
+    MethodDef {
+        name: name.to_string(),
+        params,
+        return_type,
+        is_async,
+        is_static: false,
+        error_type: if fallible { Some("DemoError".to_string()) } else { None },
+        doc: String::new(),
+        receiver: Some(ReceiverKind::Ref),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    }
+}
+
+#[test]
+fn snapshot_trait_bridge_inbound() {
+    // Simulates a kreuzberg-style plugin trait with a Plugin super-trait, async fallible
+    // method using a Named param/return, plus a sync method returning a primitive.
+    // Verifies the inbound (extern "Swift") code path: extern block, wrapper struct,
+    // Plugin impl, Trait impl, and register/unregister entry points.
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![
+            TypeDef {
+                name: "Plugin".to_string(),
+                rust_path: "demo::plugins::Plugin".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: false,
+                is_copy: false,
+                doc: "Base plugin trait.".to_string(),
+                cfg: None,
+                is_trait: true,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+            },
+            TypeDef {
+                name: "OcrConfig".to_string(),
+                rust_path: "demo::OcrConfig".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![make_field("language", TypeRef::String, false)],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                doc: "OCR configuration.".to_string(),
+                cfg: None,
+                is_trait: false,
+                has_default: true,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: true,
+                super_traits: vec![],
+            },
+            TypeDef {
+                name: "ExtractionResult".to_string(),
+                rust_path: "demo::ExtractionResult".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![make_field("text", TypeRef::String, false)],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                doc: "Result of extraction.".to_string(),
+                cfg: None,
+                is_trait: false,
+                has_default: true,
+                has_stripped_cfg_fields: false,
+                is_return_type: true,
+                serde_rename_all: None,
+                has_serde: true,
+                super_traits: vec![],
+            },
+            TypeDef {
+                name: "OcrBackend".to_string(),
+                rust_path: "demo::plugins::OcrBackend".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![
+                    make_method(
+                        "process_image",
+                        vec![
+                            ParamDef {
+                                name: "image_bytes".into(),
+                                ty: TypeRef::Bytes,
+                                optional: false,
+                                default: None,
+                                sanitized: false,
+                                typed_default: None,
+                                is_ref: true,
+                                is_mut: false,
+                                newtype_wrapper: None,
+                                original_type: None,
+                            },
+                            ParamDef {
+                                name: "config".into(),
+                                ty: TypeRef::Named("OcrConfig".to_string()),
+                                optional: false,
+                                default: None,
+                                sanitized: false,
+                                typed_default: None,
+                                is_ref: true,
+                                is_mut: false,
+                                newtype_wrapper: None,
+                                original_type: None,
+                            },
+                        ],
+                        TypeRef::Named("ExtractionResult".to_string()),
+                        true,
+                        true,
+                    ),
+                    make_method(
+                        "supports_language",
+                        vec![ParamDef {
+                            name: "lang".into(),
+                            ty: TypeRef::String,
+                            optional: false,
+                            default: None,
+                            sanitized: false,
+                            typed_default: None,
+                            is_ref: true,
+                            is_mut: false,
+                            newtype_wrapper: None,
+                            original_type: None,
+                        }],
+                        TypeRef::Primitive(PrimitiveType::Bool),
+                        false,
+                        false,
+                    ),
+                ],
+                is_opaque: false,
+                is_clone: false,
+                is_copy: false,
+                doc: "OCR backend plugin trait.".to_string(),
+                cfg: None,
+                is_trait: true,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec!["Plugin".to_string()],
+            },
+        ],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let toml = r#"
+[workspace]
+languages = ["swift"]
+
+[[crates]]
+name = "demo"
+sources = ["src/lib.rs"]
+
+[[crates.trait_bridges]]
+trait_name = "OcrBackend"
+super_trait = "demo::plugins::Plugin"
+registry_getter = "demo::plugins::registry::get_ocr_backend_registry"
+register_fn = "register_ocr_backend"
+unregister_fn = "unregister_ocr_backend"
+"#;
+    let cfg: NewAlefConfig = toml::from_str(toml).expect("test config must parse");
+    let config = cfg.resolve().expect("test config must resolve").remove(0);
+
+    let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
+    for file in &files {
+        insta::assert_snapshot!(
+            format!(
+                "snapshot_trait_bridge_inbound__{}",
                 file.path.display().to_string().replace('/', "__")
             ),
             &file.content

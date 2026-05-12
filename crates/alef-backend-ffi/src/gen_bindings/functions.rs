@@ -1,9 +1,8 @@
-use std::fmt::Write;
-
 use ahash::{AHashMap, AHashSet};
 use alef_codegen::conversions::core_type_path;
 use alef_core::ir::{FunctionDef, MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef};
 use heck::ToSnakeCase;
+use minijinja::context;
 
 /// Returns true when a sanitized function/method can be auto-recovered via JSON-roundtrip:
 /// every sanitized param is a `Vec<String>` with `original_type` set (i.e. originally a
@@ -73,31 +72,24 @@ pub(super) fn gen_streaming_method_wrapper(
     let fn_name = format!("{prefix}_{type_snake}_{method_name}");
     let qualified = core_type_path(typ, core_import);
 
-    let mut out = String::with_capacity(2048);
+    let doc_comment = if !method.doc.is_empty() {
+        let lines: Vec<&str> = method.doc.lines().collect();
+        crate::template_env::render("doc_comment_lines.jinja", minijinja::context! { doc_lines => lines })
+    } else {
+        String::new()
+    };
 
-    if !method.doc.is_empty() {
-        for line in method.doc.lines() {
-            writeln!(out, "/// {}", line).ok();
-        }
-    }
-    writeln!(out, "/// # Safety").ok();
-    writeln!(
-        out,
-        "/// `client` and `request_json` must be non-null valid pointers. \
-         `callback` must be a valid function pointer. \
-         `user_data` is forwarded as-is; ownership stays with the caller."
+    let body_indented = format!(" {}", body.replace('\n', "\n "));
+
+    crate::template_env::render(
+        "streaming_method_wrapper.jinja",
+        minijinja::context! {
+            doc_comment => doc_comment.trim_end(),
+            fn_name => fn_name,
+            qualified => qualified,
+            body_indented => body_indented,
+        },
     )
-    .ok();
-    writeln!(out, "#[unsafe(no_mangle)]").ok();
-    writeln!(out, "pub unsafe extern \"C\" fn {fn_name}(").ok();
-    writeln!(out, "    client: *const {qualified},").ok();
-    writeln!(out, "    request_json: *const std::ffi::c_char,").ok();
-    writeln!(out, "    callback: LiterLlmStreamCallback,").ok();
-    writeln!(out, "    user_data: *mut std::ffi::c_void,").ok();
-    writeln!(out, ") -> i32 {{").ok();
-    writeln!(out, "    {}", body.replace('\n', "\n    ")).ok();
-    write!(out, "}}").ok();
-    out
 }
 
 // ---------------------------------------------------------------------------
@@ -117,34 +109,39 @@ pub(super) fn gen_method_wrapper(
     let method_name = &method.name;
     let fn_name = format!("{prefix}_{type_snake}_{method_name}");
 
-    let mut out = String::with_capacity(2048);
+    // Generate doc comment
+    let doc_comment = if !method.doc.is_empty() {
+        let lines: Vec<&str> = method.doc.lines().collect();
+        crate::template_env::render("doc_comment_lines.jinja", context! { doc_lines => lines })
+    } else {
+        String::new()
+    };
 
-    if !method.doc.is_empty() {
-        for line in method.doc.lines() {
-            writeln!(out, "/// {}", line).ok();
-        }
-    }
-    writeln!(out, "/// # Safety").ok();
-    writeln!(out, "/// Caller must ensure all pointer arguments are valid or null.").ok();
-    writeln!(
-        out,
-        "/// Returned pointers must be freed with the appropriate free function."
-    )
-    .ok();
-    // Count total FFI params: this + params + extra _len for Bytes params
+    let has_error = method.error_type.is_some();
+
+    // Detect Result<Vec<u8>> returns — these use the out-param convention instead of
+    // a direct *mut u8 return, because the caller must also receive len and cap to
+    // be able to call {prefix}_free_bytes later.
+    let is_bytes_result = has_error && matches!(method.return_type, TypeRef::Bytes);
+
+    // Count total FFI params: this + params + extra _len for Bytes params + 3 for bytes out-params
     let ffi_param_count = (if method.is_static { 0 } else { 1 })
         + method.params.len()
-        + method.params.iter().filter(|p| matches!(p.ty, TypeRef::Bytes)).count();
-    if ffi_param_count > 7 {
-        writeln!(out, "#[allow(clippy::too_many_arguments)]").ok();
-    }
-    writeln!(out, "#[unsafe(no_mangle)]").ok();
+        + method.params.iter().filter(|p| matches!(p.ty, TypeRef::Bytes)).count()
+        + if is_bytes_result { 3 } else { 0 };
+    let allow_clippy = if ffi_param_count > 7 {
+        Some("clippy::too_many_arguments".to_string())
+    } else {
+        None
+    };
 
     let qualified = core_type_path(typ, core_import);
 
     // Return type
-    let has_error = method.error_type.is_some();
-    let mut ret_type = if has_error && is_void_return(&method.return_type) {
+    let mut ret_type = if is_bytes_result {
+        // Out-param convention — always returns i32 (0 = success, non-zero = error)
+        "i32".to_string()
+    } else if has_error && is_void_return(&method.return_type) {
         "i32".to_string() // 0 = success, nonzero = error
     } else if has_error {
         // Fallible + non-void: return nullable pointer
@@ -197,70 +194,91 @@ pub(super) fn gen_method_wrapper(
             params.push(format!("    {}: usize", len_param_name));
         }
     }
-
-    if is_void_return(&method.return_type) && !has_error {
-        writeln!(out, "pub unsafe extern \"C\" fn {fn_name}(").ok();
-        writeln!(out, "{}", params.join(",\n")).ok();
-        writeln!(out, ") {{").ok();
-    } else {
-        writeln!(out, "pub unsafe extern \"C\" fn {fn_name}(").ok();
-        writeln!(out, "{}", params.join(",\n")).ok();
-        writeln!(out, ") -> {ret_type} {{").ok();
+    // Result<Vec<u8>> returns use three out-params instead of a direct pointer return
+    if is_bytes_result {
+        let pfx = if will_be_unimplemented { "_" } else { "" };
+        params.push(format!("    {pfx}out_ptr: *mut *mut u8"));
+        params.push(format!("    {pfx}out_len: *mut usize"));
+        params.push(format!("    {pfx}out_cap: *mut usize"));
     }
 
-    writeln!(out, "    clear_last_error();").ok();
+    let return_type = if is_void_return(&method.return_type) && !has_error {
+        None
+    } else {
+        Some(ret_type.clone())
+    };
+
+    let header = crate::template_env::render(
+        "method_wrapper_header.jinja",
+        context! {
+            doc_comment => doc_comment.trim_end(),
+            allow_clippy => allow_clippy,
+            fn_name => fn_name.clone(),
+            params => params,
+            return_type => return_type,
+        },
+    );
+
+    let mut out = header;
 
     // If method signature was sanitized, generate unimplemented body
     if will_be_unimplemented {
-        writeln!(
-            out,
-            "{}",
-            gen_ffi_unimplemented_body(&method.return_type, &format!("{type_name}::{method_name}"), has_error)
-        )
-        .ok();
-        write!(out, "}}").ok();
+        out.push_str(&gen_ffi_unimplemented_body(
+            if is_bytes_result {
+                &TypeRef::Unit
+            } else {
+                &method.return_type
+            },
+            &format!("{type_name}::{method_name}"),
+            has_error || is_bytes_result,
+        ));
+        out.push_str("\n}");
         return out;
+    }
+
+    // Null-check the out-params for byte-buffer returns
+    if is_bytes_result {
+        out.push_str(&crate::template_env::render(
+            "bytes_result_null_check.jinja",
+            context! {},
+        ));
     }
 
     // Null-check self
     if !method.is_static {
-        writeln!(out, "    if this.is_null() {{").ok();
-        writeln!(out, "        set_last_error(1, \"Null pointer passed for self\");").ok();
-        let fail_ret = if has_error && is_void_return(&method.return_type) {
+        let fail_ret = if is_bytes_result || (has_error && is_void_return(&method.return_type)) {
             "return -1;".to_string()
         } else if is_void_return(&method.return_type) {
             "return;".to_string()
         } else {
             format!("return {};", null_return_value(&method.return_type))
         };
-        writeln!(out, "        {fail_ret}").ok();
-        writeln!(out, "    }}").ok();
 
-        let deref = match method.receiver.as_ref().unwrap_or(&ReceiverKind::Ref) {
+        let null_check = match method.receiver.as_ref().unwrap_or(&ReceiverKind::Ref) {
             ReceiverKind::Ref => {
-                "// SAFETY: null check above guarantees this is a valid pointer.\n    let obj = unsafe { &*this };"
-                    .to_string()
+                crate::template_env::render("null_check_self_ref.jinja", context! { fail_ret => fail_ret })
             }
             ReceiverKind::RefMut => {
-                "// SAFETY: null check above guarantees this is a valid pointer; caller ensures exclusive access.\n    let obj = unsafe { &mut *this };"
-                    .to_string()
+                crate::template_env::render("null_check_self_mut.jinja", context! { fail_ret => fail_ret })
             }
             ReceiverKind::Owned => {
-                "// SAFETY: null check above guarantees this is a valid pointer originally from Box::into_raw.\n    let obj = unsafe { *Box::from_raw(this) };"
-                    .to_string()
+                crate::template_env::render("null_check_self_owned.jinja", context! { fail_ret => fail_ret })
             }
         };
-        writeln!(out, "    {deref}").ok();
+        out.push_str(&crate::template_env::render(
+            "code_line.jinja",
+            context! { content => null_check },
+        ));
     }
 
     // Null-check and convert each parameter
     for p in &method.params {
-        write!(
-            out,
-            "{}",
-            gen_param_conversion(p, has_error, &method.return_type, core_import)
-        )
-        .ok();
+        out.push_str(&crate::template_env::render(
+            "emitted_code_block.jinja",
+            context! {
+                content => gen_param_conversion(p, has_error, is_bytes_result, &method.return_type, core_import),
+            },
+        ));
     }
 
     // Emit Vec<&str> intermediate bindings for Vec<String> params with is_ref=true.
@@ -271,11 +289,10 @@ pub(super) fn gen_method_wrapper(
             if let TypeRef::Vec(inner) = &p.ty {
                 if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) {
                     let rs = format!("{}_rs", p.name);
-                    writeln!(
-                        out,
-                        "    let {rs}_refs: Vec<&str> = {rs}.iter().map(|s| s.as_str()).collect();"
-                    )
-                    .ok();
+                    out.push_str(&crate::template_env::render(
+                        "vec_string_refs.jinja",
+                        context! { rs_name => rs.clone() },
+                    ));
                 }
             }
         }
@@ -397,119 +414,126 @@ pub(super) fn gen_method_wrapper(
             format!("get_ffi_runtime().block_on(async {{ obj.{method_name}({call_args}).await }})")
         };
         if can_inline {
-            writeln!(out, "    {call}").ok();
+            out.push_str(&crate::template_env::render(
+                "call_inline.jinja",
+                context! { call => call },
+            ));
         } else {
-            writeln!(out, "    let result = {call};").ok();
+            out.push_str(&crate::template_env::render(
+                "call_with_result.jinja",
+                context! { call => call },
+            ));
         }
     } else if method.is_static {
         if can_inline {
-            writeln!(out, "    {qualified}::{method_name}({call_args})").ok();
+            out.push_str(&crate::template_env::render("static_method_call.jinja", context! { qualified => qualified.clone(), method_name => method_name.clone(), call_args => call_args.clone() }));
         } else {
-            writeln!(out, "    let result = {qualified}::{method_name}({call_args});").ok();
+            out.push_str(&crate::template_env::render("static_method_call_result.jinja", context! { qualified => qualified.clone(), method_name => method_name.clone(), call_args => call_args.clone() }));
         }
     } else if method_name == "drop" {
         // Special case: Rust's drop method cannot be called directly with dot notation.
         // Use std::mem::drop instead.
-        writeln!(out, "    std::mem::drop(obj);").ok();
+        out.push_str("    std::mem::drop(obj);\n");
     } else if can_inline {
-        writeln!(out, "    obj.{method_name}({call_args})").ok();
+        out.push_str(&crate::template_env::render(
+            "instance_method_call.jinja",
+            context! { method_name => method_name.clone(), call_args => call_args.clone() },
+        ));
     } else {
-        writeln!(out, "    let result = obj.{method_name}({call_args});").ok();
+        out.push_str(&crate::template_env::render(
+            "instance_method_call_result.jinja",
+            context! { method_name => method_name.clone(), call_args => call_args.clone() },
+        ));
     }
 
     // Handle return
-    // When return_newtype_wrapper is set, the core function returns a newtype (e.g. NodeIndex)
-    // but the IR has already resolved it to the inner type (e.g. u32). Unwrap with `.0`.
-    let result_expr = if method.return_newtype_wrapper.is_some() && matches!(method.return_type, TypeRef::Primitive(_))
-    {
-        "result.0"
+    if is_bytes_result {
+        // Result<Vec<u8>> — decompose the Vec and write to out-params.
+        out.push_str(&crate::template_env::render("bytes_result_match.jinja", context! {}));
     } else {
-        "result"
-    };
-    // When returns_ref=true, the core returns a reference (&T or &[T]).
-    // We need to convert it to an owned value for C FFI:
-    // - For String/&str: clone to owned String
-    // - For Named/&T: clone to owned T
-    // - For Vec/&[T]: clone to owned Vec
-    // This must happen before passing to gen_owned_value_to_c.
-    if method.returns_ref && !has_error {
-        match &method.return_type {
-            // &str -> owned String. `.clone()` on &str is a no-op (str: !Sized
-            // doesn't impl Clone) and triggers `noop_method_call`. Use to_owned.
-            TypeRef::String => {
-                writeln!(out, "    let result = result.to_owned();").ok();
-            }
-            TypeRef::Char => {
-                writeln!(out, "    let result = result.clone();").ok();
-            }
-            TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-                writeln!(out, "    let result = result.clone();").ok();
-            }
-            TypeRef::Named(_) => {
-                writeln!(out, "    let result = result.clone();").ok();
-            }
-            TypeRef::Optional(inner) => match inner.as_ref() {
-                // Option<&str>::cloned() doesn't compile because `str: !Sized`. Use
-                // .map(str::to_owned) to convert Option<&str> -> Option<String>.
+        // When return_newtype_wrapper is set, the core function returns a newtype (e.g. NodeIndex)
+        // but the IR has already resolved it to the inner type (e.g. u32). Unwrap with `.0`.
+        let result_expr =
+            if method.return_newtype_wrapper.is_some() && matches!(method.return_type, TypeRef::Primitive(_)) {
+                "result.0"
+            } else {
+                "result"
+            };
+        // When returns_ref=true, the core returns a reference (&T or &[T]).
+        // We need to convert it to an owned value for C FFI:
+        // - For String/&str: clone to owned String
+        // - For Named/&T: clone to owned T
+        // - For Vec/&[T]: clone to owned Vec
+        // This must happen before passing to gen_owned_value_to_c.
+        if method.returns_ref && !has_error {
+            match &method.return_type {
+                // &str -> owned String. `.clone()` on &str is a no-op (str: !Sized
+                // doesn't impl Clone) and triggers `noop_method_call`. Use to_owned.
                 TypeRef::String => {
-                    writeln!(out, "    let result = result.map(str::to_owned);").ok();
+                    out.push_str("    let result = result.to_owned();\n");
                 }
-                TypeRef::Named(_) | TypeRef::Char | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-                    writeln!(out, "    let result = result.cloned();").ok();
+                TypeRef::Char => {
+                    out.push_str("    let result = result.clone();\n");
                 }
+                TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+                    out.push_str("    let result = result.clone();\n");
+                }
+                TypeRef::Named(_) => {
+                    out.push_str("    let result = result.clone();\n");
+                }
+                TypeRef::Optional(inner) => match inner.as_ref() {
+                    // Option<&str>::cloned() doesn't compile because `str: !Sized`. Use
+                    // .map(str::to_owned) to convert Option<&str> -> Option<String>.
+                    TypeRef::String => {
+                        out.push_str("    let result = result.map(str::to_owned);\n");
+                    }
+                    TypeRef::Named(_) | TypeRef::Char | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+                        out.push_str("    let result = result.cloned();\n");
+                    }
+                    _ => {}
+                },
                 _ => {}
-            },
-            _ => {}
+            }
         }
-    }
-    // When returns_cow=true, the core returns Cow<'_, T> but FFI needs owned T.
-    // Convert to owned by calling .into_owned().
-    if method.returns_cow && !has_error {
-        writeln!(out, "    let result = result.into_owned();").ok();
-    }
-    if has_error {
-        writeln!(out, "    match result {{").ok();
-        if is_void_return(&method.return_type) {
-            writeln!(out, "        Ok(()) => 0,").ok();
+        // When returns_cow=true, the core returns Cow<'_, T> but FFI needs owned T.
+        // Convert to owned by calling .into_owned().
+        if method.returns_cow && !has_error {
+            out.push_str("    let result = result.into_owned();\n");
+        }
+        if has_error {
+            if is_void_return(&method.return_type) {
+                out.push_str(&crate::template_env::render("error_match_void.jinja", context! {}));
+            } else {
+                let val_expr =
+                    if method.return_newtype_wrapper.is_some() && matches!(method.return_type, TypeRef::Primitive(_)) {
+                        "val.0"
+                    } else {
+                        "val"
+                    };
+                let ok_body = gen_owned_value_to_c(val_expr, &method.return_type, "            ", enum_names);
+                out.push_str(&crate::template_env::render(
+                    "error_match_non_void.jinja",
+                    context! {
+                        ok_body => ok_body,
+                        null_ret => null_return_value(&method.return_type),
+                    },
+                ));
+            }
+        } else if is_void_return(&method.return_type) {
+            // void, no error — result is already ()
+        } else if can_inline {
+            // Passthrough primitive: call was already emitted as tail expression
         } else {
-            writeln!(out, "        Ok(val) => {{").ok();
-            let val_expr =
-                if method.return_newtype_wrapper.is_some() && matches!(method.return_type, TypeRef::Primitive(_)) {
-                    "val.0"
-                } else {
-                    "val"
-                };
-            write!(
-                out,
-                "{}",
-                gen_owned_value_to_c(val_expr, &method.return_type, "            ", enum_names)
-            )
-            .ok();
-            writeln!(out, "        }}").ok();
+            out.push_str(&crate::template_env::render(
+                "emitted_code_block.jinja",
+                context! {
+                    content => gen_owned_value_to_c(result_expr, &method.return_type, "    ", enum_names),
+                },
+            ));
         }
-        writeln!(out, "        Err(e) => {{").ok();
-        writeln!(out, "            set_last_error(2, &e.to_string());").ok();
-        if is_void_return(&method.return_type) {
-            writeln!(out, "            -1").ok();
-        } else {
-            writeln!(out, "            {}", null_return_value(&method.return_type)).ok();
-        }
-        writeln!(out, "        }}").ok();
-        writeln!(out, "    }}").ok();
-    } else if is_void_return(&method.return_type) {
-        // void, no error — result is already ()
-    } else if can_inline {
-        // Passthrough primitive: call was already emitted as tail expression
-    } else {
-        write!(
-            out,
-            "{}",
-            gen_owned_value_to_c(result_expr, &method.return_type, "    ", enum_names)
-        )
-        .ok();
     }
 
-    write!(out, "}}").ok();
+    out.push_str("\n}");
     out
 }
 
@@ -537,29 +561,35 @@ pub(super) fn gen_free_function(
     };
     let func_name = &func.name;
 
-    let mut out = String::with_capacity(2048);
-
-    if !func.doc.is_empty() {
-        for line in func.doc.lines() {
-            writeln!(out, "/// {}", line).ok();
-        }
-    }
-    writeln!(out, "/// # Safety").ok();
-    writeln!(out, "/// Caller must ensure all pointer arguments are valid or null.").ok();
-    writeln!(
-        out,
-        "/// Returned pointers must be freed with the appropriate free function."
-    )
-    .ok();
-    // Count total FFI params: params + extra _len for Bytes params
-    let ffi_param_count = func.params.len() + func.params.iter().filter(|p| matches!(p.ty, TypeRef::Bytes)).count();
-    if ffi_param_count > 7 {
-        writeln!(out, "#[allow(clippy::too_many_arguments)]").ok();
-    }
-    writeln!(out, "#[unsafe(no_mangle)]").ok();
+    // Generate doc comment
+    let doc_comment = if !func.doc.is_empty() {
+        let lines: Vec<&str> = func.doc.lines().collect();
+        crate::template_env::render("doc_comment_lines.jinja", context! { doc_lines => lines })
+    } else {
+        String::new()
+    };
 
     let has_error = func.error_type.is_some();
-    let ret_type = if has_error && is_void_return(&func.return_type) {
+
+    // Detect Result<Vec<u8>> returns — these use the out-param convention instead of
+    // a direct *mut u8 return, because the caller must also receive len and cap to
+    // be able to call {prefix}_free_bytes later.
+    let is_bytes_result = has_error && matches!(func.return_type, TypeRef::Bytes);
+
+    // Count total FFI params: params + extra _len for Bytes params + 3 for bytes out-params
+    let ffi_param_count = func.params.len()
+        + func.params.iter().filter(|p| matches!(p.ty, TypeRef::Bytes)).count()
+        + if is_bytes_result { 3 } else { 0 };
+    let allow_clippy = if ffi_param_count > 7 {
+        Some("clippy::too_many_arguments".to_string())
+    } else {
+        None
+    };
+
+    let ret_type = if is_bytes_result {
+        // Out-param convention — always returns i32 (0 = success, non-zero = error)
+        "i32".to_string()
+    } else if has_error && is_void_return(&func.return_type) {
         "i32".to_string()
     } else {
         c_return_type_with_paths(&func.return_type, core_import, path_map).into_owned()
@@ -593,39 +623,64 @@ pub(super) fn gen_free_function(
             params.push(format!("    {}: usize", len_param_name));
         }
     }
-
-    if is_void_return(&func.return_type) && !has_error {
-        writeln!(out, "pub unsafe extern \"C\" fn {ffi_name}(").ok();
-        writeln!(out, "{}", params.join(",\n")).ok();
-        writeln!(out, ") {{").ok();
-    } else {
-        writeln!(out, "pub unsafe extern \"C\" fn {ffi_name}(").ok();
-        writeln!(out, "{}", params.join(",\n")).ok();
-        writeln!(out, ") -> {ret_type} {{").ok();
+    // Result<Vec<u8>> returns use three out-params instead of a direct pointer return
+    if is_bytes_result {
+        let pfx = if will_be_unimplemented { "_" } else { "" };
+        params.push(format!("    {pfx}out_ptr: *mut *mut u8"));
+        params.push(format!("    {pfx}out_len: *mut usize"));
+        params.push(format!("    {pfx}out_cap: *mut usize"));
     }
 
-    writeln!(out, "    clear_last_error();").ok();
+    let return_type = if is_void_return(&func.return_type) && !has_error {
+        None
+    } else {
+        Some(ret_type.clone())
+    };
+
+    let header = crate::template_env::render(
+        "free_function_header.jinja",
+        context! {
+            doc_comment => doc_comment.trim_end(),
+            allow_clippy => allow_clippy,
+            fn_name => ffi_name.clone(),
+            params => params,
+            return_type => return_type,
+        },
+    );
+
+    let mut out = header;
 
     // If function signature was sanitized or involves opaque types, generate unimplemented body
     if will_be_unimplemented {
-        writeln!(
-            out,
-            "{}",
-            gen_ffi_unimplemented_body(&func.return_type, func_name, has_error)
-        )
-        .ok();
-        write!(out, "}}").ok();
+        out.push_str(&gen_ffi_unimplemented_body(
+            if is_bytes_result {
+                &TypeRef::Unit
+            } else {
+                &func.return_type
+            },
+            func_name,
+            has_error || is_bytes_result,
+        ));
+        out.push_str("\n}");
         return out;
+    }
+
+    // Null-check the out-params for byte-buffer returns
+    if is_bytes_result {
+        out.push_str(&crate::template_env::render(
+            "bytes_result_null_check.jinja",
+            context! {},
+        ));
     }
 
     // Convert parameters
     for p in &func.params {
-        write!(
-            out,
-            "{}",
-            gen_param_conversion(p, has_error, &func.return_type, core_import)
-        )
-        .ok();
+        out.push_str(&crate::template_env::render(
+            "emitted_code_block.jinja",
+            context! {
+                content => gen_param_conversion(p, has_error, is_bytes_result, &func.return_type, core_import),
+            },
+        ));
     }
 
     // Emit Vec<&str> intermediate bindings for Vec<String> params with is_ref=true.
@@ -636,11 +691,10 @@ pub(super) fn gen_free_function(
             if let TypeRef::Vec(inner) = &p.ty {
                 if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) {
                     let rs = format!("{}_rs", p.name);
-                    writeln!(
-                        out,
-                        "    let {rs}_refs: Vec<&str> = {rs}.iter().map(|s| s.as_str()).collect();"
-                    )
-                    .ok();
+                    out.push_str(&crate::template_env::render(
+                        "vec_string_refs.jinja",
+                        context! { rs_name => rs.clone() },
+                    ));
                 }
             }
         }
@@ -751,79 +805,87 @@ pub(super) fn gen_free_function(
     if func.is_async {
         let call = format!("get_ffi_runtime().block_on(async {{ {core_fn_path}({call_args}).await }})");
         if can_inline_fn {
-            writeln!(out, "    {call}").ok();
+            out.push_str(&crate::template_env::render(
+                "call_inline.jinja",
+                context! { call => call },
+            ));
         } else {
-            writeln!(out, "    let result = {call};").ok();
+            out.push_str(&crate::template_env::render(
+                "call_with_result.jinja",
+                context! { call => call },
+            ));
         }
     } else if can_inline_fn {
-        writeln!(out, "    {core_fn_path}({call_args})").ok();
+        out.push_str(&crate::template_env::render(
+            "call_inline.jinja",
+            context! { call => format!("{core_fn_path}({call_args})") },
+        ));
     } else {
-        writeln!(out, "    let result = {core_fn_path}({call_args});").ok();
+        out.push_str(&crate::template_env::render(
+            "call_with_result.jinja",
+            context! { call => format!("{core_fn_path}({call_args})") },
+        ));
     }
 
     // Handle return
-    // When return_newtype_wrapper is set, the core function returns a newtype but IR has the inner type.
-    let result_expr = if func.return_newtype_wrapper.is_some() && matches!(func.return_type, TypeRef::Primitive(_)) {
-        "result.0"
+    if is_bytes_result {
+        // Result<Vec<u8>> — decompose the Vec and write to out-params.
+        out.push_str(&crate::template_env::render("bytes_result_match.jinja", context! {}));
     } else {
-        "result"
-    };
-    // When returns_ref=true and return type is Option<NamedType>, the core returns Option<&T>.
-    // Clone to get owned Option<T> before boxing.
-    if func.returns_ref
-        && !has_error
-        && matches!(&func.return_type, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Named(_)))
-    {
-        writeln!(out, "    let result = result.cloned();").ok();
-    }
-    // When returns_cow=true, the core returns Cow<'_, T> but FFI needs owned T.
-    // Convert to owned by calling .into_owned().
-    if func.returns_cow && !has_error {
-        writeln!(out, "    let result = result.into_owned();").ok();
-    }
-    if has_error {
-        writeln!(out, "    match result {{").ok();
-        if is_void_return(&func.return_type) {
-            writeln!(out, "        Ok(()) => 0,").ok();
+        // When return_newtype_wrapper is set, the core function returns a newtype but IR has the inner type.
+        let result_expr = if func.return_newtype_wrapper.is_some() && matches!(func.return_type, TypeRef::Primitive(_))
+        {
+            "result.0"
         } else {
-            writeln!(out, "        Ok(val) => {{").ok();
-            let val_expr = if func.return_newtype_wrapper.is_some() && matches!(func.return_type, TypeRef::Primitive(_))
-            {
-                "val.0"
+            "result"
+        };
+        // When returns_ref=true and return type is Option<NamedType>, the core returns Option<&T>.
+        // Clone to get owned Option<T> before boxing.
+        if func.returns_ref
+            && !has_error
+            && matches!(&func.return_type, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Named(_)))
+        {
+            out.push_str("    let result = result.cloned();\n");
+        }
+        // When returns_cow=true, the core returns Cow<'_, T> but FFI needs owned T.
+        // Convert to owned by calling .into_owned().
+        if func.returns_cow && !has_error {
+            out.push_str("    let result = result.into_owned();\n");
+        }
+        if has_error {
+            if is_void_return(&func.return_type) {
+                out.push_str(&crate::template_env::render("error_match_void.jinja", context! {}));
             } else {
-                "val"
-            };
-            write!(
-                out,
-                "{}",
-                gen_owned_value_to_c(val_expr, &func.return_type, "            ", enum_names)
-            )
-            .ok();
-            writeln!(out, "        }}").ok();
-        }
-        writeln!(out, "        Err(e) => {{").ok();
-        writeln!(out, "            set_last_error(2, &e.to_string());").ok();
-        if is_void_return(&func.return_type) {
-            writeln!(out, "            -1").ok();
+                let val_expr =
+                    if func.return_newtype_wrapper.is_some() && matches!(func.return_type, TypeRef::Primitive(_)) {
+                        "val.0"
+                    } else {
+                        "val"
+                    };
+                let ok_body = gen_owned_value_to_c(val_expr, &func.return_type, "            ", enum_names);
+                out.push_str(&crate::template_env::render(
+                    "error_match_non_void.jinja",
+                    context! {
+                        ok_body => ok_body,
+                        null_ret => null_return_value(&func.return_type),
+                    },
+                ));
+            }
+        } else if is_void_return(&func.return_type) {
+            // nothing
+        } else if can_inline_fn {
+            // Passthrough primitive: call was already emitted as tail expression
         } else {
-            writeln!(out, "            {}", null_return_value(&func.return_type)).ok();
+            out.push_str(&crate::template_env::render(
+                "emitted_code_block.jinja",
+                context! {
+                    content => gen_owned_value_to_c(result_expr, &func.return_type, "    ", enum_names),
+                },
+            ));
         }
-        writeln!(out, "        }}").ok();
-        writeln!(out, "    }}").ok();
-    } else if is_void_return(&func.return_type) {
-        // nothing
-    } else if can_inline_fn {
-        // Passthrough primitive: call was already emitted as tail expression
-    } else {
-        write!(
-            out,
-            "{}",
-            gen_owned_value_to_c(result_expr, &func.return_type, "    ", enum_names)
-        )
-        .ok();
     }
 
-    write!(out, "}}").ok();
+    out.push_str("\n}");
     out
 }
 
@@ -837,7 +899,7 @@ pub(super) fn gen_free_function(
 /// Using `_` in these positions causes type-inference failures when the deserialized
 /// value is immediately coerced (e.g. `Vec<String>` converted to `Vec<&str>`).
 /// Concrete types let the compiler resolve the full chain without ambiguity.
-fn type_ref_to_rust_type(ty: &TypeRef) -> String {
+fn type_ref_to_rust_type(ty: &TypeRef, core_import: &str) -> String {
     match ty {
         TypeRef::String | TypeRef::Char => "String".to_string(),
         TypeRef::Bytes => "Vec<u8>".to_string(),
@@ -856,14 +918,14 @@ fn type_ref_to_rust_type(ty: &TypeRef) -> String {
             alef_core::ir::PrimitiveType::Usize => "usize".to_string(),
             alef_core::ir::PrimitiveType::Isize => "isize".to_string(),
         },
-        TypeRef::Named(name) => format!("kreuzberg::{name}"),
-        TypeRef::Vec(inner) => format!("Vec<{}>", type_ref_to_rust_type(inner)),
+        TypeRef::Named(name) => format!("{core_import}::{name}"),
+        TypeRef::Vec(inner) => format!("Vec<{}>", type_ref_to_rust_type(inner, core_import)),
         TypeRef::Map(key, val) => format!(
             "std::collections::HashMap<{}, {}>",
-            type_ref_to_rust_type(key),
-            type_ref_to_rust_type(val)
+            type_ref_to_rust_type(key, core_import),
+            type_ref_to_rust_type(val, core_import)
         ),
-        TypeRef::Optional(inner) => format!("Option<{}>", type_ref_to_rust_type(inner)),
+        TypeRef::Optional(inner) => format!("Option<{}>", type_ref_to_rust_type(inner, core_import)),
         TypeRef::Path => "std::path::PathBuf".to_string(),
         TypeRef::Json => "serde_json::Value".to_string(),
         TypeRef::Duration => "std::time::Duration".to_string(),
@@ -878,14 +940,15 @@ fn type_ref_to_rust_type(ty: &TypeRef) -> String {
 pub(super) fn gen_param_conversion(
     param: &ParamDef,
     has_error: bool,
+    is_bytes_result: bool,
     return_type: &TypeRef,
-    _core_import: &str,
+    core_import: &str,
 ) -> String {
     let name = &param.name;
     let rs_name = format!("{name}_rs");
     let mut out = String::with_capacity(2048);
 
-    let fail_ret = if has_error && is_void_return(return_type) {
+    let fail_ret = if is_bytes_result || (has_error && is_void_return(return_type)) {
         "return -1;"
     } else if is_void_return(return_type) {
         "return;"
@@ -909,94 +972,57 @@ pub(super) fn gen_param_conversion(
         // Optional parameter — null means None
         match &param.ty {
             TypeRef::String | TypeRef::Char => {
-                writeln!(out, "    let {rs_name} = if {name}.is_null() {{").ok();
-                writeln!(out, "        None").ok();
-                writeln!(out, "    }} else {{").ok();
-                writeln!(out, "        // SAFETY: null check above guarantees {name} is a valid pointer; string is valid UTF-8 from caller.").ok();
-                writeln!(out, "        match unsafe {{ CStr::from_ptr({name}) }}.to_str() {{").ok();
-                writeln!(out, "            Ok(s) => Some(s.to_string()),").ok();
-                writeln!(out, "            Err(_) => {{").ok();
-                writeln!(
-                    out,
-                    "                set_last_error(1, \"Invalid UTF-8 in parameter '{name}'\");"
-                )
-                .ok();
-                writeln!(out, "                {fail_ret}").ok();
-                writeln!(out, "            }}").ok();
-                writeln!(out, "        }}").ok();
-                writeln!(out, "    }};").ok();
+                out.push_str(&crate::template_env::render(
+                    "param_optional_string_conversion.jinja",
+                    context! {
+                        rs_name => rs_name.clone(),
+                        name => name.clone(),
+                        fail_ret => fail_ret.to_string(),
+                    },
+                ));
             }
             TypeRef::Path => {
-                writeln!(out, "    let {rs_name} = if {name}.is_null() {{").ok();
-                writeln!(out, "        None").ok();
-                writeln!(out, "    }} else {{").ok();
-                writeln!(out, "        // SAFETY: null check above guarantees {name} is a valid pointer; string is valid UTF-8 from caller.").ok();
-                writeln!(out, "        match unsafe {{ CStr::from_ptr({name}) }}.to_str() {{").ok();
-                if param.is_ref {
-                    // Option<&Path>: defer Path creation until use
-                    writeln!(out, "            Ok(s) => Some(s.to_string()),").ok();
-                } else {
-                    writeln!(out, "            Ok(s) => Some(std::path::PathBuf::from(s)),").ok();
-                }
-                writeln!(out, "            Err(_) => {{").ok();
-                writeln!(
-                    out,
-                    "                set_last_error(1, \"Invalid UTF-8 in parameter '{name}'\");"
-                )
-                .ok();
-                writeln!(out, "                {fail_ret}").ok();
-                writeln!(out, "            }}").ok();
-                writeln!(out, "        }}").ok();
-                writeln!(out, "    }};").ok();
+                out.push(' ');
+                out.push_str(&crate::template_env::render(
+                    "param_path_conversion.jinja",
+                    context! {
+                        rs_name => rs_name.clone(),
+                        name => name.clone(),
+                        is_ref => param.is_ref,
+                        fail_ret => fail_ret.to_string(),
+                    },
+                ));
             }
             TypeRef::Json => {
-                writeln!(out, "    let {rs_name} = if {name}.is_null() {{").ok();
-                writeln!(out, "        None").ok();
-                writeln!(out, "    }} else {{").ok();
-                writeln!(out, "        // SAFETY: null check above guarantees {name} is a valid pointer; string is valid UTF-8 from caller.").ok();
-                writeln!(out, "        match unsafe {{ CStr::from_ptr({name}) }}.to_str() {{").ok();
-                writeln!(out, "            Ok(s) => Some(s.to_string()),").ok();
-                writeln!(out, "            Err(_) => {{").ok();
-                writeln!(
-                    out,
-                    "                set_last_error(1, \"Invalid UTF-8 in parameter '{name}'\");"
-                )
-                .ok();
-                writeln!(out, "                {fail_ret}").ok();
-                writeln!(out, "            }}").ok();
-                writeln!(out, "        }}").ok();
-                writeln!(out, "    }};").ok();
+                out.push_str(&crate::template_env::render(
+                    "param_optional_json_conversion.jinja",
+                    context! {
+                        rs_name => rs_name.clone(),
+                        name => name.clone(),
+                        fail_ret => fail_ret.to_string(),
+                        turbofish => String::new(),
+                    },
+                ));
             }
             TypeRef::Named(_type_name) => {
-                writeln!(out, "    let {rs_name} = if {name}.is_null() {{").ok();
-                writeln!(out, "        None").ok();
-                writeln!(out, "    }} else {{").ok();
-                if param.is_ref {
-                    // Core function takes Option<&T> — pass a reference, no clone needed.
-                    writeln!(
-                        out,
-                        "        // SAFETY: null check above guarantees {name} is a valid pointer."
-                    )
-                    .ok();
-                    writeln!(out, "        Some(unsafe {{ &*{name} }})").ok();
-                } else {
-                    // Core function takes Option<T> — clone out of the pointer.
-                    writeln!(
-                        out,
-                        "        // SAFETY: null check above guarantees {name} is a valid pointer."
-                    )
-                    .ok();
-                    writeln!(out, "        Some(unsafe {{ &*{name} }}.clone())").ok();
-                }
-                writeln!(out, "    }};").ok();
+                out.push_str(&crate::template_env::render(
+                    "param_optional_named_conversion.jinja",
+                    context! {
+                        rs_name => rs_name.clone(),
+                        name => name.clone(),
+                        is_ref => param.is_ref,
+                    },
+                ));
             }
             TypeRef::Primitive(alef_core::ir::PrimitiveType::Bool) => {
-                // Optional bool: -1 = None, 0 = false, 1 = true
-                writeln!(out, "    let {rs_name} = if {name} < 0 {{").ok();
-                writeln!(out, "        None").ok();
-                writeln!(out, "    }} else {{").ok();
-                writeln!(out, "        Some({name} != 0)").ok();
-                writeln!(out, "    }};").ok();
+                out.push(' ');
+                out.push_str(&crate::template_env::render(
+                    "param_optional_bool_conversion.jinja",
+                    context! {
+                        rs_name => rs_name.clone(),
+                        name => name.clone(),
+                    },
+                ));
             }
             TypeRef::Primitive(prim) => {
                 // Optional numeric primitive: max value of type = None
@@ -1019,203 +1045,113 @@ pub(super) fn gen_param_conversion(
                     prim,
                     alef_core::ir::PrimitiveType::F32 | alef_core::ir::PrimitiveType::F64
                 );
-                if is_float {
-                    writeln!(out, "    let {rs_name} = if {name}.is_nan() {{").ok();
-                } else {
-                    writeln!(out, "    let {rs_name} = if {name} == {max_val} {{").ok();
-                }
-                writeln!(out, "        None").ok();
-                writeln!(out, "    }} else {{").ok();
-                writeln!(out, "        Some({name})").ok();
-                writeln!(out, "    }};").ok();
+                out.push(' ');
+                out.push_str(&crate::template_env::render(
+                    "param_optional_numeric_conversion.jinja",
+                    context! {
+                        rs_name => rs_name.clone(),
+                        name => name.clone(),
+                        max_val => max_val,
+                        is_float => is_float,
+                    },
+                ));
             }
             TypeRef::Vec(_) | TypeRef::Map(_, _) => {
                 // Optional Vec/Map: deserialize from JSON string
-                writeln!(out, "    let {rs_name} = if {name}.is_null() {{").ok();
-                writeln!(out, "        None").ok();
-                writeln!(out, "    }} else {{").ok();
-                writeln!(out, "        // SAFETY: null check above guarantees {name} is a valid pointer; string is valid UTF-8 from caller.").ok();
-                writeln!(out, "        match unsafe {{ CStr::from_ptr({name}) }}.to_str() {{").ok();
-                writeln!(out, "            Ok(s) => {{").ok();
                 let type_hint = match &param.ty {
                     TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-                        format!("::<{}>", type_ref_to_rust_type(&param.ty))
+                        format!("::<{}>", type_ref_to_rust_type(&param.ty, core_import))
                     }
                     _ => String::new(),
                 };
-                writeln!(out, "                match serde_json::from_str{type_hint}(s) {{").ok();
-                writeln!(out, "                    Ok(v) => Some(v),").ok();
-                writeln!(out, "                    Err(e) => {{").ok();
-                writeln!(
-                    out,
-                    "                        set_last_error(2, &format!(\"Invalid JSON in parameter '{{}}': {{}}\", \"{name}\", e));"
-                )
-                .ok();
-                writeln!(out, "                        {fail_ret}").ok();
-                writeln!(out, "                    }}").ok();
-                writeln!(out, "                }}").ok();
-                writeln!(out, "            }}").ok();
-                writeln!(out, "            Err(_) => {{").ok();
-                writeln!(
-                    out,
-                    "                set_last_error(1, \"Invalid UTF-8 in parameter '{name}'\");"
-                )
-                .ok();
-                writeln!(out, "                {fail_ret}").ok();
-                writeln!(out, "            }}").ok();
-                writeln!(out, "        }}").ok();
-                writeln!(out, "    }};").ok();
+                out.push(' ');
+                out.push_str(&crate::template_env::render(
+                    "param_optional_vec_map_conversion.jinja",
+                    context! {
+                        rs_name => rs_name.clone(),
+                        name => name.clone(),
+                        turbofish => type_hint,
+                        fail_ret => fail_ret.to_string(),
+                    },
+                ));
             }
             _ => {
                 // Fallback: treat as nullable JSON string
-                writeln!(out, "    let {rs_name} = if {name}.is_null() {{").ok();
-                writeln!(out, "        None").ok();
-                writeln!(out, "    }} else {{").ok();
-                writeln!(out, "        // SAFETY: null check above guarantees {name} is a valid pointer; string is valid UTF-8 from caller.").ok();
-                writeln!(out, "        match unsafe {{ CStr::from_ptr({name}) }}.to_str() {{").ok();
-                writeln!(out, "            Ok(s) => Some(s.to_string()),").ok();
-                writeln!(out, "            Err(_) => {{").ok();
-                writeln!(
-                    out,
-                    "                set_last_error(1, \"Invalid UTF-8 in parameter '{name}'\");"
-                )
-                .ok();
-                writeln!(out, "                {fail_ret}").ok();
-                writeln!(out, "            }}").ok();
-                writeln!(out, "        }}").ok();
-                writeln!(out, "    }};").ok();
+                out.push_str(&crate::template_env::render(
+                    "param_optional_fallback.jinja",
+                    context! {
+                        rs_name => rs_name.clone(),
+                        name => name.clone(),
+                        fail_ret => fail_ret.to_string(),
+                    },
+                ));
             }
         }
     } else {
         match &param.ty {
             TypeRef::String | TypeRef::Char => {
-                writeln!(out, "    if {name}.is_null() {{").ok();
-                writeln!(
-                    out,
-                    "        set_last_error(1, \"Null pointer passed for parameter '{name}'\");"
-                )
-                .ok();
-                writeln!(out, "        {fail_ret}").ok();
-                writeln!(out, "    }}").ok();
-                writeln!(out, "    // SAFETY: null check above guarantees {name} is a valid pointer; string is valid UTF-8 from caller.").ok();
-                writeln!(
-                    out,
-                    "    let {rs_name} = match unsafe {{ CStr::from_ptr({name}) }}.to_str() {{"
-                )
-                .ok();
-                writeln!(out, "        Ok(s) => s.to_string(),").ok();
-                writeln!(out, "        Err(_) => {{").ok();
-                writeln!(
-                    out,
-                    "            set_last_error(1, \"Invalid UTF-8 in parameter '{name}'\");"
-                )
-                .ok();
-                writeln!(out, "            {fail_ret}").ok();
-                writeln!(out, "        }}").ok();
-                writeln!(out, "    }};").ok();
+                out.push_str(&crate::template_env::render(
+                    "param_non_optional_string_conversion.jinja",
+                    context! {
+                        name => name.clone(),
+                        fail_ret => fail_ret.to_string(),
+                        rs_name => rs_name.clone(),
+                    },
+                ));
             }
             TypeRef::Path => {
-                writeln!(out, "    if {name}.is_null() {{").ok();
-                writeln!(
-                    out,
-                    "        set_last_error(1, \"Null pointer passed for parameter '{name}'\");"
-                )
-                .ok();
-                writeln!(out, "        {fail_ret}").ok();
-                writeln!(out, "    }}").ok();
-                writeln!(out, "    // SAFETY: null check above guarantees {name} is a valid pointer; string is valid UTF-8 from caller.").ok();
-                writeln!(
-                    out,
-                    "    let {rs_name} = match unsafe {{ CStr::from_ptr({name}) }}.to_str() {{"
-                )
-                .ok();
-                writeln!(out, "        Ok(s) => std::path::PathBuf::from(s),").ok();
-                writeln!(out, "        Err(_) => {{").ok();
-                writeln!(
-                    out,
-                    "            set_last_error(1, \"Invalid UTF-8 in parameter '{name}'\");"
-                )
-                .ok();
-                writeln!(out, "            {fail_ret}").ok();
-                writeln!(out, "        }}").ok();
-                writeln!(out, "    }};").ok();
+                out.push_str(&crate::template_env::render(
+                    "param_non_optional_path_conversion.jinja",
+                    context! {
+                        rs_name => rs_name.clone(),
+                        name => name.clone(),
+                        fail_ret => fail_ret.to_string(),
+                    },
+                ));
             }
             TypeRef::Json => {
-                writeln!(out, "    if {name}.is_null() {{").ok();
-                writeln!(
-                    out,
-                    "        set_last_error(1, \"Null pointer passed for parameter '{name}'\");"
-                )
-                .ok();
-                writeln!(out, "        {fail_ret}").ok();
-                writeln!(out, "    }}").ok();
-                writeln!(out, "    // SAFETY: null check above guarantees {name} is a valid pointer; string is valid UTF-8 from caller.").ok();
-                writeln!(
-                    out,
-                    "    let {name}_str = match unsafe {{ CStr::from_ptr({name}) }}.to_str() {{"
-                )
-                .ok();
-                writeln!(out, "        Ok(s) => s,").ok();
-                writeln!(out, "        Err(_) => {{").ok();
-                writeln!(
-                    out,
-                    "            set_last_error(1, \"Invalid UTF-8 in parameter '{name}'\");"
-                )
-                .ok();
-                writeln!(out, "            {fail_ret}").ok();
-                writeln!(out, "        }}").ok();
-                writeln!(out, "    }};").ok();
-                writeln!(out, "    let {rs_name} = match serde_json::from_str({name}_str) {{").ok();
-                writeln!(out, "        Ok(v) => v,").ok();
-                writeln!(out, "        Err(_) => {{").ok();
-                writeln!(
-                    out,
-                    "            set_last_error(1, \"Invalid JSON in parameter '{name}'\");"
-                )
-                .ok();
-                writeln!(out, "            {fail_ret}").ok();
-                writeln!(out, "        }}").ok();
-                writeln!(out, "    }};").ok();
+                let turbofish = String::new();
+                let mut_keyword = String::new();
+                out.push_str(&crate::template_env::render(
+                    "param_non_optional_json_conversion.jinja",
+                    context! {
+                        name => name.clone(),
+                        fail_ret => fail_ret.to_string(),
+                        rs_name => rs_name.clone(),
+                        turbofish => turbofish,
+                        mut_keyword => mut_keyword,
+                    },
+                ));
             }
             TypeRef::Primitive(prim) => match prim {
                 alef_core::ir::PrimitiveType::Bool => {
-                    writeln!(out, "    let {rs_name} = {name} != 0;").ok();
+                    out.push_str(&crate::template_env::render(
+                        "param_primitive_bool.jinja",
+                        context! { rs_name => rs_name.clone(), name => name.clone() },
+                    ));
                 }
                 _ => {
                     if let Some(newtype_path) = &param.newtype_wrapper {
                         // Param was resolved from a newtype (e.g. NodeIndex→u32): re-wrap for core call.
-                        writeln!(out, "    let {rs_name} = {newtype_path}({name});").ok();
+                        out.push_str(&crate::template_env::render("param_primitive_newtype.jinja", context! { rs_name => rs_name.clone(), newtype_path => newtype_path.clone(), name => name.clone() }));
                     } else {
-                        writeln!(out, "    let {rs_name} = {name};").ok();
+                        out.push_str(&crate::template_env::render(
+                            "param_primitive_passthrough.jinja",
+                            context! { rs_name => rs_name.clone(), name => name.clone() },
+                        ));
                     }
                 }
             },
             TypeRef::Named(_type_name) => {
-                writeln!(out, "    if {name}.is_null() {{").ok();
-                writeln!(
-                    out,
-                    "        set_last_error(1, \"Null pointer passed for parameter '{name}'\");"
-                )
-                .ok();
-                writeln!(out, "        {fail_ret}").ok();
-                writeln!(out, "    }}").ok();
-                if param.is_ref {
-                    // Core function takes &T — pass a reference, no clone needed.
-                    writeln!(
-                        out,
-                        "    // SAFETY: null check above guarantees {name} is a valid pointer."
-                    )
-                    .ok();
-                    writeln!(out, "    let {rs_name} = unsafe {{ &*{name} }};").ok();
-                } else {
-                    // Core function takes owned T — clone out of the pointer.
-                    writeln!(
-                        out,
-                        "    // SAFETY: null check above guarantees {name} is a valid pointer."
-                    )
-                    .ok();
-                    writeln!(out, "    let {rs_name} = unsafe {{ &*{name} }}.clone();").ok();
-                }
+                out.push_str(&crate::template_env::render(
+                    "param_non_optional_named_conversion.jinja",
+                    context! {
+                        rs_name => rs_name.clone(),
+                        name => name.clone(),
+                        fail_ret => fail_ret.to_string(),
+                        is_ref => param.is_ref,
+                    },
+                ));
             }
             TypeRef::Bytes => {
                 // Bytes come as (*const u8, len: usize) — the len param is a separate
@@ -1223,85 +1159,48 @@ pub(super) fn gen_param_conversion(
                 // when the corresponding length is zero (empty input is a legitimate
                 // case — e.g. extracting from a 0-byte file). Reject null only when
                 // the caller claims a non-zero length.
-                writeln!(out, "    if {name}.is_null() && {name}_len > 0 {{").ok();
-                writeln!(
-                    out,
-                    "        set_last_error(1, \"Null pointer passed for parameter '{name}'\");"
-                )
-                .ok();
-                writeln!(out, "        {fail_ret}").ok();
-                writeln!(out, "    }}").ok();
-                writeln!(
-                    out,
-                    "    // SAFETY: when {name} is null, {name}_len is 0 (checked above), so we use an empty slice; otherwise data is valid for len elements."
-                )
-                .ok();
-                writeln!(out, "    let {rs_name} = if {name}.is_null() {{").ok();
-                writeln!(out, "        Vec::new()").ok();
-                writeln!(out, "    }} else {{").ok();
-                writeln!(
-                    out,
-                    "        unsafe {{ std::slice::from_raw_parts({name}, {name}_len) }}.to_vec()"
-                )
-                .ok();
-                writeln!(out, "    }};").ok();
+                out.push_str(&crate::template_env::render(
+                    "param_non_optional_bytes_conversion.jinja",
+                    context! {
+                        rs_name => rs_name.clone(),
+                        name => name.clone(),
+                        fail_ret => fail_ret.to_string(),
+                    },
+                ));
             }
             TypeRef::Vec(_) | TypeRef::Map(_, _) => {
                 // Passed as JSON string
-                writeln!(out, "    if {name}.is_null() {{").ok();
-                writeln!(
-                    out,
-                    "        set_last_error(1, \"Null pointer passed for parameter '{name}'\");"
-                )
-                .ok();
-                writeln!(out, "        {fail_ret}").ok();
-                writeln!(out, "    }}").ok();
-                writeln!(out, "    // SAFETY: null check above guarantees {name} is a valid pointer; string is valid UTF-8 from caller.").ok();
-                writeln!(
-                    out,
-                    "    let {rs_name}_str = match unsafe {{ CStr::from_ptr({name}) }}.to_str() {{"
-                )
-                .ok();
-                writeln!(out, "        Ok(s) => s,").ok();
-                writeln!(out, "        Err(_) => {{").ok();
-                writeln!(
-                    out,
-                    "            set_last_error(1, \"Invalid UTF-8 in parameter '{name}'\");"
-                )
-                .ok();
-                writeln!(out, "            {fail_ret}").ok();
-                writeln!(out, "        }}").ok();
-                writeln!(out, "    }};").ok();
-                // Add 'mut' if the parameter needs to be mutably borrowed.
-                // Always emit a concrete type annotation for Vec/Map params to avoid inference
-                // failures when the core function is generic (e.g. `fn f<T: AsRef<str>>(v: Vec<T>)`).
-                // Without the annotation rustc cannot resolve the turbofish-free from_str call.
                 let mut_keyword = if param.is_mut { "mut " } else { "" };
                 let type_hint = match &param.ty {
                     TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-                        format!("::<{}>", type_ref_to_rust_type(&param.ty))
+                        format!("::<{}>", type_ref_to_rust_type(&param.ty, core_import))
                     }
                     _ => String::new(),
                 };
-                writeln!(
-                    out,
-                    "    let {mut_keyword}{rs_name} = match serde_json::from_str{type_hint}({rs_name}_str) {{"
-                )
-                .ok();
-                writeln!(out, "        Ok(v) => v,").ok();
-                writeln!(out, "        Err(e) => {{").ok();
-                writeln!(out, "            set_last_error(2, &e.to_string());").ok();
-                writeln!(out, "            {fail_ret}").ok();
-                writeln!(out, "        }}").ok();
-                writeln!(out, "    }};").ok();
+                out.push_str(&crate::template_env::render(
+                    "param_non_optional_json_conversion.jinja",
+                    context! {
+                        name => name.clone(),
+                        fail_ret => fail_ret.to_string(),
+                        rs_name => rs_name.clone(),
+                        turbofish => type_hint,
+                        mut_keyword => mut_keyword,
+                    },
+                ));
             }
             TypeRef::Optional(_) => {
                 // Should not happen for non-optional param, but handle gracefully
-                writeln!(out, "    let {rs_name} = {name};").ok();
+                out.push_str(&crate::template_env::render(
+                    "param_optional_passthrough.jinja",
+                    context! { rs_name => rs_name.clone(), name => name.clone() },
+                ));
             }
             TypeRef::Duration => {
                 // Duration passed as u64 milliseconds
-                writeln!(out, "    let {rs_name} = std::time::Duration::from_millis({name});").ok();
+                out.push_str(&crate::template_env::render(
+                    "param_duration_conversion.jinja",
+                    context! { rs_name => rs_name.clone(), name => name.clone() },
+                ));
             }
             TypeRef::Unit => {
                 // No parameter to convert

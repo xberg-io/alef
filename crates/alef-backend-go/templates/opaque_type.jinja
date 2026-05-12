@@ -1,0 +1,12 @@
+// {{ go_name }} is an opaque handle type.
+type {{ go_name }} struct {
+	ptr unsafe.Pointer
+}
+
+// Free releases the resources held by this handle.
+func (h *{{ go_name }}) Free() {
+	if h.ptr != nil {
+		C.{{ ffi_prefix }}_{{ type_snake }}_free((*C.{{ c_type }})(h.ptr))
+		h.ptr = nil
+	}
+}

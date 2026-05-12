@@ -52,6 +52,13 @@ pub(super) fn gen_module_init(module_name: &str, api: &ApiSurface, config: &Reso
         .as_ref()
         .map(|c| c.exclude_types.iter().cloned().collect())
         .unwrap_or_default();
+    // Capsule types have no #[pyclass] struct — emitting m.add_class::<T>() for them
+    // causes a compile error because the struct was never generated.
+    let capsule_type_names: AHashSet<String> = config
+        .python
+        .as_ref()
+        .map(|c| c.capsule_types.keys().cloned().collect())
+        .unwrap_or_default();
 
     // Error types are registered via m.add(...) with the exception types, not m.add_class.
     let error_type_names: AHashSet<&str> = api.errors.iter().map(|e| e.name.as_str()).collect();
@@ -65,6 +72,10 @@ pub(super) fn gen_module_init(module_name: &str, api: &ApiSurface, config: &Reso
     {
         // Error types are handled by gen_pyo3_error_registration below.
         if error_type_names.contains(typ.name.as_str()) {
+            continue;
+        }
+        // Capsule types have no #[pyclass] — skip them in the module init.
+        if capsule_type_names.contains(typ.name.as_str()) {
             continue;
         }
         if registered.insert(typ.name.clone()) {
@@ -141,6 +152,7 @@ module_name = "_test_lib"
             functions: vec![],
             enums: vec![],
             errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         };
         let config = make_config();
         let result = gen_module_init("_test_lib", &api, &config);

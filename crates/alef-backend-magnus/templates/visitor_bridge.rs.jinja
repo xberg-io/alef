@@ -1,0 +1,40 @@
+fn nodecontext_to_rb_hash(
+    ctx: &{{ core_crate }}::visitor::NodeContext,
+) -> magnus::RHash {
+    let ruby = unsafe { magnus::Ruby::get_unchecked() };
+    let h = ruby.hash_new();
+    h.aset(ruby.to_symbol("node_type"), format!("{:?}", ctx.node_type)).ok();
+    h.aset(ruby.to_symbol("tag_name"), ctx.tag_name.as_str()).ok();
+    h.aset(ruby.to_symbol("depth"), ctx.depth as i64).ok();
+    h.aset(ruby.to_symbol("index_in_parent"), ctx.index_in_parent as i64).ok();
+    h.aset(ruby.to_symbol("is_inline"), ctx.is_inline).ok();
+    h.aset(ruby.to_symbol("parent_tag"), ctx.parent_tag.as_deref().map(|s| ruby.str_new(s).as_value())).ok();
+    let attrs = ruby.hash_new();
+    for (k, v) in &ctx.attributes {
+        attrs.aset(ruby.str_new(k), ruby.str_new(v)).ok();
+    }
+    h.aset(ruby.to_symbol("attributes"), attrs).ok();
+    h
+}
+
+pub struct {{ struct_name }} {
+    rb_obj: magnus::Value,
+}
+
+impl std::fmt::Debug for {{ struct_name }} {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{{ struct_name }}")
+    }
+}
+
+impl {{ struct_name }} {
+    pub fn new(rb_obj: magnus::Value) -> Self {
+        Self { rb_obj }
+    }
+}
+
+impl {{ trait_path }} for {{ struct_name }} {
+{%- for method in methods %}
+{{ method }}
+{%- endfor %}
+}

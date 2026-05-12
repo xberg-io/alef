@@ -200,17 +200,23 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
         if any_typeddict {
             typing_names.push("TypedDict");
         }
-        out.push_str(&format!(
-            "from typing import {}  # noqa: F401\n",
-            typing_names.join(", ")
+        out.push_str(&crate::template_env::render(
+            "typing_import.jinja",
+            minijinja::context! { names => typing_names },
         ));
     }
     // Runtime imports for unit enums — needed both for monkey-patching aliases and for
     // users who import from options.py (e.g. `from html_to_markdown.options import NewlineStyle`).
     if !runtime_native_imports.is_empty() {
-        out.push_str(&format!("from .{module_name} import (\n"));
+        out.push_str(&crate::template_env::render(
+            "import_from_module_header.jinja",
+            minijinja::context! { module_name => module_name },
+        ));
         for name in &runtime_native_imports {
-            out.push_str(&format!("    {},\n", name));
+            out.push_str(&crate::template_env::render(
+                "import_item.jinja",
+                minijinja::context! { name => name },
+            ));
         }
         out.push_str(")\n");
     }
@@ -218,9 +224,15 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
     // Import non-enum native-module types for static analysis only (TYPE_CHECKING guard).
     if !type_checking_only_imports.is_empty() {
         out.push_str("if TYPE_CHECKING:\n");
-        out.push_str(&format!("    from .{module_name} import (\n"));
+        out.push_str(&crate::template_env::render(
+            "type_checking_import_header.jinja",
+            minijinja::context! { module_name => module_name },
+        ));
         for name in &type_checking_only_imports {
-            out.push_str(&format!("        {},\n", name));
+            out.push_str(&crate::template_env::render(
+                "type_checking_import_item.jinja",
+                minijinja::context! { name => name },
+            ));
         }
         out.push_str("    )\n");
     }
@@ -263,15 +275,25 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
                 let needs_setattr = runtime_name.as_str() != rust_name.as_str()
                     || alef_core::keywords::PYTHON_KEYWORDS.contains(&py_name.as_str());
                 if needs_setattr {
-                    out.push_str(&format!(
-                        "setattr({}, \"{}\", getattr({}, \"{}\"))\n",
-                        enum_def.name, py_name, enum_def.name, runtime_name
+                    out.push_str(&crate::template_env::render(
+                        "enum_setattr.jinja",
+                        minijinja::context! {
+                            enum_name => &enum_def.name,
+                            py_name => &py_name,
+                            runtime_name => runtime_name,
+                        },
                     ));
+                    out.push('\n');
                 } else {
-                    out.push_str(&format!(
-                        "{}.{} = {}.{}\n",
-                        enum_def.name, py_name, enum_def.name, rust_name
+                    out.push_str(&crate::template_env::render(
+                        "enum_direct_assign.jinja",
+                        minijinja::context! {
+                            enum_name => &enum_def.name,
+                            py_name => &py_name,
+                            rust_name => rust_name,
+                        },
                     ));
+                    out.push('\n');
                 }
             }
             out.push('\n');
@@ -287,7 +309,11 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
         if data_enum_names.contains(enum_def.name.as_str()) {
             continue;
         }
-        out.push_str(&format!("class {}(str, Enum):\n", enum_def.name));
+        out.push_str(&crate::template_env::render(
+            "str_enum_class_header.jinja",
+            minijinja::context! { name => &enum_def.name },
+        ));
+        out.push('\n');
         let enum_doc = if !enum_def.doc.is_empty() {
             let raw = doc_first_paragraph_joined(&enum_def.doc);
             let first = sanitize_python_doc(&raw);
@@ -304,10 +330,20 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
         } else {
             class_name_to_docstring(&enum_def.name)
         };
-        out.push_str(&format!("    \"\"\"{enum_doc}\"\"\"\n\n"));
+        out.push_str(&crate::template_env::render(
+            "enum_docstring.jinja",
+            minijinja::context! { doc => &enum_doc },
+        ));
         for variant in &enum_def.variants {
             let value = variant.name.to_snake_case();
-            out.push_str(&format!("    {} = \"{}\"\n", to_python_screaming(&variant.name), value));
+            out.push_str(&crate::template_env::render(
+                "enum_variant.jinja",
+                minijinja::context! {
+                    name => to_python_screaming(&variant.name),
+                    value => &value,
+                },
+            ));
+            out.push('\n');
         }
         out.push_str("\n\n");
     }
@@ -338,7 +374,11 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
             out.push_str(&gen_typeddict(typ, &enum_names, &data_enum_names));
         } else {
             out.push_str("@dataclass\n");
-            out.push_str(&format!("class {}:\n", typ.name));
+            out.push_str(&crate::template_env::render(
+                "dataclass_header.jinja",
+                minijinja::context! { name => &typ.name },
+            ));
+            out.push('\n');
             let class_doc = if !typ.doc.is_empty() {
                 let raw = doc_first_paragraph_joined(&typ.doc);
                 let first = sanitize_python_doc(&raw);
@@ -355,7 +395,10 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
             } else {
                 class_name_to_docstring(&typ.name)
             };
-            out.push_str(&format!("    \"\"\"{class_doc}\"\"\"\n\n"));
+            out.push_str(&crate::template_env::render(
+                "class_docstring.jinja",
+                minijinja::context! { doc => &class_doc },
+            ));
 
             if typ.fields.is_empty() {
                 out.push_str("    pass\n\n");
@@ -412,7 +455,11 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
 
                 let safe_name = alef_core::keywords::python_ident(&field.name);
                 if !field.doc.is_empty() {
-                    out.push_str(&format!("    {}: {} = {}\n", safe_name, type_hint_with_none, default));
+                    out.push_str(&crate::template_env::render(
+                        "trait_bridge/dataclass_field_with_default.jinja",
+                        minijinja::context! { name => &safe_name, type_hint => &type_hint_with_none, default => &default },
+                    ));
+                    out.push('\n');
                     let doc_line = sanitize_python_doc(&doc_first_paragraph_joined(&field.doc));
                     // Avoid `""""` when docstring ends with `"` — add trailing space.
                     let safe_doc = if doc_line.ends_with('"') {
@@ -420,9 +467,17 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
                     } else {
                         doc_line
                     };
-                    out.push_str(&format!("    \"\"\"{safe_doc}\"\"\"\n\n"));
+                    out.push_str(&crate::template_env::render(
+                        "trait_bridge/python_docstring.jinja",
+                        minijinja::context! { text => &safe_doc },
+                    ));
+                    out.push_str("\n\n");
                 } else {
-                    out.push_str(&format!("    {}: {} = {}\n", safe_name, type_hint_with_none, default));
+                    out.push_str(&crate::template_env::render(
+                        "trait_bridge/dataclass_field_with_default.jinja",
+                        minijinja::context! { name => &safe_name, type_hint => &type_hint_with_none, default => &default },
+                    ));
+                    out.push('\n');
                 }
             }
             out.push('\n');
@@ -523,18 +578,35 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
         } else {
             class_name_to_docstring(&enum_def.name)
         };
-        out.push_str(&format!("# {doc}\n"));
+        out.push_str(&crate::template_env::render(
+            "data_enum_comment.jinja",
+            minijinja::context! { doc => &doc },
+        ));
+        out.push('\n');
 
         if member_types.len() <= 3 {
-            out.push_str(&format!("{} = {}\n\n", enum_def.name, member_types.join(" | ")));
+            out.push_str(&crate::template_env::render(
+                "data_enum_single_line.jinja",
+                minijinja::context! {
+                    name => &enum_def.name,
+                    types => &member_types,
+                },
+            ));
         } else {
-            out.push_str(&format!("{} = (\n", enum_def.name));
+            out.push_str(&crate::template_env::render(
+                "data_enum_multi_line_start.jinja",
+                minijinja::context! { name => &enum_def.name },
+            ));
+            out.push('\n');
             for (i, ty) in member_types.iter().enumerate() {
-                if i < member_types.len() - 1 {
-                    out.push_str(&format!("    {} |\n", ty));
-                } else {
-                    out.push_str(&format!("    {}\n", ty));
-                }
+                let is_last = i >= member_types.len() - 1;
+                out.push_str(&crate::template_env::render(
+                    "data_enum_member.jinja",
+                    minijinja::context! {
+                        type => ty,
+                        is_last => is_last,
+                    },
+                ));
             }
             out.push_str(")\n\n");
         }
@@ -562,7 +634,11 @@ fn gen_typeddict(
     data_enum_names: &AHashSet<&str>,
 ) -> String {
     let mut out = String::new();
-    out.push_str(&format!("class {}(TypedDict, total=False):\n", typ.name));
+    out.push_str(&crate::template_env::render(
+        "typeddict_header.jinja",
+        minijinja::context! { name => &typ.name },
+    ));
+    out.push('\n');
     let typeddict_doc = if !typ.doc.is_empty() {
         let raw = doc_first_paragraph_joined(&typ.doc);
         let first = sanitize_python_doc(&raw);
@@ -579,7 +655,10 @@ fn gen_typeddict(
     } else {
         class_name_to_docstring(&typ.name)
     };
-    out.push_str(&format!("    \"\"\"{typeddict_doc}\"\"\"\n\n"));
+    out.push_str(&crate::template_env::render(
+        "class_docstring.jinja",
+        minijinja::context! { doc => &typeddict_doc },
+    ));
     for field in &typ.fields {
         let type_hint = python_field_type(
             &field.ty,
@@ -600,7 +679,14 @@ fn gen_typeddict(
         };
         let safe_name = alef_core::keywords::python_ident(&field.name);
         if !field.doc.is_empty() {
-            out.push_str(&format!("    {}: {}\n", safe_name, type_hint_with_none));
+            out.push_str(&crate::template_env::render(
+                "typeddict_field.jinja",
+                minijinja::context! {
+                    name => &safe_name,
+                    type_hint => &type_hint_with_none,
+                },
+            ));
+            out.push('\n');
             let doc_line = sanitize_python_doc(&doc_first_paragraph_joined(&field.doc));
             // A triple-quoted docstring that ends with `"` would produce `""""` (4 quotes),
             // which Python parses as an empty string followed by a stray `"`.
@@ -610,9 +696,19 @@ fn gen_typeddict(
             } else {
                 doc_line
             };
-            out.push_str(&format!("    \"\"\"{safe_doc}\"\"\"\n\n"));
+            out.push_str(&crate::template_env::render(
+                "typeddict_field_docstring.jinja",
+                minijinja::context! { doc => &safe_doc },
+            ));
         } else {
-            out.push_str(&format!("    {}: {}\n", safe_name, type_hint_with_none));
+            out.push_str(&crate::template_env::render(
+                "typeddict_field.jinja",
+                minijinja::context! {
+                    name => &safe_name,
+                    type_hint => &type_hint_with_none,
+                },
+            ));
+            out.push('\n');
         }
     }
     out.push('\n');

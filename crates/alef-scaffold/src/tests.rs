@@ -35,6 +35,7 @@ fn test_api() -> ApiSurface {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     }
 }
 
@@ -104,21 +105,28 @@ fn test_scaffold_node() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Node]).unwrap();
     let files = language_files(&all_files);
-    // scaffold_node: pkg package.json + crate package.json + src/index.d.ts + index.d.ts + index.js + tsconfig.json + .oxfmtrc.json + .oxlintrc.json; scaffold_node_cargo: Cargo.toml; .gitattributes
+    // scaffold_node: pkg package.json + crate package.json + crate index.js + src/index.d.ts + index.d.ts + index.js + tsconfig.json + .oxfmtrc.json + .oxlintrc.json; scaffold_node_cargo: Cargo.toml
     assert_eq!(files.len(), 10);
     assert_eq!(files[0].path, PathBuf::from("packages/node/package.json"));
     assert!(files[0].content.contains("napi"));
     assert!(files[0].content.contains("oxfmt"));
     assert_eq!(files[1].path, PathBuf::from("crates/my-lib-node/package.json"));
-    assert_eq!(files[2].path, PathBuf::from("packages/node/src/index.d.ts"));
-    assert_eq!(files[3].path, PathBuf::from("packages/node/index.d.ts"));
-    assert_eq!(files[4].path, PathBuf::from("packages/node/index.js"));
-    assert_eq!(files[5].path, PathBuf::from("packages/node/tsconfig.json"));
-    assert_eq!(files[6].path, PathBuf::from("packages/node/.oxfmtrc.json"));
-    assert_eq!(files[7].path, PathBuf::from("packages/node/.oxlintrc.json"));
-    assert_eq!(files[8].path, PathBuf::from("crates/my-lib-node/Cargo.toml"));
-    assert!(files[8].content.contains("napi-derive"));
-    assert_has_package_gitattributes(&files, "packages/node/.gitattributes");
+    assert_eq!(files[2].path, PathBuf::from("crates/my-lib-node/index.js"));
+    // Verify platform dispatch index contains expected platforms and binary name
+    assert!(files[2].content.contains("const { platform, arch } = process"));
+    assert!(files[2].content.contains("darwin"));
+    assert!(files[2].content.contains("linux"));
+    assert!(files[2].content.contains("win32"));
+    assert!(files[2].content.contains("my-lib-node.darwin-arm64.node"));
+    assert!(files[2].content.contains("tryLoadBinding"));
+    assert_eq!(files[3].path, PathBuf::from("packages/node/src/index.d.ts"));
+    assert_eq!(files[4].path, PathBuf::from("packages/node/index.d.ts"));
+    assert_eq!(files[5].path, PathBuf::from("packages/node/index.js"));
+    assert_eq!(files[6].path, PathBuf::from("packages/node/tsconfig.json"));
+    assert_eq!(files[7].path, PathBuf::from("packages/node/.oxfmtrc.json"));
+    assert_eq!(files[8].path, PathBuf::from("packages/node/.oxlintrc.json"));
+    assert_eq!(files[9].path, PathBuf::from("crates/my-lib-node/Cargo.toml"));
+    assert!(files[9].content.contains("napi-derive"));
 }
 
 #[test]
@@ -807,6 +815,7 @@ fn test_scaffold_language_level_extra_deps_override_crate_level() {
         rename_fields: Default::default(),
         run_wrapper: None,
         extra_lint_paths: Vec::new(),
+        extra_init_imports: std::collections::BTreeMap::new(),
     });
     let rendered = render_extra_deps(&config, Language::Python);
     // Python-level "2.0" should win over crate-level "1.0"
@@ -881,7 +890,10 @@ fn test_scaffold_php_cs_fixer_handles_missing_tests_dir() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Php]).unwrap();
     let files = language_files(&all_files);
-    let fixer = files.iter().find(|f| f.path.ends_with("php-cs-fixer.php")).unwrap();
+    let fixer = files
+        .iter()
+        .find(|f| f.path.ends_with(".php-cs-fixer.dist.php"))
+        .unwrap();
     assert!(
         fixer.content.contains("declare(strict_types=1);"),
         "php-cs-fixer config should be fixer-clean; content:\n{}",
@@ -929,6 +941,27 @@ fn test_scaffold_dart() {
     assert!(
         analysis_options.content.contains("linter:"),
         "analysis_options.yaml should include linter rules; got: {}",
+        analysis_options.content
+    );
+    // Dart 3.x removed these lints — they must not appear in the rules list.
+    for removed_lint in [
+        "avoid_returning_null",
+        "avoid_returning_null_for_future",
+        "invariant_booleans",
+        "iterable_contains_unrelated_type",
+        "list_remove_unrelated_type",
+    ] {
+        assert!(
+            !analysis_options.content.contains(removed_lint),
+            "analysis_options.yaml references lint removed in Dart 3.x: {removed_lint}"
+        );
+    }
+    // analyzer.exclude block silences flutter_rust_bridge-generated paths.
+    assert!(
+        analysis_options.content.contains("analyzer:")
+            && analysis_options.content.contains("exclude:")
+            && analysis_options.content.contains("lib/src/frb/**"),
+        "analysis_options.yaml must include analyzer.exclude block; got:\n{}",
         analysis_options.content
     );
 
@@ -1335,6 +1368,34 @@ fn test_scaffold_swift() {
         .iter()
         .find(|f| f.path == Path::new(".github/workflows/swift.yml"));
     assert!(workflow.is_some(), "GitHub workflow should be generated");
+    let workflow_content = &workflow.unwrap().content;
+    // Regression: the swift-bridge copy step must not use `printf "...$(cat ...)"`.
+    // printf interprets `%` and `\` sequences in its format string, which corrupts
+    // generated Swift sources whenever they contain those characters. Use the safer
+    // `{ echo ...; cat ...; }` concatenation form instead.
+    assert!(
+        !workflow_content.contains("printf \"import RustBridgeC"),
+        "swift workflow must not use unsafe printf to prepend `import RustBridgeC`; got:\n{workflow_content}"
+    );
+    assert!(
+        workflow_content.contains(r#"{ echo "import RustBridgeC"; cat "$OUT/SwiftBridgeCore.swift"; }"#),
+        "swift workflow must prepend `import RustBridgeC` via echo+cat; got:\n{workflow_content}"
+    );
+    // BUILDING.md template must apply the same fix (debug + release sections).
+    assert!(
+        !building.content.contains("printf \"import RustBridgeC"),
+        "BUILDING.md must not use unsafe printf to prepend `import RustBridgeC`; got:\n{}",
+        building.content
+    );
+    assert!(
+        building
+            .content
+            .matches(r#"{ echo "import RustBridgeC"; cat "$OUT/SwiftBridgeCore.swift"; }"#)
+            .count()
+            >= 2,
+        "BUILDING.md must use echo+cat in both debug and release copy sections; got:\n{}",
+        building.content
+    );
 }
 
 #[test]
@@ -1348,6 +1409,40 @@ fn test_scaffold_kotlin() {
     assert_eq!(files[0].path, PathBuf::from("packages/kotlin/build.gradle.kts"));
     assert!(files[0].content.contains("kotlin(\"jvm\")"));
     assert!(files[0].content.contains("org.jlleitschuh.gradle.ktlint"));
+    // jspecify is required by the alef-emitted Java facade.
+    assert!(
+        files[0].content.contains("org.jspecify:jspecify:"),
+        "build.gradle.kts must declare jspecify; got:\n{}",
+        files[0].content
+    );
+    // ktlint must skip the Java facade and build/generated dirs.
+    assert!(
+        files[0].content.contains("filter {")
+            && files[0].content.contains("/packages/java/")
+            && files[0].content.contains("**/build/**")
+            && files[0].content.contains("**/generated/**"),
+        "ktlint filter block missing or incomplete; got:\n{}",
+        files[0].content
+    );
+    // ktlint must skip the alef-emitted binding-class file (pascal-cased crate name).
+    // The `my-lib` test crate becomes `MyLib.kt`.
+    assert!(
+        files[0].content.contains(r#"endsWith("/MyLib.kt")"#),
+        "ktlint filter must exclude alef-emitted binding-class file; got:\n{}",
+        files[0].content
+    );
+    // Maven artifactId override disambiguates Kotlin module from sibling Java module.
+    assert!(
+        files[0].content.contains("artifactId = \"my-lib-kotlin\""),
+        "publication artifactId override missing; got:\n{}",
+        files[0].content
+    );
+    // JDK 25 is the minimum (FFM finalized).
+    assert!(
+        files[0].content.contains("JavaVersion.VERSION_25") && files[0].content.contains("JvmTarget.JVM_25"),
+        "build.gradle.kts must target JDK 25; got:\n{}",
+        files[0].content
+    );
     assert_eq!(files[1].path, PathBuf::from("packages/kotlin/settings.gradle.kts"));
     assert_eq!(files[2].path, PathBuf::from("packages/kotlin/.gitignore"));
     assert_eq!(files[3].path, PathBuf::from("packages/kotlin/.editorconfig"));
@@ -1364,6 +1459,11 @@ fn test_scaffold_kotlin() {
     assert!(files[6].content.contains("object"));
     assert_eq!(files[7].path, PathBuf::from(".github/workflows/kotlin.yml"));
     assert!(files[7].content.contains("gradle build"));
+    assert!(
+        files[7].content.contains(r#"java-version: "25""#),
+        "kotlin.yml must pin java-version 25 for FFM; got:\n{}",
+        files[7].content
+    );
 }
 
 #[test]
@@ -1451,7 +1551,9 @@ fn test_scaffold_zig() {
 
     let workflow = &files[7];
     assert_eq!(workflow.path, PathBuf::from(".github/workflows/zig.yml"));
-    assert!(workflow.content.contains("mlugg/setup-zig"));
+    assert!(workflow.content.contains("kreuzberg-dev/actions/setup-zig"));
+    assert!(workflow.content.contains("cargo build -p my-lib-ffi"));
+    assert!(workflow.content.contains(r#"version: "0.16.0""#));
 }
 
 // ---------------------------------------------------------------------------

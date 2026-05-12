@@ -1,0 +1,21 @@
+#' Create a ConversionOptions list for HTML-to-Markdown conversion
+#'
+#' All parameters default to `NULL`, which means the Rust default is used.
+#' Pass named arguments to override individual settings.
+#'
+{% for field in fields %}
+#' @param {{ field.rname }} {% if field.cfg %}(feature-gated) {% endif %}{{ field.doc }}
+{% endfor %}
+#' @return A named list suitable for the `options` argument of [convert()].
+#' @export
+conversion_options <- function(
+{% for param in params %}
+  {{ param }}{% if not loop.last %},{% endif %}
+
+{% endfor %}) {
+  opts <- list()
+{% for field in fields %}
+  if (!is.null({{ field.rname }})) opts${{ field.rname }} <- {{ field.assign_val }}
+{% endfor %}
+  opts
+}

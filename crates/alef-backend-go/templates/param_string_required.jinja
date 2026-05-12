@@ -1,0 +1,2 @@
+	{{ c_name }} := C.CString({{ go_param }})
+	defer C.free(unsafe.Pointer({{ c_name }}))

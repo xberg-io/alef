@@ -1,0 +1,6 @@
+let {{ rs_name }} = if {{ name }}.is_null() {
+        None
+    } else {
+        // SAFETY: null check above guarantees {{ name }} is a valid pointer.
+        Some({% if is_ref %}unsafe { &*{{ name }} }{% else %}unsafe { &*{{ name }} }.clone(){% endif %})
+    };

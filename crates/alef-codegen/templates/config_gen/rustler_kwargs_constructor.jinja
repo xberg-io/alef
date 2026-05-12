@@ -1,0 +1,7 @@
+pub fn new(opts: std::collections::HashMap<String, rustler::Term>) -> Self {
+    Self {
+{% for field in fields -%}
+        {{ field.name }}: {{ field.assignment }}
+{% endfor -%}
+    }
+}

@@ -1,0 +1,11 @@
+    {{ method_name }} = function({{ params }}) {
+{%- if action_type == "skip" %}
+      "skip"
+{%- elif action_type == "continue" %}
+      "continue"
+{%- elif action_type == "preserve_html" %}
+      "preserve_html"
+{%- elif action_type == "custom" %}
+      list(custom = "{{ action_value }}")
+{%- endif %}
+    },

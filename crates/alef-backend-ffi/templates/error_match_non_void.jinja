@@ -1,0 +1,8 @@
+match result {
+        Ok(val) => {
+{{ ok_body }}        }
+        Err(e) => {
+            set_last_error(2, &e.to_string());
+            {{ null_ret }}
+        }
+    }

@@ -1,0 +1,7 @@
+impl {{ trait_path }} for {{ struct_name }} {
+{% for method in methods %}
+    fn {{ method.name }}(&mut self) -> {{ return_ty }} {
+        // Method body will be generated separately
+    }
+{% endfor %}
+}

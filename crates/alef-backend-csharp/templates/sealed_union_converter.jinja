@@ -1,0 +1,134 @@
+/// <summary>
+/// Custom converter for {{ class_name }} sealed union with flattened variant fields.
+/// </summary>
+/// <remarks>
+/// Handles JSON objects with a discriminator field ({{ tag_field }}) and variant-specific
+/// fields at the same level. System.Text.Json's [JsonPolymorphic] cannot handle
+/// this layout, so we manually deserialize here.
+/// </remarks>
+public sealed class {{ class_name }}JsonConverter : JsonConverter<{{ class_name }}>
+{
+    public override {{ class_name }} Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.StartObject)
+        {
+            throw new JsonException($"Expected JSON object, got {reader.TokenType}");
+        }
+
+        using var doc = JsonDocument.ParseValue(ref reader);
+        var root = doc.RootElement;
+
+        if (!root.TryGetProperty("{{ tag_field }}", out var tagElement))
+        {
+            throw new JsonException($"Missing discriminator field: {{ tag_field }}");
+        }
+
+        var tagValue = tagElement.GetString();
+        if (tagValue == null)
+        {
+            throw new JsonException("Discriminator field is null");
+        }
+
+        // Tuple-variant records (`Variant(InnerStruct value)`) expect a single
+        // "Value" field holding the inner struct's JSON, so wrap the remaining
+        // fields under "Value". Struct-variant records (`Variant { field1,
+        // field2 }`) have positional record components annotated with
+        // [JsonPropertyName(...)] for each named field, so pass the remaining
+        // fields through directly without the wrap.
+        using var ms = new MemoryStream();
+        using var writer = new Utf8JsonWriter(ms);
+        writer.WriteStartObject();
+        foreach (var prop in root.EnumerateObject())
+        {
+            if (prop.Name != "{{ tag_field }}")
+            {
+                writer.WritePropertyName(prop.Name);
+                prop.Value.WriteTo(writer);
+            }
+        }
+        writer.WriteEndObject();
+        writer.Flush();
+        ms.Position = 0;
+        var flatJson = ms.ToArray();
+
+        using var msWrapped = new MemoryStream();
+        using var writerWrapped = new Utf8JsonWriter(msWrapped);
+        writerWrapped.WriteStartObject();
+        writerWrapped.WritePropertyName("Value");
+        writerWrapped.WriteStartObject();
+        foreach (var prop in root.EnumerateObject())
+        {
+            if (prop.Name != "{{ tag_field }}")
+            {
+                writerWrapped.WritePropertyName(prop.Name);
+                prop.Value.WriteTo(writerWrapped);
+            }
+        }
+        writerWrapped.WriteEndObject();
+        writerWrapped.WriteEndObject();
+        writerWrapped.Flush();
+        msWrapped.Position = 0;
+        var wrappedJson = msWrapped.ToArray();
+
+        return tagValue switch
+        {
+            {%- for variant in variants %}
+            "{{ variant.discriminator }}" =>
+                {%- if variant.is_unit %} new {{ class_name }}.{{ variant.pascal }}(),
+                {%- elif variant.is_tuple %} JsonSerializer.Deserialize<{{ class_name }}.{{ variant.pascal }}>(wrappedJson, options) ?? throw new JsonException("Failed to deserialize variant"),
+                {%- else %} JsonSerializer.Deserialize<{{ class_name }}.{{ variant.pascal }}>(flatJson, options) ?? throw new JsonException("Failed to deserialize variant"),
+                {%- endif %}
+            {%- endfor %}
+            _ => throw new JsonException($"Unknown {{ class_name }} discriminator: {tagValue}")
+        };
+    }
+
+    public override void Write(Utf8JsonWriter writer, {{ class_name }} value, JsonSerializerOptions options)
+    {
+        // Emit the discriminator tag plus the inner variant's fields flattened at
+        // the same level — mirrors the Java sealed-union serializer pattern. Turn
+        // `Message.User(UserMessage value)` into `{"{{ tag_field }}":"user","content":...}`
+        // not `{"value":{...}}`. Without this, sending a chat request to FFI fails
+        // with "missing field {{ tag_field }}" inside Rust serde.
+        string tag;
+        object? inner;
+        switch (value)
+        {
+            {%- for variant in variants %}
+            {%- if variant.is_unit %}
+            case {{ class_name }}.{{ variant.pascal }} _:
+                tag = "{{ variant.discriminator }}";
+                inner = null;
+                break;
+            {%- else %}
+            case {{ class_name }}.{{ variant.pascal }} v_{{ variant.pascal_lower }}:
+                tag = "{{ variant.discriminator }}";
+                {%- if variant.is_tuple %}
+                inner = v_{{ variant.pascal_lower }}.Value;
+                {%- else %}
+                inner = v_{{ variant.pascal_lower }};
+                {%- endif %}
+                break;
+            {%- endif %}
+            {%- endfor %}
+            default:
+                throw new JsonException($"Unknown {{ class_name }} variant: {value.GetType().Name}");
+        }
+
+        writer.WriteStartObject();
+        writer.WriteString("{{ tag_field }}", tag);
+        if (inner != null)
+        {
+            using var doc = JsonSerializer.SerializeToDocument(inner, inner.GetType(), options);
+            if (doc.RootElement.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var prop in doc.RootElement.EnumerateObject())
+                {
+                    writer.WritePropertyName(prop.Name);
+                    prop.Value.WriteTo(writer);
+                }
+            }
+        }
+        writer.WriteEndObject();
+    }
+}

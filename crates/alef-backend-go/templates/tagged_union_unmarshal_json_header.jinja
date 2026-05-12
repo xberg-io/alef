@@ -1,0 +1,13 @@
+// UnmarshalJSON decodes a tagged union by reading the tag first.
+func (t *{{ go_enum_name }}) UnmarshalJSON(data []byte) error {
+	// Probe for the tag first
+	var probe struct {
+{% if tag_field_name %}		{{ tag_field_name }} string `json:"{{ tag_name }}"`
+{% endif %}	}
+	if err := json.Unmarshal(data, &probe); err != nil {
+		return err
+	}
+
+	t.{{ tag_field_name }} = probe.{{ tag_field_name }}
+
+	switch probe.{{ tag_field_name }} {

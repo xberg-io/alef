@@ -1,0 +1,9 @@
+{{ indent }}/**
+{% for line in doc_lines -%}
+{% if line -%}
+{{ indent }} * {{ line }}
+{% else -%}
+{{ indent }} *
+{% endif -%}
+{% endfor -%}
+{{ indent }} */

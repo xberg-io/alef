@@ -23,7 +23,6 @@ pub(super) fn gen_exceptions_py(api: &ApiSurface) -> String {
         if !seen_classes.insert(error.name.clone()) {
             continue; // skip duplicate base class
         }
-        out.push_str(&format!("class {}(Exception):\n", error.name));
         let doc = if !error.doc.is_empty() {
             let first_line = sanitize_python_doc(&doc_first_paragraph_joined(&error.doc));
             if first_line.ends_with('.') {
@@ -34,8 +33,10 @@ pub(super) fn gen_exceptions_py(api: &ApiSurface) -> String {
         } else {
             class_name_to_docstring(&error.name)
         };
-        out.push_str(&format!("    \"\"\"{}\"\"\"\n", doc));
-        out.push_str("\n\n");
+        out.push_str(&crate::template_env::render(
+            "exception_base_class.jinja",
+            minijinja::context! { name => &error.name, doc => doc },
+        ));
 
         // Per-variant exception subclasses
         for variant in &error.variants {
@@ -43,7 +44,6 @@ pub(super) fn gen_exceptions_py(api: &ApiSurface) -> String {
             if !seen_classes.insert(variant_name.clone()) {
                 continue; // skip duplicate variant class
             }
-            out.push_str(&format!("class {}({}):\n", variant_name, error.name));
             let doc = if !variant.doc.is_empty() {
                 let first_line = sanitize_python_doc(&doc_first_paragraph_joined(&variant.doc));
                 if first_line.ends_with('.') {
@@ -54,8 +54,10 @@ pub(super) fn gen_exceptions_py(api: &ApiSurface) -> String {
             } else {
                 class_name_to_docstring(&variant_name)
             };
-            out.push_str(&format!("    \"\"\"{}\"\"\"\n", doc));
-            out.push_str("\n\n");
+            out.push_str(&crate::template_env::render(
+                "exception_variant_class.jinja",
+                minijinja::context! { name => &variant_name, base => &error.name, doc => doc },
+            ));
         }
     }
 
@@ -70,13 +72,16 @@ pub(super) fn gen_init_py(
     version: &str,
     dto: &DtoConfig,
     trait_bridges: &[alef_core::config::TraitBridgeConfig],
+    extra_init_imports: &std::collections::BTreeMap<String, Vec<String>>,
+    capsule_types: &std::collections::HashMap<String, alef_core::config::CapsuleTypeConfig>,
 ) -> String {
     use alef_core::ir::TypeRef;
 
     let mut out = String::with_capacity(1024);
     out.push_str(&hash::header(CommentStyle::Hash));
-    out.push_str(&format!(
-        "\"\"\"Public API for the conversion library.\n\nVersion: {version}\n\"\"\"\n\n"
+    out.push_str(&crate::template_env::render(
+        "init_header.jinja",
+        minijinja::context! { version => version },
     ));
 
     // Collect enum names referenced by config types (user-facing enums only)
@@ -193,6 +198,10 @@ pub(super) fn gen_init_py(
     imports_from_native.extend(needed_data_enums.iter().cloned());
     native_return_types.sort();
     imports_from_native.extend(native_return_types.iter().cloned());
+    // Capsule types are not registered in the native module; users get the target Python type
+    // (e.g. tree_sitter.Language) instead, so the symbol does not exist in `._native` and must
+    // be excluded from the import list.
+    imports_from_native.retain(|n| !capsule_types.contains_key(n));
     imports_from_native.sort();
     imports_from_native.dedup();
 
@@ -224,11 +233,18 @@ pub(super) fn gen_init_py(
         if import_line.len() > 88 {
             out.push_str("from .api import (\n");
             for name in &imports_from_api {
-                out.push_str(&format!("    {},\n", name));
+                out.push_str(&crate::template_env::render(
+                    "trait_bridge/indented_import_item.jinja",
+                    minijinja::context! { name => name },
+                ));
+                out.push('\n');
             }
             out.push_str(")\n");
         } else {
-            out.push_str(&format!("{}\n", import_line));
+            out.push_str(&crate::template_env::render(
+                "trait_bridge/single_line.jinja",
+                minijinja::context! { text => format!("{}\n", import_line) },
+            ));
         }
     }
     if !imports_from_exceptions.is_empty() {
@@ -236,24 +252,41 @@ pub(super) fn gen_init_py(
         if import_line.len() > 88 {
             out.push_str("from .exceptions import (\n");
             for name in &imports_from_exceptions {
-                out.push_str(&format!("    {},\n", name));
+                out.push_str(&crate::template_env::render(
+                    "trait_bridge/indented_import_item.jinja",
+                    minijinja::context! { name => name },
+                ));
+                out.push('\n');
             }
             out.push_str(")\n");
         } else {
-            out.push_str(&format!("{}\n", import_line));
+            out.push_str(&crate::template_env::render(
+                "trait_bridge/single_line.jinja",
+                minijinja::context! { text => format!("{}\n", import_line) },
+            ));
         }
     }
     // Data enums are Rust-backed structs; re-export from the native module.
     if !imports_from_native.is_empty() {
         let import_line = format!("from .{module_name} import {}", imports_from_native.join(", "));
         if import_line.len() > 88 {
-            out.push_str(&format!("from .{module_name} import (\n"));
+            out.push_str(&crate::template_env::render(
+                "trait_bridge/single_line.jinja",
+                minijinja::context! { text => format!("from .{module_name} import (\n") },
+            ));
             for name in &imports_from_native {
-                out.push_str(&format!("    {},\n", name));
+                out.push_str(&crate::template_env::render(
+                    "trait_bridge/indented_import_item.jinja",
+                    minijinja::context! { name => name },
+                ));
+                out.push('\n');
             }
             out.push_str(")\n");
         } else {
-            out.push_str(&format!("{}\n", import_line));
+            out.push_str(&crate::template_env::render(
+                "trait_bridge/single_line.jinja",
+                minijinja::context! { text => format!("{}\n", import_line) },
+            ));
         }
     }
     if !imports_from_options.is_empty() {
@@ -261,12 +294,46 @@ pub(super) fn gen_init_py(
         if import_line.len() > 88 {
             out.push_str("from .options import (\n");
             for name in &imports_from_options {
-                out.push_str(&format!("    {},\n", name));
+                out.push_str(&crate::template_env::render(
+                    "trait_bridge/indented_import_item.jinja",
+                    minijinja::context! { name => name },
+                ));
+                out.push('\n');
             }
             out.push_str(")\n");
         } else {
-            out.push_str(&format!("{}\n", import_line));
+            out.push_str(&crate::template_env::render(
+                "trait_bridge/single_line.jinja",
+                minijinja::context! { text => format!("{}\n", import_line) },
+            ));
         }
+    }
+
+    // User-configured extra imports (e.g. hand-written sibling modules generated by the project's
+    // own build script). Emitted last so they cannot shadow alef-generated symbols.
+    let mut extra_all_items: Vec<String> = Vec::new();
+    for (module, symbols) in extra_init_imports {
+        if symbols.is_empty() {
+            continue;
+        }
+        let import_line = format!("from {module} import {}", symbols.join(", "));
+        if import_line.len() > 88 {
+            out.push_str(&format!("from {module} import (\n"));
+            for name in symbols {
+                out.push_str(&crate::template_env::render(
+                    "trait_bridge/indented_import_item.jinja",
+                    minijinja::context! { name => name },
+                ));
+                out.push('\n');
+            }
+            out.push_str(")\n");
+        } else {
+            out.push_str(&crate::template_env::render(
+                "trait_bridge/single_line.jinja",
+                minijinja::context! { text => format!("{}\n", import_line) },
+            ));
+        }
+        extra_all_items.extend(symbols.iter().cloned());
     }
 
     // __all__
@@ -281,15 +348,22 @@ pub(super) fn gen_init_py(
     all_items.extend(imports_from_native.iter().cloned());
     all_items.extend(config_types);
     all_items.extend(exc_names);
+    all_items.extend(extra_all_items);
     all_items.sort();
     all_items.dedup();
 
     out.push_str("\n__all__ = [\n");
     for name in &all_items {
-        out.push_str(&format!("    \"{name}\",\n"));
+        out.push_str(&crate::template_env::render(
+            "init_all_entry.jinja",
+            minijinja::context! { name => name },
+        ));
     }
     out.push_str("]\n\n");
-    out.push_str(&format!("__version__ = \"{version}\"\n"));
+    out.push_str(&crate::template_env::render(
+        "version_declaration.jinja",
+        minijinja::context! { version => version },
+    ));
 
     out
 }
@@ -308,6 +382,7 @@ mod tests {
             functions: vec![],
             enums: vec![],
             errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         }
     }
 
@@ -325,8 +400,32 @@ mod tests {
     fn gen_init_py_empty_api_has_version() {
         let api = empty_api();
         let dto = DtoConfig::default();
-        let result = gen_init_py(&api, "_mod", "1.2.3", &dto, &[]);
+        let extra = std::collections::BTreeMap::new();
+        let caps = std::collections::HashMap::new();
+        let result = gen_init_py(&api, "_mod", "1.2.3", &dto, &[], &extra, &caps);
         assert!(result.contains("__version__ = \"1.2.3\""));
         assert!(result.contains("__all__"));
+    }
+
+    /// `extra_init_imports` adds the import lines and the symbols into `__all__`.
+    #[test]
+    fn gen_init_py_extra_imports_are_emitted_and_in_all() {
+        let api = empty_api();
+        let dto = DtoConfig::default();
+        let mut extra = std::collections::BTreeMap::new();
+        extra.insert(
+            "._supported_languages".to_string(),
+            vec!["SupportedLanguage".to_string()],
+        );
+        let caps = std::collections::HashMap::new();
+        let result = gen_init_py(&api, "_mod", "1.2.3", &dto, &[], &extra, &caps);
+        assert!(
+            result.contains("from ._supported_languages import SupportedLanguage"),
+            "missing import line in:\n{result}",
+        );
+        assert!(
+            result.contains("\"SupportedLanguage\""),
+            "SupportedLanguage missing from __all__ in:\n{result}",
+        );
     }
 }

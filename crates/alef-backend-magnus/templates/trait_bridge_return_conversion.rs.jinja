@@ -1,0 +1,30 @@
+{%- if needs_json %}
+{{ indent }}let json_str: String = if let Ok(s) = <String as magnus::TryConvert>::try_convert(val) {
+{{ indent }}    s
+{{ indent }}} else {
+{{ indent }}    match val.funcall::<_, _, String>("to_json", ()) {
+{{ indent }}        Ok(s) => s,
+{{ indent }}        Err(e) => {
+{%- if has_error %}
+{{ indent }}            return Err({{ err_non_json }});
+{%- else %}
+{{ indent }}            let _ = e;
+{{ indent }}            return Default::default();
+{%- endif %}
+{{ indent }}        }
+{{ indent }}    }
+{{ indent }};
+{%- if has_error %}
+{{ indent }}serde_json::from_str::<{{ rust_ty }}>(&json_str)
+{{ indent }}    .map_err(|e| {{ err_deserialize }})
+{%- else %}
+{{ indent }}serde_json::from_str::<{{ rust_ty }}>(&json_str).unwrap_or_default()
+{%- endif %}
+{%- else %}
+{%- if has_error %}
+{{ indent }}<{{ rust_ty }} as magnus::TryConvert>::try_convert(val)
+{{ indent }}    .map_err(|e| {{ err_convert }})
+{%- else %}
+{{ indent }}<{{ rust_ty }} as magnus::TryConvert>::try_convert(val).unwrap_or_default()
+{%- endif %}
+{%- endif %}

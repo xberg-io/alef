@@ -1,0 +1,10 @@
+if _rc != 0 {
+    let msg = if _out_error.is_null() {
+        format!("vtable.{{ name }} returned error code {}", _rc)
+    } else {
+        // SAFETY: out_error was written by the callee as a valid CString.
+        let cs = unsafe { std::ffi::CString::from_raw(_out_error) };
+        cs.to_string_lossy().into_owned()
+    };
+    {{ error_return }}
+}

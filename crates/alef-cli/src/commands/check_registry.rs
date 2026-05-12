@@ -25,6 +25,13 @@ pub enum Registry {
     Hex,
     Homebrew,
     GithubRelease,
+    /// pub.dev (Dart packages).
+    Pub,
+    /// Zig: no central registry, checks GitHub release tag existence.
+    Zig,
+    /// Swift Package Index: no central registry, checks GitHub release tag existence
+    /// (SPI auto-discovers new tags from Git).
+    Swift,
 }
 
 impl std::fmt::Display for Registry {
@@ -40,6 +47,9 @@ impl std::fmt::Display for Registry {
             Registry::Hex => write!(f, "hex"),
             Registry::Homebrew => write!(f, "homebrew"),
             Registry::GithubRelease => write!(f, "github-release"),
+            Registry::Pub => write!(f, "pub"),
+            Registry::Zig => write!(f, "zig"),
+            Registry::Swift => write!(f, "swift"),
         }
     }
 }
@@ -69,6 +79,11 @@ pub fn check(registry: Registry, package: &str, version: &str, extra: &ExtraPara
             extra.asset_prefix.as_deref(),
             &extra.required_assets,
         )?,
+        Registry::Pub => check_pub(package, version)?,
+        // Zig and Swift have no central registry — both consume packages
+        // directly from GitHub release tags. The "version exists" check is
+        // therefore "does the GH release tag exist on the configured repo".
+        Registry::Zig | Registry::Swift => check_github_release(package, version, extra.repo.as_deref(), None, &[])?,
     };
 
     if output_json {
@@ -204,6 +219,12 @@ fn check_rubygems(package: &str, version: &str) -> Result<bool> {
 
 fn check_hex(package: &str, version: &str) -> Result<bool> {
     let url = format!("https://hex.pm/api/packages/{package}/releases/{version}");
+    http_get_ok(&url)
+}
+
+fn check_pub(package: &str, version: &str) -> Result<bool> {
+    // pub.dev returns 200 with a version object, or 404 if the version is missing.
+    let url = format!("https://pub.dev/api/packages/{package}/versions/{version}");
     http_get_ok(&url)
 }
 
@@ -363,6 +384,22 @@ mod tests {
         assert_eq!(Registry::Pypi.to_string(), "pypi");
         assert_eq!(Registry::Npm.to_string(), "npm");
         assert_eq!(Registry::GithubRelease.to_string(), "github-release");
+        assert_eq!(Registry::Pub.to_string(), "pub");
+        assert_eq!(Registry::Zig.to_string(), "zig");
+        assert_eq!(Registry::Swift.to_string(), "swift");
+    }
+
+    #[test]
+    fn zig_swift_require_repo() {
+        // Zig and Swift delegate to check_github_release, which requires --repo.
+        let extra = ExtraParams::default();
+        for registry in [Registry::Zig, Registry::Swift] {
+            let result = check(registry, "alef", "1.0.0", &extra, false);
+            assert!(
+                result.is_err(),
+                "{registry} should fail without a --repo because it delegates to github-release"
+            );
+        }
     }
 
     #[test]

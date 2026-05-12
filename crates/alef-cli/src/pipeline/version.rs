@@ -341,12 +341,20 @@ pub fn sync_versions(
         }
     }
 
-    // Node: package.json
-    if let Ok(content) = std::fs::read_to_string("packages/typescript/package.json") {
-        if let Some(new_content) = replace_version_pattern(&content, r#""version": "[^"]*""#, &version) {
-            std::fs::write("packages/typescript/package.json", &new_content)
-                .context("failed to write packages/typescript/package.json")?;
-            updated.push("packages/typescript/package.json".to_string());
+    // Node: package.json — use the configured Node package_dir, falling back
+    // to "packages/node" (the modern default) and "packages/typescript" (legacy
+    // path retained so older repos that still use the old default keep syncing).
+    let node_pkg_dir = config.package_dir(Language::Node);
+    let mut node_paths: Vec<String> = vec![format!("{node_pkg_dir}/package.json")];
+    if node_pkg_dir != "packages/typescript" {
+        node_paths.push("packages/typescript/package.json".to_string());
+    }
+    for node_path in node_paths {
+        if let Ok(content) = std::fs::read_to_string(&node_path) {
+            if let Some(new_content) = replace_version_pattern(&content, r#""version": "[^"]*""#, &version) {
+                std::fs::write(&node_path, &new_content).with_context(|| format!("failed to write {node_path}"))?;
+                updated.push(node_path);
+            }
         }
     }
 
@@ -456,6 +464,30 @@ pub fn sync_versions(
         }
     }
 
+    // Node binding crate manifest: crates/*-node/package.json. Some repos keep
+    // a `package.json` next to the NAPI-RS binding crate (alongside the Cargo
+    // manifest) so `npm publish --workspace` can resolve the prebuilt binary.
+    // `validate-versions` already checks this file; sync must write to it too.
+    for node_pkg in glob::glob("crates/*-node/package.json").into_iter().flatten().flatten() {
+        if let Ok(content) = std::fs::read_to_string(&node_pkg) {
+            if let Some(new_content) = replace_version_pattern(&content, r#""version":\s*"[^"]*""#, &version) {
+                std::fs::write(&node_pkg, &new_content)?;
+                updated.push(node_pkg.to_string_lossy().to_string());
+            }
+        }
+    }
+
+    // Root package.json (if present): typically a private "root" manifest
+    // bookkeeping pnpm workspaces alongside the published bindings. Without
+    // this, `validate-versions` flags a mismatch every release because the
+    // root manifest carries its own `"version"` that nothing else writes to.
+    if let Ok(content) = std::fs::read_to_string("package.json") {
+        if let Some(new_content) = replace_version_pattern(&content, r#""version":\s*"[^"]*""#, &version) {
+            std::fs::write("package.json", &new_content)?;
+            updated.push("package.json".to_string());
+        }
+    }
+
     // Root composer.json (if present)
     if let Ok(content) = std::fs::read_to_string("composer.json") {
         if let Some(new_content) = replace_version_pattern(&content, r#""version":\s*"[^"]*""#, &version) {
@@ -557,6 +589,31 @@ pub fn sync_versions(
                                             r#"spec\.version\s*=\s*['"][^'"]*['"]"#,
                                             &rb_ver,
                                         ) {
+                                            if let Err(e) = std::fs::write(&path, &new_content) {
+                                                debug!("Could not write {}: {e}", path.display());
+                                            } else {
+                                                updated.push(path.to_string_lossy().to_string());
+                                            }
+                                        }
+                                    } else if file_name == "gleam.toml" {
+                                        // gleam.toml: update the package version field AND restore
+                                        // canonical dependency version ranges. The restore is a
+                                        // self-healing safeguard — earlier alef releases routed
+                                        // `gleam.toml` through the SEMVER_RE catch-all path, which
+                                        // rewrote `gleam_stdlib = ">= 0.34.0 and < 2.0.0"` into
+                                        // `>= {workspace_version} and < {workspace_version}` (an
+                                        // empty range gleam refuses to resolve). Without the
+                                        // dep-range restore, any package that still has the
+                                        // corrupted shape on disk stays broken until a contributor
+                                        // notices.
+                                        let mut new_content = content.clone();
+                                        if let Some(updated_version) =
+                                            replace_version_pattern(&new_content, r#"version = "[^"]*""#, &version)
+                                        {
+                                            new_content = updated_version;
+                                        }
+                                        new_content = restore_gleam_dep_ranges(&new_content);
+                                        if new_content != content {
                                             if let Err(e) = std::fs::write(&path, &new_content) {
                                                 debug!("Could not write {}: {e}", path.display());
                                             } else {
@@ -889,6 +946,40 @@ fn matched_version_equals(matched: &str, target: &str) -> bool {
     extract_version_literal(matched).is_some_and(|v| v == target)
 }
 
+/// Restore canonical hex dependency version ranges in `gleam.toml`.
+///
+/// Earlier alef releases sometimes routed `gleam.toml` through the catch-all
+/// `SEMVER_RE.replace_all` path, which rewrote every `\d+\.\d+\.\d+` literal
+/// in the file with the workspace version — turning
+/// `gleam_stdlib = ">= 0.34.0 and < 2.0.0"` into
+/// `gleam_stdlib = ">= 5.0.0-rc.1 and < 5.0.0-rc.1"` (an empty version range
+/// that gleam refuses to resolve).
+///
+/// This helper deterministically restores the canonical ranges from
+/// `template_versions::hex` whenever it sees a `gleam_stdlib` or `gleeunit`
+/// dependency line, so a single `alef sync-versions` heals affected
+/// manifests without manual intervention.
+fn restore_gleam_dep_ranges(content: &str) -> String {
+    use alef_core::template_versions::hex;
+    static GLEAM_DEP_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+        // Match lines like:  `gleam_stdlib = "..."`  or  `gleeunit = "..."`
+        // Captures: 1=name, 2=value (between quotes).
+        regex::Regex::new(r#"(?m)^(gleam_stdlib|gleeunit)\s*=\s*"([^"]*)""#).expect("valid regex")
+    });
+
+    GLEAM_DEP_RE
+        .replace_all(content, |caps: &regex::Captures<'_>| {
+            let name = &caps[1];
+            let canonical = match name {
+                "gleam_stdlib" => hex::GLEAM_STDLIB_VERSION_RANGE,
+                "gleeunit" => hex::GLEEUNIT_VERSION_RANGE,
+                _ => return caps[0].to_string(),
+            };
+            format!("{name} = \"{canonical}\"")
+        })
+        .into_owned()
+}
+
 fn extract_version_literal(matched: &str) -> Option<&str> {
     // Try paired-quote form first ("..." or '...').
     if let Some(start) = matched.find(['"', '\'']) {
@@ -1160,5 +1251,151 @@ BUNDLED WITH
         let content = "GEM\n  remote: https://rubygems.org/\n  specs:\n    rake (13.4.2)\n";
         let result = sync_gemfile_lock(content, "1.0.0");
         assert!(result.is_none(), "no PATH gem means nothing to update");
+    }
+
+    #[test]
+    fn restore_gleam_dep_ranges_repairs_corrupted_workspace_version_ranges() {
+        let corrupted = "name = \"kreuzberg\"\nversion = \"5.0.0-rc.1\"\ntarget = \"erlang\"\n\n[dependencies]\ngleam_stdlib = \">= 5.0.0-rc.1 and < 5.0.0-rc.1\"\n\n[dev-dependencies]\ngleeunit = \">= 5.0.0-rc.1 and < 5.0.0-rc.1\"\n";
+        let healed = restore_gleam_dep_ranges(corrupted);
+        assert!(
+            healed.contains("gleam_stdlib = \">= 0.34.0 and < 2.0.0\""),
+            "gleam_stdlib should be restored to canonical range, got:\n{healed}"
+        );
+        assert!(
+            healed.contains("gleeunit = \">= 1.0.0 and < 2.0.0\""),
+            "gleeunit should be restored to canonical range, got:\n{healed}"
+        );
+        // The package version line itself must not be touched.
+        assert!(
+            healed.contains("version = \"5.0.0-rc.1\""),
+            "package version must not be rewritten, got:\n{healed}"
+        );
+    }
+
+    #[test]
+    fn restore_gleam_dep_ranges_is_idempotent_on_healthy_input() {
+        let healthy = "name = \"kreuzberg\"\nversion = \"5.0.0-rc.1\"\n\n[dependencies]\ngleam_stdlib = \">= 0.34.0 and < 2.0.0\"\n\n[dev-dependencies]\ngleeunit = \">= 1.0.0 and < 2.0.0\"\n";
+        let healed = restore_gleam_dep_ranges(healthy);
+        assert_eq!(healed, healthy, "healthy gleam.toml must not be rewritten");
+    }
+
+    /// Root `package.json` is a private "root" pnpm-workspace bookkeeping
+    /// manifest. It carries its own top-level `"version"` that must track the
+    /// canonical Cargo.toml version so `validate-versions` does not flag a
+    /// drift on every release. The replacement must not touch nested
+    /// `"version"` fields inside `devDependencies` / `pnpm.overrides` / etc.
+    #[test]
+    fn test_replace_version_pattern_root_package_json_only_top_level() {
+        let content = r#"{
+  "name": "kreuzberg-root",
+  "version": "4.9.5",
+  "private": true,
+  "devDependencies": {
+    "@vitest/coverage-v8": "^4.1.5",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3"
+  },
+  "pnpm": {
+    "overrides": {
+      "glob": "10.5.0"
+    }
+  }
+}
+"#;
+        let new_content = replace_version_pattern(content, r#""version":\s*"[^"]*""#, "5.0.0-rc.1")
+            .expect("root package.json version must update");
+        assert!(
+            new_content.contains(r#""version": "5.0.0-rc.1""#),
+            "top-level version must be rewritten, got:\n{new_content}"
+        );
+        assert!(
+            !new_content.contains(r#""version": "4.9.5""#),
+            "old version must be removed, got:\n{new_content}"
+        );
+        // Nested dependency versions and pnpm overrides must remain intact.
+        assert!(
+            new_content.contains("\"@vitest/coverage-v8\": \"^4.1.5\""),
+            "devDependency version specs must not be touched, got:\n{new_content}"
+        );
+        assert!(
+            new_content.contains("\"glob\": \"10.5.0\""),
+            "pnpm overrides must not be touched, got:\n{new_content}"
+        );
+    }
+
+    /// Serialize tests that mutate process-global CWD. `std::env::set_current_dir`
+    /// is shared across the test binary, so concurrent tempdir-based `sync_versions`
+    /// tests would race without this guard.
+    static CWD_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// End-to-end: `sync_versions` must rewrite both `package.json` (root) and
+    /// every `crates/*-node/package.json` file alongside the existing manifests.
+    /// Regression test for the kreuzberg publish.yaml dry-run failure where the
+    /// root manifest stayed at 4.9.5 while Cargo.toml jumped to 5.0.0-rc.1.
+    #[test]
+    fn sync_versions_writes_root_and_node_crate_package_json() {
+        use alef_core::config::NewAlefConfig;
+        let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let original_cwd = std::env::current_dir().expect("cwd");
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path();
+
+        // Minimal workspace: Cargo.toml at canonical "1.0.0", root package.json
+        // and crates/mylib-node/package.json both stale at "0.9.0".
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[workspace.package]\nversion = \"1.0.0\"\n\n[workspace]\nresolver = \"2\"\nmembers = []\n",
+        )
+        .expect("write Cargo.toml");
+        std::fs::write(
+            root.join("package.json"),
+            "{\n  \"name\": \"mylib-root\",\n  \"version\": \"0.9.0\",\n  \"private\": true\n}\n",
+        )
+        .expect("write root package.json");
+        std::fs::create_dir_all(root.join("crates/mylib-node")).expect("mkdir crates/mylib-node");
+        std::fs::write(
+            root.join("crates/mylib-node/package.json"),
+            "{\n  \"name\": \"mylib\",\n  \"version\": \"0.9.0\"\n}\n",
+        )
+        .expect("write crates/mylib-node/package.json");
+
+        // Drop a minimal alef.toml so we can resolve a config.
+        let alef_toml = format!(
+            "[workspace]\nlanguages = [\"node\"]\n[[crates]]\nname = \"mylib\"\nsources = []\nversion_from = \"{}\"\n",
+            root.join("Cargo.toml").display()
+        );
+        let alef_toml_path = root.join("alef.toml");
+        std::fs::write(&alef_toml_path, &alef_toml).expect("write alef.toml");
+
+        let cfg: NewAlefConfig = toml::from_str(&alef_toml).expect("parse alef.toml");
+        let mut resolved = cfg.resolve().expect("resolve config");
+        let resolved_cfg = resolved.remove(0);
+
+        // Switch into the tempdir for the duration of the call — sync_versions
+        // resolves relative paths against CWD.
+        std::env::set_current_dir(root).expect("set_current_dir");
+        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None);
+        // Always restore the CWD before unwrapping, so a panic doesn't leave
+        // the test runner in a broken directory.
+        let _ = std::env::set_current_dir(&original_cwd);
+        sync_result.expect("sync_versions ok");
+
+        let root_pkg = std::fs::read_to_string(root.join("package.json")).expect("read root package.json");
+        assert!(
+            root_pkg.contains(r#""version": "1.0.0""#),
+            "root package.json must be bumped to canonical version, got:\n{root_pkg}"
+        );
+        assert!(
+            !root_pkg.contains("0.9.0"),
+            "old version must be gone from root package.json, got:\n{root_pkg}"
+        );
+
+        let node_pkg = std::fs::read_to_string(root.join("crates/mylib-node/package.json"))
+            .expect("read crates/mylib-node/package.json");
+        assert!(
+            node_pkg.contains(r#""version": "1.0.0""#),
+            "crates/*-node/package.json must be bumped to canonical version, got:\n{node_pkg}"
+        );
     }
 }

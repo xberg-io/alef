@@ -1,0 +1,7 @@
+        .shutdown_fn = struct {
+            fn thunk(user_data: ?*anyopaque, out_error: ?*?[*c]u8) callconv(.C) i32 {
+                _ = user_data;
+                _ = out_error;
+                return 0;
+            }
+        }.thunk,

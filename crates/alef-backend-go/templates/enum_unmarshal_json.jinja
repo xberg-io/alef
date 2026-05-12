@@ -1,0 +1,44 @@
+// UnmarshalJSON implements json.Unmarshaler for the enum type.
+func (e *{{ enum_name }}) UnmarshalJSON(data []byte) error {
+	var wire string
+	if err := json.Unmarshal(data, &wire); err == nil {
+		e.Variant = wire
+		return nil
+	}
+{% if tag_field %}
+	// Internally-tagged enum: the discriminator is the value of the `{{ tag_field }}` field
+	// (Rust's `#[serde(tag = "...")]`), not a top-level wrapping key. Decode all fields
+	// directly and use the tag's value as the variant.
+	type alias {{ enum_name }}
+	var decoded alias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*e = {{ enum_name }}(decoded)
+	e.Variant = e.{{ tag_field }}
+	return nil
+{% else %}
+	var tagged map[string]json.RawMessage
+	if err := json.Unmarshal(data, &tagged); err == nil && len(tagged) == 1 {
+		for variant, payload := range tagged {
+			e.Variant = variant
+			if string(payload) != "null" {
+				type alias {{ enum_name }}
+				var decoded alias
+				if err := json.Unmarshal(payload, &decoded); err == nil {
+					*e = {{ enum_name }}(decoded)
+					e.Variant = variant
+				}
+			}
+			return nil
+		}
+	}
+	type alias {{ enum_name }}
+	var decoded alias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*e = {{ enum_name }}(decoded)
+	return nil
+{% endif %}
+}

@@ -1,0 +1,8 @@
+#[pyfunction]
+#[pyo3(name = "{{ host_symbol }}")]
+pub fn _alef_{{ clear_fn }}(py: Python<'_>) -> PyResult<()> {
+    py.detach(|| {
+        {{ host_path }}()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{}", e)))
+    })
+}

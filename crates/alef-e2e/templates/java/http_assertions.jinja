@@ -1,0 +1,31 @@
+{#- Java HTTP response assertions
+
+   Context variables:
+   - response_var: variable name of the response object
+   - status_code: expected HTTP status code
+   - headers: list of header assertions (each with name, expected, assertion_code)
+   - body_assertion: optional body assertion code
+   - partial_body: optional partial body assertions (list of field assertions)
+   - validation_errors: optional validation error messages to check
+#}
+{%- if status_code %}
+        assertEquals({{ status_code }}, {{ response_var }}.statusCode(), "status code mismatch");
+{%- endif %}
+{%- for header in headers %}
+        {{ header.assertion_code }}
+{%- endfor %}
+{%- if body_assertion %}
+        {{ body_assertion }}
+{%- endif %}
+{%- if partial_body %}
+        var partialJson = MAPPER.readTree({{ response_var }}.body());
+{%- for field in partial_body %}
+        {{ field.assertion_code }}
+{%- endfor %}
+{%- endif %}
+{%- if validation_errors %}
+        var veBody = {{ response_var }}.body();
+{%- for error in validation_errors %}
+        {{ error.assertion_code }}
+{%- endfor %}
+{%- endif %}

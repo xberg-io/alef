@@ -297,9 +297,15 @@ fn gen_type_init_stub(typ: &TypeDef, api: &ApiSurface, config: &ResolvedCrateCon
         for param in &params {
             let name = param.split(':').next().unwrap_or("").trim();
             if is_python_builtin_name(name) {
-                wrapped.push_str(&format!("        {},  # noqa: A002\n", param));
+                wrapped.push_str(&crate::template_env::render(
+                    "stub_param_wrapped_noqa.jinja",
+                    minijinja::context! { param => param },
+                ));
             } else {
-                wrapped.push_str(&format!("        {},\n", param));
+                wrapped.push_str(&crate::template_env::render(
+                    "stub_param_wrapped.jinja",
+                    minijinja::context! { param => param },
+                ));
             }
         }
         wrapped.push_str("    ) -> None: ...");
@@ -350,9 +356,15 @@ fn gen_method_stub(method: &MethodDef, is_static: bool) -> String {
         for param in &params {
             let name = param.split(':').next().unwrap_or("").trim();
             if is_python_builtin_name(name) {
-                wrapped.push_str(&format!("{}    {},  # noqa: A002\n", indent, param));
+                wrapped.push_str(&crate::template_env::render(
+                    "stub_param_method_wrapped_noqa.jinja",
+                    minijinja::context! { indent => indent, param => param },
+                ));
             } else {
-                wrapped.push_str(&format!("{}    {},\n", indent, param));
+                wrapped.push_str(&crate::template_env::render(
+                    "stub_param_method_wrapped.jinja",
+                    minijinja::context! { indent => indent, param => param },
+                ));
             }
         }
         wrapped.push_str(suffix);
@@ -585,12 +597,21 @@ fn gen_function_stub(func: &FunctionDef, bridge_param_names: &std::collections::
         for param in &params {
             let name = param.split(':').next().unwrap_or("").trim();
             if is_python_builtin_name(name) {
-                wrapped.push_str(&format!("    {},  # noqa: A002\n", param));
+                wrapped.push_str(&crate::template_env::render(
+                    "stub_param_wrapped_noqa.jinja",
+                    minijinja::context! { param => param },
+                ));
             } else {
-                wrapped.push_str(&format!("    {},\n", param));
+                wrapped.push_str(&crate::template_env::render(
+                    "stub_param_wrapped.jinja",
+                    minijinja::context! { param => param },
+                ));
             }
         }
-        wrapped.push_str(&format!(") -> {}: ...", return_type));
+        wrapped.push_str(&crate::template_env::render(
+            "stub_method_signature_end.jinja",
+            minijinja::context! { return_type => &return_type },
+        ));
         wrapped
     }
 }

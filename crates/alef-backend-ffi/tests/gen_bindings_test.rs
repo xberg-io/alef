@@ -1,6 +1,26 @@
+use alef_backend_ffi::FfiBackend;
 use alef_backend_ffi::trait_bridge::gen_trait_bridge;
-use alef_core::config::TraitBridgeConfig;
+use alef_core::backend::Backend;
+use alef_core::config::new_config::NewAlefConfig;
+use alef_core::config::{ResolvedCrateConfig, TraitBridgeConfig};
 use alef_core::ir::*;
+
+fn resolved_one(toml: &str) -> ResolvedCrateConfig {
+    let cfg: NewAlefConfig = toml::from_str(toml).unwrap();
+    cfg.resolve().unwrap().remove(0)
+}
+
+fn make_empty_api() -> ApiSurface {
+    ApiSurface {
+        crate_name: "mylib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -117,6 +137,7 @@ fn make_api() -> ApiSurface {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     }
 }
 
@@ -137,6 +158,7 @@ fn test_gen_trait_bridge_vtable_is_repr_c() {
         "my_lib",
         "Error",
         "Error::from({msg})",
+        None,
         &api,
     );
 
@@ -166,6 +188,7 @@ fn test_gen_trait_bridge_vtable_has_function_pointer_fields_for_each_method() {
         "my_lib",
         "Error",
         "Error::from({msg})",
+        None,
         &api,
     );
 
@@ -196,6 +219,7 @@ fn test_gen_trait_bridge_vtable_fn_ptrs_are_optional_extern_c() {
         "my_lib",
         "Error",
         "Error::from({msg})",
+        None,
         &api,
     );
 
@@ -226,6 +250,7 @@ fn test_gen_trait_bridge_vtable_fn_ptrs_take_user_data_first() {
         "my_lib",
         "Error",
         "Error::from({msg})",
+        None,
         &api,
     );
 
@@ -256,6 +281,7 @@ fn test_gen_trait_bridge_vtable_string_param_maps_to_c_char_ptr() {
         "my_lib",
         "Error",
         "Error::from({msg})",
+        None,
         &api,
     );
 
@@ -298,6 +324,7 @@ fn test_gen_trait_bridge_register_fn_name_follows_prefix_register_trait_snake_pa
         "my_lib",
         "Error",
         "Error::from({msg})",
+        None,
         &api,
     );
 
@@ -337,6 +364,7 @@ fn test_gen_trait_bridge_unregister_fn_is_generated() {
         "my_lib",
         "Error",
         "Error::from({msg})",
+        None,
         &api,
     );
 
@@ -368,6 +396,7 @@ fn test_gen_trait_bridge_no_exported_registration_fn_when_not_configured() {
         "my_lib",
         "Error",
         "Error::from({msg})",
+        None,
         &api,
     );
 
@@ -417,6 +446,7 @@ fn test_gen_trait_bridge_with_super_trait_plugin_generates_vtable_lifecycle_fiel
         "my_lib",
         "Error",
         "Error::from({msg})",
+        None,
         &api,
     );
 
@@ -468,6 +498,7 @@ fn test_gen_trait_bridge_with_super_trait_plugin_generates_plugin_impl() {
         "my_lib",
         "Error",
         "Error::from({msg})",
+        None,
         &api,
     );
 
@@ -503,6 +534,7 @@ fn test_gen_trait_bridge_bridge_struct_holds_vtable_and_user_data() {
         "my_lib",
         "Error",
         "Error::from({msg})",
+        None,
         &api,
     );
 
@@ -533,6 +565,7 @@ fn test_gen_trait_bridge_bridge_struct_is_send_sync() {
         "my_lib",
         "Error",
         "Error::from({msg})",
+        None,
         &api,
     );
 
@@ -575,6 +608,7 @@ fn test_gen_trait_bridge_safety_comments_present() {
         "my_lib",
         "Error",
         "Error::from({msg})",
+        None,
         &api,
     );
 
@@ -597,6 +631,7 @@ fn test_gen_trait_bridge_drop_impl_calls_free_user_data() {
         "my_lib",
         "Error",
         "Error::from({msg})",
+        None,
         &api,
     );
 
@@ -624,6 +659,7 @@ fn test_gen_trait_bridge_generates_trait_impl() {
         "my_lib",
         "Error",
         "Error::from({msg})",
+        None,
         &api,
     );
 
@@ -669,6 +705,7 @@ fn test_gen_trait_bridge_register_fn_validates_required_fn_ptrs() {
         "my_lib",
         "Error",
         "Error::from({msg})",
+        None,
         &api,
     );
 
@@ -676,5 +713,83 @@ fn test_gen_trait_bridge_register_fn_validates_required_fn_ptrs() {
     assert!(
         code.contains("vtable.transform.is_none()"),
         "register fn must validate required fn pointers are non-null"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// build.rs Go header copy (regression: downstream go get compatibility)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_build_rs_contains_go_header_copy_when_go_is_configured() {
+    let config = resolved_one(
+        r#"
+[workspace]
+languages = ["ffi", "go"]
+
+[[crates]]
+name = "mylib"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "ml"
+
+[crates.go]
+module = "github.com/example/mylib"
+
+[crates.output]
+ffi = "crates/mylib-ffi/src/"
+go = "packages/go/"
+"#,
+    );
+    let api = make_empty_api();
+    let backend = FfiBackend;
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let build_rs = files.iter().find(|f| f.path.ends_with("build.rs")).unwrap();
+
+    assert!(
+        build_rs.content.contains("go_include_dir"),
+        "build.rs must contain go_include_dir when Go is configured"
+    );
+    assert!(
+        build_rs.content.contains("std::fs::copy"),
+        "build.rs must copy the header into the Go include dir"
+    );
+    assert!(
+        build_rs.content.contains("packages/go/include"),
+        "build.rs must target the correct Go include destination"
+    );
+}
+
+#[test]
+fn test_build_rs_has_no_go_copy_when_go_is_not_configured() {
+    let config = resolved_one(
+        r#"
+[workspace]
+languages = ["ffi"]
+
+[[crates]]
+name = "mylib"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "ml"
+
+[crates.output]
+ffi = "crates/mylib-ffi/src/"
+"#,
+    );
+    let api = make_empty_api();
+    let backend = FfiBackend;
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let build_rs = files.iter().find(|f| f.path.ends_with("build.rs")).unwrap();
+
+    assert!(
+        !build_rs.content.contains("go_include_dir"),
+        "build.rs must not contain Go copy step when Go is not configured"
+    );
+    assert!(
+        !build_rs.content.contains("std::fs::copy"),
+        "build.rs must not copy header when Go is not configured"
     );
 }

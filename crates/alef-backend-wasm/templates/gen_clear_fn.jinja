@@ -1,0 +1,4 @@
+#[wasm_bindgen(js_name = "{{ camel }}")]
+pub fn {{ clear_fn }}() -> Result<(), wasm_bindgen::JsValue> {
+    {{ host_path }}().map_err(|e| wasm_bindgen::JsValue::from_str(&e.to_string()))
+}

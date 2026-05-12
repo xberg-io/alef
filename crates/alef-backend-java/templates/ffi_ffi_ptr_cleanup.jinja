@@ -1,0 +1,5 @@
+{% for cname, free_handle in ffi_ptr_cleanups %}
+            if (!{{ cname }}.equals(MemorySegment.NULL)) {
+                {{ free_handle }}.invoke({{ cname }});
+            }
+{% endfor %}

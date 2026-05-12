@@ -1,9 +1,67 @@
 use crate::{cargo_package_header, core_dep_features, detect_workspace_inheritance, render_extra_deps, scaffold_meta};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::{Language, ResolvedCrateConfig};
-use alef_core::ir::ApiSurface;
+use alef_core::ir::{ApiSurface, TypeRef};
 use alef_core::template_versions as tv;
 use std::path::PathBuf;
+
+/// Check if a TypeRef or any of its nested types is Json
+fn type_ref_contains_json(ty: &TypeRef) -> bool {
+    match ty {
+        TypeRef::Json => true,
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => type_ref_contains_json(inner),
+        TypeRef::Map(key, val) => type_ref_contains_json(key) || type_ref_contains_json(val),
+        _ => false,
+    }
+}
+
+/// Check if the API surface has any Json fields
+fn api_has_json_fields(api: &ApiSurface) -> bool {
+    // Check struct fields
+    for type_def in &api.types {
+        for field in &type_def.fields {
+            if type_ref_contains_json(&field.ty) {
+                return true;
+            }
+        }
+        // Check method parameters and return types
+        for method in &type_def.methods {
+            if type_ref_contains_json(&method.return_type) {
+                return true;
+            }
+            for param in &method.params {
+                if type_ref_contains_json(&param.ty) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    // Check function parameters and return types
+    for func in &api.functions {
+        if type_ref_contains_json(&func.return_type) {
+            return true;
+        }
+        for param in &func.params {
+            if type_ref_contains_json(&param.ty) {
+                return true;
+            }
+        }
+    }
+
+    // Check enum fields
+    for enum_def in &api.enums {
+        for variant in &enum_def.variants {
+            for field in &variant.fields {
+                if type_ref_contains_json(&field.ty) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
+}
 
 pub(crate) fn scaffold_node_cargo(
     api: &ApiSurface,
@@ -40,6 +98,16 @@ pub(crate) fn scaffold_node_cargo(
         format!("\n{all_deps}")
     };
 
+    let mut napi_features = vec!["async"];
+    if api_has_json_fields(api) {
+        napi_features.push("serde-json");
+    }
+    let napi_features_str = napi_features
+        .iter()
+        .map(|f| format!("\"{}\"", f))
+        .collect::<Vec<_>>()
+        .join(", ");
+
     let content = format!(
         r#"{pkg_header}
 
@@ -51,7 +119,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 {crate_name} = {{ path = "../{core_crate_dir}"{features} }}
-napi = {{ version = "{napi}", features = ["async"] }}
+napi = {{ version = "{napi}", features = [{napi_features}] }}
 napi-derive = "{napi_derive}"
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"{extra_deps_section}
@@ -65,6 +133,7 @@ napi-build = "{napi_build}"
         core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::Node),
         napi = tv::cargo::NAPI,
+        napi_features = napi_features_str,
         napi_derive = tv::cargo::NAPI_DERIVE,
         napi_build = tv::cargo::NAPI_BUILD,
         extra_deps_section = extra_deps_section,
@@ -77,12 +146,130 @@ napi-build = "{napi_build}"
     }])
 }
 
+fn generate_napi_platform_dispatch_index(binary_name: &str) -> String {
+    format!(
+        r#""use strict";
+
+const {{ platform, arch }} = process;
+const isWindows = platform === "win32";
+const isMusl = () => {{
+  if (
+    typeof process.report === "object" &&
+    typeof process.report.getReport === "function"
+  ) {{
+    const report = process.report.getReport();
+    if (
+      report &&
+      report.header &&
+      typeof report.header.glibcVersion === "string"
+    ) {{
+      return false;
+    }}
+    if (report && report.header && report.header.glibcVersion === undefined) {{
+      return true;
+    }}
+  }}
+  try {{
+    require("fs").statSync("/lib64/ld-musl-x86_64.so.1");
+    return true;
+  }} catch {{
+    return false;
+  }}
+}};
+
+let nativeBinding = null;
+const loadErrors = [];
+
+function requireOptionalDependency(name) {{
+  try {{
+    return require(name);
+  }} catch (e) {{
+    loadErrors.push(`Optional dependency ${{name}}: ${{e.message}}`);
+    return null;
+  }}
+}}
+
+const tryLoadBinding = () => {{
+  const targets = [
+    ["linux", "x64", "gnu", "./{}.linux-x64-gnu.node", "{}-linux-x64-gnu"],
+    ["linux", "x64", "musl", "./{}.linux-x64-musl.node", "{}-linux-x64-musl"],
+    ["linux", "arm64", "gnu", "./{}.linux-arm64-gnu.node", "{}-linux-arm64-gnu"],
+    ["linux", "arm64", "musl", "./{}.linux-arm64-musl.node", "{}-linux-arm64-musl"],
+    ["darwin", "x64", null, "./{}.darwin-x64.node", "{}-darwin-x64"],
+    ["darwin", "arm64", null, "./{}.darwin-arm64.node", "{}-darwin-arm64"],
+    ["win32", "x64", null, "./{}.win32-x64-msvc.node", "{}-win32-x64-msvc"],
+    ["win32", "arm64", null, "./{}.win32-arm64-msvc.node", "{}-win32-arm64-msvc"],
+  ];
+
+  for (const [plat, a, abi, localPath, optionalDep] of targets) {{
+    if (platform !== plat || arch !== a) {{
+      continue;
+    }}
+
+    if (plat === "linux" && abi) {{
+      const isCurMusl = isMusl();
+      if ((abi === "musl") !== isCurMusl) {{
+        continue;
+      }}
+    }}
+
+    try {{
+      nativeBinding = require(localPath);
+      if (nativeBinding) {{
+        return;
+      }}
+    }} catch (e) {{
+      loadErrors.push(e.message);
+    }}
+
+    try {{
+      const optBinding = requireOptionalDependency(optionalDep);
+      if (optBinding) {{
+        nativeBinding = optBinding;
+        return;
+      }}
+    }} catch (e) {{
+      loadErrors.push(e.message);
+    }}
+  }}
+}};
+
+tryLoadBinding();
+
+if (!nativeBinding) {{
+  throw new Error(
+    `Failed to load native binding for ${{platform}}-${{arch}}. Errors: ${{loadErrors.join(", ")}}`
+  );
+}}
+
+module.exports = nativeBinding;
+"#,
+        binary_name,
+        binary_name,
+        binary_name,
+        binary_name,
+        binary_name,
+        binary_name,
+        binary_name,
+        binary_name,
+        binary_name,
+        binary_name,
+        binary_name,
+        binary_name,
+        binary_name,
+        binary_name,
+        binary_name,
+        binary_name,
+    )
+}
+
 pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     let package_name = config.node_package_name();
     let name = &config.name;
     let version = &api.version;
     let pkg_dir = config.package_dir(Language::Node);
+    let crate_dir = config.core_crate_dir();
 
     let keywords_json = if meta.keywords.is_empty() {
         String::new()
@@ -158,7 +345,6 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     );
 
     // Crate-level package.json required by `napi build`
-    let crate_dir = config.core_crate_dir();
     let crate_pkg = format!(
         r#"{{
   "name": "{package_name}",
@@ -207,6 +393,8 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         crate_dir = crate_dir,
     );
 
+    let crate_index_js = generate_napi_platform_dispatch_index(&format!("{}-node", crate_dir));
+
     Ok(vec![
         GeneratedFile {
             path: PathBuf::from(format!("{pkg_dir}/package.json")),
@@ -216,6 +404,11 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         GeneratedFile {
             path: PathBuf::from(format!("crates/{crate_dir}-node/package.json")),
             content: crate_pkg,
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from(format!("crates/{crate_dir}-node/index.js")),
+            content: crate_index_js,
             generated_header: false,
         },
         GeneratedFile {

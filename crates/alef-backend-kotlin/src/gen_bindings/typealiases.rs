@@ -36,9 +36,21 @@ pub(super) fn emit_typealiases(
         .collect();
     for ty in &visible_types {
         if ty.is_trait {
-            body.push_str(&format!("typealias {} = {java_package}.I{}\n", ty.name, ty.name));
+            body.push_str(&crate::template_env::render(
+                "typealias_trait.jinja",
+                minijinja::context! {
+                    name => &ty.name,
+                    java_package => java_package,
+                },
+            ));
         } else {
-            body.push_str(&format!("typealias {} = {java_package}.{}\n", ty.name, ty.name));
+            body.push_str(&crate::template_env::render(
+                "typealias_type.jinja",
+                minijinja::context! {
+                    name => &ty.name,
+                    java_package => java_package,
+                },
+            ));
         }
     }
     if !visible_types.is_empty() {
@@ -51,7 +63,13 @@ pub(super) fn emit_typealiases(
         .filter(|e| !exclude_types.contains(e.name.as_str()))
         .collect();
     for en in &visible_enums {
-        body.push_str(&format!("typealias {} = {java_package}.{}\n", en.name, en.name));
+        body.push_str(&crate::template_env::render(
+            "typealias_type.jinja",
+            minijinja::context! {
+                name => &en.name,
+                java_package => java_package,
+            },
+        ));
     }
     if !visible_enums.is_empty() {
         body.push('\n');
@@ -64,9 +82,12 @@ pub(super) fn emit_typealiases(
     // `typealias Foo` declarations and `compileKotlin` fails with
     // "Redeclaration:".
     for error in &api.errors {
-        body.push_str(&format!(
-            "typealias {}Exception = {java_package}.{}Exception\n",
-            error.name, error.name
+        body.push_str(&crate::template_env::render(
+            "typealias_error.jinja",
+            minijinja::context! {
+                name => &error.name,
+                java_package => java_package,
+            },
         ));
     }
     if !api.errors.is_empty() {

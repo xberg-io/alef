@@ -1,0 +1,6 @@
+	jsonBytes{{ c_name }}, err := json.Marshal({{ go_param }})
+	if err != nil {
+		{{ err_action }}
+	}
+	{{ c_name }} := C.CString(string(jsonBytes{{ c_name }}))
+	defer C.free(unsafe.Pointer({{ c_name }}))

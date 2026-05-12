@@ -1,0 +1,5 @@
+let {{ param_name }}_core: Option<Vec<_>> = {{ param_name }}.map(|strs| {
+    strs.into_iter()
+    .map(|s| serde_json::from_str(&s){{ err_conv }})
+    .collect::<Result<Vec<_>, _>>()
+    }).transpose()?;

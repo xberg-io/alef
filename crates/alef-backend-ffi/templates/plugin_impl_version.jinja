@@ -1,0 +1,10 @@
+    fn version(&self) -> String {
+        let Some(fp) = self.vtable.version_fn else { return String::new() };
+        let mut _out: *mut std::ffi::c_char = std::ptr::null_mut();
+        // SAFETY: fp is valid; user_data validity is the caller's responsibility.
+        unsafe { fp(self.user_data, &mut _out) };
+        if _out.is_null() { return self.cached_version.clone(); }
+        // SAFETY: _out is a callee-allocated CString; we take ownership.
+        let cs = unsafe { std::ffi::CString::from_raw(_out) };
+        cs.to_string_lossy().into_owned()
+    }

@@ -7,7 +7,6 @@ use alef_core::backend::GeneratedFile;
 use alef_core::config::{Language, ResolvedCrateConfig};
 use alef_core::ir::{ApiSurface, EnumDef, ErrorDef, FunctionDef, MethodDef, PrimitiveType, TypeDef, TypeRef};
 use heck::ToPascalCase;
-use std::fmt::Write;
 use std::path::PathBuf;
 
 // Module declarations
@@ -17,6 +16,7 @@ mod formatting;
 mod naming;
 mod signatures;
 mod sorting;
+mod template_env;
 mod type_mapping;
 
 #[cfg(test)]
@@ -96,14 +96,14 @@ fn generate_lang_doc(
 
     let mut out = String::with_capacity(8192);
 
-    // Front matter
-    let _ = writeln!(out, "---\ntitle: \"{lang_display} API Reference\"\n---\n");
-
-    // Title
-    let _ = writeln!(
-        out,
-        "## {lang_display} API Reference <span class=\"version-badge\">v{version}</span>\n"
-    );
+    out.push_str(&template_env::render(
+        "front_matter.jinja",
+        minijinja::context! { title => format!("{lang_display} API Reference") },
+    ));
+    out.push_str(&template_env::render(
+        "version_heading.jinja",
+        minijinja::context! { marker => "##", title => format!("{lang_display} API Reference"), version => version },
+    ));
 
     // --- Functions section ---
     let public_fns: Vec<&FunctionDef> = api.functions.iter().collect();
@@ -172,7 +172,10 @@ fn render_function(
     let mut out = String::new();
     let fn_name = func_name(&func.name, lang, ffi_prefix);
 
-    let _ = writeln!(out, "#### {fn_name}()\n");
+    out.push_str(&template_env::render(
+        "heading.jinja",
+        minijinja::context! { marker => "####", title => format!("{fn_name}()") },
+    ));
 
     // Extract parameter descriptions from the RAW doc string BEFORE cleaning
     let param_docs = extract_param_docs(&func.doc);
@@ -187,7 +190,10 @@ fn render_function(
     out.push_str("**Signature:**\n\n");
     let lang_code = lang_code_fence(lang);
     let sig = render_function_signature(func, lang, ffi_prefix);
-    let _ = writeln!(out, "```{lang_code}\n{sig}\n```\n");
+    out.push_str(&template_env::render(
+        "code_block.jinja",
+        minijinja::context! { lang_code => lang_code, body => sig },
+    ));
 
     // Parameters table
     if !func.params.is_empty() {
@@ -207,21 +213,28 @@ fn render_function(
                     s.replace("ConversionOptions.default()", "default options")
                 })
                 .unwrap_or_else(|| generate_param_description(&param.name, &param.ty));
-            let _ = writeln!(out, "| `{pname}` | `{pty}` | {required} | {pdoc} |");
+            out.push_str(&template_env::render(
+                "param_row.jinja",
+                minijinja::context! { name => pname, ty => pty, required => required, doc => pdoc },
+            ));
         }
         out.push('\n');
     }
 
     // Return type
     let ret_ty = doc_type(&func.return_type, lang, ffi_prefix);
-    let _ = write!(out, "**Returns:** `{ret_ty}`");
-    out.push('\n');
-    out.push('\n');
+    out.push_str(&template_env::render(
+        "returns.jinja",
+        minijinja::context! { ty => ret_ty },
+    ));
 
     // Errors
     if let Some(err) = &func.error_type {
         let error_phrase = format_error_phrase(err, lang);
-        let _ = writeln!(out, "**Errors:** {error_phrase}\n");
+        out.push_str(&template_env::render(
+            "errors_phrase.jinja",
+            minijinja::context! { phrase => error_phrase },
+        ));
     }
 
     let _ = api; // api is available for future use in function rendering
@@ -232,7 +245,10 @@ fn render_method(method: &MethodDef, type_name_str: &str, lang: Language, ffi_pr
     let mut out = String::new();
     let mname = func_name(&method.name, lang, ffi_prefix);
 
-    let _ = writeln!(out, "###### {mname}()\n");
+    out.push_str(&template_env::render(
+        "heading.jinja",
+        minijinja::context! { marker => "######", title => format!("{mname}()") },
+    ));
 
     let doc = clean_doc(&method.doc, lang);
     if !doc.is_empty() {
@@ -244,7 +260,10 @@ fn render_method(method: &MethodDef, type_name_str: &str, lang: Language, ffi_pr
     let lang_code = lang_code_fence(lang);
     let sig = render_method_signature(method, type_name_str, lang, ffi_prefix);
     out.push_str("**Signature:**\n\n");
-    let _ = writeln!(out, "```{lang_code}\n{sig}\n```\n");
+    out.push_str(&template_env::render(
+        "code_block.jinja",
+        minijinja::context! { lang_code => lang_code, body => sig },
+    ));
 
     out
 }
@@ -257,7 +276,10 @@ fn render_type(ty: &TypeDef, lang: Language, api: &ApiSurface, ffi_prefix: &str)
     let mut out = String::new();
     let tname = type_name(&ty.name, lang, ffi_prefix);
 
-    let _ = writeln!(out, "#### {tname}\n");
+    out.push_str(&template_env::render(
+        "heading.jinja",
+        minijinja::context! { marker => "####", title => tname },
+    ));
 
     let doc = clean_doc(&ty.doc, lang);
     if !doc.is_empty() {
@@ -282,7 +304,10 @@ fn render_type(ty: &TypeDef, lang: Language, api: &ApiSurface, ffi_prefix: &str)
                     raw
                 }
             };
-            let _ = writeln!(out, "| `{fname}` | `{fty}` | {fdefault} | {fdoc} |");
+            out.push_str(&template_env::render(
+                "field_row.jinja",
+                minijinja::context! { name => fname, ty => fty, default => fdefault, doc => fdoc },
+            ));
         }
         out.push('\n');
     }
@@ -294,7 +319,10 @@ fn render_type(ty: &TypeDef, lang: Language, api: &ApiSurface, ffi_prefix: &str)
         } else {
             "Methods"
         };
-        let _ = writeln!(out, "##### {methods_heading}\n");
+        out.push_str(&template_env::render(
+            "heading.jinja",
+            minijinja::context! { marker => "#####", title => methods_heading },
+        ));
         for method in &ty.methods {
             out.push_str(&render_method(method, &ty.name, lang, ffi_prefix));
         }
@@ -311,7 +339,10 @@ fn render_enum(en: &EnumDef, lang: Language, ffi_prefix: &str) -> String {
     let mut out = String::new();
     let ename = type_name(&en.name, lang, ffi_prefix);
 
-    let _ = writeln!(out, "#### {ename}\n");
+    out.push_str(&template_env::render(
+        "heading.jinja",
+        minijinja::context! { marker => "####", title => ename },
+    ));
 
     let doc = clean_doc(&en.doc, lang);
     if !doc.is_empty() {
@@ -342,7 +373,10 @@ fn render_enum(en: &EnumDef, lang: Language, ffi_prefix: &str) -> String {
                 .collect();
             vdoc = format!("{vdoc} — Fields: {}", fields_desc.join(", "));
         }
-        let _ = writeln!(out, "| `{vname}` | {vdoc} |");
+        out.push_str(&template_env::render(
+            "variant_row.jinja",
+            minijinja::context! { name => vname, doc => vdoc },
+        ));
     }
     out.push('\n');
 
@@ -361,7 +395,10 @@ fn render_error(err: &ErrorDef, lang: Language, ffi_prefix: &str) -> String {
     let mut out = String::new();
     let ename = type_name(&err.name, lang, ffi_prefix);
 
-    let _ = writeln!(out, "#### {ename}\n");
+    out.push_str(&template_env::render(
+        "heading.jinja",
+        minijinja::context! { marker => "####", title => &ename },
+    ));
 
     let doc = clean_doc(&err.doc, lang);
     if !doc.is_empty() {
@@ -377,7 +414,10 @@ fn render_error(err: &ErrorDef, lang: Language, ffi_prefix: &str) -> String {
 
     // For Python, render as exception class hierarchy
     if lang == Language::Python {
-        let _ = writeln!(out, "**Base class:** `{ename}(Exception)`\n");
+        out.push_str(&template_env::render(
+            "base_class.jinja",
+            minijinja::context! { name => &ename },
+        ));
         out.push_str("| Exception | Description |\n");
         out.push_str("|-----------|-------------|\n");
         for variant in &err.variants {
@@ -389,7 +429,10 @@ fn render_error(err: &ErrorDef, lang: Language, ffi_prefix: &str) -> String {
             } else {
                 generate_error_variant_description(&variant.name)
             };
-            let _ = writeln!(out, "| `{vname}({ename})` | {vdoc} |");
+            out.push_str(&template_env::render(
+                "exception_row.jinja",
+                minijinja::context! { variant => vname, error => &ename, doc => vdoc },
+            ));
         }
     } else {
         out.push_str("| Variant | Description |\n");
@@ -403,7 +446,10 @@ fn render_error(err: &ErrorDef, lang: Language, ffi_prefix: &str) -> String {
             } else {
                 generate_error_variant_description(&variant.name)
             };
-            let _ = writeln!(out, "| `{vname}` | {vdoc} |");
+            out.push_str(&template_env::render(
+                "variant_row.jinja",
+                minijinja::context! { name => vname, doc => vdoc },
+            ));
         }
     }
     out.push('\n');
@@ -442,7 +488,10 @@ fn generate_configuration_doc(
         .collect();
 
     for ty in config_types {
-        let _ = writeln!(out, "### {}\n", ty.name);
+        out.push_str(&template_env::render(
+            "heading.jinja",
+            minijinja::context! { marker => "###", title => &ty.name },
+        ));
         let doc = clean_doc(&ty.doc, Language::Python);
         if !doc.is_empty() {
             out.push_str(&doc);
@@ -464,12 +513,47 @@ fn generate_configuration_doc(
                         raw
                     }
                 };
-                let _ = writeln!(out, "| `{}` | `{}` | {} | {} |", field.name, fty, fdefault, fdoc);
+                out.push_str(&template_env::render(
+                    "field_row.jinja",
+                    minijinja::context! { name => &field.name, ty => fty, default => fdefault, doc => fdoc },
+                ));
             }
             out.push('\n');
         }
 
         out.push_str("---\n\n");
+    }
+
+    // --- Enums referenced by config-type fields ---
+    let config_types_for_enum_filter: Vec<&TypeDef> = api
+        .types
+        .iter()
+        .filter(|t| {
+            (t.name.ends_with("Config") || t.name.ends_with("Options") || t.name.ends_with("Settings") || t.has_default)
+                && !t.is_opaque
+                && !is_update_type(&t.name)
+        })
+        .collect();
+
+    let mut referenced_enums: Vec<&EnumDef> = api
+        .enums
+        .iter()
+        .filter(|en| {
+            config_types_for_enum_filter.iter().any(|ty| {
+                ty.fields
+                    .iter()
+                    .any(|field| type_ref_contains_named(&field.ty, &en.name))
+            })
+        })
+        .collect();
+    referenced_enums.sort_by(|a, b| a.name.cmp(&b.name));
+
+    if !referenced_enums.is_empty() {
+        out.push_str("### Enums\n\n");
+        for en in &referenced_enums {
+            out.push_str(&render_enum_for_shared_doc(en));
+            out.push_str("\n---\n\n");
+        }
     }
 
     Ok(GeneratedFile {
@@ -511,13 +595,17 @@ fn generate_types_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<Gene
     // Collect non-update types
     let types_to_doc: Vec<&TypeDef> = api.types.iter().filter(|t| !is_update_type(&t.name)).collect();
 
-    if types_to_doc.is_empty() {
+    if types_to_doc.is_empty() && api.enums.is_empty() {
         out.push_str("No types defined.\n");
         return Ok(GeneratedFile {
             path: PathBuf::from(format!("{output_dir}/types.md")),
             content: out,
             generated_header: false,
         });
+    }
+
+    if types_to_doc.is_empty() {
+        out.push_str("No struct types defined.\n\n");
     }
 
     // Define category order
@@ -542,14 +630,20 @@ fn generate_types_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<Gene
         let Some(types) = groups.get(cat) else {
             continue;
         };
-        let _ = writeln!(out, "### {cat}\n");
+        out.push_str(&template_env::render(
+            "heading.jinja",
+            minijinja::context! { marker => "###", title => cat },
+        ));
 
         if cat == "Configuration Types" {
             out.push_str("See [Configuration Reference](configuration.md) for detailed defaults and language-specific representations.\n\n");
         }
 
         for ty in types {
-            let _ = writeln!(out, "#### {}\n", ty.name);
+            out.push_str(&template_env::render(
+                "heading.jinja",
+                minijinja::context! { marker => "####", title => &ty.name },
+            ));
 
             let doc = clean_doc(&ty.doc, Language::Python);
             if !doc.is_empty() {
@@ -577,7 +671,10 @@ fn generate_types_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<Gene
                             raw
                         }
                     };
-                    let _ = writeln!(out, "| `{}` | `{}` | {} | {} |", field.name, fty, fdefault, fdoc);
+                    out.push_str(&template_env::render(
+                        "field_row.jinja",
+                        minijinja::context! { name => &field.name, ty => fty, default => fdefault, doc => fdoc },
+                    ));
                 }
                 out.push('\n');
             }
@@ -586,11 +683,122 @@ fn generate_types_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<Gene
         }
     }
 
+    // --- Enums section ---
+    if !api.enums.is_empty() {
+        let mut sorted_enums: Vec<&EnumDef> = api.enums.iter().collect();
+        sorted_enums.sort_by(|a, b| a.name.cmp(&b.name));
+
+        out.push_str("### Enums\n\n");
+        for en in &sorted_enums {
+            out.push_str(&render_enum_for_shared_doc(en));
+            out.push_str("\n---\n\n");
+        }
+    }
+
     Ok(GeneratedFile {
         path: PathBuf::from(format!("{output_dir}/types.md")),
         content: out,
         generated_header: false,
     })
+}
+
+/// Render an enum for shared (language-neutral) documentation pages.
+///
+/// Uses Rust-canonical variant names and type representations, matching the
+/// style used by `generate_types_doc` and `generate_configuration_doc`.
+fn render_enum_for_shared_doc(en: &EnumDef) -> String {
+    let mut out = String::new();
+
+    out.push_str(&template_env::render(
+        "heading.jinja",
+        minijinja::context! { marker => "####", title => &en.name },
+    ));
+
+    let doc = clean_doc(&en.doc, Language::Rust);
+    if !doc.is_empty() {
+        out.push_str(&doc);
+        out.push('\n');
+        out.push('\n');
+    }
+
+    let has_wire_rename = en.serde_rename_all.is_some() || en.variants.iter().any(|v| v.serde_rename.is_some());
+
+    if has_wire_rename {
+        out.push_str("| Variant | Wire value | Description |\n");
+        out.push_str("|---------|------------|-------------|\n");
+    } else {
+        out.push_str("| Variant | Description |\n");
+        out.push_str("|---------|-------------|\n");
+    }
+
+    for variant in &en.variants {
+        let mut vdoc = if !variant.doc.is_empty() {
+            clean_doc_inline(&variant.doc, Language::Rust)
+        } else {
+            generate_enum_variant_description(&variant.name)
+        };
+        if !variant.fields.is_empty() {
+            let fields_desc: Vec<String> = variant
+                .fields
+                .iter()
+                .map(|f| {
+                    let fty = format_type_ref_rust(&f.ty, false);
+                    format!("`{}`: `{}`", f.name, fty)
+                })
+                .collect();
+            vdoc = format!("{vdoc} — Fields: {}", fields_desc.join(", "));
+        }
+        if has_wire_rename {
+            let wire = wire_variant_value(
+                &variant.name,
+                en.serde_rename_all.as_deref(),
+                variant.serde_rename.as_deref(),
+            );
+            out.push_str(&template_env::render(
+                "wire_variant_row.jinja",
+                minijinja::context! { name => &variant.name, wire => wire, doc => vdoc },
+            ));
+        } else {
+            out.push_str(&template_env::render(
+                "variant_row.jinja",
+                minijinja::context! { name => &variant.name, doc => vdoc },
+            ));
+        }
+    }
+
+    out
+}
+
+/// Compute the JSON/TOML wire value for an enum variant, applying
+/// `#[serde(rename = "...")]` first and then `#[serde(rename_all = "...")]`
+/// to the variant's PascalCase name. Falls back to the variant name verbatim
+/// when neither attribute applies.
+fn wire_variant_value(name: &str, rename_all: Option<&str>, explicit_rename: Option<&str>) -> String {
+    if let Some(r) = explicit_rename {
+        return r.to_string();
+    }
+    use heck::{ToKebabCase, ToShoutyKebabCase, ToShoutySnakeCase, ToSnakeCase};
+    match rename_all {
+        Some("lowercase") => name.to_lowercase(),
+        Some("UPPERCASE") => name.to_uppercase(),
+        Some("snake_case") => name.to_snake_case(),
+        Some("SCREAMING_SNAKE_CASE") => name.to_shouty_snake_case(),
+        Some("kebab-case") => name.to_kebab_case(),
+        Some("SCREAMING-KEBAB-CASE") => name.to_shouty_kebab_case(),
+        Some("camelCase") => to_camel_case(name),
+        Some("PascalCase") | None => name.to_string(),
+        Some(_) => name.to_string(),
+    }
+}
+
+/// True if `ty` (or any wrapper layer of it: Option/Vec/Map) names the given type.
+fn type_ref_contains_named(ty: &TypeRef, name: &str) -> bool {
+    match ty {
+        TypeRef::Named(path) => path.rsplit("::").next().unwrap_or(path) == name,
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => type_ref_contains_named(inner, name),
+        TypeRef::Map(k, v) => type_ref_contains_named(k, name) || type_ref_contains_named(v, name),
+        _ => false,
+    }
 }
 
 /// Format a TypeRef as a Rust-like canonical type string (language-neutral).
@@ -655,7 +863,10 @@ fn generate_errors_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<Gen
     out.push_str("All error types thrown by the library across all languages.\n\n");
 
     for err in &api.errors {
-        let _ = writeln!(out, "### {}\n", err.name);
+        out.push_str(&template_env::render(
+            "heading.jinja",
+            minijinja::context! { marker => "###", title => &err.name },
+        ));
 
         let doc = clean_doc(&err.doc, Language::Python);
         if !doc.is_empty() {
@@ -673,7 +884,10 @@ fn generate_errors_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<Gen
             } else {
                 generate_error_variant_description(&variant.name)
             };
-            let _ = writeln!(out, "| `{}` | {} | {} |", variant.name, tmpl, vdoc);
+            out.push_str(&template_env::render(
+                "error_message_row.jinja",
+                minijinja::context! { name => &variant.name, message => tmpl, doc => vdoc },
+            ));
         }
         out.push('\n');
         out.push_str("---\n\n");
@@ -704,6 +918,7 @@ mod tests {
             functions: vec![],
             enums: vec![],
             errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         };
         let config = make_test_config();
 
@@ -785,6 +1000,7 @@ mod tests {
             }],
             enums: vec![],
             errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         };
         let config = make_test_config();
         let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
@@ -833,9 +1049,11 @@ mod tests {
                 is_copy: false,
                 has_serde: false,
                 serde_tag: None,
+                serde_untagged: false,
                 serde_rename_all: None,
             }],
             errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         };
         let config = make_test_config();
         let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
@@ -849,6 +1067,201 @@ mod tests {
             "Python variant must be SCREAMING_SNAKE"
         );
         assert!(lang_file.content.contains("PLAIN"));
+    }
+
+    #[test]
+    fn test_generate_types_doc_renders_enum_variants() {
+        use alef_core::ir::EnumVariant;
+        let api = ApiSurface {
+            crate_name: "test".into(),
+            version: "0.1.0".into(),
+            types: vec![],
+            functions: vec![],
+            enums: vec![EnumDef {
+                name: "TableModel".into(),
+                rust_path: "test::TableModel".into(),
+                original_rust_path: String::new(),
+                variants: vec![
+                    EnumVariant {
+                        name: "Tatr".into(),
+                        fields: vec![],
+                        doc: "TATR transformer (default).".into(),
+                        is_default: true,
+                        serde_rename: None,
+                        is_tuple: false,
+                    },
+                    EnumVariant {
+                        name: "SlanetWired".into(),
+                        fields: vec![],
+                        doc: String::new(),
+                        is_default: false,
+                        serde_rename: None,
+                        is_tuple: false,
+                    },
+                ],
+                doc: "Table structure model.".into(),
+                cfg: None,
+                is_copy: true,
+                has_serde: true,
+                serde_tag: None,
+                serde_untagged: false,
+                serde_rename_all: None,
+            }],
+            errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
+        };
+        let config = make_test_config();
+        let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
+        let types_file = files
+            .iter()
+            .find(|f| f.path.to_str().unwrap().contains("types"))
+            .unwrap();
+        assert!(types_file.content.contains("### Enums"));
+        assert!(types_file.content.contains("#### TableModel"));
+        assert!(types_file.content.contains("Table structure model."));
+        assert!(types_file.content.contains("`Tatr`"));
+        assert!(types_file.content.contains("TATR transformer"));
+        assert!(types_file.content.contains("`SlanetWired`"));
+    }
+
+    #[test]
+    fn test_render_enum_for_shared_doc_emits_wire_value_column_when_rename_all_set() {
+        use alef_core::ir::EnumVariant;
+        let en = EnumDef {
+            name: "HtmlTheme".into(),
+            rust_path: "test::HtmlTheme".into(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Default".into(),
+                    fields: vec![],
+                    doc: "Default theme.".into(),
+                    is_default: true,
+                    serde_rename: None,
+                    is_tuple: false,
+                },
+                EnumVariant {
+                    name: "Github".into(),
+                    fields: vec![],
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                    is_tuple: false,
+                },
+            ],
+            doc: "HTML theme.".into(),
+            cfg: None,
+            is_copy: false,
+            has_serde: true,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: Some("lowercase".into()),
+        };
+        let out = render_enum_for_shared_doc(&en);
+        assert!(out.contains("| Variant | Wire value | Description |"));
+        assert!(out.contains("| `Default` | `default` |"));
+        assert!(out.contains("| `Github` | `github` |"));
+    }
+
+    #[test]
+    fn test_generate_configuration_doc_renders_referenced_enums_only() {
+        use alef_core::ir::{CoreWrapper, EnumVariant, FieldDef};
+        let api = ApiSurface {
+            crate_name: "mylib".into(),
+            version: "0.1.0".into(),
+            types: vec![TypeDef {
+                name: "ImageConfig".into(),
+                rust_path: "mylib::ImageConfig".into(),
+                original_rust_path: String::new(),
+                fields: vec![FieldDef {
+                    name: "format".into(),
+                    ty: TypeRef::Named("mylib::ImageFormat".into()),
+                    optional: false,
+                    default: None,
+                    doc: "Output image format.".into(),
+                    sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    typed_default: None,
+                    core_wrapper: CoreWrapper::None,
+                    vec_inner_core_wrapper: CoreWrapper::None,
+                    newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
+                }],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                doc: "Image config.".into(),
+                cfg: None,
+                is_trait: false,
+                has_default: true,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+            }],
+            functions: vec![],
+            enums: vec![
+                EnumDef {
+                    name: "ImageFormat".into(),
+                    rust_path: "mylib::ImageFormat".into(),
+                    original_rust_path: String::new(),
+                    variants: vec![EnumVariant {
+                        name: "Png".into(),
+                        fields: vec![],
+                        doc: "PNG output.".into(),
+                        is_default: true,
+                        serde_rename: None,
+                        is_tuple: false,
+                    }],
+                    doc: "Image format enum.".into(),
+                    cfg: None,
+                    is_copy: true,
+                    has_serde: true,
+                    serde_tag: None,
+                    serde_untagged: false,
+                    serde_rename_all: None,
+                },
+                EnumDef {
+                    name: "Unrelated".into(),
+                    rust_path: "mylib::Unrelated".into(),
+                    original_rust_path: String::new(),
+                    variants: vec![EnumVariant {
+                        name: "A".into(),
+                        fields: vec![],
+                        doc: String::new(),
+                        is_default: false,
+                        serde_rename: None,
+                        is_tuple: false,
+                    }],
+                    doc: "Not referenced by any config type.".into(),
+                    cfg: None,
+                    is_copy: true,
+                    has_serde: true,
+                    serde_tag: None,
+                    serde_untagged: false,
+                    serde_rename_all: None,
+                },
+            ],
+            errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
+        };
+        let config = make_test_config();
+        let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
+        let cfg_file = files
+            .iter()
+            .find(|f| f.path.to_str().unwrap().contains("configuration"))
+            .unwrap();
+        assert!(cfg_file.content.contains("### Enums"));
+        assert!(cfg_file.content.contains("#### ImageFormat"));
+        assert!(
+            !cfg_file.content.contains("#### Unrelated"),
+            "configuration.md must filter out enums not referenced by any config-type field"
+        );
     }
 
     #[test]
@@ -875,6 +1288,8 @@ mod tests {
                     core_wrapper: CoreWrapper::None,
                     vec_inner_core_wrapper: CoreWrapper::None,
                     newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
                 }],
                 methods: vec![],
                 is_opaque: false,
@@ -893,6 +1308,7 @@ mod tests {
             functions: vec![],
             enums: vec![],
             errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         };
         let config = make_test_config();
         let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
@@ -939,6 +1355,7 @@ mod tests {
                 ],
                 doc: "Errors from the conversion API.".to_string(),
             }],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         };
         let config = make_test_config();
         let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
@@ -1006,6 +1423,7 @@ mod tests {
             }],
             enums: vec![],
             errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         };
         let config = make_test_config();
         let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();

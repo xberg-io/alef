@@ -13,7 +13,7 @@ use std::collections::HashSet;
 /// All recognised release target names.
 pub const ALL_RELEASE_TARGETS: &[&str] = &[
     "python", "node", "ruby", "cli", "crates", "docker", "homebrew", "java", "csharp", "go", "wasm", "php", "elixir",
-    "r", "c-ffi",
+    "r", "c-ffi", "dart", "swift", "gleam", "zig", "kotlin",
 ];
 
 /// Computed release metadata.
@@ -256,6 +256,9 @@ fn normalise_target(t: &str) -> &str {
         "r" | "rproject" => "r",
         "elixir" | "hex" => "elixir",
         "c-ffi" | "c_ffi" | "cffi" => "c-ffi",
+        "dart" | "flutter" | "pub" => "dart",
+        "swift" | "spm" => "swift",
+        "kotlin" | "kt" => "kotlin",
         other => other,
     }
 }
@@ -359,5 +362,35 @@ mod tests {
         // c-ffi aliases
         assert_eq!(normalise_target("cffi"), "c-ffi");
         assert_eq!(normalise_target("c_ffi"), "c-ffi");
+        // dart aliases
+        assert_eq!(normalise_target("flutter"), "dart");
+        assert_eq!(normalise_target("pub"), "dart");
+        // swift aliases
+        assert_eq!(normalise_target("spm"), "swift");
+        // kotlin aliases
+        assert_eq!(normalise_target("kt"), "kotlin");
+    }
+
+    #[test]
+    fn new_languages_emit_release_flags() {
+        let meta = compute("v1.0.0", "all", None, "release", false, false, None).unwrap();
+        let json_str = meta.to_json().unwrap();
+        let val: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        for lang in ["dart", "swift", "gleam", "zig", "kotlin"] {
+            let key = format!("release_{lang}");
+            assert!(val[&key].as_bool().unwrap(), "expected {key}=true when --targets all");
+        }
+    }
+
+    #[test]
+    fn new_languages_individually_selectable() {
+        for lang in ["dart", "swift", "gleam", "zig", "kotlin"] {
+            let meta = compute("v1.0.0", lang, None, "workflow_dispatch", false, false, None).unwrap();
+            assert!(
+                meta.targets.get(lang).copied().unwrap_or(false),
+                "{lang} should be enabled when --targets {lang}"
+            );
+            assert_eq!(meta.release_targets, lang);
+        }
     }
 }

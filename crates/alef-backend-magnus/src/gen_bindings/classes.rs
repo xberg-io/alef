@@ -3,7 +3,7 @@
 use ahash::AHashSet;
 use alef_codegen::builder::ImplBuilder;
 use alef_codegen::generators;
-use alef_codegen::shared::{constructor_parts, function_params};
+use alef_codegen::shared::function_params;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::ir::{EnumDef, FieldDef, MethodDef, ReceiverKind, TypeDef, TypeRef};
 
@@ -48,15 +48,25 @@ pub(super) fn gen_opaque_struct(typ: &TypeDef, core_import: &str, module_name: &
 }
 
 /// Generate Magnus methods for an opaque struct (delegates to self.inner).
+///
+/// `streaming_method_names` lists method names whose default async-stub emission
+/// should be skipped — the streaming module emits a dedicated, hand-rolled
+/// implementation for those methods (yielding to a Ruby block / returning an
+/// Enumerator) and registers it separately.
 pub(super) fn gen_opaque_struct_methods(
     typ: &TypeDef,
     mapper: &MagnusMapper,
     opaque_types: &AHashSet<String>,
+    streaming_method_names: &AHashSet<String>,
 ) -> String {
     let mut impl_builder = ImplBuilder::new(&typ.name);
 
     for method in &typ.methods {
         if !method.is_static {
+            if streaming_method_names.contains(&method.name) {
+                // Skip — emitted via streaming module.
+                continue;
+            }
             if method.is_async {
                 impl_builder.add_method(&gen_opaque_async_instance_method(
                     method,
@@ -266,22 +276,16 @@ pub(super) fn gen_struct_methods(
             .collect();
 
         if !filtered_fields.is_empty() {
-            // Generate config builder using hash-based constructor ONLY for types with >15 fields.
-            // This matches the registration code which also only uses variadic arity for >15 fields.
-            // Types with has_default but <=15 fields use positional constructors with Option params.
-            // Magnus function! macro only supports arity -2..=15, so types with more than 15
-            // fields must use the hash-based constructor.
-            if filtered_fields.len() > 15 {
-                // Create a temporary type with filtered fields for constructor generation
-                let mut filtered_typ = typ.clone();
-                filtered_typ.fields = filtered_fields.clone();
-                let config_method = alef_codegen::config_gen::gen_magnus_kwargs_constructor(&filtered_typ, &map_fn);
-                impl_builder.add_method(&config_method);
-            } else {
-                let (param_list, _, assignments) = constructor_parts(&filtered_fields, &map_fn);
-                let new_method = format!("fn new({param_list}) -> Self {{\n        Self {{ {assignments} }}\n    }}");
-                impl_builder.add_method(&new_method);
-            }
+            // Always emit a kwargs-based constructor (variadic arity -1) so Ruby callers can
+            // pass `Type.new(field1: ..., field2: ...)` for any has_default type, regardless
+            // of field count. Previously only types with >15 fields used kwargs because the
+            // Magnus `function!` macro caps positional arity at 15 — the small-type branch
+            // produced positional constructors that don't match how e2e tests invoke them
+            // (and how Python/Node JS-side construct equivalents).
+            let mut filtered_typ = typ.clone();
+            filtered_typ.fields = filtered_fields.clone();
+            let config_method = alef_codegen::config_gen::gen_magnus_kwargs_constructor(&filtered_typ, &map_fn);
+            impl_builder.add_method(&config_method);
         }
     }
 
@@ -560,6 +564,7 @@ pub(super) fn gen_enum(enum_def: &EnumDef) -> String {
             enum_name => &enum_def.name,
             has_data => has_data,
             serde_tag => &enum_def.serde_tag,
+            serde_rename_all => &enum_def.serde_rename_all,
             variants => &variants,
             first_variant => first_variant,
             first_variant_default => &first_variant_default,
@@ -610,86 +615,62 @@ fn field_type_for_serde(field: &FieldDef) -> String {
     }
 }
 
-/// Helper to filter generated code by removing field assignments for unsafe fields.
-/// Removes lines where the field_name (before ':') matches an unsafe field.
-fn filter_unsafe_field_assignments(full_code: &str, typ: &TypeDef) -> String {
-    let mut filtered_lines = Vec::new();
-    let mut in_struct_body = false;
+/// Bridge handle types that cannot cross the Send + Sync boundary required by Magnus.
+/// Their fields are excluded from binding structs and From impls.
+const THREAD_UNSAFE_BRIDGE_TYPES: &[&str] = &["VisitorHandle"];
 
-    for line in full_code.lines() {
-        let trimmed = line.trim();
-
-        // Track if we're inside the struct initialization
-        if trimmed.contains("Self {") || trimmed.contains("} {") {
-            in_struct_body = true;
-            filtered_lines.push(line.to_string());
-            continue;
-        }
-
-        if in_struct_body {
-            if trimmed.starts_with('}') {
-                in_struct_body = false;
-                filtered_lines.push(line.to_string());
-                continue;
-            }
-
-            // Extract field name from assignment like "field_name: val.field_name.into(),"
-            let field_name = if let Some(colon_idx) = trimmed.find(':') {
-                trimmed[..colon_idx].trim()
-            } else {
-                ""
-            };
-
-            // Skip if this is a thread-unsafe field
-            if typ
-                .fields
-                .iter()
-                .any(|f| f.name == field_name && is_thread_unsafe_field(f))
-            {
-                continue;
-            }
-        }
-
-        filtered_lines.push(line.to_string());
-    }
-
-    filtered_lines.join("\n")
-}
-
-/// Generate a custom From impl for binding → core conversion that filters thread-unsafe fields.
-/// This is used instead of alef_codegen's gen_from_binding_to_core to exclude fields like
-/// VisitorHandle that cannot be Send + Sync. We post-process the generated code to remove
-/// unsafe field assignments.
+/// Generate a From impl for binding → core conversion that excludes thread-unsafe fields.
+///
+/// Fields whose type references a bridge handle (e.g. `VisitorHandle`) are dropped via
+/// `ConversionConfig::exclude_types`, which filters at codegen time. The previous
+/// post-processing line filter broke when the IR's `cfg` was stripped for active
+/// features, leaving the field present and emitted into the From body.
 pub(super) fn gen_from_binding_to_core_filtered(typ: &TypeDef, core_import: &str) -> String {
-    // First get the full generated code from alef_codegen
-    let full_code = alef_codegen::conversions::gen_from_binding_to_core(typ, core_import);
-
-    // If there are no thread-unsafe fields, just return the full code
     if !typ.fields.iter().any(is_thread_unsafe_field) {
-        return full_code;
+        return alef_codegen::conversions::gen_from_binding_to_core(typ, core_import);
     }
 
-    filter_unsafe_field_assignments(&full_code, typ)
+    let exclude_owned: Vec<String> = THREAD_UNSAFE_BRIDGE_TYPES.iter().map(|s| (*s).to_string()).collect();
+    let cfg = alef_codegen::conversions::ConversionConfig {
+        exclude_types: exclude_owned.as_slice(),
+        ..Default::default()
+    };
+    alef_codegen::conversions::gen_from_binding_to_core_cfg(typ, core_import, &cfg)
 }
 
-/// Generate a custom From impl for core → binding conversion that filters thread-unsafe fields.
-/// This is used instead of alef_codegen's gen_from_core_to_binding to exclude fields like
-/// VisitorHandle that cannot be Send + Sync. We post-process the generated code to remove
-/// unsafe field assignments.
+/// Generate a From impl for core → binding conversion that excludes thread-unsafe fields.
+/// Mirrors `gen_from_binding_to_core_filtered` for the opposite direction.
 pub(super) fn gen_from_core_to_binding_filtered(
     typ: &TypeDef,
     core_import: &str,
     opaque_types: &AHashSet<String>,
 ) -> String {
-    // First get the full generated code from alef_codegen
-    let full_code = alef_codegen::conversions::gen_from_core_to_binding(typ, core_import, opaque_types);
-
-    // If there are no thread-unsafe fields, just return the full code
     if !typ.fields.iter().any(is_thread_unsafe_field) {
-        return full_code;
+        return alef_codegen::conversions::gen_from_core_to_binding(typ, core_import, opaque_types);
     }
 
-    filter_unsafe_field_assignments(&full_code, typ)
+    let exclude_owned: Vec<String> = THREAD_UNSAFE_BRIDGE_TYPES.iter().map(|s| (*s).to_string()).collect();
+    let cfg = alef_codegen::conversions::ConversionConfig {
+        exclude_types: exclude_owned.as_slice(),
+        opaque_types: Some(opaque_types),
+        ..Default::default()
+    };
+    alef_codegen::conversions::gen_from_core_to_binding_cfg(typ, core_import, opaque_types, &cfg)
+}
+
+/// Generate a Magnus-specific Default impl that delegates to the core type's Default.
+/// This is used for structs with has_default=true to ensure proper defaults are used
+/// instead of field-level Default::default() which may not match the core's semantics
+/// (e.g., SecurityLimits uses 0 for usize fields but core defaults them to 500MB/100/10K).
+pub(super) fn gen_magnus_default_impl(typ: &TypeDef, core_import: &str) -> String {
+    let core_path = alef_codegen::conversions::core_type_path(typ, core_import);
+    format!(
+        "impl Default for {} {{\n    \
+         fn default() -> Self {{\n        \
+         {core_path}::default().into()\n    \
+         }}\n}}\n",
+        typ.name
+    )
 }
 
 #[cfg(test)]
@@ -712,6 +693,8 @@ mod tests {
             core_wrapper: alef_core::ir::CoreWrapper::None,
             vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         }
     }
 
@@ -773,6 +756,7 @@ mod tests {
             is_copy: false,
             has_serde: false,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
         };
         let code = gen_enum(&enum_def);
@@ -792,6 +776,7 @@ mod tests {
             functions: vec![],
             enums: vec![],
             errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         };
         let code = gen_struct(&typ, &mapper, "TestLib", &api, false);
         assert!(code.contains("magnus::wrap"), "struct must have magnus::wrap");

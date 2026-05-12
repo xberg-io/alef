@@ -95,22 +95,25 @@ pub(super) fn gen_method(
                         let core_path = format!("{}::{}", core_import, name);
                         let err_conv = ".map_err(|e| wasm_bindgen::JsValue::from_str(&e.to_string()))";
                         if p.optional {
-                            serde_bindings.push_str(&format!(
-                                "let {n}_core: Option<{core_path}> = {n}.map(|v| \
-                                 serde_wasm_bindgen::from_value::<{core_path}>(v){err_conv})\
-                                 .transpose()?;\n    ",
-                                n = p.name,
-                                core_path = core_path,
-                                err_conv = err_conv,
+                            serde_bindings.push_str(&crate::template_env::render(
+                                "serde_named_optional",
+                                minijinja::context! {
+                                    param_name => &p.name,
+                                    core_path => &core_path,
+                                    err_conv => &err_conv,
+                                },
                             ));
+                            serde_bindings.push_str("    ");
                         } else {
-                            serde_bindings.push_str(&format!(
-                                "let {n}_core: {core_path} = \
-                                 serde_wasm_bindgen::from_value::<{core_path}>({n}){err_conv}?;\n    ",
-                                n = p.name,
-                                core_path = core_path,
-                                err_conv = err_conv,
+                            serde_bindings.push_str(&crate::template_env::render(
+                                "serde_named_required",
+                                minijinja::context! {
+                                    param_name => &p.name,
+                                    core_path => &core_path,
+                                    err_conv => &err_conv,
+                                },
                             ));
+                            serde_bindings.push_str("    ");
                         }
                     }
                 }

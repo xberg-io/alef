@@ -15,6 +15,7 @@ use anyhow::Result;
 use heck::ToUpperCamelCase;
 use std::collections::HashMap;
 use std::fmt::Write as FmtWrite;
+use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
 use super::E2eCodegen;
@@ -29,6 +30,7 @@ impl E2eCodegen for CSharpCodegen {
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
         config: &ResolvedCrateConfig,
+        _type_defs: &[alef_core::ir::TypeDef],
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
         let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
@@ -92,12 +94,25 @@ impl E2eCodegen for CSharpCodegen {
             generated_header: false,
         });
 
+        // Detect whether any fixture needs the mock-server (HTTP fixtures or
+        // fixtures with a `mock_response`). When present, the generated
+        // TestSetup.cs will spawn the mock-server via [ModuleInitializer]
+        // before any test loads — mirroring the Ruby spec_helper / Python
+        // conftest spawn pattern. Without this, every fixture-bound test
+        // failed with `LiterLlmException : builder error` because reqwest
+        // rejected the relative URL when MOCK_SERVER_URL was unset.
+        let needs_mock_server = groups
+            .iter()
+            .flat_map(|g| g.fixtures.iter())
+            .any(|f| f.needs_mock_server());
+
         // Emit a TestSetup.cs whose ModuleInitializer chdirs to test_documents
         // so fixture-relative paths like "docx/fake.docx" resolve correctly when
-        // dotnet test runs from bin/{Configuration}/{Tfm}.
+        // dotnet test runs from bin/{Configuration}/{Tfm}, and (when fixtures
+        // need it) spawns the mock-server binary.
         files.push(GeneratedFile {
             path: output_base.join("TestSetup.cs"),
-            content: render_test_setup(),
+            content: render_test_setup(needs_mock_server, &e2e_config.test_documents_dir),
             generated_header: true,
         });
 
@@ -179,67 +194,189 @@ fn render_csproj(pkg_name: &str, pkg_path: &str, pkg_version: &str, dep_mode: cr
             format!("    <ProjectReference Include=\"{pkg_path}\" />")
         }
     };
-    format!(
-        r#"<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <IsPackable>false</IsPackable>
-    <IsTestProject>true</IsTestProject>
-  </PropertyGroup>
-
-  <ItemGroup>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="{ms_test_sdk}" />
-    <PackageReference Include="xunit" Version="{xunit}" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="{xunit_runner}" />
-  </ItemGroup>
-
-  <ItemGroup>
-{pkg_ref}
-  </ItemGroup>
-</Project>
-"#,
-        ms_test_sdk = tv::nuget::MICROSOFT_NET_TEST_SDK,
-        xunit = tv::nuget::XUNIT,
-        xunit_runner = tv::nuget::XUNIT_RUNNER_VISUALSTUDIO,
+    crate::template_env::render(
+        "csharp/csproj.jinja",
+        minijinja::context! {
+            pkg_ref => pkg_ref,
+            microsoft_net_test_sdk_version => tv::nuget::MICROSOFT_NET_TEST_SDK,
+            xunit_version => tv::nuget::XUNIT,
+            xunit_runner_version => tv::nuget::XUNIT_RUNNER_VISUALSTUDIO,
+        },
     )
 }
 
-fn render_test_setup() -> String {
+fn render_test_setup(needs_mock_server: bool, test_documents_dir: &str) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
-    out.push_str(
-        r#"using System;
-using System.IO;
-using System.Runtime.CompilerServices;
-
-namespace Kreuzberg.E2eTests;
-
-internal static class TestSetup
-{
-    [ModuleInitializer]
-    internal static void Init()
-    {
-        // Walk up from the assembly directory until we find the repo root
-        // (the directory containing test_documents/) so that fixture paths
-        // like "docx/fake.docx" resolve regardless of where dotnet test
-        // launched the runner from.
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir != null)
-        {
-            var candidate = Path.Combine(dir.FullName, "test_documents");
-            if (Directory.Exists(candidate))
-            {
-                Directory.SetCurrentDirectory(candidate);
-                return;
-            }
-            dir = dir.Parent;
-        }
+    out.push_str("using System;\n");
+    out.push_str("using System.IO;\n");
+    if needs_mock_server {
+        out.push_str("using System.Diagnostics;\n");
     }
-}
-"#,
+    out.push_str("using System.Runtime.CompilerServices;\n\n");
+    out.push_str("namespace Kreuzberg.E2eTests;\n\n");
+    out.push_str("internal static class TestSetup\n");
+    out.push_str("{\n");
+    if needs_mock_server {
+        out.push_str("    private static Process? _mockServer;\n\n");
+    }
+    out.push_str("    [ModuleInitializer]\n");
+    out.push_str("    internal static void Init()\n");
+    out.push_str("    {\n");
+    let _ = writeln!(
+        out,
+        "        // Walk up from the assembly directory until we find the repo root"
     );
+    let _ = writeln!(
+        out,
+        "        // (the directory containing {test_documents_dir}/) so that fixture paths"
+    );
+    out.push_str("        // like \"docx/fake.docx\" resolve regardless of where dotnet test\n");
+    out.push_str("        // launched the runner from.\n");
+    out.push_str("        var dir = new DirectoryInfo(AppContext.BaseDirectory);\n");
+    out.push_str("        DirectoryInfo? repoRoot = null;\n");
+    out.push_str("        while (dir != null)\n");
+    out.push_str("        {\n");
+    let _ = writeln!(
+        out,
+        "            var candidate = Path.Combine(dir.FullName, \"{test_documents_dir}\");"
+    );
+    out.push_str("            if (Directory.Exists(candidate))\n");
+    out.push_str("            {\n");
+    out.push_str("                repoRoot = dir;\n");
+    out.push_str("                Directory.SetCurrentDirectory(candidate);\n");
+    out.push_str("                break;\n");
+    out.push_str("            }\n");
+    out.push_str("            dir = dir.Parent;\n");
+    out.push_str("        }\n");
+    if needs_mock_server {
+        out.push('\n');
+        out.push_str("        // Spawn the mock-server binary before any test loads, mirroring the\n");
+        out.push_str("        // Ruby spec_helper / Python conftest pattern. Honors a pre-set\n");
+        out.push_str("        // MOCK_SERVER_URL (e.g. set by `task` or CI) by skipping the spawn.\n");
+        out.push_str("        // Without this, every fixture-bound test failed with\n");
+        out.push_str("        // `<Lib>Exception : builder error` because reqwest rejected the\n");
+        out.push_str("        // relative URL produced by `\"\" + \"/fixtures/<id>\"`.\n");
+        out.push_str("        var preset = Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\");\n");
+        out.push_str("        if (!string.IsNullOrEmpty(preset))\n");
+        out.push_str("        {\n");
+        out.push_str("            return;\n");
+        out.push_str("        }\n");
+        out.push_str("        if (repoRoot == null)\n");
+        out.push_str("        {\n");
+        let _ = writeln!(
+            out,
+            "            throw new InvalidOperationException(\"TestSetup: could not locate repo root ({test_documents_dir}/ not found)\");"
+        );
+        out.push_str("        }\n");
+        out.push_str("        var bin = Path.Combine(\n");
+        out.push_str("            repoRoot.FullName,\n");
+        out.push_str("            \"e2e\", \"rust\", \"target\", \"release\", \"mock-server\");\n");
+        out.push_str("        if (OperatingSystem.IsWindows())\n");
+        out.push_str("        {\n");
+        out.push_str("            bin += \".exe\";\n");
+        out.push_str("        }\n");
+        out.push_str("        var fixturesDir = Path.Combine(repoRoot.FullName, \"fixtures\");\n");
+        out.push_str("        if (!File.Exists(bin))\n");
+        out.push_str("        {\n");
+        out.push_str("            throw new InvalidOperationException(\n");
+        out.push_str("                $\"TestSetup: mock-server binary not found at {bin} — run: cargo build --manifest-path e2e/rust/Cargo.toml --bin mock-server --release\");\n");
+        out.push_str("        }\n");
+        out.push_str("        var psi = new ProcessStartInfo\n");
+        out.push_str("        {\n");
+        out.push_str("            FileName = bin,\n");
+        out.push_str("            Arguments = $\"\\\"{fixturesDir}\\\"\",\n");
+        out.push_str("            RedirectStandardInput = true,\n");
+        out.push_str("            RedirectStandardOutput = true,\n");
+        out.push_str("            RedirectStandardError = true,\n");
+        out.push_str("            UseShellExecute = false,\n");
+        out.push_str("        };\n");
+        out.push_str("        _mockServer = Process.Start(psi)\n");
+        out.push_str(
+            "            ?? throw new InvalidOperationException(\"TestSetup: failed to start mock-server\");\n",
+        );
+        out.push_str("        // The mock-server prints MOCK_SERVER_URL=<url>, then optionally\n");
+        out.push_str("        // MOCK_SERVERS={...} for host-root fixtures. Read up to 16 lines.\n");
+        out.push_str("        string? url = null;\n");
+        out.push_str("        for (int i = 0; i < 16; i++)\n");
+        out.push_str("        {\n");
+        out.push_str("            var line = _mockServer.StandardOutput.ReadLine();\n");
+        out.push_str("            if (line == null)\n");
+        out.push_str("            {\n");
+        out.push_str("                break;\n");
+        out.push_str("            }\n");
+        out.push_str("            const string urlPrefix = \"MOCK_SERVER_URL=\";\n");
+        out.push_str("            const string serversPrefix = \"MOCK_SERVERS=\";\n");
+        out.push_str("            if (line.StartsWith(urlPrefix, StringComparison.Ordinal))\n");
+        out.push_str("            {\n");
+        out.push_str("                url = line.Substring(urlPrefix.Length).Trim();\n");
+        out.push_str("            }\n");
+        out.push_str("            else if (line.StartsWith(serversPrefix, StringComparison.Ordinal))\n");
+        out.push_str("            {\n");
+        out.push_str("                var jsonVal = line.Substring(serversPrefix.Length).Trim();\n");
+        out.push_str("                Environment.SetEnvironmentVariable(\"MOCK_SERVERS\", jsonVal);\n");
+        out.push_str("                // Parse JSON map and set per-fixture env vars (MOCK_SERVER_<FIXTURE_ID>).\n");
+        out.push_str("                var matches = System.Text.RegularExpressions.Regex.Matches(\n");
+        out.push_str("                    jsonVal, \"\\\"([^\\\"]+)\\\":\\\"([^\\\"]+)\\\"\");\n");
+        out.push_str("                foreach (System.Text.RegularExpressions.Match m in matches)\n");
+        out.push_str("                {\n");
+        out.push_str("                    Environment.SetEnvironmentVariable(\n");
+        out.push_str("                        \"MOCK_SERVER_\" + m.Groups[1].Value.ToUpperInvariant(),\n");
+        out.push_str("                        m.Groups[2].Value);\n");
+        out.push_str("                }\n");
+        out.push_str("                break;\n");
+        out.push_str("            }\n");
+        out.push_str("            else if (url != null)\n");
+        out.push_str("            {\n");
+        out.push_str("                break;\n");
+        out.push_str("            }\n");
+        out.push_str("        }\n");
+        out.push_str("        if (string.IsNullOrEmpty(url))\n");
+        out.push_str("        {\n");
+        out.push_str("            try { _mockServer.Kill(true); } catch { }\n");
+        out.push_str("            throw new InvalidOperationException(\"TestSetup: mock-server did not emit MOCK_SERVER_URL\");\n");
+        out.push_str("        }\n");
+        out.push_str("        Environment.SetEnvironmentVariable(\"MOCK_SERVER_URL\", url);\n");
+        out.push_str("        // TCP-readiness probe: ensure axum::serve is accepting before tests start.\n");
+        out.push_str("        // The mock-server binds the TcpListener synchronously then prints the URL\n");
+        out.push_str("        // before tokio::spawn(axum::serve(...)) is polled, so under xUnit\n");
+        out.push_str("        // class-parallel default tests can race startup. Poll-connect (max 5s,\n");
+        out.push_str("        // 50ms backoff) until success.\n");
+        out.push_str("        var healthUri = new System.Uri(url);\n");
+        out.push_str("        var deadline = System.Diagnostics.Stopwatch.StartNew();\n");
+        out.push_str("        while (deadline.ElapsedMilliseconds < 5000)\n");
+        out.push_str("        {\n");
+        out.push_str("            try\n");
+        out.push_str("            {\n");
+        out.push_str("                using var probe = new System.Net.Sockets.TcpClient();\n");
+        out.push_str("                var task = probe.ConnectAsync(healthUri.Host, healthUri.Port);\n");
+        out.push_str("                if (task.Wait(100) && probe.Connected) { break; }\n");
+        out.push_str("            }\n");
+        out.push_str("            catch (System.Exception) { }\n");
+        out.push_str("            System.Threading.Thread.Sleep(50);\n");
+        out.push_str("        }\n");
+        out.push_str("        // Drain stdout/stderr so the child does not block on a full pipe.\n");
+        out.push_str("        var server = _mockServer;\n");
+        out.push_str("        var stdoutThread = new System.Threading.Thread(() =>\n");
+        out.push_str("        {\n");
+        out.push_str("            try { server.StandardOutput.ReadToEnd(); } catch { }\n");
+        out.push_str("        }) { IsBackground = true };\n");
+        out.push_str("        stdoutThread.Start();\n");
+        out.push_str("        var stderrThread = new System.Threading.Thread(() =>\n");
+        out.push_str("        {\n");
+        out.push_str("            try { server.StandardError.ReadToEnd(); } catch { }\n");
+        out.push_str("        }) { IsBackground = true };\n");
+        out.push_str("        stderrThread.Start();\n");
+        out.push_str("        // Tear the child down on assembly unload / process exit by closing\n");
+        out.push_str("        // its stdin (the mock-server treats stdin EOF as a shutdown signal).\n");
+        out.push_str("        AppDomain.CurrentDomain.ProcessExit += (_, _) =>\n");
+        out.push_str("        {\n");
+        out.push_str("            try { _mockServer.StandardInput.Close(); } catch { }\n");
+        out.push_str("            try { if (!_mockServer.WaitForExit(2000)) { _mockServer.Kill(true); } } catch { }\n");
+        out.push_str("        };\n");
+    }
+    out.push_str("    }\n");
+    out.push_str("}\n");
     out
 }
 
@@ -261,42 +398,33 @@ fn render_test_file(
     enum_fields: &HashMap<String, String>,
     nested_types: &HashMap<String, String>,
 ) -> String {
-    let mut out = String::new();
-    out.push_str(&hash::header(CommentStyle::DoubleSlash));
-    // Always import System.Text.Json for the shared JsonOptions field.
-    let _ = writeln!(out, "using System;");
-    let _ = writeln!(out, "using System.Collections.Generic;");
-    let _ = writeln!(out, "using System.Linq;");
-    let _ = writeln!(out, "using System.Net.Http;");
-    let _ = writeln!(out, "using System.Text;");
-    let _ = writeln!(out, "using System.Text.Json;");
-    let _ = writeln!(out, "using System.Text.Json.Serialization;");
-    let _ = writeln!(out, "using System.Threading.Tasks;");
-    let _ = writeln!(out, "using Xunit;");
-    let _ = writeln!(out, "using {namespace};");
-    let _ = writeln!(out, "using static {namespace}.{class_name};");
-    let _ = writeln!(out);
-    let _ = writeln!(out, "namespace Kreuzberg.E2e;");
-    let _ = writeln!(out);
-    let _ = writeln!(out, "/// <summary>E2e tests for category: {category}.</summary>");
-    let _ = writeln!(out, "public class {test_class}");
-    let _ = writeln!(out, "{{");
-    // Shared options used when deserializing config JSON in test setup.
-    // Mirrors the options used by the library to ensure enum values round-trip correctly.
-    let _ = writeln!(
-        out,
-        "    private static readonly JsonSerializerOptions ConfigOptions = new() {{ Converters = {{ new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) }}, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault }};"
-    );
-    let _ = writeln!(out);
+    // Collect using imports
+    let mut using_imports = String::new();
+    using_imports.push_str("using System;\n");
+    using_imports.push_str("using System.Collections.Generic;\n");
+    using_imports.push_str("using System.Linq;\n");
+    using_imports.push_str("using System.Net.Http;\n");
+    using_imports.push_str("using System.Text;\n");
+    using_imports.push_str("using System.Text.Json;\n");
+    using_imports.push_str("using System.Text.Json.Serialization;\n");
+    using_imports.push_str("using System.Threading.Tasks;\n");
+    using_imports.push_str("using Xunit;\n");
+    using_imports.push_str(&format!("using {namespace};\n"));
+    using_imports.push_str(&format!("using static {namespace}.{class_name};\n"));
+
+    // Shared options field
+    let config_options_field = "    private static readonly JsonSerializerOptions ConfigOptions = new() { Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) }, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault };";
 
     // Visitor class declarations accumulated across all fixtures — emitted as
     // private nested classes inside the test class but outside any method body.
     // C# does not allow local class declarations inside method bodies.
     let mut visitor_class_decls: Vec<String> = Vec::new();
 
+    // Build fixtures body
+    let mut fixtures_body = String::new();
     for (i, fixture) in fixtures.iter().enumerate() {
         render_test_method(
-            &mut out,
+            &mut fixtures_body,
             &mut visitor_class_decls,
             fixture,
             class_name,
@@ -312,18 +440,37 @@ fn render_test_file(
             nested_types,
         );
         if i + 1 < fixtures.len() {
-            let _ = writeln!(out);
+            fixtures_body.push('\n');
         }
     }
 
-    // Emit visitor helper classes at class scope (after test methods).
-    for decl in &visitor_class_decls {
-        let _ = writeln!(out);
-        let _ = writeln!(out, "{decl}");
+    // Build visitor classes string
+    let mut visitor_classes_str = String::new();
+    for (i, decl) in visitor_class_decls.iter().enumerate() {
+        if i > 0 {
+            visitor_classes_str.push('\n');
+        }
+        visitor_classes_str.push('\n');
+        // Indent each line by 4 spaces to nest inside the test class
+        for line in decl.lines() {
+            visitor_classes_str.push_str("    ");
+            visitor_classes_str.push_str(line);
+            visitor_classes_str.push('\n');
+        }
     }
 
-    let _ = writeln!(out, "}}");
-    out
+    let ctx = minijinja::context! {
+        header => hash::header(CommentStyle::DoubleSlash),
+        using_imports => using_imports,
+        category => category,
+        namespace => namespace,
+        test_class => test_class,
+        config_options_field => config_options_field,
+        fixtures_body => fixtures_body,
+        visitor_class_decls => visitor_classes_str,
+    };
+
+    crate::template_env::render("csharp/test_file.jinja", ctx)
 }
 
 // ---------------------------------------------------------------------------
@@ -401,21 +548,22 @@ impl client::TestClientRenderer for CSharpTestClientRenderer {
     /// Emit `[Fact]` (or `[Fact(Skip = "…")]` for skipped tests), the method
     /// signature, the opening brace, and the description comment.
     fn render_test_open(&self, out: &mut String, fn_name: &str, description: &str, skip_reason: Option<&str>) {
-        if let Some(reason) = skip_reason {
-            let escaped_reason = escape_csharp(reason);
-            let _ = writeln!(out, "    [Fact(Skip = \"{escaped_reason}\")]");
-            let _ = writeln!(out, "    public async Task Test_{fn_name}()");
-        } else {
-            let _ = writeln!(out, "    [Fact]");
-            let _ = writeln!(out, "    public async Task Test_{fn_name}()");
-        }
-        let _ = writeln!(out, "    {{");
-        let _ = writeln!(out, "        // {description}");
+        let escaped_reason = skip_reason.map(escape_csharp);
+        let rendered = crate::template_env::render(
+            "csharp/http_test_open.jinja",
+            minijinja::context! {
+                fn_name => fn_name,
+                description => description,
+                skip_reason => escaped_reason,
+            },
+        );
+        out.push_str(&rendered);
     }
 
     /// Emit the closing `}` for a test method.
     fn render_test_close(&self, out: &mut String) {
-        let _ = writeln!(out, "    }}");
+        let rendered = crate::template_env::render("csharp/http_test_close.jinja", minijinja::context! {});
+        out.push_str(&rendered);
     }
 
     /// Emit the `HttpRequestMessage` construction, headers, cookies, body, and
@@ -426,34 +574,21 @@ impl client::TestClientRenderer for CSharpTestClientRenderer {
         let method = to_csharp_http_method(ctx.method);
         let path = escape_csharp(ctx.path);
 
-        let _ = writeln!(
-            out,
-            "        var baseUrl = Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") ?? \"http://localhost:8080\";"
-        );
+        out.push_str("        var baseUrl = Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") ?? \"http://localhost:8080\";\n");
         // Disable auto-follow so redirect-status fixtures (3xx) can assert the
         // server's status code rather than the followed-target's status.
-        let _ = writeln!(
-            out,
-            "        using var handler = new System.Net.Http.HttpClientHandler {{ AllowAutoRedirect = false }};"
+        out.push_str(
+            "        using var handler = new System.Net.Http.HttpClientHandler { AllowAutoRedirect = false };\n",
         );
-        let _ = writeln!(
-            out,
-            "        using var client = new System.Net.Http.HttpClient(handler);"
-        );
-        let _ = writeln!(
-            out,
-            "        var request = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.{method}, $\"{{baseUrl}}{path}\");"
-        );
+        out.push_str("        using var client = new System.Net.Http.HttpClient(handler);\n");
+        out.push_str(&format!("        var request = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.{method}, $\"{{baseUrl}}{path}\");\n"));
 
         // Set body + Content-Type when a request body is present.
         if let Some(body) = ctx.body {
             let content_type = ctx.content_type.unwrap_or("application/json");
             let json_str = serde_json::to_string(body).unwrap_or_default();
             let escaped = escape_csharp(&json_str);
-            let _ = writeln!(
-                out,
-                "        request.Content = new System.Net.Http.StringContent(\"{escaped}\", System.Text.Encoding.UTF8, \"{content_type}\");"
-            );
+            out.push_str(&format!("        request.Content = new System.Net.Http.StringContent(\"{escaped}\", System.Text.Encoding.UTF8, \"{content_type}\");\n"));
         }
 
         // Add request headers (skip restricted headers that belong to Content.Headers).
@@ -463,10 +598,9 @@ impl client::TestClientRenderer for CSharpTestClientRenderer {
             }
             let escaped_name = escape_csharp(name);
             let escaped_value = escape_csharp(value);
-            let _ = writeln!(
-                out,
-                "        request.Headers.Add(\"{escaped_name}\", \"{escaped_value}\");"
-            );
+            out.push_str(&format!(
+                "        request.Headers.Add(\"{escaped_name}\", \"{escaped_value}\");\n"
+            ));
         }
 
         // Combine cookies into a single `Cookie` header.
@@ -474,15 +608,17 @@ impl client::TestClientRenderer for CSharpTestClientRenderer {
             let mut pairs: Vec<String> = ctx.cookies.iter().map(|(k, v)| format!("{k}={v}")).collect();
             pairs.sort();
             let cookie_header = escape_csharp(&pairs.join("; "));
-            let _ = writeln!(out, "        request.Headers.Add(\"Cookie\", \"{cookie_header}\");");
+            out.push_str(&format!(
+                "        request.Headers.Add(\"Cookie\", \"{cookie_header}\");\n"
+            ));
         }
 
-        let _ = writeln!(out, "        var response = await client.SendAsync(request);");
+        out.push_str("        var response = await client.SendAsync(request);\n");
     }
 
     /// Emit `Assert.Equal(status, (int)response.StatusCode)`.
     fn render_assert_status(&self, out: &mut String, _response_var: &str, status: u16) {
-        let _ = writeln!(out, "        Assert.Equal({status}, (int)response.StatusCode);");
+        out.push_str(&format!("        Assert.Equal({status}, (int)response.StatusCode);\n"));
     }
 
     /// Emit a response-header assertion.
@@ -498,33 +634,21 @@ impl client::TestClientRenderer for CSharpTestClientRenderer {
         let escaped_name = escape_csharp(name);
         match expected {
             "<<present>>" => {
-                let _ = writeln!(
-                    out,
-                    "        Assert.True({target}.Contains(\"{escaped_name}\"), \"expected header {escaped_name} to be present\");"
-                );
+                out.push_str(&format!("        Assert.True({target}.Contains(\"{escaped_name}\"), \"expected header {escaped_name} to be present\");\n"));
             }
             "<<absent>>" => {
-                let _ = writeln!(
-                    out,
-                    "        Assert.False({target}.Contains(\"{escaped_name}\"), \"expected header {escaped_name} to be absent\");"
-                );
+                out.push_str(&format!("        Assert.False({target}.Contains(\"{escaped_name}\"), \"expected header {escaped_name} to be absent\");\n"));
             }
             "<<uuid>>" => {
                 // UUID regex: 8-4-4-4-12 hex groups.
-                let _ = writeln!(
-                    out,
-                    "        Assert.True({target}.TryGetValues(\"{escaped_name}\", out var _uuidHdr) && System.Text.RegularExpressions.Regex.IsMatch(string.Join(\", \", _uuidHdr), @\"^[0-9a-fA-F]{{8}}-[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{12}}$\"), \"header {escaped_name} is not a UUID\");"
-                );
+                out.push_str(&format!("        Assert.True({target}.TryGetValues(\"{escaped_name}\", out var _uuidHdr) && System.Text.RegularExpressions.Regex.IsMatch(string.Join(\", \", _uuidHdr), @\"^[0-9a-fA-F]{{8}}-[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{12}}$\"), \"header {escaped_name} is not a UUID\");\n"));
             }
             literal => {
                 // Use a deterministic local-variable name derived from the header name so
                 // multiple header assertions in the same method body do not redeclare.
                 let var_name = format!("hdr{}", sanitize_ident(name));
                 let escaped_value = escape_csharp(literal);
-                let _ = writeln!(
-                    out,
-                    "        Assert.True({target}.TryGetValues(\"{escaped_name}\", out var {var_name}) && {var_name}.Any(v => v.Contains(\"{escaped_value}\")), \"header {escaped_name} mismatch\");"
-                );
+                out.push_str(&format!("        Assert.True({target}.TryGetValues(\"{escaped_name}\", out var {var_name}) && {var_name}.Any(v => v.Contains(\"{escaped_value}\")), \"header {escaped_name} mismatch\");\n"));
             }
         }
     }
@@ -537,35 +661,22 @@ impl client::TestClientRenderer for CSharpTestClientRenderer {
             serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
                 let json_str = serde_json::to_string(expected).unwrap_or_default();
                 let escaped = escape_csharp(&json_str);
-                let _ = writeln!(
-                    out,
-                    "        var bodyText = await response.Content.ReadAsStringAsync();"
-                );
-                let _ = writeln!(out, "        var body = JsonDocument.Parse(bodyText).RootElement;");
-                let _ = writeln!(
-                    out,
-                    "        var expectedBody = JsonDocument.Parse(\"{escaped}\").RootElement;"
-                );
-                let _ = writeln!(
-                    out,
-                    "        Assert.Equal(expectedBody.GetRawText(), body.GetRawText());"
-                );
+                out.push_str("        var bodyText = await response.Content.ReadAsStringAsync();\n");
+                out.push_str("        var body = JsonDocument.Parse(bodyText).RootElement;\n");
+                out.push_str(&format!(
+                    "        var expectedBody = JsonDocument.Parse(\"{escaped}\").RootElement;\n"
+                ));
+                out.push_str("        Assert.Equal(expectedBody.GetRawText(), body.GetRawText());\n");
             }
             serde_json::Value::String(s) => {
                 let escaped = escape_csharp(s);
-                let _ = writeln!(
-                    out,
-                    "        var bodyText = await response.Content.ReadAsStringAsync();"
-                );
-                let _ = writeln!(out, "        Assert.Equal(\"{escaped}\", bodyText.Trim());");
+                out.push_str("        var bodyText = await response.Content.ReadAsStringAsync();\n");
+                out.push_str(&format!("        Assert.Equal(\"{escaped}\", bodyText.Trim());\n"));
             }
             other => {
                 let escaped = escape_csharp(&other.to_string());
-                let _ = writeln!(
-                    out,
-                    "        var bodyText = await response.Content.ReadAsStringAsync();"
-                );
-                let _ = writeln!(out, "        Assert.Equal(\"{escaped}\", bodyText.Trim());");
+                out.push_str("        var bodyText = await response.Content.ReadAsStringAsync();\n");
+                out.push_str(&format!("        Assert.Equal(\"{escaped}\", bodyText.Trim());\n"));
             }
         }
     }
@@ -576,27 +687,17 @@ impl client::TestClientRenderer for CSharpTestClientRenderer {
     /// `bodyText` if `render_assert_json_body` was also called.
     fn render_assert_partial_body(&self, out: &mut String, _response_var: &str, expected: &serde_json::Value) {
         if let Some(obj) = expected.as_object() {
-            let _ = writeln!(
-                out,
-                "        var partialBodyText = await response.Content.ReadAsStringAsync();"
-            );
-            let _ = writeln!(
-                out,
-                "        var partialBody = JsonDocument.Parse(partialBodyText).RootElement;"
-            );
+            out.push_str("        var partialBodyText = await response.Content.ReadAsStringAsync();\n");
+            out.push_str("        var partialBody = JsonDocument.Parse(partialBodyText).RootElement;\n");
             for (key, val) in obj {
                 let escaped_key = escape_csharp(key);
                 let json_str = serde_json::to_string(val).unwrap_or_default();
                 let escaped_val = escape_csharp(&json_str);
                 let var_name = format!("expected{}", key.to_upper_camel_case());
-                let _ = writeln!(
-                    out,
-                    "        var {var_name} = JsonDocument.Parse(\"{escaped_val}\").RootElement;"
-                );
-                let _ = writeln!(
-                    out,
-                    "        Assert.True(partialBody.TryGetProperty(\"{escaped_key}\", out var _partialProp{var_name}) && _partialProp{var_name}.GetRawText() == {var_name}.GetRawText(), \"partial body field '{escaped_key}' mismatch\");"
-                );
+                out.push_str(&format!(
+                    "        var {var_name} = JsonDocument.Parse(\"{escaped_val}\").RootElement;\n"
+                ));
+                out.push_str(&format!("        Assert.True(partialBody.TryGetProperty(\"{escaped_key}\", out var _partialProp{var_name}) && _partialProp{var_name}.GetRawText() == {var_name}.GetRawText(), \"partial body field '{escaped_key}' mismatch\");\n"));
             }
         }
     }
@@ -609,13 +710,12 @@ impl client::TestClientRenderer for CSharpTestClientRenderer {
         _response_var: &str,
         errors: &[ValidationErrorExpectation],
     ) {
-        let _ = writeln!(
-            out,
-            "        var validationBodyText = await response.Content.ReadAsStringAsync();"
-        );
+        out.push_str("        var validationBodyText = await response.Content.ReadAsStringAsync();\n");
         for err in errors {
             let escaped_msg = escape_csharp(&err.msg);
-            let _ = writeln!(out, "        Assert.Contains(\"{escaped_msg}\", validationBodyText);");
+            out.push_str(&format!(
+                "        Assert.Contains(\"{escaped_msg}\", validationBodyText);\n"
+            ));
         }
     }
 }
@@ -655,14 +755,16 @@ fn render_test_method(
     // Non-HTTP fixtures with no mock_response: skip only if the C# binding
     // does not have a callable for this function via [e2e.call.overrides.csharp].
     if fixture.mock_response.is_none() && !fixture_has_csharp_callable(fixture, e2e_config) {
-        let _ = writeln!(
-            out,
-            "    [Fact(Skip = \"non-HTTP fixture: C# binding does not expose a callable for the configured `[e2e.call]` function\")]"
-        );
-        let _ = writeln!(out, "    public void Test_{method_name}()");
-        let _ = writeln!(out, "    {{");
-        let _ = writeln!(out, "        // {description}");
-        let _ = writeln!(out, "    }}");
+        let skip_reason =
+            "non-HTTP fixture: C# binding does not expose a callable for the configured `[e2e.call]` function";
+        let ctx = minijinja::context! {
+            is_skipped => true,
+            skip_reason => skip_reason,
+            description => description,
+            method_name => method_name,
+        };
+        let rendered = crate::template_env::render("csharp/test_method.jinja", ctx);
+        out.push_str(&rendered);
         return;
     }
 
@@ -670,9 +772,34 @@ fn render_test_method(
 
     // Resolve call config per-fixture so named calls (e.g. "parse") use the
     // correct function name, result variable, and async flag.
-    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    // Use resolve_call_for_fixture to support auto-routing via select_when.
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
     let lang = "csharp";
     let cs_overrides = call_config.overrides.get(lang);
+
+    // Streaming branch: chat_stream returns IAsyncEnumerable<ChatCompletionChunk>,
+    // not Task<T>. Emit `await foreach` over the stream, building local
+    // aggregator vars (`chunks`, `streamContent`, `streamComplete`, ...) and
+    // asserting on those locals — never on response pseudo-fields.
+    let raw_function_name = cs_overrides
+        .and_then(|o| o.function.as_ref())
+        .cloned()
+        .unwrap_or_else(|| call_config.function.clone());
+    if raw_function_name == "chat_stream" {
+        render_chat_stream_test_method(
+            out,
+            fixture,
+            class_name,
+            call_config,
+            cs_overrides,
+            e2e_config,
+            enum_fields,
+            nested_types,
+            exception_class,
+        );
+        return;
+    }
+
     let effective_function_name = cs_overrides
         .and_then(|o| o.function.as_ref())
         .cloned()
@@ -688,7 +815,13 @@ fn render_test_method(
     // Pull `result_is_simple` from the per-call config first (call-level value
     // wins, then per-language override, then the top-level call's value).
     let per_call_result_is_simple = call_config.result_is_simple || cs_overrides.is_some_and(|o| o.result_is_simple);
-    let effective_result_is_simple = result_is_simple || per_call_result_is_simple;
+    // result_is_bytes: when set, the call returns a raw byte[] in C# (not a
+    // struct with named fields). Mirrors the C codegen flag added in 50e1d309.
+    // Treat byte-buffer returns like result_is_simple (no struct accessors) and
+    // emit byte-specific assertions for `not_empty`/`is_empty`.
+    let per_call_result_is_bytes = call_config.result_is_bytes || cs_overrides.is_some_and(|o| o.result_is_bytes);
+    let effective_result_is_simple = result_is_simple || per_call_result_is_simple || per_call_result_is_bytes;
+    let effective_result_is_bytes = per_call_result_is_bytes;
     let returns_void = call_config.returns_void;
     let extra_args_slice: &[String] = cs_overrides.map_or(&[], |o| o.extra_args.as_slice());
     // options_type: prefer per-call override, fall back to top-level csharp override.
@@ -701,14 +834,30 @@ fn render_test_method(
         .and_then(|o| o.options_type.as_deref())
         .or(top_level_options_type);
 
+    // options_via: how to construct the options object. Supported values:
+    //   "kwargs" (default) — emit a C# object initializer (`new T { ... }`).
+    //   "from_json"        — emit `JsonSerializer.Deserialize<T>(json, ConfigOptions)!`,
+    //                        sidestepping per-field type ambiguity for fields like
+    //                        `JsonElement?` (untagged unions) or `List<NamedRecord>`
+    //                        (where the codegen would otherwise default to `List<string>`).
+    let top_level_options_via = e2e_config
+        .call
+        .overrides
+        .get("csharp")
+        .and_then(|o| o.options_via.as_deref());
+    let effective_options_via = cs_overrides
+        .and_then(|o| o.options_via.as_deref())
+        .or(top_level_options_via);
+
     let (mut setup_lines, args_str) = build_args_and_setup(
         &fixture.input,
         args,
         class_name,
         effective_options_type,
+        effective_options_via,
         enum_fields,
         nested_types,
-        &fixture.id,
+        fixture,
     );
 
     // Build visitor if present: instantiate in method body, declare class at file scope.
@@ -776,88 +925,487 @@ fn render_test_method(
         class_name.to_string()
     };
 
-    let _ = writeln!(out, "    [Fact]");
-    let _ = writeln!(out, "    public {return_type} Test_{method_name}()");
-    let _ = writeln!(out, "    {{");
-    let _ = writeln!(out, "        // {description}");
-
-    for line in &setup_lines {
-        let _ = writeln!(out, "        {line}");
-    }
-
-    // Emit client creation when client_factory is configured.
+    // Build client factory setup code. For fixtures whose env block sets
+    // an `api_key_var` AND that have neither `mock_response` nor an `http`
+    // override (live-smoke tests against real provider APIs), prepend an
+    // early-return when the env var is unset so CI without API keys does
+    // not fail with `not found: No mock route for ...`. Mirrors the
+    // Elixir / Python skip pattern documented in CHANGELOG v0.15.9.
+    let mut client_factory_setup = String::new();
     if let Some(factory) = client_factory {
         let factory_name = factory.to_upper_camel_case();
         let fixture_id = &fixture.id;
-        let _ = writeln!(
-            out,
-            "        var baseUrl = (System.Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") ?? string.Empty) + \"/fixtures/{fixture_id}\";"
-        );
-        let _ = writeln!(
-            out,
-            "        var client = {class_name}.{factory_name}(\"test-key\", baseUrl, null, null, null);"
-        );
-    }
-
-    if expects_error {
-        if is_async {
-            let _ = writeln!(
-                out,
-                "        await Assert.ThrowsAnyAsync<{exception_class}>(() => {call_target}.{effective_function_name}({final_args}));"
-            );
+        let has_mock = fixture.mock_response.is_some() || fixture.http.is_some();
+        let api_key_var_opt = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref());
+        let is_live_smoke = !has_mock && api_key_var_opt.is_some();
+        if let Some(api_key_var) = api_key_var_opt.filter(|_| has_mock) {
+            client_factory_setup.push_str(&format!(
+                "        var apiKey = System.Environment.GetEnvironmentVariable(\"{api_key_var}\");\n"
+            ));
+            client_factory_setup.push_str(&format!(
+                "        var baseUrl = string.IsNullOrEmpty(apiKey)\n            ? (System.Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") ?? string.Empty) + \"/fixtures/{fixture_id}\"\n            : null;\n"
+            ));
+            client_factory_setup.push_str(&format!(
+                "        Console.WriteLine($\"{fixture_id}: \" + (baseUrl == null ? \"using real API ({api_key_var} is set)\" : \"using mock server ({api_key_var} not set)\"));\n"
+            ));
+            client_factory_setup.push_str(&format!(
+                "        var client = {class_name}.{factory_name}(string.IsNullOrEmpty(apiKey) ? \"test-key\" : apiKey, baseUrl, null, null, null);\n"
+            ));
+        } else if let Some(api_key_var) = api_key_var_opt.filter(|_| is_live_smoke) {
+            client_factory_setup.push_str(&format!(
+                "        var apiKey = System.Environment.GetEnvironmentVariable(\"{api_key_var}\");\n"
+            ));
+            client_factory_setup.push_str("        if (string.IsNullOrEmpty(apiKey)) { return; }\n");
+            client_factory_setup.push_str(&format!(
+                "        var client = {class_name}.{factory_name}(apiKey, null, null, null, null);\n"
+            ));
+        } else if fixture.has_host_root_route() {
+            let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
+            client_factory_setup.push_str(&format!(
+                "        var _perFixtureUrl = System.Environment.GetEnvironmentVariable(\"{env_key}\");\n"
+            ));
+            client_factory_setup.push_str(&format!("        var baseUrl = !string.IsNullOrEmpty(_perFixtureUrl) ? _perFixtureUrl : (System.Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") ?? string.Empty) + \"/fixtures/{fixture_id}\";\n"));
+            client_factory_setup.push_str(&format!(
+                "        var client = {class_name}.{factory_name}(\"test-key\", baseUrl, null, null, null);\n"
+            ));
         } else {
-            let _ = writeln!(
-                out,
-                "        Assert.ThrowsAny<{exception_class}>(() => {call_target}.{effective_function_name}({final_args}));"
-            );
+            client_factory_setup.push_str(&format!("        var baseUrl = (System.Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") ?? string.Empty) + \"/fixtures/{fixture_id}\";\n"));
+            client_factory_setup.push_str(&format!(
+                "        var client = {class_name}.{factory_name}(\"test-key\", baseUrl, null, null, null);\n"
+            ));
         }
-        let _ = writeln!(out, "    }}");
-        return;
     }
 
-    let result_is_vec = call_config.result_is_vec || cs_overrides.is_some_and(|o| o.result_is_vec);
-    let result_is_array = call_config.result_is_array;
+    // Build call expression
+    let call_expr = format!("{}({})", effective_function_name, final_args);
 
-    if returns_void {
-        let _ = writeln!(
-            out,
-            "        {await_kw}{call_target}.{effective_function_name}({final_args});"
-        );
-    } else {
-        let _ = writeln!(
-            out,
-            "        var {result_var} = {await_kw}{call_target}.{effective_function_name}({final_args});"
-        );
+    // Merge per-call C# `enum_fields` keys with the global file-level
+    // `fields_enum` set so call-specific enum-typed result fields (e.g.
+    // BatchObject's `status` → BatchStatus) trigger enum coercion in
+    // assertions even when the global set does not list them. The
+    // file-level `enum_fields` argument carries the default-call's override;
+    // `cs_overrides.enum_fields` carries the per-fixture-call's override
+    // (e.g. retrieve_batch.overrides.csharp.enum_fields).
+    let mut effective_enum_fields: std::collections::HashSet<String> = e2e_config.fields_enum.clone();
+    for k in enum_fields.keys() {
+        effective_enum_fields.insert(k.clone());
+    }
+    if let Some(o) = cs_overrides {
+        for k in o.enum_fields.keys() {
+            effective_enum_fields.insert(k.clone());
+        }
+    }
+
+    // Build assertions body for non-error cases
+    let mut assertions_body = String::new();
+    if !expects_error && !returns_void {
         for assertion in &fixture.assertions {
             render_assertion(
-                out,
+                &mut assertions_body,
                 assertion,
                 result_var,
                 class_name,
                 exception_class,
                 field_resolver,
                 effective_result_is_simple,
-                result_is_vec,
-                result_is_array,
+                call_config.result_is_vec || cs_overrides.is_some_and(|o| o.result_is_vec),
+                call_config.result_is_array,
+                effective_result_is_bytes,
+                &effective_enum_fields,
             );
         }
     }
 
-    let _ = writeln!(out, "    }}");
+    let ctx = minijinja::context! {
+        is_skipped => false,
+        expects_error => expects_error,
+        description => description,
+        return_type => return_type,
+        method_name => method_name,
+        async_kw => await_kw,
+        call_target => call_target,
+        setup_lines => setup_lines.clone(),
+        call_expr => call_expr,
+        exception_class => exception_class,
+        client_factory_setup => client_factory_setup,
+        has_usable_assertion => !expects_error && !returns_void,
+        result_var => result_var,
+        assertions_body => assertions_body,
+    };
+
+    let rendered = crate::template_env::render("csharp/test_method.jinja", ctx);
+    // Indent each line by 4 spaces to nest inside the test class
+    for line in rendered.lines() {
+        out.push_str("    ");
+        out.push_str(line);
+        out.push('\n');
+    }
+}
+
+/// Render a `chat_stream` test method. The C# binding emits
+/// `IAsyncEnumerable<ChatCompletionChunk> ChatStream(req)` (not `Task<T>`), so
+/// the test body uses `await foreach` to drive the stream and aggregates
+/// per-chunk data into local vars (`chunks`, `streamContent`, `streamComplete`,
+/// optional `lastFinishReason`/`toolCallsJson`/`toolCalls0FunctionName`/`totalTokens`).
+/// Assertions then run against those locals — never against pseudo-fields on a
+/// response object.
+#[allow(clippy::too_many_arguments)]
+fn render_chat_stream_test_method(
+    out: &mut String,
+    fixture: &Fixture,
+    class_name: &str,
+    call_config: &crate::config::CallConfig,
+    cs_overrides: Option<&crate::config::CallOverride>,
+    e2e_config: &E2eConfig,
+    enum_fields: &HashMap<String, String>,
+    nested_types: &HashMap<String, String>,
+    exception_class: &str,
+) {
+    let method_name = fixture.id.to_upper_camel_case();
+    let description = &fixture.description;
+    let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
+
+    let effective_function_name = cs_overrides
+        .and_then(|o| o.function.as_ref())
+        .cloned()
+        .unwrap_or_else(|| call_config.function.to_upper_camel_case());
+    let function_name = effective_function_name.as_str();
+    let args = call_config.args.as_slice();
+
+    let top_level_options_type = e2e_config
+        .call
+        .overrides
+        .get("csharp")
+        .and_then(|o| o.options_type.as_deref());
+    let effective_options_type = cs_overrides
+        .and_then(|o| o.options_type.as_deref())
+        .or(top_level_options_type);
+    let top_level_options_via = e2e_config
+        .call
+        .overrides
+        .get("csharp")
+        .and_then(|o| o.options_via.as_deref());
+    let effective_options_via = cs_overrides
+        .and_then(|o| o.options_via.as_deref())
+        .or(top_level_options_via);
+
+    let (setup_lines, args_str) = build_args_and_setup(
+        &fixture.input,
+        args,
+        class_name,
+        effective_options_type,
+        effective_options_via,
+        enum_fields,
+        nested_types,
+        fixture,
+    );
+
+    let client_factory = cs_overrides.and_then(|o| o.client_factory.as_deref()).or_else(|| {
+        e2e_config
+            .call
+            .overrides
+            .get("csharp")
+            .and_then(|o| o.client_factory.as_deref())
+    });
+    let mut client_factory_setup = String::new();
+    if let Some(factory) = client_factory {
+        let factory_name = factory.to_upper_camel_case();
+        let fixture_id = &fixture.id;
+        let has_mock = fixture.mock_response.is_some() || fixture.http.is_some();
+        let api_key_var_opt = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref());
+        let is_live_smoke = !has_mock && api_key_var_opt.is_some();
+        if let Some(api_key_var) = api_key_var_opt.filter(|_| has_mock) {
+            client_factory_setup.push_str(&format!(
+                "        var apiKey = System.Environment.GetEnvironmentVariable(\"{api_key_var}\");\n"
+            ));
+            client_factory_setup.push_str(&format!(
+                "        var baseUrl = string.IsNullOrEmpty(apiKey)\n            ? (System.Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") ?? string.Empty) + \"/fixtures/{fixture_id}\"\n            : null;\n"
+            ));
+            client_factory_setup.push_str(&format!(
+                "        Console.WriteLine($\"{fixture_id}: \" + (baseUrl == null ? \"using real API ({api_key_var} is set)\" : \"using mock server ({api_key_var} not set)\"));\n"
+            ));
+            client_factory_setup.push_str(&format!(
+                "        var client = {class_name}.{factory_name}(string.IsNullOrEmpty(apiKey) ? \"test-key\" : apiKey, baseUrl, null, null, null);\n"
+            ));
+        } else if let Some(api_key_var) = api_key_var_opt.filter(|_| is_live_smoke) {
+            client_factory_setup.push_str(&format!(
+                "        var apiKey = System.Environment.GetEnvironmentVariable(\"{api_key_var}\");\n"
+            ));
+            client_factory_setup.push_str("        if (string.IsNullOrEmpty(apiKey)) { return; }\n");
+            client_factory_setup.push_str(&format!(
+                "        var client = {class_name}.{factory_name}(apiKey, null, null, null, null);\n"
+            ));
+        } else if fixture.has_host_root_route() {
+            let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
+            client_factory_setup.push_str(&format!(
+                "        var _perFixtureUrl = System.Environment.GetEnvironmentVariable(\"{env_key}\");\n"
+            ));
+            client_factory_setup.push_str(&format!("        var baseUrl = !string.IsNullOrEmpty(_perFixtureUrl) ? _perFixtureUrl : (System.Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") ?? string.Empty) + \"/fixtures/{fixture_id}\";\n"));
+            client_factory_setup.push_str(&format!(
+                "        var client = {class_name}.{factory_name}(\"test-key\", baseUrl, null, null, null);\n"
+            ));
+        } else {
+            client_factory_setup.push_str(&format!(
+                "        var baseUrl = (System.Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") ?? string.Empty) + \"/fixtures/{fixture_id}\";\n"
+            ));
+            client_factory_setup.push_str(&format!(
+                "        var client = {class_name}.{factory_name}(\"test-key\", baseUrl, null, null, null);\n"
+            ));
+        }
+    }
+
+    let call_target = if client_factory.is_some() { "client" } else { class_name };
+    let call_expr = format!("{call_target}.{function_name}({args_str})");
+
+    // Detect which aggregators a fixture's assertions actually need.
+    let mut needs_finish_reason = false;
+    let mut needs_tool_calls_json = false;
+    let mut needs_tool_calls_0_function_name = false;
+    let mut needs_total_tokens = false;
+    for a in &fixture.assertions {
+        if let Some(f) = a.field.as_deref() {
+            match f {
+                "finish_reason" => needs_finish_reason = true,
+                "tool_calls" => needs_tool_calls_json = true,
+                "tool_calls[0].function.name" => needs_tool_calls_0_function_name = true,
+                "usage.total_tokens" => needs_total_tokens = true,
+                _ => {}
+            }
+        }
+    }
+
+    let mut body = String::new();
+    let _ = writeln!(body, "    [Fact]");
+    let _ = writeln!(body, "    public async Task Test_{method_name}()");
+    let _ = writeln!(body, "    {{");
+    let _ = writeln!(body, "        // {description}");
+    if !client_factory_setup.is_empty() {
+        body.push_str(&client_factory_setup);
+    }
+    for line in &setup_lines {
+        let _ = writeln!(body, "        {line}");
+    }
+
+    if expects_error {
+        // Wrap the foreach in a lambda so the IAsyncEnumerable is actually
+        // consumed (otherwise the producer never runs and no exception is raised).
+        let _ = writeln!(
+            body,
+            "        await Assert.ThrowsAnyAsync<{exception_class}>(async () => {{"
+        );
+        let _ = writeln!(body, "            await foreach (var _chunk in {call_expr}) {{ }}");
+        body.push_str("        });\n");
+        body.push_str("    }\n");
+        for line in body.lines() {
+            out.push_str("    ");
+            out.push_str(line);
+            out.push('\n');
+        }
+        return;
+    }
+
+    body.push_str("        var chunks = new List<ChatCompletionChunk>();\n");
+    body.push_str("        var streamContent = new System.Text.StringBuilder();\n");
+    body.push_str("        var streamComplete = false;\n");
+    if needs_finish_reason {
+        body.push_str("        string? lastFinishReason = null;\n");
+    }
+    if needs_tool_calls_json {
+        body.push_str("        string? toolCallsJson = null;\n");
+    }
+    if needs_tool_calls_0_function_name {
+        body.push_str("        string? toolCalls0FunctionName = null;\n");
+    }
+    if needs_total_tokens {
+        body.push_str("        long? totalTokens = null;\n");
+    }
+    let _ = writeln!(body, "        await foreach (var chunk in {call_expr})");
+    body.push_str("        {\n");
+    body.push_str("            chunks.Add(chunk);\n");
+    body.push_str(
+        "            var choice = chunk.Choices != null && chunk.Choices.Count > 0 ? chunk.Choices[0] : null;\n",
+    );
+    body.push_str("            if (choice != null)\n");
+    body.push_str("            {\n");
+    body.push_str("                var delta = choice.Delta;\n");
+    body.push_str("                if (delta != null && !string.IsNullOrEmpty(delta.Content))\n");
+    body.push_str("                {\n");
+    body.push_str("                    streamContent.Append(delta.Content);\n");
+    body.push_str("                }\n");
+    if needs_finish_reason {
+        // Streaming accumulator must use the wire-form snake_case representation
+        // (e.g. `tool_calls`) so equality assertions against the fixture-side
+        // string match. `.ToString().ToLower()` collapses compound PascalCase
+        // names like `ToolCalls` to `toolcalls` (no underscore), causing
+        // assertion failures. `JsonNamingPolicy.SnakeCaseLower.ConvertName`
+        // mirrors the policy used by the global `JsonStringEnumConverter`,
+        // matching exactly what serde would emit on the wire.
+        body.push_str("                if (choice.FinishReason != null)\n");
+        body.push_str("                {\n");
+        body.push_str(
+            "                    lastFinishReason = JsonNamingPolicy.SnakeCaseLower.ConvertName(choice.FinishReason.ToString()!);\n",
+        );
+        body.push_str("                }\n");
+    }
+    if needs_tool_calls_json || needs_tool_calls_0_function_name {
+        body.push_str("                var tcs = delta?.ToolCalls;\n");
+        body.push_str("                if (tcs != null && tcs.Count > 0)\n");
+        body.push_str("                {\n");
+        if needs_tool_calls_json {
+            body.push_str(
+                "                    toolCallsJson ??= JsonSerializer.Serialize(tcs.Select(tc => new { function = new { name = tc.Function?.Name } }));\n",
+            );
+        }
+        if needs_tool_calls_0_function_name {
+            body.push_str("                    toolCalls0FunctionName ??= tcs[0].Function?.Name;\n");
+        }
+        body.push_str("                }\n");
+    }
+    body.push_str("            }\n");
+    if needs_total_tokens {
+        body.push_str("            if (chunk.Usage != null)\n");
+        body.push_str("            {\n");
+        body.push_str("                totalTokens = chunk.Usage.TotalTokens;\n");
+        body.push_str("            }\n");
+    }
+    body.push_str("        }\n");
+    body.push_str("        streamComplete = true;\n");
+
+    // Emit assertions on local aggregator vars.
+    let mut had_explicit_complete = false;
+    for assertion in &fixture.assertions {
+        if assertion.field.as_deref() == Some("stream_complete") {
+            had_explicit_complete = true;
+        }
+        emit_chat_stream_assertion(&mut body, assertion);
+    }
+    if !had_explicit_complete {
+        body.push_str("        Assert.True(streamComplete);\n");
+    }
+
+    body.push_str("    }\n");
+
+    for line in body.lines() {
+        out.push_str("    ");
+        out.push_str(line);
+        out.push('\n');
+    }
+}
+
+/// Map a streaming fixture assertion to an `Assert` call on the local aggregator
+/// variable produced by `render_chat_stream_test_method`. Pseudo-fields like
+/// `chunks` / `stream_content` / `stream_complete` resolve to in-method locals.
+fn emit_chat_stream_assertion(out: &mut String, assertion: &Assertion) {
+    let atype = assertion.assertion_type.as_str();
+    if atype == "not_error" || atype == "error" {
+        return;
+    }
+    let field = assertion.field.as_deref().unwrap_or("");
+
+    enum Kind {
+        Chunks,
+        Bool,
+        Str,
+        IntTokens,
+        Json,
+        Unsupported,
+    }
+
+    let (expr, kind) = match field {
+        "chunks" => ("chunks", Kind::Chunks),
+        "stream_content" => ("streamContent.ToString()", Kind::Str),
+        "stream_complete" => ("streamComplete", Kind::Bool),
+        "no_chunks_after_done" => ("streamComplete", Kind::Bool),
+        "finish_reason" => ("lastFinishReason", Kind::Str),
+        "tool_calls" => ("toolCallsJson", Kind::Json),
+        "tool_calls[0].function.name" => ("toolCalls0FunctionName", Kind::Str),
+        "usage.total_tokens" => ("totalTokens", Kind::IntTokens),
+        _ => ("", Kind::Unsupported),
+    };
+
+    if matches!(kind, Kind::Unsupported) {
+        let _ = writeln!(
+            out,
+            "        // skipped: streaming assertion on unsupported field '{field}'"
+        );
+        return;
+    }
+
+    match (atype, &kind) {
+        ("count_min", Kind::Chunks) => {
+            if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                let _ = writeln!(
+                    out,
+                    "        Assert.True(chunks.Count >= {n}, \"expected at least {n} chunks\");"
+                );
+            }
+        }
+        ("count_equals", Kind::Chunks) => {
+            if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                let _ = writeln!(out, "        Assert.Equal({n}, chunks.Count);");
+            }
+        }
+        ("equals", Kind::Str) => {
+            if let Some(val) = &assertion.value {
+                let cs_val = json_to_csharp(val);
+                let _ = writeln!(out, "        Assert.Equal({cs_val}, {expr});");
+            }
+        }
+        ("contains", Kind::Str) => {
+            if let Some(val) = &assertion.value {
+                let cs_val = json_to_csharp(val);
+                let _ = writeln!(out, "        Assert.Contains({cs_val}, {expr} ?? string.Empty);");
+            }
+        }
+        ("not_empty", Kind::Str) => {
+            let _ = writeln!(out, "        Assert.False(string.IsNullOrEmpty({expr}));");
+        }
+        ("not_empty", Kind::Json) => {
+            let _ = writeln!(out, "        Assert.NotNull({expr});");
+        }
+        ("is_empty", Kind::Str) => {
+            let _ = writeln!(out, "        Assert.True(string.IsNullOrEmpty({expr}));");
+        }
+        ("is_true", Kind::Bool) => {
+            let _ = writeln!(out, "        Assert.True({expr});");
+        }
+        ("is_false", Kind::Bool) => {
+            let _ = writeln!(out, "        Assert.False({expr});");
+        }
+        ("greater_than_or_equal", Kind::IntTokens) => {
+            if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                let _ = writeln!(out, "        Assert.True({expr} >= {n}, \"expected >= {n}\");");
+            }
+        }
+        ("equals", Kind::IntTokens) => {
+            if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                let _ = writeln!(out, "        Assert.Equal((long?){n}, {expr});");
+            }
+        }
+        _ => {
+            let _ = writeln!(
+                out,
+                "        // skipped: streaming assertion '{atype}' on field '{field}' not supported"
+            );
+        }
+    }
 }
 
 /// Build setup lines (e.g. handle creation) and the argument list for the function call.
 ///
 /// Returns `(setup_lines, args_string)`.
+#[allow(clippy::too_many_arguments)]
 fn build_args_and_setup(
     input: &serde_json::Value,
     args: &[crate::config::ArgMapping],
     class_name: &str,
     options_type: Option<&str>,
+    options_via: Option<&str>,
     enum_fields: &HashMap<String, String>,
     nested_types: &HashMap<String, String>,
-    fixture_id: &str,
+    fixture: &crate::fixture::Fixture,
 ) -> (Vec<String>, String) {
+    let fixture_id = &fixture.id;
     if args.is_empty() {
         return (Vec::new(), String::new());
     }
@@ -868,7 +1416,6 @@ fn build_args_and_setup(
     for arg in args {
         if arg.arg_type == "bytes" {
             // bytes args must be passed as byte[] in C#.
-            // Treat the fixture value as a UTF-8 string and convert to bytes.
             let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
             let val = input.get(field);
             match val {
@@ -879,18 +1426,41 @@ fn build_args_and_setup(
                     parts.push("System.Array.Empty<byte>()".to_string());
                 }
                 Some(v) => {
-                    let cs_str = json_to_csharp(v);
-                    parts.push(format!("System.Text.Encoding.UTF8.GetBytes({cs_str})"));
+                    // Classify the value to determine how to interpret it:
+                    // - File paths (like "pdf/fake.pdf") → File.ReadAllBytes(path)
+                    // - Inline text → System.Text.Encoding.UTF8.GetBytes()
+                    // - Base64 → Convert.FromBase64String()
+                    if let Some(s) = v.as_str() {
+                        let bytes_code = classify_bytes_value_csharp(s);
+                        parts.push(bytes_code);
+                    } else {
+                        // Literal arrays or other non-string types: use as-is
+                        let cs_str = json_to_csharp(v);
+                        parts.push(format!("System.Text.Encoding.UTF8.GetBytes({cs_str})"));
+                    }
                 }
             }
             continue;
         }
 
         if arg.arg_type == "mock_url" {
-            setup_lines.push(format!(
-                "var {} = Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\";",
-                arg.name,
-            ));
+            if fixture.has_host_root_route() {
+                let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
+                setup_lines.push(format!(
+                    "var _pfUrl_{name} = Environment.GetEnvironmentVariable(\"{env_key}\");",
+                    name = arg.name,
+                ));
+                setup_lines.push(format!(
+                    "var {} = !string.IsNullOrEmpty(_pfUrl_{name}) ? _pfUrl_{name} : Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\";",
+                    arg.name,
+                    name = arg.name,
+                ));
+            } else {
+                setup_lines.push(format!(
+                    "var {} = Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\";",
+                    arg.name,
+                ));
+            }
             parts.push(arg.name.clone());
             continue;
         }
@@ -962,6 +1532,25 @@ fn build_args_and_setup(
             }
             Some(v) => {
                 if arg.arg_type == "json_object" {
+                    // `options_via = "from_json"`: deserialize the entire value (object,
+                    // array, or scalar) as the options type. This sidesteps per-field
+                    // type ambiguity — e.g. `JsonElement?` (untagged unions) or
+                    // `List<NamedRecord>` whose element type cannot be inferred from
+                    // JSON shape alone — by delegating to System.Text.Json.
+                    if options_via == Some("from_json")
+                        && let Some(opts_type) = options_type
+                    {
+                        let sorted = sort_discriminator_first(v.clone());
+                        let json_str = serde_json::to_string(&sorted).unwrap_or_default();
+                        let escaped = escape_csharp(&json_str);
+                        // Use the binding-emitted `<Type>.FromJson(...)` factory so any
+                        // System.Text.Json deserialization failure is wrapped in
+                        // `<Crate>Exception`, allowing error fixtures asserting
+                        // `Assert.ThrowsAny<<Crate>Exception>(...)` to catch the parse
+                        // failure (e.g. `Unknown FilePurpose value: invalid-purpose`).
+                        parts.push(format!("{opts_type}.FromJson(\"{escaped}\")",));
+                        continue;
+                    }
                     // Array value: generate a typed List<T> based on element_type.
                     if let Some(arr) = v.as_array() {
                         parts.push(json_array_to_csharp_list(arr, arg.element_type.as_deref()));
@@ -1068,6 +1657,144 @@ fn json_array_to_csharp_list(arr: &[serde_json::Value], element_type: Option<&st
     }
 }
 
+/// Detect if a field path accesses a discriminated union variant in C#.
+/// Pattern: `metadata.format.<variant_name>.<field_name>`
+/// Returns: Some((accessor, variant_name, inner_field)) if matched, otherwise None
+fn parse_discriminated_union_access(field: &str) -> Option<(String, String, String)> {
+    let parts: Vec<&str> = field.split('.').collect();
+    if parts.len() >= 3 && parts.len() <= 4 {
+        // Check if this is metadata.format.{variant}.{field} pattern
+        if parts[0] == "metadata" && parts[1] == "format" {
+            let variant_name = parts[2];
+            // Known C# discriminated union variants (lowercase in fixture paths)
+            let known_variants = [
+                "pdf",
+                "docx",
+                "excel",
+                "email",
+                "pptx",
+                "archive",
+                "image",
+                "xml",
+                "text",
+                "html",
+                "ocr",
+                "csv",
+                "bibtex",
+                "citation",
+                "fiction_book",
+                "dbf",
+                "jats",
+                "epub",
+                "pst",
+                "code",
+            ];
+            if known_variants.contains(&variant_name) {
+                let variant_pascal = variant_name.to_upper_camel_case();
+                if parts.len() == 4 {
+                    let inner_field = parts[3];
+                    return Some((
+                        format!("result.Metadata.Format! as FormatMetadata.{}", variant_pascal),
+                        variant_pascal,
+                        inner_field.to_string(),
+                    ));
+                } else if parts.len() == 3 {
+                    // Just accessing the variant itself (no inner field)
+                    return Some((
+                        format!("result.Metadata.Format! as FormatMetadata.{}", variant_pascal),
+                        variant_pascal,
+                        String::new(),
+                    ));
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Render an assertion against a discriminated union variant's inner field.
+/// `variant_var` is the unwrapped union variant (e.g., `variant` from pattern match).
+/// `inner_field` is the field to access on the variant's Value (e.g., `sheet_count`).
+fn render_discriminated_union_assertion(
+    out: &mut String,
+    assertion: &Assertion,
+    variant_var: &str,
+    inner_field: &str,
+    _result_is_vec: bool,
+) {
+    if inner_field.is_empty() {
+        return; // No field to assert on
+    }
+
+    let field_pascal = inner_field.to_upper_camel_case();
+    let field_expr = format!("{variant_var}.Value.{field_pascal}");
+
+    match assertion.assertion_type.as_str() {
+        "equals" => {
+            if let Some(expected) = &assertion.value {
+                let cs_val = json_to_csharp(expected);
+                if expected.is_string() {
+                    let _ = writeln!(out, "            Assert.Equal({cs_val}, {field_expr}!.Trim());");
+                } else if expected.as_bool() == Some(true) {
+                    let _ = writeln!(out, "            Assert.True({field_expr});");
+                } else if expected.as_bool() == Some(false) {
+                    let _ = writeln!(out, "            Assert.False({field_expr});");
+                } else if expected.is_number() && !expected.as_f64().is_some_and(|f| f.fract() != 0.0) {
+                    let _ = writeln!(out, "            Assert.True({field_expr} == {cs_val});");
+                } else {
+                    let _ = writeln!(out, "            Assert.Equal({cs_val}, {field_expr});");
+                }
+            }
+        }
+        "greater_than_or_equal" => {
+            if let Some(val) = &assertion.value {
+                let cs_val = json_to_csharp(val);
+                let _ = writeln!(
+                    out,
+                    "            Assert.True({field_expr} >= {cs_val}, \"expected >= {cs_val}\");"
+                );
+            }
+        }
+        "contains_all" => {
+            if let Some(values) = &assertion.values {
+                let field_as_str = format!("JsonSerializer.Serialize({field_expr})");
+                for val in values {
+                    let lower_val = val.as_str().map(|s| s.to_lowercase());
+                    let cs_val = lower_val
+                        .as_deref()
+                        .map(|s| format!("\"{}\"", escape_csharp(s)))
+                        .unwrap_or_else(|| json_to_csharp(val));
+                    let _ = writeln!(out, "            Assert.Contains({cs_val}, {field_as_str}.ToLower());");
+                }
+            }
+        }
+        "contains" => {
+            if let Some(expected) = &assertion.value {
+                let field_as_str = format!("JsonSerializer.Serialize({field_expr})");
+                let lower_expected = expected.as_str().map(|s| s.to_lowercase());
+                let cs_val = lower_expected
+                    .as_deref()
+                    .map(|s| format!("\"{}\"", escape_csharp(s)))
+                    .unwrap_or_else(|| json_to_csharp(expected));
+                let _ = writeln!(out, "            Assert.Contains({cs_val}, {field_as_str}.ToLower());");
+            }
+        }
+        "not_empty" => {
+            let _ = writeln!(out, "            Assert.NotEmpty({field_expr});");
+        }
+        "is_empty" => {
+            let _ = writeln!(out, "            Assert.Empty({field_expr});");
+        }
+        _ => {
+            let _ = writeln!(
+                out,
+                "            // skipped: assertion type '{}' not yet supported for discriminated union fields",
+                assertion.assertion_type
+            );
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn render_assertion(
     out: &mut String,
@@ -1079,46 +1806,97 @@ fn render_assertion(
     result_is_simple: bool,
     result_is_vec: bool,
     result_is_array: bool,
+    result_is_bytes: bool,
+    fields_enum: &std::collections::HashSet<String>,
 ) {
+    // Byte-buffer returns: emit length-based assertions instead of struct-field
+    // accessors. The result is a `byte[]` and has no named fields like
+    // `result.Audio` or `result.Content`.
+    if result_is_bytes {
+        match assertion.assertion_type.as_str() {
+            "not_empty" => {
+                let _ = writeln!(out, "        Assert.NotEmpty({result_var});");
+                return;
+            }
+            "is_empty" => {
+                let _ = writeln!(out, "        Assert.Empty({result_var});");
+                return;
+            }
+            "count_equals" | "length_equals" => {
+                if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                    let _ = writeln!(out, "        Assert.Equal({n}, {result_var}.Length);");
+                }
+                return;
+            }
+            "count_min" | "length_min" => {
+                if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                    let _ = writeln!(out, "        Assert.True({result_var}.Length >= {n});");
+                }
+                return;
+            }
+            _ => {
+                // Other assertion types are not meaningful on raw byte buffers;
+                // emit a comment so the test still compiles but flags unsupported
+                // assertion types for fixture authors.
+                let _ = writeln!(
+                    out,
+                    "        // skipped: assertion type '{}' not supported on byte[] result",
+                    assertion.assertion_type
+                );
+                return;
+            }
+        }
+    }
     // Handle synthetic / derived fields before the is_valid_for_result check
     // so they are never treated as struct property accesses on the result.
     if let Some(f) = &assertion.field {
         match f.as_str() {
             "chunks_have_content" => {
-                let pred = format!("({result_var}.Chunks ?? new()).All(c => !string.IsNullOrEmpty(c.Content))");
-                match assertion.assertion_type.as_str() {
-                    "is_true" => {
-                        let _ = writeln!(out, "        Assert.True({pred});");
-                    }
-                    "is_false" => {
-                        let _ = writeln!(out, "        Assert.False({pred});");
-                    }
+                let synthetic_pred =
+                    format!("({result_var}.Chunks ?? new()).All(c => !string.IsNullOrEmpty(c.Content))");
+                let synthetic_pred_type = match assertion.assertion_type.as_str() {
+                    "is_true" => "is_true",
+                    "is_false" => "is_false",
                     _ => {
-                        let _ = writeln!(
-                            out,
-                            "        // skipped: unsupported assertion type on synthetic field '{f}'"
-                        );
+                        out.push_str(&format!(
+                            "        // skipped: unsupported assertion type on synthetic field '{f}'\n"
+                        ));
+                        return;
                     }
-                }
+                };
+                let rendered = crate::template_env::render(
+                    "csharp/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "synthetic_assertion",
+                        synthetic_pred => synthetic_pred,
+                        synthetic_pred_type => synthetic_pred_type,
+                    },
+                );
+                out.push_str(&rendered);
                 return;
             }
             "chunks_have_embeddings" => {
-                let pred =
+                let synthetic_pred =
                     format!("({result_var}.Chunks ?? new()).All(c => c.Embedding != null && c.Embedding.Count > 0)");
-                match assertion.assertion_type.as_str() {
-                    "is_true" => {
-                        let _ = writeln!(out, "        Assert.True({pred});");
-                    }
-                    "is_false" => {
-                        let _ = writeln!(out, "        Assert.False({pred});");
-                    }
+                let synthetic_pred_type = match assertion.assertion_type.as_str() {
+                    "is_true" => "is_true",
+                    "is_false" => "is_false",
                     _ => {
-                        let _ = writeln!(
-                            out,
-                            "        // skipped: unsupported assertion type on synthetic field '{f}'"
-                        );
+                        out.push_str(&format!(
+                            "        // skipped: unsupported assertion type on synthetic field '{f}'\n"
+                        ));
+                        return;
                     }
-                }
+                };
+                let rendered = crate::template_env::render(
+                    "csharp/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "synthetic_assertion",
+                        synthetic_pred => synthetic_pred,
+                        synthetic_pred_type => synthetic_pred_type,
+                    },
+                );
+                out.push_str(&rendered);
                 return;
             }
             // ---- EmbedResponse virtual fields ----
@@ -1128,26 +1906,57 @@ fn render_assertion(
                 match assertion.assertion_type.as_str() {
                     "count_equals" => {
                         if let Some(val) = &assertion.value {
-                            let cs_val = json_to_csharp(val);
-                            let _ = writeln!(out, "        Assert.True({result_var}.Count == {cs_val});");
+                            if let Some(n) = val.as_u64() {
+                                let rendered = crate::template_env::render(
+                                    "csharp/assertion.jinja",
+                                    minijinja::context! {
+                                        assertion_type => "synthetic_embeddings_count_equals",
+                                        synthetic_pred => format!("{result_var}.Count"),
+                                        n => n,
+                                    },
+                                );
+                                out.push_str(&rendered);
+                            }
                         }
                     }
                     "count_min" => {
                         if let Some(val) = &assertion.value {
-                            let cs_val = json_to_csharp(val);
-                            let _ = writeln!(out, "        Assert.True({result_var}.Count >= {cs_val});");
+                            if let Some(n) = val.as_u64() {
+                                let rendered = crate::template_env::render(
+                                    "csharp/assertion.jinja",
+                                    minijinja::context! {
+                                        assertion_type => "synthetic_embeddings_count_min",
+                                        synthetic_pred => format!("{result_var}.Count"),
+                                        n => n,
+                                    },
+                                );
+                                out.push_str(&rendered);
+                            }
                         }
                     }
                     "not_empty" => {
-                        let _ = writeln!(out, "        Assert.NotEmpty({result_var});");
+                        let rendered = crate::template_env::render(
+                            "csharp/assertion.jinja",
+                            minijinja::context! {
+                                assertion_type => "synthetic_embeddings_not_empty",
+                                synthetic_pred => result_var.to_string(),
+                            },
+                        );
+                        out.push_str(&rendered);
                     }
                     "is_empty" => {
-                        let _ = writeln!(out, "        Assert.Empty({result_var});");
+                        let rendered = crate::template_env::render(
+                            "csharp/assertion.jinja",
+                            minijinja::context! {
+                                assertion_type => "synthetic_embeddings_is_empty",
+                                synthetic_pred => result_var.to_string(),
+                            },
+                        );
+                        out.push_str(&rendered);
                     }
                     _ => {
-                        let _ = writeln!(
-                            out,
-                            "        // skipped: unsupported assertion type on synthetic field 'embeddings'"
+                        out.push_str(
+                            "        // skipped: unsupported assertion type on synthetic field 'embeddings'\n",
                         );
                     }
                 }
@@ -1158,27 +1967,42 @@ fn render_assertion(
                 match assertion.assertion_type.as_str() {
                     "equals" => {
                         if let Some(val) = &assertion.value {
-                            let cs_val = json_to_csharp(val);
-                            let _ = writeln!(out, "        Assert.True({expr} == {cs_val});");
+                            if let Some(n) = val.as_u64() {
+                                let rendered = crate::template_env::render(
+                                    "csharp/assertion.jinja",
+                                    minijinja::context! {
+                                        assertion_type => "synthetic_embedding_dimensions_equals",
+                                        synthetic_pred => expr,
+                                        n => n,
+                                    },
+                                );
+                                out.push_str(&rendered);
+                            }
                         }
                     }
                     "greater_than" => {
                         if let Some(val) = &assertion.value {
-                            let cs_val = json_to_csharp(val);
-                            let _ = writeln!(out, "        Assert.True({expr} > {cs_val});");
+                            if let Some(n) = val.as_u64() {
+                                let rendered = crate::template_env::render(
+                                    "csharp/assertion.jinja",
+                                    minijinja::context! {
+                                        assertion_type => "synthetic_embedding_dimensions_greater_than",
+                                        synthetic_pred => expr,
+                                        n => n,
+                                    },
+                                );
+                                out.push_str(&rendered);
+                            }
                         }
                     }
                     _ => {
-                        let _ = writeln!(
-                            out,
-                            "        // skipped: unsupported assertion type on synthetic field 'embedding_dimensions'"
-                        );
+                        out.push_str("        // skipped: unsupported assertion type on synthetic field 'embedding_dimensions'\n");
                     }
                 }
                 return;
             }
             "embeddings_valid" | "embeddings_finite" | "embeddings_non_zero" | "embeddings_normalized" => {
-                let pred = match f.as_str() {
+                let synthetic_pred = match f.as_str() {
                     "embeddings_valid" => {
                         format!("{result_var}.All(e => e.Count > 0)")
                     }
@@ -1195,29 +2019,38 @@ fn render_assertion(
                     }
                     _ => unreachable!(),
                 };
-                match assertion.assertion_type.as_str() {
-                    "is_true" => {
-                        let _ = writeln!(out, "        Assert.True({pred});");
-                    }
-                    "is_false" => {
-                        let _ = writeln!(out, "        Assert.False({pred});");
-                    }
+                let synthetic_pred_type = match assertion.assertion_type.as_str() {
+                    "is_true" => "is_true",
+                    "is_false" => "is_false",
                     _ => {
-                        let _ = writeln!(
-                            out,
-                            "        // skipped: unsupported assertion type on synthetic field '{f}'"
-                        );
+                        out.push_str(&format!(
+                            "        // skipped: unsupported assertion type on synthetic field '{f}'\n"
+                        ));
+                        return;
                     }
-                }
+                };
+                let rendered = crate::template_env::render(
+                    "csharp/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "synthetic_assertion",
+                        synthetic_pred => synthetic_pred,
+                        synthetic_pred_type => synthetic_pred_type,
+                    },
+                );
+                out.push_str(&rendered);
                 return;
             }
             // ---- keywords / keywords_count ----
             // C# ExtractionResult does not expose extracted_keywords; skip.
             "keywords" | "keywords_count" => {
-                let _ = writeln!(
-                    out,
-                    "        // skipped: field '{f}' not available on C# ExtractionResult"
+                let skipped_reason = format!("field '{f}' not available on C# ExtractionResult");
+                let rendered = crate::template_env::render(
+                    "csharp/assertion.jinja",
+                    minijinja::context! {
+                        skipped_reason => skipped_reason,
+                    },
                 );
+                out.push_str(&rendered);
                 return;
             }
             _ => {}
@@ -1227,7 +2060,14 @@ fn render_assertion(
     // Skip assertions on fields that don't exist on the result type.
     if let Some(f) = &assertion.field {
         if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
-            let _ = writeln!(out, "        // skipped: field '{f}' not available on result type");
+            let skipped_reason = format!("field '{f}' not available on result type");
+            let rendered = crate::template_env::render(
+                "csharp/assertion.jinja",
+                minijinja::context! {
+                    skipped_reason => skipped_reason,
+                },
+            );
+            out.push_str(&rendered);
             return;
         }
     }
@@ -1246,6 +2086,44 @@ fn render_assertion(
     } else {
         result_var.to_string()
     };
+
+    // Check if this is a discriminated union access (e.g., metadata.format.excel.sheet_count)
+    let is_discriminated_union = assertion
+        .field
+        .as_ref()
+        .is_some_and(|f| parse_discriminated_union_access(f).is_some());
+
+    // For discriminated union assertions, generate pattern-matching wrapper
+    if is_discriminated_union {
+        if let Some((_, variant_name, inner_field)) = assertion
+            .field
+            .as_ref()
+            .and_then(|f| parse_discriminated_union_access(f))
+        {
+            // Use a unique variable name based on the field hash to avoid shadowing
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            inner_field.hash(&mut hasher);
+            let var_hash = format!("{:x}", hasher.finish());
+            let variant_var = format!("variant_{}", &var_hash[..8]);
+            let _ = writeln!(
+                out,
+                "        if ({effective_result_var}.Metadata.Format is FormatMetadata.{} {})",
+                variant_name, &variant_var
+            );
+            let _ = writeln!(out, "        {{");
+            render_discriminated_union_assertion(out, assertion, &variant_var, &inner_field, result_is_vec);
+            let _ = writeln!(out, "        }}");
+            let _ = writeln!(out, "        else");
+            let _ = writeln!(out, "        {{");
+            let _ = writeln!(
+                out,
+                "            Assert.Fail(\"Expected {} format metadata\");",
+                variant_name.to_lowercase()
+            );
+            let _ = writeln!(out, "        }}");
+            return;
+        }
+    }
 
     let field_expr = if result_is_simple {
         effective_result_var.clone()
@@ -1277,26 +2155,51 @@ fn render_assertion(
         format!("{field_expr}.ToString()")
     };
 
+    // Detect enum-typed fields. C# emits typed enums (e.g. `FinishReason?`) for
+    // these so the codegen must avoid `.Trim()` (string-only) and instead
+    // compare via `?.ToString()?.ToLower()` to match snake_case JSON.
+    let field_is_enum = assertion.field.as_deref().filter(|f| !f.is_empty()).is_some_and(|f| {
+        let resolved = field_resolver.resolve(f);
+        fields_enum.contains(f) || fields_enum.contains(resolved)
+    });
+
     match assertion.assertion_type.as_str() {
         "equals" => {
             if let Some(expected) = &assertion.value {
-                let cs_val = json_to_csharp(expected);
-                if expected.is_string() {
-                    // Only call .Trim() on string fields.
-                    let _ = writeln!(out, "        Assert.Equal({cs_val}, {field_expr}!.Trim());");
-                } else if expected.as_bool() == Some(true) {
-                    // Boolean true: use Assert.True to avoid xUnit2004 warning.
-                    let _ = writeln!(out, "        Assert.True({field_expr});");
-                } else if expected.as_bool() == Some(false) {
-                    // Boolean false: use Assert.False to avoid xUnit2004 warning.
-                    let _ = writeln!(out, "        Assert.False({field_expr});");
-                } else if expected.is_number() && !expected.as_f64().is_some_and(|f| f.fract() != 0.0) {
-                    // Integer values: use Assert.True(x == n) to avoid xUnit overload
-                    // resolution ambiguity (int vs uint vs long vs DateTime).
-                    let _ = writeln!(out, "        Assert.True({field_expr} == {cs_val});");
-                } else {
-                    let _ = writeln!(out, "        Assert.Equal({cs_val}, {field_expr});");
+                // Enum field equality bypasses the template (which would emit `.Trim()`,
+                // a string-only API). Compare the snake-cased ToString() against the
+                // expected value to match the wire JSON form (`InProgress` → `in_progress`,
+                // `ContentFilter` → `content_filter`, etc.). `JsonNamingPolicy.SnakeCaseLower`
+                // is the same policy used by the global JsonStringEnumConverter, so the
+                // assertion compares against exactly what serde would emit.
+                if field_is_enum && expected.is_string() {
+                    let s_lower = expected.as_str().map(|s| s.to_lowercase()).unwrap_or_default();
+                    let _ = writeln!(
+                        out,
+                        "        Assert.Equal(\"{}\", {field_expr} == null ? null : JsonNamingPolicy.SnakeCaseLower.ConvertName({field_expr}.ToString()!));",
+                        escape_csharp(&s_lower)
+                    );
+                    return;
                 }
+                let cs_val = json_to_csharp(expected);
+                let is_string_val = expected.is_string();
+                let is_bool_true = expected.as_bool() == Some(true);
+                let is_bool_false = expected.as_bool() == Some(false);
+                let is_integer_val = expected.is_number() && !expected.as_f64().is_some_and(|f| f.fract() != 0.0);
+
+                let rendered = crate::template_env::render(
+                    "csharp/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "equals",
+                        field_expr => field_expr.clone(),
+                        cs_val => cs_val,
+                        is_string_val => is_string_val,
+                        is_bool_true => is_bool_true,
+                        is_bool_false => is_bool_false,
+                        is_integer_val => is_integer_val,
+                    },
+                );
+                out.push_str(&rendered);
             }
         }
         "contains" => {
@@ -1312,46 +2215,78 @@ fn render_assertion(
                     .as_deref()
                     .map(|s| format!("\"{}\"", escape_csharp(s)))
                     .unwrap_or_else(|| json_to_csharp(expected));
-                let _ = writeln!(out, "        Assert.Contains({cs_val}, {field_as_str}.ToLower());");
+
+                let rendered = crate::template_env::render(
+                    "csharp/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "contains",
+                        field_as_str => field_as_str.clone(),
+                        cs_val => cs_val,
+                    },
+                );
+                out.push_str(&rendered);
             }
         }
         "contains_all" => {
             if let Some(values) = &assertion.values {
-                for val in values {
-                    let lower_val = val.as_str().map(|s| s.to_lowercase());
-                    let cs_val = lower_val
-                        .as_deref()
-                        .map(|s| format!("\"{}\"", escape_csharp(s)))
-                        .unwrap_or_else(|| json_to_csharp(val));
-                    let _ = writeln!(out, "        Assert.Contains({cs_val}, {field_as_str}.ToLower());");
-                }
+                let values_cs_lower: Vec<String> = values
+                    .iter()
+                    .map(|val| {
+                        let lower_val = val.as_str().map(|s| s.to_lowercase());
+                        lower_val
+                            .as_deref()
+                            .map(|s| format!("\"{}\"", escape_csharp(s)))
+                            .unwrap_or_else(|| json_to_csharp(val))
+                    })
+                    .collect();
+
+                let rendered = crate::template_env::render(
+                    "csharp/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "contains_all",
+                        field_as_str => field_as_str.clone(),
+                        values_cs_lower => values_cs_lower,
+                    },
+                );
+                out.push_str(&rendered);
             }
         }
         "not_contains" => {
             if let Some(expected) = &assertion.value {
                 let cs_val = json_to_csharp(expected);
-                let _ = writeln!(out, "        Assert.DoesNotContain({cs_val}, {field_as_str});");
+
+                let rendered = crate::template_env::render(
+                    "csharp/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "not_contains",
+                        field_as_str => field_as_str.clone(),
+                        cs_val => cs_val,
+                    },
+                );
+                out.push_str(&rendered);
             }
         }
         "not_empty" => {
-            if field_needs_json_serialize {
-                let _ = writeln!(out, "        Assert.NotEmpty({field_expr});");
-            } else {
-                let _ = writeln!(
-                    out,
-                    "        Assert.False(string.IsNullOrEmpty({field_expr}?.ToString()));"
-                );
-            }
+            let rendered = crate::template_env::render(
+                "csharp/assertion.jinja",
+                minijinja::context! {
+                    assertion_type => "not_empty",
+                    field_expr => field_expr.clone(),
+                    field_needs_json_serialize => field_needs_json_serialize,
+                },
+            );
+            out.push_str(&rendered);
         }
         "is_empty" => {
-            if field_needs_json_serialize {
-                let _ = writeln!(out, "        Assert.Empty({field_expr});");
-            } else {
-                let _ = writeln!(
-                    out,
-                    "        Assert.True(string.IsNullOrEmpty({field_expr}?.ToString()));"
-                );
-            }
+            let rendered = crate::template_env::render(
+                "csharp/assertion.jinja",
+                minijinja::context! {
+                    assertion_type => "is_empty",
+                    field_expr => field_expr.clone(),
+                    field_needs_json_serialize => field_needs_json_serialize,
+                },
+            );
+            out.push_str(&rendered);
         }
         "contains_any" => {
             if let Some(values) = &assertion.values {
@@ -1362,158 +2297,314 @@ fn render_assertion(
                         format!("{field_as_str}.Contains({cs_val})")
                     })
                     .collect();
-                let joined = checks.join(" || ");
-                let _ = writeln!(
-                    out,
-                    "        Assert.True({joined}, \"expected to contain at least one of the specified values\");"
+                let contains_any_expr = checks.join(" || ");
+
+                let rendered = crate::template_env::render(
+                    "csharp/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "contains_any",
+                        contains_any_expr => contains_any_expr,
+                    },
                 );
+                out.push_str(&rendered);
             }
         }
         "greater_than" => {
             if let Some(val) = &assertion.value {
                 let cs_val = json_to_csharp(val);
-                let _ = writeln!(
-                    out,
-                    "        Assert.True({field_expr} > {cs_val}, \"expected > {cs_val}\");"
+
+                let rendered = crate::template_env::render(
+                    "csharp/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "greater_than",
+                        field_expr => field_expr.clone(),
+                        cs_val => cs_val,
+                    },
                 );
+                out.push_str(&rendered);
             }
         }
         "less_than" => {
             if let Some(val) = &assertion.value {
                 let cs_val = json_to_csharp(val);
-                let _ = writeln!(
-                    out,
-                    "        Assert.True({field_expr} < {cs_val}, \"expected < {cs_val}\");"
+
+                let rendered = crate::template_env::render(
+                    "csharp/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "less_than",
+                        field_expr => field_expr.clone(),
+                        cs_val => cs_val,
+                    },
                 );
+                out.push_str(&rendered);
             }
         }
         "greater_than_or_equal" => {
             if let Some(val) = &assertion.value {
                 let cs_val = json_to_csharp(val);
-                let _ = writeln!(
-                    out,
-                    "        Assert.True({field_expr} >= {cs_val}, \"expected >= {cs_val}\");"
+
+                let rendered = crate::template_env::render(
+                    "csharp/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "greater_than_or_equal",
+                        field_expr => field_expr.clone(),
+                        cs_val => cs_val,
+                    },
                 );
+                out.push_str(&rendered);
             }
         }
         "less_than_or_equal" => {
             if let Some(val) = &assertion.value {
                 let cs_val = json_to_csharp(val);
-                let _ = writeln!(
-                    out,
-                    "        Assert.True({field_expr} <= {cs_val}, \"expected <= {cs_val}\");"
+
+                let rendered = crate::template_env::render(
+                    "csharp/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "less_than_or_equal",
+                        field_expr => field_expr.clone(),
+                        cs_val => cs_val,
+                    },
                 );
+                out.push_str(&rendered);
             }
         }
         "starts_with" => {
             if let Some(expected) = &assertion.value {
                 let cs_val = json_to_csharp(expected);
-                let _ = writeln!(out, "        Assert.StartsWith({cs_val}, {field_expr});");
+
+                let rendered = crate::template_env::render(
+                    "csharp/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "starts_with",
+                        field_expr => field_expr.clone(),
+                        cs_val => cs_val,
+                    },
+                );
+                out.push_str(&rendered);
             }
         }
         "ends_with" => {
             if let Some(expected) = &assertion.value {
                 let cs_val = json_to_csharp(expected);
-                let _ = writeln!(out, "        Assert.EndsWith({cs_val}, {field_expr});");
+
+                let rendered = crate::template_env::render(
+                    "csharp/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "ends_with",
+                        field_expr => field_expr.clone(),
+                        cs_val => cs_val,
+                    },
+                );
+                out.push_str(&rendered);
             }
         }
         "min_length" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(
-                        out,
-                        "        Assert.True({field_expr}.Length >= {n}, \"expected length >= {n}\");"
+                    let rendered = crate::template_env::render(
+                        "csharp/assertion.jinja",
+                        minijinja::context! {
+                            assertion_type => "min_length",
+                            field_expr => field_expr.clone(),
+                            n => n,
+                        },
                     );
+                    out.push_str(&rendered);
                 }
             }
         }
         "max_length" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(
-                        out,
-                        "        Assert.True({field_expr}.Length <= {n}, \"expected length <= {n}\");"
+                    let rendered = crate::template_env::render(
+                        "csharp/assertion.jinja",
+                        minijinja::context! {
+                            assertion_type => "max_length",
+                            field_expr => field_expr.clone(),
+                            n => n,
+                        },
                     );
+                    out.push_str(&rendered);
                 }
             }
         }
         "count_min" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(
-                        out,
-                        "        Assert.True({field_expr}.Count >= {n}, \"expected at least {n} elements\");"
+                    let rendered = crate::template_env::render(
+                        "csharp/assertion.jinja",
+                        minijinja::context! {
+                            assertion_type => "count_min",
+                            field_expr => field_expr.clone(),
+                            n => n,
+                        },
                     );
+                    out.push_str(&rendered);
                 }
             }
         }
         "count_equals" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(out, "        Assert.Equal({n}, {field_expr}.Count);");
+                    let rendered = crate::template_env::render(
+                        "csharp/assertion.jinja",
+                        minijinja::context! {
+                            assertion_type => "count_equals",
+                            field_expr => field_expr.clone(),
+                            n => n,
+                        },
+                    );
+                    out.push_str(&rendered);
                 }
             }
         }
         "is_true" => {
-            let _ = writeln!(out, "        Assert.True({field_expr});");
+            let rendered = crate::template_env::render(
+                "csharp/assertion.jinja",
+                minijinja::context! {
+                    assertion_type => "is_true",
+                    field_expr => field_expr.clone(),
+                },
+            );
+            out.push_str(&rendered);
         }
         "is_false" => {
-            let _ = writeln!(out, "        Assert.False({field_expr});");
+            let rendered = crate::template_env::render(
+                "csharp/assertion.jinja",
+                minijinja::context! {
+                    assertion_type => "is_false",
+                    field_expr => field_expr.clone(),
+                },
+            );
+            out.push_str(&rendered);
         }
         "not_error" => {
             // Already handled by the call succeeding without exception.
+            let rendered = crate::template_env::render(
+                "csharp/assertion.jinja",
+                minijinja::context! {
+                    assertion_type => "not_error",
+                },
+            );
+            out.push_str(&rendered);
         }
         "error" => {
             // Handled at the test method level.
+            let rendered = crate::template_env::render(
+                "csharp/assertion.jinja",
+                minijinja::context! {
+                    assertion_type => "error",
+                },
+            );
+            out.push_str(&rendered);
         }
         "method_result" => {
             if let Some(method_name) = &assertion.method {
                 let call_expr = build_csharp_method_call(result_var, method_name, assertion.args.as_ref(), class_name);
                 let check = assertion.check.as_deref().unwrap_or("is_true");
+
                 match check {
                     "equals" => {
                         if let Some(val) = &assertion.value {
-                            if val.as_bool() == Some(true) {
-                                let _ = writeln!(out, "        Assert.True({call_expr});");
-                            } else if val.as_bool() == Some(false) {
-                                let _ = writeln!(out, "        Assert.False({call_expr});");
-                            } else {
-                                let cs_val = json_to_csharp(val);
-                                let _ = writeln!(out, "        Assert.Equal({cs_val}, {call_expr});");
-                            }
+                            let is_check_bool_true = val.as_bool() == Some(true);
+                            let is_check_bool_false = val.as_bool() == Some(false);
+                            let cs_check_val = json_to_csharp(val);
+
+                            let rendered = crate::template_env::render(
+                                "csharp/assertion.jinja",
+                                minijinja::context! {
+                                    assertion_type => "method_result",
+                                    check => "equals",
+                                    call_expr => call_expr.clone(),
+                                    is_check_bool_true => is_check_bool_true,
+                                    is_check_bool_false => is_check_bool_false,
+                                    cs_check_val => cs_check_val,
+                                },
+                            );
+                            out.push_str(&rendered);
                         }
                     }
                     "is_true" => {
-                        let _ = writeln!(out, "        Assert.True({call_expr});");
+                        let rendered = crate::template_env::render(
+                            "csharp/assertion.jinja",
+                            minijinja::context! {
+                                assertion_type => "method_result",
+                                check => "is_true",
+                                call_expr => call_expr.clone(),
+                            },
+                        );
+                        out.push_str(&rendered);
                     }
                     "is_false" => {
-                        let _ = writeln!(out, "        Assert.False({call_expr});");
+                        let rendered = crate::template_env::render(
+                            "csharp/assertion.jinja",
+                            minijinja::context! {
+                                assertion_type => "method_result",
+                                check => "is_false",
+                                call_expr => call_expr.clone(),
+                            },
+                        );
+                        out.push_str(&rendered);
                     }
                     "greater_than_or_equal" => {
                         if let Some(val) = &assertion.value {
-                            let n = val.as_u64().unwrap_or(0);
-                            let _ = writeln!(out, "        Assert.True({call_expr} >= {n}, \"expected >= {n}\");");
+                            let check_n = val.as_u64().unwrap_or(0);
+
+                            let rendered = crate::template_env::render(
+                                "csharp/assertion.jinja",
+                                minijinja::context! {
+                                    assertion_type => "method_result",
+                                    check => "greater_than_or_equal",
+                                    call_expr => call_expr.clone(),
+                                    check_n => check_n,
+                                },
+                            );
+                            out.push_str(&rendered);
                         }
                     }
                     "count_min" => {
                         if let Some(val) = &assertion.value {
-                            let n = val.as_u64().unwrap_or(0);
-                            let _ = writeln!(
-                                out,
-                                "        Assert.True({call_expr}.Count >= {n}, \"expected at least {n} elements\");"
+                            let check_n = val.as_u64().unwrap_or(0);
+
+                            let rendered = crate::template_env::render(
+                                "csharp/assertion.jinja",
+                                minijinja::context! {
+                                    assertion_type => "method_result",
+                                    check => "count_min",
+                                    call_expr => call_expr.clone(),
+                                    check_n => check_n,
+                                },
                             );
+                            out.push_str(&rendered);
                         }
                     }
                     "is_error" => {
-                        let _ = writeln!(
-                            out,
-                            "        Assert.ThrowsAny<{exception_class}>(() => {{ {call_expr}; }});"
+                        let rendered = crate::template_env::render(
+                            "csharp/assertion.jinja",
+                            minijinja::context! {
+                                assertion_type => "method_result",
+                                check => "is_error",
+                                call_expr => call_expr.clone(),
+                                exception_class => exception_class,
+                            },
                         );
+                        out.push_str(&rendered);
                     }
                     "contains" => {
                         if let Some(val) = &assertion.value {
-                            let cs_val = json_to_csharp(val);
-                            let _ = writeln!(out, "        Assert.Contains({cs_val}, {call_expr});");
+                            let cs_check_val = json_to_csharp(val);
+
+                            let rendered = crate::template_env::render(
+                                "csharp/assertion.jinja",
+                                minijinja::context! {
+                                    assertion_type => "method_result",
+                                    check => "contains",
+                                    call_expr => call_expr.clone(),
+                                    cs_check_val => cs_check_val,
+                                },
+                            );
+                            out.push_str(&rendered);
                         }
                     }
                     other_check => {
@@ -1527,7 +2618,16 @@ fn render_assertion(
         "matches_regex" => {
             if let Some(expected) = &assertion.value {
                 let cs_val = json_to_csharp(expected);
-                let _ = writeln!(out, "        Assert.Matches({cs_val}, {field_expr});");
+
+                let rendered = crate::template_env::render(
+                    "csharp/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "matches_regex",
+                        field_expr => field_expr.clone(),
+                        cs_val => cs_val,
+                    },
+                );
+                out.push_str(&rendered);
             }
         }
         other => {
@@ -1613,6 +2713,7 @@ fn default_csharp_nested_types() -> HashMap<String, String> {
         ("content_filter", "ContentFilterConfig"),
         ("token_reduction", "TokenReductionOptions"),
         ("security_limits", "SecurityLimits"),
+        ("format", "FormatMetadata"),
     ]
     .iter()
     .map(|(k, v)| (k.to_string(), v.to_string()))
@@ -1636,44 +2737,45 @@ fn csharp_object_initializer(
         return format!("new {type_name}()");
     }
 
-    // Fields that are JsonElement? in the C# binding (discriminated unions in Rust).
-    // These must be wrapped in JsonDocument.Parse() to create a JsonElement from a value.
-    static JSON_ELEMENT_FIELDS: &[&str] = &["output_format"];
+    // Snake_case fixture keys for fields that are real C# enums in the binding.
+    // The fixture string value (e.g. "markdown") maps to `EnumType.Member` (e.g. `OutputFormat.Markdown`).
+    static IMPLICIT_ENUM_FIELDS: &[(&str, &str)] = &[("output_format", "OutputFormat")];
 
     let props: Vec<String> = obj
         .iter()
         .map(|(key, val)| {
             let pascal_key = key.to_upper_camel_case();
-            let cs_val = if let Some(enum_type) = enum_fields.get(key.as_str()) {
-                // Enum: EnumType.Member
-                let member = val
-                    .as_str()
-                    .map(|s| s.to_upper_camel_case())
-                    .unwrap_or_else(|| "null".to_string());
-                format!("{enum_type}.{member}")
-            } else if let Some(nested_type) = nested_types.get(key.as_str()) {
-                // Nested object: JSON deserialization (keys are typically single-word, matching JsonPropertyName)
-                let normalized = normalize_csharp_enum_values(val, enum_fields);
-                let json_str = serde_json::to_string(&normalized).unwrap_or_default();
-                format!(
-                    "JsonSerializer.Deserialize<{nested_type}>(\"{}\", ConfigOptions)!",
-                    escape_csharp(&json_str)
-                )
-            } else if let Some(arr) = val.as_array() {
-                // Array: List<string>
-                let items: Vec<String> = arr.iter().map(json_to_csharp).collect();
-                format!("new List<string> {{ {} }}", items.join(", "))
-            } else if JSON_ELEMENT_FIELDS.contains(&key.as_str()) {
-                // JsonElement? fields: wrap the JSON value in JsonDocument.Parse().RootElement
-                if val.is_null() {
-                    "null".to_string()
+            let implicit_enum_type = IMPLICIT_ENUM_FIELDS
+                .iter()
+                .find(|(k, _)| *k == key.as_str())
+                .map(|(_, t)| *t);
+            let cs_val =
+                if let Some(enum_type) = enum_fields.get(key.as_str()).map(String::as_str).or(implicit_enum_type) {
+                    // Enum: EnumType.Member
+                    if val.is_null() {
+                        "null".to_string()
+                    } else {
+                        let member = val
+                            .as_str()
+                            .map(|s| s.to_upper_camel_case())
+                            .unwrap_or_else(|| "null".to_string());
+                        format!("{enum_type}.{member}")
+                    }
+                } else if let Some(nested_type) = nested_types.get(key.as_str()) {
+                    // Nested object: JSON deserialization (keys are typically single-word, matching JsonPropertyName)
+                    let normalized = normalize_csharp_enum_values(val, enum_fields);
+                    let json_str = serde_json::to_string(&normalized).unwrap_or_default();
+                    format!(
+                        "JsonSerializer.Deserialize<{nested_type}>(\"{}\", ConfigOptions)!",
+                        escape_csharp(&json_str)
+                    )
+                } else if let Some(arr) = val.as_array() {
+                    // Array: List<string>
+                    let items: Vec<String> = arr.iter().map(json_to_csharp).collect();
+                    format!("new List<string> {{ {} }}", items.join(", "))
                 } else {
-                    let json_str = serde_json::to_string(val).unwrap_or_default();
-                    format!("JsonDocument.Parse(\"{}\").RootElement", escape_csharp(&json_str))
-                }
-            } else {
-                json_to_csharp(val)
-            };
+                    json_to_csharp(val)
+                };
             format!("{pascal_key} = {cs_val}")
         })
         .collect();
@@ -1726,8 +2828,8 @@ fn build_csharp_visitor(
 
     // Build the class declaration string (indented for nesting inside the test class).
     let mut decl = String::new();
-    let _ = writeln!(decl, "    private sealed class {class_name} : IHtmlVisitor");
-    let _ = writeln!(decl, "    {{");
+    decl.push_str(&format!("    private sealed class {class_name} : IHtmlVisitor\n"));
+    decl.push_str("    {\n");
 
     // List of all visitor methods that must be implemented by IHtmlVisitor.
     let all_methods = [
@@ -1783,7 +2885,7 @@ fn build_csharp_visitor(
         }
     }
 
-    let _ = writeln!(decl, "    }}");
+    decl.push_str("    }\n");
     class_decls.push(decl);
 
     var_name
@@ -1833,29 +2935,27 @@ fn emit_csharp_visitor_method(decl: &mut String, method_name: &str, action: &Cal
         _ => "NodeContext ctx",
     };
 
-    let _ = writeln!(decl, "        public VisitResult {camel_method}({params})");
-    let _ = writeln!(decl, "        {{");
-    match action {
-        CallbackAction::Skip => {
-            let _ = writeln!(decl, "            return new VisitResult.Skip();");
-        }
-        CallbackAction::Continue => {
-            let _ = writeln!(decl, "            return new VisitResult.Continue();");
-        }
-        CallbackAction::PreserveHtml => {
-            let _ = writeln!(decl, "            return new VisitResult.PreserveHtml();");
-        }
-        CallbackAction::Custom { output } => {
-            let escaped = escape_csharp(output);
-            let _ = writeln!(decl, "            return new VisitResult.Custom(\"{escaped}\");");
-        }
-        CallbackAction::CustomTemplate { template } => {
+    let (action_type, action_value) = match action {
+        CallbackAction::Skip => ("skip", String::new()),
+        CallbackAction::Continue => ("continue", String::new()),
+        CallbackAction::PreserveHtml => ("preserve_html", String::new()),
+        CallbackAction::Custom { output } => ("custom", escape_csharp(output)),
+        CallbackAction::CustomTemplate { template, .. } => {
             let camel = snake_case_template_to_camel(template);
-            let escaped = escape_csharp(&camel);
-            let _ = writeln!(decl, "            return new VisitResult.Custom($\"{escaped}\");");
+            ("custom_template", escape_csharp(&camel))
         }
-    }
-    let _ = writeln!(decl, "        }}");
+    };
+
+    let rendered = crate::template_env::render(
+        "csharp/visitor_method.jinja",
+        minijinja::context! {
+            camel_method => camel_method,
+            params => params,
+            action_type => action_type,
+            action_value => action_value,
+        },
+    );
+    let _ = write!(decl, "{}", rendered);
 }
 
 /// Convert snake_case method names to C# PascalCase.
@@ -1946,7 +3046,8 @@ fn fixture_has_csharp_callable(fixture: &Fixture, e2e_config: &E2eConfig) -> boo
     if fixture.is_http_test() {
         return false;
     }
-    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    // Use resolve_call_for_fixture to support auto-routing via select_when.
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
     let cs_override = call_config
         .overrides
         .get("csharp")
@@ -1958,4 +3059,100 @@ fn fixture_has_csharp_callable(fixture: &Fixture, e2e_config: &E2eConfig) -> boo
     // C# binding provides a default class name (e.g., KreuzcrawlLib) if not overridden,
     // so any function name makes a callable available.
     cs_override.and_then(|o| o.function.as_deref()).is_some() || !call_config.function.is_empty()
+}
+
+/// Classify a fixture string value that maps to a `bytes` argument.
+/// Determines whether to treat it as a file path, inline text, or base64-encoded data.
+fn classify_bytes_value_csharp(s: &str) -> String {
+    // File paths: start with alphanumeric/underscore, contain "/" with extension
+    // e.g., "pdf/fake.pdf", "images/test.png"
+    if let Some(first) = s.chars().next() {
+        if first.is_ascii_alphanumeric() || first == '_' {
+            if let Some(slash_pos) = s.find('/') {
+                if slash_pos > 0 {
+                    let after_slash = &s[slash_pos + 1..];
+                    if after_slash.contains('.') && !after_slash.is_empty() {
+                        // File path: use File.ReadAllBytes(path)
+                        return format!("System.IO.File.ReadAllBytes(\"{}\")", s);
+                    }
+                }
+            }
+        }
+    }
+
+    // Inline text: starts with markup or contains spaces
+    // e.g., "<html>...", "{...}", "[...]", "text with spaces"
+    if s.starts_with('<') || s.starts_with('{') || s.starts_with('[') || s.contains(' ') {
+        // Inline text: use System.Text.Encoding.UTF8.GetBytes()
+        return format!("System.Text.Encoding.UTF8.GetBytes(\"{}\")", escape_csharp(s));
+    }
+
+    // Base64: base64-like pattern (uppercase/lowercase letters, digits, +, /, =)
+    // e.g., "/9j/4AAQ", "SGVsbG8gV29ybGQ="
+    // Use Convert.FromBase64String()
+    format!("System.Convert.FromBase64String(\"{}\")", s)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::config::{CallConfig, E2eConfig, SelectWhen};
+    use crate::fixture::Fixture;
+    use std::collections::HashMap;
+
+    fn make_fixture_with_input(id: &str, input: serde_json::Value) -> Fixture {
+        Fixture {
+            id: id.to_string(),
+            category: None,
+            description: "test fixture".to_string(),
+            tags: vec![],
+            skip: None,
+            env: None,
+            call: None,
+            input,
+            mock_response: None,
+            source: String::new(),
+            http: None,
+            assertions: vec![],
+            visitor: None,
+        }
+    }
+
+    /// Test that resolve_call_for_fixture correctly routes to batch_scrape
+    /// when input has batch_urls and select_when condition matches.
+    #[test]
+    fn test_csharp_select_when_routes_to_batch_scrape() {
+        let mut calls = HashMap::new();
+        calls.insert(
+            "batch_scrape".to_string(),
+            CallConfig {
+                function: "BatchScrape".to_string(),
+                module: "KreuzBrowser".to_string(),
+                select_when: Some(SelectWhen::InputHas("batch_urls".to_string())),
+                ..CallConfig::default()
+            },
+        );
+
+        let e2e_config = E2eConfig {
+            call: CallConfig {
+                function: "Scrape".to_string(),
+                module: "KreuzBrowser".to_string(),
+                ..CallConfig::default()
+            },
+            calls,
+            ..E2eConfig::default()
+        };
+
+        // Fixture with batch_urls but no explicit call field should route to batch_scrape
+        let fixture = make_fixture_with_input("batch_empty_urls", serde_json::json!({ "batch_urls": [] }));
+
+        let resolved_call = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
+        assert_eq!(resolved_call.function, "BatchScrape");
+
+        // Fixture without batch_urls should fall back to default Scrape
+        let fixture_no_batch =
+            make_fixture_with_input("simple_scrape", serde_json::json!({ "url": "https://example.com" }));
+        let resolved_default =
+            e2e_config.resolve_call_for_fixture(fixture_no_batch.call.as_deref(), &fixture_no_batch.input);
+        assert_eq!(resolved_default.function, "Scrape");
+    }
 }

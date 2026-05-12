@@ -89,7 +89,7 @@ fn render_smoke_test(cfg: &NewAlefConfig, assertions: Vec<Assertion>) -> String 
     let (resolved, e2e) = resolve_one(cfg);
     let groups = vec![build_fixture_with_assertions("bug_regression", assertions)];
     let files = RustE2eCodegen
-        .generate(&groups, &e2e, &resolved)
+        .generate(&groups, &e2e, &resolved, &[])
         .expect("generation succeeds");
     let test_file = files
         .iter()
@@ -159,6 +159,7 @@ fn build_fixture() -> FixtureGroup {
                 method: None,
                 check: None,
                 args: None,
+                return_type: None,
             }],
             source: "test.json".to_string(),
             http: None,
@@ -170,7 +171,7 @@ fn render_rust_test(cfg: &NewAlefConfig) -> String {
     let (resolved, e2e) = resolve_one(cfg);
     let groups = vec![build_fixture()];
     let files = RustE2eCodegen
-        .generate(&groups, &e2e, &resolved)
+        .generate(&groups, &e2e, &resolved, &[])
         .expect("generation succeeds");
     let test_file = files
         .iter()
@@ -258,6 +259,7 @@ fn bug_a_optional_vec_string_unwrap_fallback_is_empty_slice() {
         method: None,
         check: None,
         args: None,
+        return_type: None,
     }];
     let rendered = render_smoke_test(&config, assertions);
     assert!(
@@ -288,6 +290,7 @@ fn bug_b_optional_numeric_greater_than_or_equal_wraps_unwrap_or() {
         method: None,
         check: None,
         args: None,
+        return_type: None,
     }];
     let rendered = render_smoke_test(&config, assertions);
     assert!(
@@ -319,6 +322,7 @@ fn bug_c_optional_string_equals_in_vec_result_uses_as_deref_unwrap_or() {
         method: None,
         check: None,
         args: None,
+        return_type: None,
     }];
     let rendered = render_smoke_test(&config, assertions);
     assert!(
@@ -349,6 +353,7 @@ fn bug_d_field_named_result_refers_to_whole_result_not_struct_field() {
         method: None,
         check: None,
         args: None,
+        return_type: None,
     }];
     let rendered = render_smoke_test(&config, assertions);
     assert!(

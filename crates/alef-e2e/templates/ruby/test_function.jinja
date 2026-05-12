@@ -1,0 +1,55 @@
+{#- Ruby test_function template (it block)
+
+   Context variables:
+   - test_name: sanitized fixture ID
+   - description: fixture description
+   - expects_error: bool
+   - setup_lines: list of setup line strings
+   - call_expr: the function call expression
+   - result_var: variable to store result
+   - assertions_rendered: pre-rendered assertion blocks
+   - has_usable: bool - whether there are any usable assertions
+   - client_factory: optional client factory expression
+   - fixture_id: fixture ID (for client factory)
+   - call_receiver: module or class name for the call
+#}
+  it '{{ test_name }}: {{ description }}' do
+{% if client_factory %}
+{% if has_mock_and_key %}
+    api_key = ENV['{{ api_key_var }}']
+    if api_key && !api_key.empty?
+      warn "{{ test_name }}: using real API ({{ api_key_var }} is set)"
+      client = {{ call_receiver }}.{{ client_factory }}(api_key)
+    else
+      warn "{{ test_name }}: using mock server ({{ api_key_var }} not set)"
+      mock_url = "#{ENV['MOCK_SERVER_URL']}/fixtures/{{ fixture_id }}"
+      client = {{ call_receiver }}.{{ client_factory }}('test-key', mock_url)
+    end
+{% elif has_mock %}
+    client = {{ call_receiver }}.{{ client_factory }}('test-key', ENV.fetch('MOCK_SERVER_URL') + '/fixtures/{{ fixture_id }}')
+{% elif api_key_var %}
+    api_key = ENV['{{ api_key_var }}']
+    skip '{{ api_key_var }} not set' unless api_key
+    client = {{ call_receiver }}.{{ client_factory }}(api_key)
+{% else %}
+    client = {{ call_receiver }}.{{ client_factory }}('test-key')
+{% endif %}
+{% endif %}
+{% if expects_error %}
+    expect {
+{% for line in setup_lines %}
+      {{ line }}
+{% endfor %}
+      {{ call_expr }}
+    }.to raise_error
+{% else %}
+{% for line in setup_lines %}
+    {{ line }}
+{% endfor %}
+    {{ result_var }} = {{ call_expr }}
+{{ assertions_rendered }}
+{% if not has_usable %}
+    expect({{ result_var }}).not_to be_nil
+{% endif %}
+{% endif %}
+  end

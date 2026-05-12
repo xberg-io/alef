@@ -1,0 +1,11 @@
+// Trait bridge trampolines (exported to C)
+{% for bridge in bridges -%}
+{% for method in bridge.methods -%}
+//export go{{ bridge.pascal_name }}{{ method.name }}
+{% endfor -%}
+//export go{{ bridge.pascal_name }}Name
+//export go{{ bridge.pascal_name }}Version
+//export go{{ bridge.pascal_name }}Initialize
+//export go{{ bridge.pascal_name }}Shutdown
+//export go{{ bridge.pascal_name }}FreeUserData
+{% endfor -%}

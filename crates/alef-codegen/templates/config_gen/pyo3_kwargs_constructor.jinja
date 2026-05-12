@@ -1,0 +1,13 @@
+#[new]
+#[pyo3(signature = ({{ signature_defaults }}))]
+fn new(
+{% for field in fields -%}
+    {{ field.name }}: {{ field.type }}{{ "," if not loop.last else "" }}
+{% endfor -%}
+) -> Self {
+    Self {
+{% for field in fields -%}
+        {{ field.name }},
+{% endfor -%}
+    }
+}

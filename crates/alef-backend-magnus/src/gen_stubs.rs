@@ -55,9 +55,11 @@ fn gen_opaque_type_stub(typ: &TypeDef) -> String {
     lines.push(format!("  class {}", typ.name));
 
     if !typ.doc.is_empty() {
-        for doc_line in typ.doc.lines() {
-            lines.push(format!("    # {doc_line}"));
-        }
+        let doc_lines: Vec<String> = typ.doc.lines().map(ToString::to_string).collect();
+        lines.push(crate::template_env::render(
+            "rbs_doc_block.jinja",
+            minijinja::context! { doc_lines },
+        ));
         lines.push("".to_string());
     }
 
@@ -88,9 +90,11 @@ fn gen_type_stub(typ: &TypeDef) -> String {
 
     // Add docstring if present
     if !typ.doc.is_empty() {
-        for doc_line in typ.doc.lines() {
-            lines.push(format!("    # {doc_line}"));
-        }
+        let doc_lines: Vec<String> = typ.doc.lines().map(ToString::to_string).collect();
+        lines.push(crate::template_env::render(
+            "rbs_doc_block.jinja",
+            minijinja::context! { doc_lines },
+        ));
         lines.push("".to_string());
     }
 
@@ -186,9 +190,11 @@ fn gen_enum_stub(enum_def: &EnumDef) -> String {
 
     // Add docstring if present
     if !enum_def.doc.is_empty() {
-        for doc_line in enum_def.doc.lines() {
-            lines.push(format!("    # {doc_line}"));
-        }
+        let doc_lines: Vec<String> = enum_def.doc.lines().map(ToString::to_string).collect();
+        lines.push(crate::template_env::render(
+            "rbs_doc_block.jinja",
+            minijinja::context! { doc_lines },
+        ));
     }
 
     // Check if enum has data (non-unit variants)

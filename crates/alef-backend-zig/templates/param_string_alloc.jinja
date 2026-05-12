@@ -1,0 +1,3 @@
+    const {{ name }}_z: [:0]u8 = try std.fmt.allocPrintSentinel(
+        std.heap.c_allocator, "{s}", .{{ context }}, 0,
+    );

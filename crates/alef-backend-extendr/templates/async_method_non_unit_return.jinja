@@ -1,0 +1,48 @@
+let cached_name = self.cached_name.clone();
+let r_obj = self.inner.clone();
+
+{% for param in params_to_clone %}
+{{ param }}
+{% endfor %}
+
+tokio::task::spawn_blocking(move || {
+    let maybe_fn = r_obj.dollar("{{ method_name }}");
+    let fn_robj = match maybe_fn {
+        Ok(v) if !v.is_null() && !v.is_na() => v,
+        _ => return Err({{ core_import }}::KreuzbergError::Plugin {
+            message: format!("Plugin '{}' missing method '{{ method_name }}'", cached_name),
+            plugin_name: cached_name.clone(),
+        }),
+    };
+
+{% if empty_args %}
+    let result = fn_robj.call(extendr_api::Pairlist::new());
+{% else %}
+    let args = extendr_api::Pairlist::from_pairs(&[{{ args_pairs }}]);
+    let result = fn_robj.call(args);
+{% endif %}
+
+    match result {
+        Err(_) => {
+            Err({{ core_import }}::KreuzbergError::Plugin {
+                message: format!("Plugin '{}' method '{{ method_name }}' failed", cached_name),
+                plugin_name: cached_name.clone(),
+            })
+        }
+        Ok(val) => {
+            if let Some(s) = val.as_str() {
+                Ok(s.to_string())
+            } else {
+                Err({{ core_import }}::KreuzbergError::Plugin {
+                    message: format!("Plugin '{}' method '{{ method_name }}' returned invalid type", cached_name),
+                    plugin_name: cached_name.clone(),
+                })
+            }
+        }
+    }
+})
+.await
+.map_err(|e| {{ core_import }}::KreuzbergError::Plugin {
+    message: format!("spawn_blocking failed: {}", e),
+    plugin_name: cached_name.clone(),
+})?

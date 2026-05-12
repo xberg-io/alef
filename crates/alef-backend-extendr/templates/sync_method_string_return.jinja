@@ -1,0 +1,46 @@
+let maybe_fn = self.inner.dollar("{{ method_name }}");
+let fn_robj = match maybe_fn {
+    Ok(v) if !v.is_null() && !v.is_na() => v,
+{% if has_error %}
+    _ => return Err({{ core_import }}::KreuzbergError::Plugin {
+        message: format!("Plugin '{}' missing method '{{ method_name }}'", self.cached_name),
+        plugin_name: self.cached_name.clone(),
+    }),
+{% else %}
+    _ => return Default::default(),
+{% endif %}
+};
+
+{% if empty_args %}
+let result = fn_robj.call(extendr_api::Pairlist::new());
+{% else %}
+let args = extendr_api::Pairlist::from_pairs(&[{{ args_pairs }}]);
+let result = fn_robj.call(args);
+{% endif %}
+
+match result {
+    Err(_) => {
+{% if has_error %}
+        Err({{ core_import }}::KreuzbergError::Plugin {
+            message: format!("Plugin '{}' method '{{ method_name }}' failed", self.cached_name),
+            plugin_name: self.cached_name.clone(),
+        })
+{% else %}
+        Default::default()
+{% endif %}
+    }
+    Ok(val) => {
+        if let Some(s) = val.as_str() {
+            {% if has_error %}Ok(s.to_string()){% else %}s.to_string(){% endif %}
+        } else {
+{% if has_error %}
+            Err({{ core_import }}::KreuzbergError::Plugin {
+                message: format!("Plugin '{}' method '{{ method_name }}' returned invalid type", self.cached_name),
+                plugin_name: self.cached_name.clone(),
+            })
+{% else %}
+            Default::default()
+{% endif %}
+        }
+    }
+}

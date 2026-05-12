@@ -1,0 +1,7 @@
+func optGoString(p *C.char) *string {
+	if p == nil {
+		return nil
+	}
+	s := C.GoString(p)
+	return &s
+}

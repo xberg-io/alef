@@ -28,6 +28,7 @@ impl E2eCodegen for TypeScriptCodegen {
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
         _config: &ResolvedCrateConfig,
+        type_defs: &[alef_core::ir::TypeDef],
     ) -> Result<Vec<GeneratedFile>> {
         let output_base = PathBuf::from(e2e_config.effective_output()).join(self.language_name());
         let tests_base = output_base.join("tests");
@@ -68,7 +69,7 @@ impl E2eCodegen for TypeScriptCodegen {
         let has_http_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.is_http_test());
 
         let has_file_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| {
-            let cc = e2e_config.resolve_call(f.call.as_deref());
+            let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
             cc.args
                 .iter()
                 .any(|a| a.arg_type == "file_path" || a.arg_type == "bytes")
@@ -92,7 +93,17 @@ impl E2eCodegen for TypeScriptCodegen {
             generated_header: false,
         });
 
-        let needs_global_setup = client_factory.is_some() || has_http_fixtures;
+        // globalSetup spawns the mock-server binary and exposes its URL via
+        // MOCK_SERVER_URL. Required whenever any fixture's call uses the mock
+        // server — either via http blocks (real HTTP test fixtures), via
+        // mock_response/mock_responses (function-call tests that build their
+        // own URLs against MOCK_SERVER_URL), or because a client_factory is
+        // wired to point at the mock server's `/fixtures/<id>` prefix.
+        let any_needs_mock_server = groups
+            .iter()
+            .flat_map(|g| g.fixtures.iter())
+            .any(|f| f.needs_mock_server());
+        let needs_global_setup = client_factory.is_some() || has_http_fixtures || any_needs_mock_server;
 
         files.push(GeneratedFile {
             path: output_base.join("vitest.config.ts"),
@@ -111,7 +122,7 @@ impl E2eCodegen for TypeScriptCodegen {
         if has_file_fixtures {
             files.push(GeneratedFile {
                 path: output_base.join("setup.ts"),
-                content: render_file_setup(),
+                content: render_file_setup(&e2e_config.test_documents_dir),
                 generated_header: true,
             });
         }
@@ -149,6 +160,7 @@ impl E2eCodegen for TypeScriptCodegen {
                 &field_resolver,
                 client_factory,
                 e2e_config,
+                type_defs,
             );
             files.push(GeneratedFile {
                 path: tests_base.join(filename),
@@ -200,7 +212,7 @@ result_var = "result"
         let e2e = cfg.crates[0].e2e.clone().unwrap();
         let resolved = cfg.resolve().unwrap().remove(0);
         let codegen = TypeScriptCodegen;
-        let files = codegen.generate(&[], &e2e, &resolved).unwrap();
+        let files = codegen.generate(&[], &e2e, &resolved, &[]).unwrap();
         // package.json, tsconfig.json, vitest.config.ts
         assert!(files.len() >= 3, "got {} files", files.len());
     }

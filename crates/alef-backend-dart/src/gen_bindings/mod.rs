@@ -6,8 +6,9 @@ mod types;
 
 use crate::naming::dart_style;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile, PostBuildStep};
-use alef_core::config::{DartStyle, Language, ResolvedCrateConfig, resolve_output_dir};
+use alef_core::config::{DartStyle, Language, ResolvedCrateConfig, TraitBridgeConfig, resolve_output_dir};
 use alef_core::ir::{ApiSurface, FunctionDef};
+use heck::ToLowerCamelCase;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
@@ -15,9 +16,7 @@ use crate::gen_ffi;
 use crate::gen_rust_crate;
 
 use dart_traits::emit_dart_traits;
-use errors::emit_error;
 use functions::emit_function;
-use types::{emit_enum, emit_type};
 
 pub struct DartBackend;
 
@@ -54,7 +53,7 @@ impl Backend for DartBackend {
             .as_ref()
             .map(|c| c.exclude_functions.iter().map(String::as_str).collect())
             .unwrap_or_default();
-        let exclude_types: std::collections::HashSet<&str> = config
+        let _exclude_types: std::collections::HashSet<&str> = config
             .dart
             .as_ref()
             .map(|c| c.exclude_types.iter().map(String::as_str).collect())
@@ -69,40 +68,72 @@ impl Backend for DartBackend {
         let mut imports: BTreeSet<String> = BTreeSet::new();
         let mut body = String::new();
 
-        for ty in api.types.iter().filter(|t| !exclude_types.contains(t.name.as_str())) {
-            emit_type(ty, &mut body, &mut imports);
+        // For FRB style: all types come from the FRB-generated lib.dart.
+        // We export it so that callers of `kreuzberg.dart` get all types from
+        // one import and there are no duplicate-type conflicts.
+        //
+        // We also import it as `rust_bridge` for calling bridge functions
+        // from within the wrapper class. Dart allows both export and import
+        // of the same URI — the export makes types visible to callers; the
+        // import (with prefix) makes the free functions callable here.
+        body.push_str(&crate::template_env::render(
+            "dart_bridge_export.jinja",
+            minijinja::context! {
+                module_name => module_name.as_str(),
+            },
+        ));
+
+        // Collect trait bridge configs that are not excluded for Dart and have at least
+        // one of register_fn / unregister_fn / clear_fn set. These produce additional
+        // static wrapper methods in the bridge class.
+        let dart_backend_name = "dart";
+        let active_bridge_configs: Vec<&TraitBridgeConfig> = config
+            .trait_bridges
+            .iter()
+            .filter(|b| !b.exclude_languages.iter().any(|l| l == dart_backend_name))
+            .filter(|b| b.register_fn.is_some() || b.unregister_fn.is_some() || b.clear_fn.is_some())
+            .collect();
+
+        if !visible_functions.is_empty() || !active_bridge_configs.is_empty() {
+            // FRB places its generated Dart code in a subdirectory named
+            // `{module_name}_bridge_generated/` and exposes it via `lib.dart`.
+            //
+            // The prefixed import (`as rust_bridge`) lets us call bridge free-functions
+            // without namespace collisions. The unqualified import makes all FRB types
+            // (ExtractionConfig, ResultFormat, etc.) available unqualified inside the
+            // class body for use in return-type annotations and default-value literals.
+            body.push_str(&crate::template_env::render(
+                "dart_bridge_imports.jinja",
+                minijinja::context! {
+                    module_name => module_name.as_str(),
+                },
+            ));
             body.push('\n');
-        }
-
-        for en in api.enums.iter().filter(|e| !exclude_types.contains(e.name.as_str())) {
-            emit_enum(en, &mut body);
-            body.push('\n');
-        }
-
-        for error in &api.errors {
-            emit_error(error, &mut body, &mut imports);
-            body.push('\n');
-        }
-
-        if !visible_functions.is_empty() {
-            let has_async = visible_functions.iter().any(|f| f.is_async);
-            if has_async {
-                imports.insert("import 'dart:async';".to_string());
-            }
-
-            imports.insert(format!("import '{module_name}_bridge_generated.dart' as rust_bridge;"));
 
             let bridge_class = dart_bridge_class_name(&config.name);
-            body.push_str(&format!("class {bridge_class} {{\n"));
+            body.push_str(&crate::template_env::render(
+                "dart_bridge_class_open.jinja",
+                minijinja::context! {
+                    bridge_class => bridge_class.as_str(),
+                },
+            ));
             for f in &visible_functions {
                 emit_function(f, &mut body, &mut imports);
                 body.push('\n');
+            }
+            // Emit static register/unregister/clear wrapper methods for each active
+            // trait bridge config. FRB bridges the underlying `pub fn`s as free Dart
+            // functions; these wrappers expose them as named static methods on the
+            // bridge class so Dart callers have a single, discoverable entry point.
+            for bridge_cfg in &active_bridge_configs {
+                emit_trait_bridge_methods(bridge_cfg, &mut body);
             }
             body.push_str("}\n");
         }
 
         let mut content = String::new();
         content.push_str("// Generated by alef. Do not edit by hand.\n\n");
+        // Write collected imports (e.g. dart:typed_data for Uint8List) before the body.
         for import in &imports {
             content.push_str(import);
             content.push('\n');
@@ -119,8 +150,12 @@ impl Backend for DartBackend {
         // can import `package:<pkg>/<pkg>.dart` (the canonical Dart import path).
         let barrel_dir = resolve_output_dir(None, &config.name, "packages/dart/lib");
         let barrel_path = PathBuf::from(barrel_dir).join(format!("{module_name}.dart"));
-        let barrel_content =
-            format!("// Generated by alef. Do not edit by hand.\n\nexport 'src/{module_name}.dart';\n");
+        let barrel_content = crate::template_env::render(
+            "dart_barrel_file.jinja",
+            minijinja::context! {
+                module_name => module_name.as_str(),
+            },
+        );
 
         let mut files = vec![
             GeneratedFile {
@@ -140,7 +175,6 @@ impl Backend for DartBackend {
 
         // Emit traits.dart when at least one [[trait_bridges]] entry is configured
         // for the Dart backend (not excluded).
-        let dart_backend_name = "dart";
         let trait_names: Vec<&str> = config
             .trait_bridges
             .iter()
@@ -153,13 +187,19 @@ impl Backend for DartBackend {
             if !traits_body.is_empty() {
                 let mut traits_content = String::new();
                 traits_content.push_str("// Generated by alef. Do not edit by hand.\n\n");
+                // Trait files use types generated by FRB (ExtractionResult, OcrConfig, etc.)
+                // so they must import the bridge-generated lib to resolve those types.
+                traits_content.push_str(&crate::template_env::render(
+                    "dart_bridge_import.jinja",
+                    minijinja::context! {
+                        module_name => module_name.as_str(),
+                    },
+                ));
                 for import in &traits_imports {
                     traits_content.push_str(import);
                     traits_content.push('\n');
                 }
-                if !traits_imports.is_empty() {
-                    traits_content.push('\n');
-                }
+                traits_content.push('\n');
                 traits_content.push_str(&traits_body);
 
                 let traits_dir = resolve_output_dir(None, &config.name, "packages/dart/lib/src");
@@ -211,6 +251,55 @@ impl DartBackend {
                 }],
             }),
         }
+    }
+}
+
+/// Emit `static Future<void>` wrapper methods for a trait bridge in the Dart bridge class.
+///
+/// For each of `register_fn`, `unregister_fn`, and `clear_fn` that is set on the config,
+/// emits a corresponding Dart static method that delegates to the FRB-bridged free function:
+///
+/// - `register_fn`   → `static Future<void> registerXxx(XxxDartImpl impl_) async { ... }`
+/// - `unregister_fn` → `static Future<void> unregisterXxx(String name) async { ... }`
+/// - `clear_fn`      → `static Future<void> clearXxxs() async { ... }`
+///
+/// The names are converted to lowerCamelCase (matching FRB's Dart naming convention).
+fn emit_trait_bridge_methods(bridge_cfg: &TraitBridgeConfig, out: &mut String) {
+    let trait_name = &bridge_cfg.trait_name;
+    let impl_type = format!("{trait_name}DartImpl");
+
+    if let Some(register_fn) = bridge_cfg.register_fn.as_deref() {
+        let dart_name = register_fn.to_lower_camel_case();
+        out.push_str(&crate::template_env::render(
+            "dart_trait_register_method.jinja",
+            minijinja::context! {
+                trait_name => trait_name.as_str(),
+                dart_name => dart_name.as_str(),
+                impl_type => impl_type.as_str(),
+            },
+        ));
+    }
+
+    if let Some(unregister_fn) = bridge_cfg.unregister_fn.as_deref() {
+        let dart_name = unregister_fn.to_lower_camel_case();
+        out.push_str(&crate::template_env::render(
+            "dart_trait_unregister_method.jinja",
+            minijinja::context! {
+                trait_name => trait_name.as_str(),
+                dart_name => dart_name.as_str(),
+            },
+        ));
+    }
+
+    if let Some(clear_fn) = bridge_cfg.clear_fn.as_deref() {
+        let dart_name = clear_fn.to_lower_camel_case();
+        out.push_str(&crate::template_env::render(
+            "dart_trait_clear_method.jinja",
+            minijinja::context! {
+                trait_name => trait_name.as_str(),
+                dart_name => dart_name.as_str(),
+            },
+        ));
     }
 }
 

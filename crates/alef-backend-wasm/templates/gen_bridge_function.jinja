@@ -1,0 +1,8 @@
+{%- if has_error %}
+#[allow(clippy::missing_errors_doc)]
+{%- endif %}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen{{ js_name_attr }}]
+pub fn {{ func_name }}({{ params_str }}) -> {{ ret }} {
+    {{ body }}
+}

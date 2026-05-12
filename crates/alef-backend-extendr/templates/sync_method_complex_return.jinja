@@ -1,0 +1,58 @@
+let maybe_fn = self.inner.dollar("{{ method_name }}");
+let fn_robj = match maybe_fn {
+    Ok(v) if !v.is_null() && !v.is_na() => v,
+{% if has_error %}
+    _ => return Err({{ core_import }}::KreuzbergError::Plugin {
+        message: format!("Plugin '{}' missing method '{{ method_name }}'", self.cached_name),
+        plugin_name: self.cached_name.clone(),
+    }),
+{% else %}
+    _ => return Default::default(),
+{% endif %}
+};
+
+{% if empty_args %}
+let result = fn_robj.call(extendr_api::Pairlist::new());
+{% else %}
+let args = extendr_api::Pairlist::from_pairs(&[{{ args_pairs }}]);
+let result = fn_robj.call(args);
+{% endif %}
+
+match result {
+    Err(_) => {
+{% if has_error %}
+        Err({{ core_import }}::KreuzbergError::Plugin {
+            message: format!("Plugin '{}' method '{{ method_name }}' failed", self.cached_name),
+            plugin_name: self.cached_name.clone(),
+        })
+{% else %}
+        Default::default()
+{% endif %}
+    }
+    Ok(val) => {
+        match serde_json::to_string(&val) {
+            Ok(json_str) => serde_json::from_str::<{{ return_type }}>(&json_str)
+                .map_err(|_| {
+{% if has_error %}
+                    {{ core_import }}::KreuzbergError::Plugin {
+                        message: format!("Plugin '{}' method '{{ method_name }}' deserialization failed", self.cached_name),
+                        plugin_name: self.cached_name.clone(),
+                    }
+{% else %}
+                    Default::default()
+{% endif %}
+                })
+{% if not has_error %}.ok(){% endif %},
+            Err(_) => {
+{% if has_error %}
+                Err({{ core_import }}::KreuzbergError::Plugin {
+                    message: format!("Plugin '{}' method '{{ method_name }}' serialization failed", self.cached_name),
+                    plugin_name: self.cached_name.clone(),
+                })
+{% else %}
+                Default::default()
+{% endif %}
+            }
+        }
+    }
+}

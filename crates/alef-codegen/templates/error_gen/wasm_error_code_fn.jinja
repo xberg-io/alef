@@ -1,0 +1,11 @@
+/// Return the error code string for a `{{ rust_path }}` variant.
+#[allow(dead_code)]
+fn {{ code_fn_name }}(e: &{{ rust_path }}) -> &'static str {
+    #[allow(unreachable_patterns)]
+    match e {
+{%- for pattern, code in variants %}
+        {{ pattern }} => "{{ code }}",
+{%- endfor %}
+        _ => "{{ default_code }}",
+    }
+}

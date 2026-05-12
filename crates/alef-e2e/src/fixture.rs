@@ -54,7 +54,26 @@ pub enum CallbackAction {
     CustomTemplate {
         /// Template with placeholders like {text}, {href}.
         template: String,
+        /// How the generated visitor returns the rendered template to the host.
+        /// `Dict` (default) returns `{"custom": "..."}` (or per-language equivalent)
+        /// to hit the structured-result code path; `BareString` returns the raw
+        /// rendered string to hit the string-result code path. Both must produce
+        /// `VisitResult::Custom`.
+        #[serde(default)]
+        return_form: TemplateReturnForm,
     },
+}
+
+/// How a `CustomTemplate` action returns its rendered value from the visitor.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TemplateReturnForm {
+    /// Return a host-native structured value (e.g. dict, hash, array, object)
+    /// carrying the rendered string under a `custom` key.
+    #[default]
+    Dict,
+    /// Return the rendered string directly, with no wrapper.
+    BareString,
 }
 
 /// Environment variable requirements for a smoke/live test fixture.
@@ -253,6 +272,13 @@ pub struct HttpMiddleware {
     pub static_files: Option<Vec<StaticFilesConfig>>,
 }
 
+/// Returns true for paths that the crawler fetches from the host root rather than under a
+/// fixture-namespaced prefix.  Mirrors the identical predicate in the standalone mock-server
+/// binary (`codegen/rust/mock_server.rs`).
+fn is_host_root_path(path: &str) -> bool {
+    path.starts_with("/robots") || path.starts_with("/sitemap")
+}
+
 impl Fixture {
     /// Returns true if this is an HTTP server test fixture.
     pub fn is_http_test(&self) -> bool {
@@ -260,10 +286,19 @@ impl Fixture {
     }
 
     /// Returns true if this fixture requires a mock HTTP server.
-    /// This is true when either `mock_response` (liter-llm shape) or
-    /// `http.expected_response` (consumer shape) is present.
+    /// This is true when either `mock_response` (liter-llm shape),
+    /// `http.expected_response` (consumer shape), or the kreuzcrawl-style
+    /// `input.mock_responses` array is non-empty.
     pub fn needs_mock_server(&self) -> bool {
-        self.mock_response.is_some() || self.http.is_some()
+        if self.mock_response.is_some() || self.http.is_some() {
+            return true;
+        }
+        // kreuzcrawl-style: input.mock_responses array with at least one entry
+        self.input
+            .get("mock_responses")
+            .and_then(|v| v.as_array())
+            .map(|arr| !arr.is_empty())
+            .unwrap_or(false)
     }
 
     /// Returns the effective mock response for this fixture, bridging both schemas:
@@ -293,6 +328,78 @@ impl Fixture {
             .and_then(|m| m.stream_chunks.as_ref())
             .map(|c| !c.is_empty())
             .unwrap_or(false)
+    }
+
+    /// Returns true if any of this fixture's mock response paths are host-root paths —
+    /// i.e. paths the crawler fetches from the host root rather than under a
+    /// fixture-namespaced prefix.  Mirrors the `is_host_root_path` predicate in the
+    /// standalone mock-server binary (`codegen/rust/mock_server.rs`).
+    ///
+    /// Host-root fixtures get a dedicated per-fixture listener and their base URL is
+    /// published in the `MOCK_SERVERS={"fixture_id":"http://..."}` JSON line.
+    pub fn has_host_root_route(&self) -> bool {
+        // Array schema: input.mock_responses[*].path
+        if let Some(arr) = self.input.get("mock_responses").and_then(|v| v.as_array()) {
+            // Direct host-root paths (/robots*, /sitemap*).
+            if arr.iter().any(|entry| {
+                entry
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .map(is_host_root_path)
+                    .unwrap_or(false)
+            }) {
+                return true;
+            }
+            // Any response that triggers an intra-fixture redirect to a host-root path:
+            // the engine resolves the redirect target against the origin (not the
+            // /fixtures/<id>/ namespace), so the fixture must serve at host root for the
+            // follow-up GET to hit the correct route. Three trigger shapes are detected:
+            //   - 3xx with Location: /...
+            //   - any status with Refresh: <s>;url=/...
+            //   - 200 HTML with <meta http-equiv="refresh" content="...url=/...">
+            return arr.iter().any(|entry| {
+                let status = entry.get("status_code").and_then(|v| v.as_u64()).unwrap_or(0);
+                let headers = entry.get("headers").and_then(|v| v.as_object());
+                let location_redirect = (300..400).contains(&status)
+                    && headers
+                        .map(|hdrs| {
+                            hdrs.iter().any(|(name, value)| {
+                                name.eq_ignore_ascii_case("location")
+                                    && value.as_str().is_some_and(|s| s.starts_with('/'))
+                            })
+                        })
+                        .unwrap_or(false);
+                let refresh_redirect = headers
+                    .map(|hdrs| {
+                        hdrs.iter().any(|(name, value)| {
+                            if !name.eq_ignore_ascii_case("refresh") {
+                                return false;
+                            }
+                            value
+                                .as_str()
+                                .and_then(|s| s.to_ascii_lowercase().find("url=").map(|i| (s.to_owned(), i)))
+                                .map(|(s, idx)| s[idx + 4..].trim_start().starts_with('/'))
+                                .unwrap_or(false)
+                        })
+                    })
+                    .unwrap_or(false);
+                let meta_refresh = entry
+                    .get("body_inline")
+                    .and_then(|v| v.as_str())
+                    .map(|body| {
+                        let lower = body.to_ascii_lowercase();
+                        lower
+                            .split("http-equiv=\"refresh\"")
+                            .nth(1)
+                            .and_then(|s| s.split("content=").nth(1))
+                            .map(|s| s.trim_start_matches(['"', '\'']).contains("url=/"))
+                            .unwrap_or(false)
+                    })
+                    .unwrap_or(false);
+                location_redirect || refresh_redirect || meta_refresh
+            });
+        }
+        false
     }
 
     /// Get the resolved category (explicit or from source directory).
@@ -327,7 +434,7 @@ impl SkipDirective {
 }
 
 /// A single assertion in a fixture.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Assertion {
     /// Assertion type (equals, contains, not_empty, error, etc.).
     #[serde(rename = "type")]
@@ -350,6 +457,16 @@ pub struct Assertion {
     /// Arguments to pass to the method call (for method_result assertions).
     #[serde(default)]
     pub args: Option<serde_json::Value>,
+    /// Return type hint for C method_result codegen.
+    ///
+    /// Supported values:
+    /// - `"string"` — the method returns a heap-allocated `char*` that must be
+    ///   freed with `free()` after the assertion.  The generator emits
+    ///   `char* _r = call(); assert(...); free(_r);`.
+    ///
+    /// Defaults to primitive integer dispatch when absent.
+    #[serde(default)]
+    pub return_type: Option<String>,
 }
 
 /// A group of fixtures sharing the same category.
@@ -525,5 +642,84 @@ mod tests {
         let fixture: Fixture = serde_json::from_str(json).unwrap();
         assert!(!fixture.needs_mock_server());
         assert!(!fixture.is_streaming_mock());
+    }
+
+    #[test]
+    fn has_host_root_route_true_for_robots_path() {
+        let json = r#"{
+            "id": "robots_disallow_path",
+            "description": "Robots fixture",
+            "input": {
+                "mock_responses": [
+                    {"path": "/robots.txt", "status_code": 200, "body_inline": "User-agent: *\nDisallow: /"},
+                    {"path": "/", "status_code": 200, "body_inline": "<html/>"}
+                ]
+            },
+            "assertions": []
+        }"#;
+        let fixture: Fixture = serde_json::from_str(json).unwrap();
+        assert!(fixture.has_host_root_route(), "expected true for /robots.txt path");
+    }
+
+    #[test]
+    fn has_host_root_route_true_for_sitemap_path() {
+        let json = r#"{
+            "id": "sitemap_index",
+            "description": "Sitemap fixture",
+            "input": {
+                "mock_responses": [
+                    {"path": "/sitemap.xml", "status_code": 200, "body_inline": "<?xml version='1.0'?>"},
+                    {"path": "/", "status_code": 200, "body_inline": "<html/>"}
+                ]
+            },
+            "assertions": []
+        }"#;
+        let fixture: Fixture = serde_json::from_str(json).unwrap();
+        assert!(fixture.has_host_root_route(), "expected true for /sitemap.xml path");
+    }
+
+    #[test]
+    fn has_host_root_route_false_for_data_json_path() {
+        let json = r#"{
+            "id": "data_endpoint",
+            "description": "Non-host-root fixture",
+            "input": {
+                "mock_responses": [
+                    {"path": "/data.json", "status_code": 200, "body_inline": "{}"}
+                ]
+            },
+            "assertions": []
+        }"#;
+        let fixture: Fixture = serde_json::from_str(json).unwrap();
+        assert!(!fixture.has_host_root_route(), "expected false for /data.json path");
+    }
+
+    #[test]
+    fn has_host_root_route_false_for_single_mock_response_schema() {
+        // Single mock_response schema (no input.mock_responses array) is never host-root.
+        let json = r#"{
+            "id": "basic_chat",
+            "description": "Basic chat",
+            "mock_response": {"status": 200, "body": {}},
+            "input": {},
+            "assertions": []
+        }"#;
+        let fixture: Fixture = serde_json::from_str(json).unwrap();
+        assert!(
+            !fixture.has_host_root_route(),
+            "expected false for single mock_response schema"
+        );
+    }
+
+    #[test]
+    fn has_host_root_route_false_for_empty_mock_responses() {
+        let json = r#"{
+            "id": "empty_responses",
+            "description": "No mock_responses",
+            "input": {},
+            "assertions": []
+        }"#;
+        let fixture: Fixture = serde_json::from_str(json).unwrap();
+        assert!(!fixture.has_host_root_route(), "expected false when no mock_responses");
     }
 }

@@ -1,0 +1,34 @@
+thread_local! {
+    static LAST_ERROR_CODE: RefCell<i32> = const { RefCell::new(0) };
+    static LAST_ERROR_CONTEXT: RefCell<Option<CString>> = const { RefCell::new(None) };
+}
+
+fn set_last_error(code: i32, message: &str) {
+    LAST_ERROR_CODE.with_borrow_mut(|c| *c = code);
+    LAST_ERROR_CONTEXT.with_borrow_mut(|c| *c = CString::new(message).ok());
+}
+
+fn clear_last_error() {
+    LAST_ERROR_CODE.with_borrow_mut(|c| *c = 0);
+    LAST_ERROR_CONTEXT.with_borrow_mut(|c| *c = None);
+}
+
+/// Return the last error code (0 means no error).
+/// # Safety
+/// Caller must ensure all pointer arguments are valid or null.
+/// Returned pointers must be freed with the appropriate free function.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn {{ prefix }}_last_error_code() -> i32 {
+    LAST_ERROR_CODE.with_borrow(|c| *c)
+}
+
+/// Return the last error message. The pointer is valid until the next FFI call on this thread.
+/// # Safety
+/// Caller must ensure all pointer arguments are valid or null.
+/// Returned pointers must be freed with the appropriate free function.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn {{ prefix }}_last_error_context() -> *const c_char {
+    LAST_ERROR_CONTEXT.with_borrow(|ctx| {
+        ctx.as_ref().map_or(std::ptr::null(), |c| c.as_ptr())
+    })
+}

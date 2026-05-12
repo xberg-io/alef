@@ -9,7 +9,6 @@ use crate::shared::{function_params, function_sig_defaults, partition_methods};
 use crate::type_mapper::TypeMapper;
 use ahash::AHashSet;
 use alef_core::ir::{MethodDef, TypeDef, TypeRef};
-use std::fmt::Write;
 
 /// Returns true when `name` matches a known trait method that would trigger
 /// `clippy::should_implement_trait`.
@@ -43,27 +42,19 @@ pub fn gen_constructor_with_renames(
         crate::shared::constructor_parts_with_renames(&typ.fields, &map_fn, field_renames)
     };
 
-    let mut out = String::with_capacity(512);
-    // Per-item clippy suppression: too_many_arguments when >7 params
-    if typ.fields.len() > 7 {
-        writeln!(out, "    #[allow(clippy::too_many_arguments)]").ok();
-    }
-    writeln!(out, "    #[must_use]").ok();
-    if cfg.needs_signature {
-        writeln!(
-            out,
-            "    {}{}{}",
-            cfg.signature_prefix, sig_defaults, cfg.signature_suffix
-        )
-        .ok();
-    }
-    write!(
-        out,
-        "    {}\n    pub fn new({param_list}) -> Self {{\n        Self {{ {assignments} }}\n    }}",
-        cfg.constructor_attr
+    crate::template_env::render(
+        "generators/methods/constructor.jinja",
+        minijinja::context! {
+            has_too_many_args => typ.fields.len() > 7,
+            needs_signature => cfg.needs_signature,
+            signature_prefix => cfg.signature_prefix,
+            sig_defaults => sig_defaults,
+            signature_suffix => cfg.signature_suffix,
+            constructor_attr => cfg.constructor_attr,
+            param_list => param_list,
+            assignments => assignments,
+        },
     )
-    .ok();
-    out
 }
 
 /// Generate an instance method.
@@ -250,7 +241,9 @@ pub fn gen_method(
                     ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))"
                 }
                 AsyncPattern::WasmNativeAsync => ".map_err(|e| JsValue::from_str(&e.to_string()))",
-                AsyncPattern::TokioBlockOn => ".map_err(|e| extendr_api::Error::Other(e.to_string()))",
+                AsyncPattern::TokioBlockOn => {
+                    ".map_err(|e| extendr_api::Error::Other(e.to_string().replace(\":\", \"_\").replace(\"/\", \"_\").replace(\"-\", \"_\").chars().take(255).collect::<String>()))"
+                }
                 _ => ".map_err(|e| e.to_string())",
             };
             let serde_bindings =
@@ -304,7 +297,9 @@ pub fn gen_method(
                         ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))"
                     }
                     AsyncPattern::WasmNativeAsync => ".map_err(|e| JsValue::from_str(&e.to_string()))",
-                    AsyncPattern::TokioBlockOn => ".map_err(|e| extendr_api::Error::Other(e.to_string()))",
+                    AsyncPattern::TokioBlockOn => {
+                        ".map_err(|e| extendr_api::Error::Other(e.to_string().replace(\":\", \"_\").replace(\"/\", \"_\").replace(\"-\", \"_\").chars().take(255).collect::<String>()))"
+                    }
                     _ => ".map_err(|e| e.to_string())",
                 };
                 format!("{field_conversions}{core_call}{err_conv}?;\n        Ok(core_self.into())")
@@ -684,32 +679,30 @@ pub fn gen_method(
         )
     };
 
-    let mut out = String::with_capacity(1024);
-    // Per-item clippy suppression: too_many_arguments when >7 params (including &self and py)
     let total_params = method.params.len() + 1 + if needs_py { 1 } else { 0 };
-    if total_params > 7 {
-        writeln!(out, "    #[allow(clippy::too_many_arguments)]").ok();
-    }
-    // Per-item clippy suppression: missing_errors_doc for Result-returning methods
-    if method.error_type.is_some() {
-        writeln!(out, "    #[allow(clippy::missing_errors_doc)]").ok();
-    }
-    // Per-item clippy suppression: should_implement_trait for trait-conflicting names
-    if is_trait_method_name(&method.name) {
-        writeln!(out, "    #[allow(clippy::should_implement_trait)]").ok();
-    }
-    if cfg.needs_signature {
-        let sig = function_sig_defaults(&method.params);
-        writeln!(out, "    {}{}{}", cfg.signature_prefix, sig, cfg.signature_suffix).ok();
-    }
-    write!(
-        out,
-        "    {}{}{}{} {{\n        \
-         {body}\n    }}",
-        sig_start, sig_params, sig_end, ret,
+    let sig_defaults = if cfg.needs_signature {
+        function_sig_defaults(&method.params)
+    } else {
+        String::new()
+    };
+
+    crate::template_env::render(
+        "generators/methods/method_signature.jinja",
+        minijinja::context! {
+            has_too_many_arguments => total_params > 7,
+            has_missing_errors_doc => method.error_type.is_some(),
+            has_should_implement_trait => is_trait_method_name(&method.name),
+            needs_signature => cfg.needs_signature,
+            signature_prefix => cfg.signature_prefix,
+            sig_defaults => sig_defaults,
+            signature_suffix => cfg.signature_suffix,
+            sig_start => sig_start,
+            sig_params => sig_params,
+            sig_end => sig_end,
+            ret => ret,
+            body => body,
+        },
     )
-    .ok();
-    out
 }
 
 /// Generate a static method.
@@ -880,34 +873,58 @@ pub fn gen_static_method(
         (format!("pub fn {}(", method.name), params, ") -> ".to_string())
     };
 
-    let mut out = String::with_capacity(1024);
-    // Per-item clippy suppression: too_many_arguments when >7 params (including py)
     let total_params = method.params.len() + if static_needs_py { 1 } else { 0 };
+    let sig_defaults = if cfg.needs_signature {
+        function_sig_defaults(&method.params)
+    } else {
+        String::new()
+    };
+    let static_attr_str = if let Some(attr) = cfg.static_attr {
+        format!("#[{attr}]")
+    } else {
+        String::new()
+    };
+
+    // For static methods, we need a variant of method_signature template
+    // that handles static attributes. For now, build manually but use render for main block
+    let mut out = String::with_capacity(1024);
     if total_params > 7 {
-        writeln!(out, "    #[allow(clippy::too_many_arguments)]").ok();
+        out.push_str("    #[allow(clippy::too_many_arguments)]\n");
     }
-    // Per-item clippy suppression: missing_errors_doc for Result-returning methods
     if method.error_type.is_some() {
-        writeln!(out, "    #[allow(clippy::missing_errors_doc)]").ok();
+        out.push_str("    #[allow(clippy::missing_errors_doc)]\n");
     }
-    // Per-item clippy suppression: should_implement_trait for trait-conflicting names
     if is_trait_method_name(&method.name) {
-        writeln!(out, "    #[allow(clippy::should_implement_trait)]").ok();
+        out.push_str("    #[allow(clippy::should_implement_trait)]\n");
     }
-    if let Some(attr) = cfg.static_attr {
-        writeln!(out, "    #[{attr}]").ok();
+    if !static_attr_str.is_empty() {
+        out.push_str(&crate::template_env::render(
+            "generators/methods/static_attr.jinja",
+            minijinja::context! {
+                static_attr_str => static_attr_str,
+            },
+        ));
     }
     if cfg.needs_signature {
-        let sig = function_sig_defaults(&method.params);
-        writeln!(out, "    {}{}{}", cfg.signature_prefix, sig, cfg.signature_suffix).ok();
+        out.push_str(&crate::template_env::render(
+            "generators/methods/signature_attr.jinja",
+            minijinja::context! {
+                signature_prefix => &cfg.signature_prefix,
+                sig_defaults => sig_defaults,
+                signature_suffix => &cfg.signature_suffix,
+            },
+        ));
     }
-    write!(
-        out,
-        "    {}{}{}{} {{\n        \
-         {body}\n    }}",
-        sig_start, sig_params, sig_end, ret,
-    )
-    .ok();
+    out.push_str(&crate::template_env::render(
+        "generators/methods/method_body.jinja",
+        minijinja::context! {
+            sig_start => sig_start,
+            sig_params => sig_params,
+            sig_end => sig_end,
+            ret => ret,
+            body => body,
+        },
+    ));
     out
 }
 
@@ -947,10 +964,6 @@ pub fn gen_impl_block_with_renames(
 
     let prefixed_name = format!("{}{}", cfg.type_name_prefix, typ.name);
     let mut out = String::with_capacity(2048);
-    if let Some(block_attr) = cfg.method_block_attr {
-        writeln!(out, "#[{block_attr}]").ok();
-    }
-    writeln!(out, "impl {prefixed_name} {{").ok();
 
     // Constructor — suppressed when the backend handles construction via a separate free
     // function (e.g. extendr kwargs constructor) or when there are no fields.
@@ -1003,9 +1016,16 @@ pub fn gen_impl_block_with_renames(
 
     // Trim trailing newlines inside impl block
     let trimmed = out.trim_end();
-    let mut result = trimmed.to_string();
-    result.push_str("\n}");
-    result
+    let content = trimmed.to_string();
+
+    crate::template_env::render(
+        "generators/methods/impl_block.jinja",
+        minijinja::context! {
+            block_attr => cfg.method_block_attr,
+            prefixed_name => prefixed_name,
+            content => content,
+        },
+    )
 }
 
 /// Generate a full impl block for an opaque type, delegating methods to `self.inner`.
@@ -1036,10 +1056,6 @@ pub fn gen_opaque_impl_block(
 
     let mut out = String::with_capacity(2048);
     let prefixed_name = format!("{}{}", cfg.type_name_prefix, typ.name);
-    if let Some(block_attr) = cfg.method_block_attr {
-        writeln!(out, "#[{block_attr}]").ok();
-    }
-    writeln!(out, "impl {prefixed_name} {{").ok();
 
     // Instance methods — delegate to self.inner
     for m in &instance {
@@ -1082,7 +1098,14 @@ pub fn gen_opaque_impl_block(
     }
 
     let trimmed = out.trim_end();
-    let mut result = trimmed.to_string();
-    result.push_str("\n}");
-    result
+    let content = trimmed.to_string();
+
+    crate::template_env::render(
+        "generators/methods/impl_block.jinja",
+        minijinja::context! {
+            block_attr => cfg.method_block_attr,
+            prefixed_name => prefixed_name,
+            content => content,
+        },
+    )
 }

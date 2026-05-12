@@ -1,0 +1,16 @@
+    fn shutdown(&self) -> std::result::Result<(), {{ core_import }}::{{ error_type }}> {
+        let Some(fp) = self.vtable.shutdown_fn else { return Ok(()); };
+        let mut _out_error: *mut std::ffi::c_char = std::ptr::null_mut();
+        // SAFETY: fp is valid; user_data validity is the caller's responsibility.
+        let rc = unsafe { fp(self.user_data, &mut _out_error) };
+        if rc != 0 {
+            let msg = if _out_error.is_null() { format!("shutdown returned {}", rc) } else {
+                // SAFETY: _out_error is a callee-allocated CString; we take ownership.
+                let cs = unsafe { std::ffi::CString::from_raw(_out_error) };
+                cs.to_string_lossy().into_owned()
+            };
+            return Err({{ plugin_error_expr | safe }});
+        }
+        Ok(())
+    }
+}

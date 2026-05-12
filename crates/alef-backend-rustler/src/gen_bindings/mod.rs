@@ -2,6 +2,7 @@ mod functions;
 mod helpers;
 mod types;
 
+use crate::template_env;
 use crate::type_map::RustlerMapper;
 use ahash::AHashSet;
 use alef_codegen::builder::RustFileBuilder;
@@ -18,7 +19,10 @@ use helpers::{
     elixir_return_typespec, elixir_safe_param_name, elixir_typespec, gen_elixir_enum_module, gen_elixir_struct_module,
     gen_native_ex, get_module_info,
 };
-use types::{gen_enum, gen_opaque_resource, gen_rustler_config_impl, gen_rustler_flat_data_enum_from_core, gen_struct};
+use types::{
+    gen_enum, gen_opaque_resource, gen_rustler_config_impl, gen_rustler_flat_data_enum_from_core,
+    gen_rustler_flat_data_enum_to_core, gen_struct,
+};
 
 pub struct RustlerBackend;
 
@@ -187,13 +191,27 @@ impl Backend for RustlerBackend {
         // Build adapter body map before method iteration so bodies are available for NIF generation.
         let adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::Elixir)?;
 
+        // Streaming-adapter method keys ("Owner.method_name") — these methods are emitted
+        // as a pair of standalone start/next NIFs from the adapter struct hook, so the
+        // regular method-iteration loop must skip them to avoid double-emitting a NIF
+        // with the same name.
+        let streaming_method_keys: AHashSet<String> = config
+            .adapters
+            .iter()
+            .filter(|a| matches!(a.pattern, alef_core::config::AdapterPattern::Streaming))
+            .filter_map(|a| a.owner_type.as_deref().map(|owner| format!("{owner}.{}", a.name)))
+            .collect();
+
         // Emit adapter-generated standalone items (streaming iterators, callback bridges).
         for adapter in &config.adapters {
             match adapter.pattern {
                 alef_core::config::AdapterPattern::Streaming => {
                     let key = format!("{}.__stream_struct__", adapter.item_type.as_deref().unwrap_or(""));
                     if let Some(struct_code) = adapter_bodies.get(&key) {
-                        builder.add_item(struct_code);
+                        // Post-process: convert default-typed request params to JSON strings so
+                        // partial maps from Elixir decode successfully (rustler NifMap is strict).
+                        let patched = patch_streaming_default_param(struct_code, adapter, &default_types, &core_import);
+                        builder.add_item(&patched);
                     }
                 }
                 alef_core::config::AdapterPattern::CallbackBridge => {
@@ -308,6 +326,7 @@ impl Backend for RustlerBackend {
                 .methods
                 .iter()
                 .filter(|m| !exclude_functions.contains(m.name.as_str()))
+                .filter(|m| !streaming_method_keys.contains(&format!("{}.{}", typ.name, m.name)))
                 .filter(|m| {
                     // Skip methods whose return type references an excluded type.
                     // E.g. ConversionOptions::builder() returns ConversionOptionsBuilder which
@@ -325,6 +344,7 @@ impl Backend for RustlerBackend {
                         &mapper,
                         typ.is_opaque,
                         &opaque_types,
+                        &default_types,
                         &core_import,
                         &adapter_bodies,
                     ));
@@ -335,6 +355,7 @@ impl Backend for RustlerBackend {
                         &mapper,
                         typ.is_opaque,
                         &opaque_types,
+                        &default_types,
                         &core_import,
                         &adapter_bodies,
                     ));
@@ -416,7 +437,12 @@ impl Backend for RustlerBackend {
                 if alef_codegen::conversions::can_generate_enum_conversion_from_core(e) {
                     builder.add_item(&gen_rustler_flat_data_enum_from_core(e, &core_import));
                 }
-                // No binding→core conversion for flat structs (they are output-only).
+                // Emit binding→core for input-typed flat data enums so they round-trip through
+                // public function arguments (e.g. Vec<Message> in ChatCompletionRequest). The
+                // discriminator field on the local struct selects the matching core variant.
+                if input_types.contains(&e.name) && alef_codegen::conversions::can_generate_enum_conversion(e) {
+                    builder.add_item(&gen_rustler_flat_data_enum_to_core(e, &core_import));
+                }
             } else {
                 let rustler_conv_config = alef_codegen::conversions::ConversionConfig {
                     binding_enums_have_data: has_data,
@@ -581,8 +607,13 @@ impl Backend for RustlerBackend {
 
         // ── 4. Main wrapper module ────────────────────────────────────────────
         let mut content = alef_core::hash::header(alef_core::hash::CommentStyle::Hash);
-        content.push_str(&format!("defmodule {app_module} do\n"));
-        content.push_str(&format!("  @moduledoc \"High-level API for {app_name}.\"\n\n"));
+        content.push_str(&template_env::render(
+            "elixir_module_header.jinja",
+            minijinja::context! {
+                app_module => &app_module,
+                moduledoc => &format!("High-level API for {app_name}"),
+            },
+        ));
 
         // Wrapper functions for top-level API functions
         for func in api
@@ -682,7 +713,12 @@ impl Backend for RustlerBackend {
                 let arity_params = &all_params[..*arity];
                 let arity_types = &param_types[..*arity];
 
-                content.push_str(&format!("  @doc \"{doc_line}\"\n"));
+                content.push_str(&template_env::render(
+                    "elixir_doc_line.jinja",
+                    minijinja::context! {
+                        doc_line => doc_line,
+                    },
+                ));
                 let spec_inline = format!("  @spec {nif_fn_name}({}) :: {return_spec}", arity_types.join(", "));
                 if spec_inline.len() > 98 {
                     let spec_broken = format!(
@@ -693,16 +729,14 @@ impl Backend for RustlerBackend {
                         content.push_str(&spec_broken);
                         content.push('\n');
                     } else {
-                        content.push_str(&format!("  @spec {nif_fn_name}(\n"));
-                        let len = arity_types.len();
-                        for (i, t) in arity_types.iter().enumerate() {
-                            if i + 1 < len {
-                                content.push_str(&format!("          {t},\n"));
-                            } else {
-                                content.push_str(&format!("          {t}\n"));
-                            }
-                        }
-                        content.push_str(&format!("        ) :: {return_spec}\n"));
+                        content.push_str(&template_env::render(
+                            "elixir_spec_multiline.jinja",
+                            minijinja::context! {
+                                func_name => &nif_fn_name,
+                                param_types => &arity_types,
+                                return_spec => &return_spec,
+                            },
+                        ));
                     }
                 } else {
                     content.push_str(&spec_inline);
@@ -722,12 +756,20 @@ impl Backend for RustlerBackend {
                     if *arity > opts_idx {
                         let opts_param = &all_params[opts_idx];
                         // Single clause handles both visitor and no-visitor by inspecting the map.
-                        content.push_str(&format!(
-                            "  def {nif_fn_name}({p}) when is_map({opts_param}) do\n",
-                            p = arity_params.join(", ")
+                        content.push_str(&template_env::render(
+                            "elixir_def_with_guard.jinja",
+                            minijinja::context! {
+                                func_name => &nif_fn_name,
+                                params => &arity_params.join(", "),
+                                guard_param => opts_param,
+                            },
                         ));
-                        content.push_str(&format!(
-                            "    {{visitor, clean_opts}} = Map.pop({opts_param}, :{field_name})\n"
+                        content.push_str(&template_env::render(
+                            "elixir_map_pop_unpack.jinja",
+                            minijinja::context! {
+                                opts_param => opts_param,
+                                field_name => field_name,
+                            },
                         ));
                         content.push_str("    if is_map(visitor) do\n");
                         // Build NIF args: replace opts param with JSON-encoded clean opts, append visitor.
@@ -744,10 +786,20 @@ impl Backend for RustlerBackend {
                             })
                             .collect();
                         let with_visitor_args_str = with_visitor_args.join(", ");
-                        content.push_str(&format!(
-                            "      {{:ok, _}} = {native_mod}.{nif_fn_name}_with_visitor({with_visitor_args_str}, visitor)\n"
+                        content.push_str(&template_env::render(
+                            "elixir_visitor_call.jinja",
+                            minijinja::context! {
+                                native_mod => &native_mod,
+                                func_name => &nif_fn_name,
+                                args => &with_visitor_args_str,
+                            },
                         ));
-                        content.push_str("      do_visitor_receive_loop(visitor)\n");
+                        content.push_str(&template_env::render(
+                            "elixir_visitor_receive.jinja",
+                            minijinja::context! {
+                                visitor_param => "visitor",
+                            },
+                        ));
                         content.push_str("    else\n");
                         // No visitor: call regular NIF with options as JSON.
                         let plain_args: Vec<String> = nif_call_args
@@ -764,7 +816,14 @@ impl Backend for RustlerBackend {
                             })
                             .collect();
                         let plain_args_str = plain_args.join(", ");
-                        content.push_str(&format!("      {native_mod}.{nif_fn_name}({plain_args_str})\n"));
+                        content.push_str(&template_env::render(
+                            "elixir_def_nif_call.jinja",
+                            minijinja::context! {
+                                native_mod => &native_mod,
+                                func_name => &nif_fn_name,
+                                args => &plain_args_str,
+                            },
+                        ));
                         content.push_str("    end\n");
                         content.push_str("  end\n\n");
 
@@ -779,10 +838,20 @@ impl Backend for RustlerBackend {
                             .enumerate()
                             .map(|(i, a)| if i == opts_idx { "nil".to_string() } else { a.clone() })
                             .collect();
-                        content.push_str(&format!("  def {nif_fn_name}({}) do\n", nil_clause_params.join(", ")));
-                        content.push_str(&format!(
-                            "    {native_mod}.{nif_fn_name}({})\n",
-                            nil_nif_args.join(", ")
+                        content.push_str(&template_env::render(
+                            "elixir_def_simple.jinja",
+                            minijinja::context! {
+                                func_name => &nif_fn_name,
+                                params => &nil_clause_params.join(", "),
+                            },
+                        ));
+                        content.push_str(&template_env::render(
+                            "elixir_def_nif_call.jinja",
+                            minijinja::context! {
+                                native_mod => &native_mod,
+                                func_name => &nif_fn_name,
+                                args => &nil_nif_args.join(", "),
+                            },
                         ));
                         content.push_str("  end\n\n");
                         continue;
@@ -797,18 +866,37 @@ impl Backend for RustlerBackend {
                         // Full-arity def: visitor param is present in signature.
                         let vis_param = &all_params[vis_idx];
                         // Emit a two-clause definition: visitor map → receive loop, nil → direct.
-                        content.push_str(&format!(
-                            "  def {nif_fn_name}({}) when is_map({vis_param}) do\n",
-                            arity_params.join(", ")
+                        content.push_str(&template_env::render(
+                            "elixir_def_with_guard.jinja",
+                            minijinja::context! {
+                                func_name => &nif_fn_name,
+                                params => &arity_params.join(", "),
+                                guard_param => vis_param,
+                            },
                         ));
                         let with_visitor_args = nif_call_args.join(", ");
-                        content.push_str(&format!(
-                            "    {{:ok, _}} = {native_mod}.{nif_fn_name}_with_visitor({with_visitor_args})\n"
+                        content.push_str(&template_env::render(
+                            "elixir_visitor_call.jinja",
+                            minijinja::context! {
+                                native_mod => &native_mod,
+                                func_name => &nif_fn_name,
+                                args => &with_visitor_args,
+                            },
                         ));
-                        content.push_str(&format!("    do_visitor_receive_loop({vis_param})\n"));
+                        content.push_str(&template_env::render(
+                            "elixir_visitor_receive.jinja",
+                            minijinja::context! {
+                                visitor_param => vis_param,
+                            },
+                        ));
                         content.push_str("  end\n\n");
                         // Nil/no-visitor clause
-                        content.push_str(&format!("  @doc \"{doc_line}\"\n"));
+                        content.push_str(&template_env::render(
+                            "elixir_doc_line.jinja",
+                            minijinja::context! {
+                                doc_line => &doc_line,
+                            },
+                        ));
                         let spec_inline = format!("  @spec {nif_fn_name}({}) :: {return_spec}", arity_types.join(", "));
                         if spec_inline.len() > 98 {
                             let spec_broken = format!(
@@ -818,25 +906,33 @@ impl Backend for RustlerBackend {
                             if spec_broken.lines().all(|l| l.len() <= 98) {
                                 content.push_str(&spec_broken);
                             } else {
-                                content.push_str(&format!("  @spec {nif_fn_name}(\n"));
-                                let len = arity_types.len();
-                                for (i, t) in arity_types.iter().enumerate() {
-                                    if i + 1 < len {
-                                        content.push_str(&format!("          {t},\n"));
-                                    } else {
-                                        content.push_str(&format!("          {t}\n"));
-                                    }
-                                }
-                                content.push_str(&format!("        ) :: {return_spec}"));
+                                content.push_str(&template_env::render(
+                                    "elixir_spec_multiline.jinja",
+                                    minijinja::context! {
+                                        func_name => &nif_fn_name,
+                                        param_types => &arity_types,
+                                        return_spec => &return_spec,
+                                    },
+                                ));
                             }
                         } else {
                             content.push_str(&spec_inline);
                         }
                         content.push('\n');
-                        content.push_str(&format!("  def {nif_fn_name}({}) do\n", arity_params.join(", ")));
-                        content.push_str(&format!(
-                            "    {native_mod}.{nif_fn_name}({})\n",
-                            nif_call_args.join(", ")
+                        content.push_str(&template_env::render(
+                            "elixir_def_simple.jinja",
+                            minijinja::context! {
+                                func_name => &nif_fn_name,
+                                params => &arity_params.join(", "),
+                            },
+                        ));
+                        content.push_str(&template_env::render(
+                            "elixir_def_nif_call.jinja",
+                            minijinja::context! {
+                                native_mod => &native_mod,
+                                func_name => &nif_fn_name,
+                                args => &nif_call_args.join(", "),
+                            },
                         ));
                         content.push_str("  end\n\n");
                         continue;
@@ -844,17 +940,32 @@ impl Backend for RustlerBackend {
                 }
 
                 if arity_params.is_empty() {
-                    content.push_str(&format!("  def {nif_fn_name} do\n"));
-                    content.push_str(&format!(
-                        "    {native_mod}.{nif_fn_name}({})\n",
-                        nif_call_args.join(", ")
+                    content.push_str("  def ");
+                    content.push_str(&nif_fn_name);
+                    content.push_str(" do\n");
+                    content.push_str(&template_env::render(
+                        "elixir_def_nif_call.jinja",
+                        minijinja::context! {
+                            native_mod => &native_mod,
+                            func_name => &nif_fn_name,
+                            args => &nif_call_args.join(", "),
+                        },
                     ));
                 } else {
-                    content.push_str(&format!("  def {nif_fn_name}({})", arity_params.join(", ")));
-                    content.push_str(" do\n");
-                    content.push_str(&format!(
-                        "    {native_mod}.{nif_fn_name}({})\n",
-                        nif_call_args.join(", ")
+                    content.push_str(&template_env::render(
+                        "elixir_def_simple.jinja",
+                        minijinja::context! {
+                            func_name => &nif_fn_name,
+                            params => &arity_params.join(", "),
+                        },
+                    ));
+                    content.push_str(&template_env::render(
+                        "elixir_def_nif_call.jinja",
+                        minijinja::context! {
+                            native_mod => &native_mod,
+                            func_name => &nif_fn_name,
+                            args => &nif_call_args.join(", "),
+                        },
                     ));
                 }
                 content.push_str("  end\n\n");
@@ -889,48 +1000,23 @@ impl Backend for RustlerBackend {
         });
 
         if has_visitor_bridges {
-            content.push_str(&format!(
-                r#"  @doc false
-  defp do_visitor_receive_loop(visitor) do
-    receive do
-      {{:visitor_callback, ref_id, callback_name, args_json}} ->
-        result =
-          case Map.get(visitor, callback_name) do
-            nil -> "continue"
-            fun -> apply_visitor_callback(fun, args_json)
-          end
-
-        {native_mod}.visitor_reply(ref_id, result)
-        do_visitor_receive_loop(visitor)
-
-      {{:ok, result}} ->
-        {{:ok, result}}
-
-      {{:error, reason}} ->
-        {{:error, reason}}
-    after
-      30_000 ->
-        {{:error, "visitor callback timeout after 30s"}}
-    end
-  end
-
-  @doc false
-  defp apply_visitor_callback(fun, args_json) do
-    args = Jason.decode!(args_json)
-    result = fun.(args)
-    case result do
-      :continue -> "continue"
-      :skip -> "skip"
-      :preserve_html -> "preserve_html"
-      {{:custom, value}} -> to_string(value)
-      binary when is_binary(binary) -> binary
-      _ -> "continue"
-    end
-  end
-
-"#
+            content.push_str(&template_env::render(
+                "elixir_visitor_helper_functions.jinja",
+                minijinja::context! {
+                    native_mod => &native_mod,
+                },
             ));
         }
+
+        // Streaming-adapter method keys — these methods are emitted as start/next
+        // pairs (see below) plus a high-level `Stream.unfold/2` wrapper, so the
+        // regular method-wrapper loop must skip them.
+        let streaming_method_keys: AHashSet<String> = config
+            .adapters
+            .iter()
+            .filter(|a| matches!(a.pattern, alef_core::config::AdapterPattern::Streaming))
+            .filter_map(|a| a.owner_type.as_deref().map(|owner| format!("{owner}.{}", a.name)))
+            .collect();
 
         // Wrapper functions for type methods (e.g., conversionoptions_default)
         for typ in api
@@ -938,7 +1024,11 @@ impl Backend for RustlerBackend {
             .iter()
             .filter(|typ| !typ.is_trait && !exclude_types.contains(typ.name.as_str()))
         {
-            for method in &typ.methods {
+            for method in typ
+                .methods
+                .iter()
+                .filter(|m| !streaming_method_keys.contains(&format!("{}.{}", typ.name, m.name)))
+            {
                 let nif_fn_name = if method.is_async {
                     format!("{}_{}_async", typ.name.to_lowercase(), method.name)
                 } else {
@@ -947,7 +1037,12 @@ impl Backend for RustlerBackend {
 
                 let doc_line_raw = method.doc.lines().next().unwrap_or("Method");
                 let doc_line_escaped = doc_line_raw.replace('"', "\\\"");
-                content.push_str(&format!("  @doc \"{doc_line_escaped}\"\n"));
+                content.push_str(&template_env::render(
+                    "elixir_doc_line.jinja",
+                    minijinja::context! {
+                        doc_line => &doc_line_escaped,
+                    },
+                ));
 
                 // Params: receiver (if any) + method params
                 let mut param_names: Vec<String> = Vec::new();
@@ -990,16 +1085,14 @@ impl Backend for RustlerBackend {
                         content.push_str(&spec_broken);
                         content.push('\n');
                     } else {
-                        content.push_str(&format!("  @spec {nif_fn_name}(\n"));
-                        let len = type_specs.len();
-                        for (i, t) in type_specs.iter().enumerate() {
-                            if i + 1 < len {
-                                content.push_str(&format!("          {t},\n"));
-                            } else {
-                                content.push_str(&format!("          {t}\n"));
-                            }
-                        }
-                        content.push_str(&format!("        ) :: {return_spec}\n"));
+                        content.push_str(&template_env::render(
+                            "elixir_spec_multiline.jinja",
+                            minijinja::context! {
+                                func_name => &nif_fn_name,
+                                param_types => &type_specs,
+                                return_spec => &return_spec,
+                            },
+                        ));
                     }
                 } else {
                     content.push_str(&spec_inline);
@@ -1007,15 +1100,101 @@ impl Backend for RustlerBackend {
                 }
 
                 if param_names.is_empty() {
-                    content.push_str(&format!("  def {nif_fn_name} do\n"));
-                    content.push_str(&format!("    {native_mod}.{nif_fn_name}()\n"));
-                } else {
-                    content.push_str(&format!("  def {nif_fn_name}({})", param_names.join(", ")));
+                    content.push_str("  def ");
+                    content.push_str(&nif_fn_name);
                     content.push_str(" do\n");
-                    content.push_str(&format!("    {native_mod}.{nif_fn_name}({})\n", param_names.join(", ")));
+                    content.push_str(&template_env::render(
+                        "elixir_def_nif_call.jinja",
+                        minijinja::context! {
+                            native_mod => &native_mod,
+                            func_name => &nif_fn_name,
+                            args => "",
+                        },
+                    ));
+                } else {
+                    content.push_str(&template_env::render(
+                        "elixir_def_simple.jinja",
+                        minijinja::context! {
+                            func_name => &nif_fn_name,
+                            params => &param_names.join(", "),
+                        },
+                    ));
+                    content.push_str(&template_env::render(
+                        "elixir_def_nif_call.jinja",
+                        minijinja::context! {
+                            native_mod => &native_mod,
+                            func_name => &nif_fn_name,
+                            args => &param_names.join(", "),
+                        },
+                    ));
                 }
                 content.push_str("  end\n\n");
             }
+        }
+
+        // Streaming-adapter wrappers: emit the underlying `_start` / `_next` defs
+        // (delegating to NIFs) plus a high-level `{name}/2` (or `/3`) function
+        // returning an Elixir `Stream` driven by `Stream.unfold/2`.
+        for adapter in config
+            .adapters
+            .iter()
+            .filter(|a| matches!(a.pattern, alef_core::config::AdapterPattern::Streaming))
+        {
+            let Some(owner) = adapter.owner_type.as_deref() else {
+                continue;
+            };
+            let owner_lc = owner.to_lowercase();
+            let start_fn = format!("{owner_lc}_{}_start", adapter.name);
+            let next_fn = format!("{owner_lc}_{}_next", adapter.name);
+            let stream_fn = format!("{owner_lc}_{}", adapter.name);
+
+            // Build the wrapper-arg list: receiver + adapter params (binding type
+            // gets JSON-encoded via Jason for the NIF boundary).
+            let mut start_param_names: Vec<String> = vec!["client".to_string()];
+            for p in &adapter.params {
+                start_param_names.push(elixir_safe_param_name(&p.name));
+            }
+            let start_call_args = start_param_names.join(", ");
+
+            // _start delegate
+            content.push_str(&template_env::render(
+                "elixir_streaming_start_wrapper.jinja",
+                minijinja::context! {
+                    core_path => &adapter.core_path,
+                    start_fn => &start_fn,
+                    start_call_args => &start_call_args,
+                    native_mod => &native_mod,
+                },
+            ));
+
+            // _next delegate
+            content.push_str(&template_env::render(
+                "elixir_streaming_next_wrapper.jinja",
+                minijinja::context! {
+                    next_fn => &next_fn,
+                    native_mod => &native_mod,
+                },
+            ));
+
+            // High-level Stream.unfold wrapper. The request map is passed directly
+            // to the NIF (Rustler decodes via NifMap); the NIF returns chunk JSON
+            // which is decoded back into a map by the wrapper.
+            let req_param = adapter
+                .params
+                .first()
+                .map(|p| elixir_safe_param_name(&p.name))
+                .unwrap_or_else(|| "request".to_string());
+            content.push_str(&template_env::render(
+                "elixir_streaming_unfold_wrapper.jinja",
+                minijinja::context! {
+                    core_path => &adapter.core_path,
+                    stream_fn => &stream_fn,
+                    req_param => &req_param,
+                    native_mod => &native_mod,
+                    start_fn => &start_fn,
+                    next_fn => &next_fn,
+                },
+            ));
         }
 
         // Trim trailing blank lines so `mix format` doesn't see an extra blank before `end`.
@@ -1119,19 +1298,129 @@ fn gen_nif_init(
         .filter(|t| t.is_opaque && !t.is_trait && !exclude_types.contains(t.name.as_str()))
         .map(|t| t.name.as_str())
         .collect();
-    if !opaque_types.is_empty() {
-        let registrations: Vec<String> = opaque_types
+
+    // Streaming-adapter handle resources (e.g. `DefaultClientChatStreamHandle`).
+    // These are not IR types — they are emitted by the streaming adapter — so we
+    // explicitly register them here.
+    let streaming_handle_types: Vec<String> = config
+        .adapters
+        .iter()
+        .filter(|a| matches!(a.pattern, alef_core::config::AdapterPattern::Streaming))
+        .filter_map(|a| {
+            let owner = a.owner_type.as_deref()?;
+            Some(format!(
+                "{}{}Handle",
+                pascal_case_simple(owner),
+                pascal_case_simple(&a.name)
+            ))
+        })
+        .collect();
+
+    if !opaque_types.is_empty() || !streaming_handle_types.is_empty() {
+        let mut registrations: Vec<String> = opaque_types
             .iter()
-            .map(|name| format!("    env.register::<{name}>().expect(\"Failed to register resource type {name}\");"))
+            .map(|name| {
+                template_env::render(
+                    "rustler_resource_registration.rs.jinja",
+                    minijinja::context! {
+                        type_name => name,
+                    },
+                )
+                .trim_end()
+                .to_string()
+            })
             .collect();
+        for name in &streaming_handle_types {
+            registrations.push(
+                template_env::render(
+                    "rustler_resource_registration.rs.jinja",
+                    minijinja::context! {
+                        type_name => name,
+                    },
+                )
+                .trim_end()
+                .to_string(),
+            );
+        }
         let reg_body = registrations.join("\n");
-        format!(
-            "fn on_load(env: rustler::Env, _info: rustler::Term) -> bool {{\n{reg_body}\n    true\n}}\n\n\
-             rustler::init!(\"{module}\", load = on_load);"
+        template_env::render(
+            "rustler_init_with_load.rs.jinja",
+            minijinja::context! {
+                registrations => &reg_body,
+                module => &module,
+            },
         )
+        .trim_end()
+        .to_string()
     } else {
-        format!("rustler::init!(\"{module}\");")
+        template_env::render(
+            "rustler_init.rs.jinja",
+            minijinja::context! {
+                module => &module,
+            },
+        )
+        .trim_end()
+        .to_string()
     }
+}
+
+/// Convert snake_case (or already-PascalCase) to PascalCase. Used for synthesising
+/// streaming handle struct names from adapter `name` and `owner_type`.
+fn pascal_case_simple(s: &str) -> String {
+    s.split('_')
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+            }
+        })
+        .collect()
+}
+
+/// Patch a generated streaming `_start` NIF so its first parameter — when typed as
+/// a default-typed (has_default) core type — is taken as `Option<String>` JSON and
+/// deserialized to the core type before the inner method call.
+///
+/// Mirrors the approach used in `gen_nif_function` / `gen_nif_method` for non-streaming
+/// methods. Without this patch, the generated `_start` function would expect a
+/// fully-populated `NifMap` from Elixir, which fails for any partial map.
+fn patch_streaming_default_param(
+    code: &str,
+    adapter: &alef_core::config::AdapterConfig,
+    default_types: &AHashSet<String>,
+    core_import: &str,
+) -> String {
+    let Some(first_param) = adapter.params.first() else {
+        return code.to_string();
+    };
+    let core_ty = first_param.ty.as_str();
+    if !default_types.contains(core_ty) {
+        return code.to_string();
+    }
+    let param_name = first_param.name.as_str();
+
+    // 1. Replace the typed param with `Option<String>`.
+    let typed_param = format!("{param_name}: {core_ty},");
+    let json_param = format!("{param_name}: Option<String>,");
+    let mut patched = code.replace(&typed_param, &json_param);
+
+    // 2. Replace the existing `let core_{name}: ... = {name}.into();` binding with a
+    //    JSON deserialization line.
+    let old_binding = format!("let core_{param_name}: {core_import}::{core_ty} = {param_name}.into();");
+    let new_binding = template_env::render(
+        "streaming_default_deser_binding.rs.jinja",
+        minijinja::context! {
+            param_name => param_name,
+            core_import => core_import,
+            core_ty => core_ty,
+        },
+    )
+    .trim_end()
+    .to_string();
+    patched = patched.replace(&old_binding, &new_binding);
+
+    patched
 }
 
 #[cfg(test)]
@@ -1164,6 +1453,7 @@ app_name = "my_lib"
             functions: vec![],
             enums: vec![],
             errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         }
     }
 

@@ -228,17 +228,12 @@ final class {{ class_name }} {
 {{ function_handle }}
 {% endfor %}
 
-    static final MethodHandle {{ prefix }}_FREE_STRING = LINKER.downcallHandle(
-        LIB.find("{{ prefix }}_free_string").orElseThrow(),
-        FunctionDescriptor.ofVoid(ValueLayout.ADDRESS)
-    );
-
-    static final MethodHandle {{ prefix }}_LAST_ERROR_CODE = LINKER.downcallHandle(
+    static final MethodHandle {{ prefix_upper }}_LAST_ERROR_CODE = LINKER.downcallHandle(
         LIB.find("{{ prefix }}_last_error_code").orElseThrow(),
         FunctionDescriptor.of(ValueLayout.JAVA_INT)
     );
 
-    static final MethodHandle {{ prefix }}_LAST_ERROR_CONTEXT = LINKER.downcallHandle(
+    static final MethodHandle {{ prefix_upper }}_LAST_ERROR_CONTEXT = LINKER.downcallHandle(
         LIB.find("{{ prefix }}_last_error_context").orElseThrow(),
         FunctionDescriptor.of(ValueLayout.ADDRESS)
     );

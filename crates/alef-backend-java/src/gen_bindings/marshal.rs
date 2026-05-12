@@ -1,8 +1,36 @@
 use crate::type_map::java_ffi_type;
 use ahash::AHashSet;
-use alef_core::ir::{PrimitiveType, TypeRef};
+use alef_core::ir::{FunctionDef, MethodDef, PrimitiveType, TypeRef};
 use heck::ToSnakeCase;
-use std::fmt::Write;
+
+/// Returns true when the function's Rust return type is `Result<Vec<u8>>` (or
+/// `Result<Option<Vec<u8>>>`). The FFI layer emits these as the out-param
+/// convention: `(inputs..., out_ptr: *mut *mut u8, out_len: *mut usize,
+/// out_cap: *mut usize) -> i32`.
+pub(crate) fn is_bytes_result(func: &FunctionDef) -> bool {
+    if func.error_type.is_none() {
+        return false;
+    }
+    match &func.return_type {
+        TypeRef::Bytes => true,
+        TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Bytes),
+        _ => false,
+    }
+}
+
+/// Same detection for methods on opaque types.
+/// Reserved for future Java opaque-type method dispatch.
+#[allow(dead_code)]
+pub(crate) fn is_bytes_result_method(method: &MethodDef) -> bool {
+    if method.error_type.is_none() {
+        return false;
+    }
+    match &method.return_type {
+        TypeRef::Bytes => true,
+        TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Bytes),
+        _ => false,
+    }
+}
 
 /// Check if the return type is a string-like type that requires pointer-based
 /// FFI return handling (allocate + free pattern). `Optional<String>` and
@@ -61,125 +89,158 @@ pub(crate) fn marshal_param_to_ffi(
     match ty {
         TypeRef::String | TypeRef::Char | TypeRef::Json => {
             let cname = "c".to_string() + name;
-            writeln!(out, "            var {} = arena.allocateFrom({});", cname, name).ok();
+            out.push_str(&crate::template_env::render(
+                "marshal_string.jinja",
+                minijinja::context! {
+                    cname => &cname,
+                    name => name,
+                },
+            ));
         }
         TypeRef::Path => {
-            // Arena.allocateFrom takes a CharSequence; java.nio.file.Path is not one.
             let cname = "c".to_string() + name;
-            writeln!(
-                out,
-                "            var {} = arena.allocateFrom({}.toString());",
-                cname, name
-            )
-            .ok();
+            out.push_str(&crate::template_env::render(
+                "marshal_path.jinja",
+                minijinja::context! {
+                    cname => &cname,
+                    name => name,
+                },
+            ));
+        }
+        TypeRef::Bytes => {
+            let cname = "c".to_string() + name;
+            out.push_str(&crate::template_env::render(
+                "marshal_bytes.jinja",
+                minijinja::context! {
+                    cname => &cname,
+                    name => name,
+                },
+            ));
         }
         TypeRef::Named(type_name) => {
             let cname = "c".to_string() + name;
             if opaque_types.contains(type_name.as_str()) {
-                // Opaque handles: pass the inner MemorySegment via .handle()
-                writeln!(out, "            var {} = {}.handle();", cname, name).ok();
+                out.push_str(&crate::template_env::render(
+                    "marshal_opaque_handle.jinja",
+                    minijinja::context! {
+                        cname => &cname,
+                        name => name,
+                    },
+                ));
             } else {
-                // Non-opaque named types: serialize to JSON, call _from_json to get FFI pointer.
-                // The pointer must be freed after the FFI call with _free.
                 let type_snake = type_name.to_snake_case();
                 let from_json_handle = format!(
                     "NativeLib.{}_{}_FROM_JSON",
                     prefix.to_uppercase(),
                     type_snake.to_uppercase()
                 );
-                let _free_handle = format!("NativeLib.{}_{}_FREE", prefix.to_uppercase(), type_snake.to_uppercase());
-                writeln!(
-                    out,
-                    "            var {}Json = {} != null ? MAPPER.writeValueAsString({}) : null;",
-                    cname, name, name
-                )
-                .ok();
-                writeln!(
-                    out,
-                    "            var {}JsonSeg = {}Json != null ? arena.allocateFrom({}Json) : MemorySegment.NULL;",
-                    cname, cname, cname
-                )
-                .ok();
-                writeln!(out, "            var {} = {}Json != null", cname, cname).ok();
-                writeln!(
-                    out,
-                    "                ? (MemorySegment) {}.invoke({}JsonSeg)",
-                    from_json_handle, cname
-                )
-                .ok();
-                writeln!(out, "                : MemorySegment.NULL;").ok();
+                out.push_str(&crate::template_env::render(
+                    "marshal_named_type.jinja",
+                    minijinja::context! {
+                        cname => &cname,
+                        name => name,
+                        from_json_handle => &from_json_handle,
+                    },
+                ));
             }
         }
         TypeRef::Optional(inner) => {
-            // For optional types, marshal the inner type if not null
             match inner.as_ref() {
                 TypeRef::String | TypeRef::Char | TypeRef::Json => {
                     let cname = "c".to_string() + name;
-                    writeln!(
-                        out,
-                        "            var {} = {} != null ? arena.allocateFrom({}) : MemorySegment.NULL;",
-                        cname, name, name
-                    )
-                    .ok();
+                    out.push_str(&crate::template_env::render(
+                        "marshal_optional_string.jinja",
+                        minijinja::context! {
+                            cname => &cname,
+                            name => name,
+                        },
+                    ));
                 }
                 TypeRef::Path => {
                     let cname = "c".to_string() + name;
-                    writeln!(
-                        out,
-                        "            var {} = {} != null ? arena.allocateFrom({}.toString()) : MemorySegment.NULL;",
-                        cname, name, name
-                    )
-                    .ok();
+                    out.push_str(&crate::template_env::render(
+                        "marshal_optional_path.jinja",
+                        minijinja::context! {
+                            cname => &cname,
+                            name => name,
+                        },
+                    ));
                 }
                 TypeRef::Named(type_name) => {
                     let cname = "c".to_string() + name;
                     if opaque_types.contains(type_name.as_str()) {
-                        writeln!(
-                            out,
-                            "            var {} = {} != null ? {}.handle() : MemorySegment.NULL;",
-                            cname, name, name
-                        )
-                        .ok();
+                        out.push_str(&crate::template_env::render(
+                            "marshal_optional_opaque_handle.jinja",
+                            minijinja::context! {
+                                cname => &cname,
+                                name => name,
+                            },
+                        ));
                     } else {
-                        // Non-opaque named type in Optional: serialize to JSON and call _from_json
                         let type_snake = type_name.to_snake_case();
                         let from_json_handle = format!(
                             "NativeLib.{}_{}_FROM_JSON",
                             prefix.to_uppercase(),
                             type_snake.to_uppercase()
                         );
-                        writeln!(
-                            out,
-                            "            var {}Json = {} != null ? MAPPER.writeValueAsString({}) : null;",
-                            cname, name, name
-                        )
-                        .ok();
-                        writeln!(out, "            var {}JsonSeg = {}Json != null ? arena.allocateFrom({}Json) : MemorySegment.NULL;", cname, cname, cname).ok();
-                        writeln!(out, "            var {} = {}Json != null", cname, cname).ok();
-                        writeln!(
-                            out,
-                            "                ? (MemorySegment) {}.invoke({}JsonSeg)",
-                            from_json_handle, cname
-                        )
-                        .ok();
-                        writeln!(out, "                : MemorySegment.NULL;").ok();
+                        out.push_str(&crate::template_env::render(
+                            "marshal_optional_named_type.jinja",
+                            minijinja::context! {
+                                cname => &cname,
+                                name => name,
+                                from_json_handle => &from_json_handle,
+                            },
+                        ));
                     }
                 }
+                // Optional primitive numeric types: Java auto-unboxes null Long/Integer/etc.
+                // via `.intValue()`/`.longValue()` when passed to MethodHandle.invoke(...),
+                // which throws NullPointerException. Emit an explicit null → sentinel
+                // coercion local so the FFI call always receives a valid primitive AND the
+                // FFI shim's `if x == {prim}::MAX { None }` decoder recognises a null caller.
+                // Sentinel choice mirrors `alef-backend-ffi` `param_optional_numeric_conversion`:
+                // unsigned ints use bitwise -1 (truncates to all-bits-set = u{N}::MAX);
+                // signed ints use the Java boxed type's MAX_VALUE; floats use NaN.
+                TypeRef::Primitive(prim) => {
+                    use alef_core::ir::PrimitiveType;
+                    let cname = "c".to_string() + name;
+                    let (prim_kw, none_lit) = match prim {
+                        PrimitiveType::U64 | PrimitiveType::Usize => ("long", "-1L"),
+                        PrimitiveType::I64 | PrimitiveType::Isize => ("long", "Long.MAX_VALUE"),
+                        PrimitiveType::U32 => ("int", "-1"),
+                        PrimitiveType::I32 => ("int", "Integer.MAX_VALUE"),
+                        PrimitiveType::U16 => ("short", "(short) -1"),
+                        PrimitiveType::I16 => ("short", "Short.MAX_VALUE"),
+                        PrimitiveType::U8 => ("byte", "(byte) -1"),
+                        PrimitiveType::I8 => ("byte", "Byte.MAX_VALUE"),
+                        PrimitiveType::F32 => ("float", "Float.NaN"),
+                        PrimitiveType::F64 => ("double", "Double.NaN"),
+                        PrimitiveType::Bool => ("boolean", "false"),
+                    };
+                    out.push_str(&crate::template_env::render(
+                        "marshal_optional_primitive.jinja",
+                        minijinja::context! {
+                            cname => &cname,
+                            name => name,
+                            prim_kw => prim_kw,
+                            none_lit => none_lit,
+                        },
+                    ));
+                }
                 _ => {
-                    // Other optional types (primitives) pass through
+                    // Other optional types pass through
                 }
             }
         }
         TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-            // Vec/Map types: serialize to JSON string, then pass as a C string via arena.
             let cname = "c".to_string() + name;
-            writeln!(
-                out,
-                "            var {}Json = MAPPER.writeValueAsString({});",
-                cname, name
-            )
-            .ok();
-            writeln!(out, "            var {} = arena.allocateFrom({}Json);", cname, cname).ok();
+            out.push_str(&crate::template_env::render(
+                "marshal_vec_map.jinja",
+                minijinja::context! {
+                    cname => &cname,
+                    name => name,
+                },
+            ));
         }
         _ => {
             // Primitives and others pass through directly
@@ -189,13 +250,17 @@ pub(crate) fn marshal_param_to_ffi(
 
 pub(crate) fn ffi_param_name(name: &str, ty: &TypeRef, _opaque_types: &AHashSet<String>) -> String {
     match ty {
-        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => "c".to_string() + name,
+        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json | TypeRef::Bytes => "c".to_string() + name,
         TypeRef::Named(_) => "c".to_string() + name,
         TypeRef::Vec(_) | TypeRef::Map(_, _) => "c".to_string() + name,
         TypeRef::Optional(inner) => match inner.as_ref() {
             TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json | TypeRef::Named(_) => {
                 "c".to_string() + name
             }
+            // Optional primitives are unwrapped via a `c<Name>` local that coerces null → 0/false
+            // (see marshal_param_to_ffi). Reference that local instead of the raw boxed parameter
+            // so MethodHandle.invoke doesn't auto-unbox a null Long/Integer and throw NPE.
+            TypeRef::Primitive(_) => "c".to_string() + name,
             _ => name.to_string(),
         },
         _ => name.to_string(),
@@ -237,8 +302,11 @@ pub(crate) fn gen_helper_methods(out: &mut String, prefix: &str, class_name: &st
         return;
     }
 
-    writeln!(out, "    // Helper methods for FFI marshalling").ok();
-    writeln!(out).ok();
+    out.push_str(&crate::template_env::render(
+        "gen_helper_methods_header.jinja",
+        minijinja::context! {},
+    ));
+    out.push('\n');
 
     if needs_check_last_error {
         // Reads the last FFI error code and, if non-zero, reads the error message and throws.

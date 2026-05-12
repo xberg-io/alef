@@ -1,0 +1,5 @@
+        if let Some(s) = {{ param }} {
+            if let Ok(v) = ::serde_json::from_str::<::serde_json::Value>(&s) {
+                if let Ok(t) = ::serde_json::from_value(v) { __target.{{ name }} = Some(t); }
+            }
+        }

@@ -1,0 +1,4 @@
+
+    static final MethodHandle {{ handle_name }} = LIB.find("{{ ffi_name }}")
+        .map(s -> LINKER.downcallHandle(s, {{ layout }}))
+        .orElse(null);

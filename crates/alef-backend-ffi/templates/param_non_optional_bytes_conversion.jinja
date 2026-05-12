@@ -1,0 +1,10 @@
+    if {{ name }}.is_null() && {{ name }}_len > 0 {
+        set_last_error(1, "Null pointer passed for parameter '{{ name }}'");
+        {{ fail_ret }}
+    }
+    // SAFETY: when {{ name }} is null, {{ name }}_len is 0 (checked above), so we use an empty slice; otherwise data is valid for len elements.
+    let {{ rs_name }} = if {{ name }}.is_null() {
+        Vec::new()
+    } else {
+        unsafe { std::slice::from_raw_parts({{ name }}, {{ name }}_len) }.to_vec()
+    };

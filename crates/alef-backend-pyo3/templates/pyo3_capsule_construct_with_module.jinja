@@ -1,0 +1,4 @@
+    let _dep = {{ dep_expr }};
+    let _ts_mod = py.import("{{ module_path }}")?;
+    let _cls = _ts_mod.getattr("{{ class_name }}")?;
+    Ok(_cls.call1((_dep,))?.unbind())

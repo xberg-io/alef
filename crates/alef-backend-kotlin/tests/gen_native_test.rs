@@ -30,6 +30,8 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
         core_wrapper: CoreWrapper::None,
         vec_inner_core_wrapper: CoreWrapper::None,
         newtype_wrapper: None,
+        serde_rename: None,
+        serde_flatten: false,
     }
 }
 
@@ -146,6 +148,7 @@ fn native_emits_three_files() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
     let config = make_native_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -168,6 +171,7 @@ fn native_struct_emits_data_class() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
     let config = make_native_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -233,12 +237,14 @@ fn native_unit_enum_emits_enum_class() {
             ],
             cfg: None,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
 
             is_copy: false,
             has_serde: false,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
     let config = make_native_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -271,6 +277,7 @@ fn native_function_uses_mem_scoped() {
         )],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
     let config = make_native_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -315,6 +322,7 @@ fn native_fallible_function_checks_error_code() {
                 doc: String::new(),
             }],
         }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
     let config = make_native_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -345,6 +353,7 @@ fn native_def_file_has_correct_fields() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
     let config = make_native_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -375,6 +384,7 @@ fn native_kt_file_is_at_correct_path() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
     let config = make_native_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();

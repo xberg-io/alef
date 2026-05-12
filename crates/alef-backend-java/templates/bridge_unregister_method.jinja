@@ -1,0 +1,23 @@
+    /** Unregister a {{ trait_pascal }} implementation by name. */
+    public static void unregister{{ trait_pascal }}(String name) throws Exception {
+        try {
+            try (var nameArena = Arena.ofConfined()) {
+                var nameCs = nameArena.allocateFrom(name);
+                MemorySegment outErr = nameArena.allocate(ValueLayout.ADDRESS);
+                int rc = (int) NativeLib.{{ prefix_upper }}_UNREGISTER_{{ trait_snake_upper }}.invoke(nameCs, outErr);
+                if (rc != 0) {
+                    MemorySegment errPtr = outErr.get(ValueLayout.ADDRESS, 0);
+                    String msg = errPtr.equals(MemorySegment.NULL) ? "unregistration failed (rc=" + rc + ")" : errPtr.reinterpret(Long.MAX_VALUE).getString(0);
+                    throw new RuntimeException("unregister{{ trait_pascal }}: " + msg);
+                }
+            }
+        } catch (Throwable t) {
+            if (t instanceof Exception e) {
+                throw e;
+            } else {
+                throw new RuntimeException("Unexpected error during unregistration", t);
+            }
+        }
+        {{ bridge_class }} old = {{ registry_field }}.remove(name);
+        if (old != null) { old.close(); }
+    }

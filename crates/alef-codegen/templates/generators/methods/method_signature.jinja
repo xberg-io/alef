@@ -1,0 +1,15 @@
+{%- if has_too_many_arguments %}
+#[allow(clippy::too_many_arguments)]
+{%- endif %}
+{%- if has_missing_errors_doc %}
+#[allow(clippy::missing_errors_doc)]
+{%- endif %}
+{%- if has_should_implement_trait %}
+#[allow(clippy::should_implement_trait)]
+{%- endif %}
+{%- if needs_signature %}
+{{ signature_prefix }}{{ sig_defaults }}{{ signature_suffix }}
+{%- endif %}
+{{ sig_start }}{{ sig_params }}{{ sig_end }}{{ ret }} {
+{{ body }}
+}

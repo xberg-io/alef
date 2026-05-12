@@ -1,0 +1,5 @@
+	var {{ c_name }} *C.char
+	if {{ go_param }} != nil {
+		{{ c_name }} = C.CString(*{{ go_param }})
+		defer C.free(unsafe.Pointer({{ c_name }}))
+	}

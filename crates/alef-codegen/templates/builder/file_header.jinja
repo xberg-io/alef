@@ -1,0 +1,11 @@
+{{ header }}
+{%- if imports %}
+
+{% for import in imports -%}
+use {{ import }};
+{% endfor -%}
+{% endif -%}
+{%- for item in items %}
+
+{{ item }}
+{%- endfor %}

@@ -1,0 +1,15 @@
+// Package {{ pkg_name }} provides Go bindings for the {{ crate_name }} library.
+package {{ pkg_name }}
+
+/*
+#cgo CFLAGS: -I${SRCDIR}/include
+#cgo LDFLAGS: -L${SRCDIR}/{{ to_root }}target/release -l{{ ffi_lib_name }}
+#include "{{ ffi_header }}"
+*/
+import "C"
+
+import (
+{% for import in imports -%}
+	{{ import }}
+{% endfor -%}
+)

@@ -26,6 +26,7 @@ impl E2eCodegen for GoCodegen {
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
         config: &ResolvedCrateConfig,
+        _type_defs: &[alef_core::ir::TypeDef],
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
         let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
@@ -110,7 +111,9 @@ impl E2eCodegen for GoCodegen {
                         "contains" | "contains_all" | "contains_any" | "not_contains"
                     ) && {
                         if a.field.as_ref().is_none_or(|f| f.is_empty()) {
-                            e2e_config.resolve_call(f.call.as_deref()).result_is_array
+                            e2e_config
+                                .resolve_call_for_fixture(f.call.as_deref(), &f.input)
+                                .result_is_array
                         } else {
                             let resolved_name = field_resolver.resolve(a.field.as_deref().unwrap_or(""));
                             field_resolver.is_array(resolved_name)
@@ -145,7 +148,7 @@ impl E2eCodegen for GoCodegen {
                 if f.needs_mock_server() {
                     return true;
                 }
-                let cc = e2e_config.resolve_call(f.call.as_deref());
+                let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
                 let go_override = cc.overrides.get("go").or_else(|| e2e_config.call.overrides.get("go"));
                 go_override.and_then(|o| o.client_factory.as_deref()).is_some()
             });
@@ -153,7 +156,7 @@ impl E2eCodegen for GoCodegen {
         if needs_main_test {
             files.push(GeneratedFile {
                 path: output_base.join("main_test.go"),
-                content: render_main_test_go(),
+                content: render_main_test_go(&e2e_config.test_documents_dir),
                 generated_header: true,
             });
         }
@@ -246,13 +249,14 @@ fn render_go_mod(go_module_path: &str, replace_path: Option<&str>, version: &str
 /// The binary is expected at `../rust/target/release/mock-server` relative to the Go e2e
 /// directory.  The server prints `MOCK_SERVER_URL=http://...` on stdout; we read that line
 /// and export the variable so all test files can call `os.Getenv("MOCK_SERVER_URL")`.
-fn render_main_test_go() -> String {
+fn render_main_test_go(test_documents_dir: &str) -> String {
     // NOTE: the generated-file header is injected by the caller (generated_header: true).
     let mut out = String::new();
     let _ = writeln!(out, "package e2e_test");
     let _ = writeln!(out);
     let _ = writeln!(out, "import (");
     let _ = writeln!(out, "\t\"bufio\"");
+    let _ = writeln!(out, "\t\"encoding/json\"");
     let _ = writeln!(out, "\t\"io\"");
     let _ = writeln!(out, "\t\"os\"");
     let _ = writeln!(out, "\t\"os/exec\"");
@@ -268,7 +272,7 @@ fn render_main_test_go() -> String {
     let _ = writeln!(out);
     let _ = writeln!(
         out,
-        "\t// Change to the test_documents directory so that fixture file paths like"
+        "\t// Change to the configured test-documents directory so that fixture file paths like"
     );
     let _ = writeln!(
         out,
@@ -276,7 +280,7 @@ fn render_main_test_go() -> String {
     );
     let _ = writeln!(
         out,
-        "\ttestDocumentsDir := filepath.Join(dir, \"..\", \"..\", \"test_documents\")"
+        "\ttestDocumentsDir := filepath.Join(dir, \"..\", \"..\", \"{test_documents_dir}\")"
     );
     let _ = writeln!(out, "\tif err := os.Chdir(testDocumentsDir); err != nil {{");
     let _ = writeln!(out, "\t\tpanic(err)");
@@ -298,6 +302,16 @@ fn render_main_test_go() -> String {
     let _ = writeln!(out, "\t\tif err != nil {{");
     let _ = writeln!(out, "\t\t\tpanic(err)");
     let _ = writeln!(out, "\t\t}}");
+    let _ = writeln!(out, "\t\t// Keep a writable pipe to the mock-server's stdin so the");
+    let _ = writeln!(
+        out,
+        "\t\t// server does not see EOF and exit immediately. The mock-server"
+    );
+    let _ = writeln!(out, "\t\t// blocks reading stdin until the parent closes the pipe.");
+    let _ = writeln!(out, "\t\tstdin, err := cmd.StdinPipe()");
+    let _ = writeln!(out, "\t\tif err != nil {{");
+    let _ = writeln!(out, "\t\t\tpanic(err)");
+    let _ = writeln!(out, "\t\t}}");
     let _ = writeln!(out, "\t\tif err := cmd.Start(); err != nil {{");
     let _ = writeln!(out, "\t\t\tpanic(err)");
     let _ = writeln!(out, "\t\t}}");
@@ -309,11 +323,33 @@ fn render_main_test_go() -> String {
         out,
         "\t\t\t\t_ = os.Setenv(\"MOCK_SERVER_URL\", strings.TrimPrefix(line, \"MOCK_SERVER_URL=\"))"
     );
+    let _ = writeln!(out, "\t\t\t}} else if strings.HasPrefix(line, \"MOCK_SERVERS=\") {{");
+    let _ = writeln!(out, "\t\t\t\t_jsonVal := strings.TrimPrefix(line, \"MOCK_SERVERS=\")");
+    let _ = writeln!(out, "\t\t\t\t_ = os.Setenv(\"MOCK_SERVERS\", _jsonVal)");
+    let _ = writeln!(
+        out,
+        "\t\t\t\t// Parse the JSON map and set per-fixture env vars (MOCK_SERVER_<FIXTURE_ID>)."
+    );
+    let _ = writeln!(out, "\t\t\t\tvar _perFixture map[string]string");
+    let _ = writeln!(
+        out,
+        "\t\t\t\tif err := json.Unmarshal([]byte(_jsonVal), &_perFixture); err == nil {{"
+    );
+    let _ = writeln!(out, "\t\t\t\t\tfor _fid, _furl := range _perFixture {{");
+    let _ = writeln!(
+        out,
+        "\t\t\t\t\t\t_ = os.Setenv(\"MOCK_SERVER_\"+strings.ToUpper(_fid), _furl)"
+    );
+    let _ = writeln!(out, "\t\t\t\t\t}}");
+    let _ = writeln!(out, "\t\t\t\t}}");
+    let _ = writeln!(out, "\t\t\t\tbreak");
+    let _ = writeln!(out, "\t\t\t}} else if os.Getenv(\"MOCK_SERVER_URL\") != \"\" {{");
     let _ = writeln!(out, "\t\t\t\tbreak");
     let _ = writeln!(out, "\t\t\t}}");
     let _ = writeln!(out, "\t\t}}");
     let _ = writeln!(out, "\t\tgo func() {{ _, _ = io.Copy(io.Discard, stdout) }}()");
     let _ = writeln!(out, "\t\tcode := m.Run()");
+    let _ = writeln!(out, "\t\t_ = stdin.Close()");
     let _ = writeln!(out, "\t\t_ = cmd.Process.Signal(os.Interrupt)");
     let _ = writeln!(out, "\t\t_ = cmd.Wait()");
     let _ = writeln!(out, "\t\tos.Exit(code)");
@@ -385,7 +421,7 @@ fn render_test_file(
         if !emits_executable_test(f) {
             return false;
         }
-        let call_config = e2e_config.resolve_call(f.call.as_deref());
+        let call_config = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
         let go_override = call_config
             .overrides
             .get("go")
@@ -432,7 +468,9 @@ fn render_test_file(
                     // If no field is specified, check if the result itself is an array.
                     if a.field.as_ref().is_none_or(|f| f.is_empty()) {
                         // No field specified: check if result is an array
-                        e2e_config.resolve_call(f.call.as_deref()).result_is_array
+                        e2e_config
+                            .resolve_call_for_fixture(f.call.as_deref(), &f.input)
+                            .result_is_array
                     } else {
                         // Field specified: check if that field is an array
                         let resolved_name = field_resolver.resolve(a.field.as_deref().unwrap_or(""));
@@ -468,7 +506,7 @@ fn render_test_file(
             return false;
         }
 
-        let call = e2e_config.resolve_call(f.call.as_deref());
+        let call = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
         let call_args = &call.args;
         // handle args with non-null config value
         let has_handle = call_args.iter().any(|a| a.arg_type == "handle") && {
@@ -518,7 +556,7 @@ fn render_test_file(
     let needs_fmt = fixtures.iter().any(|f| {
         f.visitor.as_ref().is_some_and(|v| {
             v.callbacks.values().any(|action| {
-                if let CallbackAction::CustomTemplate { template } = action {
+                if let CallbackAction::CustomTemplate { template, .. } = action {
                     template.contains('{')
                 } else {
                     false
@@ -536,7 +574,9 @@ fn render_test_file(
                     // on invalid fields are skipped without emitting any fmt.Sprint call.
                     if a.field.as_ref().is_none_or(|f| f.is_empty()) {
                         // No field: fmt.Sprint only if result is not an array
-                        !e2e_config.resolve_call(f.call.as_deref()).result_is_array
+                        !e2e_config
+                            .resolve_call_for_fixture(f.call.as_deref(), &f.input)
+                            .result_is_array
                     } else {
                         // Field specified: fmt.Sprint only if that field is not an array
                         // and the field is actually valid for the result type (otherwise
@@ -578,6 +618,12 @@ fn render_test_file(
     let needs_assert = fixtures.iter().any(|f| {
         if !emits_executable_test(f) {
             return false;
+        }
+        // Validation-category fixtures with an `error` assertion emit
+        // `assert.Error(t, createErr)` in their setup block, requiring testify.
+        // Other categories (e.g. `error`) use t.Errorf/t.Fatalf and do NOT need testify.
+        if f.resolved_category() == "validation" && f.assertions.iter().any(|a| a.assertion_type == "error") {
+            return true;
         }
         f.assertions.iter().any(|a| {
             let field_valid = a
@@ -715,7 +761,7 @@ fn fixture_has_go_callable(fixture: &Fixture, e2e_config: &crate::config::E2eCon
     if fixture.is_http_test() {
         return false;
     }
-    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
     // Honor per-call `skip_languages`: when the resolved call's `skip_languages`
     // contains `"go"`, the Go binding doesn't expose this function.
     if call_config.skip_languages.iter().any(|l| l == "go") {
@@ -772,7 +818,7 @@ fn render_test_function(
     }
 
     // Resolve call config per-fixture (supports named calls via fixture.call).
-    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
     let lang = "go";
     let overrides = call_config.overrides.get(lang);
 
@@ -835,6 +881,10 @@ fn render_test_function(
     });
 
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
+    // Validation-category fixtures expect engine *creation* to fail. Other expects_error
+    // fixtures (error_*) construct a valid engine and expect the *operation* to fail —
+    // engine creation should not be wrapped in assert.Error there.
+    let validation_creation_failure = expects_error && fixture.resolved_category() == "validation";
 
     // Client factory: when set, the test creates a client via `pkg.Factory("test-key", baseURL)`
     // and calls methods on the instance rather than top-level package functions.
@@ -851,8 +901,9 @@ fn render_test_function(
         args,
         import_alias,
         call_options_type,
-        &fixture.id,
+        fixture,
         call_options_ptr,
+        validation_creation_failure,
     );
 
     // Build visitor if present — integrate into options instead of separate parameter.
@@ -888,6 +939,38 @@ fn render_test_function(
     let _ = writeln!(out, "func Test_{fn_name}(t *testing.T) {{");
     let _ = writeln!(out, "\t// {description}");
 
+    // Live-API fixtures use `env.api_key_var` to mark the env var that
+    // supplies the real API key. Skip the test when the env var is unset
+    // (mirrors Python's pytest.skip and Node's early-return pattern).
+    let has_mock = fixture.mock_response.is_some() || fixture.http.is_some();
+    let api_key_var = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref());
+    if let Some(var) = api_key_var {
+        if has_mock {
+            // Env-fallback branch: when the real API key is set use the live
+            // provider; otherwise fall back to the mock server so the test
+            // always runs in CI without credentials.
+            let fixture_id = &fixture.id;
+            let _ = writeln!(out, "\tapiKey := os.Getenv(\"{var}\")");
+            let _ = writeln!(out, "\tvar baseURL *string");
+            let _ = writeln!(out, "\tif apiKey != \"\" {{");
+            let _ = writeln!(out, "\t\tt.Logf(\"{fixture_id}: using real API ({var} is set)\")");
+            let _ = writeln!(out, "\t}} else {{");
+            let _ = writeln!(out, "\t\tt.Logf(\"{fixture_id}: using mock server ({var} not set)\")");
+            let _ = writeln!(
+                out,
+                "\t\tu := os.Getenv(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\""
+            );
+            let _ = writeln!(out, "\t\tbaseURL = &u");
+            let _ = writeln!(out, "\t\tapiKey = \"test-key\"");
+            let _ = writeln!(out, "\t}}");
+        } else {
+            let _ = writeln!(out, "\tapiKey := os.Getenv(\"{var}\")");
+            let _ = writeln!(out, "\tif apiKey == \"\" {{");
+            let _ = writeln!(out, "\t\tt.Skipf(\"{var} not set\")");
+            let _ = writeln!(out, "\t}}");
+        }
+    }
+
     for line in &setup_lines {
         let _ = writeln!(out, "\t{line}");
     }
@@ -898,13 +981,34 @@ fn render_test_function(
     let call_prefix = if let Some(factory) = client_factory {
         let factory_name = to_go_name(factory);
         let fixture_id = &fixture.id;
+        // Determine how to express the API key and base URL for the client
+        // constructor call, depending on which code path was emitted above.
+        let (api_key_expr, base_url_expr) = if has_mock && api_key_var.is_some() {
+            // Env-fallback: local vars emitted above carry the right values.
+            ("apiKey".to_string(), "baseURL".to_string())
+        } else if api_key_var.is_some() {
+            // Skip-unless-set: live API only, no mock fallback.
+            ("apiKey".to_string(), "nil".to_string())
+        } else if fixture.has_host_root_route() {
+            let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
+            let _ = writeln!(out, "\tmockURL := os.Getenv(\"{env_key}\")");
+            let _ = writeln!(out, "\tif mockURL == \"\" {{");
+            let _ = writeln!(
+                out,
+                "\t\tmockURL = os.Getenv(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\""
+            );
+            let _ = writeln!(out, "\t}}");
+            ("\"test-key\"".to_string(), "&mockURL".to_string())
+        } else {
+            let _ = writeln!(
+                out,
+                "\tmockURL := os.Getenv(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\""
+            );
+            ("\"test-key\"".to_string(), "&mockURL".to_string())
+        };
         let _ = writeln!(
             out,
-            "\tmockURL := os.Getenv(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\""
-        );
-        let _ = writeln!(
-            out,
-            "\tclient, clientErr := {import_alias}.{factory_name}(\"test-key\", &mockURL, nil, nil, nil)"
+            "\tclient, clientErr := {import_alias}.{factory_name}({api_key_expr}, {base_url_expr}, nil, nil, nil)"
         );
         let _ = writeln!(out, "\tif clientErr != nil {{");
         let _ = writeln!(out, "\t\tt.Fatalf(\"create client failed: %v\", clientErr)");
@@ -1485,9 +1589,11 @@ fn build_args_and_setup(
     args: &[crate::config::ArgMapping],
     import_alias: &str,
     options_type: Option<&str>,
-    fixture_id: &str,
+    fixture: &crate::fixture::Fixture,
     options_ptr: bool,
+    expects_error: bool,
 ) -> (Vec<String>, String) {
+    let fixture_id = &fixture.id;
     use heck::ToUpperCamelCase;
 
     if args.is_empty() {
@@ -1499,10 +1605,19 @@ fn build_args_and_setup(
 
     for arg in args {
         if arg.arg_type == "mock_url" {
-            setup_lines.push(format!(
-                "{} := os.Getenv(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\"",
-                arg.name,
-            ));
+            if fixture.has_host_root_route() {
+                let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
+                setup_lines.push(format!("{} := os.Getenv(\"{env_key}\")", arg.name));
+                setup_lines.push(format!(
+                    "if {} == \"\" {{ {} = os.Getenv(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\" }}",
+                    arg.name, arg.name
+                ));
+            } else {
+                setup_lines.push(format!(
+                    "{} := os.Getenv(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\"",
+                    arg.name,
+                ));
+            }
             parts.push(arg.name.clone());
             continue;
         }
@@ -1512,11 +1627,19 @@ fn build_args_and_setup(
             let constructor_name = format!("Create{}", arg.name.to_upper_camel_case());
             let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
             let config_value = input.get(field).unwrap_or(&serde_json::Value::Null);
+            // When the fixture expects an error (validation test), engine creation
+            // is the error source. Assert the error and return so the test passes
+            // without proceeding to the (unreachable) function call.
+            let create_err_handler = if expects_error {
+                "assert.Error(t, createErr)\n\t\treturn".to_string()
+            } else {
+                "t.Fatalf(\"create handle failed: %v\", createErr)".to_string()
+            };
             if config_value.is_null()
                 || config_value.is_object() && config_value.as_object().is_some_and(|o| o.is_empty())
             {
                 setup_lines.push(format!(
-                    "{name}, createErr := {import_alias}.{constructor_name}(nil)\n\tif createErr != nil {{\n\t\tt.Fatalf(\"create handle failed: %v\", createErr)\n\t}}",
+                    "{name}, createErr := {import_alias}.{constructor_name}(nil)\n\tif createErr != nil {{\n\t\t{create_err_handler}\n\t}}",
                     name = arg.name,
                 ));
             } else {
@@ -1527,7 +1650,7 @@ fn build_args_and_setup(
                     "var {name}Config {import_alias}.CrawlConfig\n\tif err := json.Unmarshal([]byte({go_literal}), &{name}Config); err != nil {{\n\t\tt.Fatalf(\"config parse failed: %v\", err)\n\t}}"
                 ));
                 setup_lines.push(format!(
-                    "{name}, createErr := {import_alias}.{constructor_name}(&{name}Config)\n\tif createErr != nil {{\n\t\tt.Fatalf(\"create handle failed: %v\", createErr)\n\t}}"
+                    "{name}, createErr := {import_alias}.{constructor_name}(&{name}Config)\n\tif createErr != nil {{\n\t\t{create_err_handler}\n\t}}"
                 ));
             }
             parts.push(arg.name.clone());
@@ -2955,7 +3078,7 @@ fn emit_go_visitor_method(
             let escaped = go_string_literal(output);
             let _ = writeln!(out, "\treturn {import_alias}.VisitResultCustom({escaped})");
         }
-        CallbackAction::CustomTemplate { template } => {
+        CallbackAction::CustomTemplate { template, .. } => {
             // Convert {var} placeholders to %s format verbs and collect arg names.
             // E.g. `QUOTE: "{text}"` → fmt.Sprintf("QUOTE: \"%s\"", text)
             //
@@ -3069,12 +3192,7 @@ mod tests {
             http: None,
             assertions: vec![Assertion {
                 assertion_type: "not_error".to_string(),
-                field: None,
-                value: None,
-                values: None,
-                method: None,
-                args: None,
-                check: None,
+                ..Default::default()
             }],
             visitor: None,
         }

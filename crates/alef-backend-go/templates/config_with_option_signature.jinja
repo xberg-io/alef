@@ -1,0 +1,3 @@
+func With{{ go_name }}{{ field_go_name }}(v {{ param_type }}) {{ go_name }}Option {
+	return func(c *{{ go_name }}) { c.{{ field_go_name }} = {{ assign_val }} }
+}

@@ -3,7 +3,7 @@ use ahash::{AHashMap, AHashSet};
 use alef_codegen::conversions::{core_enum_path, core_type_path};
 use alef_core::ir::{CoreWrapper, EnumDef, FieldDef, TypeDef, TypeRef};
 use heck::ToSnakeCase;
-use std::fmt::Write;
+use minijinja::context;
 
 use super::helpers::{gen_value_to_c, null_return_value};
 
@@ -15,146 +15,48 @@ pub(super) fn gen_type_from_json(typ: &TypeDef, prefix: &str, core_import: &str)
     let type_snake = typ.name.to_snake_case();
     let type_name = &typ.name;
     let qualified = core_type_path(typ, core_import);
-    let mut out = String::with_capacity(2048);
 
-    writeln!(
-        out,
-        "/// Create a `{type_name}` from a JSON string. Returns null on failure."
+    crate::template_env::render(
+        "type_from_json.jinja",
+        context! {
+            type_name => type_name,
+            type_snake => type_snake,
+            prefix => prefix,
+            qualified => qualified,
+        },
     )
-    .ok();
-    writeln!(out, "/// # Safety").ok();
-    writeln!(out, "/// JSON string must be valid UTF-8 and null-terminated.").ok();
-    writeln!(
-        out,
-        "/// Returned handle must be freed with `{prefix}_{type_snake}_free`."
-    )
-    .ok();
-    writeln!(out, "#[unsafe(no_mangle)]").ok();
-    writeln!(
-        out,
-        "pub unsafe extern \"C\" fn {prefix}_{type_snake}_from_json(json: *const c_char) -> *mut {qualified} {{"
-    )
-    .ok();
-    writeln!(out, "    clear_last_error();").ok();
-    writeln!(out, "    if json.is_null() {{").ok();
-    writeln!(
-        out,
-        "        set_last_error(1, \"Null pointer passed for JSON string\");"
-    )
-    .ok();
-    writeln!(out, "        return std::ptr::null_mut();").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(
-        out,
-        "    // SAFETY: null check above guarantees json is a valid pointer; string is valid UTF-8 from caller."
-    )
-    .ok();
-    writeln!(
-        out,
-        "    let c_str = match unsafe {{ CStr::from_ptr(json) }}.to_str() {{"
-    )
-    .ok();
-    writeln!(out, "        Ok(s) => s,").ok();
-    writeln!(out, "        Err(_) => {{").ok();
-    writeln!(out, "            set_last_error(1, \"Invalid UTF-8 in JSON string\");").ok();
-    writeln!(out, "            return std::ptr::null_mut();").ok();
-    writeln!(out, "        }}").ok();
-    writeln!(out, "    }};").ok();
-    writeln!(out, "    match serde_json::from_str::<{qualified}>(c_str) {{").ok();
-    writeln!(out, "        Ok(val) => Box::into_raw(Box::new(val)),").ok();
-    writeln!(out, "        Err(e) => {{").ok();
-    writeln!(out, "            set_last_error(2, &e.to_string());").ok();
-    writeln!(out, "            std::ptr::null_mut()").ok();
-    writeln!(out, "        }}").ok();
-    writeln!(out, "    }}").ok();
-    write!(out, "}}").ok();
-
-    out
 }
 
 pub(super) fn gen_type_to_json(typ: &TypeDef, prefix: &str, core_import: &str) -> String {
     let type_snake = typ.name.to_snake_case();
     let type_name = &typ.name;
     let qualified = core_type_path(typ, core_import);
-    let mut out = String::with_capacity(2048);
 
-    writeln!(
-        out,
-        "/// Serialize a `{type_name}` to a JSON string. Returns null on failure."
+    crate::template_env::render(
+        "type_to_json.jinja",
+        context! {
+            type_name => type_name,
+            type_snake => type_snake,
+            prefix => prefix,
+            qualified => qualified,
+        },
     )
-    .ok();
-    writeln!(out, "/// # Safety").ok();
-    writeln!(
-        out,
-        "/// `ptr` must be a valid, non-null pointer returned by a `{prefix}` function."
-    )
-    .ok();
-    writeln!(
-        out,
-        "/// The returned string must be freed with `{prefix}_free_string`."
-    )
-    .ok();
-    writeln!(out, "#[unsafe(no_mangle)]").ok();
-    writeln!(
-        out,
-        "pub unsafe extern \"C\" fn {prefix}_{type_snake}_to_json(ptr: *const {qualified}) -> *mut c_char {{"
-    )
-    .ok();
-    writeln!(out, "    clear_last_error();").ok();
-    writeln!(out, "    if ptr.is_null() {{").ok();
-    writeln!(out, "        set_last_error(1, \"Null pointer passed to to_json\");").ok();
-    writeln!(out, "        return std::ptr::null_mut();").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(
-        out,
-        "    // SAFETY: null check above guarantees ptr is a valid pointer."
-    )
-    .ok();
-    writeln!(out, "    let val = unsafe {{ &*ptr }};").ok();
-    writeln!(out, "    match serde_json::to_string(val) {{").ok();
-    writeln!(out, "        Ok(s) => match CString::new(s) {{").ok();
-    writeln!(out, "            Ok(cs) => cs.into_raw(),").ok();
-    writeln!(out, "            Err(e) => {{").ok();
-    writeln!(out, "                set_last_error(2, &e.to_string());").ok();
-    writeln!(out, "                std::ptr::null_mut()").ok();
-    writeln!(out, "            }}").ok();
-    writeln!(out, "        }},").ok();
-    writeln!(out, "        Err(e) => {{").ok();
-    writeln!(out, "            set_last_error(2, &e.to_string());").ok();
-    writeln!(out, "            std::ptr::null_mut()").ok();
-    writeln!(out, "        }}").ok();
-    writeln!(out, "    }}").ok();
-    write!(out, "}}").ok();
-
-    out
 }
 
 pub(super) fn gen_type_free(typ: &TypeDef, prefix: &str, core_import: &str) -> String {
     let type_snake = typ.name.to_snake_case();
     let type_name = &typ.name;
     let qualified = core_type_path(typ, core_import);
-    let mut out = String::with_capacity(2048);
 
-    writeln!(out, "/// Free a `{type_name}` handle.").ok();
-    writeln!(out, "/// # Safety").ok();
-    writeln!(out, "/// Pointer must have been returned by this library, or be null.").ok();
-    writeln!(out, "#[unsafe(no_mangle)]").ok();
-    writeln!(
-        out,
-        "pub unsafe extern \"C\" fn {prefix}_{type_snake}_free(ptr: *mut {qualified}) {{"
+    crate::template_env::render(
+        "type_free.jinja",
+        context! {
+            type_name => type_name,
+            type_snake => type_snake,
+            prefix => prefix,
+            qualified => qualified,
+        },
     )
-    .ok();
-    writeln!(out, "    if !ptr.is_null() {{").ok();
-    writeln!(
-        out,
-        "        // SAFETY: ptr was allocated by Box::into_raw; caller ensures no aliases."
-    )
-    .ok();
-    writeln!(out, "        unsafe {{ drop(Box::from_raw(ptr)); }}").ok();
-    writeln!(out, "    }}").ok();
-    write!(out, "}}").ok();
-
-    out
 }
 
 // ---------------------------------------------------------------------------
@@ -223,51 +125,27 @@ pub(super) fn gen_field_accessor(
     if ret_type.contains("Self") {
         ret_type = ret_type.replace("Self", &qualified);
     }
-    let mut out = String::with_capacity(2048);
-
-    writeln!(out, "/// Get the `{field_name}` field from a `{type_name}`.").ok();
-    writeln!(out, "/// # Safety").ok();
-    writeln!(out, "/// Pointer must be a valid handle returned by this library.").ok();
-    writeln!(out, "#[unsafe(no_mangle)]").ok();
 
     // Determine if we need an extra out-param for byte-length
     let needs_len_out = matches!(field.ty, TypeRef::Bytes) && !field.optional;
 
-    if needs_len_out {
-        writeln!(
-            out,
-            "pub unsafe extern \"C\" fn {prefix}_{type_snake}_{field_name}(ptr: *const {qualified}, out_len: *mut usize) -> {ret_type} {{"
-        )
-        .ok();
-    } else {
-        writeln!(
-            out,
-            "pub unsafe extern \"C\" fn {prefix}_{type_snake}_{field_name}(ptr: *const {qualified}) -> {ret_type} {{"
-        )
-        .ok();
-    }
-
-    // Null-check on ptr
-    writeln!(out, "    if ptr.is_null() {{").ok();
-    writeln!(out, "        return {};", null_return_value(&effective_ty)).ok();
-    writeln!(out, "    }}").ok();
-    writeln!(
-        out,
-        "    // SAFETY: null check above guarantees ptr is a valid pointer."
-    )
-    .ok();
-    writeln!(out, "    let obj = unsafe {{ &*ptr }};").ok();
-
     // Generate the accessor body based on field type
-    write!(
-        out,
-        "{}",
-        gen_field_access_body(field, needs_len_out, enum_names, clone_names)
-    )
-    .ok();
+    let body = gen_field_access_body(field, needs_len_out, enum_names, clone_names);
 
-    write!(out, "}}").ok();
-    out
+    crate::template_env::render(
+        "field_accessor_header.jinja",
+        context! {
+            field_name => field_name,
+            type_name => type_name,
+            type_snake => type_snake,
+            prefix => prefix,
+            qualified => qualified,
+            ret_type => ret_type,
+            needs_len_out => needs_len_out,
+            null_return_value => null_return_value(&effective_ty),
+            body => body,
+        },
+    )
 }
 
 /// Generate the body of a field accessor that reads from `obj.{field_name}`.
@@ -296,23 +174,33 @@ fn gen_field_access_body(
                 TypeRef::Primitive(_) => "*inner_val",
                 _ => "inner_val",
             };
-            writeln!(out, "    match &obj.{field_name} {{").ok();
-            writeln!(out, "        Some(Some(inner_val)) => {{").ok();
-            write!(
-                out,
-                "{}",
-                gen_value_to_c(inner_val_expr, inner, "            ", enum_names, clone_names)
-            )
-            .ok();
-            writeln!(out, "        }}").ok();
-            writeln!(out, "        Some(None) => {inner_null},").ok();
-            writeln!(
-                out,
-                "        None => {},",
-                null_return_value(&TypeRef::Optional(Box::new(field.ty.clone())))
-            )
-            .ok();
-            writeln!(out, "    }}").ok();
+            out.push_str(&crate::template_env::render(
+                "match_field_start.jinja",
+                context! { field_name => field_name },
+            ));
+            out.push_str("        Some(Some(inner_val)) => {\n");
+            out.push_str(&crate::template_env::render(
+                "emitted_code_block.jinja",
+                context! {
+                    content => gen_value_to_c(inner_val_expr, inner, "            ", enum_names, clone_names),
+                },
+            ));
+            out.push_str("        }\n");
+            out.push_str(&crate::template_env::render(
+                "match_arm_value.jinja",
+                context! {
+                    pattern => "Some(None)",
+                    value => &inner_null.to_string(),
+                },
+            ));
+            out.push_str(&crate::template_env::render(
+                "match_arm_value.jinja",
+                context! {
+                    pattern => "None",
+                    value => &null_return_value(&TypeRef::Optional(Box::new(field.ty.clone()))).to_string(),
+                },
+            ));
+            out.push_str("    }\n");
         } else {
             let val_expr = if field.newtype_wrapper.is_some() && matches!(field.ty, TypeRef::Primitive(_)) {
                 "val.0" // unwrap newtype inner value
@@ -323,35 +211,38 @@ fn gen_field_access_body(
             } else {
                 "val"
             };
-            writeln!(out, "    match &obj.{field_name} {{").ok();
-            writeln!(out, "        Some(val) => {{").ok();
-            write!(
-                out,
-                "{}",
-                gen_value_to_c(val_expr, &field.ty, "            ", enum_names, clone_names)
-            )
-            .ok();
-            writeln!(out, "        }}").ok();
-            writeln!(
-                out,
-                "        None => {},",
-                null_return_value(&TypeRef::Optional(Box::new(field.ty.clone())))
-            )
-            .ok();
-            writeln!(out, "    }}").ok();
+            out.push_str(&crate::template_env::render(
+                "match_field_start.jinja",
+                context! { field_name => field_name },
+            ));
+            out.push_str("        Some(val) => {\n");
+            out.push_str(&crate::template_env::render(
+                "emitted_code_block.jinja",
+                context! {
+                    content => gen_value_to_c(val_expr, &field.ty, "            ", enum_names, clone_names),
+                },
+            ));
+            out.push_str("        }\n");
+            out.push_str(&crate::template_env::render(
+                "match_arm_value.jinja",
+                context! {
+                    pattern => "None",
+                    value => &null_return_value(&TypeRef::Optional(Box::new(field.ty.clone()))).to_string(),
+                },
+            ));
+            out.push_str("    }\n");
         }
     } else if needs_len_out {
         // Bytes with length out-param
-        writeln!(out, "    let data = &obj.{field_name};").ok();
-        writeln!(out, "    if !out_len.is_null() {{").ok();
-        writeln!(
-            out,
-            "        // SAFETY: null check above guarantees out_len is a valid pointer."
-        )
-        .ok();
-        writeln!(out, "        unsafe {{ *out_len = data.len(); }}").ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out, "    data.as_ptr() as *mut u8").ok();
+        out.push_str(&crate::template_env::render(
+            "bytes_field_access.jinja",
+            context! { field_name => field_name },
+        ));
+        out.push_str("    if !out_len.is_null() {\n");
+        out.push_str("// SAFETY: null check above guarantees out_len is a valid pointer.\n");
+        out.push_str("        unsafe { *out_len = data.len(); }\n");
+        out.push_str("    }\n");
+        out.push_str("    data.as_ptr() as *mut u8\n");
     } else {
         // When is_boxed: obj.field_name is Box<T>, deref to get T before cloning.
         // When core_wrapper=Arc: obj.field_name is Arc<T>, deref to get &T before cloning.
@@ -363,12 +254,12 @@ fn gen_field_access_body(
         } else {
             format!("obj.{field_name}")
         };
-        write!(
-            out,
-            "{}",
-            gen_value_to_c(&access_expr, &field.ty, "    ", enum_names, clone_names)
-        )
-        .ok();
+        out.push_str(&crate::template_env::render(
+            "emitted_code_block.jinja",
+            context! {
+                content => gen_value_to_c(&access_expr, &field.ty, "    ", enum_names, clone_names),
+            },
+        ));
     }
 
     out
@@ -381,88 +272,33 @@ fn gen_field_access_body(
 pub(super) fn gen_enum_from_i32(enum_def: &EnumDef, prefix: &str, _core_import: &str) -> String {
     let enum_snake = enum_def.name.to_snake_case();
     let enum_name = &enum_def.name;
-    let mut out = String::with_capacity(2048);
+    let variants: Vec<&str> = enum_def.variants.iter().map(|v| v.name.as_str()).collect();
 
-    writeln!(
-        out,
-        "/// Convert an integer to a `{enum_name}` variant. Returns -1 on invalid input."
+    crate::template_env::render(
+        "enum_from_i32.jinja",
+        context! {
+            enum_name => enum_name,
+            enum_snake => enum_snake,
+            prefix => prefix,
+            variants => variants,
+        },
     )
-    .ok();
-    writeln!(out, "/// # Safety").ok();
-    writeln!(out, "/// Caller must ensure all pointer arguments are valid or null.").ok();
-    writeln!(
-        out,
-        "/// Returned pointers must be freed with the appropriate free function."
-    )
-    .ok();
-    writeln!(out, "#[unsafe(no_mangle)]").ok();
-    writeln!(
-        out,
-        "pub unsafe extern \"C\" fn {prefix}_{enum_snake}_from_i32(value: i32) -> i32 {{"
-    )
-    .ok();
-    writeln!(out, "    match value {{").ok();
-    for (idx, variant) in enum_def.variants.iter().enumerate() {
-        writeln!(out, "        {idx} => {idx}, // {}", variant.name).ok();
-    }
-    writeln!(out, "        _ => {{").ok();
-    writeln!(out, "            set_last_error(1, \"Invalid {enum_name} variant\");").ok();
-    writeln!(out, "            -1").ok();
-    writeln!(out, "        }}").ok();
-    writeln!(out, "    }}").ok();
-    write!(out, "}}").ok();
-    out
 }
 
 pub(super) fn gen_enum_to_i32(enum_def: &EnumDef, prefix: &str, _core_import: &str) -> String {
     let enum_snake = enum_def.name.to_snake_case();
     let enum_name = &enum_def.name;
-    let mut out = String::with_capacity(2048);
+    let variants: Vec<&str> = enum_def.variants.iter().map(|v| v.name.as_str()).collect();
 
-    writeln!(
-        out,
-        "/// Convert a `{enum_name}` variant name (C string) to its integer value. Returns -1 on invalid input."
+    crate::template_env::render(
+        "enum_to_i32.jinja",
+        context! {
+            enum_name => enum_name,
+            enum_snake => enum_snake,
+            prefix => prefix,
+            variants => variants,
+        },
     )
-    .ok();
-    writeln!(out, "/// # Safety").ok();
-    writeln!(
-        out,
-        "/// Caller must ensure `ptr` is a valid pointer to a `c_char` or null."
-    )
-    .ok();
-    writeln!(out, "#[unsafe(no_mangle)]").ok();
-    writeln!(
-        out,
-        "pub unsafe extern \"C\" fn {prefix}_{enum_snake}_from_str(name: *const c_char) -> i32 {{"
-    )
-    .ok();
-    writeln!(out, "    if name.is_null() {{").ok();
-    writeln!(out, "        set_last_error(1, \"Null pointer passed for enum name\");").ok();
-    writeln!(out, "        return -1;").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(
-        out,
-        "    // SAFETY: null check above guarantees name is a valid pointer; string is valid UTF-8 from caller."
-    )
-    .ok();
-    writeln!(out, "    let s = match unsafe {{ CStr::from_ptr(name) }}.to_str() {{").ok();
-    writeln!(out, "        Ok(s) => s,").ok();
-    writeln!(out, "        Err(_) => {{").ok();
-    writeln!(out, "            set_last_error(1, \"Invalid UTF-8 in enum name\");").ok();
-    writeln!(out, "            return -1;").ok();
-    writeln!(out, "        }}").ok();
-    writeln!(out, "    }};").ok();
-    writeln!(out, "    match s {{").ok();
-    for (idx, variant) in enum_def.variants.iter().enumerate() {
-        writeln!(out, "        \"{}\" => {idx},", variant.name).ok();
-    }
-    writeln!(out, "        _ => {{").ok();
-    writeln!(out, "            set_last_error(1, \"Unknown {enum_name} variant\");").ok();
-    writeln!(out, "            -1").ok();
-    writeln!(out, "        }}").ok();
-    writeln!(out, "    }}").ok();
-    write!(out, "}}").ok();
-    out
 }
 
 /// Generate a `_free` function for an enum type returned as a heap-allocated pointer.
@@ -474,31 +310,16 @@ pub(super) fn gen_enum_free(enum_def: &EnumDef, prefix: &str, core_import: &str)
     let enum_snake = enum_def.name.to_snake_case();
     let enum_name = &enum_def.name;
     let qualified = core_enum_path(enum_def, core_import);
-    let mut out = String::with_capacity(512);
 
-    writeln!(
-        out,
-        "/// Free a heap-allocated `{enum_name}` returned by a pointer-returning FFI function."
+    crate::template_env::render(
+        "enum_free.jinja",
+        context! {
+            enum_name => enum_name,
+            enum_snake => enum_snake,
+            prefix => prefix,
+            qualified => qualified,
+        },
     )
-    .ok();
-    writeln!(out, "/// # Safety").ok();
-    writeln!(out, "/// Pointer must have been returned by this library, or be null.").ok();
-    writeln!(out, "#[unsafe(no_mangle)]").ok();
-    writeln!(
-        out,
-        "pub unsafe extern \"C\" fn {prefix}_{enum_snake}_free(ptr: *mut {qualified}) {{"
-    )
-    .ok();
-    writeln!(out, "    if !ptr.is_null() {{").ok();
-    writeln!(
-        out,
-        "        // SAFETY: ptr was allocated by Box::into_raw; caller ensures no aliases."
-    )
-    .ok();
-    writeln!(out, "        unsafe {{ drop(Box::from_raw(ptr)); }}").ok();
-    writeln!(out, "    }}").ok();
-    write!(out, "}}").ok();
-    out
 }
 
 /// Generate a `_to_json` function for an enum type returned as a heap-allocated pointer.
@@ -509,52 +330,39 @@ pub(super) fn gen_enum_to_json(enum_def: &EnumDef, prefix: &str, core_import: &s
     let enum_snake = enum_def.name.to_snake_case();
     let enum_name = &enum_def.name;
     let qualified = core_enum_path(enum_def, core_import);
-    let mut out = String::with_capacity(1024);
 
-    writeln!(out, "/// Serialize a heap-allocated `{enum_name}` to a JSON string.").ok();
-    writeln!(out, "/// # Safety").ok();
-    writeln!(
-        out,
-        "/// `ptr` must be a valid, non-null pointer returned by a `{prefix}` function."
+    crate::template_env::render(
+        "enum_to_json.jinja",
+        context! {
+            enum_name => enum_name,
+            enum_snake => enum_snake,
+            prefix => prefix,
+            qualified => qualified,
+        },
     )
-    .ok();
-    writeln!(
-        out,
-        "/// The returned string must be freed with `{prefix}_free_string`."
+}
+
+/// Generate a `_to_string` function for an enum type returned as a heap-allocated pointer.
+///
+/// Renders the unit-variant name as serde would serialize it (e.g.
+/// `BatchStatus::Completed` → `"completed"`), but stripped of the surrounding
+/// JSON quotes so plain C string-comparison works. Only generated for enums
+/// whose runtime serialization yields a string (`has_serde`); compound enums
+/// would JSON-encode as objects and `as_str()` returns `None`.
+pub(super) fn gen_enum_to_string(enum_def: &EnumDef, prefix: &str, core_import: &str) -> String {
+    let enum_snake = enum_def.name.to_snake_case();
+    let enum_name = &enum_def.name;
+    let qualified = core_enum_path(enum_def, core_import);
+
+    crate::template_env::render(
+        "enum_to_string.jinja",
+        context! {
+            enum_name => enum_name,
+            enum_snake => enum_snake,
+            prefix => prefix,
+            qualified => qualified,
+        },
     )
-    .ok();
-    writeln!(out, "#[unsafe(no_mangle)]").ok();
-    writeln!(
-        out,
-        "pub unsafe extern \"C\" fn {prefix}_{enum_snake}_to_json(ptr: *const {qualified}) -> *mut c_char {{"
-    )
-    .ok();
-    writeln!(out, "    if ptr.is_null() {{").ok();
-    writeln!(
-        out,
-        "        set_last_error(1, \"Null pointer passed to {prefix}_{enum_snake}_to_json\");"
-    )
-    .ok();
-    writeln!(out, "        return std::ptr::null_mut();").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(
-        out,
-        "    // SAFETY: null check above guarantees ptr is valid; no mutable aliases held."
-    )
-    .ok();
-    writeln!(out, "    let val = unsafe {{ &*ptr }};").ok();
-    writeln!(out, "    match serde_json::to_string(val) {{").ok();
-    writeln!(out, "        Ok(s) => match CString::new(s) {{").ok();
-    writeln!(out, "            Ok(cs) => cs.into_raw(),").ok();
-    writeln!(out, "            Err(_) => std::ptr::null_mut(),").ok();
-    writeln!(out, "        }},").ok();
-    writeln!(out, "        Err(e) => {{").ok();
-    writeln!(out, "            set_last_error(2, &e.to_string());").ok();
-    writeln!(out, "            std::ptr::null_mut()").ok();
-    writeln!(out, "        }}").ok();
-    writeln!(out, "    }}").ok();
-    write!(out, "}}").ok();
-    out
 }
 
 /// Generate a `_from_json` function for an enum type (for parameter passing from Java).
@@ -565,58 +373,14 @@ pub(super) fn gen_enum_from_json(enum_def: &EnumDef, prefix: &str, core_import: 
     let enum_snake = enum_def.name.to_snake_case();
     let enum_name = &enum_def.name;
     let qualified = core_enum_path(enum_def, core_import);
-    let mut out = String::with_capacity(1024);
 
-    writeln!(
-        out,
-        "/// Create a `{enum_name}` from a JSON string. Returns null on failure."
+    crate::template_env::render(
+        "enum_from_json.jinja",
+        context! {
+            enum_name => enum_name,
+            enum_snake => enum_snake,
+            prefix => prefix,
+            qualified => qualified,
+        },
     )
-    .ok();
-    writeln!(out, "/// # Safety").ok();
-    writeln!(out, "/// JSON string must be valid UTF-8 and null-terminated.").ok();
-    writeln!(
-        out,
-        "/// Returned handle must be freed with `{prefix}_{enum_snake}_free`."
-    )
-    .ok();
-    writeln!(out, "#[unsafe(no_mangle)]").ok();
-    writeln!(
-        out,
-        "pub unsafe extern \"C\" fn {prefix}_{enum_snake}_from_json(json: *const c_char) -> *mut {qualified} {{"
-    )
-    .ok();
-    writeln!(out, "    clear_last_error();").ok();
-    writeln!(out, "    if json.is_null() {{").ok();
-    writeln!(
-        out,
-        "        set_last_error(1, \"Null pointer passed for JSON string\");"
-    )
-    .ok();
-    writeln!(out, "        return std::ptr::null_mut();").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(
-        out,
-        "    // SAFETY: null check above guarantees json is a valid pointer; string is valid UTF-8 from caller."
-    )
-    .ok();
-    writeln!(
-        out,
-        "    let c_str = match unsafe {{ CStr::from_ptr(json) }}.to_str() {{"
-    )
-    .ok();
-    writeln!(out, "        Ok(s) => s,").ok();
-    writeln!(out, "        Err(_) => {{").ok();
-    writeln!(out, "            set_last_error(1, \"Invalid UTF-8 in JSON string\");").ok();
-    writeln!(out, "            return std::ptr::null_mut();").ok();
-    writeln!(out, "        }}").ok();
-    writeln!(out, "    }};").ok();
-    writeln!(out, "    match serde_json::from_str::<{qualified}>(c_str) {{").ok();
-    writeln!(out, "        Ok(val) => Box::into_raw(Box::new(val)),").ok();
-    writeln!(out, "        Err(e) => {{").ok();
-    writeln!(out, "            set_last_error(2, &e.to_string());").ok();
-    writeln!(out, "            std::ptr::null_mut()").ok();
-    writeln!(out, "        }}").ok();
-    writeln!(out, "    }}").ok();
-    write!(out, "}}").ok();
-    out
 }

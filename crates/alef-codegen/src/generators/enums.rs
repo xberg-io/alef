@@ -1,7 +1,6 @@
 use crate::generators::RustBindingConfig;
 use alef_core::ir::EnumDef;
 use alef_core::keywords::PYTHON_KEYWORDS;
-use std::fmt::Write;
 
 /// Returns true if any variant of the enum has data fields.
 /// These enums cannot be represented as flat integer enums in bindings.
@@ -38,134 +37,33 @@ pub fn gen_pyo3_data_enum(enum_def: &EnumDef, core_import: &str) -> String {
     let name = &enum_def.name;
     let core_path = crate::conversions::core_enum_path(enum_def, core_import);
     let has_sanitized = enum_has_sanitized_fields(enum_def);
-    let mut out = String::with_capacity(512);
+    let string_methods_content = crate::template_env::render(
+        "generators/enums/enum_string_methods.jinja",
+        minijinja::context! {
+            name => name,
+            value_expr => "&self.inner",
+        },
+    );
 
-    writeln!(out, "#[derive(Clone)]").ok();
-    writeln!(out, "#[pyclass(frozen)]").ok();
-    writeln!(out, "pub struct {name} {{").ok();
-    writeln!(out, "    pub(crate) inner: {core_path},").ok();
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
+    let mut variant_accessors = String::new();
+    write_pyo3_variant_accessors(&mut variant_accessors, enum_def, &core_path);
 
-    writeln!(out, "#[pymethods]").ok();
-    writeln!(out, "impl {name} {{").ok();
-    if has_sanitized {
-        // The core type cannot be serde round-tripped from a Python dict (contains
-        // non-representable variant fields). Omit the #[new] constructor — the type
-        // is still useful as a return value from Rust passed back via From impls.
-        write_pyo3_enum_string_methods(&mut out, name, "&self.inner");
-        write_pyo3_variant_accessors(&mut out, enum_def, &core_path);
-        if let Some(tag_field) = &enum_def.serde_tag {
-            write_pyo3_serde_tag_getter(&mut out, tag_field);
-        }
-        writeln!(out, "}}").ok();
-    } else {
-        writeln!(out, "    #[new]").ok();
-        writeln!(
-            out,
-            "    fn new(py: Python<'_>, value: &Bound<'_, pyo3::types::PyAny>) -> PyResult<Self> {{"
-        )
-        .ok();
-        writeln!(
-            out,
-            "        // Accept either a Python dict (full tagged-union shape) or a string"
-        )
-        .ok();
-        writeln!(
-            out,
-            "        // (the unit variant name). Strings are wrapped in `\"...\"` so serde_json"
-        )
-        .ok();
-        writeln!(
-            out,
-            "        // can deserialize into a unit-variant of the tagged enum."
-        )
-        .ok();
-        writeln!(
-            out,
-            "        let json_str: String = if let Ok(s) = value.extract::<String>() {{"
-        )
-        .ok();
-        writeln!(
-            out,
-            "            serde_json::to_string(&s).map_err(|e| pyo3::exceptions::PyValueError::new_err(format!(\"Invalid {name}: {{e}}\")))?"
-        )
-        .ok();
-        writeln!(out, "        }} else {{").ok();
-        writeln!(out, "            let json_mod = py.import(\"json\")?;").ok();
-        writeln!(
-            out,
-            "            json_mod.call_method1(\"dumps\", (value,))?.extract()?"
-        )
-        .ok();
-        writeln!(out, "        }};").ok();
-        writeln!(out, "        let inner: {core_path} = serde_json::from_str(&json_str)").ok();
-        writeln!(
-            out,
-            "            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!(\"Invalid {name}: {{e}}\")))?;"
-        )
-        .ok();
-        writeln!(out, "        Ok(Self {{ inner }})").ok();
-        writeln!(out, "    }}").ok();
-        write_pyo3_enum_string_methods(&mut out, name, "&self.inner");
-        write_pyo3_variant_accessors(&mut out, enum_def, &core_path);
-        if let Some(tag_field) = &enum_def.serde_tag {
-            write_pyo3_serde_tag_getter(&mut out, tag_field);
-        }
-        writeln!(out, "}}").ok();
+    let mut serde_tag_content = String::new();
+    if let Some(tag_field) = &enum_def.serde_tag {
+        write_pyo3_serde_tag_getter(&mut serde_tag_content, tag_field);
     }
-    writeln!(out).ok();
 
-    // From binding → core
-    writeln!(out, "impl From<{name}> for {core_path} {{").ok();
-    writeln!(out, "    fn from(val: {name}) -> Self {{ val.inner }}").ok();
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
-
-    // From core → binding
-    writeln!(out, "impl From<{core_path}> for {name} {{").ok();
-    writeln!(out, "    fn from(val: {core_path}) -> Self {{ Self {{ inner: val }} }}").ok();
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
-
-    // Serialize: forward to inner so parent structs that derive serde::Serialize compile.
-    // Always generated — the wrapper delegates to the core type which always implements Serialize.
-    writeln!(out, "impl serde::Serialize for {name} {{").ok();
-    writeln!(
-        out,
-        "    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {{"
+    crate::template_env::render(
+        "generators/enums/pyo3_data_enum.jinja",
+        minijinja::context! {
+            name => name,
+            core_path => core_path,
+            has_sanitized => has_sanitized,
+            string_methods_content => string_methods_content,
+            variant_accessors_content => variant_accessors,
+            serde_tag_content => serde_tag_content,
+        },
     )
-    .ok();
-    writeln!(out, "        self.inner.serialize(serializer)").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
-
-    // Default: forward to inner's Default so parent structs that derive Default compile.
-    // Always generated — the wrapper delegates to the core type which always implements Default.
-    writeln!(out, "impl Default for {name} {{").ok();
-    writeln!(
-        out,
-        "    fn default() -> Self {{ Self {{ inner: Default::default() }} }}"
-    )
-    .ok();
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
-
-    // Deserialize: forward to inner so parent structs that derive serde::Deserialize compile.
-    // Always generated — the wrapper delegates to the core type which always implements Deserialize.
-    writeln!(out, "impl<'de> serde::Deserialize<'de> for {name} {{").ok();
-    writeln!(
-        out,
-        "    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {{"
-    )
-    .ok();
-    writeln!(out, "        let inner = {core_path}::deserialize(deserializer)?;").ok();
-    writeln!(out, "        Ok(Self {{ inner }})").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out, "}}").ok();
-
-    out
 }
 
 /// Generate an enum.
@@ -173,7 +71,6 @@ pub fn gen_enum(enum_def: &EnumDef, cfg: &RustBindingConfig) -> String {
     // All enums are generated as unit-variant-only in the binding layer.
     // Data variants are flattened to unit variants; the From/Into conversions
     // handle the lossy mapping (discarding / providing defaults for field data).
-    let mut out = String::with_capacity(512);
     let mut derives: Vec<&str> = cfg.enum_derives.to_vec();
     // Binding enums always derive Default, Serialize, and Deserialize.
     // Default: enables using unwrap_or_default() in constructors.
@@ -181,43 +78,55 @@ pub fn gen_enum(enum_def: &EnumDef, cfg: &RustBindingConfig) -> String {
     derives.push("Default");
     derives.push("serde::Serialize");
     derives.push("serde::Deserialize");
-    if !derives.is_empty() {
-        writeln!(out, "#[derive({})]", derives.join(", ")).ok();
-    }
-    if let Some(rename_all) = &enum_def.serde_rename_all {
-        writeln!(out, "#[serde(rename_all = \"{rename_all}\")]").ok();
-    }
-    for attr in cfg.enum_attrs {
-        writeln!(out, "#[{attr}]").ok();
-    }
+
     // Detect PyO3 context so we can rename Python keyword variants via #[pyo3(name = "...")].
     // The Rust identifier stays unchanged; only the Python-exposed attribute name gets the suffix.
     let is_pyo3 = cfg.enum_attrs.iter().any(|a| a.contains("pyclass"));
-    writeln!(out, "pub enum {} {{", enum_def.name).ok();
+
     // Determine which variant carries #[default].
     // Prefer the variant that has is_default=true in the source (mirrors the Rust core's
     // #[default] attribute); fall back to the first variant when none is explicitly marked.
     let default_idx = enum_def.variants.iter().position(|v| v.is_default).unwrap_or(0);
-    for (idx, variant) in enum_def.variants.iter().enumerate() {
-        if is_pyo3 && PYTHON_KEYWORDS.contains(&variant.name.as_str()) {
-            writeln!(out, "    #[pyo3(name = \"{}_\")]", variant.name).ok();
-        }
-        // Mark the default variant as #[default] so derive(Default) works
-        if idx == default_idx {
-            writeln!(out, "    #[default]").ok();
-        }
-        writeln!(out, "    {} = {idx},", variant.name).ok();
-    }
-    writeln!(out, "}}").ok();
-    if is_pyo3 {
-        writeln!(out).ok();
-        writeln!(out, "#[pymethods]").ok();
-        writeln!(out, "impl {} {{", enum_def.name).ok();
-        write_pyo3_enum_string_methods(&mut out, &enum_def.name, "self");
-        writeln!(out, "}}").ok();
-    }
 
-    out
+    let variants: Vec<_> = enum_def
+        .variants
+        .iter()
+        .enumerate()
+        .map(|(idx, v)| {
+            minijinja::context! {
+                name => v.name.clone(),
+                idx => idx,
+                is_default => idx == default_idx,
+                has_pyo3_rename => is_pyo3 && PYTHON_KEYWORDS.contains(&v.name.as_str()),
+                serde_rename => v.serde_rename.clone().unwrap_or_default(),
+            }
+        })
+        .collect();
+
+    let string_methods = if is_pyo3 {
+        crate::template_env::render(
+            "generators/enums/enum_string_methods.jinja",
+            minijinja::context! {
+                name => enum_def.name,
+                value_expr => "self",
+            },
+        )
+    } else {
+        String::new()
+    };
+
+    crate::template_env::render(
+        "generators/enums/enum_definition.jinja",
+        minijinja::context! {
+            enum_name => enum_def.name,
+            derives => derives.join(", "),
+            serde_rename_all => enum_def.serde_rename_all.as_deref().unwrap_or(""),
+            enum_attrs => cfg.enum_attrs.to_vec(),
+            variants => variants,
+            is_pyo3 => is_pyo3,
+            string_methods => string_methods,
+        },
+    )
 }
 
 /// Rust keywords that cannot be used as bare identifiers in function names.
@@ -231,20 +140,18 @@ const RUST_KEYWORDS: &[&str] = &[
 /// Generate variant accessor properties for a data enum.
 /// For single-tuple variants with a Named inner type, returns the typed binding struct directly.
 /// For all other variants, returns the variant data as a Python dict, or None if not active.
-fn write_pyo3_variant_accessors(out: &mut String, enum_def: &EnumDef, core_path: &str) {
+pub(crate) fn write_pyo3_variant_accessors(out: &mut String, enum_def: &EnumDef, core_path: &str) {
     use alef_core::ir::TypeRef;
     use heck::ToSnakeCase;
 
     for variant in &enum_def.variants {
         let variant_name_lower = variant.name.to_snake_case();
-        // Use raw identifier syntax if variant name is a Rust keyword
         let fn_name = if RUST_KEYWORDS.contains(&variant_name_lower.as_str()) {
             format!("r#{}", variant_name_lower)
         } else {
             variant_name_lower.clone()
         };
 
-        // For single-tuple variants with a Named inner type, return the typed binding struct.
         if variant.fields.len() == 1 {
             let field = &variant.fields[0];
             let is_tuple_field = field
@@ -254,113 +161,104 @@ fn write_pyo3_variant_accessors(out: &mut String, enum_def: &EnumDef, core_path:
             if is_tuple_field {
                 if let TypeRef::Named(inner_type_name) = &field.ty {
                     let variant_pascal = &variant.name;
-                    writeln!(out).ok();
-                    writeln!(out, "    #[getter]").ok();
-                    writeln!(out, "    fn {fn_name}(&self) -> Option<{inner_type_name}> {{").ok();
-                    writeln!(out, "        match &self.inner {{").ok();
-                    // Use `.into()` to avoid ambiguity when the binding type has an inherent
-                    // `from()` method that would shadow the `From` trait impl.
-                    // For boxed variants, double-deref: &Box<T> → Box<T> → T, then clone.
                     let clone_expr = if field.is_boxed {
                         "(**data).clone().into()".to_string()
                     } else {
                         "data.clone().into()".to_string()
                     };
-                    writeln!(
-                        out,
-                        "            {core_path}::{variant_pascal}(data) => Some({clone_expr}),"
-                    )
-                    .ok();
-                    writeln!(out, "            _ => None,").ok();
-                    writeln!(out, "        }}").ok();
-                    writeln!(out, "    }}").ok();
+                    out.push('\n');
+                    out.push_str("    #[getter]\n");
+                    out.push_str(&crate::template_env::render(
+                        "generators/enums/getter_accessor.jinja",
+                        minijinja::context! {
+                            fn_name => &fn_name,
+                            inner_type_name => inner_type_name,
+                        },
+                    ));
+                    out.push_str("        match &self.inner {\n");
+                    out.push_str(&crate::template_env::render(
+                        "generators/enums/match_variant.jinja",
+                        minijinja::context! {
+                            core_path => &core_path,
+                            variant_pascal => variant_pascal,
+                            clone_expr => &clone_expr,
+                        },
+                    ));
+                    out.push_str("            _ => None,\n");
+                    out.push_str("        }\n");
+                    out.push_str("    }\n");
                     continue;
                 }
             }
         }
 
-        // Fall back to dict-based approach for multi-field or non-Named variants.
-        writeln!(out).ok();
-        writeln!(out, "    #[getter]").ok();
-        writeln!(
-            out,
-            "    fn {fn_name}(&self, py: Python<'_>) -> PyResult<Option<pyo3::Py<pyo3::types::PyDict>>> {{"
-        )
-        .ok();
-        writeln!(out, "        // Serialize to JSON first").ok();
-        writeln!(out, "        let json = serde_json::to_value(&self.inner)").ok();
-        writeln!(
-            out,
-            "            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;"
-        )
-        .ok();
-        writeln!(out, "        // Check the tag field to see if this variant is active").ok();
-        writeln!(
-            out,
-            "        let tag_field = \"{}\";",
-            enum_def.serde_tag.as_ref().unwrap_or(&"tag".to_string())
-        )
-        .ok();
-        writeln!(out, "        let tag_value = json.get(tag_field)").ok();
-        writeln!(out, "            .and_then(|v| v.as_str())").ok();
-        writeln!(out, "            .unwrap_or(\"\");").ok();
-        writeln!(out, "        if tag_value != \"{}\" {{", variant_name_lower).ok();
-        writeln!(out, "            return Ok(None);").ok();
-        writeln!(out, "        }}").ok();
-        writeln!(out, "        // Create a Python dict from the JSON").ok();
-        writeln!(out, "        let json_str = json.to_string();").ok();
-        writeln!(out, "        let json_mod = py.import(\"json\")?;").ok();
-        writeln!(
-            out,
-            "        let py_dict = json_mod.call_method1(\"loads\", (&json_str,))?.downcast_into::<pyo3::types::PyDict>()?;"
-        )
-        .ok();
-        writeln!(out, "        Ok(Some(py_dict.unbind()))").ok();
-        writeln!(out, "    }}").ok();
+        out.push('\n');
+        out.push_str("    #[getter]\n");
+        out.push_str(&crate::template_env::render(
+            "generators/enums/py_dict_getter.jinja",
+            minijinja::context! {
+                fn_name => &fn_name,
+            },
+        ));
+        out.push_str("        let json = serde_json::to_value(&self.inner)\n");
+        out.push_str("            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;\n");
+        let tag_field = enum_def.serde_tag.as_deref().unwrap_or("tag");
+        out.push_str(&crate::template_env::render(
+            "generators/enums/tag_field_check.jinja",
+            minijinja::context! {
+                tag_field => tag_field,
+            },
+        ));
+        out.push_str("        let tag_value = json.get(tag_field)\n");
+        out.push_str("            .and_then(|v| v.as_str())\n");
+        out.push_str("            .unwrap_or(\"\");\n");
+        out.push_str(&crate::template_env::render(
+            "generators/enums/variant_tag_match.jinja",
+            minijinja::context! {
+                variant_name_lower => &variant_name_lower,
+            },
+        ));
+        out.push_str("            return Ok(None);\n");
+        out.push_str("        }\n");
+        out.push_str("        let json_str = json.to_string();\n");
+        out.push_str("        let json_mod = py.import(\"json\")?;\n");
+        out.push_str("        let py_dict = json_mod.call_method1(\"loads\", (&json_str,))?.downcast_into::<pyo3::types::PyDict>()?;\n");
+        out.push_str("        Ok(Some(py_dict.unbind()))\n");
+        out.push_str("    }\n");
     }
 }
 
-fn write_pyo3_serde_tag_getter(out: &mut String, tag_field: &str) {
-    // Use raw identifier syntax if tag_field is a Rust keyword (e.g. "type" → r#type).
-    // pyo3 exposes the getter without the r# prefix, so the Python attribute name stays correct.
+pub(crate) fn write_pyo3_serde_tag_getter(out: &mut String, tag_field: &str) {
     let fn_name = if RUST_KEYWORDS.contains(&tag_field) {
         format!("r#{tag_field}")
     } else {
         tag_field.to_string()
     };
-    writeln!(out).ok();
-    writeln!(out, "    #[getter]").ok();
-    writeln!(out, "    fn {fn_name}(&self) -> pyo3::PyResult<String> {{").ok();
-    writeln!(out, "        let json = serde_json::to_value(&self.inner)").ok();
-    writeln!(
-        out,
-        "            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;"
-    )
-    .ok();
-    writeln!(out, "        json.get(\"{tag_field}\")").ok();
-    writeln!(out, "            .and_then(|v| v.as_str())").ok();
-    writeln!(out, "            .map(String::from)").ok();
-    writeln!(
-        out,
-        "            .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err(\"{tag_field} not found in serialized enum\"))"
-    )
-    .ok();
-    writeln!(out, "    }}").ok();
-}
-
-fn write_pyo3_enum_string_methods(out: &mut String, name: &str, value_expr: &str) {
-    writeln!(out).ok();
-    writeln!(out, "    fn __str__(&self) -> PyResult<String> {{").ok();
-    writeln!(
-        out,
-        "        serde_json::to_value({value_expr})\n            .map(|value| match value {{\n                serde_json::Value::String(value) => value,\n                other => other.to_string(),\n            }})\n            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!(\"Failed to serialize {name}: {{e}}\")))"
-    )
-    .ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out).ok();
-    writeln!(out, "    fn __repr__(&self) -> PyResult<String> {{").ok();
-    writeln!(out, "        self.__str__()").ok();
-    writeln!(out, "    }}").ok();
+    out.push('\n');
+    out.push_str("    #[getter]\n");
+    out.push_str(&crate::template_env::render(
+        "generators/enums/tag_getter_header.jinja",
+        minijinja::context! {
+            fn_name => &fn_name,
+        },
+    ));
+    out.push_str("        let json = serde_json::to_value(&self.inner)\n");
+    out.push_str("            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;\n");
+    out.push_str(&crate::template_env::render(
+        "generators/enums/json_get_field.jinja",
+        minijinja::context! {
+            tag_field => tag_field,
+        },
+    ));
+    out.push_str("            .and_then(|v| v.as_str())\n");
+    out.push_str("            .map(String::from)\n");
+    out.push_str(&crate::template_env::render(
+        "generators/enums/json_get_error.jinja",
+        minijinja::context! {
+            tag_field => tag_field,
+        },
+    ));
+    out.push_str("    }\n");
 }
 
 #[cfg(test)]
@@ -395,6 +293,8 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         }
     }
 
@@ -409,6 +309,7 @@ mod tests {
             is_copy: false,
             has_serde: true,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
         }
     }
@@ -457,6 +358,7 @@ mod tests {
             cast_large_ints_to_f64: false,
             named_non_opaque_params_by_ref: false,
             lossy_skip_types: &[],
+            serializable_opaque_type_names: &[],
         };
         let generated = gen_enum(&enum_def("StructureKind", vec![variant("Function", Vec::new())]), &cfg);
 

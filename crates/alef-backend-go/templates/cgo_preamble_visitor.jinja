@@ -1,0 +1,18 @@
+/*
+#cgo CFLAGS: -I${SRCDIR}/include -Wno-incompatible-function-pointer-types
+#include "{{ ffi_header }}"
+#include <stdlib.h>
+#include <string.h>
+{% for callback in callbacks %}
+extern int32_t {{ callback.export_name }}({{ callback.c_sig }});
+{% endfor %}
+static {{ vtable_c_type }} makeVisitorVTable(void) {
+    {{ vtable_c_type }} vtbl;
+    memset(&vtbl, 0, sizeof(vtbl));
+{% for callback in callbacks %}
+    vtbl.{{ callback.c_field }} = {{ callback.export_name }};
+{% endfor %}
+    return vtbl;
+}
+*/
+import "C"

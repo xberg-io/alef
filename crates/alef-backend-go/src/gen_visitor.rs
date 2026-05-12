@@ -28,7 +28,7 @@
 /// This differs from the legacy `VisitorCallbacks` pattern (FunctionParam bind_via), where
 /// `user_data` was a FIELD on the struct and context was a typed `*NodeContext` pointer.
 use alef_core::hash::{self, CommentStyle};
-use std::fmt::Write;
+use serde_json;
 
 /// Derive the cbindgen-generated C type name for a Rust FFI type.
 ///
@@ -747,8 +747,6 @@ pub fn gen_visitor_file(
     let mut out = String::with_capacity(32_768);
 
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
-    writeln!(out, "package {pkg_name}").ok();
-    writeln!(out).ok();
 
     // Derive C type names.
     // VTable: {PREFIX_UPPER}{PascalPrefix}{TraitName}VTable  e.g. HTMHtmHtmlVisitorVTable
@@ -781,269 +779,104 @@ pub fn gen_visitor_file(
     // -------------------------------------------------------------------------
     // CGo preamble
     // -------------------------------------------------------------------------
-    writeln!(out, "/*").ok();
-    // CGo's //export mechanism generates non-const C parameter types in the prolog header,
-    // so the Go trampolines will have non-const params while the C vtable expects const ones.
-    // Adding const is safe (non-const is a sub-type of const for input params), but Clang
-    // warns about incompatible function pointer types. Suppress it here.
-    writeln!(
-        out,
-        "#cgo CFLAGS: -I${{SRCDIR}}/{to_root}{ffi_crate_dir}/include -Wno-incompatible-function-pointer-types"
-    )
-    .ok();
-    writeln!(out, "#include \"{ffi_header}\"").ok();
-    writeln!(out, "#include <stdlib.h>").ok();
-    writeln!(out, "#include <string.h>").ok();
-    writeln!(out).ok();
+    let callbacks: Vec<_> = CALLBACKS
+        .iter()
+        .map(|spec| {
+            minijinja::Value::from_serialize(serde_json::json!({
+                "export_name": spec.export_name,
+                "c_sig": c_signature(spec),
+                "c_field": spec.c_field,
+            }))
+        })
+        .collect();
 
-    // Forward-declare all exported Go trampolines so the static helper below can
-    // reference them.  CGo will resolve these at link time.
-    for spec in CALLBACKS {
-        let c_sig = c_signature(spec);
-        writeln!(out, "extern int32_t {}({});", spec.export_name, c_sig).ok();
-    }
-
-    writeln!(out).ok();
-
-    // Static C helper that constructs the VTable by pointing each field at the
-    // corresponding exported Go trampoline.  The VTable has NO user_data field;
-    // user_data is passed as the first argument to each function pointer.
-    writeln!(out, "static {vtable_c_type} makeVisitorVTable(void) {{").ok();
-    writeln!(out, "    {vtable_c_type} vtbl;").ok();
-    writeln!(out, "    memset(&vtbl, 0, sizeof(vtbl));").ok();
-    for spec in CALLBACKS {
-        writeln!(out, "    vtbl.{} = {};", spec.c_field, spec.export_name).ok();
-    }
-    writeln!(out, "    return vtbl;").ok();
-    writeln!(out, "}}").ok();
-
-    writeln!(out, "*/").ok();
-    writeln!(out, "import \"C\"").ok();
-    writeln!(out).ok();
-
-    writeln!(out, "import (").ok();
-    writeln!(out, "\t\"encoding/json\"").ok();
-    writeln!(out, "\t\"fmt\"").ok();
-    writeln!(out, "\t\"sync\"").ok();
-    writeln!(out, "\t\"sync/atomic\"").ok();
-    writeln!(out, "\t\"unsafe\"").ok();
-    writeln!(out, ")").ok();
-    writeln!(out).ok();
-
-    // -------------------------------------------------------------------------
-    // NodeContext
-    // -------------------------------------------------------------------------
-    writeln!(
-        out,
-        "// NodeContext carries context information passed to every visitor callback."
-    )
-    .ok();
-    writeln!(
-        out,
-        "// It is decoded from the JSON-encoded context string passed by the C layer."
-    )
-    .ok();
-    writeln!(out, "type NodeContext struct {{").ok();
-    writeln!(out, "\t// NodeType is a coarse-grained node type tag.").ok();
-    writeln!(out, "\tNodeType NodeType `json:\"node_type\"`").ok();
-    writeln!(out, "\t// TagName is the HTML element tag name (e.g. \"div\").").ok();
-    writeln!(out, "\tTagName string `json:\"tag_name\"`").ok();
-    writeln!(out, "\t// Depth is the DOM depth (0 = root).").ok();
-    writeln!(out, "\tDepth uint `json:\"depth\"`").ok();
-    writeln!(out, "\t// IndexInParent is the 0-based sibling index.").ok();
-    writeln!(out, "\tIndexInParent uint `json:\"index_in_parent\"`").ok();
-    writeln!(
-        out,
-        "\t// ParentTag is the parent element tag name, or nil at the root."
-    )
-    .ok();
-    writeln!(out, "\tParentTag *string `json:\"parent_tag\"`").ok();
-    writeln!(out, "\t// IsInline is true when this element is treated as inline.").ok();
-    writeln!(out, "\tIsInline bool `json:\"is_inline\"`").ok();
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
+    out.push_str(&crate::template_env::render(
+        "visitor_preamble.jinja",
+        minijinja::context! {
+            pkg_name => pkg_name,
+            to_root => to_root,
+            ffi_crate_dir => ffi_crate_dir,
+            ffi_header => ffi_header,
+            callbacks => callbacks,
+            vtable_c_type => vtable_c_type.clone(),
+        },
+    ));
 
     // NOTE: NodeType is defined in binding.go as `type NodeType string`.
     // Do NOT re-declare it here — that would cause a redeclaration compile error.
-    // The NodeContext struct field uses NodeType directly from the same package.
-
-    // -------------------------------------------------------------------------
-    // VisitResult
-    // -------------------------------------------------------------------------
-    writeln!(out, "// VisitResult controls conversion flow from a visitor callback.").ok();
-    writeln!(out, "type VisitResult struct {{").ok();
-    writeln!(
-        out,
-        "\t// Code is the numeric visit-result code (0=Continue, 1=Skip, 2=PreserveHTML, 3=Custom, 4=Error)."
-    )
-    .ok();
-    writeln!(out, "\tCode int32").ok();
-    writeln!(out, "\t// Custom is non-nil only for Custom (3) and Error (4) codes.").ok();
-    writeln!(out, "\tCustom *string").ok();
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
-    writeln!(
-        out,
-        "// VisitResultContinue returns a Continue VisitResult (proceed with default conversion)."
-    )
-    .ok();
-    writeln!(
-        out,
-        "func VisitResultContinue() VisitResult {{ return VisitResult{{Code: 0}} }}"
-    )
-    .ok();
-    writeln!(out).ok();
-    writeln!(
-        out,
-        "// VisitResultSkip returns a Skip VisitResult (omit this element from output)."
-    )
-    .ok();
-    writeln!(
-        out,
-        "func VisitResultSkip() VisitResult {{ return VisitResult{{Code: 1}} }}"
-    )
-    .ok();
-    writeln!(out).ok();
-    writeln!(
-        out,
-        "// VisitResultPreserveHTML returns a PreserveHTML VisitResult (keep original HTML verbatim)."
-    )
-    .ok();
-    writeln!(
-        out,
-        "func VisitResultPreserveHTML() VisitResult {{ return VisitResult{{Code: 2}} }}"
-    )
-    .ok();
-    writeln!(out).ok();
-    writeln!(
-        out,
-        "// VisitResultCustom returns a Custom VisitResult with the given Markdown replacement."
-    )
-    .ok();
-    writeln!(out, "func VisitResultCustom(markdown string) VisitResult {{").ok();
-    writeln!(out, "\treturn VisitResult{{Code: 3, Custom: &markdown}}").ok();
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
-    writeln!(
-        out,
-        "// VisitResultError returns an Error VisitResult that aborts conversion."
-    )
-    .ok();
-    writeln!(out, "func VisitResultError(msg string) VisitResult {{").ok();
-    writeln!(out, "\treturn VisitResult{{Code: 4, Custom: &msg}}").ok();
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
+    out.push_str(&crate::template_env::render(
+        "visitor_node_context_and_result.jinja",
+        minijinja::Value::default(),
+    ));
+    out.push('\n');
 
     // -------------------------------------------------------------------------
     // Visitor interface
     // -------------------------------------------------------------------------
-    writeln!(
-        out,
-        "// Visitor is the interface implemented by types that observe the HTML-to-Markdown"
-    )
-    .ok();
-    writeln!(
-        out,
-        "// conversion pipeline.  Embed BaseVisitor to get no-op defaults for all methods."
-    )
-    .ok();
-    writeln!(out, "type Visitor interface {{").ok();
+    out.push_str(&crate::template_env::render(
+        "visitor_interface_header.jinja",
+        minijinja::Value::default(),
+    ));
     for spec in CALLBACKS {
         let param_str = iface_param_str(spec);
-        writeln!(out, "\t// {}", spec.doc).ok();
-        writeln!(out, "\t{}({param_str}) VisitResult", spec.go_method).ok();
+        out.push_str(&crate::template_env::render(
+            "visitor_interface_method.jinja",
+            minijinja::context! {
+                doc => spec.doc,
+                method => spec.go_method,
+                params => param_str,
+            },
+        ));
     }
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
+    out.push_str(&crate::template_env::render(
+        "visitor_interface_footer.jinja",
+        minijinja::Value::default(),
+    ));
+    out.push('\n');
 
     // -------------------------------------------------------------------------
     // BaseVisitor — no-op defaults
     // -------------------------------------------------------------------------
-    writeln!(
-        out,
-        "// BaseVisitor provides default no-op implementations for all Visitor methods."
-    )
-    .ok();
-    writeln!(
-        out,
-        "// Embed it in your struct and override only the methods you need."
-    )
-    .ok();
-    writeln!(out, "type BaseVisitor struct{{}}").ok();
-    writeln!(out).ok();
+    out.push_str(&crate::template_env::render(
+        "base_visitor_header.jinja",
+        minijinja::Value::default(),
+    ));
+    out.push('\n');
     for spec in CALLBACKS {
         let param_str = iface_param_str(spec);
         // Build blank identifiers to suppress "declared but not used" errors.
-        let blank_ids: Vec<String> = iface_param_names(spec)
-            .into_iter()
-            .map(|n| format!("\t_ = {n}"))
-            .collect();
-        writeln!(out, "// {} is the default no-op implementation.", spec.go_method).ok();
-        writeln!(out, "func (BaseVisitor) {}({param_str}) VisitResult {{", spec.go_method).ok();
-        for b in &blank_ids {
-            writeln!(out, "{b}").ok();
-        }
-        writeln!(out, "\treturn VisitResultContinue()").ok();
-        writeln!(out, "}}").ok();
-        writeln!(out).ok();
+        let blank_ids: Vec<String> = iface_param_names(spec).into_iter().collect();
+        out.push_str(&crate::template_env::render(
+            "base_visitor_method.jinja",
+            minijinja::context! {
+                doc => spec.go_method,
+                method_name => spec.go_method,
+                params => param_str,
+                blank_ids => blank_ids,
+            },
+        ));
+        out.push('\n');
     }
 
     // -------------------------------------------------------------------------
     // Visitor registry
     // -------------------------------------------------------------------------
-    writeln!(
-        out,
-        "// visitorRegistry maps visitor handle IDs to active Visitor instances."
-    )
-    .ok();
-    writeln!(
-        out,
-        "// CGo does not allow passing Go function values as C function pointers;"
-    )
-    .ok();
-    writeln!(
-        out,
-        "// we use a numeric ID (stored in user_data) to look up the Visitor at callback time."
-    )
-    .ok();
-    writeln!(out, "var (").ok();
-    writeln!(out, "\tvisitorRegistry sync.Map").ok();
-    writeln!(out, "\tvisitorIDCounter atomic.Uint64").ok();
-    writeln!(out, ")").ok();
-    writeln!(out).ok();
-    writeln!(out, "func registerVisitor(v Visitor) uintptr {{").ok();
-    writeln!(out, "\tid := uintptr(visitorIDCounter.Add(1))").ok();
-    writeln!(out, "\tvisitorRegistry.Store(id, v)").ok();
-    writeln!(out, "\treturn id").ok();
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
-    writeln!(out, "func unregisterVisitor(id uintptr) {{").ok();
-    writeln!(out, "\tvisitorRegistry.Delete(id)").ok();
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
-    writeln!(out, "func lookupVisitor(id uintptr) (Visitor, bool) {{").ok();
-    writeln!(out, "\tv, ok := visitorRegistry.Load(id)").ok();
-    writeln!(out, "\tif !ok {{").ok();
-    writeln!(out, "\t\treturn nil, false").ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "\treturn v.(Visitor), true").ok();
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
+    out.push_str(&crate::template_env::render(
+        "visitor_registry_block.jinja",
+        minijinja::Value::default(),
+    ));
+    out.push('\n');
 
     // -------------------------------------------------------------------------
     // Shared helpers
     // -------------------------------------------------------------------------
 
     // decodeNodeContext: decode from JSON string (VTable ABI passes ctx as *const c_char JSON)
-    writeln!(out, "func decodeNodeContext(ctxJSON *C.char) NodeContext {{").ok();
-    writeln!(out, "\tvar ctx NodeContext").ok();
-    writeln!(out, "\tif ctxJSON == nil {{").ok();
-    writeln!(out, "\t\treturn ctx").ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "\t_ = json.Unmarshal([]byte(C.GoString(ctxJSON)), &ctx)").ok();
-    writeln!(out, "\treturn ctx").ok();
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
+    out.push_str(&crate::template_env::render(
+        "decode_node_context.jinja",
+        minijinja::Value::default(),
+    ));
+    out.push('\n');
 
     // encodeVisitResult: write serde-native JSON into *out_result so the Rust trait bridge
     // can deserialize it with serde_json::from_str::<VisitResult>.
@@ -1057,74 +890,24 @@ pub fn gen_visitor_file(
     //
     // The return code still carries the numeric variant tag so callers that only
     // inspect the code (and don't read out_result) remain compatible.
-    writeln!(
-        out,
-        "func encodeVisitResult(r VisitResult, outResult **C.char) C.int32_t {{"
-    )
-    .ok();
-    writeln!(
-        out,
-        "\t// Encode the result as serde-native JSON so the Rust trait bridge's"
-    )
-    .ok();
-    writeln!(
-        out,
-        "\t// serde_json::from_str::<VisitResult> deserialiser can decode it correctly."
-    )
-    .ok();
-    writeln!(out, "\tvar jsonStr string").ok();
-    writeln!(out, "\tswitch r.Code {{").ok();
-    writeln!(out, "\tcase 1:").ok();
-    writeln!(out, "\t\tjsonStr = `\"Skip\"`").ok();
-    writeln!(out, "\tcase 2:").ok();
-    writeln!(out, "\t\tjsonStr = `\"PreserveHtml\"`").ok();
-    writeln!(out, "\tcase 3:").ok();
-    writeln!(out, "\t\tif r.Custom != nil {{").ok();
-    writeln!(out, "\t\t\tb, err := json.Marshal(*r.Custom)").ok();
-    writeln!(out, "\t\t\tif err != nil {{").ok();
-    writeln!(out, "\t\t\t\tb = []byte(`\"\"`)").ok();
-    writeln!(out, "\t\t\t}}").ok();
-    writeln!(out, "\t\t\tjsonStr = `{{\"Custom\":` + string(b) + `}}`").ok();
-    writeln!(out, "\t\t}} else {{").ok();
-    writeln!(out, "\t\t\tjsonStr = `{{\"Custom\":\"\"}}`").ok();
-    writeln!(out, "\t\t}}").ok();
-    writeln!(out, "\tcase 4:").ok();
-    writeln!(out, "\t\tif r.Custom != nil {{").ok();
-    writeln!(out, "\t\t\tb, err := json.Marshal(*r.Custom)").ok();
-    writeln!(out, "\t\t\tif err != nil {{").ok();
-    writeln!(out, "\t\t\t\tb = []byte(`\"\"`)").ok();
-    writeln!(out, "\t\t\t}}").ok();
-    writeln!(out, "\t\t\tjsonStr = `{{\"Error\":` + string(b) + `}}`").ok();
-    writeln!(out, "\t\t}} else {{").ok();
-    writeln!(out, "\t\t\tjsonStr = `{{\"Error\":\"\"}}`").ok();
-    writeln!(out, "\t\t}}").ok();
-    writeln!(out, "\tdefault: // 0 = Continue and any unknown code").ok();
-    writeln!(out, "\t\tjsonStr = `\"Continue\"`").ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "\t*outResult = C.CString(jsonStr)").ok();
-    writeln!(out, "\treturn C.int32_t(r.Code)").ok();
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
+    out.push_str(&crate::template_env::render(
+        "encode_visit_result.jinja",
+        minijinja::Value::default(),
+    ));
+    out.push('\n');
 
-    writeln!(out, "func optGoString(p *C.char) *string {{").ok();
-    writeln!(out, "\tif p == nil {{").ok();
-    writeln!(out, "\t\treturn nil").ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "\ts := C.GoString(p)").ok();
-    writeln!(out, "\treturn &s").ok();
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
+    out.push_str(&crate::template_env::render(
+        "opt_go_string.jinja",
+        minijinja::Value::default(),
+    ));
+    out.push('\n');
 
     // decodeCellsJSON: cells is a JSON-encoded []string in the VTable ABI.
-    writeln!(out, "func decodeCellsJSON(cells *C.char) []string {{").ok();
-    writeln!(out, "\tif cells == nil {{").ok();
-    writeln!(out, "\t\treturn nil").ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "\tvar result []string").ok();
-    writeln!(out, "\t_ = json.Unmarshal([]byte(C.GoString(cells)), &result)").ok();
-    writeln!(out, "\treturn result").ok();
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
+    out.push_str(&crate::template_env::render(
+        "decode_cells_json.jinja",
+        minijinja::Value::default(),
+    ));
+    out.push('\n');
 
     // -------------------------------------------------------------------------
     // //export trampolines
@@ -1139,116 +922,24 @@ pub fn gen_visitor_file(
     // This helper is called by Convert() in binding.go when options.Visitor is not nil.
     // It registers the visitor, builds the VTable, creates a bridge, attaches it to
     // options, calls the FFI convert function, and cleans up.
-    writeln!(out).ok();
-    writeln!(out, "// convertWithVisitorHelper converts HTML with visitor support.").ok();
-    writeln!(out, "// Called by Convert() when options.Visitor is not nil.").ok();
-    writeln!(out, "// Returns the ConversionResult or an error.").ok();
-    writeln!(
-        out,
-        "func convertWithVisitorHelper(html string, options *ConversionOptions, visitor Visitor) (*ConversionResult, error) {{"
-    )
-    .ok();
-    writeln!(out, "\tcHTML := C.CString(html)").ok();
-    writeln!(out, "\tdefer C.free(unsafe.Pointer(cHTML))").ok();
-    writeln!(out).ok();
-
-    // Build ConversionOptions C pointer.
-    writeln!(out, "\tvar cOptions *C.{conversion_options_type}").ok();
-    writeln!(out, "\tif options != nil {{").ok();
-    writeln!(
-        out,
-        "\t\tjsonBytes, err := json.Marshal(options)\n\t\tif err != nil {{\n\t\t\treturn nil, fmt.Errorf(\"failed to marshal conversion options: %w\", err)\n\t\t}}\n\t\ttmpStr := C.CString(string(jsonBytes))\n\t\tcOptions = C.{fn_options_from_json}(tmpStr)\n\t\tC.free(unsafe.Pointer(tmpStr))\n\t\tdefer C.{fn_options_free}(cOptions)"
-    )
-    .ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "\tif cOptions == nil {{").ok();
-    writeln!(
-        out,
-        "\t\t// Allocate a default options struct so we can attach the visitor."
-    )
-    .ok();
-    writeln!(out, "\t\tdefaultJSON := C.CString(\"{{}}\")").ok();
-    writeln!(out, "\t\tcOptions = C.{fn_options_from_json}(defaultJSON)").ok();
-    writeln!(out, "\t\tC.free(unsafe.Pointer(defaultJSON))").ok();
-    writeln!(out, "\t\tdefer C.{fn_options_free}(cOptions)").ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out).ok();
-
-    // Register visitor and build VTable.
-    writeln!(
-        out,
-        "\t// Register visitor and build the C VTable via the static C helper."
-    )
-    .ok();
-    writeln!(out, "\tid := registerVisitor(visitor)").ok();
-    writeln!(out, "\tdefer unregisterVisitor(id)").ok();
-    writeln!(out, "\tvtbl := C.makeVisitorVTable()").ok();
-    writeln!(out).ok();
-
-    // Create bridge from VTable + user_data.
-    writeln!(
-        out,
-        "\t// Create a bridge that holds the VTable and the visitor ID as user_data."
-    )
-    .ok();
-    writeln!(out, "\tbridge := C.{fn_bridge_new}(&vtbl, unsafe.Pointer(id))").ok();
-    writeln!(out, "\tif bridge == nil {{").ok();
-    writeln!(out, "\t\treturn nil, fmt.Errorf(\"failed to create visitor bridge\")").ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "\tdefer C.{fn_bridge_free}(bridge)").ok();
-    writeln!(out).ok();
-
-    // Attach bridge to options.
-    writeln!(
-        out,
-        "\t// Attach the bridge to the options struct so convert() picks it up."
-    )
-    .ok();
-    writeln!(
-        out,
-        "\tC.{fn_options_set_visitor}(cOptions, (*C.{bridge_c_type})(bridge))"
-    )
-    .ok();
-    writeln!(out).ok();
-
-    // Call convert.
-    writeln!(out, "\tptr := C.{fn_convert}(cHTML, cOptions)").ok();
-    writeln!(out, "\tif ptr == nil {{").ok();
-    writeln!(out, "\t\tif err := lastError(); err != nil {{").ok();
-    writeln!(out, "\t\t\treturn nil, err").ok();
-    writeln!(out, "\t\t}}").ok();
-    writeln!(out, "\t\treturn nil, fmt.Errorf(\"conversion returned nil\")").ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "\tdefer C.{fn_result_free}(ptr)").ok();
-    writeln!(out).ok();
-
-    // Deserialize ConversionResult.
     let fn_result_to_json = fn_result_free.replace("_free", "_to_json");
-    let fn_free_string = format!("{ffi_prefix}_free_string");
-    writeln!(out, "\tjsonPtr := C.{fn_result_to_json}(ptr)").ok();
-    writeln!(out, "\tif jsonPtr == nil {{").ok();
-    writeln!(
-        out,
-        "\t\treturn nil, fmt.Errorf(\"conversion result serialisation failed\")"
-    )
-    .ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "\tdefer C.{fn_free_string}(jsonPtr)").ok();
-    writeln!(out, "\tvar result ConversionResult").ok();
-    writeln!(
-        out,
-        "\tif err := json.Unmarshal([]byte(C.GoString(jsonPtr)), &result); err != nil {{"
-    )
-    .ok();
-    writeln!(
-        out,
-        "\t\treturn nil, fmt.Errorf(\"failed to decode conversion result: %w\", err)"
-    )
-    .ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "\treturn &result, nil").ok();
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
+    out.push_str(&crate::template_env::render(
+        "convert_with_visitor_helper.jinja",
+        minijinja::context! {
+            conversion_options_type => conversion_options_type,
+            fn_options_from_json => fn_options_from_json,
+            fn_options_free => fn_options_free,
+            fn_bridge_new => fn_bridge_new,
+            fn_bridge_free => fn_bridge_free,
+            fn_options_set_visitor => fn_options_set_visitor,
+            bridge_c_type => bridge_c_type,
+            fn_convert => fn_convert,
+            fn_result_to_json => fn_result_to_json,
+            fn_result_free => fn_result_free,
+        },
+    ));
+    out.push('\n');
+    out.push('\n');
 
     out
 }
@@ -1314,21 +1005,39 @@ fn gen_trampoline(out: &mut String, spec: &CallbackSpec) {
     }
     go_params.push("outResult **C.char".to_string());
 
-    writeln!(out, "//export {}", spec.export_name).ok();
-    writeln!(out, "func {}({}) C.int32_t {{", spec.export_name, go_params.join(", ")).ok();
-    writeln!(out, "\tvisitorID := uintptr(uintptr(userData))").ok();
-    writeln!(out, "\tv, ok := lookupVisitor(visitorID)").ok();
-    writeln!(out, "\tif !ok {{").ok();
-    writeln!(out, "\t\treturn 0").ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "\tnodeCtx := decodeNodeContext(ctx)").ok();
+    out.push_str(&crate::template_env::render(
+        "export_marker.jinja",
+        minijinja::context! {
+            name => spec.export_name,
+        },
+    ));
+    out.push_str(&crate::template_env::render(
+        "trampoline_func_signature.jinja",
+        minijinja::context! {
+            name => spec.export_name,
+            params => go_params.join(", "),
+        },
+    ));
+    out.push_str(&crate::template_env::render(
+        "trampoline_lookup.jinja",
+        minijinja::Value::default(),
+    ));
 
     // Decode each extra parameter.
     for ep in spec.extra {
-        writeln!(out, "\tgo{} := {}", capitalize(ep.go_name), ep.decode).ok();
+        out.push_str(&crate::template_env::render(
+            "trampoline_param_decode.jinja",
+            minijinja::context! {
+                name => capitalize(ep.go_name),
+                decode => ep.decode,
+            },
+        ));
     }
     if spec.has_is_header {
-        writeln!(out, "\tgoIsHeader := isHeader != 0").ok();
+        out.push_str(&crate::template_env::render(
+            "trampoline_is_header.jinja",
+            minijinja::Value::default(),
+        ));
     }
 
     // Build call args.
@@ -1340,10 +1049,15 @@ fn gen_trampoline(out: &mut String, spec: &CallbackSpec) {
         call_args.push("goIsHeader".to_string());
     }
 
-    writeln!(out, "\tr := v.{}({})", spec.go_method, call_args.join(", ")).ok();
-    writeln!(out, "\treturn encodeVisitResult(r, outResult)").ok();
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
+    out.push_str(&crate::template_env::render(
+        "trampoline_func_call.jinja",
+        minijinja::context! {
+            method => spec.go_method,
+            args => call_args.join(", "),
+        },
+    ));
+    out.push_str("}\n");
+    out.push('\n');
 }
 
 /// Generate the `ConvertWithVisitor` function for the options-field VTable pattern.
@@ -1362,140 +1076,22 @@ fn gen_trampoline(out: &mut String, spec: &CallbackSpec) {
 fn gen_convert_with_visitor(
     out: &mut String,
     _ffi_prefix: &str,
-    conversion_options_type: &str,
+    _conversion_options_type: &str,
     _vtable_c_type: &str,
-    bridge_c_type: &str,
-    fn_bridge_new: &str,
-    fn_bridge_free: &str,
-    fn_options_set_visitor: &str,
-    fn_options_free: &str,
-    fn_options_from_json: &str,
-    fn_convert: &str,
-    fn_result_free: &str,
+    _bridge_c_type: &str,
+    _fn_bridge_new: &str,
+    _fn_bridge_free: &str,
+    _fn_options_set_visitor: &str,
+    _fn_options_free: &str,
+    _fn_options_from_json: &str,
+    _fn_convert: &str,
+    _fn_result_free: &str,
 ) {
-    writeln!(
-        out,
-        "// ConvertWithVisitor converts HTML to Markdown, invoking visitor callbacks during"
-    )
-    .ok();
-    writeln!(
-        out,
-        "// the conversion pipeline.  Pass nil for options to use defaults."
-    )
-    .ok();
-    writeln!(
-        out,
-        "// Pass a struct embedding BaseVisitor and overriding only the methods you need."
-    )
-    .ok();
-    writeln!(
-        out,
-        "func ConvertWithVisitor(html string, options *ConversionOptions, visitor Visitor) (*ConversionResult, error) {{"
-    )
-    .ok();
-    writeln!(out, "\tcHTML := C.CString(html)").ok();
-    writeln!(out, "\tdefer C.free(unsafe.Pointer(cHTML))").ok();
-    writeln!(out).ok();
-
-    // Build ConversionOptions C pointer (nil → use defaults).
-    writeln!(out, "\tvar cOptions *C.{conversion_options_type}").ok();
-    writeln!(out, "\tif options != nil {{").ok();
-    writeln!(
-        out,
-        "\t\tjsonBytes, err := json.Marshal(options)\n\t\tif err != nil {{\n\t\t\treturn nil, fmt.Errorf(\"failed to marshal conversion options: %w\", err)\n\t\t}}\n\t\ttmpStr := C.CString(string(jsonBytes))\n\t\tcOptions = C.{fn_options_from_json}(tmpStr)\n\t\tC.free(unsafe.Pointer(tmpStr))\n\t\tdefer C.{fn_options_free}(cOptions)"
-    )
-    .ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "\tif cOptions == nil {{").ok();
-    writeln!(
-        out,
-        "\t\t// Allocate a default options struct so we can attach the visitor."
-    )
-    .ok();
-    writeln!(out, "\t\tdefaultJSON := C.CString(\"{{}}\")").ok();
-    writeln!(out, "\t\tcOptions = C.{fn_options_from_json}(defaultJSON)").ok();
-    writeln!(out, "\t\tC.free(unsafe.Pointer(defaultJSON))").ok();
-    writeln!(out, "\t\tdefer C.{fn_options_free}(cOptions)").ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out).ok();
-
-    // Register visitor and build VTable.
-    writeln!(
-        out,
-        "\t// Register visitor and build the C VTable via the static C helper."
-    )
-    .ok();
-    writeln!(out, "\tid := registerVisitor(visitor)").ok();
-    writeln!(out, "\tdefer unregisterVisitor(id)").ok();
-    writeln!(out, "\tvtbl := C.makeVisitorVTable()").ok();
-    writeln!(out).ok();
-
-    // Create bridge from VTable + user_data.
-    writeln!(
-        out,
-        "\t// Create a bridge that holds the VTable and the visitor ID as user_data."
-    )
-    .ok();
-    writeln!(out, "\tbridge := C.{fn_bridge_new}(&vtbl, unsafe.Pointer(id))").ok();
-    writeln!(out, "\tif bridge == nil {{").ok();
-    writeln!(out, "\t\treturn nil, fmt.Errorf(\"failed to create visitor bridge\")").ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "\tdefer C.{fn_bridge_free}(bridge)").ok();
-    writeln!(out).ok();
-
-    // Attach bridge to options.
-    writeln!(
-        out,
-        "\t// Attach the bridge to the options struct so convert() picks it up."
-    )
-    .ok();
-    writeln!(
-        out,
-        "\tC.{fn_options_set_visitor}(cOptions, (*C.{bridge_c_type})(bridge))"
-    )
-    .ok();
-    writeln!(out).ok();
-
-    // Call convert.
-    writeln!(out, "\tptr := C.{fn_convert}(cHTML, cOptions)").ok();
-    writeln!(out, "\tif ptr == nil {{").ok();
-    writeln!(out, "\t\tif err := lastError(); err != nil {{").ok();
-    writeln!(out, "\t\t\treturn nil, err").ok();
-    writeln!(out, "\t\t}}").ok();
-    writeln!(out, "\t\treturn nil, fmt.Errorf(\"conversion returned nil\")").ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "\tdefer C.{fn_result_free}(ptr)").ok();
-    writeln!(out).ok();
-
-    // Deserialize ConversionResult: convert the opaque result pointer to JSON first,
-    // then unmarshal into a Go struct.  The pointer is a *ConversionResult struct (not a
-    // string), so we must call the to_json helper before treating it as text.
-    let fn_result_to_json = fn_result_free.replace("_free", "_to_json");
-    let fn_free_string = format!("{_ffi_prefix}_free_string");
-    writeln!(out, "\tjsonPtr := C.{fn_result_to_json}(ptr)").ok();
-    writeln!(out, "\tif jsonPtr == nil {{").ok();
-    writeln!(
-        out,
-        "\t\treturn nil, fmt.Errorf(\"conversion result serialisation failed\")"
-    )
-    .ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "\tdefer C.{fn_free_string}(jsonPtr)").ok();
-    writeln!(out, "\tvar result ConversionResult").ok();
-    writeln!(
-        out,
-        "\tif err := json.Unmarshal([]byte(C.GoString(jsonPtr)), &result); err != nil {{"
-    )
-    .ok();
-    writeln!(
-        out,
-        "\t\treturn nil, fmt.Errorf(\"failed to decode conversion result: %w\", err)"
-    )
-    .ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "\treturn &result, nil").ok();
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
+    out.push_str(&crate::template_env::render(
+        "convert_with_visitor_wrapper.jinja",
+        minijinja::Value::default(),
+    ));
+    out.push('\n');
 }
 
 /// Capitalize the first letter of a string.

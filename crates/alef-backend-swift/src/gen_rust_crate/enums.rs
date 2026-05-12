@@ -23,10 +23,20 @@ pub(crate) fn emit_enum_wrapper(en: &EnumDef, source_crate: &str, type_paths: &H
     // to "EasyOcr" and "RDFa" to "RdFa", creating names that don't match the source.
     // The bridge enum uses the same names as the kreuzberg source enum so the From impl
     // match arms are valid Rust identifiers on both sides.
-    out.push_str(&format!("pub enum {} {{\n", en.name));
+    out.push_str(&crate::template_env::render(
+        "enum_unit_header.jinja",
+        minijinja::context! {
+            name => &en.name,
+        },
+    ));
     for variant in &unit_variants {
         // Use the raw variant name from the IR — it is already a valid Rust identifier.
-        out.push_str(&format!("    {},\n", variant.name));
+        out.push_str(&crate::template_env::render(
+            "enum_unit_variant.jinja",
+            minijinja::context! {
+                variant_name => &variant.name,
+            },
+        ));
     }
     // Add a catch-all variant to absorb any data variants from the source enum
     // that we don't model explicitly. This prevents exhaustiveness failures in the
@@ -39,18 +49,29 @@ pub(crate) fn emit_enum_wrapper(en: &EnumDef, source_crate: &str, type_paths: &H
     out.push_str("}\n\n");
 
     // From conversion: map unit variants; data variants fall through to Unknown.
-    out.push_str(&format!("impl From<{source_path}> for {} {{\n", en.name));
-    out.push_str(&format!("    fn from(val: {source_path}) -> Self {{\n"));
+    out.push_str(&crate::template_env::render(
+        "enum_from_impl_header.jinja",
+        minijinja::context! {
+            source_path => &source_path,
+            name => &en.name,
+        },
+    ));
     out.push_str("        match val {\n");
     for variant in &unit_variants {
         // Use raw variant name on both sides — source variant name == bridge variant name.
-        out.push_str(&format!(
-            "            {source_path}::{} => Self::{},\n",
-            variant.name, variant.name
+        out.push_str(&crate::template_env::render(
+            "enum_from_variant.jinja",
+            minijinja::context! {
+                source_path => &source_path,
+                variant_name => &variant.name,
+            },
         ));
     }
     if has_data_variants {
-        out.push_str("            _ => Self::Unknown,\n");
+        out.push_str(&crate::template_env::render(
+            "enum_from_wildcard.jinja",
+            minijinja::context! {},
+        ));
     }
     out.push_str("        }\n");
     out.push_str("    }\n");

@@ -332,12 +332,7 @@ fn gen_struct_fields(pascal_prefix: &str) -> String {
     let mut out = String::new();
     for spec in CALLBACKS {
         let doc_lines = format_doc_comment(spec.doc);
-        out.push_str(&format!(
-            "\n{doc_lines}\n    pub {name}: Option<\n        unsafe extern \"C\" fn(\n            {params}\n        ) -> i32,\n    >,\n",
-            doc_lines = doc_lines,
-            name = spec.name,
-            params = c_param_list(spec, pascal_prefix),
-        ));
+        out.push_str(&crate::template_env::render("formatted_line.jinja", minijinja::context! { content => format!("\n{doc_lines}\n    pub {name}: Option<\n        unsafe extern \"C\" fn(\n            {params}\n        ) -> i32,\n    >,\n", doc_lines = doc_lines, name = spec.name, params = c_param_list(spec, pascal_prefix)) }));
     }
     out
 }
@@ -372,26 +367,28 @@ fn gen_impl_body(spec: &CallbackSpec, core_import: &str) -> String {
     for p in spec.params {
         match p {
             ParamKind::Str(n) => {
-                bindings.push_str(&format!(
-                    "        let {n}_cs = match std::ffi::CString::new({n}) {{\n            Ok(s) => s,\n            Err(_) => return {core_import}::visitor::VisitResult::Continue,\n        }};\n"
-                ));
+                bindings.push_str(&crate::template_env::render("formatted_line.jinja", minijinja::context! { content => format!("        let {n}_cs = match std::ffi::CString::new({n}) {{\n            Ok(s) => s,\n            Err(_) => return {core_import}::visitor::VisitResult::Continue,\n        }};\n") }));
                 cb_args.push(format!("{n}_cs.as_ptr()"));
             }
             ParamKind::OptStr(n) => {
-                bindings.push_str(&format!("        let ({n}_ptr, _{n}_cs) = opt_str_to_c({n});\n"));
+                bindings.push_str(&crate::template_env::render(
+                    "formatted_line.jinja",
+                    minijinja::context! { content => format!("        let ({n}_ptr, _{n}_cs) = opt_str_to_c({n});\n") },
+                ));
                 cb_args.push(format!("{n}_ptr"));
             }
             ParamKind::Bool(n) => {
-                bindings.push_str(&format!("        let {n}_i = i32::from({n});\n"));
+                bindings.push_str(&crate::template_env::render(
+                    "formatted_line.jinja",
+                    minijinja::context! { content => format!("        let {n}_i = i32::from({n});\n") },
+                ));
                 cb_args.push(format!("{n}_i"));
             }
             ParamKind::U32(n) | ParamKind::Usize(n) => {
                 cb_args.push((*n).to_string());
             }
             ParamKind::CellSlice(n) => {
-                bindings.push_str(&format!(
-                    "        let {n}_cstrings: Vec<std::ffi::CString> = {n}\n            .iter()\n            .filter_map(|s| std::ffi::CString::new(s.as_str()).ok())\n            .collect();\n        let {n}_ptrs: Vec<*const std::ffi::c_char> =\n            {n}_cstrings.iter().map(|cs| cs.as_ptr()).collect();\n        let cell_count = {n}_ptrs.len();\n"
-                ));
+                bindings.push_str(&crate::template_env::render("formatted_line.jinja", minijinja::context! { content => format!("        let {n}_cstrings: Vec<std::ffi::CString> = {n}\n            .iter()\n            .filter_map(|s| std::ffi::CString::new(s.as_str()).ok())\n            .collect();\n        let {n}_ptrs: Vec<*const std::ffi::c_char> =\n            {n}_cstrings.iter().map(|cs| cs.as_ptr()).collect();\n        let cell_count = {n}_ptrs.len();\n") }));
                 cb_args.push(format!("{n}_ptrs.as_ptr()"));
                 cb_args.push("cell_count".to_string());
             }
@@ -414,12 +411,7 @@ fn gen_impl_body(spec: &CallbackSpec, core_import: &str) -> String {
 fn gen_impl_methods(pascal_prefix: &str, core_import: &str) -> String {
     let mut out = String::new();
     for spec in CALLBACKS {
-        out.push_str(&format!(
-            "\n    fn {name}(\n        {params}\n    ) -> {core_import}::visitor::VisitResult {{\n{body}\n    }}\n",
-            name = spec.name,
-            params = rust_param_list(spec, core_import),
-            body = gen_impl_body(spec, core_import),
-        ));
+        out.push_str(&crate::template_env::render("formatted_line.jinja", minijinja::context! { content => format!("\n    fn {name}(\n        {params}\n    ) -> {core_import}::visitor::VisitResult {{\n{body}\n    }}\n", name = spec.name, params = rust_param_list(spec, core_import), body = gen_impl_body(spec, core_import)) }));
     }
     // Close the impl block — caller opens it.
     let _ = pascal_prefix; // used by caller
@@ -448,9 +440,14 @@ fn gen_visitor_ref_methods(core_import: &str) -> String {
     for spec in CALLBACKS {
         let params = rust_param_list(spec, core_import);
         let args = visitor_ref_args(spec);
-        out.push_str(&format!(
-            "            fn {name}({params}) -> {core_import}::visitor::VisitResult {{\n                // SAFETY: self.0 is a valid pointer for the duration of the conversion call.\n                unsafe {{ (*self.0).{name}({args}) }}\n            }}\n",
-            name = spec.name,
+        out.push_str(&crate::template_env::render(
+            "vtable_delegation_method.jinja",
+            minijinja::context! {
+                method_name => spec.name,
+                all_params => params,
+                ret => format!("{}::visitor::VisitResult", core_import),
+                arg_list => args,
+            },
         ));
     }
     out

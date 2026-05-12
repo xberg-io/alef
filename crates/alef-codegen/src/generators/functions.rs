@@ -7,7 +7,6 @@ use crate::shared::{function_params, function_sig_defaults};
 use crate::type_mapper::TypeMapper;
 use ahash::{AHashMap, AHashSet};
 use alef_core::ir::{ApiSurface, FunctionDef, TypeRef};
-use std::fmt::Write;
 
 /// Generate a free function.
 pub fn gen_function(
@@ -125,7 +124,9 @@ pub fn gen_function(
         AsyncPattern::Pyo3FutureIntoPy => ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))",
         AsyncPattern::NapiNativeAsync => ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))",
         AsyncPattern::WasmNativeAsync => ".map_err(|e| JsValue::from_str(&e.to_string()))",
-        AsyncPattern::TokioBlockOn => ".map_err(|e| extendr_api::Error::Other(e.to_string()))",
+        AsyncPattern::TokioBlockOn => {
+            ".map_err(|e| extendr_api::Error::Other(e.to_string().replace(\":\", \"_\").replace(\"/\", \"_\").replace(\"-\", \"_\").chars().take(255).collect::<String>()))"
+        }
         _ => ".map_err(|e| e.to_string())",
     };
 
@@ -427,7 +428,9 @@ pub fn gen_function(
                     ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))"
                 }
                 AsyncPattern::WasmNativeAsync => ".map_err(|e| JsValue::from_str(&e.to_string()))",
-                AsyncPattern::TokioBlockOn => ".map_err(|e| extendr_api::Error::Other(e.to_string()))",
+                AsyncPattern::TokioBlockOn => {
+                    ".map_err(|e| extendr_api::Error::Other(e.to_string().replace(\":\", \"_\").replace(\"/\", \"_\").replace(\"-\", \"_\").chars().take(255).collect::<String>()))"
+                }
                 _ => ".map_err(|e| e.to_string())",
             };
             let wrapped = wrap_return("val");
@@ -547,28 +550,32 @@ pub fn gen_function(
         (format!("pub {async_kw}fn {}({params}) -> {ret}", func.name), "")
     };
 
-    let mut out = String::with_capacity(1024);
-    // Per-item clippy suppression: too_many_arguments when >7 params (including py)
     let total_params = func.params.len() + if func_needs_py { 1 } else { 0 };
-    if total_params > 7 {
-        writeln!(out, "#[allow(clippy::too_many_arguments)]").ok();
-    }
-    // Per-item clippy suppression: missing_errors_doc for Result-returning functions
-    if func.error_type.is_some() {
-        writeln!(out, "#[allow(clippy::missing_errors_doc)]").ok();
-    }
+    let sig_defaults = if cfg.needs_signature {
+        function_sig_defaults(&func.params)
+    } else {
+        String::new()
+    };
     let attr_inner = cfg
         .function_attr
         .trim_start_matches('#')
         .trim_start_matches('[')
         .trim_end_matches(']');
-    writeln!(out, "#[{attr_inner}]").ok();
-    if cfg.needs_signature {
-        let sig = function_sig_defaults(&func.params);
-        writeln!(out, "{}{}{}", cfg.signature_prefix, sig, cfg.signature_suffix).ok();
-    }
-    write!(out, "{} {{\n    {body}\n}}", func_sig,).ok();
-    out
+
+    crate::template_env::render(
+        "generators/functions/function_definition.jinja",
+        minijinja::context! {
+            has_too_many_arguments => total_params > 7,
+            has_missing_errors_doc => func.error_type.is_some(),
+            attr_inner => attr_inner,
+            needs_signature => cfg.needs_signature,
+            signature_prefix => cfg.signature_prefix,
+            sig_defaults => sig_defaults,
+            signature_suffix => cfg.signature_suffix,
+            func_sig => func_sig,
+            body => body,
+        },
+    )
 }
 
 fn can_delegate_with_named_let_bindings(func: &FunctionDef, opaque_types: &AHashSet<String>) -> bool {

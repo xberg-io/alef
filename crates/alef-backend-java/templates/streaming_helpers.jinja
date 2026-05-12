@@ -1,0 +1,39 @@
+
+    private void checkLastFfiError() throws {{ exception_class }} {
+        try {
+            int code = (int) NativeLib.{{ prefix_upper }}_LAST_ERROR_CODE.invoke();
+            if (code == 0) { return; }
+            MemorySegment ctxPtr = (MemorySegment) NativeLib.{{ prefix_upper }}_LAST_ERROR_CONTEXT.invoke();
+            String msg = ctxPtr.equals(MemorySegment.NULL) ? "unknown" : ctxPtr.reinterpret(Long.MAX_VALUE).getString(0);
+            throw new {{ exception_class }}(code, msg);
+        } catch (Throwable e) {
+            if (e instanceof {{ exception_class }} ex) { throw ex; }
+            throw new {{ exception_class }}("failed to read last error", e);
+        }
+    }
+{%- if needs_read_bytes_result %}
+
+    private byte[] readBytesResult(int rc, MemorySegment outPtrHolder, MemorySegment outLenHolder, MemorySegment outCapHolder) throws Throwable {
+        if (rc != 0) {
+            checkLastFfiError();
+            return null;
+        }
+        var outPtr = outPtrHolder.get(ValueLayout.ADDRESS, 0);
+        long outLen = outLenHolder.get(ValueLayout.JAVA_LONG, 0);
+        long outCap = outCapHolder.get(ValueLayout.JAVA_LONG, 0);
+        if (outPtr.equals(MemorySegment.NULL)) {
+            checkLastFfiError();
+            return null;
+        }
+        byte[] result = outPtr.reinterpret(outLen).toArray(ValueLayout.JAVA_BYTE);
+        {{ free_bytes }}.invoke(outPtr, outLen, outCap);
+        return result;
+    }
+{%- endif %}
+
+    private static final ObjectMapper STREAM_MAPPER = new ObjectMapper()
+        .registerModule(new com.fasterxml.jackson.datatype.jdk8.Jdk8Module())
+        .findAndRegisterModules()
+        .setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE)
+        .setSerializationInclusion(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+        .configure(com.fasterxml.jackson.databind.MapperFeature.ACCEPT_CASE_INSENSITIVE_ENUMS, true);

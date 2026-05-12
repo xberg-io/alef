@@ -1,0 +1,7 @@
+    // SAFETY: pointer is valid for program lifetime (static registry).
+    let {{ param }}_raw = unsafe {
+        pyo3::ffi::PyCapsule_GetPointer({{ param }}.bind(py).as_ptr(), {{ cstr }}_NAME.as_ptr())
+    };
+    if {{ param }}_raw.is_null() {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!("invalid capsule for {{ capsule_type_name }}")));
+    }

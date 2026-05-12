@@ -1,0 +1,4 @@
+// {{ fn_name }} unregisters a {{ trait_name }} implementation by name.
+func {{ fn_name }}(name string) error {
+	cName := C.CString(name)
+	defer C.free(unsafe.Pointer(cName))

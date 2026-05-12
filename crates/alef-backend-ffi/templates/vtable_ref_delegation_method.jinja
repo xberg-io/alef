@@ -1,0 +1,4 @@
+        fn {{ method_name }}({{ all_params }}) -> {{ ret }} {
+            // SAFETY: self.0 is a valid pointer for the duration of the conversion call.
+            unsafe { (*self.0).{{ method_name }}({{ arg_list }}) }
+        }

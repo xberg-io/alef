@@ -1,0 +1,4 @@
+#[extendr]
+pub fn {{ unregister_fn }}(name: String) -> Result<(), String> {
+    {{ host_path }}(&name).map_err(|e| format!("{}", e))
+}

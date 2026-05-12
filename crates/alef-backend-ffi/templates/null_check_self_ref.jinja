@@ -1,0 +1,6 @@
+if this.is_null() {
+        set_last_error(1, "Null pointer passed for self");
+        {{ fail_ret }}
+    }
+    // SAFETY: null check above guarantees this is a valid pointer.
+    let obj = unsafe { &*this };

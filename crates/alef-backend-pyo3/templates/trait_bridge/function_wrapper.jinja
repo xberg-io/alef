@@ -1,0 +1,6 @@
+{% if has_error %}#[allow(clippy::missing_errors_doc)]
+{% endif %}#[{{ attr_inner }}]
+{% if needs_signature %}{{ signature_prefix }}{{ sig_str }}{{ signature_suffix }}
+{% endif %}pub fn {{ func_name }}{{ lifetime }}({{ params_str }}) -> {{ ret }} {
+    {{ body }}
+}

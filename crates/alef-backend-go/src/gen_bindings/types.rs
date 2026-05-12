@@ -2,7 +2,7 @@ use crate::type_map::{go_optional_type, go_type};
 use alef_codegen::naming::{go_type_name, to_go_name};
 use alef_core::ir::{DefaultValue, EnumDef, FieldDef, TypeDef, TypeRef};
 use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
-use std::fmt::Write;
+use minijinja::context;
 
 /// Returns true if a field is a tuple struct positional field (e.g., `_0`, `_1`, `0`, `1`).
 /// Go structs require named fields, so these must be skipped.
@@ -65,34 +65,18 @@ pub(super) fn needs_omitempty_pointer(field: &FieldDef) -> bool {
 /// The helper does not free the input pointer because the FFI surface aliases
 /// internal storage; freeing here would corrupt the parent handle.
 pub(super) fn gen_unmarshal_bytes_helper() -> String {
-    "// unmarshalBytes copies a C byte buffer into a Go []byte.\n\
-     //\n\
-     // The pointer is treated as a NUL-terminated C string; binary payloads\n\
-     // that may contain interior NULs should be exposed by the FFI with an\n\
-     // explicit length out-parameter instead.\n\
-     func unmarshalBytes(ptr *C.uint8_t) *[]byte {\n\t\
-         if ptr == nil {\n\t\t\
-             return nil\n\t\
-         }\n\t\
-         v := []byte(C.GoString((*C.char)(unsafe.Pointer(ptr))))\n\t\
-         return &v\n\
-     }"
-    .to_string()
+    crate::template_env::render("unmarshal_bytes_helper.jinja", minijinja::Value::default())
 }
 
 /// Generate the lastError() helper function.
 pub(super) fn gen_last_error_helper(ffi_prefix: &str) -> String {
     // Note: ctx is a borrowed pointer into thread-local storage, NOT a heap allocation.
     // Do NOT call free_string on it — that causes a double-free crash on the next FFI call.
-    format!(
-        "// lastError retrieves the last error from the FFI layer.\nfunc lastError() error {{\n\t\
-         code := int32(C.{}_last_error_code())\n\t\
-         if code == 0 {{\n\t\treturn nil\n\t}}\n\t\
-         ctx := C.{}_last_error_context()\n\t\
-         message := C.GoString(ctx)\n\t\
-         return fmt.Errorf(\"[%d] %s\", code, message)\n\
-         }}",
-        ffi_prefix, ffi_prefix
+    crate::template_env::render(
+        "last_error_helper.jinja",
+        context! {
+            ffi_prefix => ffi_prefix,
+        },
     )
 }
 
@@ -109,7 +93,14 @@ pub(super) fn gen_last_error_helper(ffi_prefix: &str) -> String {
 /// - empty doc on `Message` → `"// Message <fallback>."`
 pub(super) fn emit_type_doc(out: &mut String, type_name: &str, doc: &str, fallback: &str) {
     if doc.is_empty() {
-        writeln!(out, "// {} {}", type_name, fallback).ok();
+        out.push_str(&crate::template_env::render(
+            "type_doc_header.jinja",
+            context! {
+                type_name => type_name,
+                doc => fallback,
+            },
+        ));
+        out.push('\n');
         return;
     }
     let mut lines = doc.lines();
@@ -117,8 +108,8 @@ pub(super) fn emit_type_doc(out: &mut String, type_name: &str, doc: &str, fallba
         let trimmed = first.trim();
         // Check whether the first line already starts with the type name.
         let already_starts = trimmed.starts_with(type_name);
-        if already_starts {
-            writeln!(out, "// {}", trimmed).ok();
+        let doc_text = if already_starts {
+            trimmed.to_string()
         } else {
             // Strip leading articles and rewrite as "<TypeName> <rest>".
             let rest = trimmed
@@ -137,10 +128,23 @@ pub(super) fn emit_type_doc(out: &mut String, type_name: &str, doc: &str, fallba
                     None => fallback.to_string(),
                 }
             };
-            writeln!(out, "// {} {}", type_name, rest).ok();
-        }
+            format!("{} {}", type_name, rest)
+        };
+        out.push_str(&crate::template_env::render(
+            "type_doc_header.jinja",
+            context! {
+                type_name => type_name,
+                doc => &doc_text,
+            },
+        ));
+        out.push('\n');
         for line in lines {
-            writeln!(out, "// {}", line.trim()).ok();
+            out.push_str(&crate::template_env::render(
+                "go_doc_comment_line.jinja",
+                context! {
+                    line => line.trim(),
+                },
+            ));
         }
     }
 }
@@ -180,12 +184,74 @@ pub(super) fn gen_enum_type(enum_def: &EnumDef) -> String {
 
         if any_tuple_field_is_named_struct {
             gen_tuple_tagged_union_type(enum_def)
+        } else if is_passthrough_raw_message_enum(enum_def) {
+            // Untagged enums whose variants mix scalar and collection shapes (e.g.
+            // `Single(String) | Multiple(Vec<String>)`, `Text(String) | Parts(Vec<Foo>)`)
+            // can't be modeled as `type X string` — Vec serializes to an array, not a
+            // string, and any decoded JSON must round-trip without rejecting either shape.
+            // Emit them as a `json.RawMessage` wrapper that passes the raw bytes through
+            // unchanged (mirrors the napi `serde_json::Value` wrapper for the same case).
+            gen_passthrough_raw_message_enum(enum_def)
         } else {
             gen_newtype_tuple_enum_type(enum_def)
         }
     } else {
         gen_data_enum_type(enum_def)
     }
+}
+
+/// Returns true if this enum should be emitted as a `json.RawMessage` passthrough
+/// type — used for untagged enums with mixed scalar/collection variants.
+pub(super) fn is_passthrough_raw_message_enum(enum_def: &EnumDef) -> bool {
+    let is_data_enum = enum_def.variants.iter().any(|v| !v.fields.is_empty());
+    if !is_data_enum {
+        return false;
+    }
+    let all_data_fields_are_tuple = enum_def
+        .variants
+        .iter()
+        .all(|v| v.fields.is_empty() || v.fields.iter().all(is_tuple_field));
+    if !all_data_fields_are_tuple {
+        return false;
+    }
+    let any_tuple_field_is_named_struct = enum_def.variants.iter().any(|v| {
+        v.fields
+            .iter()
+            .any(|f| is_tuple_field(f) && matches!(&f.ty, TypeRef::Named(_)))
+    });
+    if any_tuple_field_is_named_struct {
+        return false;
+    }
+    enum_def.variants.iter().any(|v| {
+        v.fields
+            .iter()
+            .any(|f| is_tuple_field(f) && matches!(&f.ty, TypeRef::Vec(_) | TypeRef::Map(_, _)))
+    })
+}
+
+/// Generate a Go type that wraps `json.RawMessage` for an untagged enum whose
+/// variants mix scalar and collection shapes — the wire form is whatever shape
+/// the value happened to have, and the Go side passes the bytes through.
+fn gen_passthrough_raw_message_enum(enum_def: &EnumDef) -> String {
+    let mut out = String::new();
+    let go_enum_name = go_type_name(&enum_def.name);
+    let variant_names: Vec<&str> = enum_def.variants.iter().map(|v| v.name.as_str()).collect();
+
+    emit_type_doc(
+        &mut out,
+        &go_enum_name,
+        &enum_def.doc,
+        "is an untagged union type whose variants have heterogeneous JSON shapes \
+         (scalar vs. array). Stored as raw JSON bytes so any variant round-trips.",
+    );
+    out.push_str(&crate::template_env::render(
+        "passthrough_raw_message_enum_body.jinja",
+        context! {
+            enum_name => &go_enum_name,
+            variants => variant_names.join(", "),
+        },
+    ));
+    out
 }
 
 /// Compute the wire value for a unit enum variant.
@@ -212,23 +278,30 @@ fn gen_newtype_tuple_enum_type(enum_def: &EnumDef) -> String {
     let mut out = String::with_capacity(1024);
     let go_enum_name = go_type_name(&enum_def.name);
     emit_type_doc(&mut out, &go_enum_name, &enum_def.doc, "is an enumeration type.");
-    writeln!(out, "type {} string", go_enum_name).ok();
-    writeln!(out).ok();
-    writeln!(out, "const (").ok();
+    out.push_str(&crate::template_env::render(
+        "string_type_decl.jinja",
+        minijinja::context! {
+            name => &go_enum_name,
+        },
+    ));
+    out.push('\n');
+    out.push_str(&crate::template_env::render(
+        "const_block_header.jinja",
+        minijinja::Value::default(),
+    ));
     for variant in &enum_def.variants {
-        // Only emit constants for unit (non-data) variants.
-        // Tuple/data variants (e.g. Custom(String)) are represented as raw string values.
         if !variant.fields.is_empty() {
             continue;
         }
         let const_name = format!("{}{}", go_enum_name, to_go_name(&variant.name));
         let wire_value = enum_variant_wire_value(variant, enum_def);
-        if !variant.doc.is_empty() {
+        let doc_lines: Vec<String> = if !variant.doc.is_empty() {
             let mut lines = variant.doc.lines();
+            let mut result = Vec::new();
             if let Some(first) = lines.next() {
                 let trimmed = first.trim();
-                if trimmed.starts_with(&const_name) {
-                    writeln!(out, "\t// {}", trimmed).ok();
+                let first_line = if trimmed.starts_with(&const_name) {
+                    trimmed.to_string()
                 } else {
                     let rest = {
                         let mut chars = trimmed.chars();
@@ -237,23 +310,32 @@ fn gen_newtype_tuple_enum_type(enum_def: &EnumDef) -> String {
                             None => trimmed.to_string(),
                         }
                     };
-                    writeln!(out, "\t// {} {}", const_name, rest).ok();
-                }
-                for line in lines {
-                    writeln!(out, "\t// {}", line.trim()).ok();
-                }
+                    format!("{} {}", const_name, rest)
+                };
+                result.push(first_line);
+                result.extend(lines.map(|l| l.trim().to_string()));
             }
+            result
         } else {
-            writeln!(
-                out,
-                "\t// {} is the {} variant of {}.",
+            vec![format!(
+                "{} is the {} variant of {}.",
                 const_name, variant.name, enum_def.name
-            )
-            .ok();
-        }
-        writeln!(out, "\t{} {} = \"{}\"", const_name, go_enum_name, wire_value).ok();
+            )]
+        };
+        out.push_str(&crate::template_env::render(
+            "const_variant.jinja",
+            minijinja::context! {
+                const_name => &const_name,
+                type_name => &go_enum_name,
+                wire_value => &wire_value,
+                doc_lines => &doc_lines,
+            },
+        ));
     }
-    writeln!(out, ")").ok();
+    out.push_str(&crate::template_env::render(
+        "const_block_footer.jinja",
+        minijinja::Value::default(),
+    ));
     out
 }
 
@@ -277,6 +359,7 @@ fn gen_newtype_tuple_enum_type(enum_def: &EnumDef) -> String {
 fn gen_tuple_tagged_union_type(enum_def: &EnumDef) -> String {
     let mut out = String::with_capacity(2048);
     let go_enum_name = go_type_name(&enum_def.name);
+    let is_untagged = enum_def.serde_untagged;
 
     // Collect variant names for the doc comment
     let variant_names: Vec<&str> = enum_def.variants.iter().map(|v| v.name.as_str()).collect();
@@ -285,14 +368,30 @@ fn gen_tuple_tagged_union_type(enum_def: &EnumDef) -> String {
         &mut out,
         &go_enum_name,
         &enum_def.doc,
-        "is a tagged union type (discriminated by format_type).",
+        if is_untagged {
+            "is an untagged union type (variants discriminated by JSON shape)."
+        } else {
+            "is a tagged union type (discriminated by format_type)."
+        },
     );
-    writeln!(out, "// Variants: {}", variant_names.join(", ")).ok();
-    writeln!(out, "type {} struct {{", go_enum_name).ok();
+    out.push_str(&crate::template_env::render(
+        "tagged_union_struct_header.jinja",
+        context! {
+            go_enum_name => &go_enum_name,
+            variants_list => variant_names.join(", "),
+        },
+    ));
 
     // Emit the serde tag discriminator field first (e.g. `FormatType string \`json:"format_type"\``).
     if let Some(tag_name) = &enum_def.serde_tag {
-        writeln!(out, "\t{} string `json:\"{}\"`", to_go_name(tag_name), tag_name).ok();
+        let tag_field = to_go_name(tag_name);
+        out.push_str(&crate::template_env::render(
+            "tagged_union_tag_field.jinja",
+            context! {
+                tag_field => &tag_field,
+                tag_name => tag_name,
+            },
+        ));
     }
 
     // Emit one pointer field per variant
@@ -309,173 +408,215 @@ fn gen_tuple_tagged_union_type(enum_def: &EnumDef) -> String {
                 let json_field_name =
                     apply_serde_rename(&variant.name.to_snake_case(), enum_def.serde_rename_all.as_deref());
 
-                if !variant.doc.is_empty() {
-                    for line in variant.doc.lines() {
-                        writeln!(out, "\t// {}", line.trim()).ok();
-                    }
-                }
-                writeln!(
-                    out,
-                    "\t{} *{} `json:\"{},omitempty\"`",
-                    field_name, go_struct_type, json_field_name
-                )
-                .ok();
+                let doc_lines: Vec<&str> = if !variant.doc.is_empty() {
+                    variant.doc.lines().map(|l| l.trim()).collect()
+                } else {
+                    vec![]
+                };
+
+                out.push_str(&crate::template_env::render(
+                    "tagged_union_variant_field.jinja",
+                    context! {
+                        doc_lines => doc_lines,
+                        field_name => &field_name,
+                        struct_type => &go_struct_type,
+                        json_field_name => &json_field_name,
+                    },
+                ));
             }
         }
     }
 
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
+    out.push_str("}\n\n");
 
-    // Generate MarshalJSON
-    let tag_field_name = if let Some(tn) = &enum_def.serde_tag {
-        to_go_name(tn)
+    if is_untagged {
+        emit_untagged_union_marshalers(&mut out, &go_enum_name, enum_def);
     } else {
-        "Type".to_string()
-    };
-    let tag_name = if let Some(tn) = &enum_def.serde_tag {
-        tn.as_str()
-    } else {
-        "type"
-    };
+        emit_tagged_union_marshalers(&mut out, &go_enum_name, enum_def);
+    }
 
-    writeln!(
-        out,
-        "// MarshalJSON encodes the tagged union with the discriminator tag."
-    )
-    .ok();
-    writeln!(out, "func (t {go_enum_name}) MarshalJSON() ([]byte, error) {{").ok();
-    writeln!(out, "\tswitch t.{} {{", tag_field_name).ok();
+    out
+}
+
+/// Emit MarshalJSON / UnmarshalJSON for `#[serde(tag = "...")]` enums.
+fn emit_tagged_union_marshalers(out: &mut String, go_enum_name: &str, enum_def: &EnumDef) {
+    let tag_name = enum_def
+        .serde_tag
+        .as_deref()
+        .expect("emit_tagged_union_marshalers called for untagged enum");
+    let tag_field_name = to_go_name(tag_name);
+
+    out.push_str(&crate::template_env::render(
+        "tagged_union_marshal_json_header.jinja",
+        context! {
+            go_enum_name => go_enum_name,
+            tag_field_name => &tag_field_name,
+        },
+    ));
 
     for variant in &enum_def.variants {
         if variant.fields.is_empty() {
             continue;
         }
-
         if let Some(field) = variant.fields.iter().find(|f| is_tuple_field(f)) {
             if let TypeRef::Named(_) = &field.ty {
                 let variant_go_name = to_go_name(&variant.name);
                 let wire_value = enum_variant_wire_value(variant, enum_def);
-
-                writeln!(out, "\tcase \"{}\":", wire_value).ok();
-                writeln!(out, "\t\tif t.{} != nil {{", variant_go_name).ok();
-                writeln!(out, "\t\t\tdata, err := json.Marshal(t.{})", variant_go_name).ok();
-                writeln!(out, "\t\t\tif err != nil {{ return nil, err }}").ok();
-                writeln!(out, "\t\t\tvar m map[string]json.RawMessage").ok();
-                writeln!(
-                    out,
-                    "\t\t\tif err := json.Unmarshal(data, &m); err != nil {{ return nil, err }}"
-                )
-                .ok();
-                writeln!(out, "\t\t\tm[\"{}\"] = []byte(`\"{}\"`)", tag_name, wire_value).ok();
-                writeln!(out, "\t\t\treturn json.Marshal(m)").ok();
-                writeln!(out, "\t\t}}").ok();
+                out.push_str(&crate::template_env::render(
+                    "tagged_union_marshal_variant.jinja",
+                    context! {
+                        wire_value => &wire_value,
+                        variant_go_name => &variant_go_name,
+                        tag_name => tag_name,
+                    },
+                ));
             }
         }
     }
 
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "\t// Fallback: return just the tag").ok();
-    writeln!(
-        out,
-        "\treturn json.Marshal(map[string]string{{\"{}\": t.{}}})",
-        tag_name, tag_field_name
-    )
-    .ok();
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
+    out.push_str(&crate::template_env::render(
+        "tagged_union_marshal_json_footer.jinja",
+        context! {
+            tag_name => tag_name,
+            tag_field_name => &tag_field_name,
+        },
+    ));
+    out.push('\n');
 
-    // Generate UnmarshalJSON
-    writeln!(out, "// UnmarshalJSON decodes a tagged union by reading the tag first.").ok();
-    writeln!(out, "func (t *{go_enum_name}) UnmarshalJSON(data []byte) error {{").ok();
-    writeln!(out, "\t// Probe for the tag first").ok();
-    writeln!(out, "\tvar probe struct {{").ok();
-    if let Some(tn) = &enum_def.serde_tag {
-        writeln!(out, "\t\t{} string `json:\"{}\"`", to_go_name(tn), tn).ok();
-    }
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "\tif err := json.Unmarshal(data, &probe); err != nil {{").ok();
-    writeln!(out, "\t\treturn err").ok();
-    writeln!(out, "\t}}").ok();
-
-    writeln!(out, "\tt.{} = probe.{}", tag_field_name, tag_field_name).ok();
-
-    writeln!(out, "\tswitch probe.{} {{", tag_field_name).ok();
+    out.push_str(&crate::template_env::render(
+        "tagged_union_unmarshal_json_header.jinja",
+        context! {
+            go_enum_name => go_enum_name,
+            tag_field_name => &tag_field_name,
+            tag_name => tag_name,
+        },
+    ));
 
     for variant in &enum_def.variants {
         if variant.fields.is_empty() {
             continue;
         }
-
         if let Some(field) = variant.fields.iter().find(|f| is_tuple_field(f)) {
             if let TypeRef::Named(struct_type_name) = &field.ty {
                 let go_struct_type = go_type_name(struct_type_name);
                 let variant_go_name = to_go_name(&variant.name);
                 let wire_value = enum_variant_wire_value(variant, enum_def);
-
-                writeln!(out, "\tcase \"{}\":", wire_value).ok();
-                writeln!(out, "\t\tt.{} = &{}{{}}", variant_go_name, go_struct_type).ok();
-                writeln!(out, "\t\treturn json.Unmarshal(data, t.{})", variant_go_name).ok();
+                out.push_str(&crate::template_env::render(
+                    "tagged_union_unmarshal_variant.jinja",
+                    context! {
+                        wire_value => &wire_value,
+                        variant_go_name => &variant_go_name,
+                        go_struct_type => &go_struct_type,
+                    },
+                ));
             }
         }
     }
 
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "\treturn nil").ok();
-    writeln!(out, "}}").ok();
+    out.push_str(&crate::template_env::render(
+        "tagged_union_unmarshal_json_footer.jinja",
+        minijinja::Value::default(),
+    ));
+}
 
-    out
+/// Emit MarshalJSON / UnmarshalJSON for `#[serde(untagged)]` enums.
+///
+/// Marshal: dispatch on the first non-nil variant pointer.
+/// Unmarshal: try each variant in declaration order; return on first success.
+/// Uses `var v T; t.Field = &v` to allocate so that variant types which are
+/// string aliases (e.g. `type Mode string`) work alongside struct types.
+fn emit_untagged_union_marshalers(out: &mut String, go_enum_name: &str, enum_def: &EnumDef) {
+    let variants_with_types: Vec<(String, String)> = enum_def
+        .variants
+        .iter()
+        .filter_map(|v| {
+            if v.fields.is_empty() {
+                return None;
+            }
+            v.fields.iter().find(|f| is_tuple_field(f)).and_then(|f| {
+                if let TypeRef::Named(struct_type_name) = &f.ty {
+                    Some((to_go_name(&v.name), go_type_name(struct_type_name)))
+                } else {
+                    None
+                }
+            })
+        })
+        .collect();
+
+    let variants: Vec<minijinja::Value> = variants_with_types
+        .iter()
+        .map(|(field, ty)| {
+            context! {
+                field => field,
+                ty => ty,
+            }
+        })
+        .collect();
+
+    out.push_str(&crate::template_env::render(
+        "untagged_union_marshalers.jinja",
+        context! {
+            enum_name => go_enum_name,
+            variants => variants,
+        },
+    ));
 }
 
 /// Generate a Go unit enum as `type X string` with const block.
 fn gen_unit_enum_type(enum_def: &EnumDef) -> String {
-    let mut out = String::with_capacity(1024);
-
     let go_enum_name = go_type_name(&enum_def.name);
-    emit_type_doc(&mut out, &go_enum_name, &enum_def.doc, "is an enumeration type.");
-    writeln!(out, "type {} string", go_enum_name).ok();
-    writeln!(out).ok();
-    writeln!(out, "const (").ok();
 
-    for variant in &enum_def.variants {
-        let const_name = format!("{}{}", go_enum_name, to_go_name(&variant.name));
-        let wire_value = enum_variant_wire_value(variant, enum_def);
-        if !variant.doc.is_empty() {
-            // revive requires the first comment line to start with the const name.
-            // Prepend the const name if the existing doc doesn't already start with it.
-            let mut lines = variant.doc.lines();
-            if let Some(first) = lines.next() {
-                let trimmed = first.trim();
-                if trimmed.starts_with(&const_name) {
-                    writeln!(out, "\t// {}", trimmed).ok();
-                } else {
-                    // Lowercase first char so the sentence reads naturally after the const name.
-                    let rest = {
-                        let mut chars = trimmed.chars();
-                        match chars.next() {
-                            Some(c) => c.to_lowercase().to_string() + chars.as_str(),
-                            None => trimmed.to_string(),
-                        }
+    let variants: Vec<minijinja::Value> = enum_def
+        .variants
+        .iter()
+        .map(|v| {
+            let const_name = format!("{}{}", go_enum_name, to_go_name(&v.name));
+            let wire_value = enum_variant_wire_value(v, enum_def);
+
+            let mut doc_lines = Vec::new();
+            let doc_first_line = if !v.doc.is_empty() {
+                let mut lines = v.doc.lines();
+                if let Some(first) = lines.next() {
+                    let trimmed = first.trim();
+                    let first_line = if trimmed.starts_with(&const_name) {
+                        trimmed.to_string()
+                    } else {
+                        let rest = {
+                            let mut chars = trimmed.chars();
+                            match chars.next() {
+                                Some(c) => c.to_lowercase().to_string() + chars.as_str(),
+                                None => trimmed.to_string(),
+                            }
+                        };
+                        format!("{} {}", const_name, rest)
                     };
-                    writeln!(out, "\t// {} {}", const_name, rest).ok();
+                    doc_lines = lines.map(|l| l.trim().to_string()).collect();
+                    first_line
+                } else {
+                    String::new()
                 }
-                for line in lines {
-                    writeln!(out, "\t// {}", line.trim()).ok();
-                }
-            }
-        } else {
-            writeln!(
-                out,
-                "\t// {} is the {} variant of {}.",
-                const_name, variant.name, enum_def.name
-            )
-            .ok();
-        }
-        writeln!(out, "\t{} {} = \"{}\"", const_name, go_enum_name, wire_value).ok();
-    }
+            } else {
+                format!("{} is the {} variant of {}.", const_name, v.name, enum_def.name)
+            };
 
-    writeln!(out, ")").ok();
-    out
+            context! {
+                const_name => const_name,
+                rust_name => v.name,
+                doc_first_line => doc_first_line,
+                doc_lines => doc_lines,
+                wire_value => wire_value,
+            }
+        })
+        .collect();
+
+    crate::template_env::render(
+        "unit_enum.jinja",
+        context! {
+            go_name => go_enum_name,
+            enum_name => enum_def.name,
+            variants => variants,
+        },
+    )
 }
 
 /// Generate a Go data enum as a flattened struct with JSON tags.
@@ -496,15 +637,32 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
         &enum_def.doc,
         "is a tagged union type (discriminated by JSON tag).",
     );
-    writeln!(out, "// Variants: {}", variant_names.join(", ")).ok();
-    writeln!(out, "type {} struct {{", go_enum_name).ok();
-    writeln!(out, "\tVariant string `json:\"-\"`").ok();
+    out.push_str(&crate::template_env::render(
+        "variant_comment.jinja",
+        minijinja::context! {
+            variants => variant_names.join(", "),
+        },
+    ));
+    out.push_str(&crate::template_env::render(
+        "struct_type_decl.jinja",
+        minijinja::context! {
+            name => &go_enum_name,
+        },
+    ));
+    out.push_str("\tVariant string `json:\"-\"`\n");
 
     // Emit the serde tag discriminator field first (e.g. `Type string \`json:"type"\``).
     // This ensures round-trip JSON serialization preserves the variant discriminator,
     // which Rust needs to deserialize the correct enum variant.
     if let Some(tag_name) = &enum_def.serde_tag {
-        writeln!(out, "\t{} string `json:\"{}\"`", to_go_name(tag_name), tag_name).ok();
+        out.push_str(&crate::template_env::render(
+            "tag_field.jinja",
+            minijinja::context! {
+                tag_field => to_go_name(tag_name),
+                json_name => tag_name,
+            },
+        ));
+        out.push('\n');
     }
 
     // Collect and deduplicate fields across all variants.
@@ -540,69 +698,48 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
             format!("json:\"{}\"", field_name)
         };
 
-        if !field.doc.is_empty() {
-            for line in field.doc.lines() {
-                writeln!(out, "\t// {}", line.trim()).ok();
-            }
-        }
-        writeln!(out, "\t{} {} `{}`", to_go_name(field_name), field_type, json_tag).ok();
+        let doc_lines: Vec<&str> = if !field.doc.is_empty() {
+            field.doc.lines().map(|l| l.trim()).collect()
+        } else {
+            vec![]
+        };
+        out.push_str(&crate::template_env::render(
+            "struct_field.jinja",
+            minijinja::context! {
+                doc_lines => doc_lines,
+                field_name => to_go_name(field_name),
+                field_type => &field_type,
+                json_tag => &json_tag,
+            },
+        ));
     }
 
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
-    writeln!(out, "func (e {go_enum_name}) String() string {{").ok();
-    writeln!(out, "\treturn e.Variant").ok();
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
-    writeln!(out, "func (e {go_enum_name}) MarshalJSON() ([]byte, error) {{").ok();
-    writeln!(out, "\tif e.Variant != \"\" {{").ok();
-    writeln!(out, "\t\treturn json.Marshal(e.Variant)").ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "\ttype alias {go_enum_name}").ok();
-    writeln!(out, "\treturn json.Marshal(alias(e))").ok();
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
-    writeln!(out, "func (e *{go_enum_name}) UnmarshalJSON(data []byte) error {{").ok();
-    writeln!(out, "\tvar wire string").ok();
-    writeln!(out, "\tif err := json.Unmarshal(data, &wire); err == nil {{").ok();
-    writeln!(out, "\t\te.Variant = wire").ok();
-    writeln!(out, "\t\treturn nil").ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "\tvar tagged map[string]json.RawMessage").ok();
-    writeln!(
-        out,
-        "\tif err := json.Unmarshal(data, &tagged); err == nil && len(tagged) == 1 {{"
-    )
-    .ok();
-    writeln!(out, "\t\tfor variant, payload := range tagged {{").ok();
-    writeln!(out, "\t\t\te.Variant = variant").ok();
-    writeln!(out, "\t\t\tif string(payload) != \"null\" {{").ok();
-    writeln!(out, "\t\t\t\ttype alias {go_enum_name}").ok();
-    writeln!(out, "\t\t\t\tvar decoded alias").ok();
-    writeln!(
-        out,
-        "\t\t\t\tif err := json.Unmarshal(payload, &decoded); err == nil {{"
-    )
-    .ok();
-    writeln!(out, "\t\t\t\t\t*e = {go_enum_name}(decoded)").ok();
-    writeln!(out, "\t\t\t\t\te.Variant = variant").ok();
-    writeln!(out, "\t\t\t\t}}").ok();
-    writeln!(out, "\t\t\t}}").ok();
-    writeln!(out, "\t\t\treturn nil").ok();
-    writeln!(out, "\t\t}}").ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "\ttype alias {go_enum_name}").ok();
-    writeln!(out, "\tvar decoded alias").ok();
-    writeln!(out, "\tif err := json.Unmarshal(data, &decoded); err != nil {{").ok();
-    writeln!(out, "\t\treturn err").ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "\t*e = {go_enum_name}(decoded)").ok();
-    if let Some(tag_name) = &enum_def.serde_tag {
-        let tag_field = to_go_name(tag_name);
-        writeln!(out, "\te.Variant = e.{tag_field}").ok();
-    }
-    writeln!(out, "\treturn nil").ok();
-    writeln!(out, "}}").ok();
+    out.push_str(&crate::template_env::render(
+        "struct_type_end.jinja",
+        minijinja::Value::default(),
+    ));
+    out.push('\n');
+    out.push_str(&crate::template_env::render(
+        "enum_string_method.jinja",
+        minijinja::context! {
+            enum_name => &go_enum_name,
+        },
+    ));
+    let tag_field = enum_def.serde_tag.as_ref().map(|tn| to_go_name(tn));
+    out.push_str(&crate::template_env::render(
+        "enum_marshal_json.jinja",
+        minijinja::context! {
+            enum_name => &go_enum_name,
+            tag_field => tag_field.as_deref().unwrap_or(""),
+        },
+    ));
+    out.push_str(&crate::template_env::render(
+        "enum_unmarshal_json.jinja",
+        minijinja::context! {
+            enum_name => &go_enum_name,
+            tag_field => tag_field.as_deref().unwrap_or(""),
+        },
+    ));
     out
 }
 
@@ -616,29 +753,19 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
 /// `C.{prefix}_{type_snake}()` would reference a C function that does not exist in
 /// the FFI layer.
 pub(super) fn gen_opaque_type(typ: &TypeDef, ffi_prefix: &str) -> String {
-    let mut out = String::with_capacity(512);
     let type_snake = typ.name.to_snake_case();
     let go_name = go_type_name(&typ.name);
-
-    emit_type_doc(&mut out, &go_name, &typ.doc, "is an opaque handle type.");
-    writeln!(out, "type {} struct {{", go_name).ok();
-    writeln!(out, "\tptr unsafe.Pointer").ok();
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
-
-    // Free method. typ.name is already PascalCase from Rust IR; ToPascalCase
-    // would mangle all-caps acronyms (GraphQL -> GraphQl) and disagree with
-    // cbindgen's actual C type name.
     let c_type = format!("{}{}", ffi_prefix.to_uppercase(), typ.name);
-    writeln!(out, "// Free releases the resources held by this handle.").ok();
-    writeln!(out, "func (h *{}) Free() {{", go_name).ok();
-    writeln!(out, "\tif h.ptr != nil {{").ok();
-    writeln!(out, "\t\tC.{}_{}_free((*C.{})(h.ptr))", ffi_prefix, type_snake, c_type).ok();
-    writeln!(out, "\t\th.ptr = nil").ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "}}").ok();
 
-    out
+    crate::template_env::render(
+        "opaque_type.jinja",
+        context! {
+            go_name => go_name,
+            ffi_prefix => ffi_prefix,
+            type_snake => type_snake,
+            c_type => c_type,
+        },
+    )
 }
 
 /// Generate only the `Free()` method for an opaque handle type whose struct definition
@@ -664,7 +791,12 @@ pub(super) fn gen_struct_type(typ: &TypeDef, enum_names: &std::collections::Hash
 
     let go_name = go_type_name(&typ.name);
     emit_type_doc(&mut out, &go_name, &typ.doc, "is a type.");
-    writeln!(out, "type {} struct {{", go_name).ok();
+    out.push_str(&crate::template_env::render(
+        "struct_type_decl.jinja",
+        minijinja::context! {
+            name => &go_name,
+        },
+    ));
 
     for field in &typ.fields {
         if is_tuple_field(field) {
@@ -677,12 +809,26 @@ pub(super) fn gen_struct_type(typ: &TypeDef, enum_names: &std::collections::Hash
             field.name == "visitor" && matches!(&field.ty, TypeRef::Named(n) if n.contains("Visitor"));
 
         if is_visitor_field {
-            if !field.doc.is_empty() {
-                for line in field.doc.lines() {
-                    writeln!(out, "\t// {}", line.trim()).ok();
-                }
+            let doc_lines: Vec<&str> = if !field.doc.is_empty() {
+                field.doc.lines().map(|l| l.trim()).collect()
+            } else {
+                vec![]
+            };
+            if !doc_lines.is_empty() {
+                out.push_str(&crate::template_env::render(
+                    "visitor_field_doc.jinja",
+                    minijinja::context! {
+                        doc_lines => &doc_lines,
+                    },
+                ));
             }
-            writeln!(out, "\t{} Visitor `json:\"-\"`", to_go_name(&field.name)).ok();
+            out.push_str(&crate::template_env::render(
+                "visitor_field.jinja",
+                minijinja::context! {
+                    field_name => to_go_name(&field.name),
+                },
+            ));
+            out.push('\n');
             continue;
         }
 
@@ -713,7 +859,11 @@ pub(super) fn gen_struct_type(typ: &TypeDef, enum_names: &std::collections::Hash
         // in Go, which breaks Rust serde deserialization expecting an array), fields
         // where the Go zero value differs from the Rust Default value, and string enum
         // fields where "" is never a valid Rust enum variant.
-        let json_name = apply_serde_rename(&field.name, typ.serde_rename_all.as_deref());
+        // Per-field `#[serde(rename = "...")]` wins over `rename_all`.
+        let json_name = field
+            .serde_rename
+            .clone()
+            .unwrap_or_else(|| apply_serde_rename(&field.name, typ.serde_rename_all.as_deref()));
         let is_collection = matches!(&field.ty, TypeRef::Vec(_) | TypeRef::Map(_, _));
         let json_tag = if field.optional || is_collection || use_default_pointer || is_named_enum {
             format!("json:\"{},omitempty\"", json_name)
@@ -721,15 +871,26 @@ pub(super) fn gen_struct_type(typ: &TypeDef, enum_names: &std::collections::Hash
             format!("json:\"{}\"", json_name)
         };
 
-        if !field.doc.is_empty() {
-            for line in field.doc.lines() {
-                writeln!(out, "\t// {}", line.trim()).ok();
-            }
-        }
-        writeln!(out, "\t{} {} `{}`", to_go_name(&field.name), field_type, json_tag).ok();
+        let doc_lines: Vec<&str> = if !field.doc.is_empty() {
+            field.doc.lines().map(|l| l.trim()).collect()
+        } else {
+            vec![]
+        };
+        out.push_str(&crate::template_env::render(
+            "struct_field.jinja",
+            minijinja::context! {
+                doc_lines => doc_lines,
+                field_name => to_go_name(&field.name),
+                field_type => &field_type,
+                json_tag => &json_tag,
+            },
+        ));
     }
 
-    writeln!(out, "}}").ok();
+    out.push_str(&crate::template_env::render(
+        "struct_type_end.jinja",
+        minijinja::Value::default(),
+    ));
 
     // If any field is a `[]byte` (Vec<u8>), emit custom MarshalJSON so the bytes
     // serialize as a JSON array of integers — matching what Rust's serde
@@ -742,22 +903,13 @@ pub(super) fn gen_struct_type(typ: &TypeDef, enum_names: &std::collections::Hash
         .filter(|f| !is_tuple_field(f) && matches!(&f.ty, TypeRef::Bytes))
         .collect();
     if !bytes_fields.is_empty() {
-        writeln!(out).ok();
-        writeln!(
-            out,
-            "// MarshalJSON serializes `[]byte` fields as a JSON array of integers (the format"
-        )
-        .ok();
-        writeln!(
-            out,
-            "// Rust's serde `Vec<u8>` deserializer expects) instead of Go's default base64 string."
-        )
-        .ok();
-        writeln!(out, "func (v {go_name}) MarshalJSON() ([]byte, error) {{").ok();
-        // Explicit shadow struct listing every field — embedding the original
-        // would cause both base64-string and int-array entries for the same JSON
-        // key. Bytes fields rendered as `[]int`; everything else copied verbatim.
-        writeln!(out, "\taux := struct {{").ok();
+        out.push('\n');
+        out.push_str(&crate::template_env::render(
+            "struct_marshal_json_header.jinja",
+            context! {
+                go_name => &go_name,
+            },
+        ));
         for field in &typ.fields {
             if is_tuple_field(field) {
                 continue;
@@ -768,7 +920,11 @@ pub(super) fn gen_struct_type(typ: &TypeDef, enum_names: &std::collections::Hash
                 continue;
             }
             let go_field = to_go_name(&field.name);
-            let json_name = apply_serde_rename(&field.name, typ.serde_rename_all.as_deref());
+            // Per-field `#[serde(rename = "...")]` wins over `rename_all`.
+            let json_name = field
+                .serde_rename
+                .clone()
+                .unwrap_or_else(|| apply_serde_rename(&field.name, typ.serde_rename_all.as_deref()));
             let use_default_pointer = !field.optional && typ.has_default && needs_omitempty_pointer(field);
             let is_named_enum = !field.optional
                 && !use_default_pointer
@@ -787,9 +943,19 @@ pub(super) fn gen_struct_type(typ: &TypeDef, enum_names: &std::collections::Hash
             } else {
                 go_type(&field.ty).to_string()
             };
-            writeln!(out, "\t\t{} {} `{}`", go_field, go_field_type, json_tag).ok();
+            out.push_str(&crate::template_env::render(
+                "struct_marshal_aux_field.jinja",
+                context! {
+                    field_name => &go_field,
+                    field_type => &go_field_type,
+                    json_tag => &json_tag,
+                },
+            ));
         }
-        writeln!(out, "\t}}{{}}").ok();
+        out.push_str(&crate::template_env::render(
+            "struct_marshal_aux_init.jinja",
+            minijinja::Value::default(),
+        ));
         for field in &typ.fields {
             if is_tuple_field(field) {
                 continue;
@@ -805,24 +971,33 @@ pub(super) fn gen_struct_type(typ: &TypeDef, enum_names: &std::collections::Hash
                 let is_pointer = field.optional || use_default_pointer;
                 if is_pointer {
                     // Optional `*[]byte` field: only encode when non-nil.
-                    writeln!(out, "\tif v.{} != nil {{", go_field).ok();
-                    writeln!(out, "\t\taux.{} = make([]int, len(*v.{}))", go_field, go_field).ok();
-                    writeln!(out, "\t\tfor i, b := range *v.{} {{", go_field).ok();
-                    writeln!(out, "\t\t\taux.{}[i] = int(b)", go_field).ok();
-                    writeln!(out, "\t\t}}").ok();
-                    writeln!(out, "\t}}").ok();
+                    out.push_str(&crate::template_env::render(
+                        "struct_marshal_bytes_field_pointer.jinja",
+                        context! {
+                            go_field => &go_field,
+                        },
+                    ));
                 } else {
-                    writeln!(out, "\taux.{} = make([]int, len(v.{}))", go_field, go_field).ok();
-                    writeln!(out, "\tfor i, b := range v.{} {{", go_field).ok();
-                    writeln!(out, "\t\taux.{}[i] = int(b)", go_field).ok();
-                    writeln!(out, "\t}}").ok();
+                    out.push_str(&crate::template_env::render(
+                        "struct_marshal_bytes_field_nonpointer.jinja",
+                        context! {
+                            go_field => &go_field,
+                        },
+                    ));
                 }
             } else {
-                writeln!(out, "\taux.{} = v.{}", go_field, go_field).ok();
+                out.push_str(&crate::template_env::render(
+                    "struct_marshal_regular_field.jinja",
+                    context! {
+                        go_field => &go_field,
+                    },
+                ));
             }
         }
-        writeln!(out, "\treturn json.Marshal(aux)").ok();
-        writeln!(out, "}}").ok();
+        out.push_str(&crate::template_env::render(
+            "struct_marshal_json_footer.jinja",
+            minijinja::Value::default(),
+        ));
     }
 
     out
@@ -1024,14 +1199,22 @@ fn go_return_expr_inner(
 
 /// Generate functional options pattern for Go config types with defaults.
 /// Produces ConfigOption type and WithFieldName constructors.
-pub(super) fn gen_config_options(typ: &TypeDef, enum_names: &std::collections::HashSet<&str>) -> String {
+pub(super) fn gen_config_options(
+    typ: &TypeDef,
+    enum_names: &std::collections::HashSet<&str>,
+    passthrough_enum_names: &std::collections::HashSet<&str>,
+) -> String {
     let mut out = String::with_capacity(2048);
 
     // ConfigOption type definition
     let go_name = go_type_name(&typ.name);
-    writeln!(out, "// {}Option is an option function for {}.", go_name, go_name).ok();
-    writeln!(out, "type {}Option func(*{})", go_name, go_name).ok();
-    writeln!(out).ok();
+    out.push_str(&crate::template_env::render(
+        "config_option_type_header.jinja",
+        context! {
+            go_name => &go_name,
+        },
+    ));
+    out.push('\n');
 
     // Generate WithFieldName constructors for each field
     for field in &typ.fields {
@@ -1056,18 +1239,14 @@ pub(super) fn gen_config_options(typ: &TypeDef, enum_names: &std::collections::H
             go_type(&field.ty)
         };
 
-        writeln!(
-            out,
-            "// With{}{} sets the {} field.",
-            go_name, field_go_name, field.name
-        )
-        .ok();
-        writeln!(
-            out,
-            "func With{}{}(v {}) {}Option {{",
-            go_name, field_go_name, param_type, go_name
-        )
-        .ok();
+        out.push_str(&crate::template_env::render(
+            "config_with_option_comment.jinja",
+            context! {
+                go_name => &go_name,
+                field_go_name => &field_go_name,
+                field_name => &field.name,
+            },
+        ));
         // Optional fields and fields that use pointer+omitempty (to preserve Rust defaults) both
         // store pointer types in the struct, so we must take the address of v when assigning.
         // Exception: slice (Vec) and map types are reference types in Go — go_optional_type
@@ -1075,20 +1254,25 @@ pub(super) fn gen_config_options(typ: &TypeDef, enum_names: &std::collections::H
         let is_slice_or_map = matches!(&field.ty, TypeRef::Vec(_) | TypeRef::Map(_, _));
         let use_ptr = !is_visitor_field && (field.optional || needs_omitempty_pointer(field)) && !is_slice_or_map;
         let assign_val = if use_ptr { "&v" } else { "v" };
-        writeln!(
-            out,
-            "\treturn func(c *{}) {{ c.{} = {} }}",
-            go_name, field_go_name, assign_val
-        )
-        .ok();
-        writeln!(out, "}}").ok();
-        writeln!(out).ok();
+        out.push_str(&crate::template_env::render(
+            "config_with_option_signature.jinja",
+            context! {
+                go_name => &go_name,
+                field_go_name => &field_go_name,
+                param_type => param_type.as_ref(),
+                assign_val => assign_val,
+            },
+        ));
+        out.push('\n');
     }
 
     // Generate NewConfig constructor
-    writeln!(out, "// New{} creates a {} with optional parameters.", go_name, go_name).ok();
-    writeln!(out, "func New{}(opts ...{}Option) *{} {{", go_name, go_name, go_name).ok();
-    writeln!(out, "\tc := &{} {{", go_name).ok();
+    out.push_str(&crate::template_env::render(
+        "config_new_constructor_header.jinja",
+        context! {
+            go_name => &go_name,
+        },
+    ));
 
     // Set default values for fields
     for field in &typ.fields {
@@ -1104,12 +1288,22 @@ pub(super) fn gen_config_options(typ: &TypeDef, enum_names: &std::collections::H
             "nil".to_string()
         } else {
             let mut val = alef_codegen::config_gen::default_value_for_field(field, "go");
+            // Passthrough json.RawMessage-backed enum: zero value is `nil` (a nil
+            // []byte slice). Override unconditionally — config_gen would otherwise
+            // return `""` for `String` defaults baked into the IR for these types.
+            if let TypeRef::Named(name) = &field.ty {
+                if passthrough_enum_names.contains(name.as_str()) {
+                    val = "nil".to_string();
+                }
+            }
             // config_gen returns "nil" for Named types with Empty default, but in Go
             // non-optional Named types are value types. Fix up based on whether the
             // Named type is a string-based enum or a struct.
             if val == "nil" {
                 if let TypeRef::Named(name) = &field.ty {
-                    if enum_names.contains(name.as_str()) {
+                    if passthrough_enum_names.contains(name.as_str()) {
+                        // already handled above; keep nil
+                    } else if enum_names.contains(name.as_str()) {
                         // String-typed enum — zero value is empty string
                         val = "\"\"".to_string();
                     } else {
@@ -1120,15 +1314,19 @@ pub(super) fn gen_config_options(typ: &TypeDef, enum_names: &std::collections::H
             }
             val
         };
-        writeln!(out, "\t\t{}: {},", field_go_name, default_val).ok();
+        out.push_str(&crate::template_env::render(
+            "config_default_field.jinja",
+            context! {
+                field_go_name => &field_go_name,
+                default_val => &default_val,
+            },
+        ));
     }
 
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "\tfor _, opt := range opts {{").ok();
-    writeln!(out, "\t\topt(c)").ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "\treturn c").ok();
-    writeln!(out, "}}").ok();
+    out.push_str(&crate::template_env::render(
+        "config_new_constructor_footer.jinja",
+        minijinja::Value::default(),
+    ));
 
     out
 }
@@ -1153,6 +1351,8 @@ mod tests {
             core_wrapper: alef_core::ir::CoreWrapper::None,
             vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
         }
     }
 
@@ -1181,6 +1381,7 @@ mod tests {
             is_copy: false,
             has_serde: false,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
             variants: vec![EnumVariant {
                 name: "Active".to_string(),

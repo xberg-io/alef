@@ -1,0 +1,7 @@
+{% if has_doc %}
+{{ indent }}/// <summary>
+{% for line in doc_lines %}
+{{ indent }}/// {{ line }}
+{% endfor %}
+{{ indent }}/// </summary>
+{% endif %}

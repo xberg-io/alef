@@ -1,0 +1,6 @@
+            var {{ stub_var }} = LINKER.upcallStub(LOOKUP.bind(this, "{{ handle_name }}",
+                MethodType.methodType({{ method_type_params }})),
+                FunctionDescriptor.of({{ func_descriptor_params }}),
+                Arena.global());
+            vtable.set(ValueLayout.ADDRESS, offset, {{ stub_var }});
+            offset += ValueLayout.ADDRESS.byteSize();

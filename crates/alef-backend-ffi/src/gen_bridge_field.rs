@@ -17,7 +17,6 @@
 
 use alef_core::ir::TypeDef;
 use std::collections::HashMap;
-use std::fmt::Write;
 
 use alef_codegen::generators::trait_bridge::format_param_type;
 use alef_core::ir::{MethodDef, ReceiverKind};
@@ -248,19 +247,21 @@ fn gen_vtable_ref_delegation(trait_def: &TypeDef, core_import: &str, type_paths:
             &method.return_type,
             error_override.as_deref(),
             type_paths,
+            method.returns_ref,
         );
 
         let arg_list = build_arg_list(method, core_import, type_paths);
         let method_name = &method.name;
 
-        writeln!(out, "        fn {method_name}({all_params}) -> {ret} {{").ok();
-        writeln!(
-            out,
-            "            // SAFETY: self.0 is a valid pointer for the duration of the conversion call."
-        )
-        .ok();
-        writeln!(out, "            unsafe {{ (*self.0).{method_name}({arg_list}) }}").ok();
-        writeln!(out, "        }}").ok();
+        out.push_str(&crate::template_env::render(
+            "vtable_ref_delegation_method.jinja",
+            minijinja::context! {
+                method_name => method_name,
+                all_params => &all_params,
+                ret => &ret,
+                arg_list => &arg_list,
+            },
+        ));
     }
 
     out

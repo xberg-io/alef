@@ -1,0 +1,4 @@
+def _to_rust_{{ snake }}(
+    value: {{ type_name }} | dict[str, Any] | None,
+    _visitor_override: {{ bridge_visitor_type }} | None = None,
+) -> _rust.{{ type_name }} | None:

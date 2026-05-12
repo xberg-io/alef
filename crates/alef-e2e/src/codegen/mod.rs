@@ -41,23 +41,34 @@ use crate::config::E2eConfig;
 use crate::fixture::{Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::ResolvedCrateConfig;
+use alef_core::ir::TypeDef;
 use anyhow::Result;
 
 /// Check if a fixture should be included for the given language.
 ///
 /// Returns false if:
+/// - The fixture's resolved category is in `e2e_config.exclude_categories`
+///   (fixture is excluded from every language's cross-language e2e codegen)
 /// - The fixture has a skip condition that applies to this language
 /// - The fixture's call has no resolvable function for this language (no base
 ///   `function` set and no override for the language). Calls that share a base
 ///   function but only carry per-language type/arg overrides are still emitted
 ///   for languages without an explicit override.
 pub(crate) fn should_include_fixture(fixture: &Fixture, language: &str, e2e_config: &E2eConfig) -> bool {
+    if !e2e_config.exclude_categories.is_empty() && e2e_config.exclude_categories.contains(&fixture.resolved_category())
+    {
+        return false;
+    }
     if let Some(skip) = &fixture.skip {
         if skip.should_skip(language) {
             return false;
         }
     }
-    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
+    // Also respect skip_languages on the resolved call (e.g. batch_scrape skips elixir).
+    if call_config.skip_languages.iter().any(|l| l == language) {
+        return false;
+    }
     if call_config.function.is_empty() && !call_config.overrides.contains_key(language) {
         return false;
     }
@@ -88,11 +99,17 @@ pub(crate) fn normalize_json_keys_to_snake_case(value: &serde_json::Value) -> se
 /// Trait for per-language e2e test code generation.
 pub trait E2eCodegen: Send + Sync {
     /// Generate all e2e test project files for this language.
+    ///
+    /// `type_defs` is the IR type registry extracted from the source crate.
+    /// It is used by backends that need to introspect struct field types at
+    /// codegen time (e.g. the TypeScript/WASM generator uses it to
+    /// auto-derive `nested_types` mappings for wasm-bindgen class wrapping).
     fn generate(
         &self,
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
         config: &ResolvedCrateConfig,
+        type_defs: &[TypeDef],
     ) -> Result<Vec<GeneratedFile>>;
 
     /// Language name for display and directory naming.

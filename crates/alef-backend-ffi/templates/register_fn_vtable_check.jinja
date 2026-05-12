@@ -1,0 +1,4 @@
+    if vtable.{{ method_name }}.is_none() {
+        ffi_set_out_error(out_error, "vtable.{{ method_name }} must not be null");
+        return 1;
+    }

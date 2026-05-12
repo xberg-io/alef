@@ -1,0 +1,12 @@
+/// Convert a `{{ rust_path }}` error to a NAPI error.
+#[allow(dead_code)]
+fn {{ fn_name }}(e: {{ rust_path }}) -> napi::Error {
+    let msg = e.to_string();
+    #[allow(unreachable_patterns)]
+    match &e {
+{%- for pattern, variant_name in variants %}
+        {{ pattern }} => napi::Error::new(napi::Status::GenericFailure, format!("[{{ variant_name }}] {}", msg)),
+{%- endfor %}
+        _ => napi::Error::new(napi::Status::GenericFailure, msg),
+    }
+}

@@ -1,0 +1,10 @@
+/// Convert a `{{ rust_path }}` error to a `JsValue` object with `code` and `message` fields.
+#[allow(dead_code)]
+fn {{ fn_name }}(e: {{ rust_path }}) -> wasm_bindgen::JsValue {
+    let code = {{ code_fn_name }}(&e);
+    let message = e.to_string();
+    let obj = js_sys::Object::new();
+    js_sys::Reflect::set(&obj, &"code".into(), &code.into()).ok();
+    js_sys::Reflect::set(&obj, &"message".into(), &message.into()).ok();
+    obj.into()
+}

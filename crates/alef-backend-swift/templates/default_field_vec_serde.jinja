@@ -1,0 +1,3 @@
+        if let Ok(__v) = ::serde_json::to_value({{ param }}) {
+            if let Ok(__t) = ::serde_json::from_value(__v) { __target.{{ name }} = __t; }
+        }

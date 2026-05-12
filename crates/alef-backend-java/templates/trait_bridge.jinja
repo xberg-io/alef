@@ -1,0 +1,139 @@
+package {{ package }};
+
+import java.lang.foreign.Arena;
+import java.lang.foreign.FunctionDescriptor;
+import java.lang.foreign.Linker;
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
+{% if imports %}
+{% for import in imports %}import {{ import }};
+{% endfor %}{% endif %}
+import java.util.concurrent.ConcurrentHashMap;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+/**
+ * Allocates Panama FFM upcall stubs for an I{{ trait_pascal }} implementation,
+ * assembles the C vtable in native memory, and provides static
+ * register{{ trait_pascal }}/unregister{{ trait_pascal }} helpers.
+ */
+public final class {{ bridge_class }} implements AutoCloseable {
+
+    private static final Linker LINKER = Linker.nativeLinker();
+    private static final MethodHandles.Lookup LOOKUP = MethodHandles.lookup();
+    private static final ObjectMapper JSON = new ObjectMapper();
+
+    /** Live registry — keeps Arenas and upcall stubs alive past the register call. */
+    private static final ConcurrentHashMap<String, {{ bridge_class }}>
+            {{ registry_field }} = new ConcurrentHashMap<>();
+
+    // C vtable: {{ num_vtable_fields }} fields ({{ num_super_slots }} plugin methods + {{ num_methods }} trait methods + free_user_data)
+    private static final long VTABLE_SIZE = (long) ValueLayout.ADDRESS.byteSize() * {{ num_vtable_fields }}L;
+
+    private final Arena arena;
+    private final MemorySegment vtable;
+    private final I{{ trait_pascal }} impl;
+
+    {{ bridge_class }}(final I{{ trait_pascal }} impl) {
+        this.impl = impl;
+        this.arena = Arena.ofShared();
+        this.vtable = arena.allocate(VTABLE_SIZE);
+
+        try {
+            long offset = 0L;
+
+{% for stub in stubs %}
+            var {{ stub.var_name }} = LINKER.upcallStub(LOOKUP.bind(this, "{{ stub.handle_name }}",
+                MethodType.methodType({{ stub.return_type }}, {{ stub.method_type_params }})),
+                FunctionDescriptor.of({{ stub.descriptor_return }}, {{ stub.descriptor_params }}),
+                arena);
+            vtable.set(ValueLayout.ADDRESS, offset, {{ stub.var_name }});
+            offset += ValueLayout.ADDRESS.byteSize();
+
+{% endfor %}
+            vtable.set(ValueLayout.ADDRESS, offset, MemorySegment.NULL);
+
+        } catch (ReflectiveOperationException e) {
+            arena.close();
+            throw new RuntimeException("Failed to create trait bridge stubs", e);
+        }
+    }
+
+    MemorySegment vtableSegment() { return vtable; }
+
+{% if lifecycle_methods %}
+{% for method in lifecycle_methods %}
+    private {{ method.signature }} {
+        try {
+{% if method.void_call %}            {{ method.body }};
+            return {{ method.success_return }};
+{% else %}            return {{ method.body }};
+{% endif %}        } catch (Throwable e) { return {{ method.error_return }}; }
+    }
+
+{% endfor %}{% endif %}
+{% for method in methods %}
+    private int {{ method.handle_name }}({{ method.sig_params }}) {
+        try {
+{% for unmarshal in method.unmarshal_params %}
+            {{ unmarshal }}
+{% endfor %}
+{% if method.has_return %}
+            {{ method.return_type }} result = impl.{{ method.name }}({{ method.call_args }});
+            String json = JSON.writeValueAsString(result);
+            MemorySegment jsonCs = arena.allocateFrom(json);
+            outResult.set(ValueLayout.ADDRESS, 0, jsonCs);
+{% else %}
+            impl.{{ method.name }}({{ method.call_args }});
+{% endif %}
+            return 0;
+        } catch (Throwable e) {
+            writeError(outError, e);
+            return 1;
+        }
+    }
+
+{% endfor %}
+    private void writeError(MemorySegment outError, Throwable e) {
+        try { outError.set(ValueLayout.ADDRESS, 0, arena.allocateFrom(e.getClass().getSimpleName() + ": " + e.getMessage())); }
+        catch (Throwable ignored) { /* swallow */ }
+    }
+
+    @Override
+    public void close() { arena.close(); }
+
+    /** Register a {{ trait_pascal }} implementation via Panama FFM upcall stubs. */
+{% if register_takes_name %}
+    public static void register{{ trait_pascal }}(final I{{ trait_pascal }} impl) throws Exception {
+        var bridge = new {{ bridge_class }}(impl);
+        try {
+            try (var nameArena = Arena.ofConfined()) {
+                var nameCs = nameArena.allocateFrom(impl.name());
+{% else %}
+    public static void register{{ trait_pascal }}(final I{{ trait_pascal }} impl, String name) throws Exception {
+        var bridge = new {{ bridge_class }}(impl);
+        try {
+            try (var nameArena = Arena.ofConfined()) {
+                var nameCs = nameArena.allocateFrom(name);
+{% endif %}
+                MemorySegment outErr = nameArena.allocate(ValueLayout.ADDRESS);
+                int rc = (int) NativeLib.{{ prefix_upper }}_REGISTER_{{ trait_snake_upper }}.invoke(nameCs, bridge.vtableSegment(), MemorySegment.NULL, outErr);
+                if (rc != 0) {
+                    MemorySegment errPtr = outErr.get(ValueLayout.ADDRESS, 0);
+                    String msg = errPtr.equals(MemorySegment.NULL) ? "registration failed (rc=" + rc + ")" : errPtr.reinterpret(Long.MAX_VALUE).getString(0);
+                    throw new RuntimeException("register{{ trait_pascal }}: " + msg);
+                }
+            }
+        } catch (Throwable t) {
+            bridge.close();
+            if (t instanceof Exception e) {
+                throw e;
+            } else {
+                throw new RuntimeException("Unexpected error during registration", t);
+            }
+        }
+        {{ registry_field }}.put({{ name_expr }}, bridge);
+    }
+
+{{ unregister_method }}{{ clear_method }}}

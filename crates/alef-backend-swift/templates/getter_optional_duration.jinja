@@ -1,0 +1,3 @@
+    pub fn {{ getter_name }}(&self) -> Option<u64> {
+        self.0.{{ name }}.map(|d| d.as_millis() as u64)
+    }

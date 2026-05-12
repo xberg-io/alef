@@ -21,6 +21,8 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
         core_wrapper: CoreWrapper::None,
         vec_inner_core_wrapper: CoreWrapper::None,
         newtype_wrapper: None,
+        serde_rename: None,
+        serde_flatten: false,
     }
 }
 
@@ -57,7 +59,7 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         has_stripped_cfg_fields: false,
         is_return_type: false,
         serde_rename_all: None,
-        has_serde: false,
+        has_serde: true,
         super_traits: vec![],
     }
 }
@@ -90,6 +92,7 @@ fn struct_emits_zig_struct() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -105,7 +108,7 @@ fn struct_emits_zig_struct() {
 }
 
 /// String parameter: wrapper takes `[]const u8`; body allocates a null-terminated
-/// copy via `std.fmt.allocPrintZ` and frees it after the C call.
+/// copy via `std.fmt.allocPrintSentinel` and frees it after the C call.
 #[test]
 fn string_param_allocates_z_string_and_frees() {
     let api = ApiSurface {
@@ -130,6 +133,7 @@ fn string_param_allocates_z_string_and_frees() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -142,7 +146,7 @@ fn string_param_allocates_z_string_and_frees() {
     );
     // Body allocates a null-terminated copy.
     assert!(
-        content.contains("allocPrintZ") && content.contains("who_z"),
+        content.contains("allocPrintSentinel") && content.contains("who_z"),
         "body must allocate a null-terminated copy: {content}"
     );
     // The null-terminated copy is passed to the C function.
@@ -183,6 +187,7 @@ fn bytes_param_passes_ptr_and_len() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -229,6 +234,7 @@ fn vec_param_takes_json_slice() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -241,7 +247,7 @@ fn vec_param_takes_json_slice() {
     );
     // Body allocates a null-terminated copy.
     assert!(
-        content.contains("allocPrintZ") && content.contains("items_z"),
+        content.contains("allocPrintSentinel") && content.contains("items_z"),
         "body must allocate null-terminated copy for Vec param: {content}"
     );
 }
@@ -287,6 +293,7 @@ fn result_function_checks_last_error_code() {
             }],
             doc: String::new(),
         }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -337,6 +344,7 @@ fn async_function_is_skipped_with_header_comment() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -364,6 +372,7 @@ fn helpers_are_always_emitted() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -419,12 +428,14 @@ fn enum_emits_zig_enum_or_union() {
             doc: String::new(),
             cfg: None,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
 
             is_copy: false,
             has_serde: false,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -446,6 +457,7 @@ fn optional_field_uses_zig_optional_syntax() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -487,6 +499,7 @@ fn error_set_emits_zig_error_with_pascal_case_tags() {
             ],
             doc: String::new(),
         }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();

@@ -41,6 +41,8 @@ fn print_generated_java_code() {
                         core_wrapper: alef_core::ir::CoreWrapper::None,
                         vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                         newtype_wrapper: None,
+                        serde_rename: None,
+                        serde_flatten: false,
                     },
                     FieldDef {
                         name: "timeout".to_string(),
@@ -56,6 +58,8 @@ fn print_generated_java_code() {
                         core_wrapper: alef_core::ir::CoreWrapper::None,
                         vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                         newtype_wrapper: None,
+                        serde_rename: None,
+                        serde_flatten: false,
                     },
                 ],
                 methods: vec![],
@@ -91,6 +95,8 @@ fn print_generated_java_code() {
                         core_wrapper: alef_core::ir::CoreWrapper::None,
                         vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                         newtype_wrapper: None,
+                        serde_rename: None,
+                        serde_flatten: false,
                     },
                     FieldDef {
                         name: "confidence".to_string(),
@@ -106,6 +112,8 @@ fn print_generated_java_code() {
                         core_wrapper: alef_core::ir::CoreWrapper::None,
                         vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                         newtype_wrapper: None,
+                        serde_rename: None,
+                        serde_flatten: false,
                     },
                 ],
                 methods: vec![],
@@ -242,6 +250,7 @@ fn print_generated_java_code() {
             is_copy: false,
             has_serde: false,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
         }],
         errors: vec![ErrorDef {
@@ -270,6 +279,7 @@ fn print_generated_java_code() {
             ],
             doc: "Error types".to_string(),
         }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = resolved_one(

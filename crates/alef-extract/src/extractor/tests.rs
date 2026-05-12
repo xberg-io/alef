@@ -12,6 +12,7 @@ fn extract_from_source(source: &str) -> ApiSurface {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
     let mut visited = Vec::new();
     let mut rwa = ahash::AHashSet::new();
@@ -432,6 +433,7 @@ fn test_merge_surface_no_duplicates() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let src = ApiSurface {
@@ -480,6 +482,7 @@ fn test_merge_surface_no_duplicates() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     merge_surface(&mut dst, src, None);
@@ -497,6 +500,7 @@ fn test_merge_surface_filtered() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let src = ApiSurface {
@@ -545,6 +549,7 @@ fn test_merge_surface_filtered() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     merge_surface_filtered(&mut dst, src, &["Wanted".to_string()], None);
@@ -2649,6 +2654,7 @@ fn test_merge_surface_includes_functions_and_enums() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let src = ApiSurface {
@@ -2681,9 +2687,11 @@ fn test_merge_surface_includes_functions_and_enums() {
             is_copy: false,
             has_serde: false,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     super::reexports::merge_surface(&mut dst, src, None);
@@ -2703,6 +2711,7 @@ fn test_merge_surface_filtered_includes_functions_and_enums() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let src = ApiSurface {
@@ -2754,6 +2763,7 @@ fn test_merge_surface_filtered_includes_functions_and_enums() {
                 is_copy: false,
                 has_serde: false,
                 serde_tag: None,
+                serde_untagged: false,
                 serde_rename_all: None,
             },
             alef_core::ir::EnumDef {
@@ -2766,10 +2776,12 @@ fn test_merge_surface_filtered_includes_functions_and_enums() {
                 is_copy: false,
                 has_serde: false,
                 serde_tag: None,
+                serde_untagged: false,
                 serde_rename_all: None,
             },
         ],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let names = vec!["wanted_fn".to_string(), "WantedEnum".to_string()];

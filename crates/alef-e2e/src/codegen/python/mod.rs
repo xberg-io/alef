@@ -34,6 +34,7 @@ impl super::E2eCodegen for PythonE2eCodegen {
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
         config: &ResolvedCrateConfig,
+        _type_defs: &[alef_core::ir::TypeDef],
     ) -> Result<Vec<GeneratedFile>> {
         let mut files = Vec::new();
         let output_base = PathBuf::from(e2e_config.effective_output()).join("python");
@@ -152,7 +153,7 @@ result_var = "result"
         let e2e = cfg.crates[0].e2e.clone().unwrap();
         let resolved = cfg.resolve().unwrap().remove(0);
         let codegen = PythonE2eCodegen;
-        let files = codegen.generate(&[], &e2e, &resolved).unwrap();
+        let files = codegen.generate(&[], &e2e, &resolved, &[]).unwrap();
         // conftest.py, __init__.py (root), tests/__init__.py, pyproject.toml
         assert_eq!(files.len(), 4, "expected 4 config files, got: {}", files.len());
         let paths: Vec<_> = files.iter().map(|f| f.path.to_string_lossy().to_string()).collect();

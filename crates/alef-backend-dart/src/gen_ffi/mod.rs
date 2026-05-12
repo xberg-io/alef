@@ -116,11 +116,26 @@ fn emit_lib_loader(lib_name: &str, out: &mut String) {
     out.push_str("/// Resolve the platform-specific path for the native shared library.\n");
     out.push_str("String _libraryPath() {\n");
     out.push_str("  if (Platform.isMacOS) {\n");
-    out.push_str(&format!("    return 'lib{lib_name}.dylib';\n"));
+    out.push_str(&crate::template_env::render(
+        "ffi_lib_path_macos_return.jinja",
+        minijinja::context! {
+            lib_name => lib_name,
+        },
+    ));
     out.push_str("  } else if (Platform.isWindows) {\n");
-    out.push_str(&format!("    return '{lib_name}.dll';\n"));
+    out.push_str(&crate::template_env::render(
+        "ffi_lib_path_windows_return.jinja",
+        minijinja::context! {
+            lib_name => lib_name,
+        },
+    ));
     out.push_str("  } else {\n");
-    out.push_str(&format!("    return 'lib{lib_name}.so';\n"));
+    out.push_str(&crate::template_env::render(
+        "ffi_lib_path_linux_return.jinja",
+        minijinja::context! {
+            lib_name => lib_name,
+        },
+    ));
     out.push_str("  }\n");
     out.push_str("}\n\n");
 }

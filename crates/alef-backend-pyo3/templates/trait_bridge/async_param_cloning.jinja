@@ -1,0 +1,13 @@
+{% for param in params %}
+{% if param.ty == "Bytes" and param.is_ref %}
+let {{ param.name }} = {{ param.name }}.to_vec();
+{% elif param.ty == "Path" and param.is_ref %}
+let {{ param.name }}_str = {{ param.name }}.to_string_lossy().to_string();
+{% elif param.ty_is_named and param.is_ref %}
+let {{ param.name }}_json = serde_json::to_string({{ param.name }}).unwrap_or_default();
+{% elif param.is_ref %}
+let {{ param.name }} = {{ param.name }}.to_owned();
+{% else %}
+let {{ param.name }} = {{ param.name }}.clone();
+{% endif %}
+{% endfor %}

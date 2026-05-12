@@ -1,0 +1,5 @@
+        match result {
+            Err(_) => {{ ret_ty }}::Continue,
+            Ok(val) => php_visit_result_with_template(&val, {{ tmpl_vars_expr }}),
+        }
+    }

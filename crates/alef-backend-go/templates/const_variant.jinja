@@ -1,0 +1,6 @@
+{% if doc_lines %}
+{% for line in doc_lines %}
+	// {{ line }}
+{% endfor %}
+{% endif %}
+	{{ const_name }} {{ type_name }} = "{{ wire_value }}"

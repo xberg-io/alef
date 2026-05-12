@@ -1,0 +1,91 @@
+/// <summary>
+/// Manages the FFI vtable and delegates for a {{ trait_pascal }} implementation
+/// </summary>
+public sealed class {{ trait_pascal }}Bridge : IDisposable {
+
+    private readonly I{{ trait_pascal }} _impl;
+    private readonly GCHandle _implHandle;
+    internal IntPtr _vtable;
+    private bool _disposed;
+    private readonly object[] _delegates;
+
+    // Vtable slot delegates ({{ num_vtable_fields }})
+{% if has_super_trait %}
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int NameFn(IntPtr userData, out IntPtr outName);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int VersionFn(IntPtr userData, out IntPtr outVersion);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int InitializeFn(IntPtr userData, out IntPtr outError);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int ShutdownFn(IntPtr userData, out IntPtr outError);
+{% endif %}
+{% for method in methods %}
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+{% if method.params_empty %}
+{% if is_options_field %}
+    private delegate int {{ method.pascal_name }}Fn(IntPtr userData, out IntPtr outResult);
+{% else %}
+    private delegate int {{ method.pascal_name }}Fn(IntPtr userData, out IntPtr outResult, out IntPtr outError);
+{% endif %}
+{% else %}
+{% if is_options_field %}
+    private delegate int {{ method.pascal_name }}Fn(IntPtr userData, {{ method.unmanaged_params }}, out IntPtr outResult);
+{% else %}
+    private delegate int {{ method.pascal_name }}Fn(IntPtr userData, {{ method.unmanaged_params }}, out IntPtr outResult, out IntPtr outError);
+{% endif %}
+{% endif %}
+{% endfor %}
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void FreeUserDataFn(IntPtr userData);
+
+    public {{ trait_pascal }}Bridge(I{{ trait_pascal }} impl) {
+        _impl = impl ?? throw new ArgumentNullException(nameof(impl));
+        _implHandle = GCHandle.Alloc(impl, GCHandleType.Normal);
+        _vtable = IntPtr.Zero;
+        _disposed = false;
+        _delegates = new object[{{ num_vtable_fields }}];
+        BuildVtable();
+    }
+
+    private void BuildVtable() {
+        // Allocate unmanaged vtable struct (array of function pointers)
+        _vtable = Marshal.AllocHGlobal(IntPtr.Size * {{ num_vtable_fields }});
+
+{{ vtable_slots }}
+    }
+
+    private static string ToJsonString<T>(T value) {
+        return JsonSerializer.Serialize(value);
+    }
+{% if has_bytes_param %}
+
+    private static byte[] MarshalBytesFromIntPtr(IntPtr ptr) {
+        if (ptr == IntPtr.Zero) return Array.Empty<byte>();
+        var json = Marshal.PtrToStringUTF8(ptr) ?? "[]";
+        return JsonSerializer.Deserialize<byte[]>(json) ?? Array.Empty<byte>();
+    }
+{% endif %}
+
+{{ callbacks }}
+
+    public void Dispose() {
+        if (_disposed) return;
+        _disposed = true;
+
+        if (_vtable != IntPtr.Zero) {
+            Marshal.FreeHGlobal(_vtable);
+            _vtable = IntPtr.Zero;
+        }
+
+        if (_implHandle.IsAllocated) {
+            _implHandle.Free();
+        }
+    }
+}

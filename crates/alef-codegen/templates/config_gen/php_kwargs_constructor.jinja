@@ -1,0 +1,11 @@
+pub fn __construct(
+{% for field in fields -%}
+    {{ field.name }}: Option<{{ field.ty }}>{{ "," if not loop.last else "" }}
+{% endfor -%}
+) -> Self {
+    Self {
+{% for field in fields -%}
+        {{ field.name }}: {{ field.assignment }},
+{% endfor -%}
+    }
+}

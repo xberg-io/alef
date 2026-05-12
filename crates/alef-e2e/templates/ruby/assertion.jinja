@@ -1,0 +1,97 @@
+{#- Ruby assertion template
+
+   Context variables:
+   - assertion_type: assertion type ("equals", "contains", etc.)
+   - field_expr: Ruby expression for the field
+   - stripped_field_expr: field_expr with .to_s.strip (for equals on simple result)
+   - field_is_array: bool
+   - expected_val: Ruby-formatted value string
+   - is_boolean_val: bool
+   - bool_val: "true" or "false"
+   - check_n: number (as u64) or 0
+   - call_expr: method call expression
+   - check: method_result check type
+   - check_val: check value
+   - is_boolean_check: bool
+   - bool_check_val: "true" or "false"
+   - values_list: array of Ruby-formatted strings
+#}
+{% if assertion_type == "equals" %}
+{% if is_boolean_val %}
+    expect({{ stripped_field_expr }}).to be({{ bool_val }})
+{% else %}
+    expect({{ stripped_field_expr }}).to eq({{ expected_val }})
+{% endif %}
+{% elif assertion_type == "contains" %}
+{% if field_is_array %}
+    expect({{ field_expr }}.any? { |item| alef_e2e_item_texts(item).any? { |t| t.include?({{ expected_val }}) } }).to be(true)
+{% else %}
+    expect({{ field_expr }}.to_s).to include({{ expected_val }})
+{% endif %}
+{% elif assertion_type == "contains_all" %}
+{% for val in values_list %}
+{% if field_is_array %}
+    expect({{ field_expr }}.any? { |item| alef_e2e_item_texts(item).any? { |t| t.include?({{ val }}) } }).to be(true)
+{% else %}
+    expect({{ field_expr }}.to_s).to include({{ val }})
+{% endif %}
+{% endfor %}
+{% elif assertion_type == "not_contains" %}
+{% if field_is_array %}
+    expect({{ field_expr }}.any? { |item| alef_e2e_item_texts(item).any? { |t| t.include?({{ expected_val }}) } }).to be(false)
+{% else %}
+    expect({{ field_expr }}.to_s).not_to include({{ expected_val }})
+{% endif %}
+{% elif assertion_type == "not_empty" %}
+    expect({{ field_expr }}.to_s).not_to be_empty
+{% elif assertion_type == "is_empty" %}
+    expect({{ field_expr }}.nil? || {{ field_expr }}.empty?).to be(true)
+{% elif assertion_type == "contains_any" %}
+    expect([{{ values_list | join(", ") }}].any? { |v| {{ field_expr }}.to_s.include?(v) }).to be(true)
+{% elif assertion_type == "greater_than" %}
+    expect({{ field_expr }}).to be > {{ expected_val }}
+{% elif assertion_type == "less_than" %}
+    expect({{ field_expr }}).to be < {{ expected_val }}
+{% elif assertion_type == "greater_than_or_equal" %}
+    expect({{ field_expr }}).to be >= {{ expected_val }}
+{% elif assertion_type == "less_than_or_equal" %}
+    expect({{ field_expr }}).to be <= {{ expected_val }}
+{% elif assertion_type == "starts_with" %}
+    expect({{ field_expr }}).to start_with({{ expected_val }})
+{% elif assertion_type == "ends_with" %}
+    expect({{ field_expr }}).to end_with({{ expected_val }})
+{% elif assertion_type == "min_length" %}
+    expect({{ field_expr }}.length).to be >= {{ check_n }}
+{% elif assertion_type == "max_length" %}
+    expect({{ field_expr }}.length).to be <= {{ check_n }}
+{% elif assertion_type == "count_min" %}
+    expect({{ field_expr }}.length).to be >= {{ check_n }}
+{% elif assertion_type == "count_equals" %}
+    expect({{ field_expr }}.length).to eq({{ check_n }})
+{% elif assertion_type == "is_true" %}
+    expect({{ field_expr }}).to be true
+{% elif assertion_type == "is_false" %}
+    expect({{ field_expr }}).to be false
+{% elif assertion_type == "method_result" %}
+{% if check == "equals" %}
+{% if is_boolean_check %}
+    expect({{ call_expr }}).to be {{ bool_check_val }}
+{% else %}
+    expect({{ call_expr }}).to eq({{ check_val }})
+{% endif %}
+{% elif check == "is_true" %}
+    expect({{ call_expr }}).to be true
+{% elif check == "is_false" %}
+    expect({{ call_expr }}).to be false
+{% elif check == "greater_than_or_equal" %}
+    expect({{ call_expr }}).to be >= {{ check_val }}
+{% elif check == "count_min" %}
+    expect({{ call_expr }}.length).to be >= {{ check_n }}
+{% elif check == "is_error" %}
+    expect { {{ call_expr }} }.to raise_error
+{% elif check == "contains" %}
+    expect({{ call_expr }}).to include({{ check_val }})
+{% endif %}
+{% elif assertion_type == "matches_regex" %}
+    expect({{ field_expr }}).to match({{ expected_val }})
+{% endif %}

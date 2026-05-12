@@ -1,0 +1,17 @@
+{{ indent }}IntPtr {{ handle_var }};
+{{ indent }}if ({{ param_name }} == null)
+{{ indent }}{
+{{ indent }}    {{ handle_var }} = IntPtr.Zero;
+{{ indent }}}
+{{ indent }}else
+{{ indent }}{
+{{ indent }}    var {{ json_var }} = JsonSerializer.Serialize({{ param_name }}, JsonOptions);
+{{ indent }}    {{ handle_var }} = NativeMethods.{{ from_json_method }}({{ json_var }});
+{{ indent }}    if ({{ handle_var }} == IntPtr.Zero)
+{{ indent }}    {
+{{ indent }}        var ec = NativeMethods.LastErrorCode();
+{{ indent }}        var ctxPtr = NativeMethods.LastErrorContext();
+{{ indent }}        var msg = Marshal.PtrToStringUTF8(ctxPtr) ?? "{{ from_json_method }} failed";
+{{ indent }}        throw new {{ exception_name }}(ec, msg);
+{{ indent }}    }
+{{ indent }}}

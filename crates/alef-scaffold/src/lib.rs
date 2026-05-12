@@ -6,6 +6,7 @@ use alef_core::ir::ApiSurface;
 
 mod languages;
 pub(crate) mod naming;
+mod template_env;
 
 pub use languages::render_csharp_csproj;
 
@@ -294,12 +295,19 @@ pub fn render_cargo_config(cargo: &ScaffoldCargo) -> String {
             let value = &cargo.env[key];
             match value {
                 ScaffoldCargoEnvValue::Plain(s) => {
-                    out.push_str(&format!("{key} = \"{}\"\n", escape_toml_string(s)));
+                    out.push_str(&template_env::render(
+                        "cargo_env_plain.jinja",
+                        minijinja::context! { key => key, value => escape_toml_string(s) },
+                    ));
                 }
                 ScaffoldCargoEnvValue::Structured { value, relative } => {
-                    out.push_str(&format!(
-                        "{key} = {{ value = \"{}\", relative = {relative} }}\n",
-                        escape_toml_string(value)
+                    out.push_str(&template_env::render(
+                        "cargo_env_structured.jinja",
+                        minijinja::context! {
+                            key => key,
+                            value => escape_toml_string(value),
+                            relative => relative,
+                        },
                     ));
                 }
             }

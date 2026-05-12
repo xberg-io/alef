@@ -1,0 +1,11 @@
+/// Convert a `{{ rust_path }}` error to a Python exception.
+fn {{ fn_name }}(e: {{ rust_path }}) -> pyo3::PyErr {
+    let msg = e.to_string();
+    #[allow(unreachable_patterns)]
+    match &e {
+{%- for pattern, variant_exc_name in variants %}
+        {{ pattern }} => {{ variant_exc_name }}::new_err(msg),
+{%- endfor %}
+        _ => {{ error_name }}::new_err(msg),
+    }
+}

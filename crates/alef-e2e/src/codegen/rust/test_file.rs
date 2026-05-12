@@ -68,7 +68,7 @@ pub fn render_test_file(
             return true;
         }
         if f.http.is_none() && f.mock_response.is_none() {
-            let call_config = e2e_config.resolve_call(f.call.as_deref());
+            let call_config = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
             let fn_name = resolve_function_name_for_call(call_config);
             return !fn_name.is_empty();
         }
@@ -90,13 +90,13 @@ pub fn render_test_file(
                 return true;
             }
             if f.http.is_none() && f.mock_response.is_none() {
-                let call_config = e2e_config.resolve_call(f.call.as_deref());
+                let call_config = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
                 let fn_name = resolve_function_name_for_call(call_config);
                 return !fn_name.is_empty();
             }
             false
         }) {
-            let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+            let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
             let fn_name = resolve_function_name_for_call(call_config);
             let mod_name = resolve_module_for_call(call_config, dep_name);
             imported.insert((mod_name, fn_name));
@@ -148,20 +148,32 @@ pub fn render_test_file(
         }
     }
 
-    // Import mock_server module when any fixture in this file uses mock_response.
-    let file_needs_mock = needs_mock_server && fixtures.iter().any(|f| f.mock_response.is_some());
+    // Import mock_server and common modules when any fixture in this file uses mock_response.
+    let file_needs_mock = needs_mock_server
+        && fixtures
+            .iter()
+            .any(|f| f.mock_response.is_some() || f.needs_mock_server());
     if file_needs_mock {
+        let _ = writeln!(out, "mod common;");
         let _ = writeln!(out, "mod mock_server;");
         let _ = writeln!(out, "use mock_server::{{MockRoute, MockServer}};");
     }
 
     // Import the visitor trait, result enum, and node context when any fixture
     // in this file declares a `visitor` block. Without these, the inline
-    // `impl HtmlVisitor for _TestVisitor` block fails to resolve.
+    // `impl <visitor_trait> for _TestVisitor` block fails to resolve.
     // Visitor types live in the `visitor` sub-module of the crate, not the crate root.
+    // The trait name is read from `[e2e.call.overrides.rust] visitor_trait`; omitting it
+    // while a fixture declares a visitor is a configuration error.
     let file_needs_visitor = fixtures.iter().any(|f| f.visitor.is_some());
     if file_needs_visitor {
-        let visitor_trait = resolve_visitor_trait(&module);
+        let visitor_trait = resolve_visitor_trait(rust_call_override).unwrap_or_else(|| {
+            panic!(
+                "category '{}': fixture declares a visitor block but \
+                 `[e2e.call.overrides.rust] visitor_trait` is not configured",
+                category
+            )
+        });
         let _ = writeln!(
             out,
             "use {module}::visitor::{{{visitor_trait}, NodeContext, VisitResult}};"
@@ -198,13 +210,13 @@ pub fn render_test_file(
                 return true;
             }
             if f.http.is_none() && f.mock_response.is_none() {
-                let call_config = e2e_config.resolve_call(f.call.as_deref());
+                let call_config = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
                 let fn_name = resolve_function_name_for_call(call_config);
                 return !fn_name.is_empty();
             }
             false
         }) {
-            let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+            let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
             for arg in &call_config.args {
                 if arg.arg_type == "json_object" {
                     if let Some(ref elem_type) = arg.element_type {
@@ -251,7 +263,7 @@ pub fn render_test_function(
     //  - plain function-call fixtures (e.g. kreuzberg::extract_file) with a configured
     //    `[e2e.call]` → fall through to the real function-call code path below.
     if fixture.http.is_none() && fixture.mock_response.is_none() {
-        let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+        let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
         let resolved_fn_name = resolve_function_name_for_call(call_config);
         if resolved_fn_name.is_empty() {
             let fn_name = crate::escape::sanitize_ident(&fixture.id);
@@ -271,7 +283,7 @@ pub fn render_test_function(
 
     let fn_name = crate::escape::sanitize_ident(&fixture.id);
     let description = &fixture.description;
-    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
     let function_name = resolve_function_name_for_call(call_config);
     let module = resolve_module_for_call(call_config, dep_name);
     let result_var = &call_config.result_var;
@@ -345,6 +357,7 @@ pub fn render_test_function(
             },
             arg.owned,
             arg.element_type.as_deref(),
+            &e2e_config.test_documents_dir,
         );
         // Add explicit type annotation to json_object bindings so Rust can resolve
         // `Default::default()` and `serde_json::from_value(…)` without a trailing
@@ -411,10 +424,14 @@ pub fn render_test_function(
 
     // Emit visitor if present in fixture.
     if let Some(visitor_spec) = &fixture.visitor {
-        // HtmlVisitor requires `std::fmt::Debug`; derive it on the inline struct.
+        // The visitor trait name must be configured via
+        // `[e2e.call.overrides.rust] visitor_trait`; we propagate the error to the caller.
+        let visitor_trait = resolve_visitor_trait(rust_overrides)
+            .expect("visitor_trait must be set in [e2e.call.overrides.rust] when a fixture declares a visitor block");
+        // The visitor trait requires `std::fmt::Debug`; derive it on the inline struct.
         let _ = writeln!(out, "    #[derive(Debug)]");
         let _ = writeln!(out, "    struct _TestVisitor;");
-        let _ = writeln!(out, "    impl {} for _TestVisitor {{", resolve_visitor_trait(&module));
+        let _ = writeln!(out, "    impl {visitor_trait} for _TestVisitor {{");
         for (method_name, action) in &visitor_spec.callbacks {
             emit_rust_visitor_method(out, method_name, action);
         }
