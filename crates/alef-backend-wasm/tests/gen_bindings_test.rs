@@ -987,6 +987,8 @@ fn make_plugin_bridge_cfg_wasm(trait_name: &str) -> alef_core::config::TraitBrid
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        context_type: None,
+        result_type: None,
     }
 }
 
@@ -1008,6 +1010,8 @@ fn make_visitor_bridge_cfg_wasm(trait_name: &str, type_alias: &str) -> alef_core
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        context_type: None,
+        result_type: None,
     }
 }
 
@@ -1186,6 +1190,8 @@ fn test_wasm_plugin_bridge_validates_required_methods() {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        context_type: None,
+        result_type: None,
     };
     let api = make_api_wasm();
 
@@ -1364,6 +1370,8 @@ fn test_generate_bindings_cargo_toml_js_sys_with_trait_bridge() {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        context_type: None,
+        result_type: None,
     }];
 
     let files = backend
