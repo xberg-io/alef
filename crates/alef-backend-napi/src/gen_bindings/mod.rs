@@ -579,6 +579,23 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
             function_exports.push(js_name);
         }
 
+        // Include trait-bridge register/unregister/clear functions — these are emitted
+        // directly as #[napi]-annotated free functions on the native module, but they do
+        // not appear in `api.functions`, so the index.ts re-export block must add them
+        // explicitly. Without this, callers cannot `import { registerOcrBackend, ... }`
+        // from the public package root.
+        for bridge in &config.trait_bridges {
+            if let Some(name) = bridge.register_fn.as_deref() {
+                function_exports.push(to_node_name(name));
+            }
+            if let Some(name) = bridge.unregister_fn.as_deref() {
+                function_exports.push(to_node_name(name));
+            }
+            if let Some(name) = bridge.clear_fn.as_deref() {
+                function_exports.push(to_node_name(name));
+            }
+        }
+
         // Sort for consistent output
         type_exports.sort();
         function_exports.sort();
