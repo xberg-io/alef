@@ -373,7 +373,7 @@ pub mod precommit {
     pub const CARGO_MACHETE_REV: &str = "v0.9.2";
 
     // renovate: datasource=github-tags packageName=EmbarkStudios/cargo-deny
-    pub const CARGO_DENY_REV: &str = "0.19.5";
+    pub const CARGO_DENY_REV: &str = "0.19.6";
 
     // renovate: datasource=github-tags packageName=rvben/rumdl-pre-commit
     pub const RUMDL_REV: &str = "v0.1.91";
