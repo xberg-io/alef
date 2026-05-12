@@ -148,6 +148,18 @@ impl Backend for PhpBackend {
 
         let mut cfg = Self::binding_config(&core_import, has_serde);
         cfg.opaque_type_names = &opaque_names_vec_php;
+        let never_skip_cfg_field_names: Vec<String> = config
+            .trait_bridges
+            .iter()
+            .filter_map(|b| {
+                if b.bind_via == alef_core::config::BridgeBinding::OptionsField {
+                    b.resolved_options_field().map(|s| s.to_string())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        cfg.never_skip_cfg_field_names = &never_skip_cfg_field_names;
 
         // Build the inner module content (types, methods, conversions)
         let mut builder = RustFileBuilder::new().with_generated_header();
@@ -429,6 +441,7 @@ impl Backend for PhpBackend {
             include_cfg_metadata: false,
             option_duration_on_defaults: true,
             from_binding_skip_types: &bridge_skip_types,
+            never_skip_cfg_field_names: &never_skip_cfg_field_names,
             ..Default::default()
         };
         // Build transitive set of types that can't have binding->core From

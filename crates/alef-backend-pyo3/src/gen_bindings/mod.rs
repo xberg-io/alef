@@ -784,6 +784,7 @@ mod alef_json_str_opt {
                 Some(&py_field_renames)
             },
             opaque_types: Some(&conversion_opaque_set),
+            never_skip_cfg_field_names: &never_skip_cfg_field_names,
             ..Default::default()
         };
         // From/Into conversions — separate sets for each direction
