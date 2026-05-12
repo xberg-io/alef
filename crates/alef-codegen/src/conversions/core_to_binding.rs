@@ -53,6 +53,16 @@ pub fn gen_from_core_to_binding_cfg(
         {
             continue;
         }
+        // When the binding crate strips cfg-gated fields from the struct
+        // (typically because the backend doesn't carry feature gates into the binding
+        // crate's Cargo.toml — e.g. extendr), the From impl cannot assign
+        // <field>: val.<field> because the binding struct has no slot for it.
+        if field.cfg.is_some()
+            && !config.never_skip_cfg_field_names.contains(&field.name)
+            && config.strip_cfg_fields_from_binding_struct
+        {
+            continue;
+        }
         let base_conversion = field_conversion_from_core_cfg(
             &field.name,
             &field.ty,

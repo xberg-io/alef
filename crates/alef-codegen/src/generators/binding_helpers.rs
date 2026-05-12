@@ -1595,6 +1595,11 @@ pub fn gen_unimplemented_body(
             AsyncPattern::WasmNativeAsync => {
                 format!("Err(JsValue::from_str(\"{err_msg}\"))")
             }
+            // extendr uses `Result<T, extendr_api::Error>`; cast_uints_to_i32 is a flag
+            // unique to the extendr backend, so use it as a sentinel for the Err wrapping.
+            _ if cfg.cast_uints_to_i32 => {
+                format!("Err(extendr_api::Error::Other(\"{err_msg}\".to_string()))")
+            }
             _ => format!("Err(\"{err_msg}\".to_string())"),
         }
     } else {

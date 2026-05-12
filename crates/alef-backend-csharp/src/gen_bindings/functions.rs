@@ -364,9 +364,16 @@ pub(super) fn gen_native_methods(
             .collect();
 
         if !bridges.is_empty() {
+            // Collect visible type names (non-trait types that have C# bindings)
+            let visible_type_names: std::collections::HashSet<&str> = api
+                .types
+                .iter()
+                .filter(|t| !t.is_trait)
+                .map(|t| t.name.as_str())
+                .collect();
             out.push('\n');
             out.push_str(&crate::trait_bridge::gen_native_methods_trait_bridges(
-                namespace, prefix, &bridges,
+                namespace, prefix, &bridges, &visible_type_names,
             ));
         }
     }

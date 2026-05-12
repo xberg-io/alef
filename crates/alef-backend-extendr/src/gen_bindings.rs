@@ -532,6 +532,11 @@ impl Backend for ExtendrBackend {
             // Round-trip-safe ones (e.g. OutputFormat with only String data) have a
             // From<BindingStruct> for CoreEnum impl generated and don't need skipping.
             from_binding_skip_types: &non_round_trip_flat_enums,
+            // The extendr binding crate doesn't carry kreuzberg feature flags into its
+            // own Cargo.toml, so cfg-gated core fields are dropped from the binding struct
+            // (see `gen_struct` skip rule).  Mirror that in conversions: skip cfg-gated
+            // fields and let `..Default::default()` pad the core struct slot.
+            strip_cfg_fields_from_binding_struct: true,
             ..alef_codegen::conversions::ConversionConfig::default()
         };
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {

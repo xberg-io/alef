@@ -11,6 +11,45 @@ use alef_codegen::naming::to_csharp_name;
 use alef_core::config::{BridgeBinding, TraitBridgeConfig};
 use alef_core::ir::{TypeDef, TypeRef};
 use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
+use std::collections::HashSet;
+
+/// Maps a TypeRef to its C# representation, substituting non-visible Named types with string.
+/// This prevents internal types like `InternalDocument` or `SyncExtractor` from appearing
+/// in the generated trait interface signatures.
+fn csharp_type_visible(ty: &TypeRef, visible_type_names: &HashSet<&str>) -> String {
+    match ty {
+        TypeRef::Named(name) => {
+            if visible_type_names.contains(name.as_str()) {
+                csharp_type(ty).into_owned()
+            } else {
+                "string".to_string()
+            }
+        }
+        TypeRef::Optional(inner) => {
+            match inner.as_ref() {
+                TypeRef::Named(name) if !visible_type_names.contains(name.as_str()) => {
+                    // Optional<NonApiType> becomes string?
+                    "string?".to_string()
+                }
+                _ => {
+                    // Optional<ApiType> or other types: recurse and add ?
+                    let inner_type = csharp_type_visible(inner, visible_type_names);
+                    format!("{}?", inner_type)
+                }
+            }
+        }
+        TypeRef::Vec(inner) => {
+            let inner_type = csharp_type_visible(inner, visible_type_names);
+            format!("List<{}>", inner_type)
+        }
+        TypeRef::Map(k, v) => {
+            let key_type = csharp_type_visible(k, visible_type_names);
+            let val_type = csharp_type_visible(v, visible_type_names);
+            format!("Dictionary<{}, {}>", key_type, val_type)
+        }
+        _ => csharp_type(ty).into_owned(),
+    }
+}
 
 /// Maps a TypeRef to its unmanaged C# type for use in [UnmanagedFunctionPointer] delegates.
 /// Managed types (arrays, classes, strings) become IntPtr; primitives remain as-is.
@@ -31,6 +70,7 @@ pub fn gen_native_methods_trait_bridges(
     _namespace: &str,
     prefix: &str,
     bridges: &[(String, &TraitBridgeConfig, &TypeDef)],
+    _visible_type_names: &HashSet<&str>,
 ) -> String {
     use crate::template_env::render;
     use minijinja::Value;
@@ -78,6 +118,7 @@ pub fn gen_trait_bridges_file(
     namespace: &str,
     prefix: &str,
     bridges: &[(String, &TraitBridgeConfig, &TypeDef)],
+    visible_type_names: &HashSet<&str>,
 ) -> (String, String) {
     use crate::template_env::render;
     use minijinja::Value;
@@ -96,7 +137,7 @@ pub fn gen_trait_bridges_file(
             continue;
         }
 
-        gen_single_trait_bridge(&mut out, trait_name, bridge_cfg, trait_def, prefix);
+        gen_single_trait_bridge(&mut out, trait_name, bridge_cfg, trait_def, prefix, visible_type_names);
         out.push('\n');
     }
 
@@ -115,6 +156,7 @@ fn gen_single_trait_bridge(
     bridge_cfg: &TraitBridgeConfig,
     trait_def: &TypeDef,
     _prefix: &str,
+    visible_type_names: &HashSet<&str>,
 ) {
     use crate::template_env::render;
     use minijinja::Value;
@@ -133,11 +175,11 @@ fn gen_single_trait_bridge(
         .methods
         .iter()
         .map(|method| {
-            let return_type = csharp_type(&method.return_type);
+            let return_type = csharp_type_visible(&method.return_type, visible_type_names);
             let params = method
                 .params
                 .iter()
-                .map(|p| format!("{} {}", csharp_type(&p.ty), to_csharp_name(&p.name)))
+                .map(|p| format!("{} {}", csharp_type_visible(&p.ty, visible_type_names), to_csharp_name(&p.name)))
                 .collect::<Vec<_>>()
                 .join(", ");
             serde_json::json!({
@@ -385,7 +427,8 @@ fn gen_single_trait_bridge(
         let mut param_call_parts = Vec::new();
         for param in &method.params {
             let param_name = to_csharp_name(&param.name);
-            let managed_type = csharp_type(&param.ty);
+            let managed_type = csharp_type_visible(&param.ty, visible_type_names);
+            let is_non_api = matches!(&param.ty, TypeRef::Named(n) if !visible_type_names.contains(n.as_str()));
 
             match &param.ty {
                 TypeRef::Primitive(_) | TypeRef::Unit => {
@@ -407,16 +450,24 @@ fn gen_single_trait_bridge(
                     param_call_parts.push(format!("managed_{param_name}"));
                 }
                 _ => {
-                    // For complex types, assume JSON deserialization
+                    // For complex types (including non-API types), assume JSON deserialization
+                    // Non-API types like InternalDocument are marshalled as strings (JSON)
                     callbacks.push_str(&render(
                         "callback_json_from_ptr.jinja",
                         minijinja::context! { param_name },
                     ));
-                    callbacks.push_str(&render(
-                        "callback_json_deserialize.jinja",
-                        minijinja::context! { param_name, managed_type },
-                    ));
-                    param_call_parts.push(format!("managed_{param_name}"));
+                    if is_non_api {
+                        // Non-API types: keep as string (JSON), don't deserialize
+                        // callback_json_from_ptr declares json_{param_name}
+                        param_call_parts.push(format!("json_{param_name}"));
+                    } else {
+                        // API types: deserialize to the actual type
+                        callbacks.push_str(&render(
+                            "callback_json_deserialize.jinja",
+                            minijinja::context! { param_name, managed_type },
+                        ));
+                        param_call_parts.push(format!("managed_{param_name}"));
+                    }
                 }
             }
         }
@@ -434,7 +485,12 @@ fn gen_single_trait_bridge(
                 "callback_result_call.jinja",
                 minijinja::context! { method_pascal, param_call },
             ));
-            let serialize_expr = if matches!(method.return_type, TypeRef::Named(_)) {
+            let is_non_api_return = matches!(&method.return_type, TypeRef::Named(n) if !visible_type_names.contains(n.as_str()));
+            let serialize_expr = if is_non_api_return {
+                // Non-API Named types: serialize as JSON string
+                "ToJsonString(result)".to_string()
+            } else if matches!(method.return_type, TypeRef::Named(_)) {
+                // API Named types: use ToFfiJson()
                 "result.ToFfiJson()".to_string()
             } else {
                 "ToJsonString(result)".to_string()
@@ -564,7 +620,8 @@ mod tests {
         let trait_def = make_trait_def("OcrBackend");
         let bridge_cfg = make_bridge_cfg("OcrBackend", Some("Plugin"));
         let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
-        let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges);
+        let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
+        let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges, &visible_types);
 
         assert!(content.contains("public interface IOcrBackend"));
         assert!(content.contains("string Name { get; }"));
@@ -578,7 +635,8 @@ mod tests {
         let trait_def = make_trait_def("OcrBackend");
         let bridge_cfg = make_bridge_cfg("OcrBackend", None);
         let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
-        let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges);
+        let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
+        let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges, &visible_types);
 
         assert!(content.contains("public interface IOcrBackend"));
         assert!(!content.contains("string Name { get; }"));
@@ -589,7 +647,8 @@ mod tests {
         let trait_def = make_trait_def("OcrBackend");
         let bridge_cfg = make_bridge_cfg("OcrBackend", None);
         let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
-        let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges);
+        let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
+        let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges, &visible_types);
 
         assert!(content.contains("public sealed class OcrBackendBridge : IDisposable"));
     }
@@ -601,7 +660,8 @@ mod tests {
         let trait_def = make_trait_def("OcrBackend");
         let bridge_cfg = make_bridge_cfg("OcrBackend", None);
         let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
-        let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges);
+        let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
+        let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges, &visible_types);
 
         assert!(content.contains("public static class OcrBackendRegistry"));
         assert!(content.contains("public static void Register(IOcrBackend impl, string name)"));
@@ -617,7 +677,8 @@ mod tests {
         let trait_def = make_trait_def("OcrBackend");
         let bridge_cfg = make_bridge_cfg("OcrBackend", Some("Plugin"));
         let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
-        let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges);
+        let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
+        let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges, &visible_types);
 
         assert!(content.contains("public static class OcrBackendRegistry"));
         assert!(content.contains("public static void Register(IOcrBackend impl)"));
@@ -631,7 +692,8 @@ mod tests {
         let mut bridge_cfg = make_bridge_cfg("OcrBackend", None);
         bridge_cfg.exclude_languages = vec!["csharp".to_string()];
         let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
-        let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges);
+        let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
+        let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges, &visible_types);
 
         assert!(!content.contains("interface IOcrBackend"));
         assert!(!content.contains("class OcrBackendBridge"));
@@ -643,7 +705,8 @@ mod tests {
         let trait_def = make_trait_def("OcrBackend");
         let bridge_cfg = make_bridge_cfg("OcrBackend", None);
         let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
-        let content = gen_native_methods_trait_bridges("Kreuzberg", "kreuzberg", &bridges);
+        let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
+        let content = gen_native_methods_trait_bridges("Kreuzberg", "kreuzberg", &bridges, &visible_types);
 
         assert!(content.contains("RegisterOcrBackend"));
         assert!(!content.contains("UnregisterOcrBackend"));
@@ -661,7 +724,8 @@ mod tests {
         bridge_cfg.register_fn = Some("kreuzberg_register_ocr_backend".to_string());
         bridge_cfg.unregister_fn = Some("kreuzberg_unregister_ocr_backend".to_string());
         let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
-        let content = gen_native_methods_trait_bridges("Kreuzberg", "kreuzberg", &bridges);
+        let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
+        let content = gen_native_methods_trait_bridges("Kreuzberg", "kreuzberg", &bridges, &visible_types);
 
         assert!(content.contains("RegisterOcrBackend"));
         assert!(content.contains("UnregisterOcrBackend"));
@@ -677,7 +741,8 @@ mod tests {
         let mut bridge_cfg = make_bridge_cfg("OcrBackend", None);
         bridge_cfg.unregister_fn = Some("kreuzberg_unregister_ocr_backend".to_string());
         let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
-        let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges);
+        let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
+        let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges, &visible_types);
 
         assert!(content.contains("public static class OcrBackendRegistry"));
         assert!(content.contains("public static void Unregister(string name)"));
@@ -690,7 +755,8 @@ mod tests {
         let trait_def = make_trait_def("OcrBackend");
         let bridge_cfg = make_bridge_cfg("OcrBackend", None);
         let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
-        let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges);
+        let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
+        let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges, &visible_types);
 
         assert!(content.contains("public static class OcrBackendRegistry"));
         assert!(!content.contains("public static void Unregister(string name)"));

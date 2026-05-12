@@ -107,6 +107,16 @@ pub struct ConversionConfig<'a> {
     /// emits them (via [`super::generators::RustBindingConfig::never_skip_cfg_field_names`]).
     /// Empty by default; backends populate from trait-bridge `bind_via = "options_field"` config.
     pub never_skip_cfg_field_names: &'a [String],
+    /// When true, cfg-gated fields (not listed in `never_skip_cfg_field_names`) are
+    /// stripped from the binding struct entirely (no field at all in the struct body).
+    /// Conversions must then skip those fields and rely on `..Default::default()` in
+    /// the template to fill the core struct slot.
+    ///
+    /// Set to `true` for backends whose binding crate does not carry feature gates into
+    /// its own Cargo.toml — e.g. extendr (R), where the binding struct is uniform across
+    /// all feature combinations.  PyO3/NAPI/PHP/etc keep cfg-gated fields in the binding
+    /// struct (decorated with `#[cfg(...)]`) and want them included in conversions.
+    pub strip_cfg_fields_from_binding_struct: bool,
 }
 
 impl<'a> ConversionConfig<'a> {

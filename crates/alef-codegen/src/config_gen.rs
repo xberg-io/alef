@@ -819,7 +819,7 @@ pub fn gen_extendr_kwargs_constructor(
     let emittable_fields: Vec<_> = typ
         .fields
         .iter()
-        .filter(|f| !is_named_struct(&f.ty) && !is_optional_named_struct(&f.ty))
+        .filter(|f| f.cfg.is_none() && !is_named_struct(&f.ty) && !is_optional_named_struct(&f.ty))
         .map(|field| {
             let param_type = if is_named_enum(&field.ty) {
                 "Option<String>".to_string()
@@ -840,7 +840,7 @@ pub fn gen_extendr_kwargs_constructor(
     let body_assignments: Vec<_> = typ
         .fields
         .iter()
-        .filter(|f| !is_named_struct(&f.ty) && !is_optional_named_struct(&f.ty))
+        .filter(|f| f.cfg.is_none() && !is_named_struct(&f.ty) && !is_optional_named_struct(&f.ty))
         .map(|field| {
             let code = if is_named_enum(&field.ty) {
                 if field.optional {

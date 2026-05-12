@@ -328,6 +328,13 @@ fn gen_opaque_method(
                 let arg = super::native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
                 out.push_str(",\n");
                 out.push_str(render("indented_arg_async.jinja", minijinja::context! { arg }).trim_end_matches('\n'));
+                if matches!(param.ty, TypeRef::Bytes) {
+                    out.push_str(",\n");
+                    out.push_str(&render(
+                        "indented_arg_async.jinja",
+                        minijinja::context! { arg => format!("(nuint){param_name}.Length") },
+                    ).trim_end_matches('\n'));
+                }
             }
         } else {
             for (i, param) in visible_params.iter().enumerate() {
@@ -342,6 +349,13 @@ fn gen_opaque_method(
                     out.push_str(
                         render("indented_arg_async.jinja", minijinja::context! { arg }).trim_end_matches('\n'),
                     );
+                }
+                if matches!(param.ty, TypeRef::Bytes) {
+                    out.push_str(",\n");
+                    out.push_str(&render(
+                        "indented_arg_async.jinja",
+                        minijinja::context! { arg => format!("(nuint){param_name}.Length") },
+                    ).trim_end_matches('\n'));
                 }
             }
         }

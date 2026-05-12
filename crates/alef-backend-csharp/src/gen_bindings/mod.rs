@@ -262,7 +262,14 @@ impl Backend for CsharpBackend {
                 .collect();
 
             if !bridges.is_empty() {
-                let (filename, content) = crate::trait_bridge::gen_trait_bridges_file(&namespace, &prefix, &bridges);
+                // Collect visible type names (non-trait types that have C# bindings)
+                let visible_type_names: HashSet<&str> = api
+                    .types
+                    .iter()
+                    .filter(|t| !t.is_trait)
+                    .map(|t| t.name.as_str())
+                    .collect();
+                let (filename, content) = crate::trait_bridge::gen_trait_bridges_file(&namespace, &prefix, &bridges, &visible_type_names);
                 files.push(GeneratedFile {
                     path: base_path.join(filename),
                     content: strip_trailing_whitespace(&content),

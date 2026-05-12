@@ -151,6 +151,17 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
         if references_excluded && typ.has_stripped_cfg_fields {
             continue;
         }
+        // When the binding crate strips cfg-gated fields from the struct
+        // (typically because the backend doesn't carry feature gates into the binding
+        // crate's Cargo.toml — e.g. extendr), the From impl cannot reference
+        // val.<field> because the field doesn't exist in the binding struct.
+        // Skip these entirely; ..Default::default() in the template handles them.
+        if field.cfg.is_some()
+            && !config.never_skip_cfg_field_names.contains(&field.name)
+            && config.strip_cfg_fields_from_binding_struct
+        {
+            continue;
+        }
         if optionalized && ((field.sanitized && field.core_wrapper != CoreWrapper::Cow) || references_excluded) {
             continue;
         }
