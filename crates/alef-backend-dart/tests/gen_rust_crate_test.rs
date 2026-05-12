@@ -363,10 +363,7 @@ fn frb_yaml_is_emitted_with_module_name() {
     // the alef-generated dart Rust crate places its entire API surface at `lib.rs`.
     // The v1 `rust_output` key was removed and must not be emitted.
     assert!(yaml.contains("rust_root: ."), "missing rust_root: {yaml}");
-    assert!(
-        yaml.contains("rust_input: crate"),
-        "missing rust_input: crate: {yaml}"
-    );
+    assert!(yaml.contains("rust_input: crate"), "missing rust_input: crate: {yaml}");
     assert!(
         yaml.contains("demo_crate_bridge_generated"),
         "missing dart output path with module name: {yaml}"

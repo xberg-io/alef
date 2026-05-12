@@ -197,12 +197,10 @@ pub fn gen_from_core_to_binding_cfg(
         // let the caller wire the bridge separately.  Other cfg-gated fields with
         // concretely convertible types (e.g. `metadata: HtmlMetadata`) flow through
         // the normal `val.field.into()` conversion.
-        let field_is_trait_bridge = field.cfg.is_some()
-            && config.never_skip_cfg_field_names.contains(&field.name)
-            && {
-                let opaque_vec: Vec<String> = opaque_types.iter().cloned().collect();
-                crate::generators::structs::field_references_opaque_type(&field.ty, &opaque_vec)
-            };
+        let field_is_trait_bridge = field.cfg.is_some() && config.never_skip_cfg_field_names.contains(&field.name) && {
+            let opaque_vec: Vec<String> = opaque_types.iter().cloned().collect();
+            crate::generators::structs::field_references_opaque_type(&field.ty, &opaque_vec)
+        };
         let conversion = if field_is_trait_bridge {
             format!("{}: Default::default()", binding_field)
         } else {

@@ -1683,8 +1683,8 @@ fn swift_traversal_contains_assert(
         .unwrap_or(element_part);
     let elem_accessor = field_resolver.accessor(resolved_elem_part, "swift", "$0");
     let elem_is_enum = enum_fields.contains(full_field) || enum_fields.contains(resolved_full);
-    let elem_is_optional =
-        field_resolver.is_optional(resolved_elem_part) || field_resolver.is_optional(field_resolver.resolve(resolved_elem_part));
+    let elem_is_optional = field_resolver.is_optional(resolved_elem_part)
+        || field_resolver.is_optional(field_resolver.resolve(resolved_elem_part));
     let elem_str = if elem_is_enum {
         format!("{elem_accessor}.toString()")
     } else if elem_is_optional {

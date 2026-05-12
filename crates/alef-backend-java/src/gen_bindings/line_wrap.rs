@@ -34,8 +34,8 @@ pub(crate) fn wrap_long_java_lines(src: &str) -> String {
         // Record-component annotation lines are gated by a tighter threshold —
         // Eclipse spotless reflows them with 4 more spaces of indent so a line
         // at exactly 140 turns into 144 downstream.
-        let is_record_field_annotation = content.trim_start().starts_with('@')
-            && (content.ends_with(',') || content.contains(") {"));
+        let is_record_field_annotation =
+            content.trim_start().starts_with('@') && (content.ends_with(',') || content.contains(") {"));
         let threshold = if is_record_field_annotation {
             RECORD_FIELD_WRAP_THRESHOLD
         } else {

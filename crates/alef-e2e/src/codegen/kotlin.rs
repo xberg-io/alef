@@ -925,12 +925,9 @@ fn render_test_method(
     let effective_result_is_simple = call_overrides.is_some_and(|o| o.result_is_simple)
         || call_config.result_is_simple
         || result_is_simple
-        || ["java", "csharp", "go"].iter().any(|cand| {
-            call_config
-                .overrides
-                .get(*cand)
-                .is_some_and(|o| o.result_is_simple)
-        });
+        || ["java", "csharp", "go"]
+            .iter()
+            .any(|cand| call_config.overrides.get(*cand).is_some_and(|o| o.result_is_simple));
     let result_is_simple = effective_result_is_simple;
 
     let method_name = fixture.id.to_upper_camel_case();
@@ -1233,22 +1230,16 @@ fn emit_kotlin_batch_item_array(arr: &serde_json::Value, elem_type: &str) -> Str
                         .get("content")
                         .and_then(|v| v.as_array())
                         .map(|arr| {
-                            let bytes: Vec<String> = arr
-                                .iter()
-                                .filter_map(|v| v.as_u64().map(|n| format!("{n}")))
-                                .collect();
+                            let bytes: Vec<String> =
+                                arr.iter().filter_map(|v| v.as_u64().map(|n| format!("{n}"))).collect();
                             format!("byteArrayOf({})", bytes.join(", "))
                         })
                         .unwrap_or_else(|| "byteArrayOf()".to_string());
-                    Some(format!(
-                        "{elem_type}({content_code}, \"{mime_type}\", null)"
-                    ))
+                    Some(format!("{elem_type}({content_code}, \"{mime_type}\", null)"))
                 }
                 "BatchFileItem" => {
                     let path = obj.get("path").and_then(|v| v.as_str()).unwrap_or("");
-                    Some(format!(
-                        "{elem_type}(java.nio.file.Paths.get(\"{path}\"), null)"
-                    ))
+                    Some(format!("{elem_type}(java.nio.file.Paths.get(\"{path}\"), null)"))
                 }
                 _ => None,
             }

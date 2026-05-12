@@ -70,12 +70,7 @@ fn render_async_body(template_name: &str, preamble: &str, core_call: &str, resul
     )
 }
 
-fn render_method_call(
-    template_name: &str,
-    core_path: &str,
-    method_name: &str,
-    call_args: &str,
-) -> String {
+fn render_method_call(template_name: &str, core_path: &str, method_name: &str, call_args: &str) -> String {
     template_env::render(
         template_name,
         minijinja::context! {
@@ -88,12 +83,7 @@ fn render_method_call(
     .to_string()
 }
 
-fn render_method_call_with_preamble(
-    preamble: &str,
-    core_path: &str,
-    method_name: &str,
-    call_args: &str,
-) -> String {
+fn render_method_call_with_preamble(preamble: &str, core_path: &str, method_name: &str, call_args: &str) -> String {
     template_env::render(
         "rust_method_static_call_with_preamble.rs.jinja",
         minijinja::context! {
@@ -769,12 +759,7 @@ pub(super) fn gen_nif_method(
             }
         } else if is_opaque {
             // Static method on opaque type: call directly on the inner core type
-            render_method_call(
-                "rust_method_static_call.rs.jinja",
-                core_path,
-                &method.name,
-                &call_args,
-            )
+            render_method_call("rust_method_static_call.rs.jinja", core_path, &method.name, &call_args)
         } else if method.receiver.is_some() {
             // Instance method on non-opaque: convert binding struct to core type, then call
             render_method_call(
@@ -797,12 +782,7 @@ pub(super) fn gen_nif_method(
                 .filter(|p| matches!(&p.ty, TypeRef::Named(n) if !opaque_types.contains(n.as_str()) && !default_types.contains(n.as_str())))
                 .collect();
             if named_params.is_empty() {
-                render_method_call(
-                    "rust_method_static_call.rs.jinja",
-                    core_path,
-                    &method.name,
-                    &call_args,
-                )
+                render_method_call("rust_method_static_call.rs.jinja", core_path, &method.name, &call_args)
             } else {
                 // Build annotated let-bindings for each Named param and substitute in call_args.
                 let mut preamble = String::new();
@@ -835,23 +815,36 @@ pub(super) fn gen_nif_method(
                 render_method_call_with_preamble(&preamble, core_path, &method.name, &resolved_args)
             }
         };
+        // When the IR's return type was sanitized from a Named type to TypeRef::String
+        // (because the original type is excluded from the binding API), the core call
+        // still returns the original Named type — JSON-serialize it to satisfy the
+        // String return type declared by the NIF.
+        let return_was_sanitized = method.sanitized && matches!(&method.return_type, TypeRef::String);
         if method.error_type.is_some() {
-            let wrap = gen_rustler_wrap_return(
-                "result",
-                &method.return_type,
-                struct_name,
-                opaque_types,
-                method.returns_ref,
-            );
+            let wrap = if return_was_sanitized {
+                "serde_json::to_string(&result).map_err(|e| e.to_string())?".to_string()
+            } else {
+                gen_rustler_wrap_return(
+                    "result",
+                    &method.return_type,
+                    struct_name,
+                    opaque_types,
+                    method.returns_ref,
+                )
+            };
             render_result_body(&deser_preamble, &core_call, &wrap)
         } else {
-            let inner = gen_rustler_wrap_return(
-                &core_call,
-                &method.return_type,
-                struct_name,
-                opaque_types,
-                method.returns_ref,
-            );
+            let inner = if return_was_sanitized {
+                format!("serde_json::to_string(&{core_call}).unwrap_or_default()")
+            } else {
+                gen_rustler_wrap_return(
+                    &core_call,
+                    &method.return_type,
+                    struct_name,
+                    opaque_types,
+                    method.returns_ref,
+                )
+            };
             if deser_preamble.is_empty() {
                 inner
             } else {
@@ -992,12 +985,7 @@ pub(super) fn gen_nif_async_method(
             }
         } else if is_opaque {
             // Static method on opaque type: call directly on the inner core type
-            render_method_call(
-                "rust_method_static_call.rs.jinja",
-                core_path,
-                &method.name,
-                &call_args,
-            )
+            render_method_call("rust_method_static_call.rs.jinja", core_path, &method.name, &call_args)
         } else if method.receiver.is_some() {
             render_method_call(
                 "rust_method_instance_call.rs.jinja",
@@ -1007,20 +995,24 @@ pub(super) fn gen_nif_async_method(
             )
         } else {
             // Static method on non-opaque: call directly on core type
-            render_method_call(
-                "rust_method_static_call.rs.jinja",
-                core_path,
-                &method.name,
-                &call_args,
+            render_method_call("rust_method_static_call.rs.jinja", core_path, &method.name, &call_args)
+        };
+        // When the IR's return type was sanitized from a Named type to TypeRef::String
+        // (because the original type is excluded from the binding API), the core call
+        // still returns the original Named type — JSON-serialize it to satisfy the
+        // String return type declared by the NIF.
+        let return_was_sanitized = method.sanitized && matches!(&method.return_type, TypeRef::String);
+        let result_wrap = if return_was_sanitized {
+            "serde_json::to_string(&result).map_err(|e| e.to_string())?".to_string()
+        } else {
+            gen_rustler_wrap_return(
+                "result",
+                &method.return_type,
+                struct_name,
+                opaque_types,
+                method.returns_ref,
             )
         };
-        let result_wrap = gen_rustler_wrap_return(
-            "result",
-            &method.return_type,
-            struct_name,
-            opaque_types,
-            method.returns_ref,
-        );
         if method.error_type.is_some() {
             render_async_body("async_result_body.rs.jinja", &deser_preamble, &core_call, &result_wrap)
         } else {

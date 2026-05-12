@@ -191,9 +191,7 @@ pub(crate) fn emit_frb_yaml(rust_dir: &str, module_name: &str) -> GeneratedFile 
     // directory. `rust_input` is required by the FRB CLI even in v2 — omitting it
     // causes `flutter_rust_bridge_codegen generate` to panic with
     // "Please provide `rust_input`".
-    let content = format!(
-        "rust_root: .\nrust_input: crate\ndart_output: ../lib/src/{module_name}_bridge_generated\n"
-    );
+    let content = format!("rust_root: .\nrust_input: crate\ndart_output: ../lib/src/{module_name}_bridge_generated\n");
     GeneratedFile {
         path: PathBuf::from(rust_dir).join("flutter_rust_bridge.yaml"),
         content,
