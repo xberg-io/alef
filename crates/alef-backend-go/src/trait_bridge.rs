@@ -62,7 +62,11 @@ pub fn gen_trait_bridges_file(
     for bridge_cfg in &config.trait_bridges {
         if let Some(trait_def) = api.types.iter().find(|t| t.name == bridge_cfg.trait_name) {
             let pascal = bridge_cfg.trait_name.to_pascal_case();
-            for method in &trait_def.methods {
+            for method in trait_def
+                .methods
+                .iter()
+                .filter(|m| !bridge_cfg.ffi_skip_methods.contains(&m.name))
+            {
                 let export_name = format!("go{}{}", &pascal, method.name.to_pascal_case());
                 let c_sig = c_trampoline_signature(&export_name, method);
                 out.push_str(&crate::template_env::render(
@@ -203,8 +207,12 @@ fn gen_trait_bridge(
         },
     ));
 
-    // Trait methods
-    for method in &trait_def.methods {
+    // Trait methods (skip FFI-incompatible ones — they have no C VTable slot).
+    for method in trait_def
+        .methods
+        .iter()
+        .filter(|m| !bridge_cfg.ffi_skip_methods.contains(&m.name))
+    {
         gen_interface_method(out, method);
     }
 
@@ -214,7 +222,11 @@ fn gen_trait_bridge(
     // =========================================================================
     // Exported trampolines
     // =========================================================================
-    for method in &trait_def.methods {
+    for method in trait_def
+        .methods
+        .iter()
+        .filter(|m| !bridge_cfg.ffi_skip_methods.contains(&m.name))
+    {
         let export_name = format!("go{}{}", &trait_pascal, method.name.to_pascal_case());
         out.push_str(&crate::template_env::render(
             "export_marker.jinja",
@@ -246,9 +258,14 @@ fn gen_trait_bridge(
         },
     ));
 
-    // Set up vtable function pointers (via //export trampolines)
-    // cgo declares function pointers as *[0]byte, so cast via unsafe.Pointer
-    for method in &trait_def.methods {
+    // Set up vtable function pointers (via //export trampolines).
+    // cgo declares function pointers as *[0]byte, so cast via unsafe.Pointer.
+    // Skip FFI-incompatible methods — they have no C VTable slot.
+    for method in trait_def
+        .methods
+        .iter()
+        .filter(|m| !bridge_cfg.ffi_skip_methods.contains(&m.name))
+    {
         let export_name = format!("go{}{}", &trait_pascal, method.name.to_pascal_case());
         out.push_str(&crate::template_env::render(
             "register_vtable_method_field.jinja",

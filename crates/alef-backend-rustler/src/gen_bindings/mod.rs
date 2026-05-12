@@ -337,9 +337,11 @@ impl Backend for RustlerBackend {
                     )
                 })
             {
+                let core_path = alef_codegen::conversions::core_type_path(typ, &core_import);
                 if method.is_async {
                     builder.add_item(&gen_nif_async_method(
                         &typ.name,
+                        &core_path,
                         method,
                         &mapper,
                         typ.is_opaque,
@@ -351,6 +353,7 @@ impl Backend for RustlerBackend {
                 } else {
                     builder.add_item(&gen_nif_method(
                         &typ.name,
+                        &core_path,
                         method,
                         &mapper,
                         typ.is_opaque,

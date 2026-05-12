@@ -195,12 +195,26 @@ fn render_build_gradle(
             format!(r#"    testImplementation("{kotlin_pkg_id}:{pkg_name}:{pkg_version}")"#)
         }
         crate::config::DependencyMode::Local => {
-            // Local mode: reference local JAR from kreuzberg binding.
-            // Strip the Maven group prefix (e.g. "group:artifact" → "artifact")
-            // because colons in `files()` path strings are treated as classpath
-            // separators by Gradle on Linux/macOS.
+            // Local mode: reference the kotlin binding's built jar. The Kotlin
+            // module is produced by `gradle build` under
+            // `packages/kotlin/build/libs/<jar_name>-<version>.jar`, not by cargo.
+            // We must also pull in the binding's runtime dependencies (JNA,
+            // Jackson, jspecify, kotlinx-coroutines) since `files()` does not
+            // resolve transitive metadata.
             let jar_name = pkg_name.rsplit(':').next().unwrap_or(pkg_name);
-            format!(r#"    testImplementation(files("../../target/release/{jar_name}.jar"))"#)
+            let jna = maven::JNA;
+            let jackson = maven::JACKSON_E2E;
+            let jspecify = maven::JSPECIFY;
+            let coroutines = maven::KOTLINX_COROUTINES_CORE;
+            format!(
+                r#"    testImplementation(files("../../packages/kotlin/build/libs/{jar_name}-{pkg_version}.jar"))
+    testImplementation("net.java.dev.jna:jna:{jna}")
+    testImplementation("com.fasterxml.jackson.core:jackson-annotations:{jackson}")
+    testImplementation("com.fasterxml.jackson.core:jackson-databind:{jackson}")
+    testImplementation("com.fasterxml.jackson.datatype:jackson-datatype-jdk8:{jackson}")
+    testImplementation("org.jspecify:jspecify:{jspecify}")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:{coroutines}")"#
+            )
         }
     };
 
@@ -452,7 +466,19 @@ fn render_test_file(
     for f in fixtures.iter() {
         let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
         let call_overrides = cc.overrides.get("kotlin");
-        let effective_opts = call_overrides.and_then(|o| o.options_type.as_deref()).or(options_type);
+        let effective_opts: Option<String> = call_overrides
+            .and_then(|o| o.options_type.clone())
+            .or_else(|| options_type.map(|s| s.to_string()))
+            .or_else(|| {
+                for cand in ["csharp", "c", "go", "php", "python"] {
+                    if let Some(o) = cc.overrides.get(cand) {
+                        if let Some(t) = &o.options_type {
+                            return Some(t.clone());
+                        }
+                    }
+                }
+                None
+            });
         if let Some(opts) = effective_opts {
             // Prefer the per-call args (which carry the correct arg_type + field for the
             // resolved call); fall back to the file-level args only when the call has none.
@@ -518,6 +544,30 @@ fn render_test_file(
     // Import CrawlConfig when handle args need JSON deserialization.
     if needs_object_mapper_for_handle {
         let _ = writeln!(out, "import {binding_pkg_for_imports}.CrawlConfig");
+    }
+    // Import BatchBytesItem / BatchFileItem when any fixture has a batch-item
+    // array arg (element_type) — the test code constructs these directly.
+    let mut batch_elem_imports: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for f in fixtures.iter() {
+        let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
+        let fixture_args = if cc.args.is_empty() { args } else { cc.args.as_slice() };
+        for arg in fixture_args.iter() {
+            if arg.arg_type != "json_object" {
+                continue;
+            }
+            let v = super::resolve_field(&f.input, &arg.field);
+            if !v.is_array() {
+                continue;
+            }
+            if let Some(elem) = &arg.element_type {
+                if elem == "BatchBytesItem" || elem == "BatchFileItem" {
+                    batch_elem_imports.insert(elem.clone());
+                }
+            }
+        }
+    }
+    for elem in &batch_elem_imports {
+        let _ = writeln!(out, "import {binding_pkg_for_imports}.{elem}");
     }
     let _ = writeln!(out);
 
@@ -839,9 +889,24 @@ fn render_test_method(
     let function_name = effective_function_name.as_str();
     let result_var = effective_result_var.as_str();
     let args: &[crate::config::ArgMapping] = effective_args.as_slice();
-    // Per-call override of options_type wins over the global one passed in.
-    let effective_options_type = call_overrides.and_then(|o| o.options_type.as_deref()).or(options_type);
-    let options_type = effective_options_type;
+    // Resolve per-fixture options_type: prefer the kotlin call override, fall back
+    // to class-level, then to any other language's options_type for the same call.
+    // The Kotlin module re-exports Java facade types unchanged, so a type name declared
+    // by csharp/c/go/php/python applies equally to Kotlin without an explicit override.
+    let effective_options_type: Option<String> = call_overrides
+        .and_then(|o| o.options_type.clone())
+        .or_else(|| options_type.map(|s| s.to_string()))
+        .or_else(|| {
+            for cand in ["csharp", "c", "go", "php", "python"] {
+                if let Some(o) = call_config.overrides.get(cand) {
+                    if let Some(t) = &o.options_type {
+                        return Some(t.clone());
+                    }
+                }
+            }
+            None
+        });
+    let options_type = effective_options_type.as_deref();
 
     let method_name = fixture.id.to_upper_camel_case();
     let description = &fixture.description;
@@ -877,21 +942,36 @@ fn render_test_method(
     let _ = writeln!(out, "        // {description}");
 
     // Emit ObjectMapper deserialization bindings for json_object args.
-    if let (true, Some(opts_type)) = (needs_deser, options_type) {
+    // Object args use the configured `options_type`. Array args carrying
+    // `element_type = BatchBytesItem | BatchFileItem` are emitted as inline
+    // List<T> constructors below (build_args_and_setup) — no deser binding is
+    // needed because the array is materialised directly in source.
+    if needs_deser {
         for arg in args {
-            if arg.arg_type == "json_object" {
-                let val = super::resolve_field(&fixture.input, &arg.field);
-                if !val.is_null() {
-                    let normalized = super::transform_json_keys_for_language(val, "snake_case");
-                    let json_str = serde_json::to_string(&normalized).unwrap_or_default();
-                    let var_name = &arg.name;
-                    let _ = writeln!(
-                        out,
-                        "        val {var_name} = MAPPER.readValue(\"{}\", {opts_type}::class.java)",
-                        escape_kotlin(&json_str)
-                    );
+            if arg.arg_type != "json_object" {
+                continue;
+            }
+            let val = super::resolve_field(&fixture.input, &arg.field);
+            if val.is_null() {
+                continue;
+            }
+            // Skip batch-item arrays — materialised inline as List<BatchXItem>.
+            if val.is_array() {
+                if let Some(elem) = &arg.element_type {
+                    if elem == "BatchBytesItem" || elem == "BatchFileItem" {
+                        continue;
+                    }
                 }
             }
+            let Some(opts_type) = options_type else { continue };
+            let normalized = super::transform_json_keys_for_language(val, "snake_case");
+            let json_str = serde_json::to_string(&normalized).unwrap_or_default();
+            let var_name = &arg.name;
+            let _ = writeln!(
+                out,
+                "        val {var_name} = MAPPER.readValue(\"{}\", {opts_type}::class.java)",
+                escape_kotlin(&json_str)
+            );
         }
     }
 
@@ -1055,6 +1135,17 @@ fn build_args_and_setup(
                 parts.push(default_val);
             }
             Some(v) => {
+                // Batch item arrays (paths/items for batch_extract_*) are
+                // materialised inline as `listOf(BatchXItem(...))` so the
+                // generated Java facade signature matches.
+                if arg.arg_type == "json_object" && v.is_array() {
+                    if let Some(elem) = &arg.element_type {
+                        if elem == "BatchBytesItem" || elem == "BatchFileItem" {
+                            parts.push(emit_kotlin_batch_item_array(v, elem));
+                            continue;
+                        }
+                    }
+                }
                 // For json_object args with options_type, use the pre-deserialized variable.
                 if arg.arg_type == "json_object" && options_type.is_some() {
                     parts.push(arg.name.clone());
@@ -1066,12 +1157,62 @@ fn build_args_and_setup(
                     parts.push(format!("{val}.toByteArray()"));
                     continue;
                 }
+                // file_path args must be wrapped in java.nio.file.Path.of(),
+                // since the Kotlin module re-exports the Java facade signatures
+                // which take Path rather than String for file-path parameters.
+                if arg.arg_type == "file_path" {
+                    let val = json_to_kotlin(v);
+                    parts.push(format!("java.nio.file.Path.of({val})"));
+                    continue;
+                }
                 parts.push(json_to_kotlin(v));
             }
         }
     }
 
     (setup_lines, parts.join(", "))
+}
+
+/// Emit a Kotlin `listOf(...)` expression of `BatchBytesItem` or
+/// `BatchFileItem` constructors. Mirrors `emit_java_batch_item_array` so the
+/// Kotlin tests build the same typed lists the Java facade expects.
+fn emit_kotlin_batch_item_array(arr: &serde_json::Value, elem_type: &str) -> String {
+    let Some(items) = arr.as_array() else {
+        return "emptyList()".to_string();
+    };
+    let parts: Vec<String> = items
+        .iter()
+        .filter_map(|item| {
+            let obj = item.as_object()?;
+            match elem_type {
+                "BatchBytesItem" => {
+                    let mime_type = obj.get("mime_type").and_then(|v| v.as_str()).unwrap_or("text/plain");
+                    let content_code = obj
+                        .get("content")
+                        .and_then(|v| v.as_array())
+                        .map(|arr| {
+                            let bytes: Vec<String> = arr
+                                .iter()
+                                .filter_map(|v| v.as_u64().map(|n| format!("{n}")))
+                                .collect();
+                            format!("byteArrayOf({})", bytes.join(", "))
+                        })
+                        .unwrap_or_else(|| "byteArrayOf()".to_string());
+                    Some(format!(
+                        "{elem_type}({content_code}, \"{mime_type}\", null)"
+                    ))
+                }
+                "BatchFileItem" => {
+                    let path = obj.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                    Some(format!(
+                        "{elem_type}(java.nio.file.Paths.get(\"{path}\"), null)"
+                    ))
+                }
+                _ => None,
+            }
+        })
+        .collect();
+    format!("listOf({})", parts.join(", "))
 }
 
 fn render_assertion(

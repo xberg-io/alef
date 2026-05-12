@@ -3,4 +3,5 @@ source: crates/alef-backend-dart/tests/snapshot_test.rs
 expression: "&file.content"
 ---
 rust_root: .
+rust_input: crate
 dart_output: ../lib/src/demo_bridge_generated

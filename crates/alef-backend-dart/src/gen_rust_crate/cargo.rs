@@ -185,10 +185,15 @@ pub(crate) fn emit_build_rs(rust_dir: &str) -> GeneratedFile {
 }
 
 pub(crate) fn emit_frb_yaml(rust_dir: &str, module_name: &str) -> GeneratedFile {
-    // FRB v2 schema: `rust_root` points at the Rust crate dir and `dart_output`
-    // at the bindings directory. The v1 keys `rust_input` and `rust_output` have
-    // been removed — FRB v2 auto-discovers `pub fn`s from the crate root.
-    let content = format!("rust_root: .\ndart_output: ../lib/src/{module_name}_bridge_generated\n");
+    // FRB v2 schema: `rust_root` points at the Rust crate dir, `rust_input` at the
+    // module path(s) to scan for `pub` items (the alef-generated crate places its
+    // entire surface at the crate root `lib.rs`), and `dart_output` at the bindings
+    // directory. `rust_input` is required by the FRB CLI even in v2 — omitting it
+    // causes `flutter_rust_bridge_codegen generate` to panic with
+    // "Please provide `rust_input`".
+    let content = format!(
+        "rust_root: .\nrust_input: crate\ndart_output: ../lib/src/{module_name}_bridge_generated\n"
+    );
     GeneratedFile {
         path: PathBuf::from(rust_dir).join("flutter_rust_bridge.yaml"),
         content,

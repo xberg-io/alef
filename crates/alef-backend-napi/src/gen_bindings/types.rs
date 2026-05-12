@@ -188,6 +188,7 @@ pub(super) fn gen_opaque_struct_methods(
     prefix: &str,
     adapter_bodies: &alef_adapters::AdapterBodies,
     streaming_item_types: &ahash::AHashMap<String, String>,
+    capsule_type_names: &AHashSet<String>,
 ) -> String {
     let mut impl_builder = ImplBuilder::new(&format!("{prefix}{}", typ.name));
     impl_builder.add_attr("napi");
@@ -199,6 +200,22 @@ pub(super) fn gen_opaque_struct_methods(
         // and emitting an unimplemented stub pollutes the public API with dead placeholders.
         let adapter_key = format!("{}.{}", typ.name, method.name);
         if method.sanitized && !adapter_bodies.contains_key(&adapter_key) {
+            continue;
+        }
+        // Skip methods whose return type is a capsule type — the capsule shim for
+        // free functions emits a JsObject/External, but the method codegen path
+        // here would emit `Result<Js<Capsule>>` referencing a suppressed wrapper
+        // class that no longer exists. The free function alternative covers the
+        // same API. Tracked as a known limitation in alef-backend-napi.
+        let returns_capsule = match &method.return_type {
+            TypeRef::Named(name) => capsule_type_names.contains(name),
+            TypeRef::Optional(inner) => match inner.as_ref() {
+                TypeRef::Named(name) => capsule_type_names.contains(name),
+                _ => false,
+            },
+            _ => false,
+        };
+        if returns_capsule {
             continue;
         }
         // Skip methods that accept opaque-typed params by value — NAPI class types don't implement

@@ -1366,12 +1366,17 @@ fn render_assertion(
                     let array_part = &f[..dot];
                     let elem_part = &f[dot + 3..];
                     let array_accessor = field_resolver.accessor(array_part, "swift", result_var);
-                    let elem_accessor = field_resolver.accessor(elem_part, "swift", "$0");
-                    let elem_is_enum = enum_fields.contains(f) || enum_fields.contains(field_resolver.resolve(f));
-                    let elem_is_optional = field_resolver.is_optional(elem_part)
-                        || field_resolver.is_optional(field_resolver.resolve(elem_part));
+                    let resolved_full = field_resolver.resolve(f);
+                    let resolved_elem_part = resolved_full
+                        .find("[].")
+                        .map(|d| &resolved_full[d + 3..])
+                        .unwrap_or(elem_part);
+                    let elem_accessor = field_resolver.accessor(resolved_elem_part, "swift", "$0");
+                    let elem_is_enum = enum_fields.contains(f) || enum_fields.contains(resolved_full);
+                    let elem_is_optional = field_resolver.is_optional(resolved_elem_part)
+                        || field_resolver.is_optional(field_resolver.resolve(resolved_elem_part));
                     let elem_str = if elem_is_enum {
-                        format!("{elem_accessor}.to_string().toString()")
+                        format!("{elem_accessor}.toString()")
                     } else if elem_is_optional {
                         format!("({elem_accessor}?.toString() ?? \"\")")
                     } else {
@@ -1671,12 +1676,17 @@ fn swift_traversal_contains_assert(
     field_resolver: &FieldResolver,
 ) -> String {
     let array_accessor = field_resolver.accessor(array_part, "swift", result_var);
-    let elem_accessor = field_resolver.accessor(element_part, "swift", "$0");
-    let elem_is_enum = enum_fields.contains(full_field) || enum_fields.contains(field_resolver.resolve(full_field));
+    let resolved_full = field_resolver.resolve(full_field);
+    let resolved_elem_part = resolved_full
+        .find("[].")
+        .map(|d| &resolved_full[d + 3..])
+        .unwrap_or(element_part);
+    let elem_accessor = field_resolver.accessor(resolved_elem_part, "swift", "$0");
+    let elem_is_enum = enum_fields.contains(full_field) || enum_fields.contains(resolved_full);
     let elem_is_optional =
-        field_resolver.is_optional(element_part) || field_resolver.is_optional(field_resolver.resolve(element_part));
+        field_resolver.is_optional(resolved_elem_part) || field_resolver.is_optional(field_resolver.resolve(resolved_elem_part));
     let elem_str = if elem_is_enum {
-        format!("{elem_accessor}.to_string().toString()")
+        format!("{elem_accessor}.toString()")
     } else if elem_is_optional {
         format!("({elem_accessor}?.toString() ?? \"\")")
     } else {

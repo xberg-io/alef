@@ -289,6 +289,7 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
                 builder.add_item(&alef_codegen::generators::gen_opaque_struct_prefixed(
                     typ, &cfg, &prefix,
                 ));
+                let capsule_type_names: AHashSet<String> = capsule_types.keys().cloned().collect();
                 builder.add_item(&types::gen_opaque_struct_methods(
                     typ,
                     &mapper,
@@ -297,6 +298,7 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
                     &prefix,
                     &adapter_bodies,
                     &streaming_item_types,
+                    &capsule_type_names,
                 ));
             } else {
                 // Non-opaque structs use #[napi(object)] — plain JS objects without methods.

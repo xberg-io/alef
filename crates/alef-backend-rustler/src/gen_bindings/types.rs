@@ -606,6 +606,10 @@ pub(super) fn gen_rustler_wrap_return(
             TypeRef::Named(_) => {
                 format!("{expr}.into_iter().map(Into::into).collect()")
             }
+            // Core returns &[&str]/&[&char] — materialize to owned Vec<String>/Vec<char>.
+            TypeRef::String | TypeRef::Char if returns_ref => {
+                format!("{expr}.iter().map(|s| s.to_string()).collect()")
+            }
             _ => expr.to_string(),
         },
         // Optional<T>: when the core returns a reference (&str, &T) wrapped in Option,
