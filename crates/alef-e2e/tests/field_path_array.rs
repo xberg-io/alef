@@ -157,20 +157,29 @@ fn data_2_text_python() {
 #[test]
 fn data_2_text_typescript() {
     let r = empty_resolver();
-    assert_eq!(r.accessor("data[2].text", "typescript", "result"), "result.data[2].text");
+    assert_eq!(
+        r.accessor("data[2].text", "typescript", "result"),
+        "result.data[2].text"
+    );
 }
 
 #[test]
 fn data_2_text_java() {
     let r = empty_resolver();
-    assert_eq!(r.accessor("data[2].text", "java", "result"), "result.data().get(2).text()");
+    assert_eq!(
+        r.accessor("data[2].text", "java", "result"),
+        "result.data().get(2).text()"
+    );
 }
 
 #[test]
 fn data_2_text_kotlin() {
     let r = empty_resolver();
     // index 2 ≠ 0, so use .get(2) instead of .first()
-    assert_eq!(r.accessor("data[2].text", "kotlin", "result"), "result.data().get(2).text()");
+    assert_eq!(
+        r.accessor("data[2].text", "kotlin", "result"),
+        "result.data().get(2).text()"
+    );
 }
 
 #[test]

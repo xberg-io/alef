@@ -1059,9 +1059,11 @@ fn render_test_case(
 
     // For streaming fixtures, drain the stream into a list before asserting.
     if is_streaming {
-        if let Some(collect) =
-            crate::codegen::streaming_assertions::StreamingFieldResolver::collect_snippet("elixir", &result_var, chunks_var)
-        {
+        if let Some(collect) = crate::codegen::streaming_assertions::StreamingFieldResolver::collect_snippet(
+            "elixir",
+            &result_var,
+            chunks_var,
+        ) {
             let _ = writeln!(out, "      {collect}");
         }
     }

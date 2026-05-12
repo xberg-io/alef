@@ -10,7 +10,9 @@ mod nif_external;
 mod trait_bridge;
 mod variant_collision;
 
-use nif_external::{emit_enum, emit_error_type, emit_from_json_fn, emit_function, emit_method, emit_resource_type, emit_type};
+use nif_external::{
+    emit_enum, emit_error_type, emit_from_json_fn, emit_function, emit_method, emit_resource_type, emit_type,
+};
 use trait_bridge::{emit_trait_bridge_shims, emit_trait_support_nifs};
 use variant_collision::build_collision_set;
 

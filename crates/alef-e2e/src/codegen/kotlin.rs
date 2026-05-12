@@ -843,22 +843,16 @@ fn render_test_method(
     // `chunks`/`stream_content` which require the collect snippet).
     let is_streaming = fixture.is_streaming_mock()
         || fixture.assertions.iter().any(|a| {
-            a.field.as_deref().is_some_and(|f| {
-                !f.is_empty()
-                    && crate::codegen::streaming_assertions::is_streaming_virtual_field(f)
-            })
+            a.field
+                .as_deref()
+                .is_some_and(|f| !f.is_empty() && crate::codegen::streaming_assertions::is_streaming_virtual_field(f))
         });
-    let collect_snippet =
-        if is_streaming && !expects_error {
-            crate::codegen::streaming_assertions::StreamingFieldResolver::collect_snippet(
-                "kotlin",
-                result_var,
-                "chunks",
-            )
+    let collect_snippet = if is_streaming && !expects_error {
+        crate::codegen::streaming_assertions::StreamingFieldResolver::collect_snippet("kotlin", result_var, "chunks")
             .unwrap_or_default()
-        } else {
-            String::new()
-        };
+    } else {
+        String::new()
+    };
 
     // Check if this test needs ObjectMapper deserialization for json_object args.
     // Uses `resolve_field` so that `field = "input"` resolves to the whole fixture
@@ -1096,7 +1090,9 @@ fn render_assertion(
                     }
                     "count_equals" => {
                         if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
-                            format!("        assertEquals({n}.toLong(), {expr}.size.toLong(), \"expected exactly {n} elements\")\n")
+                            format!(
+                                "        assertEquals({n}.toLong(), {expr}.size.toLong(), \"expected exactly {n} elements\")\n"
+                            )
                         } else {
                             String::new()
                         }

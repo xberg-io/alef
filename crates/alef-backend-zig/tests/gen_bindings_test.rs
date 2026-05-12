@@ -317,11 +317,11 @@ fn result_function_checks_last_error_code() {
     assert!(content.contains("c.demo_extract("), "must call C function: {content}");
 }
 
-/// Async functions are silently skipped.  No `pub fn` wrapper is emitted.
-/// A file-level comment notes that async is unsupported when at least one
-/// function was skipped.
+/// Async Rust functions ARE emitted as synchronous Zig wrappers.
+/// The Zig C FFI uses block_on internally, so every function is synchronous
+/// from Zig's perspective regardless of the Rust `async` annotation.
 #[test]
-fn async_function_is_skipped_with_header_comment() {
+fn async_function_is_emitted_as_sync() {
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -350,15 +350,15 @@ fn async_function_is_skipped_with_header_comment() {
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
 
-    // File-level comment must note that async is unsupported.
+    // No "async unsupported" warning should appear — all functions are sync via C FFI.
     assert!(
-        content.contains("Async functions are not supported in this backend."),
-        "must emit async-unsupported header comment: {content}"
+        !content.contains("Async functions are not supported in this backend."),
+        "must NOT emit async-unsupported comment: {content}"
     );
-    // No wrapper function must be emitted for the async function.
+    // The wrapper function must be emitted.
     assert!(
-        !content.contains("pub fn fetch_async"),
-        "must NOT emit async function wrapper: {content}"
+        content.contains("pub fn fetch_async"),
+        "must emit async function wrapper as sync: {content}"
     );
 }
 

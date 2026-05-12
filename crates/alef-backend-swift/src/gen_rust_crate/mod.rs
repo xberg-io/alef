@@ -275,9 +275,7 @@ fn emit_lib_rs(
                 .swift
                 .as_ref()
                 .is_some_and(|c| c.client_constructor_body.contains_key(&ty.name));
-            if has_ctor_override
-                && let Some(ctor_block) = extern_block::emit_extern_block_for_type_constructor(ty)
-            {
+            if has_ctor_override && let Some(ctor_block) = extern_block::emit_extern_block_for_type_constructor(ty) {
                 extern_blocks.push(ctor_block);
             }
             if let Some(method_block) = extern_block::emit_extern_block_for_type_methods(ty) {
@@ -447,11 +445,8 @@ fn emit_lib_rs(
         use heck::AsSnakeCase;
         let type_snake = AsSnakeCase(ty.name.as_str()).to_string();
         let type_name = &ty.name;
-        let source_path = alef_codegen::generators::type_paths::resolve_type_path(
-            type_name,
-            &source_crate,
-            &type_paths,
-        );
+        let source_path =
+            alef_codegen::generators::type_paths::resolve_type_path(type_name, &source_crate, &type_paths);
         out.push_str(&format!(
             "pub fn {type_snake}_from_json(json: String) -> Result<{type_name}, String> {{\n    \
              serde_json::from_str::<{source_path}>(&json)\n        \
@@ -578,9 +573,7 @@ fn collect_serde_param_types<'a>(
         .filter(|ty| {
             let name = ty.name.as_str();
             // Check free-function params.
-            let in_free_fn = visible_functions
-                .iter()
-                .any(|f| param_uses_type(&f.params, name));
+            let in_free_fn = visible_functions.iter().any(|f| param_uses_type(&f.params, name));
             // Check method params on all types in the API surface.
             let in_method = api
                 .types

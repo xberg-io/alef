@@ -645,8 +645,14 @@ fn render_test_method(
 
     let options_via_str: Option<&str> = call_overrides.and_then(|o| o.options_via.as_deref());
     let options_type_str: Option<&str> = call_overrides.and_then(|o| o.options_type.as_deref());
-    let (setup_lines, args_str) =
-        build_args_and_setup(&fixture.input, args, &fixture.id, &function_name, options_via_str, options_type_str);
+    let (setup_lines, args_str) = build_args_and_setup(
+        &fixture.input,
+        args,
+        &fixture.id,
+        &function_name,
+        options_via_str,
+        options_type_str,
+    );
 
     // Append extra_args to the argument list.
     let args_str = if extra_args.is_empty() {

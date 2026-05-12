@@ -339,6 +339,12 @@ fn emit_lib_rs(
         .types
         .iter()
         .filter(|t| !exclude_types.contains(&t.name) && !t.is_trait && !t.is_opaque)
+        // Only types that derive serde::Deserialize on the core side can be deserialized
+        // from a JSON string. Internal types like `MergedChunk`, `ResolvedStyle`,
+        // `CharShape`, etc. exist in the binding surface as From-converted mirrors but
+        // aren't serde-Deserialize on the core side — emitting `serde_json::from_str::<T>`
+        // for them produces an E0277 trait-bound error at compile time.
+        .filter(|t| t.has_serde)
     {
         content.push('\n');
         emit_from_json_fn(&mut content, ty, source_crate_name);
@@ -538,10 +544,20 @@ fn emit_from_impl_for_struct(out: &mut String, ty: &TypeDef, source_crate_name: 
             // Sanitized fields (unknown types mapped to String/i64) can't be auto-converted.
             // Use a best-effort fallback.
             let fallback = sanitized_field_from_expr(field);
-            emit_rust_struct_field(out, field.cfg.as_deref(), &field.name, &fallback);
+            // `cfg = None`: the dart bridge crate enables `features = ["full"]` on
+// the kreuzberg dependency, so every core-side cfg-gated field is present
+// at compile time. Emitting `#[cfg(...)]` here would gate on the dart
+// crate's own (undefined) features, evaluating to false and leaving the
+// struct literal missing fields.
+emit_rust_struct_field(out, None, &field.name, &fallback);
         } else {
             let expr = field_from_expr(field, source_crate_name);
-            emit_rust_struct_field(out, field.cfg.as_deref(), &field.name, &expr);
+            // `cfg = None`: the dart bridge crate enables `features = ["full"]` on
+// the kreuzberg dependency, so every core-side cfg-gated field is present
+// at compile time. Emitting `#[cfg(...)]` here would gate on the dart
+// crate's own (undefined) features, evaluating to false and leaving the
+// struct literal missing fields.
+emit_rust_struct_field(out, None, &field.name, &expr);
         }
     }
 
@@ -785,10 +801,20 @@ fn emit_from_mirror_to_core_struct(out: &mut String, ty: &TypeDef, source_crate_
             // Only types in the transitive closure from input-parameter types get this
             // impl generated, and those core types implement Default (e.g. ExtractionConfig
             // has cancel_token: Option<CancellationToken> which implements Default).
-            emit_rust_struct_field(out, field.cfg.as_deref(), &field.name, "Default::default()");
+            // `cfg = None`: the dart bridge crate enables `features = ["full"]` on
+// the kreuzberg dependency, so every core-side cfg-gated field is present
+// at compile time. Emitting `#[cfg(...)]` here would gate on the dart
+// crate's own (undefined) features, evaluating to false and leaving the
+// struct literal missing fields.
+emit_rust_struct_field(out, None, &field.name, "Default::default()");
         } else {
             let expr = field_from_expr_to_core(field, source_crate_name);
-            emit_rust_struct_field(out, field.cfg.as_deref(), &field.name, &expr);
+            // `cfg = None`: the dart bridge crate enables `features = ["full"]` on
+// the kreuzberg dependency, so every core-side cfg-gated field is present
+// at compile time. Emitting `#[cfg(...)]` here would gate on the dart
+// crate's own (undefined) features, evaluating to false and leaving the
+// struct literal missing fields.
+emit_rust_struct_field(out, None, &field.name, &expr);
         }
     }
 

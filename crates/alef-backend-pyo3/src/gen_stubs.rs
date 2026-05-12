@@ -368,11 +368,7 @@ fn gen_type_init_stub(typ: &TypeDef, api: &ApiSurface, config: &ResolvedCrateCon
 }
 
 /// Generate a method stub.
-fn gen_method_stub(
-    method: &MethodDef,
-    is_static: bool,
-    capsule_names: &std::collections::HashSet<&str>,
-) -> String {
+fn gen_method_stub(method: &MethodDef, is_static: bool, capsule_names: &std::collections::HashSet<&str>) -> String {
     // Partition params into required (non-optional) and optional
     let (required, optional): (Vec<_>, Vec<_>) = method.params.iter().partition(|p| !p.optional);
 

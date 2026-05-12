@@ -1017,9 +1017,7 @@ fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner
                 ));
                 call_args.push(cname);
             }
-            TypeRef::Optional(inner)
-                if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char | TypeRef::Json) =>
-            {
+            TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char | TypeRef::Json) => {
                 out.push_str(&crate::template_env::render(
                     "stream_method_optional_string_param.jinja",
                     minijinja::context! { c_name => cname, param_name => pname },

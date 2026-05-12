@@ -351,11 +351,9 @@ fn emit_result_and_assertions(
     // no `await` prefix is used on the call expression.
     if is_streaming {
         let _ = writeln!(out, "    {result_var} = {call_expr}");
-        if let Some(collect) =
-            crate::codegen::streaming_assertions::StreamingFieldResolver::collect_snippet(
-                "python", result_var, chunks_var,
-            )
-        {
+        if let Some(collect) = crate::codegen::streaming_assertions::StreamingFieldResolver::collect_snippet(
+            "python", result_var, chunks_var,
+        ) {
             let _ = writeln!(out, "    {collect}");
         }
     } else {
@@ -395,7 +393,12 @@ fn emit_result_and_assertions(
 
 /// Emit a Python assertion for a streaming virtual field using the collected
 /// `chunks` list.  Mirrors the pattern in rust/assertions.rs.
-fn emit_streaming_virtual_assertion(out: &mut String, assertion: &crate::fixture::Assertion, field: &str, chunks_var: &str) {
+fn emit_streaming_virtual_assertion(
+    out: &mut String,
+    assertion: &crate::fixture::Assertion,
+    field: &str,
+    chunks_var: &str,
+) {
     use crate::codegen::streaming_assertions::StreamingFieldResolver;
 
     let Some(expr) = StreamingFieldResolver::accessor(field, "python", chunks_var) else {
@@ -437,11 +440,23 @@ fn emit_streaming_virtual_assertion(out: &mut String, assertion: &crate::fixture
         }
         "is_true" => {
             // Normalize "true"/"false" literals to Python's True/False.
-            let py_expr = if expr == "true" { "True".to_string() } else if expr == "false" { "False".to_string() } else { expr.clone() };
+            let py_expr = if expr == "true" {
+                "True".to_string()
+            } else if expr == "false" {
+                "False".to_string()
+            } else {
+                expr.clone()
+            };
             let _ = writeln!(out, "    assert {py_expr}  # noqa: S101");
         }
         "is_false" => {
-            let py_expr = if expr == "true" { "True".to_string() } else if expr == "false" { "False".to_string() } else { expr.clone() };
+            let py_expr = if expr == "true" {
+                "True".to_string()
+            } else if expr == "false" {
+                "False".to_string()
+            } else {
+                expr.clone()
+            };
             let _ = writeln!(out, "    assert not {py_expr}  # noqa: S101");
         }
         "greater_than" => {
