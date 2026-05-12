@@ -1834,6 +1834,10 @@ fn render_assertion(
                 }
                 return;
             }
+            "not_error" => {
+                let _ = writeln!(out, "        Assert.NotNull({result_var});");
+                return;
+            }
             _ => {
                 // Other assertion types are not meaningful on raw byte buffers;
                 // emit a comment so the test still compiles but flags unsupported
