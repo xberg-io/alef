@@ -315,7 +315,7 @@ pub(super) fn dts_type(ty: &TypeRef, prefix: &str) -> String {
             } else {
                 format!("Array<{}>", dts_type(inner, prefix))
             }
-        },
+        }
         TypeRef::Map(k, v) => format!("Record<{}, {}>", dts_type(k, prefix), dts_type(v, prefix)),
         TypeRef::Named(name) => format!("{prefix}{name}"),
     }

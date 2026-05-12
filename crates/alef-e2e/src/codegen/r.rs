@@ -584,27 +584,33 @@ fn render_assertion(
                 return;
             }
             // ---- EmbedResponse virtual fields ----
-            // embed_texts returns list of numeric vectors in R — no wrapper object.
-            // result_var is the embedding matrix; use it directly.
+            // The extendr binding cannot return `Vec<Vec<f32>>` directly (extendr's
+            // Robj conversion has no impl for nested numeric vectors), so the
+            // wrapper serializes the result to a JSON string at the FFI boundary.
+            // Parse it on demand here so length/index assertions operate on the
+            // matrix structure rather than on the single string scalar.
             "embeddings" => {
+                let parsed = format!(
+                    "(if (is.character({result_var}) && length({result_var}) == 1) jsonlite::fromJSON({result_var}, simplifyVector = FALSE) else {result_var})"
+                );
                 match assertion.assertion_type.as_str() {
                     "count_equals" => {
                         if let Some(val) = &assertion.value {
                             let r_val = json_to_r(val, false);
-                            let _ = writeln!(out, "  expect_equal(length({result_var}), {r_val})");
+                            let _ = writeln!(out, "  expect_equal(length({parsed}), {r_val})");
                         }
                     }
                     "count_min" => {
                         if let Some(val) = &assertion.value {
                             let r_val = json_to_r(val, false);
-                            let _ = writeln!(out, "  expect_gte(length({result_var}), {r_val})");
+                            let _ = writeln!(out, "  expect_gte(length({parsed}), {r_val})");
                         }
                     }
                     "not_empty" => {
-                        let _ = writeln!(out, "  expect_gt(length({result_var}), 0)");
+                        let _ = writeln!(out, "  expect_gt(length({parsed}), 0)");
                     }
                     "is_empty" => {
-                        let _ = writeln!(out, "  expect_equal(length({result_var}), 0)");
+                        let _ = writeln!(out, "  expect_equal(length({parsed}), 0)");
                     }
                     _ => {
                         let _ = writeln!(

@@ -118,6 +118,15 @@ impl Backend for ExtendrBackend {
             .filter(|e| is_flat_data_enum(e))
             .map(|e| e.name.clone())
             .collect();
+        // JSON-passthrough wrapper structs need an `impl Name;` entry in
+        // `extendr_module!` so their `#[extendr] impl` block (with `default`,
+        // `from_json`) is wired into the R package's class registry.
+        let json_passthrough_enum_names_vec: Vec<String> = api
+            .enums
+            .iter()
+            .filter(|e| is_json_passthrough_data_enum(e))
+            .map(|e| e.name.clone())
+            .collect();
         let cfg = Self::binding_config(&core_import, &flat_data_enum_names_vec);
 
         // Build adapter body map for method body substitution.
@@ -502,6 +511,14 @@ impl Backend for ExtendrBackend {
                 let flat_struct = gen_extendr_flat_data_enum_struct(e, self, &cfg);
                 builder.add_item(&format!("#[extendr]\n{flat_struct}"));
                 builder.add_item(&format!("#[extendr]\nimpl {} {{}}", e.name));
+            } else if is_json_passthrough_data_enum(e) {
+                // Tagged data enums with struct variants (e.g. `EmbeddingModelType`
+                // with `Preset { name: String }`) cannot be expressed losslessly as
+                // flat unit-only enums — the variant payload is dropped on round
+                // trip. Generate a newtype struct whose serde representation defers
+                // entirely to the core enum, so nested deserialization through parent
+                // structs preserves the full tagged payload across the FFI boundary.
+                builder.add_item(&gen_extendr_json_passthrough_enum_struct(e, &core_import));
             } else {
                 builder.add_item(&generators::gen_enum(e, &cfg));
             }
@@ -576,6 +593,12 @@ impl Backend for ExtendrBackend {
                     }
                 }
                 // binding→core is only generated for round-trip-safe flat data enums above.
+            } else if is_json_passthrough_data_enum(e) {
+                // JSON-passthrough wrapper struct already emits its own `From<core>`
+                // and `From<binding>` impls in `gen_extendr_json_passthrough_enum_struct`.
+                // Skip the generic enum conversion which would emit a lossy unit-variant
+                // mapping that conflicts with the wrapper struct definition.
+                continue;
             } else {
                 // Extendr emits enums as flat (unit-only) variants regardless of whether the
                 // core enum has data — emit lossy From impls so containing structs can call
@@ -686,7 +709,7 @@ impl Backend for ExtendrBackend {
         // must be omitted from the module so the linker/R doesn't expect them.
         let module_name = config.r_package_name().replace('-', "_");
         let module_items = format!(
-            "extendr_module! {{\n    mod {module};\n{types}{flat_enums}{funcs}}}\n",
+            "extendr_module! {{\n    mod {module};\n{types}{flat_enums}{json_enums}{funcs}}}\n",
             module = module_name,
             types = api
                 .types
@@ -699,6 +722,10 @@ impl Backend for ExtendrBackend {
                 .map(|t| format!("    impl {};\n", t.name))
                 .collect::<String>(),
             flat_enums = flat_data_enum_names_vec
+                .iter()
+                .map(|n| format!("    impl {n};\n"))
+                .collect::<String>(),
+            json_enums = json_passthrough_enum_names_vec
                 .iter()
                 .map(|n| format!("    impl {n};\n"))
                 .collect::<String>(),
@@ -915,6 +942,83 @@ fn can_flat_data_enum_round_trip(e: &alef_core::ir::EnumDef) -> bool {
             false
         }
     })
+}
+
+/// Returns true if `e` is a tagged data enum (i.e. has `serde_tag`) that cannot be
+/// represented as a flat struct, but can be safely round-tripped through serde JSON
+/// — at least one variant has data and `is_flat_data_enum` returns false. These
+/// enums get a JSON-passthrough binding (newtype around the core type's serde
+/// JSON encoding) so the variant payload survives the FFI boundary.
+///
+/// The core type must implement `Serialize`/`Deserialize` consistently with the wire
+/// format. Tagged enums in Kreuzberg derive both unconditionally, so this is safe.
+fn is_json_passthrough_data_enum(e: &alef_core::ir::EnumDef) -> bool {
+    if is_flat_data_enum(e) {
+        return false;
+    }
+    if e.serde_tag.is_none() {
+        return false;
+    }
+    e.variants.iter().any(|v| !v.fields.is_empty())
+}
+
+/// Generate a JSON-passthrough wrapper struct for a tagged data enum.
+///
+/// The wrapper carries the serde-JSON encoding of the core enum value in a private
+/// `__inner` field. `#[serde(from, into)]` plugs the wrapper into serde so nested
+/// deserialization through parent binding structs (e.g. `EmbeddingConfig::from_json`)
+/// preserves the inner variant data transparently — the parent's serde derives drive
+/// the bridge with no extra glue.
+///
+/// The struct exposes `from_json(json: String)` (for direct construction from R) and
+/// `default()`. From/Into impls bridge to the core type via serde round-trip.
+fn gen_extendr_json_passthrough_enum_struct(enum_def: &alef_core::ir::EnumDef, core_import: &str) -> String {
+    let name = &enum_def.name;
+    let core_path = format!("{core_import}::{name}");
+    format!(
+        r#"#[extendr]
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(from = "{core_path}", into = "{core_path}")]
+pub struct {name} {{
+    /// Serde-JSON encoding of the underlying core enum value. Preserves the
+    /// tagged-variant payload across the FFI boundary so round trips don't drop
+    /// inner field data. The field is private-by-convention (double-underscore
+    /// prefix) and not surfaced in R; construction goes through `from_json`.
+    #[serde(skip)]
+    pub __inner: String,
+}}
+
+impl From<{core_path}> for {name} {{
+    fn from(value: {core_path}) -> Self {{
+        Self {{
+            __inner: serde_json::to_string(&value).unwrap_or_else(|_| "null".to_string()),
+        }}
+    }}
+}}
+
+impl From<{name}> for {core_path} {{
+    fn from(value: {name}) -> Self {{
+        if value.__inner.is_empty() {{
+            return <{core_path}>::default();
+        }}
+        serde_json::from_str(&value.__inner).unwrap_or_default()
+    }}
+}}
+
+#[extendr]
+impl {name} {{
+    #[allow(clippy::should_implement_trait)]
+    pub fn default() -> {name} {{
+        <{core_path}>::default().into()
+    }}
+    pub fn from_json(json: String) -> extendr_api::Result<{name}> {{
+        let core: {core_path} =
+            serde_json::from_str(&json).map_err(|e| extendr_api::Error::Other(e.to_string()))?;
+        Ok(core.into())
+    }}
+}}
+"#
+    )
 }
 
 /// Generate an extendr function with bridge field binding support.
@@ -1807,6 +1911,51 @@ fn gen_extendr_wrappers_r(api: &ApiSurface, package_name: &str, input_type_names
         ));
     }
 
+    // JSON-passthrough data enum class env blocks — these enums are also
+    // registered as structs in extendr_module! with `default` and `from_json`
+    // static methods. Emit the class env + method bindings + dispatchers so R
+    // callers can write `EnumType$from_json("...")`.
+    for e in &api.enums {
+        if !is_json_passthrough_data_enum(e) {
+            continue;
+        }
+        let type_name = &e.name;
+        out.push_str(&crate::template_env::render(
+            "r_type_class_env.jinja",
+            minijinja::context! { type_name => type_name },
+        ));
+        // `default` and `from_json` are emitted by `gen_extendr_json_passthrough_enum_struct`
+        // as `pub fn` items in the `#[extendr] impl` block, so extendr registers them as
+        // `wrap__<EnumType>__default` and `wrap__<EnumType>__from_json`. Bind them in R
+        // by name so callers can use `EnumType$default()` / `EnumType$from_json(json)`.
+        for method_name in ["default", "from_json"] {
+            let params_sig = if method_name == "from_json" { "json" } else { "" };
+            let mut call_args = vec![format!("\"wrap__{type_name}__{method_name}\"")];
+            if method_name == "from_json" {
+                call_args.push("json".to_string());
+            }
+            call_args.push(format!("PACKAGE = \"{package_name}\""));
+            let call_args_str = call_args.join(", ");
+            out.push_str(&crate::template_env::render(
+                "r_method_binding.jinja",
+                minijinja::context! {
+                    type_name => type_name,
+                    method_name => method_name,
+                    params_sig => params_sig,
+                    call_args_str => call_args_str,
+                },
+            ));
+        }
+        out.push_str(&crate::template_env::render(
+            "r_dollar_dispatch.jinja",
+            minijinja::context! { type_name => type_name },
+        ));
+        out.push_str(&crate::template_env::render(
+            "r_bracket_dispatch.jinja",
+            minijinja::context! { type_name => type_name },
+        ));
+    }
+
     out
 }
 
@@ -1858,6 +2007,26 @@ fn gen_namespace(api: &ApiSurface, package_name: &str) -> String {
     // Flat data enums are registered as classes in extendr_module! and need exports too.
     for e in &api.enums {
         if !is_flat_data_enum(e) {
+            continue;
+        }
+        out.push_str(&crate::template_env::render(
+            "r_namespace_export.jinja",
+            minijinja::context! { name => &e.name },
+        ));
+        out.push_str(&crate::template_env::render(
+            "r_namespace_s3method.jinja",
+            minijinja::context! { method_type => "$", name => &e.name },
+        ));
+        out.push_str(&crate::template_env::render(
+            "r_namespace_s3method.jinja",
+            minijinja::context! { method_type => "[[", name => &e.name },
+        ));
+    }
+
+    // JSON-passthrough data enums also need NAMESPACE exports for the class
+    // env and the `$`/`[[` dispatch operators.
+    for e in &api.enums {
+        if !is_json_passthrough_data_enum(e) {
             continue;
         }
         out.push_str(&crate::template_env::render(
