@@ -24,11 +24,13 @@
 {%- endif -%}
 {%- endfor -%}
 {%- elif assertion_type == "not_contains" -%}
+{%- for val in values_java -%}
 {%- if field_is_array -%}
-        assertFalse({{ string_expr }}.toString().contains({{ java_val }}), "expected NOT to contain: " + {{ java_val }});
+        assertFalse({{ string_expr }}.toString().contains({{ val }}), "expected NOT to contain: " + {{ val }});
 {%- else -%}
-        assertFalse({{ string_expr }}.contains({{ java_val }}), "expected NOT to contain: " + {{ java_val }});
+        assertFalse({{ string_expr }}.contains({{ val }}), "expected NOT to contain: " + {{ val }});
 {%- endif -%}
+{%- endfor -%}
 {%- elif assertion_type == "not_empty" -%}
         assertFalse({{ field_expr }}.isEmpty(), "expected non-empty value");
 {%- elif assertion_type == "is_empty" -%}

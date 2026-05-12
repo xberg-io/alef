@@ -1709,10 +1709,14 @@ fn render_assertion(
     let is_string_val = assertion.value.as_ref().is_some_and(|v| v.is_string());
     let is_numeric_val = assertion.value.as_ref().is_some_and(|v| v.is_number());
 
+    // values_java is consumed by `contains`, `contains_all`, `contains_any`, and
+    // `not_contains` loops. Fall back to wrapping the singular `value` so single-entry
+    // fixtures still emit one assertion call per value instead of an empty loop.
     let values_java: Vec<String> = assertion
         .values
         .as_ref()
-        .map(|values| values.iter().map(json_to_java).collect())
+        .map(|values| values.iter().map(json_to_java).collect::<Vec<_>>())
+        .or_else(|| assertion.value.as_ref().map(|v| vec![json_to_java(v)]))
         .unwrap_or_default();
 
     let contains_any_expr = if !values_java.is_empty() {
