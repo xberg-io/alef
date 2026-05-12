@@ -1,4 +1,4 @@
 #[extendr]
-pub fn {{ clear_fn }}() -> Result<(), String> {
+pub fn {{ clear_fn }}() -> std::result::Result<(), String> {
     {{ host_path }}().map_err(|e| format!("{}", e))
 }

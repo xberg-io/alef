@@ -28,14 +28,22 @@ tokio::task::spawn_blocking(move || {
     let result = fn_robj.call(args);
 {% endif %}
 
+    // R callbacks return JSON-encoded strings (e.g. via `jsonlite::toJSON`). Parse the string
+    // payload back into the trait return type. Note: `extendr_api::Robj` does not implement
+    // `serde::Serialize`, so we cannot serialize it directly — the caller must serialize on
+    // the R side.
     match result {
-        Err(_) => {
-            Err({{ core_import }}::KreuzbergError::Plugin {
-                message: format!("Plugin '{}' method '{{ method_name }}' failed", cached_name_inner),
+        Err(_) => Err({{ core_import }}::KreuzbergError::Plugin {
+            message: format!("Plugin '{}' method '{{ method_name }}' failed", cached_name_inner),
+            plugin_name: cached_name_inner.clone(),
+        }),
+        Ok(val) => {
+            let payload = val.as_str().unwrap_or("");
+            serde_json::from_str::<{{ return_type }}>(payload).map_err(|_| {{ core_import }}::KreuzbergError::Plugin {
+                message: format!("Plugin '{}' method '{{ method_name }}' deserialization failed", cached_name_inner),
                 plugin_name: cached_name_inner.clone(),
             })
         }
-        Ok(_) => Ok(()),
     }
 })
 .await

@@ -127,10 +127,19 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
         };
 
         // Choose template based on return type
-        let template_name = if matches!(method.return_type, TypeRef::Unit) {
-            "async_method_unit_return.jinja"
-        } else {
-            "async_method_non_unit_return.jinja"
+        let template_name = match &method.return_type {
+            TypeRef::Unit => "async_method_unit_return.jinja",
+            TypeRef::String | TypeRef::Char => "async_method_string_return.jinja",
+            _ => "async_method_complex_return.jinja",
+        };
+
+        let ret_ty = match &method.return_type {
+            TypeRef::Named(n) => self
+                .type_paths
+                .get(n.as_str())
+                .map(|p| p.replace('-', "_"))
+                .unwrap_or_else(|| n.clone()),
+            other => format_type_ref(other, &self.type_paths),
         };
 
         crate::template_env::render(
@@ -141,6 +150,7 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
                 params_to_clone => params_to_clone,
                 empty_args => empty_args,
                 args_pairs => args_pairs,
+                return_type => ret_ty,
             },
         )
     }
@@ -285,8 +295,54 @@ pub fn gen_trait_bridge(
             error_type: error_type.to_string(),
             error_constructor: error_constructor.to_string(),
         };
-        gen_bridge_all(&spec, &generator)
+        let mut output = gen_bridge_all(&spec, &generator);
+        // SAFETY: `extendr_api::Robj` wraps a `*mut SEXPREC` and is therefore neither `Send`
+        // nor `Sync` by default. The Rust `Plugin` super-trait requires `Send + Sync + 'static`,
+        // and `async_trait`-generated futures must be `Send`. R itself is single-threaded — the
+        // user must guarantee that the bridge is only invoked from the R main thread. We assert
+        // `Send + Sync` so the trait bounds are satisfied; callers misusing this from background
+        // threads will encounter R-runtime undefined behaviour. This contract is consistent with
+        // how PyO3 handles `Py<PyAny>` under the GIL.
+        let send_sync_impl = format!(
+            "\n#[allow(clippy::non_send_fields_in_send_ty)]\n\
+             // SAFETY: R is single-threaded; the user must invoke plugins from the R main thread.\n\
+             unsafe impl Send for {struct_name} {{}}\n\
+             // SAFETY: see Send impl.\n\
+             unsafe impl Sync for {struct_name} {{}}\n"
+        );
+        output.code.push_str(&send_sync_impl);
+        output
     }
+}
+
+/// Generate the shared `SendRobj` wrapper module that allows `Robj` to cross thread boundaries
+/// in `spawn_blocking` closures. Emitted once per generated file when any trait bridge is
+/// produced, before any bridge struct. The wrapper is required because `extendr_api::Robj`
+/// contains a raw pointer and is therefore `!Send`/`!Sync`.
+pub fn gen_send_robj_helper() -> &'static str {
+    "/// Newtype wrapper around `extendr_api::Robj` that asserts `Send + Sync`.\n\
+     ///\n\
+     /// # Safety\n\
+     ///\n\
+     /// R is single-threaded; user-supplied R callbacks must only be invoked from the R main\n\
+     /// thread. This wrapper exists to satisfy the `Send`/`Sync` bounds required by the Rust\n\
+     /// plugin trait system and by `tokio::spawn_blocking`. Misuse from a background thread\n\
+     /// triggers R-runtime undefined behaviour.\n\
+     #[repr(transparent)]\n\
+     #[derive(Clone)]\n\
+     pub(crate) struct SendRobj(pub extendr_api::Robj);\n\
+     // SAFETY: see SendRobj docs.\n\
+     unsafe impl Send for SendRobj {}\n\
+     // SAFETY: see SendRobj docs.\n\
+     unsafe impl Sync for SendRobj {}\n\
+     impl SendRobj {\n\
+         /// Consume the wrapper and yield the inner `Robj`. Used inside `spawn_blocking`\n\
+         /// closures so that the closure captures the whole `SendRobj` (which is `Send`)\n\
+         /// rather than the inner `Robj` field (which is `!Send`) under 2021+ disjoint\n\
+         /// capture rules.\n\
+         #[inline]\n\
+         pub(crate) fn into_inner(self) -> extendr_api::Robj { self.0 }\n\
+     }\n"
 }
 
 /// Generate a visitor-style bridge wrapping an `extendr_api::Robj` (a named list of functions).
@@ -386,6 +442,14 @@ fn build_extendr_arg(p: &alef_core::ir::ParamDef) -> String {
         );
     }
 
+    // &[u8] / Vec<u8>: pass as a raw vector reference
+    if matches!(&p.ty, TypeRef::Bytes) {
+        if p.is_ref {
+            return format!("extendr_api::Robj::from(&{}[..])", p.name);
+        }
+        return format!("extendr_api::Robj::from(&{}[..])", p.name);
+    }
+
     // &str: wrap in Robj
     if matches!(&p.ty, TypeRef::String) && p.is_ref {
         return format!("extendr_api::Robj::from({})", p.name);
@@ -394,6 +458,21 @@ fn build_extendr_arg(p: &alef_core::ir::ParamDef) -> String {
     // Owned String
     if matches!(&p.ty, TypeRef::String) {
         return format!("extendr_api::Robj::from({}.as_str())", p.name);
+    }
+
+    // Named types (structs/enums): serialize to JSON. `extendr_api::Robj` does not
+    // implement `From` for arbitrary user types, so we pass them across the R boundary
+    // as JSON strings. The R callback is responsible for deserializing on its side.
+    if let TypeRef::Named(_) = &p.ty {
+        let serde_target = if p.is_ref {
+            p.name.clone()
+        } else {
+            format!("&{}", p.name)
+        };
+        return format!(
+            "extendr_api::Robj::from(serde_json::to_string({}).unwrap_or_default().as_str())",
+            serde_target
+        );
     }
 
     // bool

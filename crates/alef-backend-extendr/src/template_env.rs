@@ -27,8 +27,12 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/async_method_unit_return.jinja"),
     ),
     (
-        "async_method_non_unit_return.jinja",
-        include_str!("../templates/async_method_non_unit_return.jinja"),
+        "async_method_string_return.jinja",
+        include_str!("../templates/async_method_string_return.jinja"),
+    ),
+    (
+        "async_method_complex_return.jinja",
+        include_str!("../templates/async_method_complex_return.jinja"),
     ),
     (
         "bridge_constructor.jinja",
