@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.40] - 2026-05-12
+
 ### Fixed
 
 - fix(alef-e2e/php): `not_contains` assertions now handle the plural `values: [...]` array (symmetric to `contains_all`) in addition to the singular `value`. Previously, a fixture using `not_contains` with `values` produced `assertStringNotContainsString(, $result)` — an empty-first-argument PHP parse error. The codegen now wraps a singular `value` into a one-element list, and the jinja template loops over `values_php` emitting one `assertStringNotContainsString` call per entry.

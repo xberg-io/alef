@@ -262,8 +262,8 @@ fn emit_lib_rs(
             &type_paths,
             &no_serde_names,
         ));
-        // For types with methods, also emit constructor + method extern blocks.
-        if !ty.methods.iter().all(|m| m.sanitized) && !ty.methods.is_empty() {
+        // For opaque types with methods, also emit constructor + method extern blocks.
+        if ty.is_opaque && !ty.methods.iter().all(|m| m.sanitized) && !ty.methods.is_empty() {
             if let Some(ctor_block) = extern_block::emit_extern_block_for_type_constructor(ty) {
                 extern_blocks.push(ctor_block);
             }
@@ -335,8 +335,10 @@ fn emit_lib_rs(
             exclude_fields,
         ));
         out.push('\n');
-        // For types that expose methods, emit constructor + method shims.
-        if !ty.methods.iter().all(|m| m.sanitized) && !ty.methods.is_empty() {
+        // For opaque types that expose methods, emit constructor + method shims.
+        // Serde types (is_opaque=false) are read-only data objects returned by Rust; they
+        // don't need a constructor shim because users never construct them directly.
+        if ty.is_opaque && !ty.methods.iter().all(|m| m.sanitized) && !ty.methods.is_empty() {
             let custom_body = config
                 .swift
                 .as_ref()
