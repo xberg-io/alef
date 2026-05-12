@@ -216,11 +216,11 @@ pub(crate) fn callback_specs_from_trait(trait_def: &alef_core::ir::TypeDef) -> V
 /// excluded here; stale committed copies are removed by delete_superseded_visitor_files.
 pub fn gen_visitor_files(
     namespace: &str,
-    _trait_def: &alef_core::ir::TypeDef,
+    trait_def: &alef_core::ir::TypeDef,
 ) -> Vec<(String, String)> {
-    // callback_specs_from_trait(_trait_def) drives future expansion of NodeContext.cs
+    // callback_specs_from_trait(trait_def) drives future expansion of NodeContext.cs
     // and VisitResult.cs when those files need IR-derived per-method data.
-    let _ = callback_specs_from_trait(_trait_def);
+    let _ = callback_specs_from_trait(trait_def);
     vec![
         ("NodeContext.cs".to_string(), gen_node_context(namespace)),
         ("VisitResult.cs".to_string(), gen_visit_result(namespace)),
