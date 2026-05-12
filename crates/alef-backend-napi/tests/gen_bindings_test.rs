@@ -1657,3 +1657,199 @@ fn test_capsule_types_dts_generation() {
         "index.d.ts must emit getLanguage returning Language (not JsLanguage); content:\n{content}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// capsule_types on methods of opaque types
+// ---------------------------------------------------------------------------
+
+/// Build an opaque `LanguageRegistry` type whose `getLanguage` instance method
+/// returns the capsule type `Language`.
+fn make_language_registry_type_def() -> TypeDef {
+    TypeDef {
+        name: "LanguageRegistry".to_string(),
+        rust_path: "ts_pack::LanguageRegistry".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![MethodDef {
+            name: "get_language".to_string(),
+            params: vec![ParamDef {
+                name: "name".to_string(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: true,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            }],
+            return_type: TypeRef::Named("Language".to_string()),
+            is_async: false,
+            is_static: false,
+            error_type: Some("ts_pack::Error".to_string()),
+            doc: "Look up a language by name.".to_string(),
+            receiver: Some(alef_core::ir::ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+        }],
+        is_opaque: true,
+        is_clone: false,
+        is_copy: false,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+    }
+}
+
+/// capsule_types on opaque method — Rust shim:
+/// A method on an opaque type returning a capsule type must emit the same
+/// JsObject / External<T> / __parser pattern as a free capsule function.
+#[test]
+fn test_capsule_types_method_on_opaque_rust_shim() {
+    let backend = NapiBackend;
+
+    let mut capsule_map: HashMap<String, NodeCapsuleTypeConfig> = HashMap::new();
+    capsule_map.insert(
+        "Language".to_string(),
+        make_capsule_config_node("Language", "tree-sitter"),
+    );
+
+    let api = ApiSurface {
+        crate_name: "ts_pack".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![make_language_type_def(), make_language_registry_type_def()],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config_with_capsule_types(capsule_map);
+
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generate_bindings with opaque capsule method should succeed");
+
+    assert_eq!(files.len(), 1);
+    let content = &files[0].content;
+
+    // Language must NOT appear as a #[napi] opaque struct (it's a capsule type).
+    // Use word-boundary check: "JsLanguage {" or "JsLanguage\n" to avoid matching JsLanguageRegistry.
+    let has_js_language_struct = content.contains("struct JsLanguage {")
+        || content.contains("struct JsLanguage\n")
+        || content.contains("struct JsLanguage\r");
+    assert!(
+        !has_js_language_struct,
+        "Language must not be emitted as a standalone #[napi] struct; content:\n{content}"
+    );
+
+    // The method shim must accept napi::Env.
+    assert!(
+        content.contains("napi::Env"),
+        "method shim must accept napi::Env; content:\n{content}"
+    );
+
+    // The method shim must return napi::Result<napi::JsObject>.
+    assert!(
+        content.contains("napi::Result<napi::JsObject>"),
+        "method shim must return napi::Result<napi::JsObject>; content:\n{content}"
+    );
+
+    // The shim must call into_raw().
+    assert!(
+        content.contains("into_raw"),
+        "method shim must call into_raw(); content:\n{content}"
+    );
+
+    // The shim must call create_external.
+    assert!(
+        content.contains("create_external"),
+        "method shim must call create_external; content:\n{content}"
+    );
+
+    // The shim must set __parser.
+    assert!(
+        content.contains("__parser"),
+        "method shim must set __parser property; content:\n{content}"
+    );
+}
+
+/// capsule_types on opaque method — TypeScript stubs:
+/// The `index.d.ts` for an opaque class whose method returns a capsule type must:
+/// 1. Emit `import type { Language } from "tree-sitter"`.
+/// 2. Declare the class without `JsLanguage` anywhere.
+/// 3. Emit the method returning the ecosystem type name `Language`.
+#[test]
+fn test_capsule_types_method_on_opaque_dts() {
+    let backend = NapiBackend;
+
+    let mut capsule_map: HashMap<String, NodeCapsuleTypeConfig> = HashMap::new();
+    capsule_map.insert(
+        "Language".to_string(),
+        make_capsule_config_node("Language", "tree-sitter"),
+    );
+
+    let api = ApiSurface {
+        crate_name: "ts_pack".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![make_language_type_def(), make_language_registry_type_def()],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config_with_capsule_types(capsule_map);
+
+    let files = backend
+        .generate_type_stubs(&api, &config)
+        .expect("generate_type_stubs with opaque capsule method should succeed");
+
+    assert_eq!(files.len(), 1);
+    let content = &files[0].content;
+
+    // Import must be present.
+    assert!(
+        content.contains("import type { Language } from \"tree-sitter\""),
+        "index.d.ts must emit import type for capsule type; content:\n{content}"
+    );
+
+    // No bare JsLanguage class declaration (as distinct from JsLanguageRegistry).
+    // Check specifically for "JsLanguage {" to avoid matching JsLanguageRegistry.
+    let has_js_language_class = content.contains("export declare class JsLanguage {")
+        || content.contains("export declare class JsLanguage\n");
+    assert!(
+        !has_js_language_class,
+        "index.d.ts must not emit standalone export declare class JsLanguage; content:\n{content}"
+    );
+
+    // The registry class must be present.
+    assert!(
+        content.contains("export declare class JsLanguageRegistry"),
+        "index.d.ts must emit JsLanguageRegistry class; content:\n{content}"
+    );
+
+    // The method must use the ecosystem type, not the undeclared opaque handle.
+    assert!(
+        content.contains("getLanguage(name: string): Language"),
+        "method must emit return type Language (not JsLanguage); content:\n{content}"
+    );
+
+    // Confirm no bare JsLanguage return type references anywhere.
+    let bare_js_language_method = content.contains("): JsLanguage");
+    assert!(
+        !bare_js_language_method,
+        "index.d.ts must not contain ): JsLanguage; content:\n{content}"
+    );
+}

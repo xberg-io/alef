@@ -68,7 +68,16 @@ pub(super) fn render_test_function(
 
     // Streaming fixtures require async test functions so the async iterator
     // (ChatStreamIterator.__anext__) can be driven with `async for`.
-    let is_streaming = fixture.is_streaming_mock();
+    // Streaming detection: trigger when mock_response has stream_chunks OR any
+    // assertion references a streaming-virtual field (e.g. empty_stream has
+    // stream_chunks:[] so is_streaming_mock() returns false, but the fixture
+    // still asserts on `chunks`/`stream_content` which need the collect snippet).
+    let is_streaming = fixture.is_streaming_mock()
+        || fixture.assertions.iter().any(|a| {
+            a.field
+                .as_deref()
+                .is_some_and(|f| !f.is_empty() && crate::codegen::streaming_assertions::is_streaming_virtual_field(f))
+        });
     let is_async = is_streaming || python_override.and_then(|o| o.r#async).unwrap_or(call_config.r#async);
     let async_decorator = if is_async {
         "@pytest.mark.asyncio\n".to_string()
