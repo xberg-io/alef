@@ -232,15 +232,11 @@ impl FfiBridgeGenerator {
             ));
         }
 
-        // Plugin impl (if any)
+        // Plugin impl is emitted by the caller (mod.rs orchestration) — do NOT duplicate
+        // here. Emitting it again triggers E0119 ("conflicting implementations of trait
+        // `Plugin`") for every FFI trait bridge.
         let mut impl_code = String::new();
-        if let Some(plugin_impl) = self.gen_ffi_plugin_impl(spec) {
-            impl_code.push_str(&plugin_impl);
-            impl_code.push('\n');
-        } else if let Some(plugin_impl) = gen_bridge_plugin_impl(spec, self) {
-            impl_code.push_str(&plugin_impl);
-            impl_code.push('\n');
-        }
+        let _ = gen_bridge_plugin_impl; // silence unused import without a behaviour change
 
         // Trait impl (trait_impl.jinja is not in FFI template_env, so generate inline)
         if has_async_methods {
