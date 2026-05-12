@@ -1039,6 +1039,11 @@ fn render_test_case(
     // bare binary instead of a struct accessor that doesn't exist.
     let result_is_simple = call_config.result_is_simple || call_overrides.is_some_and(|o| o.result_is_simple);
 
+    // Detect streaming fixtures: is_streaming_mock() checks for stream_chunks in mock_response.
+    let is_streaming = fixture.is_streaming_mock();
+    // For streaming fixtures the stream is bound to `result_var` first, then drained into `chunks`.
+    let chunks_var = "chunks";
+
     if returns_result {
         let _ = writeln!(
             out,
@@ -1052,16 +1057,26 @@ fn render_test_case(
         );
     }
 
+    // For streaming fixtures, drain the stream into a list before asserting.
+    if is_streaming {
+        if let Some(collect) =
+            crate::codegen::streaming_assertions::StreamingFieldResolver::collect_snippet("elixir", &result_var, chunks_var)
+        {
+            let _ = writeln!(out, "      {collect}");
+        }
+    }
+
     for assertion in &fixture.assertions {
         render_assertion(
             out,
             assertion,
-            &result_var,
+            if is_streaming { chunks_var } else { &result_var },
             field_resolver,
             &module_path,
             &e2e_config.fields_enum,
             resolved_enum_fields_ref,
             result_is_simple,
+            is_streaming,
         );
     }
 
@@ -1342,6 +1357,7 @@ fn render_assertion(
     fields_enum: &std::collections::HashSet<String>,
     per_call_enum_fields: &HashMap<String, String>,
     result_is_simple: bool,
+    is_streaming: bool,
 ) {
     // Handle synthetic / derived fields before the is_valid_for_result check
     // so they are never treated as struct field accesses on the result.
@@ -1486,6 +1502,75 @@ fn render_assertion(
                 return;
             }
             _ => {}
+        }
+    }
+
+    // Streaming virtual fields: intercept before is_valid_for_result so they are
+    // never skipped.  These fields resolve against the `chunks` collected-list variable.
+    if is_streaming {
+        if let Some(f) = &assertion.field {
+            if !f.is_empty() && crate::codegen::streaming_assertions::is_streaming_virtual_field(f) {
+                if let Some(expr) =
+                    crate::codegen::streaming_assertions::StreamingFieldResolver::accessor(f, "elixir", result_var)
+                {
+                    match assertion.assertion_type.as_str() {
+                        "count_min" => {
+                            if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                                let _ = writeln!(out, "      assert length({expr}) >= {n}");
+                            }
+                        }
+                        "count_equals" => {
+                            if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                                let _ = writeln!(out, "      assert length({expr}) == {n}");
+                            }
+                        }
+                        "equals" => {
+                            if let Some(serde_json::Value::String(s)) = &assertion.value {
+                                let escaped = escape_elixir(s);
+                                let _ = writeln!(out, "      assert {expr} == \"{escaped}\"");
+                            } else if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                                let _ = writeln!(out, "      assert {expr} == {n}");
+                            }
+                        }
+                        "not_empty" => {
+                            let _ = writeln!(out, "      assert {expr} != []");
+                        }
+                        "is_empty" => {
+                            let _ = writeln!(out, "      assert {expr} == []");
+                        }
+                        "is_true" => {
+                            let _ = writeln!(out, "      assert {expr}");
+                        }
+                        "is_false" => {
+                            let _ = writeln!(out, "      refute {expr}");
+                        }
+                        "greater_than" => {
+                            if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                                let _ = writeln!(out, "      assert {expr} > {n}");
+                            }
+                        }
+                        "greater_than_or_equal" => {
+                            if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                                let _ = writeln!(out, "      assert {expr} >= {n}");
+                            }
+                        }
+                        "contains" => {
+                            if let Some(serde_json::Value::String(s)) = &assertion.value {
+                                let escaped = escape_elixir(s);
+                                let _ = writeln!(out, "      assert String.contains?({expr}, \"{escaped}\")");
+                            }
+                        }
+                        _ => {
+                            let _ = writeln!(
+                                out,
+                                "      # streaming field '{f}': assertion type '{}' not rendered",
+                                assertion.assertion_type
+                            );
+                        }
+                    }
+                }
+                return;
+            }
         }
     }
 
