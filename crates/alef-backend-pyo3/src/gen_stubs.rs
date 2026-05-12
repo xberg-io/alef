@@ -108,17 +108,44 @@ fn constructor_param_type(ty: &TypeRef, api: &ApiSurface) -> String {
     }
 }
 
+/// Check whether `word` appears in `text` as a whole identifier token.
+///
+/// Matches boundaries defined by `[a-zA-Z0-9_]` so that e.g. `Any` in `"list[Any]"`
+/// is detected, but `Any` inside `"CustomAny"` is not.
+fn contains_word(text: &str, word: &str) -> bool {
+    let bytes = text.as_bytes();
+    let wlen = word.len();
+    let is_ident_byte = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+    let mut start = 0;
+    while let Some(pos) = text[start..].find(word) {
+        let abs = start + pos;
+        let before_ok = abs == 0 || !is_ident_byte(bytes[abs - 1]);
+        let after_ok = abs + wlen >= bytes.len() || !is_ident_byte(bytes[abs + wlen]);
+        if before_ok && after_ok {
+            return true;
+        }
+        start = abs + 1;
+    }
+    false
+}
+
 pub fn gen_stubs(api: &ApiSurface, trait_bridges: &[TraitBridgeConfig], config: &ResolvedCrateConfig) -> String {
     let header = hash::header(CommentStyle::Hash);
     let mut lines: Vec<String> = header.lines().map(str::to_string).collect();
-    lines.push("".to_string());
-    lines.push("from typing import Any, Literal, TypeAlias, TypedDict".to_string());
-    lines.push("".to_string());
 
     // Collect bridge param names so function stubs can emit `object | None` instead of
     // `str | None` for params that are sanitized trait bridge parameters.
     let bridge_param_names: std::collections::HashSet<&str> =
         trait_bridges.iter().filter_map(|b| b.param_name.as_deref()).collect();
+
+    // Capsule type names: these are third-party types (e.g. `tree_sitter.Language`) that
+    // live in external packages. Skip them when emitting opaque class stubs and substitute
+    // `Any` in function/method signatures.
+    let capsule_names: std::collections::HashSet<&str> = config
+        .python
+        .as_ref()
+        .map(|p| p.capsule_types.keys().map(|k| k.as_str()).collect())
+        .unwrap_or_default();
 
     // Generate type stubs — collect opaque types separately so consecutive
     // one-liner class stubs are emitted without blank lines between them
@@ -129,29 +156,48 @@ pub fn gen_stubs(api: &ApiSurface, trait_bridges: &[TraitBridgeConfig], config: 
         .filter(|typ| !typ.is_trait)
         .partition(|typ| typ.is_opaque);
 
+    let mut body_lines: Vec<String> = Vec::new();
+
     for typ in &non_opaque {
-        lines.push(gen_type_stub(typ, api, config));
-        lines.push("".to_string());
+        body_lines.push(gen_type_stub(typ, api, config));
+        body_lines.push("".to_string());
     }
 
-    if !opaque.is_empty() {
-        for typ in &opaque {
-            lines.push(gen_opaque_type_stub(typ));
+    // Capsule types are emitted by external packages — skip them here.
+    let non_capsule_opaque: Vec<_> = opaque.iter().filter(|t| !capsule_names.contains(t.name.as_str())).collect();
+    if !non_capsule_opaque.is_empty() {
+        for typ in &non_capsule_opaque {
+            body_lines.push(gen_opaque_type_stub(typ));
         }
-        lines.push("".to_string());
+        body_lines.push("".to_string());
     }
 
     // Generate enum stubs
     for enum_def in &api.enums {
-        lines.push(gen_enum_stub(enum_def));
-        lines.push("".to_string());
+        body_lines.push(gen_enum_stub(enum_def));
+        body_lines.push("".to_string());
     }
 
     // Generate function stubs — no blank lines between consecutive stubs (ruff strips them)
     for func in &api.functions {
-        lines.push(gen_function_stub(func, &bridge_param_names));
+        body_lines.push(gen_function_stub(func, &bridge_param_names, &capsule_names));
     }
 
+    // Scan the body for typing names actually used, then emit a conditional import.
+    let body_text = body_lines.join("\n");
+    let typing_names: Vec<&str> = ["Any", "Literal", "TypeAlias", "TypedDict"]
+        .iter()
+        .copied()
+        .filter(|&w| contains_word(&body_text, w))
+        .collect();
+
+    lines.push("".to_string());
+    if !typing_names.is_empty() {
+        lines.push(format!("from typing import {}", typing_names.join(", ")));
+        lines.push("".to_string());
+    }
+
+    lines.extend(body_lines);
     lines.join("\n")
 }
 
@@ -536,13 +582,33 @@ fn apply_rename_all(name: &str, rename_all: Option<&str>) -> String {
     }
 }
 
+/// Resolve a `TypeRef` to its Python stub type string, substituting `Any` for capsule types.
+fn stub_type(ty: &TypeRef, capsule_names: &std::collections::HashSet<&str>) -> String {
+    match ty {
+        TypeRef::Named(name) if capsule_names.contains(name.as_str()) => "Any".to_string(),
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(name) if capsule_names.contains(name.as_str()) => "Any | None".to_string(),
+            _ => python_type(ty),
+        },
+        _ => python_type(ty),
+    }
+}
+
 /// Generate a function stub.
 ///
 /// `bridge_param_names` is the set of parameter names that are trait bridge params.
 /// These are emitted as `object | None` instead of `str | None` because the IR
 /// sanitizes their type to `String` (unable to represent `Rc<RefCell<dyn Trait>>`),
 /// but callers pass arbitrary Python objects implementing the visitor protocol.
-fn gen_function_stub(func: &FunctionDef, bridge_param_names: &std::collections::HashSet<&str>) -> String {
+///
+/// `capsule_names` is the set of type names registered as capsule types. Parameters
+/// and return values of these types are emitted as `Any` (or `Any | None`) because
+/// the concrete type lives in a third-party package, not the generated stub.
+fn gen_function_stub(
+    func: &FunctionDef,
+    bridge_param_names: &std::collections::HashSet<&str>,
+    capsule_names: &std::collections::HashSet<&str>,
+) -> String {
     // Partition params into required (non-optional) and optional
     let (required, optional): (Vec<_>, Vec<_>) = func.params.iter().partition(|p| !p.optional);
 
@@ -553,7 +619,7 @@ fn gen_function_stub(func: &FunctionDef, bridge_param_names: &std::collections::
             let param_type = if bridge_param_names.contains(p.name.as_str()) {
                 "object".to_string()
             } else {
-                python_type(&p.ty)
+                stub_type(&p.ty, capsule_names)
             };
             format!("{}: {}", p.name, param_type)
         })
@@ -563,7 +629,7 @@ fn gen_function_stub(func: &FunctionDef, bridge_param_names: &std::collections::
         let type_str = if bridge_param_names.contains(p.name.as_str()) {
             "object".to_string()
         } else {
-            python_type(&p.ty)
+            stub_type(&p.ty, capsule_names)
         };
         let param_type = if !type_str.ends_with("| None") {
             format!("{} | None", type_str)
@@ -573,7 +639,7 @@ fn gen_function_stub(func: &FunctionDef, bridge_param_names: &std::collections::
         format!("{}: {} = None", p.name, param_type)
     }));
 
-    let return_type = python_type(&func.return_type);
+    let return_type = stub_type(&func.return_type, capsule_names);
     let safe_name = python_safe_name(&func.name);
     // pyo3 async functions return a Python awaitable (via `pyo3_async_runtimes::*::future_into_py`),
     // not the bare value. The .pyi stub must reflect that with `async def` so callers using the
