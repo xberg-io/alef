@@ -952,8 +952,7 @@ fn render_test_method(
     // structural assertion against the drained chunk list so the test records
     // success without false-positive reliance on `expectNotToPerformAssertions`.
     if is_streaming && !expects_error && assertions_body.trim().is_empty() {
-        assertions_body
-            .push_str("        $this->assertTrue(is_array($chunks), 'expected drained chunks list');\n");
+        assertions_body.push_str("        $this->assertTrue(is_array($chunks), 'expected drained chunks list');\n");
     }
 
     let rendered = crate::template_env::render(

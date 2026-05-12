@@ -608,7 +608,9 @@ fn gen_bridge_field_wrapper_function(
     out.push_str(&format!(
         "                using var bridge = new HtmlVisitorBridge({field_name});\n"
     ));
-    out.push_str("                var bridgeHandle = NativeMethods.HtmlVisitorBridgeNew(bridge._vtable, IntPtr.Zero);\n");
+    out.push_str(
+        "                var bridgeHandle = NativeMethods.HtmlVisitorBridgeNew(bridge._vtable, IntPtr.Zero);\n",
+    );
     out.push_str("                if (bridgeHandle == IntPtr.Zero) throw GetLastError();\n");
     out.push_str("                try\n                {\n");
 
@@ -692,7 +694,9 @@ fn gen_bridge_field_wrapper_function(
         out.push_str("                var json = Marshal.PtrToStringUTF8(jsonPtr);\n");
         out.push_str("                NativeMethods.FreeString(jsonPtr);\n");
         out.push_str("                NativeMethods.ConversionResultFree(nativeResult);\n");
-        out.push_str("                return JsonSerializer.Deserialize<ConversionResult>(json ?? \"null\", JsonOptions)!;\n");
+        out.push_str(
+            "                return JsonSerializer.Deserialize<ConversionResult>(json ?? \"null\", JsonOptions)!;\n",
+        );
     }
 
     out.push_str("            }\n");

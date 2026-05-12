@@ -150,11 +150,6 @@ pub(super) fn gen_capsule_function(
     )
 }
 
-/// Map a primitive type to its Rust/NAPI type string. Accessible from sibling modules.
-pub(super) fn prim_rust_str_pub(p: &alef_core::ir::PrimitiveType) -> &'static str {
-    prim_rust_str(p)
-}
-
 fn prim_rust_str(p: &alef_core::ir::PrimitiveType) -> &'static str {
     use alef_core::ir::PrimitiveType;
     match p {

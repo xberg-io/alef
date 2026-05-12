@@ -865,14 +865,20 @@ fn render_assertion_dart(out: &mut String, assertion: &Assertion, result_var: &s
                     // Use `?.length ?? 0` so a null receiver (FRB v2 maps
                     // Rust `Option<Vec<T>>` to dart `List<T>?`) still yields
                     // an int for the matcher.
-                    let _ = writeln!(out, "    expect({field_accessor}?.length ?? 0, greaterThanOrEqualTo({n}));");
+                    let _ = writeln!(
+                        out,
+                        "    expect({field_accessor}?.length ?? 0, greaterThanOrEqualTo({n}));"
+                    );
                 }
             }
         }
         "max_length" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(out, "    expect({field_accessor}?.length ?? 0, lessThanOrEqualTo({n}));");
+                    let _ = writeln!(
+                        out,
+                        "    expect({field_accessor}?.length ?? 0, lessThanOrEqualTo({n}));"
+                    );
                 }
             }
         }
@@ -886,7 +892,10 @@ fn render_assertion_dart(out: &mut String, assertion: &Assertion, result_var: &s
         "count_min" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(out, "    expect({field_accessor}?.length ?? 0, greaterThanOrEqualTo({n}));");
+                    let _ = writeln!(
+                        out,
+                        "    expect({field_accessor}?.length ?? 0, greaterThanOrEqualTo({n}));"
+                    );
                 }
             }
         }

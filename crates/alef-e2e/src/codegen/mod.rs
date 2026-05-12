@@ -85,10 +85,7 @@ pub(crate) fn should_include_fixture(fixture: &Fixture, language: &str, e2e_conf
 /// Used by per-language e2e codegen to translate canonical (snake_case) fixture keys
 /// to the wire case that each binding's `from_json` / typed deserializer expects, as
 /// driven by `ResolvedCrateConfig::serde_rename_all_for_language`.
-pub(crate) fn transform_json_keys_for_language(
-    value: &serde_json::Value,
-    wire_case: &str,
-) -> serde_json::Value {
+pub(crate) fn transform_json_keys_for_language(value: &serde_json::Value, wire_case: &str) -> serde_json::Value {
     use heck::{ToKebabCase, ToLowerCamelCase, ToPascalCase, ToShoutyKebabCase, ToShoutySnakeCase, ToSnakeCase};
     let rewrite_key: fn(&str) -> String = match wire_case {
         "camelCase" => |k| k.to_lower_camel_case(),
