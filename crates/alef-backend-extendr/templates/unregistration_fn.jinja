@@ -1,4 +1,4 @@
 #[extendr]
-pub fn {{ unregister_fn }}(name: String) -> Result<(), String> {
+pub fn {{ unregister_fn }}(name: String) -> std::result::Result<(), String> {
     {{ host_path }}(&name).map_err(|e| format!("{}", e))
 }

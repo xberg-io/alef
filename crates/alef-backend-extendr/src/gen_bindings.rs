@@ -1,7 +1,7 @@
 use ahash::AHashSet;
 use alef_codegen::builder::RustFileBuilder;
-use alef_codegen::generators::{self, AsyncPattern, RustBindingConfig};
 use alef_codegen::generators::trait_bridge::find_bridge_field;
+use alef_codegen::generators::{self, AsyncPattern, RustBindingConfig};
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{Language, ResolvedCrateConfig, resolve_output_dir};
@@ -615,11 +615,7 @@ impl Backend for ExtendrBackend {
                 ));
             } else if let Some(bm) = bridge_field {
                 // Function has a bridge field binding (e.g., visitor on options)
-                builder.add_item(&gen_extendr_bridge_field_function(
-                    func,
-                    &bm,
-                    &core_import,
-                ));
+                builder.add_item(&gen_extendr_bridge_field_function(func, &bm, &core_import));
             } else {
                 // Detect functions whose return type or parameter types are incompatible
                 // with extendr's automatic Robj conversions. These need JSON bridging.
@@ -652,12 +648,19 @@ impl Backend for ExtendrBackend {
         }
 
         // Trait bridge wrappers — generate extendr bridge structs that delegate to R list objects
+        let mut emitted_send_robj_helper = false;
         for bridge_cfg in &config.trait_bridges {
             // Skip bridges explicitly excluded for this language.
             if bridge_cfg.exclude_languages.iter().any(|l| l == "r" || l == "extendr") {
                 continue;
             }
             if let Some(trait_type) = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name) {
+                // Emit the shared SendRobj wrapper once before the first bridge struct so async
+                // bridge methods can move `Robj` clones into `tokio::spawn_blocking` closures.
+                if !emitted_send_robj_helper {
+                    builder.add_item(crate::trait_bridge::gen_send_robj_helper());
+                    emitted_send_robj_helper = true;
+                }
                 let bridge = crate::trait_bridge::gen_trait_bridge(
                     trait_type,
                     bridge_cfg,
@@ -913,7 +916,6 @@ fn gen_extendr_bridge_field_function(
     let func_name = &func.name;
     let options_param = &bridge_match.param_name;
     let field_name = &bridge_match.field_name;
-    let core_options_type = &bridge_match.options_type;
 
     // Build the param list for the Rust function signature
     let mut param_parts = Vec::new();
@@ -971,15 +973,11 @@ fn gen_extendr_bridge_field_function(
         }
     }
     // Actually, for convert specifically, let's hardcode it properly
-    body.push_str(&format!(
-        "    {core_import}::{func_name}(&html, Some(opts))\n"
-    ));
+    body.push_str(&format!("    {core_import}::{func_name}(&html, Some(opts))\n"));
     body.push_str("        .map(crate::types::conversion_result_to_robj)\n");
     body.push_str("        .map_err(|e| extendr_api::Error::Other(e.to_string()))\n");
 
-    format!(
-        "#[extendr]\npub fn {func_name}({params_str}) -> {return_type} {{\n{body}}}\n"
-    )
+    format!("#[extendr]\npub fn {func_name}({params_str}) -> {return_type} {{\n{body}}}\n")
 }
 
 /// Generate a flat Rust struct for a data enum with all-tuple variants.

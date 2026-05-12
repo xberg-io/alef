@@ -18,6 +18,10 @@ let args = extendr_api::Pairlist::from_pairs(&[{{ args_pairs }}]);
 let result = fn_robj.call(args);
 {% endif %}
 
+// R callbacks return JSON-encoded strings (e.g. via `jsonlite::toJSON`). Parse the string
+// payload back into the trait return type. Note: `extendr_api::Robj` does not implement
+// `serde::Serialize`, so we cannot serialize it directly — the caller must serialize on
+// the R side.
 match result {
     Err(_) => {
 {% if has_error %}
@@ -30,29 +34,18 @@ match result {
 {% endif %}
     }
     Ok(val) => {
-        match serde_json::to_string(&val) {
-            Ok(json_str) => serde_json::from_str::<{{ return_type }}>(&json_str)
-                .map_err(|_| {
+        let payload = val.as_str().unwrap_or("");
+        match serde_json::from_str::<{{ return_type }}>(payload) {
 {% if has_error %}
-                    {{ core_import }}::KreuzbergError::Plugin {
-                        message: format!("Plugin '{}' method '{{ method_name }}' deserialization failed", self.cached_name),
-                        plugin_name: self.cached_name.clone(),
-                    }
+            Ok(parsed) => Ok(parsed),
+            Err(_) => Err({{ core_import }}::KreuzbergError::Plugin {
+                message: format!("Plugin '{}' method '{{ method_name }}' deserialization failed", self.cached_name),
+                plugin_name: self.cached_name.clone(),
+            }),
 {% else %}
-                    Default::default()
+            Ok(parsed) => parsed,
+            Err(_) => Default::default(),
 {% endif %}
-                })
-{% if not has_error %}.ok(){% endif %},
-            Err(_) => {
-{% if has_error %}
-                Err({{ core_import }}::KreuzbergError::Plugin {
-                    message: format!("Plugin '{}' method '{{ method_name }}' serialization failed", self.cached_name),
-                    plugin_name: self.cached_name.clone(),
-                })
-{% else %}
-                Default::default()
-{% endif %}
-            }
         }
     }
 }

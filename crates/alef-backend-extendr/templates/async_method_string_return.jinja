@@ -1,17 +1,23 @@
 let cached_name = self.cached_name.clone();
-let r_obj = self.inner.clone();
+let cached_name_inner = cached_name.clone();
+let send_r_obj = SendRobj(self.inner.clone());
 
 {% for param in params_to_clone %}
 {{ param }}
 {% endfor %}
 
 tokio::task::spawn_blocking(move || {
+    // Call `into_inner()` on the whole `SendRobj` value so the closure captures the whole
+    // `SendRobj` (which is `Send`) rather than just the inner `Robj` field (which is `!Send`)
+    // under 2021+ disjoint-capture rules. The method takes `self` by value, forcing the
+    // closure to move the whole wrapper.
+    let r_obj = send_r_obj.into_inner();
     let maybe_fn = r_obj.dollar("{{ method_name }}");
     let fn_robj = match maybe_fn {
         Ok(v) if !v.is_null() && !v.is_na() => v,
         _ => return Err({{ core_import }}::KreuzbergError::Plugin {
-            message: format!("Plugin '{}' missing method '{{ method_name }}'", cached_name),
-            plugin_name: cached_name.clone(),
+            message: format!("Plugin '{}' missing method '{{ method_name }}'", cached_name_inner),
+            plugin_name: cached_name_inner.clone(),
         }),
     };
 
@@ -25,8 +31,8 @@ tokio::task::spawn_blocking(move || {
     match result {
         Err(_) => {
             Err({{ core_import }}::KreuzbergError::Plugin {
-                message: format!("Plugin '{}' method '{{ method_name }}' failed", cached_name),
-                plugin_name: cached_name.clone(),
+                message: format!("Plugin '{}' method '{{ method_name }}' failed", cached_name_inner),
+                plugin_name: cached_name_inner.clone(),
             })
         }
         Ok(val) => {
@@ -34,8 +40,8 @@ tokio::task::spawn_blocking(move || {
                 Ok(s.to_string())
             } else {
                 Err({{ core_import }}::KreuzbergError::Plugin {
-                    message: format!("Plugin '{}' method '{{ method_name }}' returned invalid type", cached_name),
-                    plugin_name: cached_name.clone(),
+                    message: format!("Plugin '{}' method '{{ method_name }}' returned invalid type", cached_name_inner),
+                    plugin_name: cached_name_inner.clone(),
                 })
             }
         }

@@ -1,5 +1,5 @@
 #[extendr]
-pub fn {{ register_fn }}(r_backend: extendr_api::Robj) -> Result<(), String> {
+pub fn {{ register_fn }}(r_backend: extendr_api::Robj) -> std::result::Result<(), String> {
 {% if required_methods %}
     let required_methods = [{{ required_methods_list }}];
     for method in &required_methods {
@@ -14,9 +14,7 @@ pub fn {{ register_fn }}(r_backend: extendr_api::Robj) -> Result<(), String> {
     let arc: Arc<dyn {{ trait_path }}> = Arc::new(wrapper);
 
     let registry = {{ registry_getter }}();
-    let mut registry = registry.write().map_err(|e| {
-        format!("Failed to acquire registry lock: {}", e)
-    })?;
+    let mut registry = registry.write();
     registry.register(arc).map_err(|e| {
         format!("Failed to register backend: {}", e)
     })
