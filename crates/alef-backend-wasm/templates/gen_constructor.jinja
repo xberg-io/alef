@@ -9,9 +9,19 @@ impl {{ wrapper }} {
         }
 {%- endfor %}
 
+        let cached_name = {
+            let key = wasm_bindgen::JsValue::from_str("name");
+            js_sys::Reflect::get(&js_obj, &key)
+                .ok()
+                .and_then(|v| v.dyn_into::<js_sys::Function>().ok())
+                .and_then(|f| f.apply(&js_obj, &js_sys::Array::new()).ok())
+                .and_then(|v| v.as_string())
+                .unwrap_or_else(|| "wasm_bridge".to_string())
+        };
+
         Ok(Self {
             inner: js_obj,
-            cached_name: "wasm_bridge".to_string(),
+            cached_name,
         })
     }
 }

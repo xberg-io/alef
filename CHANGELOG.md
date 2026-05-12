@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(wasm-backend): WASM trait bridge constructor now correctly reads the JS object's `name` property as a plain string. The previous implementation called `dyn_into::<js_sys::Function>()` on the value returned by `Reflect::get(&js_obj, "name")`, which always failed because `name` is a string property, not a method — causing the chain to fall through to `unwrap_or_else(|| "wasm_bridge".to_string())` unconditionally. Fixed by removing the intermediate `dyn_into::<Function>` step and calling `.as_string()` directly on the `JsValue` returned by `Reflect::get`.
+- fix(wasm-backend): `build_wasm_arg` no longer uses Rust `{:?}` Debug formatting for non-primitive JS bridge arguments. The previous fallback emitted binary debug repr for `&[u8]` parameters (e.g. `[72, 101, 108, 108, 111]` instead of a `Uint8Array`) and Rust field syntax for complex types, both of which are unrecognisable at the JS call site. Fixed: `TypeRef::Bytes` now emits `js_sys::Uint8Array::from(...)` for correct typed-array interop; all remaining complex types (`Named`, `Vec`, `Map`, etc.) now use `serde_wasm_bindgen::to_value(...)` so they arrive as plain JS objects.
+- fix(wasm-backend): async WASM trait bridge methods now correctly await the `Promise` returned by the JS function. `func.apply()` on a JavaScript `async` function returns a `Promise` object, not the resolved value; the previous implementation treated it as the final result and called `.as_string()` on the `Promise` itself, so all async bridge methods silently returned the default value. Fixed by casting via `dyn_into::<js_sys::Promise>()` and awaiting with `wasm_bindgen_futures::JsFuture::from(promise).await`.
+
 ## [0.15.49] - 2026-05-12
 
 ### Fixed
@@ -1130,6 +1136,8 @@ below. Bumped to 0.14.35 to ship them on crates.io.
 - fix(e2e-kotlin): fix `build.gradle.kts` dependency declaration. Registry mode now uses correct `groupId:artifactId:version` format; local mode references kreuzberg binding JAR from `target/release/`.
 - fix(e2e-swift): document test placement path. Clarified that tests are placed in `packages/swift/Tests/` (not `e2e/swift/`) due to SwiftPM 6.0 limitations, with rationale in comments.
 - fix(e2e-zig): implement proper error union and async function handling. Error-path tests now use `catch` syntax; async functions emit informational notes; all test variants (error/no-assertions/success) now compile and run.
+
+
 
 ## [0.14.33] - 2026-05-07
 

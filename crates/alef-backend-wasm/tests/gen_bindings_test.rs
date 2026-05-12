@@ -1832,6 +1832,12 @@ fn test_map_named_value_uses_serde_wasm_bindgen_not_into() {
          actual content around 'children':\n{}",
         extract_field_snippet(content, "children")
     );
+    assert!(
+        content.contains("serde_json::to_string"),
+        "Map<String, Named> core→binding conversion must serialize via serde_json::to_string;\n\
+         actual content around 'children':\n{}",
+        extract_field_snippet(content, "children")
+    );
 
     // The generated From impl for WasmParentStruct → ParentStruct (binding→core) must use
     // serde_wasm_bindgen::from_value for the Map fields.
@@ -1864,6 +1870,127 @@ fn test_map_named_value_uses_serde_wasm_bindgen_not_into() {
          Named values inside a Map must be converted via serde_wasm_bindgen as whole JsValue, \
          not per-element .into();\nactual content snippet:\n{}",
         extract_field_snippet(content, "children")
+    );
+}
+
+// ---------------------------------------------------------------------------
+// WASM bridge bug fix tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_wasm_bridge_constructor_reads_js_name_property() {
+    use alef_backend_wasm::trait_bridge::gen_trait_bridge;
+
+    let trait_def = make_trait_def_wasm(
+        "OcrBackend",
+        vec![make_method_wasm("process", TypeRef::String, true, false)],
+    );
+    let bridge_cfg = make_plugin_bridge_cfg_wasm("OcrBackend");
+    let api = make_api_wasm();
+
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
+
+    // The constructor must read the JS object's "name" property using Reflect::get
+    assert!(
+        code.code.contains("Reflect::get"),
+        "constructor must use Reflect::get to read JS name property"
+    );
+    assert!(
+        code.code.contains("\"name\""),
+        "constructor must read the 'name' property from JS object"
+    );
+
+    // The constructor must use the extracted name in shorthand field init
+    assert!(
+        code.code.contains("cached_name,"),
+        "constructor must use cached_name in shorthand field init (not hardcoded string)"
+    );
+
+    // Should NOT contain the hardcoded string "wasm_bridge"
+    assert!(
+        !code.code.contains("cached_name: \"wasm_bridge\".to_string(),"),
+        "constructor must NOT hardcode cached_name as \"wasm_bridge\""
+    );
+}
+
+#[test]
+fn test_wasm_bridge_bytes_param_generates_uint8array() {
+    use alef_backend_wasm::trait_bridge::gen_trait_bridge;
+
+    // Create a method with a Bytes parameter (is_ref=true means &[u8])
+    let method = MethodDef {
+        name: "process".to_string(),
+        params: vec![ParamDef {
+            name: "data".to_string(),
+            ty: TypeRef::Bytes,
+            optional: false,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: true,
+            is_mut: false,
+            newtype_wrapper: None,
+            original_type: None,
+        }],
+        return_type: TypeRef::String,
+        is_async: false,
+        is_static: false,
+        error_type: Some("Box<dyn std::error::Error + Send + Sync>".to_string()),
+        doc: String::new(),
+        receiver: Some(ReceiverKind::Ref),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    };
+
+    let trait_def = make_trait_def_wasm("Processor", vec![method]);
+    let bridge_cfg = make_plugin_bridge_cfg_wasm("Processor");
+    let api = make_api_wasm();
+
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
+
+    // The generated code must convert bytes to Uint8Array
+    assert!(
+        code.code.contains("Uint8Array::from"),
+        "Bytes param must be converted to Uint8Array"
+    );
+
+    // Must NOT use the old Debug format for bytes
+    assert!(
+        !code.code.contains("format!(\"{{:?}}\""),
+        "Bytes param must NOT use Rust Debug format ({{:?}})"
+    );
+}
+
+#[test]
+fn test_wasm_bridge_async_method_awaits_promise() {
+    use alef_backend_wasm::trait_bridge::gen_trait_bridge;
+
+    let trait_def = make_trait_def_wasm("Processor", vec![make_async_method_wasm("run", TypeRef::String)]);
+    let bridge_cfg = make_plugin_bridge_cfg_wasm("Processor");
+    let api = make_api_wasm();
+
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
+
+    // The generated async method must await the JS Promise using JsFuture
+    assert!(
+        code.code.contains("JsFuture::from"),
+        "async method must await Promise using JsFuture::from"
+    );
+
+    // Must have .await keyword
+    assert!(
+        code.code.contains(".await"),
+        "async method must have .await keyword for the Promise"
+    );
+
+    // Must check that result is a Promise (dyn_into::<js_sys::Promise>)
+    assert!(
+        code.code.contains("js_sys::Promise"),
+        "async method must convert result to js_sys::Promise"
     );
 }
 

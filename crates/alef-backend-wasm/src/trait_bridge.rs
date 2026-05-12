@@ -120,7 +120,6 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
     }
 
     fn gen_async_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
-        // WASM is single-threaded, so we just call the function synchronously.
         // The #[async_trait] macro will wrap this body in a pinned future.
         // Do NOT add Box::pin(async move { ... }) here — that causes double-boxing.
         let name = &method.name;
@@ -134,6 +133,8 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
         let error_get_method = spec.make_error(&format!("format!(\"Failed to get method '{{}}'\", \"{name}\")"));
         let error_dyn_into = spec.make_error(&format!("format!(\"Method '{{}}' is not a function\", \"{name}\")"));
         let error_apply = spec.make_error(&format!("format!(\"Failed to call method '{{}}'\", \"{name}\")"));
+        let error_promise = spec.make_error(&format!("format!(\"Method '{{}}' did not return a Promise\", \"{name}\")"));
+        let error_promise_rejected = spec.make_error("format!(\"Promise rejected: {:?}\", e)");
         let error_string_conv = spec.make_error("\"Expected string return\".to_string()");
         let error_result_conv = spec.make_error("\"Failed to convert result\".to_string()");
         let error_deser = spec.make_error("format!(\"Failed to deserialize result: {}\", e)");
@@ -150,6 +151,8 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
             error_get_method => error_get_method,
             error_dyn_into => error_dyn_into,
             error_apply => error_apply,
+            error_promise => error_promise,
+            error_promise_rejected => error_promise_rejected,
             error_string_conv => error_string_conv,
             error_result_conv => error_result_conv,
             error_deser => error_deser,
@@ -491,7 +494,17 @@ fn build_wasm_arg(p: &alef_core::ir::ParamDef) -> String {
     if matches!(&p.ty, TypeRef::Primitive(alef_core::ir::PrimitiveType::Bool)) {
         return format!("wasm_bindgen::JsValue::from_bool({})", p.name);
     }
-    format!("wasm_bindgen::JsValue::from_str(&format!(\"{{:?}}\", {}))", p.name)
+    // Handle byte slices: &[u8] or Vec<u8>
+    if matches!(&p.ty, TypeRef::Bytes) {
+        let deref = if p.is_ref { "" } else { ".as_slice()" };
+        return format!("js_sys::Uint8Array::from({}{}).into()", p.name, deref);
+    }
+    // For any remaining complex type (Named, Vec, Map, etc.), serialize with serde
+    let borrow = if p.is_ref { "" } else { "&" };
+    format!(
+        "serde_wasm_bindgen::to_value({}{}).unwrap_or(wasm_bindgen::JsValue::NULL)",
+        borrow, p.name
+    )
 }
 
 /// Generate a WASM free function that has one parameter replaced by
