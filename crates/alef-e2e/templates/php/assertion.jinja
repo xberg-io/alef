@@ -50,7 +50,9 @@
 {% endfor %}
 {% endif %}
 {% elif assertion_type == "not_contains" %}
-    $this->assertStringNotContainsString({{ php_val }}, {{ field_expr }});
+{% for val in values_php %}
+    $this->assertStringNotContainsString({{ val }}, {{ field_expr }});
+{% endfor %}
 {% elif assertion_type == "not_empty" %}
     $this->assertNotEmpty({{ field_expr }});
 {% elif assertion_type == "is_empty" %}

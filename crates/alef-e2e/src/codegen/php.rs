@@ -1481,10 +1481,15 @@ fn render_assertion(
     };
     let trimmed_field_expr = trimmed_field_expr_for(assertion.value.as_ref().unwrap_or(&serde_json::Value::Null));
     let is_string_val = assertion.value.as_ref().is_some_and(|v| v.is_string());
+    // values_php is consumed by `contains`, `contains_all`, and `not_contains` loops.
+    // Fall back to wrapping the singular `value` so single-entry fixtures still emit one
+    // assertion call per value instead of an empty loop.
     let values_php: Vec<String> = assertion
         .values
         .as_ref()
-        .map_or(Vec::new(), |vals| vals.iter().map(json_to_php).collect());
+        .map(|vals| vals.iter().map(json_to_php).collect::<Vec<_>>())
+        .or_else(|| assertion.value.as_ref().map(|v| vec![json_to_php(v)]))
+        .unwrap_or_default();
     let contains_any_checks: Vec<String> = assertion
         .values
         .as_ref()
