@@ -68,9 +68,6 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
         let optionalized = config.optionalize_defaults && typ.has_default;
         let mut statements = Vec::new();
         for field in &typ.fields {
-            // Skip cfg-gated fields unless they're force-restored via never_skip_cfg_field_names
-            // (trait-bridge bind_via = "options_field" config).
-            // Cfg-gated fields are present on the binding; the binding crate's Cargo.toml gates compilation.
             if field.sanitized && field.core_wrapper != CoreWrapper::Cow {
                 // sanitized fields keep the default value — skip
                 continue;
@@ -138,7 +135,11 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
     let mut statements = Vec::new();
 
     for field in &typ.fields {
-        // Cfg-gated fields are present on the binding; the binding crate's Cargo.toml gates compilation.
+        // Cfg-gated fields: emit the assignment with `#[cfg(...)]` so it only applies when
+        // the same feature is enabled on the binding crate. Force-restored (never_skip) fields
+        // skip the gate — they're always emitted (used by trait-bridge bind_via = "options_field").
+        // Pre-stripped types still have the field in IR; we just don't emit the cfg gate here
+        // since the binding struct definition has already been gated.
         // Fields referencing excluded types don't exist in the binding struct.
         // When the type has stripped cfg-gated fields, these fields may also be
         // cfg-gated and absent from the core struct — skip them entirely and let

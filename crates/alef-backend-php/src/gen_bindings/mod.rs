@@ -311,6 +311,7 @@ impl Backend for PhpBackend {
                     &api.enums,
                     &exclude_functions,
                     &bridge_type_aliases_set,
+                    &never_skip_cfg_field_names,
                 ));
             }
         }

@@ -401,7 +401,8 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
             ));
 
             if typ.fields.is_empty() {
-                // Docstring already serves as the class body — `pass` triggers ruff PIE790.
+                // Empty class body — docstring already emitted, so no `pass` needed
+                // (the docstring itself serves as the class body). Avoids ruff PIE790.
                 out.push('\n');
                 continue;
             }

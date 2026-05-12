@@ -130,9 +130,9 @@ pub(super) fn gen_api_py(
         }
     }
 
-    // Detect whether any function returns a capsule type — drives whether the api.py needs
-    // `cast` in typing imports (used to bridge `Any` from the native stub to the public
-    // third-party return annotation, e.g. `tree_sitter.Language`).
+    // Detect whether any function or method returns a capsule type — drives whether the
+    // api.py needs `cast` in typing imports (used to bridge `Any` from the native stub to
+    // the public third-party return annotation, e.g. `tree_sitter.Language`).
     let needs_cast = api.functions.iter().any(|f| {
         let leaf = match &f.return_type {
             alef_core::ir::TypeRef::Named(n) => Some(n.as_str()),
@@ -149,11 +149,13 @@ pub(super) fn gen_api_py(
     out.push_str(&hash::header(CommentStyle::Hash));
     out.push_str("\"\"\"Public API for conversion.\"\"\"\n\n");
     // stdlib first (isort section 1)
-    if needs_cast {
-        out.push_str("from typing import Any, TypeVar, cast\n\n");
+    let typing_imports = if needs_cast {
+        "from typing import Any, TypeVar, cast"
     } else {
-        out.push_str("from typing import Any, TypeVar\n\n");
-    }
+        "from typing import Any, TypeVar"
+    };
+    out.push_str(typing_imports);
+    out.push_str("\n\n");
     // third-party / package self-import (isort section 3)
     out.push_str(&crate::template_env::render(
         "import_as_module.jinja",
@@ -267,10 +269,9 @@ pub(super) fn gen_api_py(
             },
         ));
     }
-    // Capsule type imports: group by python_type module path, one `from {module} import {names}`
-    // per group. Capsule types (e.g. tree_sitter.Language) are not in `._native` or `.options`;
-    // they need their own first-party import so the bare names in function signatures resolve
-    // (otherwise ruff F821 / mypy unresolved).
+    // Capsule type imports: group by module path, emit one `from {module} import {names}` per group.
+    // Capsule types (e.g. tree_sitter.Language) are not in ._native or .options; they need their
+    // own first-party import so bare names in function signatures resolve (ruff F821).
     {
         use std::collections::BTreeMap;
         let mut capsule_imports: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -283,9 +284,11 @@ pub(super) fn gen_api_py(
                     .push(rust_name.clone());
             }
         }
-        for (module_path, mut names) in capsule_imports {
-            names.sort_unstable();
-            out.push_str(&format!("from {} import {}\n", module_path, names.join(", ")));
+        if !capsule_imports.is_empty() {
+            for (module_path, mut names) in capsule_imports {
+                names.sort_unstable();
+                out.push_str(&format!("from {} import {}\n", module_path, names.join(", ")));
+            }
         }
     }
     out.push('\n');
@@ -1002,17 +1005,13 @@ pub(super) fn gen_api_py(
             call_args.push((param.name.clone(), param.name.clone()));
         }
 
-        // When this function has an options-field trait-bridge, the api.py wrapper exposes
-        // a `visitor: Type | None = None` convenience kwarg (sig_parts.push above). The
-        // generated Rust function also takes a matching `visitor` parameter that the
-        // bridge bridge wires up. Forward the api.py kwarg through to `_rust.<fn>(...)`
-        // so the visitor isn't silently dropped — without this, the visitor reaches
-        // `_rust_options.visitor` but `serde(skip)` strips it during the JSON round-trip
-        // in the Rust convert function, and the visitor has no effect.
+        // Bridge `bind_via = "options_field"`: the Rust function has an additional visitor
+        // kwarg (appended by gen_bridge_field_function) that is NOT in `func.params`. The
+        // python wrapper takes a convenience `visitor=` kwarg and stuffs it into options
+        // via `_visitor_override`, but the Rust function body actually reads the explicit
+        // kwarg — pass it through as well so the visitor handle reaches the bridge.
         if let Some((_, _, kwarg_name, _)) = options_field_visitor_kwarg {
-            if !call_args.iter().any(|(k, _)| k == kwarg_name) {
-                call_args.push((kwarg_name.to_string(), kwarg_name.to_string()));
-            }
+            call_args.push((kwarg_name.to_string(), kwarg_name.to_string()));
         }
 
         // Use keyword arguments so the call is independent of the pyo3 signature order.
@@ -1020,10 +1019,10 @@ pub(super) fn gen_api_py(
         let kwargs: Vec<String> = call_args.iter().map(|(k, v)| format!("{k}={v}")).collect();
         // Async pyo3 functions return a coroutine that must be awaited by the Python caller.
         let return_prefix = if func.is_async { "await " } else { "" };
-        // When the return type is a capsule type, the native stub returns `Any`. The api.py
-        // annotation says the public third-party type (e.g. `tree_sitter.Language`). Wrap
-        // the call in `cast("Type", …)` so mypy --strict (warn_return_any) is happy. Use
-        // the string-quoted form to satisfy ruff TC006.
+        // When the return type is a capsule type, the _native stub returns Any (the actual
+        // value is a PyCapsule wrapped into the third-party type via the capsule codegen).
+        // Wrap the call in `cast(ReturnType, ...)` so mypy --strict (warn_return_any) is happy
+        // without weakening the public api.py annotation.
         let returns_capsule = match &func.return_type {
             alef_core::ir::TypeRef::Named(n) => capsule_types.contains_key(n),
             alef_core::ir::TypeRef::Optional(inner) => match inner.as_ref() {

@@ -179,9 +179,6 @@ pub fn gen_from_core_to_binding_cfg(
         } else {
             conversion
         };
-        // Skip cfg-gated fields unless they're force-restored via never_skip_cfg_field_names
-        // (trait-bridge bind_via = "options_field" config).
-        // Cfg-gated fields are present on the binding; the binding crate's Cargo.toml gates compilation.
         // In core→binding direction, the binding struct field may be keyword-escaped
         // (e.g. `class_` for `class`). The generated conversion has `field.name: expr`
         // on the left side — rename it to `binding_name: expr` when needed.
@@ -192,6 +189,14 @@ pub fn gen_from_core_to_binding_cfg(
             } else {
                 conversion
             }
+        } else {
+            conversion
+        };
+        // Cfg-gated fields force-restored via never_skip_cfg_field_names (trait-bridge handles)
+        // get Default::default() — their binding wrapper types (e.g. PyVisitorRef) have no
+        // auto-conversion from core. Other cfg-gated fields with matching types convert normally.
+        let conversion = if field.cfg.is_some() && config.never_skip_cfg_field_names.contains(&field.name) {
+            format!("{}: Default::default()", binding_field)
         } else {
             conversion
         };

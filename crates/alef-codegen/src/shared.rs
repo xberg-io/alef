@@ -151,7 +151,7 @@ pub fn partition_methods(methods: &[MethodDef]) -> (Vec<&MethodDef>, Vec<&Method
 /// Returns (param_list, signature_with_defaults, field_assignments).
 /// If param_list exceeds 100 chars, uses multiline format with trailing commas.
 pub fn constructor_parts(fields: &[FieldDef], type_mapper: &dyn Fn(&TypeRef) -> String) -> (String, String, String) {
-    constructor_parts_with_renames_and_cfg_kept(fields, type_mapper, None, &[])
+    constructor_parts_with_renames_and_cfg_restore(fields, type_mapper, None, &[])
 }
 
 /// Like `constructor_parts` but with optional field renames for keyword escaping.
@@ -162,32 +162,36 @@ pub fn constructor_parts_with_renames(
     type_mapper: &dyn Fn(&TypeRef) -> String,
     field_renames: Option<&HashMap<String, String>>,
 ) -> (String, String, String) {
-    constructor_parts_with_renames_and_cfg_kept(fields, type_mapper, field_renames, &[])
+    constructor_parts_with_renames_and_cfg_restore(fields, type_mapper, field_renames, &[])
 }
 
-/// Like `constructor_parts_with_renames` but also keeps cfg-gated fields named in
-/// `cfg_kept_field_names` as real constructor parameters (typically trait-bridge
-/// `bind_via = "options_field"` fields whose binding wrapper has FromPyObject /
-/// FromWasmAbi / FromZval / FromJsValue and CAN be supplied by the host caller).
-/// Other cfg-gated fields are still emitted in the struct literal but defaulted.
-pub fn constructor_parts_with_renames_and_cfg_kept(
+/// Like `constructor_parts_with_renames` but also includes assignments for cfg-gated fields
+/// that have been force-restored via trait-bridge `bind_via = "options_field"`. Such fields
+/// are absent from the constructor parameter list but must be present in the `Self { ... }`
+/// struct literal — emitted as `field: Default::default()` so the binding struct compiles.
+pub fn constructor_parts_with_renames_and_cfg_restore(
     fields: &[FieldDef],
     type_mapper: &dyn Fn(&TypeRef) -> String,
     field_renames: Option<&HashMap<String, String>>,
-    cfg_kept_field_names: &[String],
+    never_skip_cfg_field_names: &[String],
 ) -> (String, String, String) {
-    let is_cfg_kept = |f: &FieldDef| cfg_kept_field_names.iter().any(|n| n == &f.name);
     // Sort fields: required first, then optional.
     // Many FFI frameworks (PyO3, NAPI) require required params before optional ones.
-    // Cfg-gated fields are dropped from params unless they're kept by the caller's
-    // list (trait-bridge fields whose wrapper is host-decodable).
-    let mut sorted_fields: Vec<&FieldDef> = fields.iter().filter(|f| f.cfg.is_none() || is_cfg_kept(f)).collect();
-    sorted_fields.sort_by_key(|f| f.optional as u8);
+    // Cfg-gated fields are skipped UNLESS force-restored via never_skip_cfg_field_names —
+    // in that case they appear as optional parameters (with =None default), since the
+    // binding struct includes them and callers must be able to set them through the
+    // constructor (e.g. visitor= kwarg).
+    let mut sorted_fields: Vec<&FieldDef> = fields
+        .iter()
+        .filter(|f| f.cfg.is_none() || never_skip_cfg_field_names.contains(&f.name))
+        .collect();
+    sorted_fields.sort_by_key(|f| (f.optional || f.cfg.is_some()) as u8);
 
     let params: Vec<String> = sorted_fields
         .iter()
         .map(|f| {
-            let ty = if f.optional {
+            let is_optional = f.optional || f.cfg.is_some();
+            let ty = if is_optional {
                 match &f.ty {
                     TypeRef::Optional(_) => type_mapper(&f.ty),
                     _ => format!("Option<{}>", type_mapper(&f.ty)),
@@ -202,7 +206,7 @@ pub fn constructor_parts_with_renames_and_cfg_kept(
     let defaults: Vec<String> = sorted_fields
         .iter()
         .map(|f| {
-            if f.optional {
+            if f.optional || f.cfg.is_some() {
                 format!("{}=None", f.name)
             } else {
                 f.name.clone()
@@ -210,24 +214,21 @@ pub fn constructor_parts_with_renames_and_cfg_kept(
         })
         .collect();
 
-    // Assignments keep original field order (for struct literal). Cfg-gated fields
-    // not in the kept list remain present on the binding struct but get a default
-    // expression because the caller has no parameter to supply.
+    // Assignments cover ALL fields in the binding struct, including cfg-gated ones.
+    // - Force-restored cfg-gated fields (never_skip) are passed through like any other param.
+    // - Non-restored cfg-gated fields are filled with Default::default() — they are not
+    //   exposed as constructor parameters.
     let assignments: Vec<String> = fields
         .iter()
         .map(|f| {
             let binding_name = field_renames
                 .and_then(|r| r.get(&f.name))
                 .map_or_else(|| f.name.as_str(), |s| s.as_str());
-            if f.cfg.is_some() && !is_cfg_kept(f) {
-                let default_expr = match &f.ty {
-                    TypeRef::Optional(_) => "None",
-                    _ => "Default::default()",
-                };
-                return format!("{binding_name}: {default_expr}");
+            if f.cfg.is_some() && !never_skip_cfg_field_names.contains(&f.name) {
+                return format!("{}: Default::default()", binding_name);
             }
             if binding_name != f.name {
-                return format!("{binding_name}: {}", f.name);
+                return format!("{}: {}", binding_name, f.name);
             }
             f.name.clone()
         })
@@ -349,22 +350,21 @@ pub fn config_constructor_parts_with_renames(
     config_constructor_parts_inner(fields, type_mapper, option_duration_on_defaults, field_renames, &[])
 }
 
-/// Like `config_constructor_parts_with_renames` but also keeps cfg-gated fields named
-/// in `cfg_kept_field_names` as real constructor parameters. See
-/// `constructor_parts_with_renames_and_cfg_kept` for the rationale.
-pub fn config_constructor_parts_with_renames_and_cfg_kept(
+/// Like `config_constructor_parts_with_renames` but includes assignments for cfg-gated fields
+/// force-restored via `never_skip_cfg_field_names` (emitted as `field: Default::default()`).
+pub fn config_constructor_parts_with_renames_and_cfg_restore(
     fields: &[FieldDef],
     type_mapper: &dyn Fn(&TypeRef) -> String,
     option_duration_on_defaults: bool,
     field_renames: Option<&HashMap<String, String>>,
-    cfg_kept_field_names: &[String],
+    never_skip_cfg_field_names: &[String],
 ) -> (String, String, String) {
     config_constructor_parts_inner(
         fields,
         type_mapper,
         option_duration_on_defaults,
         field_renames,
-        cfg_kept_field_names,
+        never_skip_cfg_field_names,
     )
 }
 
@@ -380,10 +380,15 @@ fn config_constructor_parts_inner(
     type_mapper: &dyn Fn(&TypeRef) -> String,
     option_duration_on_defaults: bool,
     field_renames: Option<&HashMap<String, String>>,
-    cfg_kept_field_names: &[String],
+    never_skip_cfg_field_names: &[String],
 ) -> (String, String, String) {
-    let is_cfg_kept = |f: &FieldDef| cfg_kept_field_names.iter().any(|n| n == &f.name);
-    let mut sorted_fields: Vec<&FieldDef> = fields.iter().filter(|f| f.cfg.is_none() || is_cfg_kept(f)).collect();
+    // Cfg-gated fields are included as constructor parameters when force-restored via
+    // never_skip_cfg_field_names — they appear as Option<T> with `=None` default, just
+    // like any optional kwarg.
+    let mut sorted_fields: Vec<&FieldDef> = fields
+        .iter()
+        .filter(|f| f.cfg.is_none() || never_skip_cfg_field_names.contains(&f.name))
+        .collect();
     sorted_fields.sort_by_key(|f| f.optional as u8);
 
     let params: Vec<String> = sorted_fields
@@ -409,24 +414,20 @@ fn config_constructor_parts_inner(
         .collect::<Vec<_>>()
         .join(", ");
 
-    // Assignments use unwrap_or_else with the typed default.
-    // `binding_name` is the struct field name (possibly renamed for keyword escaping),
-    // `f.name` is the original name used as the constructor parameter.
-    // Cfg-gated fields remain on the binding struct but cannot be supplied by the
-    // caller (their wrapper types aren't decodable from the host language); emit a
-    // default expression for them so the struct literal stays complete.
+    // Assignments cover ALL fields in the binding struct.
+    // - Force-restored cfg-gated fields (never_skip) are passthrough optionals.
+    // - Non-restored cfg-gated fields get Default::default() (not exposed as parameters).
     let assignments: Vec<String> = fields
         .iter()
         .map(|f| {
             let binding_name = field_renames
                 .and_then(|r| r.get(&f.name))
                 .map_or_else(|| f.name.as_str(), |s| s.as_str());
-            if f.cfg.is_some() && !is_cfg_kept(f) {
-                let default_expr = match &f.ty {
-                    TypeRef::Optional(_) => "None",
-                    _ => "Default::default()",
-                };
-                return format!("{binding_name}: {default_expr}");
+            if f.cfg.is_some() {
+                if never_skip_cfg_field_names.contains(&f.name) {
+                    return format!("{}: {}", binding_name, f.name);
+                }
+                return format!("{}: Default::default()", binding_name);
             }
             // Duration fields on has_default types are stored as Option<u64> when
             // option_duration_on_defaults is set — treat them as passthrough.

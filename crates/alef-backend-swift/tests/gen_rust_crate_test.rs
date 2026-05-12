@@ -661,10 +661,10 @@ fn config_with_bridge(trait_name: &str) -> ResolvedCrateConfig {
         param_name: None,
         register_extra_args: None,
         exclude_languages: vec![],
+        ffi_skip_methods: Vec::new(),
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
-        ffi_skip_methods: Vec::new(),
     }];
     cfg
 }
@@ -969,10 +969,10 @@ fn config_with_full_bridge(
         param_name: None,
         register_extra_args: None,
         exclude_languages: vec![],
+        ffi_skip_methods: Vec::new(),
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
-        ffi_skip_methods: Vec::new(),
     }];
     cfg
 }

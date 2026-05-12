@@ -108,43 +108,22 @@ fn constructor_param_type(ty: &TypeRef, api: &ApiSurface) -> String {
     }
 }
 
-/// Check whether `word` appears in `text` as a whole identifier token.
-///
-/// Matches boundaries defined by `[a-zA-Z0-9_]` so that e.g. `Any` in `"list[Any]"`
-/// is detected, but `Any` inside `"CustomAny"` is not.
-fn contains_word(text: &str, word: &str) -> bool {
-    let bytes = text.as_bytes();
-    let wlen = word.len();
-    let is_ident_byte = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
-    let mut start = 0;
-    while let Some(pos) = text[start..].find(word) {
-        let abs = start + pos;
-        let before_ok = abs == 0 || !is_ident_byte(bytes[abs - 1]);
-        let after_ok = abs + wlen >= bytes.len() || !is_ident_byte(bytes[abs + wlen]);
-        if before_ok && after_ok {
-            return true;
-        }
-        start = abs + 1;
-    }
-    false
-}
-
 pub fn gen_stubs(api: &ApiSurface, trait_bridges: &[TraitBridgeConfig], config: &ResolvedCrateConfig) -> String {
     let header = hash::header(CommentStyle::Hash);
-    let mut lines: Vec<String> = header.lines().map(str::to_string).collect();
+    let mut header_lines: Vec<String> = header.lines().map(str::to_string).collect();
+    header_lines.push("".to_string());
 
     // Collect bridge param names so function stubs can emit `object | None` instead of
     // `str | None` for params that are sanitized trait bridge parameters.
     let bridge_param_names: std::collections::HashSet<&str> =
         trait_bridges.iter().filter_map(|b| b.param_name.as_deref()).collect();
 
-    // Capsule type names: these are third-party types (e.g. `tree_sitter.Language`) that
-    // live in external packages. Skip them when emitting opaque class stubs and substitute
-    // `Any` in function/method signatures.
+    // Collect capsule type names so we can skip their opaque class stubs and replace
+    // any return/param type references with `Any` (they live in third-party packages).
     let capsule_names: std::collections::HashSet<&str> = config
         .python
         .as_ref()
-        .map(|p| p.capsule_types.keys().map(|k| k.as_str()).collect())
+        .map(|p| p.capsule_types.keys().map(String::as_str).collect())
         .unwrap_or_default();
 
     // Generate type stubs — collect opaque types separately so consecutive
@@ -157,19 +136,19 @@ pub fn gen_stubs(api: &ApiSurface, trait_bridges: &[TraitBridgeConfig], config: 
         .partition(|typ| typ.is_opaque);
 
     let mut body_lines: Vec<String> = Vec::new();
-
     for typ in &non_opaque {
         body_lines.push(gen_type_stub(typ, api, config, &capsule_names));
         body_lines.push("".to_string());
     }
 
-    // Capsule types are emitted by external packages — skip them here.
-    let non_capsule_opaque: Vec<_> = opaque
+    // Opaque stubs: skip any type whose name is a capsule type (it lives in a third-party
+    // package and must not be redeclared here).
+    let opaque_non_capsule: Vec<_> = opaque
         .iter()
-        .filter(|t| !capsule_names.contains(t.name.as_str()))
+        .filter(|typ| !capsule_names.contains(typ.name.as_str()))
         .collect();
-    if !non_capsule_opaque.is_empty() {
-        for typ in &non_capsule_opaque {
+    if !opaque_non_capsule.is_empty() {
+        for typ in &opaque_non_capsule {
             body_lines.push(gen_opaque_type_stub(typ, &capsule_names));
         }
         body_lines.push("".to_string());
@@ -186,22 +165,90 @@ pub fn gen_stubs(api: &ApiSurface, trait_bridges: &[TraitBridgeConfig], config: 
         body_lines.push(gen_function_stub(func, &bridge_param_names, &capsule_names));
     }
 
-    // Scan the body for typing names actually used, then emit a conditional import.
-    let body_text = body_lines.join("\n");
-    let typing_names: Vec<&str> = ["Any", "Literal", "TypeAlias", "TypedDict"]
+    // Build the `from typing import …` line based on names actually referenced in the body,
+    // so unused-import lint (F401) stays clean even when a particular API surface doesn't
+    // need every helper.
+    let body_joined = body_lines.join("\n");
+    let used_typing: Vec<&str> = ["Any", "Literal", "TypeAlias", "TypedDict"]
         .iter()
         .copied()
-        .filter(|&w| contains_word(&body_text, w))
+        .filter(|name| contains_word(&body_joined, name))
         .collect();
-
-    lines.push("".to_string());
-    if !typing_names.is_empty() {
-        lines.push(format!("from typing import {}", typing_names.join(", ")));
+    let mut lines = header_lines;
+    if !used_typing.is_empty() {
+        lines.push(format!("from typing import {}", used_typing.join(", ")));
         lines.push("".to_string());
     }
-
     lines.extend(body_lines);
+
     lines.join("\n")
+}
+
+/// Return true when `text` contains `word` as a standalone identifier (not as a substring of
+/// another identifier). Used to decide whether a `from typing import X` is actually referenced
+/// by the generated stub body.
+fn contains_word(text: &str, word: &str) -> bool {
+    let bytes = text.as_bytes();
+    let needle = word.as_bytes();
+    let is_ident = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+    let mut start = 0;
+    while let Some(idx) = text[start..].find(word) {
+        let pos = start + idx;
+        let before_ok = pos == 0 || !is_ident(bytes[pos - 1]);
+        let after_pos = pos + needle.len();
+        let after_ok = after_pos == bytes.len() || !is_ident(bytes[after_pos]);
+        if before_ok && after_ok {
+            return true;
+        }
+        start = pos + 1;
+    }
+    false
+}
+
+/// Replace any standalone capsule type name in a Python type annotation string with `Any`.
+///
+/// Handles bare names (`Language` → `Any`), optional forms (`Language | None` → `Any`),
+/// and list forms (`list[Language]` → `list[Any]`).  Matching is whole-word to avoid
+/// touching unrelated identifiers that share a prefix.
+fn substitute_capsule_type(type_str: &str, capsule_names: &std::collections::HashSet<&str>) -> String {
+    let mut result = type_str.to_string();
+    for name in capsule_names {
+        // Replace `list[Name]` → `list[Any]`
+        let list_pattern = format!("list[{name}]");
+        if result.contains(&list_pattern) {
+            result = result.replace(&list_pattern, "list[Any]");
+            continue;
+        }
+        // Replace `Name | None` → `Any` (Any already subsumes None)
+        let optional_pattern = format!("{name} | None");
+        if result.contains(&optional_pattern) {
+            result = result.replace(&optional_pattern, "Any");
+            continue;
+        }
+        // Replace bare `Name` (whole-word) → `Any`
+        let is_ident = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+        let needle = name.as_bytes();
+        let bytes = result.as_bytes();
+        let mut out = String::new();
+        let mut start = 0usize;
+        while let Some(idx) = result[start..].find(name) {
+            let pos = start + idx;
+            let before_ok = pos == 0 || !is_ident(bytes[pos - 1]);
+            let after_pos = pos + needle.len();
+            let after_ok = after_pos == bytes.len() || !is_ident(bytes[after_pos]);
+            if before_ok && after_ok {
+                out.push_str(&result[start..pos]);
+                out.push_str("Any");
+                start = after_pos;
+            } else {
+                out.push_str(&result[start..=pos]);
+                start = pos + 1;
+            }
+        }
+        out.push_str(&result[start..]);
+        result = out;
+    }
+    result
 }
 
 /// Generate a Python type stub for an opaque type (no fields, only methods).
@@ -372,17 +419,17 @@ fn gen_method_stub(method: &MethodDef, is_static: bool, capsule_names: &std::col
     // Partition params into required (non-optional) and optional
     let (required, optional): (Vec<_>, Vec<_>) = method.params.iter().partition(|p| !p.optional);
 
-    // Generate required params first, then optional params — capsule-typed params become Any.
+    // Generate required params first, then optional params
     let mut params: Vec<String> = required
         .iter()
         .map(|p| {
-            let param_type = stub_type(&p.ty, capsule_names);
+            let param_type = substitute_capsule_type(&python_type(&p.ty), capsule_names);
             format!("{}: {}", p.name, param_type)
         })
         .collect();
 
     params.extend(optional.iter().map(|p| {
-        let type_str = stub_type(&p.ty, capsule_names);
+        let type_str = substitute_capsule_type(&python_type(&p.ty), capsule_names);
         let param_type = if !type_str.ends_with("| None") {
             format!("{} | None", type_str)
         } else {
@@ -391,7 +438,7 @@ fn gen_method_stub(method: &MethodDef, is_static: bool, capsule_names: &std::col
         format!("{}: {} = None", p.name, param_type)
     }));
 
-    let return_type = stub_type(&method.return_type, capsule_names);
+    let return_type = substitute_capsule_type(&python_type(&method.return_type), capsule_names);
     let indent = "    ";
     let safe_name = python_safe_name(&method.name);
     // pyo3 async methods return a Python awaitable (via `pyo3_async_runtimes::*::future_into_py`).
@@ -559,9 +606,8 @@ fn gen_data_enum_typeddicts(lines: &mut Vec<String>, enum_def: &EnumDef) {
     // to the inner serde serialization. Variant TypedDicts above are kept for documentation.
     lines.push(format!("class {}:", enum_def.name));
     lines.push(format!("    {}: str", tag_field));
-    // PYI029: stubs ordinarily don't need __str__/__repr__, but the pyo3 wrapper
-    // implements them via Display/Debug and downstream callers rely on str(value)
-    // returning the serde tag. Suppress per-line.
+    // PYI029: __str__/__repr__ stubs are needed because the pyo3 wrapper implements them
+    // via Display/Debug, and downstream callers rely on str(value) returning the serde tag.
     lines.push("    def __str__(self) -> str: ...  # noqa: PYI029".to_string());
     lines.push("    def __repr__(self) -> str: ...  # noqa: PYI029".to_string());
 }
@@ -593,18 +639,6 @@ fn apply_rename_all(name: &str, rename_all: Option<&str>) -> String {
     }
 }
 
-/// Resolve a `TypeRef` to its Python stub type string, substituting `Any` for capsule types.
-fn stub_type(ty: &TypeRef, capsule_names: &std::collections::HashSet<&str>) -> String {
-    match ty {
-        TypeRef::Named(name) if capsule_names.contains(name.as_str()) => "Any".to_string(),
-        TypeRef::Optional(inner) => match inner.as_ref() {
-            TypeRef::Named(name) if capsule_names.contains(name.as_str()) => "Any | None".to_string(),
-            _ => python_type(ty),
-        },
-        _ => python_type(ty),
-    }
-}
-
 /// Generate a function stub.
 ///
 /// `bridge_param_names` is the set of parameter names that are trait bridge params.
@@ -612,9 +646,10 @@ fn stub_type(ty: &TypeRef, capsule_names: &std::collections::HashSet<&str>) -> S
 /// sanitizes their type to `String` (unable to represent `Rc<RefCell<dyn Trait>>`),
 /// but callers pass arbitrary Python objects implementing the visitor protocol.
 ///
-/// `capsule_names` is the set of type names registered as capsule types. Parameters
-/// and return values of these types are emitted as `Any` (or `Any | None`) because
-/// the concrete type lives in a third-party package, not the generated stub.
+/// `capsule_names` is the set of type names that are capsule types (live in third-party
+/// packages). Any occurrence of these names in param/return annotations is replaced with
+/// `Any` so the stub stays free of third-party imports and mypy follows api.py's
+/// more-precise annotations.
 fn gen_function_stub(
     func: &FunctionDef,
     bridge_param_names: &std::collections::HashSet<&str>,
@@ -630,7 +665,7 @@ fn gen_function_stub(
             let param_type = if bridge_param_names.contains(p.name.as_str()) {
                 "object".to_string()
             } else {
-                stub_type(&p.ty, capsule_names)
+                substitute_capsule_type(&python_type(&p.ty), capsule_names)
             };
             format!("{}: {}", p.name, param_type)
         })
@@ -640,7 +675,7 @@ fn gen_function_stub(
         let type_str = if bridge_param_names.contains(p.name.as_str()) {
             "object".to_string()
         } else {
-            stub_type(&p.ty, capsule_names)
+            substitute_capsule_type(&python_type(&p.ty), capsule_names)
         };
         let param_type = if !type_str.ends_with("| None") {
             format!("{} | None", type_str)
@@ -650,7 +685,7 @@ fn gen_function_stub(
         format!("{}: {} = None", p.name, param_type)
     }));
 
-    let return_type = stub_type(&func.return_type, capsule_names);
+    let return_type = substitute_capsule_type(&python_type(&func.return_type), capsule_names);
     let safe_name = python_safe_name(&func.name);
     // pyo3 async functions return a Python awaitable (via `pyo3_async_runtimes::*::future_into_py`),
     // not the bare value. The .pyi stub must reflect that with `async def` so callers using the

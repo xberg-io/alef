@@ -290,13 +290,19 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
                     &prefix,
                     &adapter_bodies,
                     &streaming_item_types,
-                    &capsule_types,
                 ));
             } else {
                 // Non-opaque structs use #[napi(object)] — plain JS objects without methods.
                 // napi(object) structs cannot have #[napi] impl blocks.
                 // gen_struct adds Default to derives when typ.has_default is true.
-                builder.add_item(&types::gen_struct(typ, &mapper, &prefix, has_serde, &opaque_types));
+                builder.add_item(&types::gen_struct(
+                    typ,
+                    &mapper,
+                    &prefix,
+                    has_serde,
+                    &opaque_types,
+                    &never_skip_cfg_field_names,
+                ));
             }
         }
 

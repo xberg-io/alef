@@ -439,10 +439,10 @@ fn make_bridge_cfg(trait_name: &str, register_fn: &str) -> TraitBridgeConfig {
         param_name: None,
         register_extra_args: None,
         exclude_languages: vec![],
+        ffi_skip_methods: Vec::new(),
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
-        ffi_skip_methods: Vec::new(),
     }
 }
 
@@ -463,10 +463,10 @@ fn make_bridge_cfg_full(
         param_name: None,
         register_extra_args: None,
         exclude_languages: vec![],
+        ffi_skip_methods: Vec::new(),
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
-        ffi_skip_methods: Vec::new(),
     }
 }
 

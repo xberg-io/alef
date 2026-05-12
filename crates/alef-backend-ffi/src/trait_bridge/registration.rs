@@ -167,9 +167,7 @@ impl FfiBridgeGenerator {
 
         // Include ALL methods, not just those without defaults (unlike gen_bridge_trait_impl).
         // FFI visitor bridges must implement every method so the vtable pattern works.
-        // Methods listed in `bridge_config.ffi_skip_methods` are dropped here too — their
-        // signatures can't traverse the C FFI boundary (e.g. `Option<&dyn SyncExtractor>`)
-        // and the trait's default impl fires for them.
+        // Exception: methods listed in `ffi_skip_methods` fall back to the trait's default impl.
         let skip_methods = &spec.bridge_config.ffi_skip_methods;
         let mut methods_code = String::with_capacity(2048);
         for (i, method) in spec
@@ -242,11 +240,10 @@ impl FfiBridgeGenerator {
             ));
         }
 
-        // Plugin impl is emitted by the caller (mod.rs orchestration) — do NOT duplicate
-        // here. Emitting it again triggers E0119 ("conflicting implementations of trait
-        // `Plugin`") for every FFI trait bridge.
+        // Plugin impl is already emitted by the caller (mod.rs orchestration)
+        // before calling gen_ffi_trait_impl — do not duplicate here.
         let mut impl_code = String::new();
-        let _ = gen_bridge_plugin_impl; // silence unused import without a behaviour change
+        let _ = gen_bridge_plugin_impl; // silence unused import in case future logic re-adds it
 
         // Trait impl (trait_impl.jinja is not in FFI template_env, so generate inline)
         if has_async_methods {

@@ -969,7 +969,7 @@ fn gen_extendr_bridge_field_function(
         } else {
             // For simplicity, assume other params can be passed directly or need decoding
             // This is a simplified version - real version might need more sophisticated type handling
-            call_args.push(format!("&html")); // For convert, html is the first param
+            call_args.push("&html".to_string()); // For convert, html is the first param
         }
     }
     // Actually, for convert specifically, let's hardcode it properly

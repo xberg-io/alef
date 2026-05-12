@@ -120,7 +120,6 @@ pub fn gen_struct_with_per_field_attrs(
     sb.add_derive("serde::Deserialize");
     let has_serde = true;
     for field in &typ.fields {
-        // Cfg-gated fields stay on the binding; the binding crate's Cargo.toml gates them.
         let force_optional = cfg.option_duration_on_defaults
             && typ.has_default
             && !field.optional
@@ -135,12 +134,13 @@ pub fn gen_struct_with_per_field_attrs(
         attrs.extend(extra_field_attrs(field));
         // Add #[serde(skip)] for opaque fields or sanitized fields when the struct derives serde.
         // Cow-backed strings are lossless String bindings, so they must remain serializable.
-        // Also skip cfg-gated fields restored via never_skip_cfg_field_names — their binding
-        // wrapper types (e.g. trait-bridge handles like PyVisitorRef) typically don't implement
-        // serde::Serialize/Deserialize, so the field must be excluded from JSON round-trip.
+        // Cfg-gated trait-bridge fields (in never_skip) also get serde(skip) — their wrapper
+        // types (e.g. PyVisitorRef) typically don't impl serde. Other cfg-gated fields with
+        // regular types (e.g. HtmlMetadata) remain serializable.
         let skip_sanitized_field = field.sanitized && field.core_wrapper != CoreWrapper::Cow;
-        let skip_cfg_gated_field = field.cfg.is_some();
-        if has_serde && (opaque_fields.contains(&field.name.as_str()) || skip_sanitized_field || skip_cfg_gated_field) {
+        let skip_cfg_bridge_field = field.cfg.is_some() && cfg.never_skip_cfg_field_names.contains(&field.name);
+        if has_serde && (opaque_fields.contains(&field.name.as_str()) || skip_sanitized_field || skip_cfg_bridge_field)
+        {
             attrs.push("serde(skip)".to_string());
         }
         sb.add_field_with_doc(&field.name, &ty, attrs, &field.doc);
@@ -199,7 +199,6 @@ pub fn gen_struct_with_rename(
     sb.add_derive("serde::Deserialize");
     let has_serde = true;
     for field in &typ.fields {
-        // Cfg-gated fields stay on the binding; the binding crate's Cargo.toml gates them.
         let force_optional = cfg.option_duration_on_defaults
             && typ.has_default
             && !field.optional
@@ -221,16 +220,12 @@ pub fn gen_struct_with_rename(
             a.extend(extra_attrs);
             a
         };
-        // Add #[serde(skip)] for opaque fields or sanitized fields — same rationale as in
-        // gen_struct_with_per_field_attrs: sanitized fields have placeholder String types that
-        // cause JSON round-trip failures with "unknown variant ''" errors. Cow-backed strings
-        // are lossless String bindings, so they must remain serializable/deserializable.
-        // Also skip cfg-gated fields restored via never_skip_cfg_field_names — their binding
-        // wrapper types (e.g. trait-bridge handles like PyVisitorRef) typically don't implement
-        // serde::Serialize/Deserialize, so the field must be excluded from JSON round-trip.
+        // Add #[serde(skip)] for opaque/sanitized fields and cfg-gated trait-bridge fields.
+        // Other cfg-gated fields with regular types remain serializable for JSON round-trip.
         let skip_sanitized_field = field.sanitized && field.core_wrapper != CoreWrapper::Cow;
-        let skip_cfg_gated_field = field.cfg.is_some();
-        if has_serde && (opaque_fields.contains(&field.name.as_str()) || skip_sanitized_field || skip_cfg_gated_field) {
+        let skip_cfg_bridge_field = field.cfg.is_some() && cfg.never_skip_cfg_field_names.contains(&field.name);
+        if has_serde && (opaque_fields.contains(&field.name.as_str()) || skip_sanitized_field || skip_cfg_bridge_field)
+        {
             attrs.push("serde(skip)".to_string());
         }
         // Mirror per-field `#[serde(rename = "...")]` from the core type so the binding
@@ -284,7 +279,9 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
         // Skip cfg-gated fields — they depend on features that may not be enabled
         // for this binding crate. Including them would require the binding struct to
         // handle conditional compilation which struct literal initializers can't express.
-        // Cfg-gated fields stay on the binding; the binding crate's Cargo.toml gates them.
+        if field.cfg.is_some() && !cfg.never_skip_cfg_field_names.contains(&field.name) {
+            continue;
+        }
         // When option_duration_on_defaults is set, wrap non-optional Duration fields in
         // Option<u64> for has_default types so the binding constructor can accept None
         // and the From conversion falls back to the core type's Default.

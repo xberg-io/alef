@@ -322,11 +322,10 @@ pub(crate) fn gen_instance_method(
     } else {
         ""
     };
-    // `initialize` collides with `ZendClassObject::initialize` in ext-php-rs and the
-    // `#[php_impl]` macro mis-routes calls to the wrong fn (E0061: takes 1 arg, 0
-    // supplied). Emit the Rust fn as `initialize_plugin` and explicitly rename it to
-    // `initialize` on the PHP side via `#[php(name = "initialize")]` — the PHP name
-    // is preserved for downstream callers.
+    // ext-php-rs's `ZendClassObject<T>` has an inherent `initialize(&mut self, T)` method
+    // that collides with a user-written `pub fn initialize(&self)` during `#[php_impl]`
+    // expansion. Rename the Rust-side fn to `initialize_plugin` and preserve the PHP-facing
+    // name via `#[php(name = "initialize")]`.
     let (rust_name, php_rename_attr) = match method.name.as_str() {
         "initialize" => (
             "initialize_plugin".to_string(),
@@ -461,12 +460,13 @@ pub(crate) fn gen_instance_method_non_opaque(
     } else {
         ""
     };
-    // See `gen_instance_method` for the rationale: `initialize` collides with
-    // `ZendClassObject::initialize` and the `#[php_impl]` macro mis-routes.
+    // ext-php-rs's `ZendClassObject` has an inherent `initialize(&mut self, T)` method;
+    // emitting a user `pub fn initialize(&self)` collides during `#[php_impl]` expansion.
+    // Rename the Rust-side fn to avoid the collision while keeping the PHP method name.
     let (rust_name, php_rename_attr) = match method.name.as_str() {
         "initialize" => (
             "initialize_plugin".to_string(),
-            "#[php(name = \"initialize\")]\n    ".to_string(),
+            "    #[php(name = \"initialize\")]\n".to_string(),
         ),
         _ => (method.name.clone(), String::new()),
     };
