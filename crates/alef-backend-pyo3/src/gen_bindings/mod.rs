@@ -904,19 +904,22 @@ mod alef_json_str_opt {
                 // Replace the closing pattern of the visitor.map block with a chained .or_else()
                 // that pulls from options.visitor when the kwarg is None.
                 // Pattern: visitor.map(...) ending with:
-                //   std::rc::Rc::new(std::cell::RefCell::new(bridge)) as html_to_markdown_rs::visitor::VisitorHandle
+                //   std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {core_import}::visitor::{type_alias}
                 // });
                 //
                 // We need to insert .or_else(|| { ... }) before the });
-                let closing_pattern = "        std::rc::Rc::new(std::cell::RefCell::new(bridge)) as html_to_markdown_rs::visitor::VisitorHandle\n    });";
-                if let Some(pos) = content.find(closing_pattern) {
+                let type_alias = bridge.type_alias.as_deref().unwrap_or("VisitorHandle");
+                let handle_path = format!("{core_import}::visitor::{type_alias}");
+                let closing_pattern = format!(
+                    "        std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n    }});"
+                );
+                if let Some(pos) = content.find(&closing_pattern) {
                     let before = &content[..pos];
                     let after = &content[pos + closing_pattern.len()..];
 
                     // Build the fallback that tries options.visitor when visitor kwarg is None
                     let fallback = format!(
-                        "        std::rc::Rc::new(std::cell::RefCell::new(bridge)) as html_to_markdown_rs::visitor::VisitorHandle\n    }}).or_else(|| {{\n        options.as_ref().and_then(|o| o.{}.as_ref()).map(|v| {{\n            let py_obj: pyo3::Py<pyo3::PyAny> = Python::attach(|py| (*v.inner).clone_ref(py));\n            let bridge = PyHtmlVisitorBridge::new(py_obj);\n            std::rc::Rc::new(std::cell::RefCell::new(bridge)) as html_to_markdown_rs::visitor::VisitorHandle\n        }})\n    }});",
-                        field_name
+                        "        std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n    }}).or_else(|| {{\n        options.as_ref().and_then(|o| o.{field_name}.as_ref()).map(|v| {{\n            let py_obj: pyo3::Py<pyo3::PyAny> = Python::attach(|py| (*v.inner).clone_ref(py));\n            let bridge = PyHtmlVisitorBridge::new(py_obj);\n            std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n        }})\n    }});"
                     );
 
                     content = format!("{}{}{}", before, fallback, after);

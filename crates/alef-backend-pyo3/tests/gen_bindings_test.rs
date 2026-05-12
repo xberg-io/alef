@@ -1743,6 +1743,8 @@ fn make_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        context_type: None,
+        result_type: None,
         ffi_skip_methods: Vec::new(),
     }
 }
@@ -1998,6 +2000,8 @@ fn test_gen_registration_fn_requires_register_fn_and_registry_getter() {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        context_type: None,
+        result_type: None,
         ffi_skip_methods: Vec::new(),
     };
     let spec = TraitBridgeSpec {
@@ -2039,6 +2043,8 @@ fn test_gen_registration_fn_validates_required_methods() {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        context_type: None,
+        result_type: None,
         ffi_skip_methods: Vec::new(),
     };
     let spec = TraitBridgeSpec {
@@ -2098,6 +2104,8 @@ fn test_gen_registration_fn_calls_registry_getter() {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        context_type: None,
+        result_type: None,
         ffi_skip_methods: Vec::new(),
     };
     let spec = TraitBridgeSpec {
@@ -2148,6 +2156,8 @@ fn test_gen_unregistration_fn_emits_typed_pyfunction_when_configured() {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        context_type: None,
+        result_type: None,
         ffi_skip_methods: Vec::new(),
     };
     let spec = TraitBridgeSpec {
@@ -2198,6 +2208,8 @@ fn test_gen_unregistration_fn_returns_empty_when_unset() {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        context_type: None,
+        result_type: None,
         ffi_skip_methods: Vec::new(),
     };
     let spec = TraitBridgeSpec {
@@ -2237,6 +2249,8 @@ fn test_gen_trait_bridge_produces_non_empty_output_for_plugin_pattern() {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        context_type: None,
+        result_type: None,
         ffi_skip_methods: Vec::new(),
     };
     let api = make_api_surface();
@@ -2278,6 +2292,8 @@ fn test_gen_trait_bridge_wrapper_struct_has_required_fields() {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        context_type: None,
+        result_type: None,
         ffi_skip_methods: Vec::new(),
     };
     let api = make_api_surface();
@@ -2315,6 +2331,8 @@ fn test_gen_trait_bridge_generates_registration_fn_when_configured() {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        context_type: None,
+        result_type: None,
         ffi_skip_methods: Vec::new(),
     };
     let api = make_api_surface();
@@ -2364,6 +2382,8 @@ fn test_gen_trait_bridge_with_sync_and_async_required_methods() {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        context_type: None,
+        result_type: None,
         ffi_skip_methods: Vec::new(),
     };
     let api = make_api_surface();
@@ -2996,6 +3016,8 @@ fn test_trait_bridge_register_fns_in_api_py_and_all() {
             bind_via: alef_core::config::BridgeBinding::FunctionParam,
             options_type: None,
             options_field: None,
+            context_type: None,
+            result_type: None,
             ffi_skip_methods: Vec::new(),
         },
         TraitBridgeConfig {
@@ -3014,6 +3036,8 @@ fn test_trait_bridge_register_fns_in_api_py_and_all() {
             bind_via: alef_core::config::BridgeBinding::FunctionParam,
             options_type: None,
             options_field: None,
+            context_type: None,
+            result_type: None,
             ffi_skip_methods: Vec::new(),
         },
     ];

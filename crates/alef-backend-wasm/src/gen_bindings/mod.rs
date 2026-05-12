@@ -545,50 +545,39 @@ impl Backend for WasmBackend {
             }
         }
 
-        // Fix From<WasmConversionOptions/Update> to pass through visitor.
-        // Post-process the From<Wasm*> impls to replace visitor: Default::default() with proper pass-through
-
-        // Pattern for WasmConversionOptions: replace visitor line within this impl only
-        let pattern1_start = "impl From<WasmConversionOptions> for html_to_markdown_rs::options::ConversionOptions {";
-        let pattern1_marker = "strong_em_symbol: val.strong_em_symbol.chars().next().unwrap_or('*'),";
-        if content.contains(pattern1_start) && content.contains(pattern1_marker) {
-            // Use marker-relative search to find the correct visitor line
-            if let Some(marker_pos) = content.find(pattern1_marker) {
-                // Search forward for the visitor line from the marker
-                let after_marker = &content[marker_pos..];
-                if let Some(visitor_line_offset) =
-                    after_marker.find("            visitor: Default::default(),\n            ..Default::default()")
-                {
-                    let visitor_pos = marker_pos + visitor_line_offset;
-                    let before = &content[..visitor_pos];
-                    let after = &content[visitor_pos
-                        + "            visitor: Default::default(),\n            ..Default::default()".len()..];
-                    content = format!(
-                        "{}            visitor: val.visitor.map(|v| (*v.inner).clone()),\n            ..Default::default(){}",
-                        before, after
-                    );
-                }
+        // Fix From<Wasm*> impls to pass through the bridge field instead of Default::default().
+        // Post-process every From<Wasm{options_type}{variant}> impl whose bridge is bound via
+        // options_field, replacing `{field_name}: Default::default()` with the proper pass-through.
+        for bridge in &config.trait_bridges {
+            if bridge.bind_via != alef_core::config::BridgeBinding::OptionsField {
+                continue;
             }
-        }
-
-        // Pattern for WasmConversionOptionsUpdate: similar approach
-        let pattern2_start =
-            "impl From<WasmConversionOptionsUpdate> for html_to_markdown_rs::options::ConversionOptionsUpdate {";
-        let pattern2_marker = "strong_em_symbol: val.strong_em_symbol.and_then(|s| s.chars().next()),";
-        if content.contains(pattern2_start) && content.contains(pattern2_marker) {
-            if let Some(marker_pos) = content.find(pattern2_marker) {
-                let after_marker = &content[marker_pos..];
-                if let Some(visitor_line_offset) =
-                    after_marker.find("            visitor: Default::default(),\n            ..Default::default()")
-                {
-                    let visitor_pos = marker_pos + visitor_line_offset;
-                    let before = &content[..visitor_pos];
-                    let after = &content[visitor_pos
-                        + "            visitor: Default::default(),\n            ..Default::default()".len()..];
-                    content = format!(
-                        "{}            visitor: val.visitor.map(|v| (*v.inner).clone()),\n            ..Default::default(){}",
-                        before, after
-                    );
+            let (Some(options_type), Some(field_name)) =
+                (bridge.options_type.as_deref(), bridge.resolved_options_field())
+            else {
+                continue;
+            };
+            for variant in ["", "Update"] {
+                let binding_name = format!("Wasm{options_type}{variant}");
+                let core_path = format!("{core_import}::options::{options_type}{variant}");
+                let impl_header = format!("impl From<{binding_name}> for {core_path} {{");
+                if !content.contains(&impl_header) {
+                    continue;
+                }
+                let default_line = format!(
+                    "            {field_name}: Default::default(),\n            ..Default::default()"
+                );
+                let passthrough = format!(
+                    "            {field_name}: val.{field_name}.map(|v| (*v.inner).clone()),\n            ..Default::default()"
+                );
+                if let Some(impl_start) = content.find(&impl_header) {
+                    let tail = &content[impl_start..];
+                    if let Some(rel) = tail.find(&default_line) {
+                        let abs = impl_start + rel;
+                        let before = &content[..abs];
+                        let after = &content[abs + default_line.len()..];
+                        content = format!("{before}{passthrough}{after}");
+                    }
                 }
             }
         }
