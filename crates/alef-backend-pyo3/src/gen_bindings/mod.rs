@@ -857,6 +857,21 @@ mod alef_json_str_opt {
                 continue;
             }
             if let Some(field_name) = bridge.resolved_options_field() {
+                // The fallback below references `o.{field_name}` on the binding's options
+                // struct. If the binding does not actually expose that field (e.g. the core
+                // field is `#[cfg(feature = "...")]`-gated and the struct generator strips
+                // cfg-gated fields), referencing it would fail to compile with `E0609 no
+                // field`. Gate the rewrite on the field being present in the binding.
+                let Some(options_type) = bridge.options_type.as_deref() else { continue; };
+                let field_in_binding = api
+                    .types
+                    .iter()
+                    .filter(|t| t.name == options_type)
+                    .flat_map(|t| t.fields.iter())
+                    .any(|f| f.cfg.is_none() && f.name == field_name);
+                if !field_in_binding {
+                    continue;
+                }
                 // Replace the closing pattern of the visitor.map block with a chained .or_else()
                 // that pulls from options.visitor when the kwarg is None.
                 // Pattern: visitor.map(...) ending with:

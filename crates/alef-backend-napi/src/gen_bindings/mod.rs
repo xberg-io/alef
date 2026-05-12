@@ -292,7 +292,20 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
                 continue;
             }
             let bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges);
-            let options_field_bridge = crate::trait_bridge::find_options_field_binding(func, &config.trait_bridges);
+            let options_field_bridge = crate::trait_bridge::find_options_field_binding(func, &config.trait_bridges)
+                // Only use the options-field path when the bridge field actually survives
+                // into the binding struct. If the core field is `#[cfg(...)]`-gated, the
+                // struct generator strips it and the generated bridge code would reference
+                // a missing field, producing `E0609 no field` at compile time.
+                .filter(|(_, bridge_cfg)| {
+                    let Some(field_name) = bridge_cfg.resolved_options_field() else { return false; };
+                    let Some(options_type) = bridge_cfg.options_type.as_deref() else { return false; };
+                    api.types
+                        .iter()
+                        .filter(|t| t.name == options_type)
+                        .flat_map(|t| t.fields.iter())
+                        .any(|f| f.cfg.is_none() && f.name == field_name)
+                });
             // Skip sanitized functions when there's no trait bridge that can replace the
             // sanitized parameter — such functions cannot be auto-delegated. Functions
             // whose only "sanitized" param is a configured trait_bridge param (e.g.

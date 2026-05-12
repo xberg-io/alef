@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.41] - 2026-05-12
+
+### Fixed
+
+- fix(alef-backend-wasm): emit a real newline after the rustdoc block so `#[derive(Clone, Default)]` no longer ends up concatenated inside the `///` comment line. Previously every `Wasm*` binding struct silently lost its `Clone`/`Default` derives because the template's `{%- endfor %}` stripped the newline between rustdoc lines and the subsequent attribute, causing `error[E0277]: the trait bound 'WasmDocumentMetadata: Default' is not satisfied` (and many like it) at compile time.
+- fix(alef-backend-pyo3): skip the `options.{visitor}` fallback in the convert wrapper when the bridge field is `#[cfg(...)]`-gated and therefore absent from the binding struct. Previously the fallback was inserted unconditionally and produced `error[E0609]: no field 'visitor' on type '&ConversionOptions'`.
+- fix(alef-backend-napi): gate `find_options_field_binding` on the bridge field being present in the binding struct. When the core field is cfg-gated and stripped from the binding, fall back to the regular function generator instead of emitting an options-field bridge that references a missing field.
+
 ## [0.15.40] - 2026-05-12
 
 ### Fixed
