@@ -112,7 +112,15 @@ pub(crate) fn emit_cargo_toml(
     // Detect by scanning the API surface for any TypeRef::Json (recursively).
     let needs_serde_json = api_has_json_field(api);
     let serde_json_dep = if needs_serde_json { "serde_json = \"1\"\n" } else { "" };
-    let extra_deps = format!("{serde_json_dep}{trait_bridge_deps}{workspace_deps_block}");
+    // The dart streaming-adapter codegen emits `use futures_util::StreamExt;` and
+    // calls `stream.next().await`, so add futures-util whenever the API has any
+    // streaming adapters configured for dart.
+    let has_streaming = config
+        .adapters
+        .iter()
+        .any(|a| matches!(a.pattern, alef_core::config::extras::AdapterPattern::Streaming));
+    let futures_util_dep = if has_streaming { "futures-util = \"0.3\"\n" } else { "" };
+    let extra_deps = format!("{serde_json_dep}{futures_util_dep}{trait_bridge_deps}{workspace_deps_block}");
 
     let license = config
         .scaffold
