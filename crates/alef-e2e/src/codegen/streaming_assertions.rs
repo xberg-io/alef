@@ -56,7 +56,11 @@ impl StreamingFieldResolver {
     /// field or the language has no streaming support.
     pub fn accessor(field: &str, lang: &str, chunks_var: &str) -> Option<String> {
         match field {
-            "chunks" => Some(chunks_var.to_string()),
+            "chunks" => Some(match lang {
+                // Zig ArrayList does not expose .len directly; must use .items
+                "zig" => format!("{chunks_var}.items"),
+                _ => chunks_var.to_string(),
+            }),
 
             "chunks.length" => Some(match lang {
                 "rust" => format!("{chunks_var}.len()"),
@@ -153,6 +157,11 @@ impl StreamingFieldResolver {
                 "elixir" => {
                     format!("List.last({chunks_var}).choices[0].finish_reason != nil")
                 }
+                // zig: the collect snippet exhausts the stream; check last chunk JSON
+                // was collected (chunks.items is non-empty) as a proxy for completion.
+                "zig" => {
+                    format!("{chunks_var}.items.len > 0")
+                }
                 // node/wasm/typescript
                 _ => {
                     format!(
@@ -209,6 +218,10 @@ impl StreamingFieldResolver {
                         "{chunks_var} |> Enum.flat_map(fn c -> (List.first(c.choices) || %{{}}).delta |> Map.get(:tool_calls, []) end)"
                     )
                 }
+                // Zig: tool_calls count from all chunk deltas
+                "zig" => {
+                    format!("{chunks_var}.items")
+                }
                 _ => {
                     format!("{chunks_var}.flatMap((c: any) => c.choices?.[0]?.delta?.toolCalls ?? [])")
                 }
@@ -247,6 +260,13 @@ impl StreamingFieldResolver {
                 }
                 "elixir" => {
                     format!("List.last({chunks_var}).choices[0].finish_reason")
+                }
+                // Zig: finish_reason from the last chunk's JSON via an inline labeled block.
+                // Returns `[]const u8` (unwrapped with orelse "" for expectEqualStrings).
+                "zig" => {
+                    format!(
+                        "(blk: {{ if ({chunks_var}.items.len == 0) break :blk \"\"; var _lcp = std.json.parseFromSlice(std.json.Value, std.heap.c_allocator, {chunks_var}.items[{chunks_var}.items.len - 1], .{{}}) catch break :blk \"\"; defer _lcp.deinit(); if (_lcp.value.object.get(\"choices\")) |_lchs| if (_lchs.array.items.len > 0) if (_lchs.array.items[0].object.get(\"finish_reason\")) |_fr| if (_fr == .string) break :blk _fr.string; break :blk \"\"; }})"
+                    )
                 }
                 _ => {
                     format!(
@@ -291,27 +311,27 @@ impl StreamingFieldResolver {
                 "const {chunks_var}: any[] = [];\n    for await (const _chunk of {stream_var}) {{ {chunks_var}.push(_chunk); }}"
             )),
             "zig" => {
-                // Zig: drain the stream handle (opaque *LITERLLMChatStreamHandle) via
-                // the _next/_free FFI NIFs exposed through `liter_llm.c.*`.
-                // `stream_var` is the opaque stream handle already obtained via `_start`.
+                // Zig 0.16: ArrayList is unmanaged — no stored allocator.
+                // Use `.empty` to initialize, pass `std.heap.c_allocator` to each mutation.
+                // `stream_var` is the opaque stream handle obtained via `_start`.
                 // We collect every chunk's JSON string into `chunks_var: ArrayList([]u8)`
                 // and concatenate delta content into `{chunks_var}_content: ArrayList(u8)`.
                 // Accessors use `.items.len` and `{chunks_var}_content.items` on these lists.
                 Some(format!(
                     concat!(
-                        "var {chunks_var} = std.ArrayList([]u8).init(std.heap.c_allocator);
+                        "var {chunks_var}: std.ArrayList([]u8) = .empty;
 ",
                         "    defer {{
 ",
                         "        for ({chunks_var}.items) |_cj| std.heap.c_allocator.free(_cj);
 ",
-                        "        {chunks_var}.deinit();
+                        "        {chunks_var}.deinit(std.heap.c_allocator);
 ",
                         "    }}
 ",
-                        "    var {chunks_var}_content = std.ArrayList(u8).init(std.heap.c_allocator);
+                        "    var {chunks_var}_content: std.ArrayList(u8) = .empty;
 ",
-                        "    defer {chunks_var}_content.deinit();
+                        "    defer {chunks_var}_content.deinit(std.heap.c_allocator);
 ",
                         "    while (true) {{
 ",
@@ -343,11 +363,11 @@ impl StreamingFieldResolver {
 ",
                         "                        if (_dl.object.get(\"content\")) |_ct|
 ",
-                        "                            if (_ct == .string) try {chunks_var}_content.appendSlice(_ct.string);
+                        "                            if (_ct == .string) try {chunks_var}_content.appendSlice(std.heap.c_allocator, _ct.string);
 ",
                         "        }} else |_| {{}}
 ",
-                        "        try {chunks_var}.append(_nj);
+                        "        try {chunks_var}.append(std.heap.c_allocator, _nj);
 ",
                         "    }}"
                     ),
@@ -427,7 +447,8 @@ mod tests {
         assert!(snip.contains("std.ArrayList([]u8)"), "zig collect: {snip}");
         assert!(snip.contains("chat_stream_next(_stream_handle)"), "zig collect: {snip}");
         assert!(snip.contains("chunks_content"), "zig collect: {snip}");
-        assert!(snip.contains("chunks.append"), "zig collect: {snip}");
+        assert!(snip.contains("chunks.append(std.heap.c_allocator"), "zig collect: {snip}");
+        assert!(snip.contains(".empty;"), "zig collect (Zig 0.16 unmanaged): {snip}");
     }
 
     #[test]
