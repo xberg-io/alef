@@ -164,25 +164,42 @@ impl Backend for GoBackend {
         if has_visitor_bridge {
             // Derive vtable_trait_name and options_field from the first options-field bridge,
             // falling back to sensible defaults for legacy function-param bridges.
-            let (vtable_trait_name, options_field) = config
+            let visitor_bridge_cfg = config
                 .trait_bridges
                 .iter()
-                .find(|b| b.bind_via == alef_core::config::BridgeBinding::OptionsField)
+                .find(|b| b.bind_via == alef_core::config::BridgeBinding::OptionsField);
+            let (vtable_trait_name, options_field) = visitor_bridge_cfg
                 .and_then(|b| {
                     let field = b.resolved_options_field()?;
                     Some((b.trait_name.clone(), field.to_string()))
                 })
                 .unwrap_or_else(|| ("HtmlVisitor".to_string(), "visitor".to_string()));
 
-            let visitor_content = strip_trailing_whitespace(&crate::gen_visitor::gen_visitor_file(
-                &pkg_name,
-                &ffi_prefix,
-                &ffi_header,
-                &ffi_crate_dir,
-                &to_root,
-                &vtable_trait_name,
-                &options_field,
-            ));
+            // Look up the visitor trait def in the IR.
+            let trait_map: std::collections::HashMap<&str, &alef_core::ir::TypeDef> = api
+                .types
+                .iter()
+                .filter(|t| t.is_trait)
+                .map(|t| (t.name.as_str(), t))
+                .collect();
+            let visitor_trait = visitor_bridge_cfg
+                .and_then(|b| trait_map.get(b.trait_name.as_str()).copied());
+
+            let visitor_content = if let Some(vt) = visitor_trait {
+                strip_trailing_whitespace(&crate::gen_visitor::gen_visitor_file(
+                    &pkg_name,
+                    &ffi_prefix,
+                    &ffi_header,
+                    &ffi_crate_dir,
+                    &to_root,
+                    &vtable_trait_name,
+                    &options_field,
+                    vt,
+                ))
+            } else {
+                eprintln!("[alef] gen_visitor_file(go): visitor trait `{vtable_trait_name}` not found in IR, skipping visitor.go");
+                String::new()
+            };
             files.push(GeneratedFile {
                 path: PathBuf::from(&output_dir).join("visitor.go"),
                 content: visitor_content,

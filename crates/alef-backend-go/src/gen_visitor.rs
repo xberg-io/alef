@@ -45,682 +45,176 @@ pub(crate) fn ffi_c_type_name(ffi_prefix: &str, rust_basename: &str) -> String {
 /// A single visitor callback specification.
 struct CallbackSpec {
     /// Field name in the C VTable struct (snake_case).
-    c_field: &'static str,
-    /// Exported Go function name (e.g. `goVisitText`).
-    export_name: &'static str,
+    c_field: String,
+    /// Exported Go function name (e.g. `"goVisitText"`).
+    export_name: String,
     /// Go interface method name (PascalCase).
-    go_method: &'static str,
+    go_method: String,
     /// Doc comment for the Go interface method.
-    doc: &'static str,
+    doc: String,
     /// Extra C parameters after `(user_data, ctx)` and before `(out_result)`.
     /// Each entry: (c_param_name, c_type, go_var_name, go_type_in_interface, decode_expr).
     /// `decode_expr` is the Go expression to convert the C parameter to the Go interface type.
-    extra: &'static [ExtraParam],
+    extra: Vec<ExtraParam>,
     /// If true, add an `isHeader C.int32_t` parameter (only for visit_table_row).
     has_is_header: bool,
 }
 
 struct ExtraParam {
-    c_name: &'static str,
-    c_type: &'static str,
-    go_name: &'static str,
+    c_name: String,
+    c_type: String,
+    go_name: String,
     /// Type as it appears in the Go interface method signature.
-    go_iface_type: &'static str,
+    go_iface_type: String,
     /// Expression to convert the C value to `go_iface_type`.
-    decode: &'static str,
+    decode: String,
 }
 
-const CALLBACKS: &[CallbackSpec] = &[
-    CallbackSpec {
-        c_field: "visit_text",
-        export_name: "goVisitText",
-        go_method: "VisitText",
-        doc: "VisitText is called for text nodes.",
-        extra: &[ExtraParam {
-            c_name: "text",
-            c_type: "*C.char",
-            go_name: "text",
-            go_iface_type: "string",
-            decode: "C.GoString(text)",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_element_start",
-        export_name: "goVisitElementStart",
-        go_method: "VisitElementStart",
-        doc: "VisitElementStart is called before entering any element.",
-        extra: &[],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_element_end",
-        export_name: "goVisitElementEnd",
-        go_method: "VisitElementEnd",
-        doc: "VisitElementEnd is called after exiting any element; receives the default markdown output.",
-        extra: &[ExtraParam {
-            c_name: "output",
-            c_type: "*C.char",
-            go_name: "output",
-            go_iface_type: "string",
-            decode: "C.GoString(output)",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_link",
-        export_name: "goVisitLink",
-        go_method: "VisitLink",
-        doc: "VisitLink visits anchor links. title is nil when the attribute is absent.",
-        extra: &[
-            ExtraParam {
-                c_name: "href",
-                c_type: "*C.char",
-                go_name: "href",
-                go_iface_type: "string",
-                decode: "C.GoString(href)",
-            },
-            ExtraParam {
-                c_name: "text",
-                c_type: "*C.char",
-                go_name: "text",
-                go_iface_type: "string",
-                decode: "C.GoString(text)",
-            },
-            ExtraParam {
-                c_name: "title",
-                c_type: "*C.char",
-                go_name: "title",
-                go_iface_type: "*string",
-                decode: "optGoString(title)",
-            },
-        ],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_image",
-        export_name: "goVisitImage",
-        go_method: "VisitImage",
-        doc: "VisitImage visits images. title is nil when absent.",
-        extra: &[
-            ExtraParam {
-                c_name: "src",
-                c_type: "*C.char",
-                go_name: "src",
-                go_iface_type: "string",
-                decode: "C.GoString(src)",
-            },
-            ExtraParam {
-                c_name: "alt",
-                c_type: "*C.char",
-                go_name: "alt",
-                go_iface_type: "string",
-                decode: "C.GoString(alt)",
-            },
-            ExtraParam {
-                c_name: "title",
-                c_type: "*C.char",
-                go_name: "title",
-                go_iface_type: "*string",
-                decode: "optGoString(title)",
-            },
-        ],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_heading",
-        export_name: "goVisitHeading",
-        go_method: "VisitHeading",
-        doc: "VisitHeading visits heading elements h1-h6. id is nil when absent.",
-        extra: &[
-            ExtraParam {
-                c_name: "level",
-                c_type: "C.uint32_t",
-                go_name: "level",
-                go_iface_type: "uint32",
-                decode: "uint32(level)",
-            },
-            ExtraParam {
-                c_name: "text",
-                c_type: "*C.char",
-                go_name: "text",
-                go_iface_type: "string",
-                decode: "C.GoString(text)",
-            },
-            ExtraParam {
-                c_name: "id",
-                c_type: "*C.char",
-                go_name: "id",
-                go_iface_type: "*string",
-                decode: "optGoString(id)",
-            },
-        ],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_code_block",
-        export_name: "goVisitCodeBlock",
-        go_method: "VisitCodeBlock",
-        doc: "VisitCodeBlock visits code blocks. lang is nil when absent.",
-        extra: &[
-            ExtraParam {
-                c_name: "lang",
-                c_type: "*C.char",
-                go_name: "lang",
-                go_iface_type: "*string",
-                decode: "optGoString(lang)",
-            },
-            ExtraParam {
-                c_name: "code",
-                c_type: "*C.char",
-                go_name: "code",
-                go_iface_type: "string",
-                decode: "C.GoString(code)",
-            },
-        ],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_code_inline",
-        export_name: "goVisitCodeInline",
-        go_method: "VisitCodeInline",
-        doc: "VisitCodeInline visits inline code elements.",
-        extra: &[ExtraParam {
-            c_name: "code",
-            c_type: "*C.char",
-            go_name: "code",
-            go_iface_type: "string",
-            decode: "C.GoString(code)",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_list_item",
-        export_name: "goVisitListItem",
-        go_method: "VisitListItem",
-        doc: "VisitListItem visits list items.",
-        extra: &[
-            ExtraParam {
-                c_name: "ordered",
-                c_type: "C.int32_t",
-                go_name: "ordered",
-                go_iface_type: "bool",
-                decode: "ordered != 0",
-            },
-            ExtraParam {
-                c_name: "marker",
-                c_type: "*C.char",
-                go_name: "marker",
-                go_iface_type: "string",
-                decode: "C.GoString(marker)",
-            },
-            ExtraParam {
-                c_name: "text",
-                c_type: "*C.char",
-                go_name: "text",
-                go_iface_type: "string",
-                decode: "C.GoString(text)",
-            },
-        ],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_list_start",
-        export_name: "goVisitListStart",
-        go_method: "VisitListStart",
-        doc: "VisitListStart is called before processing a list.",
-        extra: &[ExtraParam {
-            c_name: "ordered",
-            c_type: "C.int32_t",
-            go_name: "ordered",
-            go_iface_type: "bool",
-            decode: "ordered != 0",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_list_end",
-        export_name: "goVisitListEnd",
-        go_method: "VisitListEnd",
-        doc: "VisitListEnd is called after processing a list.",
-        extra: &[
-            ExtraParam {
-                c_name: "ordered",
-                c_type: "C.int32_t",
-                go_name: "ordered",
-                go_iface_type: "bool",
-                decode: "ordered != 0",
-            },
-            ExtraParam {
-                c_name: "output",
-                c_type: "*C.char",
-                go_name: "output",
-                go_iface_type: "string",
-                decode: "C.GoString(output)",
-            },
-        ],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_table_start",
-        export_name: "goVisitTableStart",
-        go_method: "VisitTableStart",
-        doc: "VisitTableStart is called before processing a table.",
-        extra: &[],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_table_row",
-        export_name: "goVisitTableRow",
-        go_method: "VisitTableRow",
-        doc: "VisitTableRow visits table rows. Cells are passed as a JSON-encoded slice of strings.",
-        extra: &[ExtraParam {
-            c_name: "cells",
-            c_type: "*C.char",
-            go_name: "cells",
-            go_iface_type: "[]string",
-            decode: "decodeCellsJSON(cells)",
-        }],
-        has_is_header: true,
-    },
-    CallbackSpec {
-        c_field: "visit_table_end",
-        export_name: "goVisitTableEnd",
-        go_method: "VisitTableEnd",
-        doc: "VisitTableEnd is called after processing a table.",
-        extra: &[ExtraParam {
-            c_name: "output",
-            c_type: "*C.char",
-            go_name: "output",
-            go_iface_type: "string",
-            decode: "C.GoString(output)",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_blockquote",
-        export_name: "goVisitBlockquote",
-        go_method: "VisitBlockquote",
-        doc: "VisitBlockquote visits blockquote elements.",
-        extra: &[
-            ExtraParam {
-                c_name: "content",
-                c_type: "*C.char",
-                go_name: "content",
-                go_iface_type: "string",
-                decode: "C.GoString(content)",
-            },
-            ExtraParam {
-                c_name: "depth",
-                c_type: "C.uintptr_t",
-                go_name: "depth",
-                go_iface_type: "uint",
-                decode: "uint(depth)",
-            },
-        ],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_strong",
-        export_name: "goVisitStrong",
-        go_method: "VisitStrong",
-        doc: "VisitStrong visits strong/bold elements.",
-        extra: &[ExtraParam {
-            c_name: "text",
-            c_type: "*C.char",
-            go_name: "text",
-            go_iface_type: "string",
-            decode: "C.GoString(text)",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_emphasis",
-        export_name: "goVisitEmphasis",
-        go_method: "VisitEmphasis",
-        doc: "VisitEmphasis visits emphasis/italic elements.",
-        extra: &[ExtraParam {
-            c_name: "text",
-            c_type: "*C.char",
-            go_name: "text",
-            go_iface_type: "string",
-            decode: "C.GoString(text)",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_strikethrough",
-        export_name: "goVisitStrikethrough",
-        go_method: "VisitStrikethrough",
-        doc: "VisitStrikethrough visits strikethrough elements.",
-        extra: &[ExtraParam {
-            c_name: "text",
-            c_type: "*C.char",
-            go_name: "text",
-            go_iface_type: "string",
-            decode: "C.GoString(text)",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_underline",
-        export_name: "goVisitUnderline",
-        go_method: "VisitUnderline",
-        doc: "VisitUnderline visits underline elements.",
-        extra: &[ExtraParam {
-            c_name: "text",
-            c_type: "*C.char",
-            go_name: "text",
-            go_iface_type: "string",
-            decode: "C.GoString(text)",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_subscript",
-        export_name: "goVisitSubscript",
-        go_method: "VisitSubscript",
-        doc: "VisitSubscript visits subscript elements.",
-        extra: &[ExtraParam {
-            c_name: "text",
-            c_type: "*C.char",
-            go_name: "text",
-            go_iface_type: "string",
-            decode: "C.GoString(text)",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_superscript",
-        export_name: "goVisitSuperscript",
-        go_method: "VisitSuperscript",
-        doc: "VisitSuperscript visits superscript elements.",
-        extra: &[ExtraParam {
-            c_name: "text",
-            c_type: "*C.char",
-            go_name: "text",
-            go_iface_type: "string",
-            decode: "C.GoString(text)",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_mark",
-        export_name: "goVisitMark",
-        go_method: "VisitMark",
-        doc: "VisitMark visits mark/highlight elements.",
-        extra: &[ExtraParam {
-            c_name: "text",
-            c_type: "*C.char",
-            go_name: "text",
-            go_iface_type: "string",
-            decode: "C.GoString(text)",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_line_break",
-        export_name: "goVisitLineBreak",
-        go_method: "VisitLineBreak",
-        doc: "VisitLineBreak visits line break elements.",
-        extra: &[],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_horizontal_rule",
-        export_name: "goVisitHorizontalRule",
-        go_method: "VisitHorizontalRule",
-        doc: "VisitHorizontalRule visits horizontal rule elements.",
-        extra: &[],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_custom_element",
-        export_name: "goVisitCustomElement",
-        go_method: "VisitCustomElement",
-        doc: "VisitCustomElement visits custom/unknown elements.",
-        extra: &[
-            ExtraParam {
-                c_name: "tagName",
-                c_type: "*C.char",
-                go_name: "tagName",
-                go_iface_type: "string",
-                decode: "C.GoString(tagName)",
-            },
-            ExtraParam {
-                c_name: "html",
-                c_type: "*C.char",
-                go_name: "html",
-                go_iface_type: "string",
-                decode: "C.GoString(html)",
-            },
-        ],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_definition_list_start",
-        export_name: "goVisitDefinitionListStart",
-        go_method: "VisitDefinitionListStart",
-        doc: "VisitDefinitionListStart visits definition list elements.",
-        extra: &[],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_definition_term",
-        export_name: "goVisitDefinitionTerm",
-        go_method: "VisitDefinitionTerm",
-        doc: "VisitDefinitionTerm visits definition term elements.",
-        extra: &[ExtraParam {
-            c_name: "text",
-            c_type: "*C.char",
-            go_name: "text",
-            go_iface_type: "string",
-            decode: "C.GoString(text)",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_definition_description",
-        export_name: "goVisitDefinitionDescription",
-        go_method: "VisitDefinitionDescription",
-        doc: "VisitDefinitionDescription visits definition description elements.",
-        extra: &[ExtraParam {
-            c_name: "text",
-            c_type: "*C.char",
-            go_name: "text",
-            go_iface_type: "string",
-            decode: "C.GoString(text)",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_definition_list_end",
-        export_name: "goVisitDefinitionListEnd",
-        go_method: "VisitDefinitionListEnd",
-        doc: "VisitDefinitionListEnd is called after processing a definition list.",
-        extra: &[ExtraParam {
-            c_name: "output",
-            c_type: "*C.char",
-            go_name: "output",
-            go_iface_type: "string",
-            decode: "C.GoString(output)",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_form",
-        export_name: "goVisitForm",
-        go_method: "VisitForm",
-        doc: "VisitForm visits form elements. action and method may be nil.",
-        extra: &[
-            ExtraParam {
-                c_name: "action",
-                c_type: "*C.char",
-                go_name: "action",
-                go_iface_type: "*string",
-                decode: "optGoString(action)",
-            },
-            ExtraParam {
-                c_name: "method",
-                c_type: "*C.char",
-                go_name: "method",
-                go_iface_type: "*string",
-                decode: "optGoString(method)",
-            },
-        ],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_input",
-        export_name: "goVisitInput",
-        go_method: "VisitInput",
-        doc: "VisitInput visits input elements. name and value may be nil.",
-        extra: &[
-            ExtraParam {
-                c_name: "inputType",
-                c_type: "*C.char",
-                go_name: "inputType",
-                go_iface_type: "string",
-                decode: "C.GoString(inputType)",
-            },
-            ExtraParam {
-                c_name: "name",
-                c_type: "*C.char",
-                go_name: "name",
-                go_iface_type: "*string",
-                decode: "optGoString(name)",
-            },
-            ExtraParam {
-                c_name: "value",
-                c_type: "*C.char",
-                go_name: "value",
-                go_iface_type: "*string",
-                decode: "optGoString(value)",
-            },
-        ],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_button",
-        export_name: "goVisitButton",
-        go_method: "VisitButton",
-        doc: "VisitButton visits button elements.",
-        extra: &[ExtraParam {
-            c_name: "text",
-            c_type: "*C.char",
-            go_name: "text",
-            go_iface_type: "string",
-            decode: "C.GoString(text)",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_audio",
-        export_name: "goVisitAudio",
-        go_method: "VisitAudio",
-        doc: "VisitAudio visits audio elements. src may be nil.",
-        extra: &[ExtraParam {
-            c_name: "src",
-            c_type: "*C.char",
-            go_name: "src",
-            go_iface_type: "*string",
-            decode: "optGoString(src)",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_video",
-        export_name: "goVisitVideo",
-        go_method: "VisitVideo",
-        doc: "VisitVideo visits video elements. src may be nil.",
-        extra: &[ExtraParam {
-            c_name: "src",
-            c_type: "*C.char",
-            go_name: "src",
-            go_iface_type: "*string",
-            decode: "optGoString(src)",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_iframe",
-        export_name: "goVisitIframe",
-        go_method: "VisitIframe",
-        doc: "VisitIframe visits iframe elements. src may be nil.",
-        extra: &[ExtraParam {
-            c_name: "src",
-            c_type: "*C.char",
-            go_name: "src",
-            go_iface_type: "*string",
-            decode: "optGoString(src)",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_details",
-        export_name: "goVisitDetails",
-        go_method: "VisitDetails",
-        doc: "VisitDetails visits details elements.",
-        extra: &[ExtraParam {
-            c_name: "open",
-            c_type: "C.int32_t",
-            go_name: "open",
-            go_iface_type: "bool",
-            decode: "open != 0",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_summary",
-        export_name: "goVisitSummary",
-        go_method: "VisitSummary",
-        doc: "VisitSummary visits summary elements.",
-        extra: &[ExtraParam {
-            c_name: "text",
-            c_type: "*C.char",
-            go_name: "text",
-            go_iface_type: "string",
-            decode: "C.GoString(text)",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_figure_start",
-        export_name: "goVisitFigureStart",
-        go_method: "VisitFigureStart",
-        doc: "VisitFigureStart is called before processing a figure element.",
-        extra: &[],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_figcaption",
-        export_name: "goVisitFigcaption",
-        go_method: "VisitFigcaption",
-        doc: "VisitFigcaption visits figcaption elements.",
-        extra: &[ExtraParam {
-            c_name: "text",
-            c_type: "*C.char",
-            go_name: "text",
-            go_iface_type: "string",
-            decode: "C.GoString(text)",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_figure_end",
-        export_name: "goVisitFigureEnd",
-        go_method: "VisitFigureEnd",
-        doc: "VisitFigureEnd is called after processing a figure element.",
-        extra: &[ExtraParam {
-            c_name: "output",
-            c_type: "*C.char",
-            go_name: "output",
-            go_iface_type: "string",
-            decode: "C.GoString(output)",
-        }],
-        has_is_header: false,
-    },
-];
+/// Convert snake_case to lowerCamelCase (e.g. "tag_name" → "tagName").
+fn snake_to_lower_camel(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut next_upper = false;
+    for ch in s.chars() {
+        if ch == '_' {
+            next_upper = true;
+        } else if next_upper {
+            result.extend(ch.to_uppercase());
+            next_upper = false;
+        } else {
+            result.push(ch);
+        }
+    }
+    result
+}
+
+/// Build a `Vec<CallbackSpec>` from a trait's IR definition for the Go backend.
+///
+/// Derives all language-specific Go fields (method names, C types, decode expressions)
+/// from `TypeRef` + `optional` flag. Methods with unsupported parameter types are
+/// skipped with a warning.
+fn callback_specs_from_trait(trait_def: &alef_core::ir::TypeDef) -> Vec<CallbackSpec> {
+    use alef_core::ir::{PrimitiveType, TypeRef};
+    use heck::ToPascalCase;
+
+    let mut specs = Vec::with_capacity(trait_def.methods.len());
+    'methods: for m in &trait_def.methods {
+        if m.trait_source.is_some() {
+            continue;
+        }
+        let go_method = m.name.to_pascal_case();
+        let export_name = format!("go{go_method}");
+        let first_line = m.doc.lines().next().unwrap_or("").trim().to_string();
+        let doc = if first_line.is_empty() {
+            format!("{go_method} visits this element.")
+        } else {
+            format!("{go_method} {}", first_line.to_lowercase().trim_end_matches('.'))
+        };
+
+        let mut extra = Vec::new();
+        let mut has_is_header = false;
+
+        for p in &m.params {
+            if matches!(&p.ty, TypeRef::Named(_)) {
+                continue;
+            }
+            // strip leading underscore; keep snake_case for c_name (C extern),
+            // but convert to lowerCamelCase for go_name (Go identifiers).
+            let param_name = p.name.trim_start_matches('_').to_string();
+            let go_param_name = snake_to_lower_camel(&param_name);
+
+            match (&p.ty, p.optional) {
+                (TypeRef::String, false) => {
+                    let decode = format!("C.GoString({param_name})");
+                    extra.push(ExtraParam {
+                        c_name: param_name,
+                        c_type: "*C.char".to_string(),
+                        go_name: go_param_name,
+                        go_iface_type: "string".to_string(),
+                        decode,
+                    });
+                }
+                (TypeRef::String, true) => {
+                    let decode = format!("optGoString({param_name})");
+                    extra.push(ExtraParam {
+                        c_name: param_name,
+                        c_type: "*C.char".to_string(),
+                        go_name: go_param_name,
+                        go_iface_type: "*string".to_string(),
+                        decode,
+                    });
+                }
+                (TypeRef::Primitive(PrimitiveType::Bool), false) => {
+                    let decode = format!("{param_name} != 0");
+                    extra.push(ExtraParam {
+                        c_name: param_name.clone(),
+                        c_type: "C.int32_t".to_string(),
+                        go_name: go_param_name.clone(),
+                        go_iface_type: "bool".to_string(),
+                        decode,
+                    });
+                }
+                (TypeRef::Primitive(PrimitiveType::U32 | PrimitiveType::I32), false) => {
+                    let decode = format!("uint32({param_name})");
+                    extra.push(ExtraParam {
+                        c_name: param_name.clone(),
+                        c_type: "C.uint32_t".to_string(),
+                        go_name: go_param_name.clone(),
+                        go_iface_type: "uint32".to_string(),
+                        decode,
+                    });
+                }
+                (TypeRef::Primitive(PrimitiveType::Usize | PrimitiveType::U64), false) => {
+                    let decode = format!("uint({param_name})");
+                    extra.push(ExtraParam {
+                        c_name: param_name.clone(),
+                        c_type: "C.uintptr_t".to_string(),
+                        go_name: go_param_name.clone(),
+                        go_iface_type: "uint".to_string(),
+                        decode,
+                    });
+                }
+                (TypeRef::Vec(inner), false) => match inner.as_ref() {
+                    TypeRef::String => {
+                        let decode = format!("decodeCellsJSON({param_name})");
+                        extra.push(ExtraParam {
+                            c_name: param_name.clone(),
+                            c_type: "*C.char".to_string(),
+                            go_name: go_param_name.clone(),
+                            go_iface_type: "[]string".to_string(),
+                            decode,
+                        });
+                        has_is_header = true;
+                        break;
+                    }
+                    _ => {
+                        eprintln!(
+                            "[alef] gen_visitor(go): skip method `{}` — unsupported Vec param `{}`",
+                            m.name, p.name
+                        );
+                        continue 'methods;
+                    }
+                },
+                _ => {
+                    eprintln!(
+                        "[alef] gen_visitor(go): skip method `{}` — unsupported param `{}: {:?}`",
+                        m.name, p.name, p.ty
+                    );
+                    continue 'methods;
+                }
+            }
+        }
+
+        specs.push(CallbackSpec {
+            c_field: m.name.clone(),
+            export_name,
+            go_method,
+            doc,
+            extra,
+            has_is_header,
+        });
+    }
+    specs
+}
 
 /// Generate the complete visitor.go file content for the options-field VTable ABI.
 ///
@@ -743,7 +237,9 @@ pub fn gen_visitor_file(
     to_root: &str,
     vtable_trait_name: &str,
     options_field: &str,
+    trait_def: &alef_core::ir::TypeDef,
 ) -> String {
+    let specs = callback_specs_from_trait(trait_def);
     let mut out = String::with_capacity(32_768);
 
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
@@ -779,7 +275,7 @@ pub fn gen_visitor_file(
     // -------------------------------------------------------------------------
     // CGo preamble
     // -------------------------------------------------------------------------
-    let callbacks: Vec<_> = CALLBACKS
+    let callbacks: Vec<_> = specs
         .iter()
         .map(|spec| {
             minijinja::Value::from_serialize(serde_json::json!({
@@ -817,7 +313,7 @@ pub fn gen_visitor_file(
         "visitor_interface_header.jinja",
         minijinja::Value::default(),
     ));
-    for spec in CALLBACKS {
+    for spec in &specs {
         let param_str = iface_param_str(spec);
         out.push_str(&crate::template_env::render(
             "visitor_interface_method.jinja",
@@ -842,7 +338,7 @@ pub fn gen_visitor_file(
         minijinja::Value::default(),
     ));
     out.push('\n');
-    for spec in CALLBACKS {
+    for spec in &specs {
         let param_str = iface_param_str(spec);
         // Build blank identifiers to suppress "declared but not used" errors.
         let blank_ids: Vec<String> = iface_param_names(spec).into_iter().collect();
@@ -912,7 +408,7 @@ pub fn gen_visitor_file(
     // -------------------------------------------------------------------------
     // //export trampolines
     // -------------------------------------------------------------------------
-    for spec in CALLBACKS {
+    for spec in &specs {
         gen_trampoline(&mut out, spec);
     }
 
@@ -949,8 +445,8 @@ pub fn gen_visitor_file(
 /// VTable ABI: `(void* user_data, char* ctx, ...extras..., int32_t isHeader?, char** out_result)`
 fn c_signature(spec: &CallbackSpec) -> String {
     let mut parts = vec!["void* user_data".to_string(), "char* ctx".to_string()];
-    for ep in spec.extra {
-        let ctype = match ep.c_type {
+    for ep in &spec.extra {
+        let ctype = match ep.c_type.as_str() {
             "*C.char" => "char*",
             "C.int32_t" => "int32_t",
             "C.uint32_t" => "uint32_t",
@@ -969,7 +465,7 @@ fn c_signature(spec: &CallbackSpec) -> String {
 /// Build the Go interface method parameter string.
 fn iface_param_str(spec: &CallbackSpec) -> String {
     let mut params = vec!["ctx NodeContext".to_string()];
-    for ep in spec.extra {
+    for ep in &spec.extra {
         params.push(format!("{} {}", ep.go_name, ep.go_iface_type));
     }
     if spec.has_is_header {
@@ -981,8 +477,8 @@ fn iface_param_str(spec: &CallbackSpec) -> String {
 /// Return just the parameter names for a Go interface method.
 fn iface_param_names(spec: &CallbackSpec) -> Vec<String> {
     let mut names = vec!["ctx".to_string()];
-    for ep in spec.extra {
-        names.push(ep.go_name.to_string());
+    for ep in &spec.extra {
+        names.push(ep.go_name.clone());
     }
     if spec.has_is_header {
         names.push("isHeader".to_string());
@@ -997,7 +493,7 @@ fn gen_trampoline(out: &mut String, spec: &CallbackSpec) {
     // Build Go function parameter list (CGo types).
     // VTable ABI: user_data first, then ctx (JSON string), then extras, then out_result.
     let mut go_params = vec!["userData unsafe.Pointer".to_string(), "ctx *C.char".to_string()];
-    for ep in spec.extra {
+    for ep in &spec.extra {
         go_params.push(format!("{} {}", ep.c_name, ep.c_type));
     }
     if spec.has_is_header {
@@ -1024,11 +520,11 @@ fn gen_trampoline(out: &mut String, spec: &CallbackSpec) {
     ));
 
     // Decode each extra parameter.
-    for ep in spec.extra {
+    for ep in &spec.extra {
         out.push_str(&crate::template_env::render(
             "trampoline_param_decode.jinja",
             minijinja::context! {
-                name => capitalize(ep.go_name),
+                name => capitalize(&ep.go_name),
                 decode => ep.decode,
             },
         ));
@@ -1042,8 +538,8 @@ fn gen_trampoline(out: &mut String, spec: &CallbackSpec) {
 
     // Build call args.
     let mut call_args = vec!["nodeCtx".to_string()];
-    for ep in spec.extra {
-        call_args.push(format!("go{}", capitalize(ep.go_name)));
+    for ep in &spec.extra {
+        call_args.push(format!("go{}", capitalize(&ep.go_name)));
     }
     if spec.has_is_header {
         call_args.push("goIsHeader".to_string());
