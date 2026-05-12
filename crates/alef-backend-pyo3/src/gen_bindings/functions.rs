@@ -1002,6 +1002,19 @@ pub(super) fn gen_api_py(
             call_args.push((param.name.clone(), param.name.clone()));
         }
 
+        // When this function has an options-field trait-bridge, the api.py wrapper exposes
+        // a `visitor: Type | None = None` convenience kwarg (sig_parts.push above). The
+        // generated Rust function also takes a matching `visitor` parameter that the
+        // bridge bridge wires up. Forward the api.py kwarg through to `_rust.<fn>(...)`
+        // so the visitor isn't silently dropped — without this, the visitor reaches
+        // `_rust_options.visitor` but `serde(skip)` strips it during the JSON round-trip
+        // in the Rust convert function, and the visitor has no effect.
+        if let Some((_, _, kwarg_name, _)) = options_field_visitor_kwarg {
+            if !call_args.iter().any(|(k, _)| k == kwarg_name) {
+                call_args.push((kwarg_name.to_string(), kwarg_name.to_string()));
+            }
+        }
+
         // Use keyword arguments so the call is independent of the pyo3 signature order.
         // This ensures wrapper-side required/optional reordering doesn't misalign slots.
         let kwargs: Vec<String> = call_args.iter().map(|(k, v)| format!("{k}={v}")).collect();
