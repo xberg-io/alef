@@ -1426,6 +1426,12 @@ fn render_assertion(
                 }
                 return;
             }
+            "not_error" => {
+                out.push_str(&format!(
+                    "        Assertions.assertNotNull({result_var}, \"expected non-null byte[] response\");\n"
+                ));
+                return;
+            }
             _ => {
                 out.push_str(&format!(
                     "        // skipped: assertion type '{}' not supported on byte[] result\n",
