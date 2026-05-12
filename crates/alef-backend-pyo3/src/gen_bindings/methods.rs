@@ -112,9 +112,7 @@ pub(super) fn gen_module_init(module_name: &str, api: &ApiSurface, config: &Reso
     // Register trait bridge clear functions. Same `_alef_<clear_fn>` symbol convention
     // as unregister — must be added to the module so Python callers can access them.
     for clear_fn in crate::trait_bridge::collect_bridge_clear_fns(&config.trait_bridges) {
-        lines.push(format!(
-            "    m.add_function(wrap_pyfunction!(_alef_{clear_fn}, m)?)?;"
-        ));
+        lines.push(format!("    m.add_function(wrap_pyfunction!(_alef_{clear_fn}, m)?)?;"));
     }
 
     // Register error exception types
