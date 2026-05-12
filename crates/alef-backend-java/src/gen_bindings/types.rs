@@ -869,11 +869,81 @@ pub(crate) fn gen_opaque_handle_class(
         }
     }
 
+    // Build the class body first so we can compute imports from actual usage —
+    // Checkstyle's UnusedImports rule fails if we declare an import that
+    // never appears in the file body (e.g. when every instance method body
+    // is a `TODO unsupported return shape` stub).
+    let mut body = String::new();
+
+    emit_javadoc(&mut body, &typ.doc, "");
+
+    body.push_str("public class ");
+    body.push_str(class_name);
+    body.push_str(" implements AutoCloseable {\n");
+    body.push_str("    private final MemorySegment handle;\n");
+    body.push('\n');
+    body.push_str("    ");
+    body.push_str(class_name);
+    body.push_str("(MemorySegment handle) {\n");
+    body.push_str("        this.handle = handle;\n");
+    body.push_str("    }\n");
+    body.push('\n');
+    body.push_str("    MemorySegment handle() {\n");
+    body.push_str("        return this.handle;\n");
+    body.push_str("    }\n");
+    body.push('\n');
+
+    // Emit streaming iterator methods (e.g. chatStream(req) -> Iterator<ChatCompletionChunk>).
+    for adapter in &streaming_adapters {
+        gen_streaming_method(&mut body, adapter, prefix, &type_snake, main_class);
+    }
+
+    // Emit non-streaming instance methods (chat, embed, moderate, …).
+    for method in &instance_methods {
+        gen_instance_method(&mut body, method, prefix, &type_snake, main_class);
+    }
+
+    body.push_str("    @Override\n");
+    body.push_str("    public void close() {\n");
+    body.push_str("        if (handle != null && !handle.equals(MemorySegment.NULL)) {\n");
+    body.push_str("            try {\n");
+    body.push_str("                NativeLib.");
+    body.push_str(&prefix.to_uppercase());
+    body.push('_');
+    body.push_str(&type_snake.to_uppercase());
+    body.push_str("_FREE.invoke(handle);\n");
+    body.push_str("            } catch (Throwable e) {\n");
+    body.push_str("                throw new RuntimeException(\"Failed to free ");
+    body.push_str(class_name);
+    body.push_str(": \" + e.getMessage(), e);\n");
+    body.push_str("            }\n");
+    body.push_str("        }\n");
+    body.push_str("    }\n");
+
+    if needs_helpers {
+        gen_streaming_helpers(&mut body, prefix, main_class);
+    }
+
+    body.push_str("}\n");
+
     let mut imports: Vec<&str> = vec!["java.lang.foreign.MemorySegment"];
     if needs_helpers {
+        // `Arena.ofConfined()` is referenced by every helper / instance-method
+        // template even when the method body is a stub, so the import is
+        // always live in that branch.
         imports.push("java.lang.foreign.Arena");
-        imports.push("java.lang.foreign.ValueLayout");
-        imports.push("com.fasterxml.jackson.databind.ObjectMapper");
+        // `ValueLayout` only appears when an instance method or streaming
+        // helper actually marshals memory; stub methods (`unsupported return
+        // shape`) never reference it. Scan the rendered body to avoid an
+        // unused-import Checkstyle violation.
+        if body.contains("ValueLayout") {
+            imports.push("java.lang.foreign.ValueLayout");
+        }
+        // Same reasoning for ObjectMapper — STREAM_MAPPER references it, but
+        // not all paths reach STREAM_MAPPER.
+        if body.contains("ObjectMapper") {
+            imports.push("com.fasterxml.jackson.databind.ObjectMapper");
+        }
     }
     if has_streaming {
         imports.push("java.util.Iterator");
@@ -888,63 +958,13 @@ pub(crate) fn gen_opaque_handle_class(
     if has_map_return {
         imports.push("java.util.Map");
     }
+
     let mut out = crate::template_env::render(
         "java_file_header.jinja",
         minijinja::context! { header => header, package => package, imports => &imports },
     );
     out.push('\n');
-
-    emit_javadoc(&mut out, &typ.doc, "");
-
-    out.push_str("public class ");
-    out.push_str(class_name);
-    out.push_str(" implements AutoCloseable {\n");
-    out.push_str("    private final MemorySegment handle;\n");
-    out.push('\n');
-    out.push_str("    ");
-    out.push_str(class_name);
-    out.push_str("(MemorySegment handle) {\n");
-    out.push_str("        this.handle = handle;\n");
-    out.push_str("    }\n");
-    out.push('\n');
-    out.push_str("    MemorySegment handle() {\n");
-    out.push_str("        return this.handle;\n");
-    out.push_str("    }\n");
-    out.push('\n');
-
-    // Emit streaming iterator methods (e.g. chatStream(req) -> Iterator<ChatCompletionChunk>).
-    for adapter in &streaming_adapters {
-        gen_streaming_method(&mut out, adapter, prefix, &type_snake, main_class);
-    }
-
-    // Emit non-streaming instance methods (chat, embed, moderate, …).
-    for method in &instance_methods {
-        gen_instance_method(&mut out, method, prefix, &type_snake, main_class);
-    }
-
-    out.push_str("    @Override\n");
-    out.push_str("    public void close() {\n");
-    out.push_str("        if (handle != null && !handle.equals(MemorySegment.NULL)) {\n");
-    out.push_str("            try {\n");
-    out.push_str("                NativeLib.");
-    out.push_str(&prefix.to_uppercase());
-    out.push('_');
-    out.push_str(&type_snake.to_uppercase());
-    out.push_str("_FREE.invoke(handle);\n");
-    out.push_str("            } catch (Throwable e) {\n");
-    out.push_str("                throw new RuntimeException(\"Failed to free ");
-    out.push_str(class_name);
-    out.push_str(": \" + e.getMessage(), e);\n");
-    out.push_str("            }\n");
-    out.push_str("        }\n");
-    out.push_str("    }\n");
-
-    if needs_helpers {
-        gen_streaming_helpers(&mut out, prefix, main_class);
-    }
-
-    out.push_str("}\n");
-
+    out.push_str(&body);
     out
 }
 

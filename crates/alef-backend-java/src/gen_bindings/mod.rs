@@ -9,6 +9,7 @@ use std::path::PathBuf;
 mod facade;
 mod ffi_class;
 mod helpers;
+mod line_wrap;
 mod marshal;
 mod native_lib;
 mod trait_bridge;
@@ -366,6 +367,14 @@ impl Backend for JavaBackend {
             }
         }
 
+        // Apply downstream Checkstyle line-length wrapping to every generated
+        // Java source. The templates emit some compound statements on one line;
+        // this pass splits at logical points (annotation lists, call args,
+        // method signatures) without changing semantics.
+        for file in &mut files {
+            file.content = line_wrap::wrap_long_java_lines(&file.content);
+        }
+
         Ok(files)
     }
 
@@ -425,7 +434,7 @@ impl Backend for JavaBackend {
 
         Ok(vec![GeneratedFile {
             path: base_path.join(format!("{}.java", public_class)),
-            content: facade_content,
+            content: line_wrap::wrap_long_java_lines(&facade_content),
             generated_header: true,
         }])
     }

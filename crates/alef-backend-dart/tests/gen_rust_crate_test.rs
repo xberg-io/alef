@@ -358,16 +358,18 @@ fn frb_yaml_is_emitted_with_module_name() {
     let yaml =
         find_file(&files, "packages/dart/rust/flutter_rust_bridge.yaml").expect("flutter_rust_bridge.yaml not found");
 
-    // FRB v2 schema: `rust_root` (crate dir) + `dart_output` (output dir).
-    // The v1 keys `rust_input` / `rust_output` were removed.
+    // FRB v2 schema: `rust_root` (crate dir) + `rust_input` (module path) + `dart_output`
+    // (output dir). The CLI requires `rust_input` — it points at the crate root because
+    // the alef-generated dart Rust crate places its entire API surface at `lib.rs`.
+    // The v1 `rust_output` key was removed and must not be emitted.
     assert!(yaml.contains("rust_root: ."), "missing rust_root: {yaml}");
+    assert!(
+        yaml.contains("rust_input: crate"),
+        "missing rust_input: crate: {yaml}"
+    );
     assert!(
         yaml.contains("demo_crate_bridge_generated"),
         "missing dart output path with module name: {yaml}"
-    );
-    assert!(
-        !yaml.contains("rust_input:"),
-        "v1 rust_input key should not be emitted: {yaml}"
     );
     assert!(
         !yaml.contains("rust_output:"),

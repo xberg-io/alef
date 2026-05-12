@@ -72,16 +72,14 @@ fn render_async_body(template_name: &str, preamble: &str, core_call: &str, resul
 
 fn render_method_call(
     template_name: &str,
-    core_import: &str,
-    struct_name: &str,
+    core_path: &str,
     method_name: &str,
     call_args: &str,
 ) -> String {
     template_env::render(
         template_name,
         minijinja::context! {
-            core_import => core_import,
-            struct_name => struct_name,
+            core_path => core_path,
             method_name => method_name,
             call_args => call_args,
         },
@@ -92,8 +90,7 @@ fn render_method_call(
 
 fn render_method_call_with_preamble(
     preamble: &str,
-    core_import: &str,
-    struct_name: &str,
+    core_path: &str,
     method_name: &str,
     call_args: &str,
 ) -> String {
@@ -101,8 +98,7 @@ fn render_method_call_with_preamble(
         "rust_method_static_call_with_preamble.rs.jinja",
         minijinja::context! {
             preamble => preamble,
-            core_import => core_import,
-            struct_name => struct_name,
+            core_path => core_path,
             method_name => method_name,
             call_args => call_args,
         },
@@ -695,6 +691,7 @@ pub(super) fn gen_nif_async_function(
 #[allow(clippy::too_many_arguments)]
 pub(super) fn gen_nif_method(
     struct_name: &str,
+    core_path: &str,
     method: &MethodDef,
     mapper: &RustlerMapper,
     is_opaque: bool,
@@ -774,8 +771,7 @@ pub(super) fn gen_nif_method(
             // Static method on opaque type: call directly on the inner core type
             render_method_call(
                 "rust_method_static_call.rs.jinja",
-                core_import,
-                struct_name,
+                core_path,
                 &method.name,
                 &call_args,
             )
@@ -783,8 +779,7 @@ pub(super) fn gen_nif_method(
             // Instance method on non-opaque: convert binding struct to core type, then call
             render_method_call(
                 "rust_method_instance_call.rs.jinja",
-                core_import,
-                struct_name,
+                core_path,
                 &method.name,
                 &call_args,
             )
@@ -804,8 +799,7 @@ pub(super) fn gen_nif_method(
             if named_params.is_empty() {
                 render_method_call(
                     "rust_method_static_call.rs.jinja",
-                    core_import,
-                    struct_name,
+                    core_path,
                     &method.name,
                     &call_args,
                 )
@@ -838,7 +832,7 @@ pub(super) fn gen_nif_method(
                         }
                     }
                 }
-                render_method_call_with_preamble(&preamble, core_import, struct_name, &method.name, &resolved_args)
+                render_method_call_with_preamble(&preamble, core_path, &method.name, &resolved_args)
             }
         };
         if method.error_type.is_some() {
@@ -920,6 +914,7 @@ fn build_default_deser_preamble(
 #[allow(clippy::too_many_arguments)]
 pub(super) fn gen_nif_async_method(
     struct_name: &str,
+    core_path: &str,
     method: &MethodDef,
     mapper: &RustlerMapper,
     is_opaque: bool,
@@ -999,16 +994,14 @@ pub(super) fn gen_nif_async_method(
             // Static method on opaque type: call directly on the inner core type
             render_method_call(
                 "rust_method_static_call.rs.jinja",
-                core_import,
-                struct_name,
+                core_path,
                 &method.name,
                 &call_args,
             )
         } else if method.receiver.is_some() {
             render_method_call(
                 "rust_method_instance_call.rs.jinja",
-                core_import,
-                struct_name,
+                core_path,
                 &method.name,
                 &call_args,
             )
@@ -1016,8 +1009,7 @@ pub(super) fn gen_nif_async_method(
             // Static method on non-opaque: call directly on core type
             render_method_call(
                 "rust_method_static_call.rs.jinja",
-                core_import,
-                struct_name,
+                core_path,
                 &method.name,
                 &call_args,
             )
