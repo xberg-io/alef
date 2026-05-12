@@ -111,6 +111,7 @@ fn with_client_factory_emits_client_instantiation() {
         r#"{BASE_TOML}
 [crates.e2e.call.overrides.swift]
 client_factory = "DefaultClient"
+options_via = "from_json"
 "#
     );
     let files = render_swift(&toml, "smoke_basic");
@@ -138,7 +139,13 @@ client_factory = "DefaultClient"
 /// This ensures no regression for kreuzberg's flat-function swift binding.
 #[test]
 fn without_client_factory_emits_free_function_call() {
-    let files = render_swift(BASE_TOML, "smoke_basic");
+    let toml = format!(
+        r#"{BASE_TOML}
+[crates.e2e.call.overrides.swift]
+options_via = "from_json"
+"#
+    );
+    let files = render_swift(&toml, "smoke_basic");
     let rendered = smoke_test_content(&files);
 
     assert!(
@@ -159,8 +166,14 @@ fn without_client_factory_emits_free_function_call() {
 /// regardless of whether `client_factory` is configured.
 #[test]
 fn package_swift_always_includes_ios_platform() {
-    // Without client_factory
-    let files_no_cf = render_swift(BASE_TOML, "smoke_basic");
+    // Without client_factory (but with options_via so the test body isn't a skip stub)
+    let toml_no_cf = format!(
+        r#"{BASE_TOML}
+[crates.e2e.call.overrides.swift]
+options_via = "from_json"
+"#
+    );
+    let files_no_cf = render_swift(&toml_no_cf, "smoke_basic");
     let pkg_no_cf = package_swift_content(&files_no_cf);
     assert!(
         pkg_no_cf.contains(".macOS("),
@@ -176,6 +189,7 @@ fn package_swift_always_includes_ios_platform() {
         r#"{BASE_TOML}
 [crates.e2e.call.overrides.swift]
 client_factory = "DefaultClient"
+options_via = "from_json"
 "#
     );
     let files_cf = render_swift(&toml_cf, "smoke_basic");
