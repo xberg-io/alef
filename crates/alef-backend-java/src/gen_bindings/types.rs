@@ -62,7 +62,13 @@ pub(crate) fn gen_record_type(
         // Rust side — Rust's serde would reject it for a non-optional Vec<T>.
         // @JsonInclude(NON_NULL) at the field level suppresses the null, letting
         // Rust fall back to its serde `default` (empty vec, default value, etc.).
-        let needs_non_null = !f.optional && matches!(&f.ty, TypeRef::Vec(_));
+        //
+        // When the enclosing record has `@JsonInclude(NON_ABSENT)` (emitted for any
+        // serde-aware type), the class-level rule already suppresses null fields,
+        // so the field-level annotation is redundant. Keeping it produced lines
+        // long enough to bust Checkstyle's 140-char limit after Eclipse spotless
+        // reflows record components to a single line.
+        let needs_non_null = !f.optional && matches!(&f.ty, TypeRef::Vec(_)) && !typ.has_serde;
 
         // Non-optional Bytes fields (byte[]) must be serialised as a JSON array of
         // integers, not as a base64 string. Jackson's default serialiser for byte[]

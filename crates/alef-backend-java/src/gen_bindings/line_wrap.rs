@@ -10,6 +10,12 @@
 /// this threshold are eligible for splitting.
 const MAX_LINE_LEN: usize = 140;
 
+/// Tighter threshold for record-field annotation lines. Eclipse spotless
+/// reflows our 4-space-indented record components to 8-space indent, adding
+/// 4 chars to every component line. Wrap codegen-side at 136 so the
+/// reflowed output still fits in `MAX_LINE_LEN`.
+const RECORD_FIELD_WRAP_THRESHOLD: usize = 136;
+
 /// Wrap any line in `src` that exceeds `MAX_LINE_LEN` chars, using a few
 /// recipes that recognise patterns the Java codegen emits. The output is
 /// reassembled with `\n` line terminators (matching what the generator
@@ -24,7 +30,19 @@ pub(crate) fn wrap_long_java_lines(src: &str) -> String {
             None => (line, ""),
         };
 
-        if visible_len(content) <= MAX_LINE_LEN {
+        let len = visible_len(content);
+        // Record-component annotation lines are gated by a tighter threshold —
+        // Eclipse spotless reflows them with 4 more spaces of indent so a line
+        // at exactly 140 turns into 144 downstream.
+        let is_record_field_annotation = content.trim_start().starts_with('@')
+            && (content.ends_with(',') || content.contains(") {"));
+        let threshold = if is_record_field_annotation {
+            RECORD_FIELD_WRAP_THRESHOLD
+        } else {
+            MAX_LINE_LEN
+        };
+
+        if len <= threshold {
             out.push_str(content);
             out.push_str(terminator);
             continue;

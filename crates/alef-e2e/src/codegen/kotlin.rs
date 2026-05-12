@@ -483,10 +483,18 @@ fn render_test_file(
             // Prefer the per-call args (which carry the correct arg_type + field for the
             // resolved call); fall back to the file-level args only when the call has none.
             let fixture_args = if cc.args.is_empty() { args } else { cc.args.as_slice() };
-            let has_json_obj = fixture_args
-                .iter()
-                .any(|arg| arg.arg_type == "json_object" && !super::resolve_field(&f.input, &arg.field).is_null());
-            if has_json_obj {
+            // Import the options type if the fixture either supplies a json_object value
+            // (deserialised via ObjectMapper) OR has an *optional* json_object arg with
+            // no value — the generator emits `OptionsType.builder().build()` in that
+            // case to keep the call arity correct.
+            let needs_opts_type = fixture_args.iter().any(|arg| {
+                if arg.arg_type != "json_object" {
+                    return false;
+                }
+                let v = super::resolve_field(&f.input, &arg.field);
+                !v.is_null() || arg.optional
+            });
+            if needs_opts_type {
                 per_fixture_options_types.insert(opts.to_string());
             }
         }
@@ -534,7 +542,9 @@ fn render_test_file(
         let _ = writeln!(out, "import com.fasterxml.jackson.datatype.jdk8.Jdk8Module");
     }
     // Import every options type referenced by per-call kotlin overrides in this file.
-    if needs_object_mapper && has_call_fixtures {
+    // Options-type imports are needed for both ObjectMapper deserialisation and for
+    // optional-arg defaults emitted as `OptionsType.builder().build()`.
+    if has_call_fixtures {
         let mut sorted_opts: Vec<&String> = per_fixture_options_types.iter().collect();
         sorted_opts.sort();
         for opts_type in sorted_opts {
@@ -908,6 +918,21 @@ fn render_test_method(
         });
     let options_type = effective_options_type.as_deref();
 
+    // Resolve per-fixture result_is_simple: prefer the kotlin override, then the
+    // class-level default, then any sibling language override (java/csharp/go).
+    // The Kotlin facade shares its return-type shape with the Java facade, so a
+    // declaration in any of those bindings applies to Kotlin too.
+    let effective_result_is_simple = call_overrides.is_some_and(|o| o.result_is_simple)
+        || call_config.result_is_simple
+        || result_is_simple
+        || ["java", "csharp", "go"].iter().any(|cand| {
+            call_config
+                .overrides
+                .get(*cand)
+                .is_some_and(|o| o.result_is_simple)
+        });
+    let result_is_simple = effective_result_is_simple;
+
     let method_name = fixture.id.to_upper_camel_case();
     let description = &fixture.description;
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
@@ -955,13 +980,10 @@ fn render_test_method(
             if val.is_null() {
                 continue;
             }
-            // Skip batch-item arrays — materialised inline as List<BatchXItem>.
-            if val.is_array() {
-                if let Some(elem) = &arg.element_type {
-                    if elem == "BatchBytesItem" || elem == "BatchFileItem" {
-                        continue;
-                    }
-                }
+            // Skip arrays that we materialise inline (batch items + primitive
+            // lists like List<String>) rather than deserialising via Jackson.
+            if val.is_array() && arg.element_type.is_some() {
+                continue;
             }
             let Some(opts_type) = options_type else { continue };
             let normalized = super::transform_json_keys_for_language(val, "snake_case");
@@ -1122,7 +1144,19 @@ fn build_args_and_setup(
         };
         match val {
             None | Some(serde_json::Value::Null) if arg.optional => {
-                continue;
+                // Optional arg with no fixture value: emit positional default so the
+                // call has the right arity for the Java facade. For json_object
+                // optional args with a configured options_type, construct an empty
+                // default builder instead of passing raw null.
+                if arg.arg_type == "json_object" {
+                    if let Some(opts_type) = options_type {
+                        parts.push(format!("{opts_type}.builder().build()"));
+                    } else {
+                        parts.push("null".to_string());
+                    }
+                } else {
+                    parts.push("null".to_string());
+                }
             }
             None | Some(serde_json::Value::Null) => {
                 let default_val = match arg.arg_type.as_str() {
@@ -1135,15 +1169,23 @@ fn build_args_and_setup(
                 parts.push(default_val);
             }
             Some(v) => {
-                // Batch item arrays (paths/items for batch_extract_*) are
-                // materialised inline as `listOf(BatchXItem(...))` so the
-                // generated Java facade signature matches.
+                // Typed arrays carry `element_type`. Batch item arrays
+                // (BatchBytesItem/BatchFileItem) need typed constructors; all
+                // other typed lists (e.g. List<String>) are materialised as a
+                // plain `listOf(...)` of the JSON literals.
                 if arg.arg_type == "json_object" && v.is_array() {
                     if let Some(elem) = &arg.element_type {
                         if elem == "BatchBytesItem" || elem == "BatchFileItem" {
                             parts.push(emit_kotlin_batch_item_array(v, elem));
                             continue;
                         }
+                        // Generic typed list — emit literal Kotlin `listOf(...)`.
+                        let items: Vec<String> = v
+                            .as_array()
+                            .map(|arr| arr.iter().map(json_to_kotlin).collect())
+                            .unwrap_or_default();
+                        parts.push(format!("listOf({})", items.join(", ")));
+                        continue;
                     }
                 }
                 // For json_object args with options_type, use the pre-deserialized variable.
@@ -1418,16 +1460,34 @@ fn render_assertion(
             }
         }
         "not_empty" => {
-            let _ = writeln!(
-                out,
-                "        assertFalse({string_field_expr}.isEmpty(), \"expected non-empty value\")"
-            );
+            // For optional fields, the field type may be a non-String object
+            // (e.g. DocumentStructure) for which `.orEmpty()` is undefined. A
+            // null-check is the safe primitive: it works for any reference type
+            // and matches the Java codegen's `Optional.ofNullable(...).isEmpty()`.
+            if field_is_optional {
+                let _ = writeln!(
+                    out,
+                    "        assertTrue({field_expr} != null, \"expected non-empty value\")"
+                );
+            } else {
+                let _ = writeln!(
+                    out,
+                    "        assertFalse({string_field_expr}.isEmpty(), \"expected non-empty value\")"
+                );
+            }
         }
         "is_empty" => {
-            let _ = writeln!(
-                out,
-                "        assertTrue({string_field_expr}.isEmpty(), \"expected empty value\")"
-            );
+            if field_is_optional {
+                let _ = writeln!(
+                    out,
+                    "        assertTrue({field_expr} == null, \"expected empty value\")"
+                );
+            } else {
+                let _ = writeln!(
+                    out,
+                    "        assertTrue({string_field_expr}.isEmpty(), \"expected empty value\")"
+                );
+            }
         }
         "contains_any" => {
             if let Some(values) = &assertion.values {
