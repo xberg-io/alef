@@ -947,7 +947,7 @@ fn render_assertion(
     // Skip assertions on fields that don't exist on the result type.
     if let Some(f) = &assertion.field {
         if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
-            let _ = writeln!(out, "        // skipped: field '{{f}}' not available on result type");
+            let _ = writeln!(out, "        // skipped: field '{f}' not available on result type");
             return;
         }
     }
