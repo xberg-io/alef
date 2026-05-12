@@ -137,7 +137,9 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
         let error_get_method = spec.make_error(&format!("format!(\"Failed to get method '{{}}'\", \"{name}\")"));
         let error_dyn_into = spec.make_error(&format!("format!(\"Method '{{}}' is not a function\", \"{name}\")"));
         let error_apply = spec.make_error(&format!("format!(\"Failed to call method '{{}}'\", \"{name}\")"));
-        let error_promise = spec.make_error(&format!("format!(\"Method '{{}}' did not return a Promise\", \"{name}\")"));
+        let error_promise = spec.make_error(&format!(
+            "format!(\"Method '{{}}' did not return a Promise\", \"{name}\")"
+        ));
         let error_promise_rejected = spec.make_error("format!(\"Promise rejected: {:?}\", e)");
         let error_string_conv = spec.make_error("\"Expected string return\".to_string()");
         let error_result_conv = spec.make_error("\"Failed to convert result\".to_string()");

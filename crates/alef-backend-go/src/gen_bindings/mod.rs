@@ -182,8 +182,7 @@ impl Backend for GoBackend {
                 .filter(|t| t.is_trait)
                 .map(|t| (t.name.as_str(), t))
                 .collect();
-            let visitor_trait = visitor_bridge_cfg
-                .and_then(|b| trait_map.get(b.trait_name.as_str()).copied());
+            let visitor_trait = visitor_bridge_cfg.and_then(|b| trait_map.get(b.trait_name.as_str()).copied());
 
             let visitor_content = if let Some(vt) = visitor_trait {
                 strip_trailing_whitespace(&crate::gen_visitor::gen_visitor_file(
@@ -197,7 +196,9 @@ impl Backend for GoBackend {
                     vt,
                 ))
             } else {
-                eprintln!("[alef] gen_visitor_file(go): visitor trait `{vtable_trait_name}` not found in IR, skipping visitor.go");
+                eprintln!(
+                    "[alef] gen_visitor_file(go): visitor trait `{vtable_trait_name}` not found in IR, skipping visitor.go"
+                );
                 String::new()
             };
             files.push(GeneratedFile {

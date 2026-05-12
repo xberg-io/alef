@@ -16,7 +16,7 @@ pub(crate) fn gen_record_type(
     typ: &TypeDef,
     complex_enums: &AHashSet<String>,
     sealed_unions_with_unwrapped: &AHashSet<String>,
-    lang_rename_all: &str,
+    _lang_rename_all: &str,
     has_visitor_pattern: bool,
     main_class: &str,
 ) -> String {

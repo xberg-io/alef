@@ -295,7 +295,19 @@ fn render_test_case(
     // fixture field names (`data`, `paths`) that the R extendr binding
     // exposes under different identifiers (`content`, `items`).
     let arg_name_map = r_override.map(|o| &o.arg_name_map);
-    let args_str = build_args_string(&fixture.input, &call_config.args, arg_name_map);
+    // Resolve `options_type` for typed config args. When set (e.g. via the
+    // C#/Java override that pins the `config` arg of `embed_texts` to
+    // `EmbeddingConfig`), we use it instead of the heuristic in
+    // `r_default_for_config_arg` so the extendr binding receives the right
+    // ExternalPtr type rather than a default `ExtractionConfig`.
+    let options_type = r_override.and_then(|o| o.options_type.as_deref()).or_else(|| {
+        // Fall back to any other language's override that pins the type —
+        // R doesn't define its own override list yet for most embed calls,
+        // and the underlying Rust signature is the same regardless of
+        // binding, so reusing csharp/java/go/php options_type is safe.
+        call_config.overrides.values().find_map(|o| o.options_type.as_deref())
+    });
+    let args_str = build_args_string(&fixture.input, &call_config.args, arg_name_map, options_type);
 
     // Build visitor setup and args if present
     let mut setup_lines = Vec::new();
@@ -358,6 +370,7 @@ fn build_args_string(
     input: &serde_json::Value,
     args: &[crate::config::ArgMapping],
     arg_name_map: Option<&std::collections::HashMap<String, String>>,
+    options_type: Option<&str>,
 ) -> String {
     if args.is_empty() {
         // No declared args means the wrapper takes zero parameters; emitting
@@ -391,7 +404,7 @@ fn build_args_string(
                         return None;
                     }
                     if arg.arg_type == "json_object" {
-                        let r_value = r_default_for_config_arg(arg_name);
+                        let r_value = r_default_for_config_arg(arg_name, options_type);
                         return Some(format!("{arg_name} = {r_value}"));
                     }
                     return Some(format!("{arg_name} = NULL"));
@@ -404,7 +417,7 @@ fn build_args_string(
             // so emit `ExtractionConfig$default()` whenever a `json_object` arg
             // resolves to an empty / object-shaped JSON value.
             if arg.arg_type == "json_object" && (val.is_null() || val.as_object().is_some_and(|m| m.is_empty())) {
-                let r_value = r_default_for_config_arg(arg_name);
+                let r_value = r_default_for_config_arg(arg_name, options_type);
                 return Some(format!("{arg_name} = {r_value}"));
             }
             // Non-empty json_object for typed config args (those whose default is a
@@ -412,7 +425,7 @@ fn build_args_string(
             // so the Rust function receives a proper ExternalPtr, not a list.
             // For `options`-style args (default = NULL) emit as a plain R list.
             if arg.arg_type == "json_object" && val.is_object() {
-                let default_expr = r_default_for_config_arg(arg_name);
+                let default_expr = r_default_for_config_arg(arg_name, options_type);
                 if default_expr.ends_with("$default()") {
                     // Extract the type name from "TypeName$default()"
                     let type_name = default_expr.trim_end_matches("$default()");
@@ -427,7 +440,18 @@ fn build_args_string(
             // signature is `items: String` (JSON-serialized batch items). The
             // wrapper has no R-list → JSON conversion, so we must serialize the
             // fixture value to a literal JSON string at test-emit time.
+            //
+            // Exception: when `element_type = "String"` the Rust signature is
+            // `Vec<String>` (e.g. `embed_texts(texts: Vec<String>, ...)`), which
+            // extendr binds as a native R character vector. Passing a JSON
+            // literal there would land as a single-element character vector
+            // containing the literal bytes `["a","b"]`, which is not what the
+            // caller intended. Emit a plain `c("a","b")` literal instead.
             if arg.arg_type == "json_object" && val.is_array() {
+                if arg.element_type.as_deref() == Some("String") {
+                    let r_value = json_to_r(val, false);
+                    return Some(format!("{arg_name} = {r_value}"));
+                }
                 let json_literal = serde_json::to_string(val).unwrap_or_else(|_| "[]".to_string());
                 let escaped = escape_r(&json_literal);
                 return Some(format!("{arg_name} = \"{escaped}\""));
@@ -494,7 +518,15 @@ fn render_bytes_value(raw: &str) -> String {
 /// Map the extractor argument name onto its R `*Config$default()` constructor.
 /// Falls back to `list()` for unknown names — the extendr binding will error
 /// with a clear message, which is preferable to silently passing a wrong type.
-fn r_default_for_config_arg(arg_name: &str) -> String {
+///
+/// When `options_type` is provided (via a per-call language override pinning
+/// the typed config, e.g. `EmbeddingConfig` for `embed_texts`), it takes
+/// precedence over the arg-name heuristic so the extendr binding receives the
+/// correct ExternalPtr type.
+fn r_default_for_config_arg(arg_name: &str, options_type: Option<&str>) -> String {
+    if let Some(type_name) = options_type {
+        return format!("{type_name}$default()");
+    }
     match arg_name {
         "config" => "ExtractionConfig$default()".to_string(),
         "options" => "NULL".to_string(),
@@ -711,13 +743,26 @@ fn render_assertion(
             }
         }
         "not_empty" => {
+            // Multi-element character vectors (e.g. `list_embedding_presets`)
+            // would otherwise evaluate `nchar(x) > 0` element-wise and fail
+            // `expect_true`'s scalar-logical contract. Reduce with `any()` so
+            // the predicate stays a single TRUE/FALSE regardless of length,
+            // and treat zero-length vectors as empty.
             let _ = writeln!(
                 out,
-                "  expect_true(if (is.character({field_expr})) nchar({field_expr}) > 0 else length({field_expr}) > 0)"
+                "  expect_true(if (is.character({field_expr})) length({field_expr}) > 0 && any(nchar({field_expr}) > 0) else length({field_expr}) > 0)"
             );
         }
         "is_empty" => {
-            let _ = writeln!(out, "  expect_equal({field_expr}, \"\")");
+            // Rust `Option<String>::None` surfaces as `NA_character_` through
+            // extendr, and `Vec<...>` empties as a zero-length vector. Treat
+            // NULL, NA, "", and zero-length collections as "empty" so the same
+            // assertion works for scalar Option returns (`get_embedding_preset`)
+            // and collection returns alike.
+            let _ = writeln!(
+                out,
+                "  expect_true(is.null({field_expr}) || length({field_expr}) == 0 || (length({field_expr}) == 1 && (is.na({field_expr}) || identical({field_expr}, \"\"))))"
+            );
         }
         "contains_any" => {
             if let Some(values) = &assertion.values {

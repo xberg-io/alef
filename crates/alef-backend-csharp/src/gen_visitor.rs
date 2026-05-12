@@ -123,9 +123,7 @@ pub(crate) fn callback_specs_from_trait(trait_def: &alef_core::ir::TypeDef) -> V
                         cs_name,
                         cs_type: "string?".to_string(),
                         pinvoke_types: vec!["IntPtr".to_string()],
-                        decode: format!(
-                            "{raw_var} == IntPtr.Zero ? null : Marshal.PtrToStringUTF8({raw_var})"
-                        ),
+                        decode: format!("{raw_var} == IntPtr.Zero ? null : Marshal.PtrToStringUTF8({raw_var})"),
                     });
                 }
                 (TypeRef::Primitive(PrimitiveType::Bool), false) => {
@@ -139,7 +137,12 @@ pub(crate) fn callback_specs_from_trait(trait_def: &alef_core::ir::TypeDef) -> V
                 }
                 (
                     TypeRef::Primitive(
-                        PrimitiveType::U32 | PrimitiveType::I32 | PrimitiveType::U16 | PrimitiveType::I16 | PrimitiveType::U8 | PrimitiveType::I8,
+                        PrimitiveType::U32
+                        | PrimitiveType::I32
+                        | PrimitiveType::U16
+                        | PrimitiveType::I16
+                        | PrimitiveType::U8
+                        | PrimitiveType::I8,
                     ),
                     false,
                 ) => {
@@ -151,10 +154,7 @@ pub(crate) fn callback_specs_from_trait(trait_def: &alef_core::ir::TypeDef) -> V
                         decode: raw_var,
                     });
                 }
-                (
-                    TypeRef::Primitive(PrimitiveType::Usize | PrimitiveType::U64 | PrimitiveType::I64),
-                    false,
-                ) => {
+                (TypeRef::Primitive(PrimitiveType::Usize | PrimitiveType::U64 | PrimitiveType::I64), false) => {
                     let raw_var = format!("raw{cs_name_pascal}0");
                     extra.push(ExtraParam {
                         cs_name,
@@ -214,10 +214,7 @@ pub(crate) fn callback_specs_from_trait(trait_def: &alef_core::ir::TypeDef) -> V
 /// IVisitor.cs and VisitorCallbacks.cs are superseded by IVisitor and VisitorCallbacks
 /// in TraitBridges.cs which use the HtmlVisitorBridge approach. They are intentionally
 /// excluded here; stale committed copies are removed by delete_superseded_visitor_files.
-pub fn gen_visitor_files(
-    namespace: &str,
-    trait_def: &alef_core::ir::TypeDef,
-) -> Vec<(String, String)> {
+pub fn gen_visitor_files(namespace: &str, trait_def: &alef_core::ir::TypeDef) -> Vec<(String, String)> {
     // callback_specs_from_trait(trait_def) drives future expansion of NodeContext.cs
     // and VisitResult.cs when those files need IR-derived per-method data.
     let _ = callback_specs_from_trait(trait_def);

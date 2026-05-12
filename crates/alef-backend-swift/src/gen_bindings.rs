@@ -93,15 +93,25 @@ impl Backend for SwiftBackend {
             body.push('\n');
         }
 
-        // Emit Swift class wrappers only for opaque handle types that expose methods.
-        // Opaque types (is_opaque=true or has_serde=false) cannot be JSON-serialised and
-        // are accessed exclusively through C FFI handles — a class wrapper is appropriate.
-        // Serialisable struct types keep their `typealias` declaration above.
+        // Emit Swift class wrappers only for opaque handle types that expose methods
+        // AND have an explicit `client_constructor_body` in alef.toml.  Without an
+        // override the Rust bridge crate does not emit a `create_<type>` shim
+        // (see gen_rust_crate::mod.rs), so a class wrapper with `init(apiKey,
+        // baseUrl)` would reference a non-existent bridge function.
+        // Opaque types without an override are returned by Rust APIs, not
+        // constructed in Swift — they remain accessible via their `RustBridge`
+        // typealiases / direct method shims.
+        let client_constructor_types: std::collections::HashSet<&str> = config
+            .swift
+            .as_ref()
+            .map(|c| c.client_constructor_body.keys().map(String::as_str).collect())
+            .unwrap_or_default();
         for ty in api.types.iter().filter(|t| {
             !t.is_trait
                 && !exclude_types.contains(t.name.as_str())
                 && !t.methods.is_empty()
                 && (t.is_opaque || !t.has_serde)
+                && client_constructor_types.contains(t.name.as_str())
         }) {
             emit_client_class(ty.name.as_str(), &ty.methods, &mapper, &mut body);
             body.push('\n');
@@ -549,11 +559,7 @@ fn emit_convenience_wrappers(api: &ApiSurface, out: &mut String) {
 /// These forwarders re-export them as `public func chatCompletionRequestFromJson(_ json: String)
 /// throws -> TypeName` in the main `LiterLlm` module so generated e2e tests work without
 /// the `RustBridge.` prefix.
-fn emit_from_json_forwarders(
-    api: &ApiSurface,
-    exclude_types: &std::collections::HashSet<&str>,
-    out: &mut String,
-) {
+fn emit_from_json_forwarders(api: &ApiSurface, exclude_types: &std::collections::HashSet<&str>, out: &mut String) {
     use heck::AsSnakeCase;
 
     // Mirror the filter used by `gen_rust_crate::collect_serde_param_types`:

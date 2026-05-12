@@ -179,7 +179,13 @@ fn gen_single_trait_bridge(
             let params = method
                 .params
                 .iter()
-                .map(|p| format!("{} {}", csharp_type_visible(&p.ty, visible_type_names), to_csharp_name(&p.name)))
+                .map(|p| {
+                    format!(
+                        "{} {}",
+                        csharp_type_visible(&p.ty, visible_type_names),
+                        to_csharp_name(&p.name)
+                    )
+                })
                 .collect::<Vec<_>>()
                 .join(", ");
             serde_json::json!({
@@ -485,7 +491,8 @@ fn gen_single_trait_bridge(
                 "callback_result_call.jinja",
                 minijinja::context! { method_pascal, param_call },
             ));
-            let is_non_api_return = matches!(&method.return_type, TypeRef::Named(n) if !visible_type_names.contains(n.as_str()));
+            let is_non_api_return =
+                matches!(&method.return_type, TypeRef::Named(n) if !visible_type_names.contains(n.as_str()));
             let serialize_expr = if is_non_api_return {
                 // Non-API Named types: serialize as JSON string
                 "ToJsonString(result)".to_string()

@@ -281,12 +281,10 @@ pub fn gen_trait_bridge(
             error_type: error_type.to_string(),
             error_constructor: error_constructor.to_string(),
         };
-        let mut output = gen_bridge_all(&spec, &generator);
-
-        // Append the support NIFs for completing trait calls from Elixir
-        output.code.push_str("\n\n");
-        output.code.push_str(&generator.gen_support_nifs());
-
+        let output = gen_bridge_all(&spec, &generator);
+        // Note: trait support NIFs (complete_trait_call/fail_trait_call) must be emitted
+        // only once, not per-bridge. They are now emitted in gen_bindings/mod.rs after
+        // trait bridge generation to avoid duplicate NIF definitions.
         output
     }
 }

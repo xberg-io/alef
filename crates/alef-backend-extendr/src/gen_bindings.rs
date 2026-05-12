@@ -882,12 +882,21 @@ fn gen_conversion_options_r(opts_type: &TypeDef) -> String {
 ///   - Option<Enum> (enums don't implement ToVectorValue, so Option<Enum> fails)
 ///   - Option<non-opaque struct> (Option<ExternalPtr<T>> doesn't implement ToVectorValue)
 ///
-/// Returns true if `e` is a data enum where every data-carrying variant is a single-field
-/// tuple variant. Such enums are represented as flat structs in the R binding so that
-/// callers can access variant data with dot notation (e.g. `result$format$excel$sheet_count`).
+/// Returns true if `e` is a data enum where every data-carrying variant is either a
+/// single-field tuple variant or a single-field struct variant. Such enums are
+/// represented as flat structs in the R binding so that callers can access variant
+/// data with dot notation (e.g. `result$format$excel$sheet_count`).
+///
+/// Single-field struct variants like `Preset { name: String }` are treated
+/// identically to single-field tuple variants `Preset(String)` — both expose one
+/// scalar field per variant in the flat struct.
 fn is_flat_data_enum(e: &alef_core::ir::EnumDef) -> bool {
     let has_data = e.variants.iter().any(|v| !v.fields.is_empty());
-    has_data && e.variants.iter().filter(|v| !v.fields.is_empty()).all(|v| v.is_tuple)
+    has_data
+        && e.variants
+            .iter()
+            .filter(|v| !v.fields.is_empty())
+            .all(|v| v.fields.len() == 1)
 }
 
 /// Returns true if a flat data enum can safely generate a binding→core From impl.

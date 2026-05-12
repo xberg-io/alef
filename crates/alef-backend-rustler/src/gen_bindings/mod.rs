@@ -296,6 +296,11 @@ impl Backend for RustlerBackend {
         }
 
         // Trait bridge wrappers — generate Rustler bridge structs that delegate to Elixir terms
+        let has_trait_bridges = config
+            .trait_bridges
+            .iter()
+            .any(|b| !b.exclude_languages.iter().any(|l| l == "elixir" || l == "rustler"));
+
         for bridge_cfg in config
             .trait_bridges
             .iter()
@@ -315,6 +320,12 @@ impl Backend for RustlerBackend {
                 }
                 builder.add_item(&bridge.code);
             }
+        }
+
+        // Emit support NIFs once after all trait bridges to avoid duplicates
+        if has_trait_bridges {
+            let ctx = minijinja::context! {};
+            builder.add_item(&crate::template_env::render("trait_support_nifs.rs.jinja", ctx));
         }
 
         for typ in api

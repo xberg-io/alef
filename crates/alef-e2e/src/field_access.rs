@@ -121,6 +121,18 @@ impl FieldResolver {
         self.aliases.contains_key(fixture_field)
     }
 
+    /// Check whether `field_name` is configured as an explicit result field.
+    ///
+    /// Returns true only when the caller has populated `result_fields` AND the
+    /// field name is present. Empty `result_fields` always returns false — use
+    /// `is_valid_for_result` for the default-allow semantics.
+    pub fn has_explicit_field(&self, field_name: &str) -> bool {
+        if self.result_fields.is_empty() {
+            return false;
+        }
+        self.result_fields.contains(field_name)
+    }
+
     /// Check whether a fixture field path is valid for the configured result type.
     pub fn is_valid_for_result(&self, fixture_field: &str) -> bool {
         if self.result_fields.is_empty() {

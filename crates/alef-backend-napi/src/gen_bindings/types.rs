@@ -19,11 +19,10 @@ pub(super) fn gen_struct(
     opaque_types: &ahash::AHashSet<String>,
     never_skip_cfg_field_names: &[String],
 ) -> String {
-    // Bytes fields in struct field position are now mapped to Vec<u8> (not Buffer) by
-    // map_bytes_field_type, so they implement Clone, Serialize, and Deserialize.
-    // The has_bytes_field flag previously indicated that we needed a manual Clone impl
-    // because Buffer is not Clone — that's no longer necessary.
-    let has_bytes_field = false;
+    // Check if any field is Vec<u8> (which requires custom FromNapiValue handling).
+    // Vec<u8> fields in #[napi(object)] structs need manual deserialization because
+    // NAPI can't auto-convert a JS Buffer to Vec<u8> in serde context.
+    let has_bytes_field = false; // No longer used (napi::Buffer replaced with Vec<u8>)
 
     let mut struct_builder = StructBuilder::new(&format!("{prefix}{}", typ.name));
     // Use napi(object) so the struct can be used as function/method parameters (FromNapiValue)
@@ -108,6 +107,13 @@ pub(super) fn gen_struct(
         } else {
             vec![]
         };
+
+        // For Vec<u8> fields, add serde(with = "serde_bytes") to deserialize Buffer correctly
+        let is_vec_u8_field = matches!(&field.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Bytes));
+        if has_serde && is_vec_u8_field {
+            attrs.push("serde(with = \"serde_bytes\")".to_string());
+        }
+
         // Opaque NAPI types (e.g. JsVisitorHandle) are stored as Object<'static>, which also
         // does NOT impl Serialize/Deserialize. Skip them too so serde derives still compile.
         let is_opaque_field = match &field.ty {

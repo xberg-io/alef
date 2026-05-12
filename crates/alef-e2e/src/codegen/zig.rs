@@ -571,6 +571,12 @@ fn render_test_fn(
     // result rather than attempting direct field access on `[]u8`.
     let result_is_json_struct = call_overrides.is_some_and(|o| o.result_is_json_struct) || client_factory.is_some();
 
+    // Whether the bare wrapper return type is `?T` (Optional). The zig backend
+    // emits `?[]u8` for nullable JSON results and `?<Primitive>` for nullable
+    // primitives, so assertions on the bare result must use null-checks rather
+    // than `.len`.
+    let result_is_option = call_overrides.is_some_and(|o| o.result_is_option) || call_config.result_is_option;
+
     let test_name = fixture.id.to_snake_case();
     let description = &fixture.description;
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
@@ -715,7 +721,14 @@ fn render_test_fn(
             let _ = writeln!(out, "    // Perform success assertions if any");
             for assertion in &fixture.assertions {
                 if assertion.assertion_type != "error" {
-                    render_assertion(out, assertion, result_var, field_resolver, enum_fields);
+                    render_assertion(
+                        out,
+                        assertion,
+                        result_var,
+                        field_resolver,
+                        enum_fields,
+                        result_is_option,
+                    );
                 }
             }
         } else {
@@ -817,7 +830,14 @@ fn render_test_fn(
                 "    const {result_var} = try {call_prefix}.{function_name}({args_str});"
             );
             for assertion in &fixture.assertions {
-                render_assertion(out, assertion, result_var, field_resolver, enum_fields);
+                render_assertion(
+                    out,
+                    assertion,
+                    result_var,
+                    field_resolver,
+                    enum_fields,
+                    result_is_option,
+                );
             }
         } else {
             let _ = writeln!(out, "    _ = try {call_prefix}.{function_name}({args_str});");
@@ -954,6 +974,46 @@ fn render_json_assertion(out: &mut String, assertion: &Assertion, result_var: &s
                 }
             }
             return;
+        }
+    }
+
+    // Synthetic `embeddings` field on a JSON-array result (e.g. embed_texts
+    // returns `Vec<Vec<f32>>` → JSON `[[...],[...]]`). The field name is a
+    // convention from the fixture schema — the JSON value IS the embeddings
+    // array. Apply the assertion against `result.array.items` directly. The
+    // synthetic path is only used when no explicit result_fields configure
+    // `embeddings` as a real struct field.
+    if let Some(f) = &assertion.field {
+        if f == "embeddings" && !field_resolver.has_explicit_field("embeddings") {
+            match assertion.assertion_type.as_str() {
+                "count_min" => {
+                    if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                        let _ = writeln!(out, "    try testing.expect({result_var}.array.items.len >= {n});");
+                    }
+                    return;
+                }
+                "count_equals" => {
+                    if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                        let _ = writeln!(
+                            out,
+                            "    try testing.expectEqual(@as(usize, {n}), {result_var}.array.items.len);"
+                        );
+                    }
+                    return;
+                }
+                "not_empty" => {
+                    let _ = writeln!(out, "    try testing.expect({result_var}.array.items.len > 0);");
+                    return;
+                }
+                "is_empty" => {
+                    let _ = writeln!(
+                        out,
+                        "    try testing.expectEqual(@as(usize, 0), {result_var}.array.items.len);"
+                    );
+                    return;
+                }
+                _ => {}
+            }
         }
     }
 
@@ -1196,7 +1256,68 @@ fn render_assertion(
     result_var: &str,
     field_resolver: &FieldResolver,
     enum_fields: &HashSet<String>,
+    result_is_option: bool,
 ) {
+    // Bare-result assertions on `?T` (Optional) translate to null-checks instead
+    // of `.len`. Mirrors the same behaviour in kotlin.rs (bare_result_is_option).
+    let bare_result_is_option = result_is_option && assertion.field.as_deref().filter(|f| !f.is_empty()).is_none();
+    if bare_result_is_option {
+        match assertion.assertion_type.as_str() {
+            "is_empty" => {
+                let _ = writeln!(out, "    try testing.expect({result_var} == null);");
+                return;
+            }
+            "not_empty" | "not_error" => {
+                let _ = writeln!(out, "    try testing.expect({result_var} != null);");
+                return;
+            }
+            _ => {}
+        }
+    }
+    // Synthetic-field 'embeddings' on a JSON-bytes result (e.g. embed_texts
+    // returns `Vec<Vec<f32>>` serialised as JSON). Parse the JSON array and
+    // apply count_min/count_equals/not_empty/is_empty against the element count.
+    if let Some(f) = &assertion.field {
+        if f == "embeddings" && !field_resolver.is_valid_for_result(f) {
+            match assertion.assertion_type.as_str() {
+                "count_min" | "count_equals" | "not_empty" | "is_empty" => {
+                    let _ = writeln!(out, "    {{");
+                    let _ = writeln!(
+                        out,
+                        "        var _eparse = try std.json.parseFromSlice(std.json.Value, std.heap.c_allocator, {result_var}, .{{}});"
+                    );
+                    let _ = writeln!(out, "        defer _eparse.deinit();");
+                    let _ = writeln!(out, "        const _embeddings_len = _eparse.value.array.items.len;");
+                    match assertion.assertion_type.as_str() {
+                        "count_min" => {
+                            if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                                let _ = writeln!(out, "        try testing.expect(_embeddings_len >= {n});");
+                            }
+                        }
+                        "count_equals" => {
+                            if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                                let _ = writeln!(
+                                    out,
+                                    "        try testing.expectEqual(@as(usize, {n}), _embeddings_len);"
+                                );
+                            }
+                        }
+                        "not_empty" => {
+                            let _ = writeln!(out, "        try testing.expect(_embeddings_len > 0);");
+                        }
+                        "is_empty" => {
+                            let _ = writeln!(out, "        try testing.expectEqual(@as(usize, 0), _embeddings_len);");
+                        }
+                        _ => {}
+                    }
+                    let _ = writeln!(out, "    }}");
+                    return;
+                }
+                _ => {}
+            }
+        }
+    }
+
     // Skip assertions on fields that don't exist on the result type.
     if let Some(f) = &assertion.field {
         if !f.is_empty() && !field_resolver.is_valid_for_result(f) {

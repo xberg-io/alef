@@ -51,7 +51,16 @@ fn test_visitor_file_emits_prefixed_struct() {
         super_traits: vec![],
     };
 
-    let output = gen_visitor_file("mypkg", "htm", "my_lib.h", "../ffi", "..", "HtmlVisitor", "visitor", &trait_def);
+    let output = gen_visitor_file(
+        "mypkg",
+        "htm",
+        "my_lib.h",
+        "../ffi",
+        "..",
+        "HtmlVisitor",
+        "visitor",
+        &trait_def,
+    );
     // The cbindgen-derived C type embeds `{PREFIX}{PascalPrefix}{TraitName}VTable`.
     assert!(
         output.contains("VTable"),

@@ -103,12 +103,7 @@ pub(crate) fn callback_specs_from_trait(trait_def: &alef_core::ir::TypeDef) -> V
                 ) => {
                     params.push(ParamKind::U32(param_name));
                 }
-                (
-                    TypeRef::Primitive(
-                        PrimitiveType::Usize | PrimitiveType::U64 | PrimitiveType::I64,
-                    ),
-                    false,
-                ) => {
+                (TypeRef::Primitive(PrimitiveType::Usize | PrimitiveType::U64 | PrimitiveType::I64), false) => {
                     params.push(ParamKind::Usize(param_name));
                 }
                 (TypeRef::Vec(inner), false) => match inner.as_ref() {

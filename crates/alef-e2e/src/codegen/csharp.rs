@@ -2718,6 +2718,7 @@ fn default_csharp_nested_types() -> HashMap<String, String> {
         ("token_reduction", "TokenReductionOptions"),
         ("security_limits", "SecurityLimits"),
         ("format", "FormatMetadata"),
+        ("model", "EmbeddingModelType"),
     ]
     .iter()
     .map(|(k, v)| (k.to_string(), v.to_string()))

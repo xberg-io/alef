@@ -55,6 +55,20 @@ fn snake_case(name: &str) -> String {
     heck::AsSnakeCase(name).to_string()
 }
 
+/// Returns true if generating the param-conversion boilerplate for `p` will
+/// emit a `try` expression (heap allocation or fallible operation).
+fn needs_alloc_param(p: &ParamDef) -> bool {
+    // Inner type after stripping a single Optional layer.
+    let inner = match &p.ty {
+        TypeRef::Optional(t) => t.as_ref(),
+        other => other,
+    };
+    matches!(
+        inner,
+        TypeRef::String | TypeRef::Path | TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Named(_)
+    )
+}
+
 pub(crate) fn emit_function(
     f: &FunctionDef,
     prefix: &str,
@@ -97,12 +111,26 @@ pub(crate) fn emit_function(
         .as_ref()
         .map(|e| resolve_zig_error_type(e, declared_errors));
 
+    // The function body uses `try` (allocator calls) when any parameter requires
+    // a heap allocation (String/Path/Bytes/Vec/Map/Named struct) or when the
+    // return type requires heap-owned ownership of C-side data (String/Path/
+    // Json/Bytes/Vec/Map/Named struct). Such functions must be declared as
+    // returning an error union so `try` is legal.
+    let body_needs_try = f.params.iter().any(needs_alloc_param)
+        || matches!(
+            &f.return_type,
+            TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Bytes | TypeRef::Vec(_) | TypeRef::Map(_, _)
+        )
+        || matches!(&f.return_type, TypeRef::Named(name) if struct_names.contains(name));
+
     let return_ty = if let Some(error_type) = &zig_error_type {
         format!(
             "({}||error{{OutOfMemory}})!{}",
             error_type,
             zig_return_type(&f.return_type, struct_names)
         )
+    } else if body_needs_try {
+        format!("error{{OutOfMemory}}!{}", zig_return_type(&f.return_type, struct_names))
     } else {
         zig_return_type(&f.return_type, struct_names)
     };
@@ -672,6 +700,45 @@ fn unwrap_return_expr(
             // non-null after the error-code check above) and wrap in the Zig struct.
             format!("{name}{{ ._handle = {raw}.? }}")
         }
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            // `?[]u8` returns: copy the C string into an owned Zig allocation when
+            // non-null; return `null` otherwise.  Used for nullable owned-string and
+            // nullable JSON returns.
+            TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+                let mut s = String::new();
+                s.push_str("blk: {\n");
+                s.push_str(&format!("        if ({raw} == null) break :blk null;\n"));
+                s.push_str(&crate::template_env::render(
+                    "return_unwrap_slice.jinja",
+                    minijinja::context! { raw => raw },
+                ));
+                s.push_str("        const owned = try std.heap.c_allocator.dupe(u8, slice);\n");
+                s.push_str(&crate::template_env::render(
+                    "return_unwrap_free.jinja",
+                    minijinja::context! { raw => raw },
+                ));
+                s.push_str("        break :blk owned;\n");
+                s.push_str("    }");
+                s
+            }
+            // `?[]u8` over an opaque struct: serialise the handle to JSON via the
+            // FFI `<prefix>_<snake>_to_json` helper, copy the JSON into a Zig-owned
+            // buffer, free the JSON string and the opaque handle.  When the C
+            // handle is null, return `null` directly.
+            TypeRef::Named(name) if struct_names.contains(name) => {
+                let snake = snake_case(name);
+                let inner_block = crate::template_env::render(
+                    "return_named_json_block.jinja",
+                    minijinja::context! {
+                        prefix => prefix,
+                        snake => &snake,
+                        raw => raw,
+                    },
+                );
+                format!("if ({raw} == null) null else {inner_block}")
+            }
+            _ => raw.to_string(),
+        },
         _ => raw.to_string(),
     }
 }
@@ -690,6 +757,18 @@ pub(crate) fn zig_return_type(ty: &TypeRef, struct_names: &std::collections::Has
             "[]u8".to_string()
         }
         TypeRef::Named(name) if struct_names.contains(name) => "[]u8".to_string(),
+        // `Optional<Named struct>` mirrors `Named struct` (JSON-serialised owned bytes)
+        // but exposes a nullable owned slice so callers can distinguish "preset not
+        // found" from a valid empty-string body. The C FFI returns a nullable
+        // opaque-handle pointer; the body translates null → `null` and a valid
+        // handle → JSON bytes copied into a Zig allocation.
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+                "?[]u8".to_string()
+            }
+            TypeRef::Named(name) if struct_names.contains(name) => "?[]u8".to_string(),
+            other => zig_field_type(other, true),
+        },
         other => zig_field_type(other, false),
     }
 }

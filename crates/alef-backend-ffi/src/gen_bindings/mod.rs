@@ -585,7 +585,12 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
                 .filter(|b| b.bind_via == alef_core::config::BridgeBinding::OptionsField)
                 .find_map(|b| trait_map.get(b.trait_name.as_str()).copied());
             if let Some(vtd) = visitor_trait_def {
-                builder.add_item(&crate::gen_visitor::gen_visitor_bindings(prefix, &core_import, true, vtd));
+                builder.add_item(&crate::gen_visitor::gen_visitor_bindings(
+                    prefix,
+                    &core_import,
+                    true,
+                    vtd,
+                ));
             } else {
                 eprintln!(
                     "[alef] gen_visitor_bindings(ffi): visitor_callbacks=true but no OptionsField trait found in IR, skipping visitor callbacks"
@@ -599,7 +604,12 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
         let visitor_trait_def = api.types.iter().find(|t| t.is_trait);
         if let Some(vtd) = visitor_trait_def {
             builder.add_item(&crate::gen_visitor::gen_convert_no_visitor(prefix, &core_import));
-            builder.add_item(&crate::gen_visitor::gen_visitor_bindings(prefix, &core_import, false, vtd));
+            builder.add_item(&crate::gen_visitor::gen_visitor_bindings(
+                prefix,
+                &core_import,
+                false,
+                vtd,
+            ));
         } else {
             eprintln!(
                 "[alef] gen_visitor_bindings(ffi): visitor_callbacks=true but no trait type found in IR, skipping visitor callbacks"

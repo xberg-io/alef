@@ -373,7 +373,10 @@ pub(super) fn gen_native_methods(
                 .collect();
             out.push('\n');
             out.push_str(&crate::trait_bridge::gen_native_methods_trait_bridges(
-                namespace, prefix, &bridges, &visible_type_names,
+                namespace,
+                prefix,
+                &bridges,
+                &visible_type_names,
             ));
         }
     }

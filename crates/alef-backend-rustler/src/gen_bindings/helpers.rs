@@ -181,6 +181,45 @@ pub(super) fn gen_native_ex(
             &["_ref_id".to_string(), "_result".to_string()],
             last_was_multiline,
         );
+        // Visitor trait call completion stubs (for async trait methods)
+        last_was_multiline = write_nif_stub(
+            &mut out,
+            "complete_trait_call",
+            &["_reply_id".to_string(), "_result_json".to_string()],
+            last_was_multiline,
+        );
+        last_was_multiline = write_nif_stub(
+            &mut out,
+            "fail_trait_call",
+            &["_reply_id".to_string(), "_error_message".to_string()],
+            last_was_multiline,
+        );
+    }
+
+    // Trait bridge registration stubs (register_fn, unregister_fn, clear_fn).
+    // These are emitted for each trait bridge that doesn't exclude Elixir.
+    for bridge in &config.trait_bridges {
+        if bridge.exclude_languages.contains(&"elixir".to_string()) {
+            continue;
+        }
+
+        // register_fn stub: takes (env, pid, name) -> Atom
+        if let Some(register_fn) = &bridge.register_fn {
+            let params = vec!["_pid".to_string(), "_name".to_string()];
+            last_was_multiline = write_nif_stub(&mut out, register_fn, &params, last_was_multiline);
+        }
+
+        // unregister_fn stub: takes (env, name) -> Atom
+        if let Some(unregister_fn) = &bridge.unregister_fn {
+            let params = vec!["_name".to_string()];
+            last_was_multiline = write_nif_stub(&mut out, unregister_fn, &params, last_was_multiline);
+        }
+
+        // clear_fn stub: takes (env) -> Atom (no args besides env)
+        if let Some(clear_fn) = &bridge.clear_fn {
+            let params = vec![];
+            last_was_multiline = write_nif_stub(&mut out, clear_fn, &params, last_was_multiline);
+        }
     }
 
     // Streaming-adapter method keys are emitted as start/next pairs below — skip

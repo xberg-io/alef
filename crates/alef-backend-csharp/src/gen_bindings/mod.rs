@@ -196,8 +196,7 @@ impl Backend for CsharpBackend {
                 .filter(|t| t.is_trait)
                 .map(|t| (t.name.as_str(), t))
                 .collect();
-            let visitor_trait = visitor_bridge_cfg
-                .and_then(|b| trait_map.get(b.trait_name.as_str()).copied());
+            let visitor_trait = visitor_bridge_cfg.and_then(|b| trait_map.get(b.trait_name.as_str()).copied());
 
             if let Some(trait_def) = visitor_trait {
                 for (filename, content) in crate::gen_visitor::gen_visitor_files(&namespace, trait_def) {
@@ -269,7 +268,8 @@ impl Backend for CsharpBackend {
                     .filter(|t| !t.is_trait)
                     .map(|t| t.name.as_str())
                     .collect();
-                let (filename, content) = crate::trait_bridge::gen_trait_bridges_file(&namespace, &prefix, &bridges, &visible_type_names);
+                let (filename, content) =
+                    crate::trait_bridge::gen_trait_bridges_file(&namespace, &prefix, &bridges, &visible_type_names);
                 files.push(GeneratedFile {
                     path: base_path.join(filename),
                     content: strip_trailing_whitespace(&content),
