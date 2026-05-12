@@ -547,7 +547,6 @@ fn render_test_fn(
         .unwrap_or_else(|| call_config.function.clone());
     let result_var = &call_config.result_var;
     let args = &call_config.args;
-    let is_async = call_overrides.and_then(|o| o.r#async).unwrap_or(call_config.r#async);
     // Client factory: when set, the test instantiates a client object via
     // `module.factory_fn(...)` and calls methods on the instance rather than
     // calling top-level package functions directly.
@@ -634,12 +633,8 @@ fn render_test_fn(
 
     if expects_error {
         // Error-path test: use error union syntax `!T` and try-catch.
-        if is_async {
-            let _ = writeln!(
-                out,
-                "    // Note: async functions not yet fully supported; treating as sync"
-            );
-        }
+        // Async functions execute via tokio::runtime::block_on in the FFI shim,
+        // so the call site is synchronous from Zig's perspective.
         if result_is_json_struct {
             let _ = writeln!(
                 out,
@@ -690,12 +685,6 @@ fn render_test_fn(
         }
     } else if fixture.assertions.is_empty() {
         // No assertions: emit a call to verify compilation.
-        if is_async {
-            let _ = writeln!(
-                out,
-                "    // Note: async functions not yet fully supported; treating as sync"
-            );
-        }
         if result_is_json_struct {
             let _ = writeln!(
                 out,
@@ -709,12 +698,6 @@ fn render_test_fn(
         // Happy path: call and assert. Detect whether any assertion actually
         // emits code that references `result` (some — like `not_error` — emit
         // nothing) so we don't leave an unused local, which Zig 0.16 rejects.
-        if is_async {
-            let _ = writeln!(
-                out,
-                "    // Note: async functions not yet fully supported; treating as sync"
-            );
-        }
         let any_emits_code = fixture
             .assertions
             .iter()

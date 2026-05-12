@@ -583,9 +583,8 @@ fn render_test_method(
     let result_var = &call_config.result_var;
     let args = &call_config.args;
     // Per-call flags: base call flag OR per-language override OR global flag.
-    let result_is_simple = call_config.result_is_simple
-        || call_overrides.is_some_and(|o| o.result_is_simple)
-        || result_is_simple;
+    let result_is_simple =
+        call_config.result_is_simple || call_overrides.is_some_and(|o| o.result_is_simple) || result_is_simple;
     let result_is_array = call_config.result_is_array;
 
     let method_name = fixture.id.to_upper_camel_case();
@@ -601,10 +600,7 @@ fn render_test_method(
     // strongly-typed request object is required.
     let has_unresolvable_json_object_arg = {
         let options_via = call_overrides.and_then(|o| o.options_via.as_deref());
-        options_via.is_none()
-            && args
-                .iter()
-                .any(|a| a.arg_type == "json_object" && a.name != "config")
+        options_via.is_none() && args.iter().any(|a| a.arg_type == "json_object" && a.name != "config")
     };
 
     if has_unresolvable_json_object_arg {

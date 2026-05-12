@@ -39,34 +39,6 @@ fn test_api() -> ApiSurface {
     }
 }
 
-/// Assert that exactly one per-package `.gitattributes` file is present at `expected_path`,
-/// contains the `linguist-generated=true` directive, and is scaffold-once
-/// (`generated_header == false`).
-///
-/// The count assertion catches bugs where the file is accidentally emitted twice (e.g.,
-/// if logic is added both centrally and inside a language module).
-fn assert_has_package_gitattributes(files: &[&GeneratedFile], expected_path: &str) {
-    let matches: Vec<_> = files.iter().filter(|f| f.path.ends_with(".gitattributes")).collect();
-    assert_eq!(
-        matches.len(),
-        1,
-        "expected exactly 1 .gitattributes in scaffold output, got {}; paths: {:?}",
-        matches.len(),
-        files.iter().map(|f| &f.path).collect::<Vec<_>>()
-    );
-    let ga = matches[0];
-    assert_eq!(ga.path, PathBuf::from(expected_path), ".gitattributes at wrong path");
-    assert!(
-        ga.content.contains("* linguist-generated=true"),
-        ".gitattributes must contain 'linguist-generated=true'; got:\n{}",
-        ga.content
-    );
-    assert!(
-        !ga.generated_header,
-        ".gitattributes must be scaffold-once (generated_header = false)"
-    );
-}
-
 /// Filter out project-level scaffold files (like .pre-commit-config.yaml)
 /// to isolate language-specific scaffold tests.
 fn language_files(files: &[GeneratedFile]) -> Vec<&GeneratedFile> {
@@ -88,15 +60,14 @@ fn test_scaffold_python() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Python]).unwrap();
     let files = language_files(&all_files);
-    // scaffold_python: pyproject.toml + py.typed; scaffold_python_cargo: Cargo.toml; .gitattributes
-    assert_eq!(files.len(), 4);
+    // scaffold_python: pyproject.toml + py.typed; scaffold_python_cargo: Cargo.toml
+    assert_eq!(files.len(), 3);
     assert_eq!(files[0].path, PathBuf::from("packages/python/pyproject.toml"));
     assert!(files[0].content.contains("maturin"));
     assert!(files[0].content.contains("my-lib"));
     assert_eq!(files[1].path, PathBuf::from("packages/python/my_lib/py.typed"));
     assert_eq!(files[2].path, PathBuf::from("crates/my-lib-py/Cargo.toml"));
     assert!(files[2].content.contains("pyo3"));
-    assert_has_package_gitattributes(&files, "packages/python/.gitattributes");
 }
 
 #[test]
@@ -135,8 +106,8 @@ fn test_scaffold_multiple() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Python, Language::Node]).unwrap();
     let files = language_files(&all_files);
-    // Python: 4 files (pyproject.toml + py.typed + Cargo.toml + .gitattributes); Node: 10 files (2 package.json + src/index.d.ts + index.d.ts + index.js + tsconfig.json + .oxfmtrc.json + .oxlintrc.json + Cargo.toml + .gitattributes)
-    assert_eq!(files.len(), 14);
+    // Python: 3 files (pyproject.toml + py.typed + Cargo.toml); Node: 10 files (2 package.json + crate index.js + src/index.d.ts + index.d.ts + index.js + tsconfig.json + .oxfmtrc.json + .oxlintrc.json + Cargo.toml)
+    assert_eq!(files.len(), 13);
 }
 
 #[test]
@@ -254,8 +225,8 @@ fn test_scaffold_go_production_format() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Go]).unwrap();
     let files = language_files(&all_files);
-    // go.mod + .golangci.yml + .gitattributes
-    assert_eq!(files.len(), 3);
+    // go.mod + .golangci.yml
+    assert_eq!(files.len(), 2);
     let content = &files[0].content;
     assert!(content.contains("go 1.26"));
     assert!(!content.contains("require ("));
@@ -268,8 +239,8 @@ fn test_scaffold_java_production_features() {
     let all_files = scaffold(&api, &config, &[Language::Java]).unwrap();
     let files = language_files(&all_files);
     // pom.xml + checkstyle.xml + checkstyle.properties + checkstyle-suppressions.xml
-    // + eclipse-formatter.xml + versions-rules.xml + pmd-ruleset.xml + .gitattributes
-    assert_eq!(files.len(), 8);
+    // + eclipse-formatter.xml + versions-rules.xml + pmd-ruleset.xml
+    assert_eq!(files.len(), 7);
     let content = &files[0].content;
     assert!(content.contains("<properties>"));
     assert!(content.contains("<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>"));
@@ -288,8 +259,8 @@ fn test_scaffold_ruby_production_features() {
     let all_files = scaffold(&api, &config, &[Language::Ruby]).unwrap();
     let files = language_files(&all_files);
     // scaffold_ruby: gemspec, rubocop, Rakefile, lib/*.rb, extconf.rb, Gemfile, Steepfile = 7 files
-    // scaffold_ruby_cargo: Cargo.toml = 1 file; .gitattributes = 1 file
-    assert_eq!(files.len(), 9);
+    // scaffold_ruby_cargo: Cargo.toml = 1 file
+    assert_eq!(files.len(), 8);
     let content = &files[0].content;
     assert!(content.contains("spec.required_ruby_version"));
     assert!(content.contains("spec.extensions"));
@@ -313,7 +284,7 @@ fn test_scaffold_ruby_production_features() {
         files[4].content.contains("config.ext_dir = 'native'"),
         "extconf.rb must set ext_dir = 'native' so rb_sys finds native/Cargo.toml"
     );
-    // files[5] is Gemfile; files[6] is Steepfile; files[7] is the Cargo.toml from scaffold_ruby_cargo; files[8] is .gitattributes
+    // files[5] is Gemfile; files[6] is Steepfile; files[7] is the Cargo.toml from scaffold_ruby_cargo
     assert_eq!(files[5].path, PathBuf::from("packages/ruby/Gemfile"));
     assert_eq!(files[6].path, PathBuf::from("packages/ruby/Steepfile"));
     // Check for Cargo.toml generation
@@ -326,7 +297,6 @@ fn test_scaffold_ruby_production_features() {
         files[7].content.contains("path = \"../src/lib.rs\""),
         "Ruby Cargo.toml [lib] must set path to the binding source crate"
     );
-    assert_has_package_gitattributes(&files, "packages/ruby/.gitattributes");
 }
 
 #[test]
@@ -913,7 +883,7 @@ fn test_scaffold_dart() {
     let all_files = scaffold(&api, &config, &[Language::Dart]).unwrap();
     let files = language_files(&all_files);
     // pubspec.yaml + analysis_options.yaml + .gitignore + test + BUILDING.md + .editorconfig + README.md + example + dart.yml
-    assert_eq!(files.len(), 10, "Expected 10 files for Dart scaffold");
+    assert_eq!(files.len(), 9, "Expected 9 files for Dart scaffold");
 
     let pubspec = &files[0];
     assert_eq!(pubspec.path, PathBuf::from("packages/dart/pubspec.yaml"));
@@ -1245,8 +1215,8 @@ fn test_scaffold_swift() {
     // Original 7 + new: .editorconfig + .swiftformat + README.md + Examples/Demo/main.swift + swift.yml = 12
     assert_eq!(
         files.len(),
-        13,
-        "Expected 13 files for Swift scaffold (original 7 + 5 new + .gitattributes)"
+        12,
+        "Expected 12 files for Swift scaffold (original 7 + 5 new)"
     );
 
     let package_swift = &files[0];
@@ -1404,8 +1374,8 @@ fn test_scaffold_kotlin() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Kotlin]).unwrap();
     let files = language_files(&all_files);
-    // build.gradle.kts, settings.gradle.kts, .gitignore, .editorconfig, gradle.properties, README.md, Sample.kt, kotlin.yml, .gitattributes
-    assert_eq!(files.len(), 9, "Expected 9 files for Kotlin scaffold");
+    // build.gradle.kts, settings.gradle.kts, .gitignore, .editorconfig, gradle.properties, README.md, Sample.kt, kotlin.yml
+    assert_eq!(files.len(), 8, "Expected 8 files for Kotlin scaffold");
     assert_eq!(files[0].path, PathBuf::from("packages/kotlin/build.gradle.kts"));
     assert!(files[0].content.contains("kotlin(\"jvm\")"));
     assert!(files[0].content.contains("org.jlleitschuh.gradle.ktlint"));
@@ -1472,8 +1442,8 @@ fn test_scaffold_gleam() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Gleam]).unwrap();
     let files = language_files(&all_files);
-    // gleam.toml + manifest.toml + .gitignore + test + .editorconfig + README.md + example + gleam.yml + .gitattributes
-    assert_eq!(files.len(), 9, "Expected 9 files for Gleam scaffold");
+    // gleam.toml + manifest.toml + .gitignore + test + .editorconfig + README.md + example + gleam.yml
+    assert_eq!(files.len(), 8, "Expected 8 files for Gleam scaffold");
 
     let gleam_toml = &files[0];
     assert_eq!(gleam_toml.path, PathBuf::from("packages/gleam/gleam.toml"));
@@ -1517,8 +1487,8 @@ fn test_scaffold_zig() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Zig]).unwrap();
     let files = language_files(&all_files);
-    // build.zig + build.zig.zon + .gitignore + .editorconfig + README.md + example.zig + main.zig + zig.yml + .gitattributes
-    assert_eq!(files.len(), 9, "Expected 9 files for Zig scaffold");
+    // build.zig + build.zig.zon + .gitignore + .editorconfig + README.md + example.zig + main.zig + zig.yml
+    assert_eq!(files.len(), 8, "Expected 8 files for Zig scaffold");
 
     let build_zig = &files[0];
     assert_eq!(build_zig.path, PathBuf::from("packages/zig/build.zig"));
@@ -1774,77 +1744,5 @@ fn scaffold_emits_cargo_config_with_env_block_for_h2m_style_ruby_path() {
         cargo_file
             .content
             .contains("RUBY = { value = \"scripts/preferred-ruby.sh\", relative = true }")
-    );
-}
-
-#[test]
-fn test_scaffold_gitattributes_respects_scaffold_output() {
-    // Verify that .gitattributes is emitted under the scaffold_output override path, not the
-    // default packages/python. This is the key invariant: config.package_dir(lang) must be
-    // used for the path, not a hardcoded default.
-    let cfg: alef_core::config::NewAlefConfig = toml::from_str(
-        r#"
-[workspace]
-languages = ["python"]
-
-[[crates]]
-name = "my-lib"
-sources = ["src/lib.rs"]
-
-[crates.scaffold]
-description = "Test library"
-license = "MIT"
-repository = "https://github.com/test/my-lib"
-authors = ["Alice"]
-keywords = ["test"]
-
-[crates.python]
-scaffold_output = "custom/python-bindings"
-"#,
-    )
-    .expect("valid toml");
-    let config = cfg.resolve().expect("resolve ok").remove(0);
-    let api = test_api();
-    let all_files = scaffold(&api, &config, &[Language::Python]).unwrap();
-    let files = language_files(&all_files);
-    let ga = files
-        .iter()
-        .find(|f| f.path.ends_with(".gitattributes"))
-        .expect(".gitattributes must be scaffolded even with scaffold_output override");
-    assert_eq!(
-        ga.path,
-        PathBuf::from("custom/python-bindings/.gitattributes"),
-        ".gitattributes must follow scaffold_output override; got: {}",
-        ga.path.display()
-    );
-    assert!(ga.content.contains("* linguist-generated=true"));
-    assert!(!ga.generated_header);
-}
-
-#[test]
-fn test_ffi_scaffold_has_no_gitattributes() {
-    // Ffi output lives under crates/, not packages/, so it must not get a .gitattributes.
-    let config = test_config();
-    let api = test_api();
-    let all_files = scaffold(&api, &config, &[Language::Ffi]).unwrap();
-    let files = language_files(&all_files);
-    assert!(
-        !files.iter().any(|f| f.path.ends_with(".gitattributes")),
-        "Ffi scaffold must not emit .gitattributes; paths: {:?}",
-        files.iter().map(|f| &f.path).collect::<Vec<_>>()
-    );
-}
-
-#[test]
-fn test_wasm_scaffold_has_no_gitattributes() {
-    // Wasm output lives under crates/, not packages/, so it must not get a .gitattributes.
-    let config = test_config();
-    let api = test_api();
-    let all_files = scaffold(&api, &config, &[Language::Wasm]).unwrap();
-    let files = language_files(&all_files);
-    assert!(
-        !files.iter().any(|f| f.path.ends_with(".gitattributes")),
-        "Wasm scaffold must not emit .gitattributes; paths: {:?}",
-        files.iter().map(|f| &f.path).collect::<Vec<_>>()
     );
 }

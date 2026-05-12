@@ -146,7 +146,13 @@ fn emit_lib_rs(
         .filter(|t| !exclude_types.contains(&t.name) && !t.is_trait && t.is_opaque && !t.methods.is_empty())
     {
         content.push('\n');
-        emit_opaque_impl_block(&mut content, ty, source_crate_name, stub_methods, &types_needing_from_conversion);
+        emit_opaque_impl_block(
+            &mut content,
+            ty,
+            source_crate_name,
+            stub_methods,
+            &types_needing_from_conversion,
+        );
     }
 
     for en in api.enums.iter().filter(|e| !exclude_types.contains(&e.name)) {
@@ -373,8 +379,7 @@ fn compute_types_needing_from_impl(
                 // Collect all Named type references from this field.
                 for named in collect_named_types(&field.ty) {
                     if !result.contains(&named)
-                        && (struct_by_name.contains_key(named.as_str())
-                            || enum_by_name.contains_key(named.as_str()))
+                        && (struct_by_name.contains_key(named.as_str()) || enum_by_name.contains_key(named.as_str()))
                     {
                         result.insert(named.clone());
                         worklist.push(named);
@@ -1299,6 +1304,7 @@ fn enum_variant_field_conv(binding: &str, field: &FieldDef, source_crate_name: &
 /// - Path → String (24 bytes) vs core PathBuf
 /// - Json (serde_json::Value) → String (24 bytes) vs core Value (32 bytes)
 /// - Non-i64/f64/bool primitives: u32/i32/u8/etc. → i64 (8 bytes vs 4 bytes for u32)
+///
 /// All of these cause layout mismatches that make transmute unsound for structs containing them.
 fn has_duration_or_path_field(ty: &TypeRef) -> bool {
     use alef_core::ir::PrimitiveType;
@@ -1306,10 +1312,7 @@ fn has_duration_or_path_field(ty: &TypeRef) -> bool {
         TypeRef::Duration | TypeRef::Path | TypeRef::Json => true,
         // Non-identity primitive widening: u8/i8/u16/i16/u32/i32/u64/usize/isize/f32 all
         // get widened to i64 (or f64 for floats) in the FRB bridge, causing size mismatches.
-        TypeRef::Primitive(p) => !matches!(
-            p,
-            PrimitiveType::I64 | PrimitiveType::F64 | PrimitiveType::Bool
-        ),
+        TypeRef::Primitive(p) => !matches!(p, PrimitiveType::I64 | PrimitiveType::F64 | PrimitiveType::Bool),
         TypeRef::Optional(inner) | TypeRef::Vec(inner) => has_duration_or_path_field(inner),
         _ => false,
     }
@@ -1392,7 +1395,14 @@ fn emit_opaque_impl_block(
             continue;
         }
 
-        emit_opaque_method(out, ty, method, source_crate_name, stub_methods, types_needing_from_conversion);
+        emit_opaque_method(
+            out,
+            ty,
+            method,
+            source_crate_name,
+            stub_methods,
+            types_needing_from_conversion,
+        );
     }
 
     out.push_str("}\n");
@@ -1578,7 +1588,9 @@ fn emit_opaque_method_body(
         if wrap_return.is_empty() {
             out.push_str(&format!("        {call}.map_err(|e| e.to_string())\n"));
         } else {
-            out.push_str(&format!("        {call}.map({wrap_return}).map_err(|e| e.to_string())\n"));
+            out.push_str(&format!(
+                "        {call}.map({wrap_return}).map_err(|e| e.to_string())\n"
+            ));
         }
     } else if wrap_return.is_empty() {
         out.push_str(&format!("        {call}\n"));
@@ -1646,12 +1658,8 @@ fn emit_from_json_fn(out: &mut String, ty: &TypeDef, source_crate_name: &str) {
     out.push_str(&format!(
         "pub fn {fn_name}(json: String) -> Result<{type_name}, String> {{\n"
     ));
-    out.push_str(&format!(
-        "    serde_json::from_str::<{core_ty}>(&json)\n"
-    ));
-    out.push_str(&format!(
-        "        .map({type_name}::from)\n"
-    ));
+    out.push_str(&format!("    serde_json::from_str::<{core_ty}>(&json)\n"));
+    out.push_str(&format!("        .map({type_name}::from)\n"));
     out.push_str("        .map_err(|e| e.to_string())\n");
     out.push_str("}\n");
 }

@@ -6,7 +6,11 @@ use std::path::PathBuf;
 
 pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
-    let name = &config.name;
+    // `name` here is the Maven artifactId. Prefer the explicit `[java] artifact_id`
+    // override so the published artifactId can differ from the source crate name
+    // (e.g. crate `html-to-markdown-rs` publishes as artifactId `html-to-markdown`).
+    let name = config.java_artifact_id();
+    let name = name.as_str();
     let version = &api.version;
 
     // Derive SCM URLs from repository URL

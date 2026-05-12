@@ -456,6 +456,18 @@ pub struct GoConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JavaConfig {
     pub package: Option<String>,
+    /// Override the Maven `<groupId>` emitted by alef-scaffold and alef-e2e. When unset,
+    /// `java_group_id()` falls back to the Java `package` value. Set this when the
+    /// published Maven coords differ from the Java package path (e.g. group
+    /// `dev.kreuzberg`, package `dev.kreuzberg.htmltomarkdown`).
+    #[serde(default)]
+    pub group_id: Option<String>,
+    /// Override the Maven `<artifactId>` emitted by alef-scaffold and alef-e2e. When
+    /// unset, defaults to the crate name (the `[[crates]] name = "..."`). Set this when
+    /// the published artifactId differs from the source crate name (e.g. crate
+    /// `html-to-markdown-rs` published as `html-to-markdown`).
+    #[serde(default)]
+    pub artifact_id: Option<String>,
     #[serde(default = "default_java_ffi_style")]
     pub ffi_style: String,
     #[serde(default)]

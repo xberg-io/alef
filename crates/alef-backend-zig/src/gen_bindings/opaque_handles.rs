@@ -195,6 +195,7 @@ fn emit_opaque_streaming_method(
 }
 
 /// Emit a single method on an opaque handle wrapper struct.
+#[allow(clippy::too_many_arguments)]
 fn emit_opaque_method(
     method: &MethodDef,
     ty: &TypeDef,

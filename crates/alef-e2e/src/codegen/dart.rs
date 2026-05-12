@@ -7,7 +7,7 @@
 use crate::codegen::resolve_field;
 use crate::config::E2eConfig;
 use crate::escape::sanitize_filename;
-use crate::fixture::{Fixture, FixtureGroup, HttpFixture, ValidationErrorExpectation};
+use crate::fixture::{Assertion, Fixture, FixtureGroup, HttpFixture, ValidationErrorExpectation};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::ResolvedCrateConfig;
 use alef_core::hash::{self, CommentStyle};
@@ -495,9 +495,7 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
                             let escaped_json = escape_dart(&json_str);
                             let var_name = format!("_{}", arg_def.name);
                             let dart_fn = type_name_to_create_from_json_dart(opts_type);
-                            setup_lines.push(format!(
-                                "final {var_name} = await {dart_fn}(json: '{escaped_json}');"
-                            ));
+                            setup_lines.push(format!("final {var_name} = await {dart_fn}(json: '{escaped_json}');"));
                             // FRB bridge method param name is `req` for all single-request methods.
                             // Use `req:` as the named argument label.
                             args.push(format!("req: {var_name}"));
@@ -651,10 +649,70 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
             out,
             "    final {result_var} = await {receiver}.{function_name}({args_str});"
         );
+        for assertion in &fixture.assertions {
+            render_assertion_dart(out, assertion, result_var);
+        }
     }
 
     let _ = writeln!(out, "  }});");
     let _ = writeln!(out);
+}
+
+/// Render a single fixture assertion as a Dart `expect(...)` call against the
+/// non-HTTP result variable.
+///
+/// The non-HTTP path does not have access to the [`FieldResolver`] / enum-field
+/// metadata used by the HTTP-style renderers, so this helper deliberately emits
+/// the simplest possible accessors. It mirrors the assertion vocabulary used by
+/// other backends (`equals`, `field_equals`, `contains`, `not_null`,
+/// `not_error`) and skips unknown assertion types with a comment.
+fn render_assertion_dart(out: &mut String, assertion: &Assertion, result_var: &str) {
+    let field_accessor = match assertion.field.as_deref() {
+        Some(f) if !f.is_empty() => format!("{result_var}.{}", snake_to_camel(f)),
+        _ => result_var.to_string(),
+    };
+
+    let format_value = |val: &serde_json::Value| -> String {
+        match val {
+            serde_json::Value::String(s) => format!("'{}'", escape_dart(s)),
+            serde_json::Value::Bool(b) => b.to_string(),
+            serde_json::Value::Number(n) => n.to_string(),
+            serde_json::Value::Null => "null".to_string(),
+            other => format!("'{}'", escape_dart(&other.to_string())),
+        }
+    };
+
+    match assertion.assertion_type.as_str() {
+        "equals" | "field_equals" => {
+            if let Some(expected) = &assertion.value {
+                let dart_val = format_value(expected);
+                let _ = writeln!(out, "    expect({field_accessor}, equals({dart_val}));");
+            } else {
+                let _ = writeln!(
+                    out,
+                    "    // skipped: '{}' assertion missing value",
+                    assertion.assertion_type
+                );
+            }
+        }
+        "contains" => {
+            if let Some(expected) = &assertion.value {
+                let dart_val = format_value(expected);
+                let _ = writeln!(out, "    expect({field_accessor}, contains({dart_val}));");
+            } else {
+                let _ = writeln!(out, "    // skipped: 'contains' assertion missing value");
+            }
+        }
+        "not_null" => {
+            let _ = writeln!(out, "    expect({field_accessor}, isNotNull);");
+        }
+        "not_error" => {
+            // No-op: a thrown error from `await` would have failed the test already.
+        }
+        other => {
+            let _ = writeln!(out, "    // skipped: unknown assertion type '{other}'");
+        }
+    }
 }
 
 /// Converts a snake_case JSON key to Dart camelCase.

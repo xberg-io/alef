@@ -387,75 +387,54 @@ use languages::{
     scaffold_ruby_cargo, scaffold_swift, scaffold_wasm, scaffold_zig,
 };
 
-/// Returns `true` for languages whose scaffold output is rooted at a `packages/{lang}/`-style
-/// directory. These get a `linguist-generated=true` `.gitattributes` file so GitHub collapses
-/// generated diffs and reports accurate repository language statistics.
-///
-/// Excluded languages:
-/// - `Ffi`: scaffold output lives under `crates/`, not `packages/`
-/// - `Wasm`: scaffold output lives under `crates/`, not `packages/`
-/// - `Rust`, `C`: e2e test targets with no scaffolded package directory
-fn should_scaffold_package_gitattributes(lang: Language) -> bool {
-    !matches!(lang, Language::Ffi | Language::Wasm | Language::Rust | Language::C)
-}
-
 fn scaffold_language(
     api: &ApiSurface,
     config: &ResolvedCrateConfig,
     lang: Language,
 ) -> anyhow::Result<Vec<GeneratedFile>> {
-    let mut files = match lang {
+    match lang {
         Language::Python => {
             let mut files = scaffold_python(api, config)?;
             files.extend(scaffold_python_cargo(api, config)?);
-            files
+            Ok(files)
         }
         Language::Node => {
             let mut files = scaffold_node(api, config)?;
             files.extend(scaffold_node_cargo(api, config)?);
-            files
+            Ok(files)
         }
-        Language::Ffi => scaffold_ffi(api, config)?,
-        Language::Go => scaffold_go(api, config)?,
-        Language::Java => scaffold_java(api, config)?,
-        Language::Csharp => scaffold_csharp(api, config)?,
+        Language::Ffi => scaffold_ffi(api, config),
+        Language::Go => scaffold_go(api, config),
+        Language::Java => scaffold_java(api, config),
+        Language::Csharp => scaffold_csharp(api, config),
         Language::Ruby => {
             let mut files = scaffold_ruby(api, config)?;
             files.extend(scaffold_ruby_cargo(api, config)?);
-            files
+            Ok(files)
         }
         Language::Php => {
             let mut files = scaffold_php(api, config)?;
             files.extend(scaffold_php_cargo(api, config)?);
-            files
+            Ok(files)
         }
         Language::Elixir => {
             let mut files = scaffold_elixir(api, config)?;
             files.extend(scaffold_elixir_cargo(api, config)?);
-            files
+            Ok(files)
         }
-        Language::Wasm => scaffold_wasm(api, config)?,
+        Language::Wasm => scaffold_wasm(api, config),
         Language::R => {
             let mut files = scaffold_r(api, config)?;
             files.extend(scaffold_r_cargo(api, config)?);
-            files
+            Ok(files)
         }
-        Language::Rust | Language::C => vec![], // e2e test targets; no binding package to scaffold
-        Language::Kotlin => scaffold_kotlin(api, config)?,
-        Language::Gleam => scaffold_gleam(api, config)?,
-        Language::Zig => scaffold_zig(api, config)?,
-        Language::Dart => scaffold_dart(api, config)?,
-        Language::Swift => scaffold_swift(api, config)?,
-    };
-    if should_scaffold_package_gitattributes(lang) {
-        let pkg_dir = config.package_dir(lang);
-        files.push(GeneratedFile {
-            path: std::path::PathBuf::from(format!("{pkg_dir}/.gitattributes")),
-            content: "# Mark all files in this directory as generated\n* linguist-generated=true\n".to_string(),
-            generated_header: false,
-        });
+        Language::Rust | Language::C => Ok(vec![]), // Rust/C don't need scaffolded binding crates
+        Language::Kotlin => scaffold_kotlin(api, config),
+        Language::Gleam => scaffold_gleam(api, config),
+        Language::Zig => scaffold_zig(api, config),
+        Language::Dart => scaffold_dart(api, config),
+        Language::Swift => scaffold_swift(api, config),
     }
-    Ok(files)
 }
 
 #[cfg(test)]
