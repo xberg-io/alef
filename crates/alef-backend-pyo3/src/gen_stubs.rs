@@ -159,7 +159,7 @@ pub fn gen_stubs(api: &ApiSurface, trait_bridges: &[TraitBridgeConfig], config: 
     let mut body_lines: Vec<String> = Vec::new();
 
     for typ in &non_opaque {
-        body_lines.push(gen_type_stub(typ, api, config));
+        body_lines.push(gen_type_stub(typ, api, config, &capsule_names));
         body_lines.push("".to_string());
     }
 
@@ -170,7 +170,7 @@ pub fn gen_stubs(api: &ApiSurface, trait_bridges: &[TraitBridgeConfig], config: 
         .collect();
     if !non_capsule_opaque.is_empty() {
         for typ in &non_capsule_opaque {
-            body_lines.push(gen_opaque_type_stub(typ));
+            body_lines.push(gen_opaque_type_stub(typ, &capsule_names));
         }
         body_lines.push("".to_string());
     }
@@ -205,7 +205,7 @@ pub fn gen_stubs(api: &ApiSurface, trait_bridges: &[TraitBridgeConfig], config: 
 }
 
 /// Generate a Python type stub for an opaque type (no fields, only methods).
-fn gen_opaque_type_stub(typ: &TypeDef) -> String {
+fn gen_opaque_type_stub(typ: &TypeDef, capsule_names: &std::collections::HashSet<&str>) -> String {
     let mut lines = vec![];
 
     lines.push(format!("class {}:", typ.name));
@@ -213,14 +213,14 @@ fn gen_opaque_type_stub(typ: &TypeDef) -> String {
     // Instance methods
     for method in &typ.methods {
         if !method.is_static {
-            lines.push(gen_method_stub(method, false));
+            lines.push(gen_method_stub(method, false, capsule_names));
         }
     }
 
     // Static methods
     for method in &typ.methods {
         if method.is_static {
-            lines.push(gen_method_stub(method, true));
+            lines.push(gen_method_stub(method, true, capsule_names));
         }
     }
 
@@ -233,7 +233,12 @@ fn gen_opaque_type_stub(typ: &TypeDef) -> String {
 }
 
 /// Generate a Python type stub for a struct.
-fn gen_type_stub(typ: &TypeDef, api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
+fn gen_type_stub(
+    typ: &TypeDef,
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+    capsule_names: &std::collections::HashSet<&str>,
+) -> String {
     let mut lines = vec![];
 
     lines.push(format!("class {}:", typ.name));
@@ -267,14 +272,14 @@ fn gen_type_stub(typ: &TypeDef, api: &ApiSurface, config: &ResolvedCrateConfig) 
     // Add instance methods
     for method in &typ.methods {
         if !method.is_static {
-            lines.push(gen_method_stub(method, false));
+            lines.push(gen_method_stub(method, false, capsule_names));
         }
     }
 
     // Add static methods
     for method in &typ.methods {
         if method.is_static {
-            lines.push(gen_method_stub(method, true));
+            lines.push(gen_method_stub(method, true, capsule_names));
         }
     }
 
@@ -363,21 +368,25 @@ fn gen_type_init_stub(typ: &TypeDef, api: &ApiSurface, config: &ResolvedCrateCon
 }
 
 /// Generate a method stub.
-fn gen_method_stub(method: &MethodDef, is_static: bool) -> String {
+fn gen_method_stub(
+    method: &MethodDef,
+    is_static: bool,
+    capsule_names: &std::collections::HashSet<&str>,
+) -> String {
     // Partition params into required (non-optional) and optional
     let (required, optional): (Vec<_>, Vec<_>) = method.params.iter().partition(|p| !p.optional);
 
-    // Generate required params first, then optional params
+    // Generate required params first, then optional params — capsule-typed params become Any.
     let mut params: Vec<String> = required
         .iter()
         .map(|p| {
-            let param_type = python_type(&p.ty);
+            let param_type = stub_type(&p.ty, capsule_names);
             format!("{}: {}", p.name, param_type)
         })
         .collect();
 
     params.extend(optional.iter().map(|p| {
-        let type_str = python_type(&p.ty);
+        let type_str = stub_type(&p.ty, capsule_names);
         let param_type = if !type_str.ends_with("| None") {
             format!("{} | None", type_str)
         } else {
@@ -386,7 +395,7 @@ fn gen_method_stub(method: &MethodDef, is_static: bool) -> String {
         format!("{}: {} = None", p.name, param_type)
     }));
 
-    let return_type = python_type(&method.return_type);
+    let return_type = stub_type(&method.return_type, capsule_names);
     let indent = "    ";
     let safe_name = python_safe_name(&method.name);
     // pyo3 async methods return a Python awaitable (via `pyo3_async_runtimes::*::future_into_py`).
@@ -554,8 +563,11 @@ fn gen_data_enum_typeddicts(lines: &mut Vec<String>, enum_def: &EnumDef) {
     // to the inner serde serialization. Variant TypedDicts above are kept for documentation.
     lines.push(format!("class {}:", enum_def.name));
     lines.push(format!("    {}: str", tag_field));
-    lines.push("    def __str__(self) -> str: ...".to_string());
-    lines.push("    def __repr__(self) -> str: ...".to_string());
+    // PYI029: stubs ordinarily don't need __str__/__repr__, but the pyo3 wrapper
+    // implements them via Display/Debug and downstream callers rely on str(value)
+    // returning the serde tag. Suppress per-line.
+    lines.push("    def __str__(self) -> str: ...  # noqa: PYI029".to_string());
+    lines.push("    def __repr__(self) -> str: ...  # noqa: PYI029".to_string());
 }
 
 /// Apply serde rename_all strategy to a variant name.
