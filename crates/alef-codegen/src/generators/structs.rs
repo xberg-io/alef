@@ -134,11 +134,14 @@ pub fn gen_struct_with_per_field_attrs(
         attrs.extend(extra_field_attrs(field));
         // Add #[serde(skip)] for opaque fields or sanitized fields when the struct derives serde.
         // Cow-backed strings are lossless String bindings, so they must remain serializable.
-        // Cfg-gated trait-bridge fields (in never_skip) also get serde(skip) — their wrapper
-        // types (e.g. PyVisitorRef) typically don't impl serde. Other cfg-gated fields with
-        // regular types (e.g. HtmlMetadata) remain serializable.
+        // Cfg-gated trait-bridge fields are detected via their type referencing an opaque
+        // wrapper (e.g. PyVisitorRef in opaque_type_names) — those get serde(skip) because
+        // their wrapper types typically don't impl serde. Regular cfg-gated fields with
+        // serializable types (e.g. HtmlMetadata) remain serializable.
         let skip_sanitized_field = field.sanitized && field.core_wrapper != CoreWrapper::Cow;
-        let skip_cfg_bridge_field = field.cfg.is_some() && cfg.never_skip_cfg_field_names.contains(&field.name);
+        let skip_cfg_bridge_field = field.cfg.is_some()
+            && cfg.never_skip_cfg_field_names.contains(&field.name)
+            && field_references_opaque_type(&field.ty, cfg.opaque_type_names);
         if has_serde && (opaque_fields.contains(&field.name.as_str()) || skip_sanitized_field || skip_cfg_bridge_field)
         {
             attrs.push("serde(skip)".to_string());
@@ -221,9 +224,13 @@ pub fn gen_struct_with_rename(
             a
         };
         // Add #[serde(skip)] for opaque/sanitized fields and cfg-gated trait-bridge fields.
-        // Other cfg-gated fields with regular types remain serializable for JSON round-trip.
+        // Trait-bridge fields are detected via their type referencing an opaque wrapper
+        // (e.g. PyVisitorRef in opaque_type_names) so regular cfg-gated fields like
+        // `metadata: HtmlMetadata` remain serializable for JSON round-trip.
         let skip_sanitized_field = field.sanitized && field.core_wrapper != CoreWrapper::Cow;
-        let skip_cfg_bridge_field = field.cfg.is_some() && cfg.never_skip_cfg_field_names.contains(&field.name);
+        let skip_cfg_bridge_field = field.cfg.is_some()
+            && cfg.never_skip_cfg_field_names.contains(&field.name)
+            && field_references_opaque_type(&field.ty, cfg.opaque_type_names);
         if has_serde && (opaque_fields.contains(&field.name.as_str()) || skip_sanitized_field || skip_cfg_bridge_field)
         {
             attrs.push("serde(skip)".to_string());

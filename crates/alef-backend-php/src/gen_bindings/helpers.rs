@@ -1155,10 +1155,21 @@ fn gen_string_to_enum_expr(
     let mut match_arms = String::new();
     for variant in &enum_def.variants {
         let expr = variant_expr(&core_enum_path, variant);
+        // The wire value the PHP user supplies (in JSON or via the binding's String
+        // mirror of a Rust enum) follows the core enum's serde rename strategy. Match
+        // against `#[serde(rename)]` first, then `#[serde(rename_all = "...")]`, then
+        // the variant's raw Rust name as a fallback.
+        let wire_name = if let Some(rename) = &variant.serde_rename {
+            rename.clone()
+        } else if let Some(rename_all) = &enum_def.serde_rename_all {
+            crate::gen_bindings::types::apply_rename_all_public(&variant.name, rename_all)
+        } else {
+            variant.name.clone()
+        };
         match_arms.push_str(&crate::template_env::render(
             "php_enum_string_match_arm.jinja",
             context! {
-                variant_name => &variant.name,
+                variant_name => &wire_name,
                 expr => &expr,
             },
         ));

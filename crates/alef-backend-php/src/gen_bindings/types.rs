@@ -886,6 +886,13 @@ fn variant_tag_value(variant: &EnumVariant, enum_def: &EnumDef) -> String {
     variant.name.clone()
 }
 
+/// Public alias used by `gen_string_to_enum_expr` in `helpers.rs` to honour the
+/// core enum's serde rename strategy when emitting `match val.as_str()` arms
+/// against the user-supplied wire value.
+pub(crate) fn apply_rename_all_public(name: &str, strategy: &str) -> String {
+    apply_rename_all(name, strategy)
+}
+
 fn apply_rename_all(name: &str, strategy: &str) -> String {
     use heck::{ToKebabCase, ToLowerCamelCase, ToShoutySnakeCase, ToSnakeCase, ToUpperCamelCase};
     match strategy {

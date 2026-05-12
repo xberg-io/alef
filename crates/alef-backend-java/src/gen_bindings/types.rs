@@ -143,6 +143,16 @@ pub(crate) fn gen_record_type(
             decl.push_str("@JsonProperty(\"");
             decl.push_str(&json_property_name);
             decl.push_str("\") ");
+            // Wire format from the FFI / Rust core is snake_case (default serde without
+            // rename_all on the core type). Adding @JsonAlias("snake_case") lets Jackson
+            // accept both camelCase (Java idiom, primary wire format chosen by alef) and
+            // snake_case (what the FFI bridge actually emits) so result deserialization
+            // doesn't break when the JSON comes from the Rust core via the C FFI.
+            if json_property_name != f.name {
+                decl.push_str("@JsonAlias(\"");
+                decl.push_str(&f.name);
+                decl.push_str("\") ");
+            }
         }
         if has_nullable && !nullable_at_leading_pos {
             // Fully-qualified type: insert `@Nullable` at the last package boundary.
@@ -364,6 +374,9 @@ pub(crate) fn gen_record_type(
     }
     if needs_json_property {
         imports.push("com.fasterxml.jackson.annotation.JsonProperty");
+    }
+    if fields_joined.contains("@JsonAlias(") {
+        imports.push("com.fasterxml.jackson.annotation.JsonAlias");
     }
     if needs_json_include {
         imports.push("com.fasterxml.jackson.annotation.JsonInclude");
@@ -1449,6 +1462,14 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
             body.push_str("    @JsonProperty(\"");
             body.push_str(&wire);
             body.push_str("\")\n");
+            // Accept snake_case wire keys too — the FFI bridge serializes the Rust core
+            // with default serde (snake_case) so result-direction JSON arrives in
+            // snake_case even when the binding's primary wire format is camelCase.
+            if wire != field.name {
+                body.push_str("    @JsonAlias(\"");
+                body.push_str(&field.name);
+                body.push_str("\")\n");
+            }
         }
         body.push_str("    private ");
         body.push_str(&field_type);
@@ -1492,6 +1513,15 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
         body.push_str("    /** Sets the ");
         body.push_str(&field_name);
         body.push_str(" field. */\n");
+        let setter_wire_name: Option<String> = if is_flattened_json {
+            None
+        } else if let Some(rename) = &field.serde_rename {
+            Some(rename.clone())
+        } else if field.name.contains('_') {
+            Some(field.name.to_lower_camel_case())
+        } else {
+            None
+        };
         if is_flattened_json {
             // The regular `with<Field>(Map)` setter must not bind to a wire
             // field of the same name (e.g. an actual `content` array field
@@ -1499,6 +1529,19 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
             // from picking it up; the matching `@JsonAnySetter` below
             // intercepts every flattened sibling field instead.
             body.push_str("    @com.fasterxml.jackson.annotation.JsonIgnore\n");
+        } else if let Some(wire) = &setter_wire_name {
+            // Jackson's BuilderBasedDeserializer reads property names from the `with*`
+            // setter methods, not the private fields — emit @JsonProperty + (optional)
+            // @JsonAlias on the setter so both camelCase and snake_case wire keys map
+            // to this builder method.
+            body.push_str("    @JsonProperty(\"");
+            body.push_str(wire);
+            body.push_str("\")\n");
+            if wire != &field.name {
+                body.push_str("    @JsonAlias(\"");
+                body.push_str(&field.name);
+                body.push_str("\")\n");
+            }
         }
         body.push_str("    public ");
         body.push_str(&typ.name);
@@ -1598,6 +1641,9 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
     }
     if body.contains("@JsonProperty(") {
         imports.push("com.fasterxml.jackson.annotation.JsonProperty");
+    }
+    if body.contains("@JsonAlias(") {
+        imports.push("com.fasterxml.jackson.annotation.JsonAlias");
     }
     let header = hash::header(CommentStyle::DoubleSlash);
     let mut out = crate::template_env::render(
