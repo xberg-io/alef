@@ -334,10 +334,6 @@ pub(super) fn gen_struct(typ: &TypeDef, mapper: &WasmMapper, exclude_types: &[St
     // Build filtered and typed fields
     let mut fields = Vec::new();
     for field in &typ.fields {
-        // Skip cfg-gated fields — they depend on features that may not be enabled
-        if field.cfg.is_some() {
-            continue;
-        }
         // Skip fields whose type references an excluded type (the Js* wrapper won't exist)
         if field_references_excluded_type(&field.ty, exclude_types) {
             continue;
@@ -408,11 +404,6 @@ pub(super) fn gen_struct_methods(
     let enum_names: AHashSet<String> = api_enums.iter().map(|e| e.name.clone()).collect();
 
     for field in &typ.fields {
-        // Skip cfg-gated fields — gen_struct skips them in the struct body, so emitting
-        // getters/setters that reference `self.<field>` would not compile.
-        if field.cfg.is_some() {
-            continue;
-        }
         // Skip fields whose type references an excluded type (the Js* wrapper won't exist)
         if field_references_excluded_type(&field.ty, exclude_types) {
             continue;

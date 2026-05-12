@@ -142,9 +142,7 @@ pub fn gen_struct_with_per_field_attrs(
         // serde::Serialize/Deserialize, so the field must be excluded from JSON round-trip.
         let skip_sanitized_field = field.sanitized && field.core_wrapper != CoreWrapper::Cow;
         let skip_cfg_gated_field = field.cfg.is_some();
-        if has_serde
-            && (opaque_fields.contains(&field.name.as_str()) || skip_sanitized_field || skip_cfg_gated_field)
-        {
+        if has_serde && (opaque_fields.contains(&field.name.as_str()) || skip_sanitized_field || skip_cfg_gated_field) {
             attrs.push("serde(skip)".to_string());
         }
         sb.add_field_with_doc(&field.name, &ty, attrs, &field.doc);
@@ -236,9 +234,7 @@ pub fn gen_struct_with_rename(
         // serde::Serialize/Deserialize, so the field must be excluded from JSON round-trip.
         let skip_sanitized_field = field.sanitized && field.core_wrapper != CoreWrapper::Cow;
         let skip_cfg_gated_field = field.cfg.is_some();
-        if has_serde
-            && (opaque_fields.contains(&field.name.as_str()) || skip_sanitized_field || skip_cfg_gated_field)
-        {
+        if has_serde && (opaque_fields.contains(&field.name.as_str()) || skip_sanitized_field || skip_cfg_gated_field) {
             attrs.push("serde(skip)".to_string());
         }
         // Mirror per-field `#[serde(rename = "...")]` from the core type so the binding
