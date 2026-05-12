@@ -98,12 +98,6 @@ pub(crate) fn default_clean_config(lang: Language, output_dir: &str, _ctx: &Lang
             before: None,
             clean: Some(StringOrVec::Single("dart clean".to_string())),
         },
-        Language::Gleam => CleanConfig {
-            // Gleam has no `gleam clean`; it uses a `build/` directory.
-            precondition: None,
-            before: None,
-            clean: Some(StringOrVec::Single("rm -rf build".to_string())),
-        },
         Language::Zig => CleanConfig {
             // Pure shell `rm` — zig-out and cache dirs.
             precondition: None,
@@ -140,7 +134,6 @@ mod tests {
             Language::Kotlin,
             Language::Swift,
             Language::Dart,
-            Language::Gleam,
             Language::Zig,
         ]
     }

@@ -184,12 +184,6 @@ pub fn default_update_config(lang: Language, output_dir: &str, ctx: &LangContext
                 "cd {output_dir} && dart pub upgrade --major-versions"
             ))),
         },
-        Language::Gleam => UpdateConfig {
-            precondition: Some(require_tool("gleam")),
-            before: None,
-            update: Some(StringOrVec::Single(format!("cd {output_dir} && gleam deps update"))),
-            upgrade: Some(StringOrVec::Single(format!("cd {output_dir} && gleam deps update"))),
-        },
         Language::Zig => UpdateConfig {
             // Zig uses zig fetch --save for individual dependency updates.
             // There is no batch upgrade command; both update and upgrade resolve
@@ -224,7 +218,6 @@ mod tests {
             Language::Kotlin,
             Language::Swift,
             Language::Dart,
-            Language::Gleam,
             Language::Zig,
         ]
     }
@@ -437,17 +430,6 @@ mod tests {
             upgrade.contains("--major-versions"),
             "Dart upgrade should include --major-versions, got: {upgrade}"
         );
-    }
-
-    #[test]
-    fn gleam_uses_gleam_deps_update() {
-        let c = cfg(Language::Gleam, "packages/gleam");
-        let update = c.update.unwrap().commands().join(" ");
-        assert!(
-            update.contains("gleam deps update"),
-            "Gleam update should use gleam deps update, got: {update}"
-        );
-        assert_eq!(c.precondition.as_deref(), Some("command -v gleam >/dev/null 2>&1"));
     }
 
     #[test]

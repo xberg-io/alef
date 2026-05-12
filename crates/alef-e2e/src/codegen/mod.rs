@@ -23,7 +23,6 @@ pub mod client;
 pub mod csharp;
 pub mod dart;
 pub mod elixir;
-pub mod gleam;
 pub mod go;
 pub mod java;
 pub mod kotlin;
@@ -146,7 +145,6 @@ pub fn all_generators() -> Vec<Box<dyn E2eCodegen>> {
         Box::new(php::PhpCodegen),
         Box::new(ruby::RubyCodegen),
         Box::new(elixir::ElixirCodegen),
-        Box::new(gleam::GleamE2eCodegen),
         Box::new(r::RCodegen),
         Box::new(wasm::WasmCodegen),
         Box::new(c::CCodegen),

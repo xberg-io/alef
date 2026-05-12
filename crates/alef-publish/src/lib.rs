@@ -206,7 +206,6 @@ pub(crate) fn crate_name_from_output(config: &ResolvedCrateConfig, lang: Languag
         Language::Csharp => config.explicit_output.csharp.as_deref(),
         Language::R => config.explicit_output.r.as_deref(),
         Language::Kotlin => config.explicit_output.kotlin.as_deref(),
-        Language::Gleam => config.explicit_output.gleam.as_deref(),
         Language::Zig => config.explicit_output.zig.as_deref(),
         Language::Rust | Language::C => None,
         Language::Swift | Language::Dart => None,
@@ -278,7 +277,7 @@ fn build_command_for_lang(
         Language::Rust => {
             format!("{cargo} build --release --workspace{target_flag}")
         }
-        Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig | Language::C => {
+        Language::Kotlin | Language::Swift | Language::Dart | Language::Zig | Language::C => {
             eprintln!("Warning: Phase 1: {lang} backend build command not yet implemented");
             String::new()
         }
@@ -418,11 +417,6 @@ pub fn package(
                 let artifact = package::kotlin::package_kotlin(config, ws_root, output_dir, version)?;
                 Some(vec![artifact])
             }
-            Language::Gleam => {
-                // Gleam source packaging is target-independent.
-                let artifact = package::gleam::package_gleam(config, ws_root, output_dir, version)?;
-                Some(vec![artifact])
-            }
             Language::Zig => {
                 let t = target.context("--target required for Zig packaging")?;
                 let artifact = package::zig::package_zig(config, t, ws_root, output_dir, version)?;
@@ -503,7 +497,6 @@ pub fn validate(config: &ResolvedCrateConfig, languages: &[Language]) -> Result<
             Language::Wasm => vec![],
             Language::R => vec!["DESCRIPTION"],
             Language::Kotlin => vec!["build.gradle.kts"],
-            Language::Gleam => vec!["gleam.toml"],
             Language::Zig => vec!["build.zig"],
             Language::Dart => vec!["pubspec.yaml"],
             Language::Swift => vec!["Package.swift"],

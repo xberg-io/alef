@@ -570,10 +570,6 @@ fn render_dot_access(segments: &[PathSegment], result_var: &str, language: &str)
                     let current = std::mem::take(&mut out);
                     out = format!("length({current})");
                 }
-                "gleam" => {
-                    let current = std::mem::take(&mut out);
-                    out = format!("list.length({current})");
-                }
                 _ => {
                     let current = std::mem::take(&mut out);
                     out = format!("len({current})");

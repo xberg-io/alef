@@ -160,7 +160,6 @@ mod tests {
 
     #[test]
     fn test_default_formatter_unknown_lang_returns_none() {
-        assert!(default_formatter("gleam").is_none());
         assert!(default_formatter("zig").is_none());
         assert!(default_formatter("java").is_none());
     }

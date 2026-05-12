@@ -10,7 +10,7 @@ pub enum BuildDependency {
     None,
     /// Backend depends on the C FFI base being built first (Go, Java, C#, Zig).
     Ffi,
-    /// Backend depends on the Rustler NIF being built first (Gleam).
+    /// Backend depends on the Rustler NIF being built first.
     Rustler,
 }
 

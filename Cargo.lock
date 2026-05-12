@@ -101,22 +101,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "alef-backend-gleam"
-version = "0.15.49"
-dependencies = [
- "ahash",
- "alef-codegen",
- "alef-core",
- "alef-docs",
- "anyhow",
- "criterion",
- "heck",
- "insta",
- "minijinja",
- "toml",
-]
-
-[[package]]
 name = "alef-backend-go"
 version = "0.15.49"
 dependencies = [
@@ -277,7 +261,6 @@ dependencies = [
  "alef-backend-dart",
  "alef-backend-extendr",
  "alef-backend-ffi",
- "alef-backend-gleam",
  "alef-backend-go",
  "alef-backend-java",
  "alef-backend-kotlin",
@@ -402,7 +385,6 @@ dependencies = [
 name = "alef-readme"
 version = "0.15.49"
 dependencies = [
- "alef-backend-gleam",
  "alef-core",
  "anyhow",
  "heck",
@@ -417,7 +399,6 @@ name = "alef-scaffold"
 version = "0.15.49"
 dependencies = [
  "alef-backend-dart",
- "alef-backend-gleam",
  "alef-backend-php",
  "alef-core",
  "anyhow",

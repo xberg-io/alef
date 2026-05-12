@@ -17,7 +17,6 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
             Language::Rust => "String".to_string(),
             Language::Ffi | Language::C => "const char*".to_string(),
             Language::Kotlin | Language::Swift | Language::Dart => "String".to_string(),
-            Language::Gleam => "String".to_string(),
             Language::Zig => "[:0]const u8".to_string(),
         },
         TypeRef::Bytes => match lang {
@@ -35,7 +34,6 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
             Language::Kotlin => "ByteArray".to_string(),
             Language::Swift => "Data".to_string(),
             Language::Dart => "Uint8List".to_string(),
-            Language::Gleam => "BitArray".to_string(),
             Language::Zig => "[]const u8".to_string(),
         },
         TypeRef::Primitive(p) => doc_primitive(p, lang),
@@ -57,7 +55,6 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
                 Language::Rust => format!("Option<{inner_ty}>"),
                 Language::Ffi | Language::C => format!("{inner_ty}*"),
                 Language::Kotlin | Language::Swift | Language::Dart => format!("{inner_ty}?"),
-                Language::Gleam => format!("Option({inner_ty})"),
                 Language::Zig => format!("?{inner_ty}"),
             }
         }
@@ -87,7 +84,6 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
                         Language::Java | Language::Csharp => unreachable!(),
                         Language::Kotlin | Language::Dart => format!("List<{inner_ty}>"),
                         Language::Swift => format!("[{inner_ty}]"),
-                        Language::Gleam => format!("List({inner_ty})"),
                         Language::Zig => format!("[]const {inner_ty}"),
                     }
                 }
@@ -117,7 +113,6 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
                 Language::Kotlin => format!("Map<{kty}, {vty}>"),
                 Language::Swift => format!("[{kty}: {vty}]"),
                 Language::Dart => format!("Map<{kty}, {vty}>"),
-                Language::Gleam => format!("Dict({kty}, {vty})"),
                 Language::Zig => format!("std.StringHashMap({vty})"),
             }
         }
@@ -159,7 +154,6 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
                                 Language::Kotlin => "Long".to_string(),
                                 Language::Swift => swift_name.to_string(),
                                 Language::Dart => "int".to_string(),
-                                Language::Gleam => "Int".to_string(),
                                 Language::Zig => "i64".to_string(),
                             }
                         }
@@ -176,7 +170,6 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
                             Language::Rust => s.to_string(),
                             Language::Ffi | Language::C => "const char*".to_string(),
                             Language::Kotlin | Language::Swift | Language::Dart => "String".to_string(),
-                            Language::Gleam => "String".to_string(),
                             Language::Zig => "[]const u8".to_string(),
                         },
                         // Slice of strings — &[&str], &'static [&'static str], Vec<String>, etc.
@@ -200,7 +193,6 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
                                 Language::Rust => s.to_string(),
                                 Language::Ffi | Language::C => "const char**".to_string(),
                                 Language::Kotlin | Language::Swift | Language::Dart => "List<String>".to_string(),
-                                Language::Gleam => "List(String)".to_string(),
                                 Language::Zig => "[]const []const u8".to_string(),
                             }
                         }
@@ -231,7 +223,6 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
                 Language::Kotlin => format!("Pair<{}>", rendered.join(", ")),
                 Language::Swift => format!("({})", rendered.join(", ")),
                 Language::Dart => format!("({})", rendered.join(", ")),
-                Language::Gleam => format!("#({})", rendered.join(", ")),
                 Language::Zig => format!("struct {{ {} }}", rendered.join(", ")),
             }
         }
@@ -251,7 +242,6 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
             Language::Kotlin => "Path".to_string(),
             Language::Swift => "URL".to_string(),
             Language::Dart => "String".to_string(),
-            Language::Gleam => "String".to_string(),
             Language::Zig => "[:0]const u8".to_string(),
         },
         TypeRef::Unit => match lang {
@@ -269,7 +259,6 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
             Language::Kotlin => "Unit".to_string(),
             Language::Swift => "Void".to_string(),
             Language::Dart => "void".to_string(),
-            Language::Gleam => "Nil".to_string(),
             Language::Zig => "void".to_string(),
         },
         TypeRef::Json => match lang {
@@ -288,9 +277,8 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
             // Swift and Dart mappers return "String" — JSON is passed serialized.
             Language::Swift => "String".to_string(),
             Language::Dart => "String".to_string(),
-            // Gleam and Zig backends serialize JSON as a string (the Mappers
-            // return "String" / "[:0]const u8"); doc names must match.
-            Language::Gleam => "String".to_string(),
+            // Zig backend serializes JSON as a string (the Mapper
+            // returns "[:0]const u8"); doc name must match.
             Language::Zig => "[:0]const u8".to_string(),
         },
         TypeRef::Duration => match lang {
@@ -308,7 +296,6 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
             Language::Kotlin => "Duration".to_string(),
             Language::Swift => "Duration".to_string(),
             Language::Dart => "Duration".to_string(),
-            Language::Gleam => "Int".to_string(),
             Language::Zig => "i64".to_string(),
         },
     }
@@ -439,11 +426,6 @@ pub(crate) fn doc_primitive(p: &PrimitiveType, lang: Language) -> String {
             PrimitiveType::Bool => "bool".to_string(),
             PrimitiveType::F32 | PrimitiveType::F64 => "double".to_string(),
             _ => "int".to_string(),
-        },
-        Language::Gleam => match p {
-            PrimitiveType::Bool => "Bool".to_string(),
-            PrimitiveType::F32 | PrimitiveType::F64 => "Float".to_string(),
-            _ => "Int".to_string(),
         },
         Language::Zig => match p {
             PrimitiveType::Bool => "bool".to_string(),
@@ -596,14 +578,12 @@ mod tests {
         assert_eq!(doc_type(&TypeRef::Bytes, Language::Kotlin, TEST_PREFIX), "ByteArray");
         assert_eq!(doc_type(&TypeRef::Bytes, Language::Swift, TEST_PREFIX), "Data");
         assert_eq!(doc_type(&TypeRef::Bytes, Language::Dart, TEST_PREFIX), "Uint8List");
-        assert_eq!(doc_type(&TypeRef::Bytes, Language::Gleam, TEST_PREFIX), "BitArray");
         assert_eq!(doc_type(&TypeRef::Bytes, Language::Zig, TEST_PREFIX), "[]const u8");
     }
 
     #[test]
-    fn test_doc_type_string_kotlin_gleam_zig() {
+    fn test_doc_type_string_kotlin_zig() {
         assert_eq!(doc_type(&TypeRef::String, Language::Kotlin, TEST_PREFIX), "String");
-        assert_eq!(doc_type(&TypeRef::String, Language::Gleam, TEST_PREFIX), "String");
         assert_eq!(doc_type(&TypeRef::String, Language::Zig, TEST_PREFIX), "[:0]const u8");
     }
 
@@ -621,7 +601,6 @@ mod tests {
         assert_eq!(doc_type(&TypeRef::Unit, Language::Rust, TEST_PREFIX), "()");
         assert_eq!(doc_type(&TypeRef::Unit, Language::Ffi, TEST_PREFIX), "void");
         assert_eq!(doc_type(&TypeRef::Unit, Language::Kotlin, TEST_PREFIX), "Unit");
-        assert_eq!(doc_type(&TypeRef::Unit, Language::Gleam, TEST_PREFIX), "Nil");
         assert_eq!(doc_type(&TypeRef::Unit, Language::Zig, TEST_PREFIX), "void");
     }
 
@@ -639,7 +618,6 @@ mod tests {
         assert_eq!(doc_type(&TypeRef::Path, Language::Rust, TEST_PREFIX), "PathBuf");
         assert_eq!(doc_type(&TypeRef::Path, Language::Ffi, TEST_PREFIX), "const char*");
         assert_eq!(doc_type(&TypeRef::Path, Language::Kotlin, TEST_PREFIX), "Path");
-        assert_eq!(doc_type(&TypeRef::Path, Language::Gleam, TEST_PREFIX), "String");
         assert_eq!(doc_type(&TypeRef::Path, Language::Zig, TEST_PREFIX), "[:0]const u8");
     }
 
@@ -663,11 +641,10 @@ mod tests {
         );
         assert_eq!(doc_type(&TypeRef::Json, Language::Ffi, TEST_PREFIX), "void*");
         assert_eq!(doc_type(&TypeRef::Json, Language::Kotlin, TEST_PREFIX), "Any");
-        // SwiftMapper, DartMapper, GleamMapper, and ZigMapper all serialize JSON
+        // SwiftMapper, DartMapper, and ZigMapper all serialize JSON
         // as a string at the FFI boundary; doc names must match the mappers.
         assert_eq!(doc_type(&TypeRef::Json, Language::Swift, TEST_PREFIX), "String");
         assert_eq!(doc_type(&TypeRef::Json, Language::Dart, TEST_PREFIX), "String");
-        assert_eq!(doc_type(&TypeRef::Json, Language::Gleam, TEST_PREFIX), "String");
         assert_eq!(doc_type(&TypeRef::Json, Language::Zig, TEST_PREFIX), "[:0]const u8");
     }
 
@@ -690,7 +667,6 @@ mod tests {
         assert_eq!(doc_type(&TypeRef::Duration, Language::Kotlin, TEST_PREFIX), "Duration");
         assert_eq!(doc_type(&TypeRef::Duration, Language::Swift, TEST_PREFIX), "Duration");
         assert_eq!(doc_type(&TypeRef::Duration, Language::Dart, TEST_PREFIX), "Duration");
-        assert_eq!(doc_type(&TypeRef::Duration, Language::Gleam, TEST_PREFIX), "Int");
         assert_eq!(doc_type(&TypeRef::Duration, Language::Zig, TEST_PREFIX), "i64");
     }
 
@@ -958,26 +934,6 @@ mod tests {
                 doc_type(&TypeRef::Primitive(prim.clone()), Language::Kotlin, TEST_PREFIX),
                 *expected,
                 "Kotlin primitive {prim:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn test_doc_type_all_gleam_primitives() {
-        let cases: &[(PrimitiveType, &str)] = &[
-            (PrimitiveType::Bool, "Bool"),
-            (PrimitiveType::U8, "Int"),
-            (PrimitiveType::U64, "Int"),
-            (PrimitiveType::I32, "Int"),
-            (PrimitiveType::Usize, "Int"),
-            (PrimitiveType::F32, "Float"),
-            (PrimitiveType::F64, "Float"),
-        ];
-        for (prim, expected) in cases {
-            assert_eq!(
-                doc_type(&TypeRef::Primitive(prim.clone()), Language::Gleam, TEST_PREFIX),
-                *expected,
-                "Gleam primitive {prim:?}"
             );
         }
     }

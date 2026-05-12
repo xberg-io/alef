@@ -10,9 +10,9 @@
 ///
 /// # Coverage
 ///
-/// All 42 `HtmlVisitor` trait methods are covered. The callback struct field
-/// order matches the Go binding's expected layout exactly (see
-/// `packages/go/v3/htmltomarkdown/visitor.go`).
+/// All `HtmlVisitor` trait methods are covered. The callback struct field
+/// order matches the trait definition order (and therefore the Go binding's
+/// expected layout).
 use heck::ToPascalCase;
 
 /// The integer codes that map to `VisitResult` variants crossing the FFI boundary.
@@ -39,244 +39,107 @@ pub const VISIT_RESULT_ERROR: i32 = 4;
 /// prefix that every callback shares).
 enum ParamKind {
     /// Required `*const c_char` — converted from `&str` via `CString::new`.
-    Str(&'static str),
+    Str(String),
     /// Optional `*const c_char` — converted from `Option<&str>` via `opt_str_to_c`.
-    OptStr(&'static str),
+    OptStr(String),
     /// `i32` — converted from `bool` via `i32::from`.
-    Bool(&'static str),
+    Bool(String),
     /// `u32` — passed through directly.
-    U32(&'static str),
+    U32(String),
     /// `usize` — passed through directly.
-    Usize(&'static str),
+    Usize(String),
     /// `*const *const c_char` + `usize` (cell_count) — special for table rows.
-    CellSlice(&'static str),
+    CellSlice(String),
 }
 
 /// Specification for one visitor callback.
 struct CallbackSpec {
-    name: &'static str,
-    doc: &'static str,
-    params: &'static [ParamKind],
+    name: String,
+    doc: String,
+    params: Vec<ParamKind>,
 }
 
-/// All 40 callback specifications, in **exact field order** for Go ABI compatibility.
+/// Build a `Vec<CallbackSpec>` from a trait's IR definition for the FFI backend.
 ///
-/// CRITICAL: Do not reorder these entries. The field order in the generated
-/// `#[repr(C)]` struct must match the Go binding layout.
-const CALLBACKS: &[CallbackSpec] = &[
-    CallbackSpec {
-        name: "visit_text",
-        doc: "Visit text nodes.",
-        params: &[ParamKind::Str("text")],
-    },
-    CallbackSpec {
-        name: "visit_element_start",
-        doc: "Called before entering any element.",
-        params: &[],
-    },
-    CallbackSpec {
-        name: "visit_element_end",
-        doc: "Called after exiting any element; receives the default markdown output.",
-        params: &[ParamKind::Str("output")],
-    },
-    CallbackSpec {
-        name: "visit_link",
-        doc: "Visit anchor links `<a href=\"...\">`.\\n    ///\\n    /// `title` may be null.",
-        params: &[
-            ParamKind::Str("href"),
-            ParamKind::Str("text"),
-            ParamKind::OptStr("title"),
-        ],
-    },
-    CallbackSpec {
-        name: "visit_image",
-        doc: "Visit images `<img src=\"...\">`.\\n    ///\\n    /// `title` may be null.",
-        params: &[ParamKind::Str("src"), ParamKind::Str("alt"), ParamKind::OptStr("title")],
-    },
-    CallbackSpec {
-        name: "visit_heading",
-        doc: "Visit heading elements `<h1>`\\u{2013}`<h6>`.\\n    ///\\n    /// `id` may be null.",
-        params: &[ParamKind::U32("level"), ParamKind::Str("text"), ParamKind::OptStr("id")],
-    },
-    CallbackSpec {
-        name: "visit_code_block",
-        doc: "Visit code blocks `<pre><code>`.\\n    ///\\n    /// `lang` may be null.",
-        params: &[ParamKind::OptStr("lang"), ParamKind::Str("code")],
-    },
-    CallbackSpec {
-        name: "visit_code_inline",
-        doc: "Visit inline code `<code>`.",
-        params: &[ParamKind::Str("code")],
-    },
-    CallbackSpec {
-        name: "visit_list_item",
-        doc: "Visit list items `<li>`.",
-        params: &[
-            ParamKind::Bool("ordered"),
-            ParamKind::Str("marker"),
-            ParamKind::Str("text"),
-        ],
-    },
-    CallbackSpec {
-        name: "visit_list_start",
-        doc: "Called before processing a list `<ul>` or `<ol>`.",
-        params: &[ParamKind::Bool("ordered")],
-    },
-    CallbackSpec {
-        name: "visit_list_end",
-        doc: "Called after processing a list `</ul>` or `</ol>`.",
-        params: &[ParamKind::Bool("ordered"), ParamKind::Str("output")],
-    },
-    CallbackSpec {
-        name: "visit_table_start",
-        doc: "Called before processing a table `<table>`.",
-        params: &[],
-    },
-    CallbackSpec {
-        name: "visit_table_row",
-        doc: "Visit table rows `<tr>`.\\n    ///\\n    /// Cells are passed as a null-terminated array of null-terminated strings.",
-        params: &[ParamKind::CellSlice("cells"), ParamKind::Bool("is_header")],
-    },
-    CallbackSpec {
-        name: "visit_table_end",
-        doc: "Called after processing a table `</table>`.",
-        params: &[ParamKind::Str("output")],
-    },
-    CallbackSpec {
-        name: "visit_blockquote",
-        doc: "Visit blockquote elements `<blockquote>`.",
-        params: &[ParamKind::Str("content"), ParamKind::Usize("depth")],
-    },
-    CallbackSpec {
-        name: "visit_strong",
-        doc: "Visit strong/bold elements `<strong>`, `<b>`.",
-        params: &[ParamKind::Str("text")],
-    },
-    CallbackSpec {
-        name: "visit_emphasis",
-        doc: "Visit emphasis/italic elements `<em>`, `<i>`.",
-        params: &[ParamKind::Str("text")],
-    },
-    CallbackSpec {
-        name: "visit_strikethrough",
-        doc: "Visit strikethrough elements `<s>`, `<del>`, `<strike>`.",
-        params: &[ParamKind::Str("text")],
-    },
-    CallbackSpec {
-        name: "visit_underline",
-        doc: "Visit underline elements `<u>`, `<ins>`.",
-        params: &[ParamKind::Str("text")],
-    },
-    CallbackSpec {
-        name: "visit_subscript",
-        doc: "Visit subscript elements `<sub>`.",
-        params: &[ParamKind::Str("text")],
-    },
-    CallbackSpec {
-        name: "visit_superscript",
-        doc: "Visit superscript elements `<sup>`.",
-        params: &[ParamKind::Str("text")],
-    },
-    CallbackSpec {
-        name: "visit_mark",
-        doc: "Visit mark/highlight elements `<mark>`.",
-        params: &[ParamKind::Str("text")],
-    },
-    CallbackSpec {
-        name: "visit_line_break",
-        doc: "Visit line break elements `<br>`.",
-        params: &[],
-    },
-    CallbackSpec {
-        name: "visit_horizontal_rule",
-        doc: "Visit horizontal rule elements `<hr>`.",
-        params: &[],
-    },
-    CallbackSpec {
-        name: "visit_custom_element",
-        doc: "Visit custom/unknown elements.",
-        params: &[ParamKind::Str("tag_name"), ParamKind::Str("html")],
-    },
-    CallbackSpec {
-        name: "visit_definition_list_start",
-        doc: "Visit definition list `<dl>`.",
-        params: &[],
-    },
-    CallbackSpec {
-        name: "visit_definition_term",
-        doc: "Visit definition term `<dt>`.",
-        params: &[ParamKind::Str("text")],
-    },
-    CallbackSpec {
-        name: "visit_definition_description",
-        doc: "Visit definition description `<dd>`.",
-        params: &[ParamKind::Str("text")],
-    },
-    CallbackSpec {
-        name: "visit_definition_list_end",
-        doc: "Called after processing a definition list `</dl>`.",
-        params: &[ParamKind::Str("output")],
-    },
-    CallbackSpec {
-        name: "visit_form",
-        doc: "Visit form elements `<form>`.\\n    ///\\n    /// `action` and `method` may be null.",
-        params: &[ParamKind::OptStr("action"), ParamKind::OptStr("method")],
-    },
-    CallbackSpec {
-        name: "visit_input",
-        doc: "Visit input elements `<input>`.\\n    ///\\n    /// `name` and `value` may be null.",
-        params: &[
-            ParamKind::Str("input_type"),
-            ParamKind::OptStr("name"),
-            ParamKind::OptStr("value"),
-        ],
-    },
-    CallbackSpec {
-        name: "visit_button",
-        doc: "Visit button elements `<button>`.",
-        params: &[ParamKind::Str("text")],
-    },
-    CallbackSpec {
-        name: "visit_audio",
-        doc: "Visit audio elements `<audio>`.\\n    ///\\n    /// `src` may be null.",
-        params: &[ParamKind::OptStr("src")],
-    },
-    CallbackSpec {
-        name: "visit_video",
-        doc: "Visit video elements `<video>`.\\n    ///\\n    /// `src` may be null.",
-        params: &[ParamKind::OptStr("src")],
-    },
-    CallbackSpec {
-        name: "visit_iframe",
-        doc: "Visit iframe elements `<iframe>`.\\n    ///\\n    /// `src` may be null.",
-        params: &[ParamKind::OptStr("src")],
-    },
-    CallbackSpec {
-        name: "visit_details",
-        doc: "Visit details elements `<details>`.\\n    ///\\n    /// `open` is non-zero when the `open` attribute is present.",
-        params: &[ParamKind::Bool("open")],
-    },
-    CallbackSpec {
-        name: "visit_summary",
-        doc: "Visit summary elements `<summary>`.",
-        params: &[ParamKind::Str("text")],
-    },
-    CallbackSpec {
-        name: "visit_figure_start",
-        doc: "Called before processing a figure `<figure>`.",
-        params: &[],
-    },
-    CallbackSpec {
-        name: "visit_figcaption",
-        doc: "Visit figcaption elements `<figcaption>`.",
-        params: &[ParamKind::Str("text")],
-    },
-    CallbackSpec {
-        name: "visit_figure_end",
-        doc: "Called after processing a figure `</figure>`.",
-        params: &[ParamKind::Str("output")],
-    },
-];
+/// Derives all FFI-specific fields (`ParamKind`) from `TypeRef` + `optional` flag.
+/// Methods with unsupported parameter types are skipped with a warning.
+/// Parameters whose type is `TypeRef::Named(_)` (the context threaded via FFI's
+/// separate channel) are silently skipped — they do not become C parameters.
+pub(crate) fn callback_specs_from_trait(trait_def: &alef_core::ir::TypeDef) -> Vec<CallbackSpec> {
+    use alef_core::ir::{PrimitiveType, TypeRef};
+
+    let mut specs = Vec::with_capacity(trait_def.methods.len());
+    'methods: for m in &trait_def.methods {
+        if m.trait_source.is_some() {
+            continue;
+        }
+        let mut params = Vec::new();
+        for p in &m.params {
+            // Skip the context parameter — it is threaded via FFI's separate channel.
+            if matches!(&p.ty, TypeRef::Named(_)) {
+                continue;
+            }
+            let param_name = p.name.trim_start_matches('_').to_string();
+            match (&p.ty, p.optional) {
+                (TypeRef::String, false) => {
+                    params.push(ParamKind::Str(param_name));
+                }
+                (TypeRef::String, true) => {
+                    params.push(ParamKind::OptStr(param_name));
+                }
+                (TypeRef::Primitive(PrimitiveType::Bool), false) => {
+                    params.push(ParamKind::Bool(param_name));
+                }
+                (
+                    TypeRef::Primitive(
+                        PrimitiveType::U32
+                        | PrimitiveType::I32
+                        | PrimitiveType::U16
+                        | PrimitiveType::I16
+                        | PrimitiveType::U8
+                        | PrimitiveType::I8,
+                    ),
+                    false,
+                ) => {
+                    params.push(ParamKind::U32(param_name));
+                }
+                (
+                    TypeRef::Primitive(
+                        PrimitiveType::Usize | PrimitiveType::U64 | PrimitiveType::I64,
+                    ),
+                    false,
+                ) => {
+                    params.push(ParamKind::Usize(param_name));
+                }
+                (TypeRef::Vec(inner), false) => match inner.as_ref() {
+                    TypeRef::String => {
+                        params.push(ParamKind::CellSlice(param_name));
+                    }
+                    _ => {
+                        eprintln!(
+                            "[alef] gen_visitor(ffi): skip method `{}` — unsupported Vec param `{}`",
+                            m.name, p.name
+                        );
+                        continue 'methods;
+                    }
+                },
+                _ => {
+                    eprintln!(
+                        "[alef] gen_visitor(ffi): skip method `{}` — unsupported param `{}: {:?}`",
+                        m.name, p.name, p.ty
+                    );
+                    continue 'methods;
+                }
+            }
+        }
+        specs.push(CallbackSpec {
+            name: m.name.clone(),
+            doc: m.doc.clone(),
+            params,
+        });
+    }
+    specs
+}
 
 // ---------------------------------------------------------------------------
 // Code-generation helpers — each produces one section of the output
@@ -288,7 +151,7 @@ fn c_param_list(spec: &CallbackSpec, pascal_prefix: &str) -> String {
         format!("ctx: *const {pascal_prefix}NodeContext"),
         "user_data: *mut std::ffi::c_void".to_string(),
     ];
-    for p in spec.params {
+    for p in &spec.params {
         match p {
             ParamKind::Str(n) | ParamKind::OptStr(n) => {
                 parts.push(format!("{n}: *const std::ffi::c_char"));
@@ -328,10 +191,10 @@ fn format_doc_comment(doc: &str) -> String {
 }
 
 /// Generate all `Option<unsafe extern "C" fn(...)>` struct fields.
-fn gen_struct_fields(pascal_prefix: &str) -> String {
+fn gen_struct_fields(specs: &[CallbackSpec], pascal_prefix: &str) -> String {
     let mut out = String::new();
-    for spec in CALLBACKS {
-        let doc_lines = format_doc_comment(spec.doc);
+    for spec in specs {
+        let doc_lines = format_doc_comment(&spec.doc);
         out.push_str(&crate::template_env::render("formatted_line.jinja", minijinja::context! { content => format!("\n{doc_lines}\n    pub {name}: Option<\n        unsafe extern \"C\" fn(\n            {params}\n        ) -> i32,\n    >,\n", doc_lines = doc_lines, name = spec.name, params = c_param_list(spec, pascal_prefix)) }));
     }
     out
@@ -343,7 +206,7 @@ fn rust_param_list(spec: &CallbackSpec, core_import: &str) -> String {
         "&mut self".to_string(),
         format!("ctx: &{core_import}::visitor::NodeContext"),
     ];
-    for p in spec.params {
+    for p in &spec.params {
         match p {
             ParamKind::Str(n) => parts.push(format!("{n}: &str")),
             ParamKind::OptStr(n) => parts.push(format!("{n}: Option<&str>")),
@@ -364,7 +227,7 @@ fn gen_impl_body(spec: &CallbackSpec, core_import: &str) -> String {
     let mut bindings = String::new();
     let mut cb_args = Vec::new();
 
-    for p in spec.params {
+    for p in &spec.params {
         match p {
             ParamKind::Str(n) => {
                 bindings.push_str(&crate::template_env::render("formatted_line.jinja", minijinja::context! { content => format!("        let {n}_cs = match std::ffi::CString::new({n}) {{\n            Ok(s) => s,\n            Err(_) => return {core_import}::visitor::VisitResult::Continue,\n        }};\n") }));
@@ -385,7 +248,7 @@ fn gen_impl_body(spec: &CallbackSpec, core_import: &str) -> String {
                 cb_args.push(format!("{n}_i"));
             }
             ParamKind::U32(n) | ParamKind::Usize(n) => {
-                cb_args.push((*n).to_string());
+                cb_args.push(n.clone());
             }
             ParamKind::CellSlice(n) => {
                 bindings.push_str(&crate::template_env::render("formatted_line.jinja", minijinja::context! { content => format!("        let {n}_cstrings: Vec<std::ffi::CString> = {n}\n            .iter()\n            .filter_map(|s| std::ffi::CString::new(s.as_str()).ok())\n            .collect();\n        let {n}_ptrs: Vec<*const std::ffi::c_char> =\n            {n}_cstrings.iter().map(|cs| cs.as_ptr()).collect();\n        let cell_count = {n}_ptrs.len();\n") }));
@@ -408,9 +271,9 @@ fn gen_impl_body(spec: &CallbackSpec, core_import: &str) -> String {
 }
 
 /// Generate all `impl HtmlVisitor` methods.
-fn gen_impl_methods(pascal_prefix: &str, core_import: &str) -> String {
+fn gen_impl_methods(specs: &[CallbackSpec], pascal_prefix: &str, core_import: &str) -> String {
     let mut out = String::new();
-    for spec in CALLBACKS {
+    for spec in specs {
         out.push_str(&crate::template_env::render("formatted_line.jinja", minijinja::context! { content => format!("\n    fn {name}(\n        {params}\n    ) -> {core_import}::visitor::VisitResult {{\n{body}\n    }}\n", name = spec.name, params = rust_param_list(spec, core_import), body = gen_impl_body(spec, core_import)) }));
     }
     // Close the impl block — caller opens it.
@@ -421,29 +284,29 @@ fn gen_impl_methods(pascal_prefix: &str, core_import: &str) -> String {
 /// Build the forwarding argument list for `VisitorRef` delegation.
 fn visitor_ref_args(spec: &CallbackSpec) -> String {
     let mut args = vec!["ctx".to_string()];
-    for p in spec.params {
+    for p in &spec.params {
         match p {
             ParamKind::Str(n)
             | ParamKind::OptStr(n)
             | ParamKind::Bool(n)
             | ParamKind::U32(n)
             | ParamKind::Usize(n)
-            | ParamKind::CellSlice(n) => args.push((*n).to_string()),
+            | ParamKind::CellSlice(n) => args.push(n.clone()),
         }
     }
     args.join(", ")
 }
 
 /// Generate all `VisitorRef` forwarding methods.
-fn gen_visitor_ref_methods(core_import: &str) -> String {
+fn gen_visitor_ref_methods(specs: &[CallbackSpec], core_import: &str) -> String {
     let mut out = String::new();
-    for spec in CALLBACKS {
+    for spec in specs {
         let params = rust_param_list(spec, core_import);
         let args = visitor_ref_args(spec);
         out.push_str(&crate::template_env::render(
             "vtable_delegation_method.jinja",
             minijinja::context! {
-                method_name => spec.name,
+                method_name => spec.name.as_str(),
                 all_params => params,
                 ret => format!("{}::visitor::VisitResult", core_import),
                 arg_list => args,
@@ -463,12 +326,19 @@ fn gen_visitor_ref_methods(core_import: &str) -> String {
 ///   embeds the visitor in `options.visitor` before calling the 2-argument `convert(html,
 ///   options)`.  Set `true` for the OptionsField bridge pattern; `false` for the legacy
 ///   FunctionParam pattern where `convert` takes a third visitor argument directly.
-pub fn gen_visitor_bindings(prefix: &str, core_import: &str, embed_visitor_in_options: bool) -> String {
+/// - `trait_def`: the IR `TypeDef` for the visitor trait, used to derive callback specs.
+pub fn gen_visitor_bindings(
+    prefix: &str,
+    core_import: &str,
+    embed_visitor_in_options: bool,
+    trait_def: &alef_core::ir::TypeDef,
+) -> String {
     let pascal_prefix = prefix.to_pascal_case();
+    let specs = callback_specs_from_trait(trait_def);
 
-    let struct_fields = gen_struct_fields(&pascal_prefix);
-    let impl_methods = gen_impl_methods(&pascal_prefix, core_import);
-    let visitor_ref_methods = gen_visitor_ref_methods(core_import);
+    let struct_fields = gen_struct_fields(&specs, &pascal_prefix);
+    let impl_methods = gen_impl_methods(&specs, &pascal_prefix, core_import);
+    let visitor_ref_methods = gen_visitor_ref_methods(&specs, core_import);
 
     // Build the convert expression for {prefix}_convert_with_visitor.
     let convert_call = if embed_visitor_in_options {

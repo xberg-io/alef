@@ -143,12 +143,6 @@ pub(crate) fn default_setup_config(lang: Language, output_dir: &str, ctx: &LangC
             install: Some(StringOrVec::Single("dart pub get".to_string())),
             timeout_seconds: 600,
         },
-        Language::Gleam => SetupConfig {
-            precondition: Some(require_tool("gleam")),
-            before: None,
-            install: Some(StringOrVec::Single("gleam deps download".to_string())),
-            timeout_seconds: 600,
-        },
         Language::Zig => SetupConfig {
             precondition: Some(require_tool("zig")),
             before: None,
@@ -180,7 +174,6 @@ mod tests {
             Language::Kotlin,
             Language::Swift,
             Language::Dart,
-            Language::Gleam,
             Language::Zig,
         ]
     }

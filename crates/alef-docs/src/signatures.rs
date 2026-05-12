@@ -16,7 +16,7 @@ pub(crate) fn render_function_signature(func: &FunctionDef, lang: Language, ffi_
         Language::R => render_r_fn_sig(func),
         Language::Csharp => render_csharp_fn_sig(func, ffi_prefix),
         Language::Rust => render_rust_fn_sig(func, ffi_prefix),
-        Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => {
+        Language::Kotlin | Language::Swift | Language::Dart | Language::Zig => {
             format!("// Phase 1: {lang} backend signature generation")
         }
     }
@@ -464,7 +464,7 @@ pub(crate) fn render_method_signature(
                 }
             }
         }
-        Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => {
+        Language::Kotlin | Language::Swift | Language::Dart | Language::Zig => {
             format!("// Phase 1: {lang} backend method signature generation")
         }
     }

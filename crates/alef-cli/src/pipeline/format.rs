@@ -206,13 +206,6 @@ fn get_default_formatter(config: &ResolvedCrateConfig, lang: Language) -> Option
             }],
             work_dir: "packages/dart/".to_owned(),
         }),
-        Language::Gleam => Some(FormatterSpec {
-            commands: vec![FormatterCommand {
-                command: "gleam".to_owned(),
-                args: vec!["format".to_owned()],
-            }],
-            work_dir: "packages/gleam/".to_owned(),
-        }),
         Language::Zig => Some(FormatterSpec {
             commands: vec![FormatterCommand {
                 command: "zig".to_owned(),

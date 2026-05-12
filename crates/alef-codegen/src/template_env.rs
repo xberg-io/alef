@@ -42,10 +42,6 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/doc_emission/dartdoc.jinja"),
     ),
     (
-        "doc_emission/gleam_doc.jinja",
-        include_str!("../templates/doc_emission/gleam_doc.jinja"),
-    ),
-    (
         "doc_emission/zig_doc.jinja",
         include_str!("../templates/doc_emission/zig_doc.jinja"),
     ),

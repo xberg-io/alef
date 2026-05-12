@@ -27,7 +27,6 @@ alef-backend-csharp = { workspace = true }
 alef-backend-dart = { workspace = true }
 alef-backend-extendr = { workspace = true }
 alef-backend-ffi = { workspace = true }
-alef-backend-gleam = { workspace = true }
 alef-backend-go = { workspace = true }
 alef-backend-java = { workspace = true }
 alef-backend-kotlin = { workspace = true }

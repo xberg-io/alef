@@ -231,16 +231,6 @@ pub(crate) fn default_test_config(lang: Language, output_dir: &str, ctx: &LangCo
                 coverage: Some(StringOrVec::Single(cmd)),
             }
         }
-        Language::Gleam => {
-            let cmd = wrap(format!("cd {output_dir} && gleam test"), ctx.run_wrapper);
-            TestConfig {
-                precondition: Some(require_tool("gleam")),
-                before: None,
-                command: Some(StringOrVec::Single(cmd.clone())),
-                e2e: None,
-                coverage: Some(StringOrVec::Single(cmd)),
-            }
-        }
         Language::Zig => {
             let cmd = wrap(format!("cd {output_dir} && zig build test"), ctx.run_wrapper);
             TestConfig {
@@ -276,7 +266,6 @@ mod tests {
             Language::Kotlin,
             Language::Swift,
             Language::Dart,
-            Language::Gleam,
             Language::Zig,
         ]
     }
@@ -445,17 +434,6 @@ mod tests {
         let cmd = c.command.unwrap().commands().join(" ");
         assert!(cmd.contains("dart test"), "Dart test should use dart test, got: {cmd}");
         assert_eq!(c.precondition.as_deref(), Some("command -v dart >/dev/null 2>&1"));
-    }
-
-    #[test]
-    fn gleam_uses_gleam_test() {
-        let c = cfg(Language::Gleam, "packages/gleam");
-        let cmd = c.command.unwrap().commands().join(" ");
-        assert!(
-            cmd.contains("gleam test"),
-            "Gleam test should use gleam test, got: {cmd}"
-        );
-        assert_eq!(c.precondition.as_deref(), Some("command -v gleam >/dev/null 2>&1"));
     }
 
     #[test]

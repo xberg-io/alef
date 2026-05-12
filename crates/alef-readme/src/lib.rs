@@ -1,6 +1,5 @@
 //! README generator for alef.
 
-use alef_backend_gleam::naming::{gleam_app_name, gleam_nif_module};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::{Language, ResolvedCrateConfig};
 use alef_core::ir::ApiSurface;
@@ -285,7 +284,6 @@ fn lang_dir_name(lang: Language) -> &'static str {
         Language::Kotlin => "kotlin",
         Language::Swift => "swift",
         Language::Dart => "dart",
-        Language::Gleam => "gleam",
         Language::Zig => "zig",
         Language::C => "c",
     }
@@ -309,7 +307,6 @@ fn lang_code(lang: Language) -> &'static str {
         Language::Kotlin => "kotlin",
         Language::Swift => "swift",
         Language::Dart => "dart",
-        Language::Gleam => "gleam",
         Language::Zig => "zig",
         Language::C => "c",
     }
@@ -683,18 +680,6 @@ fn generate_readme_hardcoded(
             "```dart\n// Phase 2: Dart bindings via flutter_rust_bridge. Skeleton only.\n```".to_string(),
             "dart",
         ),
-        Language::Gleam => {
-            let app = gleam_app_name(config);
-            (
-                "Gleam",
-                format!("```sh\ngleam add {app}\n```"),
-                format!(
-                    "```gleam\nimport {app}\n\n// Call functions exported by the generated module.\n// The NIF is loaded via `@external(erlang, \"{}\", ...)`.\n```",
-                    gleam_nif_module(config)
-                ),
-                "gleam",
-            )
-        }
         Language::C | Language::Zig => {
             let module = config.zig_module_name();
             (

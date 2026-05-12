@@ -20,7 +20,6 @@ pub fn get_backend(lang: Language) -> Box<dyn Backend> {
         Language::Kotlin => Box::new(alef_backend_kotlin::KotlinBackend),
         Language::Swift => Box::new(alef_backend_swift::SwiftBackend),
         Language::Dart => Box::new(alef_backend_dart::DartBackend),
-        Language::Gleam => Box::new(alef_backend_gleam::GleamBackend),
         Language::Zig => Box::new(alef_backend_zig::ZigBackend),
     }
 }

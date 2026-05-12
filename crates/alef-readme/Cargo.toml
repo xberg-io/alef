@@ -10,7 +10,6 @@ repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
-alef-backend-gleam = { workspace = true }
 alef-core = { workspace = true }
 anyhow = { workspace = true }
 heck = { workspace = true }

@@ -578,13 +578,33 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
         // {prefix}_options_set_visitor_handle), so there is no symbol collision with the
         // OptionsField convert generated above.
         if visitor_callbacks_enabled {
-            builder.add_item(&crate::gen_visitor::gen_visitor_bindings(prefix, &core_import, true));
+            // Use the first OptionsField bridge's trait to drive callback spec generation.
+            let visitor_trait_def = config
+                .trait_bridges
+                .iter()
+                .filter(|b| b.bind_via == alef_core::config::BridgeBinding::OptionsField)
+                .find_map(|b| trait_map.get(b.trait_name.as_str()).copied());
+            if let Some(vtd) = visitor_trait_def {
+                builder.add_item(&crate::gen_visitor::gen_visitor_bindings(prefix, &core_import, true, vtd));
+            } else {
+                eprintln!(
+                    "[alef] gen_visitor_bindings(ffi): visitor_callbacks=true but no OptionsField trait found in IR, skipping visitor callbacks"
+                );
+            }
         }
     } else if visitor_callbacks_enabled {
         // Legacy FunctionParam path: emit the real {prefix}_convert (no-visitor) and then
         // the visitor bindings with {prefix}_options_set_visitor_handle.
-        builder.add_item(&crate::gen_visitor::gen_convert_no_visitor(prefix, &core_import));
-        builder.add_item(&crate::gen_visitor::gen_visitor_bindings(prefix, &core_import, false));
+        // Use the first is_trait type in the IR to drive callback spec generation.
+        let visitor_trait_def = api.types.iter().find(|t| t.is_trait);
+        if let Some(vtd) = visitor_trait_def {
+            builder.add_item(&crate::gen_visitor::gen_convert_no_visitor(prefix, &core_import));
+            builder.add_item(&crate::gen_visitor::gen_visitor_bindings(prefix, &core_import, false, vtd));
+        } else {
+            eprintln!(
+                "[alef] gen_visitor_bindings(ffi): visitor_callbacks=true but no trait type found in IR, skipping visitor callbacks"
+            );
+        }
     }
 
     // Plugin bridge support — vtable + user_data pattern for each [[trait_bridges]] entry.
@@ -824,6 +844,368 @@ visitor_callbacks = true
         }
     }
 
+    /// Like `sample_api()` but includes an `HtmlVisitor` trait with representative methods.
+    ///
+    /// Use this for tests that exercise visitor callback generation.  The methods cover each
+    /// `ParamKind` variant: Str, OptStr, Bool, U32, Usize, CellSlice, and no-params.
+    fn visitor_api() -> ApiSurface {
+        let mut api = sample_api();
+        api.types.push(TypeDef {
+            name: "HtmlVisitor".to_string(),
+            rust_path: "my_lib::visitor::HtmlVisitor".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![
+                MethodDef {
+                    name: "visit_text".to_string(),
+                    params: vec![
+                        ParamDef {
+                            name: "ctx".to_string(),
+                            ty: TypeRef::Named("NodeContext".to_string()),
+                            optional: false,
+                            default: None,
+                            sanitized: false,
+                            typed_default: None,
+                            is_ref: true,
+                            is_mut: false,
+                            newtype_wrapper: None,
+                            original_type: None,
+                        },
+                        ParamDef {
+                            name: "text".to_string(),
+                            ty: TypeRef::String,
+                            optional: false,
+                            default: None,
+                            sanitized: false,
+                            typed_default: None,
+                            is_ref: true,
+                            is_mut: false,
+                            newtype_wrapper: None,
+                            original_type: None,
+                        },
+                    ],
+                    return_type: TypeRef::Named("VisitResult".to_string()),
+                    is_async: false,
+                    is_static: false,
+                    error_type: None,
+                    doc: "Visit text nodes.".to_string(),
+                    receiver: Some(alef_core::ir::ReceiverKind::RefMut),
+                    sanitized: false,
+                    trait_source: None,
+                    returns_ref: false,
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    has_default_impl: false,
+                },
+                MethodDef {
+                    name: "visit_element_start".to_string(),
+                    params: vec![ParamDef {
+                        name: "ctx".to_string(),
+                        ty: TypeRef::Named("NodeContext".to_string()),
+                        optional: false,
+                        default: None,
+                        sanitized: false,
+                        typed_default: None,
+                        is_ref: true,
+                        is_mut: false,
+                        newtype_wrapper: None,
+                        original_type: None,
+                    }],
+                    return_type: TypeRef::Named("VisitResult".to_string()),
+                    is_async: false,
+                    is_static: false,
+                    error_type: None,
+                    doc: "Called before entering any element.".to_string(),
+                    receiver: Some(alef_core::ir::ReceiverKind::RefMut),
+                    sanitized: false,
+                    trait_source: None,
+                    returns_ref: false,
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    has_default_impl: false,
+                },
+                MethodDef {
+                    name: "visit_link".to_string(),
+                    params: vec![
+                        ParamDef {
+                            name: "ctx".to_string(),
+                            ty: TypeRef::Named("NodeContext".to_string()),
+                            optional: false,
+                            default: None,
+                            sanitized: false,
+                            typed_default: None,
+                            is_ref: true,
+                            is_mut: false,
+                            newtype_wrapper: None,
+                            original_type: None,
+                        },
+                        ParamDef {
+                            name: "href".to_string(),
+                            ty: TypeRef::String,
+                            optional: false,
+                            default: None,
+                            sanitized: false,
+                            typed_default: None,
+                            is_ref: true,
+                            is_mut: false,
+                            newtype_wrapper: None,
+                            original_type: None,
+                        },
+                        ParamDef {
+                            name: "title".to_string(),
+                            ty: TypeRef::String,
+                            optional: true,
+                            default: None,
+                            sanitized: false,
+                            typed_default: None,
+                            is_ref: true,
+                            is_mut: false,
+                            newtype_wrapper: None,
+                            original_type: None,
+                        },
+                    ],
+                    return_type: TypeRef::Named("VisitResult".to_string()),
+                    is_async: false,
+                    is_static: false,
+                    error_type: None,
+                    doc: "Visit anchor links.".to_string(),
+                    receiver: Some(alef_core::ir::ReceiverKind::RefMut),
+                    sanitized: false,
+                    trait_source: None,
+                    returns_ref: false,
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    has_default_impl: false,
+                },
+                MethodDef {
+                    name: "visit_heading".to_string(),
+                    params: vec![
+                        ParamDef {
+                            name: "ctx".to_string(),
+                            ty: TypeRef::Named("NodeContext".to_string()),
+                            optional: false,
+                            default: None,
+                            sanitized: false,
+                            typed_default: None,
+                            is_ref: true,
+                            is_mut: false,
+                            newtype_wrapper: None,
+                            original_type: None,
+                        },
+                        ParamDef {
+                            name: "level".to_string(),
+                            ty: TypeRef::Primitive(PrimitiveType::U32),
+                            optional: false,
+                            default: None,
+                            sanitized: false,
+                            typed_default: None,
+                            is_ref: false,
+                            is_mut: false,
+                            newtype_wrapper: None,
+                            original_type: None,
+                        },
+                        ParamDef {
+                            name: "text".to_string(),
+                            ty: TypeRef::String,
+                            optional: false,
+                            default: None,
+                            sanitized: false,
+                            typed_default: None,
+                            is_ref: true,
+                            is_mut: false,
+                            newtype_wrapper: None,
+                            original_type: None,
+                        },
+                    ],
+                    return_type: TypeRef::Named("VisitResult".to_string()),
+                    is_async: false,
+                    is_static: false,
+                    error_type: None,
+                    doc: "Visit heading elements.".to_string(),
+                    receiver: Some(alef_core::ir::ReceiverKind::RefMut),
+                    sanitized: false,
+                    trait_source: None,
+                    returns_ref: false,
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    has_default_impl: false,
+                },
+                MethodDef {
+                    name: "visit_blockquote".to_string(),
+                    params: vec![
+                        ParamDef {
+                            name: "ctx".to_string(),
+                            ty: TypeRef::Named("NodeContext".to_string()),
+                            optional: false,
+                            default: None,
+                            sanitized: false,
+                            typed_default: None,
+                            is_ref: true,
+                            is_mut: false,
+                            newtype_wrapper: None,
+                            original_type: None,
+                        },
+                        ParamDef {
+                            name: "content".to_string(),
+                            ty: TypeRef::String,
+                            optional: false,
+                            default: None,
+                            sanitized: false,
+                            typed_default: None,
+                            is_ref: true,
+                            is_mut: false,
+                            newtype_wrapper: None,
+                            original_type: None,
+                        },
+                        ParamDef {
+                            name: "depth".to_string(),
+                            ty: TypeRef::Primitive(PrimitiveType::Usize),
+                            optional: false,
+                            default: None,
+                            sanitized: false,
+                            typed_default: None,
+                            is_ref: false,
+                            is_mut: false,
+                            newtype_wrapper: None,
+                            original_type: None,
+                        },
+                    ],
+                    return_type: TypeRef::Named("VisitResult".to_string()),
+                    is_async: false,
+                    is_static: false,
+                    error_type: None,
+                    doc: "Visit blockquote elements.".to_string(),
+                    receiver: Some(alef_core::ir::ReceiverKind::RefMut),
+                    sanitized: false,
+                    trait_source: None,
+                    returns_ref: false,
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    has_default_impl: false,
+                },
+                MethodDef {
+                    name: "visit_list_item".to_string(),
+                    params: vec![
+                        ParamDef {
+                            name: "ctx".to_string(),
+                            ty: TypeRef::Named("NodeContext".to_string()),
+                            optional: false,
+                            default: None,
+                            sanitized: false,
+                            typed_default: None,
+                            is_ref: true,
+                            is_mut: false,
+                            newtype_wrapper: None,
+                            original_type: None,
+                        },
+                        ParamDef {
+                            name: "ordered".to_string(),
+                            ty: TypeRef::Primitive(PrimitiveType::Bool),
+                            optional: false,
+                            default: None,
+                            sanitized: false,
+                            typed_default: None,
+                            is_ref: false,
+                            is_mut: false,
+                            newtype_wrapper: None,
+                            original_type: None,
+                        },
+                        ParamDef {
+                            name: "text".to_string(),
+                            ty: TypeRef::String,
+                            optional: false,
+                            default: None,
+                            sanitized: false,
+                            typed_default: None,
+                            is_ref: true,
+                            is_mut: false,
+                            newtype_wrapper: None,
+                            original_type: None,
+                        },
+                    ],
+                    return_type: TypeRef::Named("VisitResult".to_string()),
+                    is_async: false,
+                    is_static: false,
+                    error_type: None,
+                    doc: "Visit list items.".to_string(),
+                    receiver: Some(alef_core::ir::ReceiverKind::RefMut),
+                    sanitized: false,
+                    trait_source: None,
+                    returns_ref: false,
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    has_default_impl: false,
+                },
+                MethodDef {
+                    name: "visit_table_row".to_string(),
+                    params: vec![
+                        ParamDef {
+                            name: "ctx".to_string(),
+                            ty: TypeRef::Named("NodeContext".to_string()),
+                            optional: false,
+                            default: None,
+                            sanitized: false,
+                            typed_default: None,
+                            is_ref: true,
+                            is_mut: false,
+                            newtype_wrapper: None,
+                            original_type: None,
+                        },
+                        ParamDef {
+                            name: "cells".to_string(),
+                            ty: TypeRef::Vec(Box::new(TypeRef::String)),
+                            optional: false,
+                            default: None,
+                            sanitized: false,
+                            typed_default: None,
+                            is_ref: true,
+                            is_mut: false,
+                            newtype_wrapper: None,
+                            original_type: None,
+                        },
+                        ParamDef {
+                            name: "is_header".to_string(),
+                            ty: TypeRef::Primitive(PrimitiveType::Bool),
+                            optional: false,
+                            default: None,
+                            sanitized: false,
+                            typed_default: None,
+                            is_ref: false,
+                            is_mut: false,
+                            newtype_wrapper: None,
+                            original_type: None,
+                        },
+                    ],
+                    return_type: TypeRef::Named("VisitResult".to_string()),
+                    is_async: false,
+                    is_static: false,
+                    error_type: None,
+                    doc: "Visit table rows.".to_string(),
+                    receiver: Some(alef_core::ir::ReceiverKind::RefMut),
+                    sanitized: false,
+                    trait_source: None,
+                    returns_ref: false,
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    has_default_impl: false,
+                },
+            ],
+            is_opaque: false,
+            is_clone: false,
+            is_copy: false,
+            is_trait: true,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: "HTML visitor trait.".to_string(),
+            cfg: None,
+        });
+        api
+    }
+
     fn sample_config() -> ResolvedCrateConfig {
         resolved_one(
             r#"
@@ -1056,7 +1438,7 @@ header_name = "mylib.h"
 
     #[test]
     fn test_visitor_callbacks_enabled() {
-        let api = sample_api();
+        let api = visitor_api();
         let config = visitor_config_htm();
         let backend = FfiBackend;
 
@@ -1085,7 +1467,7 @@ header_name = "mylib.h"
 
     #[test]
     fn test_visitor_callbacks_visitor_handle_struct() {
-        let api = sample_api();
+        let api = visitor_api();
         let config = visitor_config_htm();
         let backend = FfiBackend;
 
@@ -1100,37 +1482,26 @@ header_name = "mylib.h"
 
     #[test]
     fn test_visitor_callbacks_callback_fields() {
-        let api = sample_api();
+        let api = visitor_api();
         let config = visitor_config_htm();
         let backend = FfiBackend;
 
         let files = backend.generate_bindings(&api, &config).unwrap();
         let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
-        // Some key visitor callback fields (there are 40 total in the visitor module)
+        // Key visitor callback fields generated from the IR trait methods in visitor_api()
         assert!(lib.content.contains("visit_text"));
         assert!(lib.content.contains("visit_element_start"));
-        assert!(lib.content.contains("visit_element_end"));
         assert!(lib.content.contains("visit_link"));
-        assert!(lib.content.contains("visit_image"));
         assert!(lib.content.contains("visit_heading"));
-        assert!(lib.content.contains("visit_code_block"));
-        assert!(lib.content.contains("visit_code_inline"));
-        assert!(lib.content.contains("visit_list_item"));
-        assert!(lib.content.contains("visit_list_start"));
-        assert!(lib.content.contains("visit_list_end"));
-        assert!(lib.content.contains("visit_table_start"));
-        assert!(lib.content.contains("visit_table_row"));
-        assert!(lib.content.contains("visit_table_end"));
         assert!(lib.content.contains("visit_blockquote"));
-        assert!(lib.content.contains("visit_strong"));
-        assert!(lib.content.contains("visit_emphasis"));
-        assert!(lib.content.contains("visit_strikethrough"));
+        assert!(lib.content.contains("visit_list_item"));
+        assert!(lib.content.contains("visit_table_row"));
     }
 
     #[test]
     fn test_visitor_callbacks_ffi_functions() {
-        let api = sample_api();
+        let api = visitor_api();
         let config = visitor_config_htm();
         let backend = FfiBackend;
 
@@ -1150,7 +1521,7 @@ header_name = "mylib.h"
 
     #[test]
     fn test_visitor_callbacks_callback_signatures() {
-        let api = sample_api();
+        let api = visitor_api();
         let config = visitor_config_htm();
         let backend = FfiBackend;
 
@@ -1170,7 +1541,7 @@ header_name = "mylib.h"
 
     #[test]
     fn test_visitor_callbacks_custom_prefix() {
-        let api = sample_api();
+        let api = visitor_api();
         let config = visitor_config_ml();
         let backend = FfiBackend;
 
@@ -1189,7 +1560,7 @@ header_name = "mylib.h"
 
     #[test]
     fn test_visitor_callbacks_visitor_ref_wrapper() {
-        let api = sample_api();
+        let api = visitor_api();
         let config = visitor_config_htm();
         let backend = FfiBackend;
 
@@ -1205,7 +1576,7 @@ header_name = "mylib.h"
 
     #[test]
     fn test_visitor_callbacks_safety_comments() {
-        let api = sample_api();
+        let api = visitor_api();
         let config = visitor_config_htm();
         let backend = FfiBackend;
 
@@ -1220,7 +1591,7 @@ header_name = "mylib.h"
 
     #[test]
     fn test_visitor_callbacks_decode_visit_result() {
-        let api = sample_api();
+        let api = visitor_api();
         let config = visitor_config_htm();
         let backend = FfiBackend;
 
@@ -1237,7 +1608,7 @@ header_name = "mylib.h"
 
     #[test]
     fn test_visitor_callbacks_call_with_ctx() {
-        let api = sample_api();
+        let api = visitor_api();
         let config = visitor_config_htm();
         let backend = FfiBackend;
 
@@ -1253,7 +1624,7 @@ header_name = "mylib.h"
 
     #[test]
     fn test_visitor_callbacks_opt_str_to_c() {
-        let api = sample_api();
+        let api = visitor_api();
         let config = visitor_config_htm();
         let backend = FfiBackend;
 
@@ -1266,7 +1637,7 @@ header_name = "mylib.h"
 
     #[test]
     fn test_visitor_callbacks_repr_c() {
-        let api = sample_api();
+        let api = visitor_api();
         let config = visitor_config_htm();
         let backend = FfiBackend;
 
@@ -1279,7 +1650,7 @@ header_name = "mylib.h"
 
     #[test]
     fn test_visitor_callbacks_send_impl() {
-        let api = sample_api();
+        let api = visitor_api();
         let config = visitor_config_htm();
         let backend = FfiBackend;
 
@@ -1508,7 +1879,7 @@ bind_via = "options_field"
 options_type = "ConversionOptions"
 "#,
         );
-        let api = sample_api();
+        let api = visitor_api();
         let backend = FfiBackend;
 
         let files = backend.generate_bindings(&api, &config).unwrap();

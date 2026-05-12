@@ -1443,51 +1443,6 @@ fn test_scaffold_kotlin() {
 }
 
 #[test]
-fn test_scaffold_gleam() {
-    let config = test_config();
-    let api = test_api();
-    let all_files = scaffold(&api, &config, &[Language::Gleam]).unwrap();
-    let files = language_files(&all_files);
-    // gleam.toml + manifest.toml + .gitignore + test + .editorconfig + README.md + example + gleam.yml
-    assert_eq!(files.len(), 8, "Expected 8 files for Gleam scaffold");
-
-    let gleam_toml = &files[0];
-    assert_eq!(gleam_toml.path, PathBuf::from("packages/gleam/gleam.toml"));
-    assert!(
-        gleam_toml.content.contains("description"),
-        "gleam.toml should include description"
-    );
-    assert!(
-        gleam_toml.content.contains("licences = [\"MIT\"]"),
-        "gleam.toml should include licences"
-    );
-
-    let manifest = &files[1];
-    assert_eq!(manifest.path, PathBuf::from("packages/gleam/manifest.toml"));
-
-    let gitignore = &files[2];
-    assert_eq!(gitignore.path, PathBuf::from("packages/gleam/.gitignore"));
-    assert!(gitignore.content.contains("build/"));
-
-    assert!(files[3].path.to_string_lossy().ends_with("_test.gleam"));
-
-    let editorconfig = &files[4];
-    assert_eq!(editorconfig.path, PathBuf::from("packages/gleam/.editorconfig"));
-    assert!(editorconfig.content.contains("*.gleam"));
-
-    let readme = &files[5];
-    assert_eq!(readme.path, PathBuf::from("packages/gleam/README.md"));
-    assert!(readme.content.contains("gleam build"));
-
-    assert!(files[6].path.to_string_lossy().ends_with("_example.gleam"));
-    assert!(files[6].content.contains("Nil"));
-
-    let workflow = &files[7];
-    assert_eq!(workflow.path, PathBuf::from(".github/workflows/gleam.yml"));
-    assert!(workflow.content.contains("erlef/setup-beam"));
-}
-
-#[test]
 fn test_scaffold_zig() {
     let config = test_config();
     let api = test_api();

@@ -6,7 +6,6 @@ members = [
     "crates/alef-backend-dart",
     "crates/alef-backend-extendr",
     "crates/alef-backend-ffi",
-    "crates/alef-backend-gleam",
     "crates/alef-backend-go",
     "crates/alef-backend-java",
     "crates/alef-backend-kotlin",
@@ -46,7 +45,6 @@ alef-backend-csharp = { version = "0.15.49", path = "crates/alef-backend-csharp"
 alef-backend-dart = { version = "0.15.49", path = "crates/alef-backend-dart" }
 alef-backend-extendr = { version = "0.15.49", path = "crates/alef-backend-extendr" }
 alef-backend-ffi = { version = "0.15.49", path = "crates/alef-backend-ffi" }
-alef-backend-gleam = { version = "0.15.49", path = "crates/alef-backend-gleam" }
 alef-backend-go = { version = "0.15.49", path = "crates/alef-backend-go" }
 alef-backend-java = { version = "0.15.49", path = "crates/alef-backend-java" }
 alef-backend-kotlin = { version = "0.15.49", path = "crates/alef-backend-kotlin" }

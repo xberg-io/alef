@@ -212,20 +212,6 @@ pub fn emit_dartdoc(out: &mut String, doc: &str, indent: &str) {
     }
 }
 
-/// Emit Gleam documentation comments (///)
-/// Used for Gleam functions and types.
-pub fn emit_gleam_doc(out: &mut String, doc: &str, indent: &str) {
-    if doc.is_empty() {
-        return;
-    }
-    for line in doc.lines() {
-        out.push_str(indent);
-        out.push_str("/// ");
-        out.push_str(line);
-        out.push('\n');
-    }
-}
-
 /// Emit Zig documentation comments (///)
 /// Used for Zig functions, types, and declarations.
 pub fn emit_zig_doc(out: &mut String, doc: &str, indent: &str) {
@@ -926,13 +912,6 @@ mod tests {
     }
 
     #[test]
-    fn test_emit_gleam_doc() {
-        let mut out = String::new();
-        emit_gleam_doc(&mut out, "Gleam documentation", "    ");
-        assert!(out.contains("/// Gleam documentation"));
-    }
-
-    #[test]
     fn test_emit_zig_doc() {
         let mut out = String::new();
         emit_zig_doc(&mut out, "Zig documentation", "    ");
@@ -948,7 +927,6 @@ mod tests {
         emit_roxygen(&mut out, "");
         emit_kdoc(&mut out, "", "");
         emit_dartdoc(&mut out, "", "");
-        emit_gleam_doc(&mut out, "", "");
         emit_zig_doc(&mut out, "", "");
         assert!(out.is_empty());
     }

@@ -258,17 +258,6 @@ pub fn default_lint_config(lang: Language, output_dir: &str, ctx: &LangContext) 
                 typecheck: None,
             }
         }
-        Language::Gleam => {
-            let format_cmd = wrap(format!("cd {output_dir} && gleam format"), ctx.run_wrapper);
-            let check_cmd = wrap(format!("cd {output_dir} && gleam format --check"), ctx.run_wrapper);
-            LintConfig {
-                precondition: Some(require_tool("gleam")),
-                before: None,
-                format: Some(StringOrVec::Single(format_cmd)),
-                check: Some(StringOrVec::Single(check_cmd)),
-                typecheck: None,
-            }
-        }
         Language::Zig => {
             let format_cmd = wrap(format!("cd {output_dir} && zig fmt src"), ctx.run_wrapper);
             let check_cmd = wrap(format!("cd {output_dir} && zig fmt --check src"), ctx.run_wrapper);
@@ -312,7 +301,6 @@ mod tests {
             Language::Kotlin,
             Language::Swift,
             Language::Dart,
-            Language::Gleam,
             Language::Zig,
         ]
     }
@@ -603,22 +591,6 @@ mod tests {
             "Dart check should use dart analyze, got: {check}"
         );
         assert_eq!(c.precondition.as_deref(), Some("command -v dart >/dev/null 2>&1"));
-    }
-
-    #[test]
-    fn gleam_uses_gleam_format() {
-        let c = cfg(Language::Gleam, "packages/gleam");
-        let fmt = c.format.unwrap().commands().join(" ");
-        let check = c.check.unwrap().commands().join(" ");
-        assert!(
-            fmt.contains("gleam format"),
-            "Gleam format should use gleam format, got: {fmt}"
-        );
-        assert!(
-            check.contains("gleam format --check"),
-            "Gleam check should use gleam format --check, got: {check}"
-        );
-        assert_eq!(c.precondition.as_deref(), Some("command -v gleam >/dev/null 2>&1"));
     }
 
     #[test]

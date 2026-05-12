@@ -416,15 +416,6 @@ pub fn escape_shell(s: &str) -> String {
     s.replace('\'', r"'\''")
 }
 
-/// Escape a string for embedding in a Gleam string literal.
-pub fn escape_gleam(s: &str) -> String {
-    s.replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
-        .replace('\r', "\\r")
-        .replace('\t', "\\t")
-}
-
 /// Escape a string for embedding in a Zig string literal.
 pub fn escape_zig(s: &str) -> String {
     s.replace('\\', "\\\\")

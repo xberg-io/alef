@@ -13,7 +13,7 @@
 {%- endif %}
 {{ indent }}        }
 {{ indent }}    }
-{{ indent }};
+{{ indent }}};
 {%- if has_error %}
 {{ indent }}serde_json::from_str::<{{ rust_ty }}>(&json_str)
 {{ indent }}    .map_err(|e| {{ err_deserialize }})

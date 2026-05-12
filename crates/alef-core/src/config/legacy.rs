@@ -131,8 +131,8 @@ fn build_banned_key_suggestions() -> HashMap<&'static str, &'static str> {
 
     // Per-language config → [[crates]] sub-table
     for lang in [
-        "python", "node", "ruby", "php", "elixir", "wasm", "ffi", "gleam", "go", "java", "dart", "kotlin", "swift",
-        "csharp", "r", "zig",
+        "python", "node", "ruby", "php", "elixir", "wasm", "ffi", "go", "java", "dart", "kotlin", "swift", "csharp",
+        "r", "zig",
     ] {
         m.insert(lang, "move under `[[crates]]` for the relevant crate");
     }
@@ -333,7 +333,7 @@ sources = []
     #[test]
     fn detect_legacy_keys_catches_language_sections() {
         for lang in [
-            "python", "node", "ruby", "go", "java", "csharp", "wasm", "ffi", "elixir", "gleam", "zig",
+            "python", "node", "ruby", "go", "java", "csharp", "wasm", "ffi", "elixir", "zig",
         ] {
             // languages must be top-level (before any section header)
             let toml_str = format!(

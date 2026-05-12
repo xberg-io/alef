@@ -20,7 +20,7 @@ use alef_core::config::ResolvedCrateConfig;
 use alef_core::hash::{self, CommentStyle};
 use alef_core::template_versions::toolchain;
 use anyhow::Result;
-use heck::{ToLowerCamelCase, ToUpperCamelCase};
+use heck::{ToLowerCamelCase, ToSnakeCase, ToUpperCamelCase};
 use std::collections::HashSet;
 use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
@@ -683,6 +683,14 @@ fn render_test_method(
 
     let options_via_str: Option<&str> = call_overrides.and_then(|o| o.options_via.as_deref());
     let options_type_str: Option<&str> = call_overrides.and_then(|o| o.options_type.as_deref());
+    // Derive the Swift handle-config parsing function from the C override's
+    // `c_engine_factory` field. E.g. `"CrawlConfig"` → snake → `"crawl_config_from_json"`
+    // → camelCase → `"crawlConfigFromJson"`.
+    let handle_config_fn_owned: Option<String> = call_config
+        .overrides
+        .get("c")
+        .and_then(|c| c.c_engine_factory.as_deref())
+        .map(|ty| format!("{}_from_json", ty.to_snake_case()).to_lower_camel_case());
     let (setup_lines, args_str) = build_args_and_setup(
         &fixture.input,
         args,
@@ -691,6 +699,7 @@ fn render_test_method(
         &function_name,
         options_via_str,
         options_type_str,
+        handle_config_fn_owned.as_deref(),
     );
 
     // Append extra_args to the argument list.
@@ -833,6 +842,7 @@ fn build_args_and_setup(
     function_name: &str,
     options_via: Option<&str>,
     options_type: Option<&str>,
+    handle_config_fn: Option<&str>,
 ) -> (Vec<String>, String) {
     if args.is_empty() {
         return (Vec::new(), String::new());
@@ -873,7 +883,23 @@ fn build_args_and_setup(
 
         if arg.arg_type == "handle" {
             let var_name = format!("{}Obj", arg.name.to_lower_camel_case());
-            setup_lines.push(format!("let {var_name} = try createEngine(nil)"));
+            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+            let config_val = input.get(field);
+            let has_config = config_val
+                .is_some_and(|v| !v.is_null() && !(v.is_object() && v.as_object().is_some_and(|o| o.is_empty())));
+            if has_config {
+                if let Some(from_json_fn) = handle_config_fn {
+                    let json_str = serde_json::to_string(config_val.unwrap()).unwrap_or_default();
+                    let escaped = escape_swift_str(&json_str);
+                    let config_var = format!("{}Config", arg.name.to_lower_camel_case());
+                    setup_lines.push(format!("let {config_var} = try {from_json_fn}(\"{escaped}\")"));
+                    setup_lines.push(format!("let {var_name} = try createEngine({config_var})"));
+                } else {
+                    setup_lines.push(format!("let {var_name} = try createEngine(nil)"));
+                }
+            } else {
+                setup_lines.push(format!("let {var_name} = try createEngine(nil)"));
+            }
             parts.push(var_name);
             continue;
         }
@@ -1145,9 +1171,9 @@ fn render_assertion(
     // Non-string opaque fields (DocumentStructure, etc.) should not appear in string
     // assertions — the fixture schema controls which assertions apply to which fields.
     let string_expr = if field_is_enum {
-        // swift-bridge exposes opaque enum types with a `toString()` method that returns
-        // `RustString`. The second `.toString()` converts that `RustString` to a Swift String.
-        format!("{field_expr}.toString().toString()")
+        // swift-bridge exposes opaque enum types with a `to_string()` method (snake_case)
+        // that returns `RustString`. Then `.toString()` converts that RustString to Swift String.
+        format!("{field_expr}.to_string().toString()")
     } else if field_is_optional {
         // Leaf field itself is Optional<RustString> — need ?.toString() to unwrap.
         format!("({field_expr}?.toString() ?? \"\")")
@@ -1165,9 +1191,9 @@ fn render_assertion(
                 let swift_val = json_to_swift(expected);
                 if expected.is_string() {
                     if field_is_enum {
-                        // Enum fields: `toString()` on the opaque swift-bridge class returns a
-                        // `RustString`; the second `.toString()` converts it to a Swift String.
-                        // `string_expr` already incorporates this double call.
+                        // Enum fields: `to_string()` (snake_case) returns RustString;
+                        // `.toString()` converts it to a Swift String.
+                        // `string_expr` already incorporates this call chain.
                         let trim_expr = format!("{string_expr}.trimmingCharacters(in: CharacterSet.whitespaces)");
                         let _ = writeln!(out, "        XCTAssertEqual({trim_expr}, {swift_val})");
                     } else {
@@ -1376,7 +1402,7 @@ fn render_assertion(
                     let elem_is_optional = field_resolver.is_optional(resolved_elem_part)
                         || field_resolver.is_optional(field_resolver.resolve(resolved_elem_part));
                     let elem_str = if elem_is_enum {
-                        format!("{elem_accessor}.toString()")
+                        format!("{elem_accessor}.to_string().toString()")
                     } else if elem_is_optional {
                         format!("({elem_accessor}?.toString() ?? \"\")")
                     } else {
@@ -1686,7 +1712,9 @@ fn swift_traversal_contains_assert(
     let elem_is_optional = field_resolver.is_optional(resolved_elem_part)
         || field_resolver.is_optional(field_resolver.resolve(resolved_elem_part));
     let elem_str = if elem_is_enum {
-        format!("{elem_accessor}.toString()")
+        // swift-bridge opaque enum types expose `to_string() -> RustString`.
+        // Call .to_string() first, then .toString() to convert RustString → Swift String.
+        format!("{elem_accessor}.to_string().toString()")
     } else if elem_is_optional {
         format!("({elem_accessor}?.toString() ?? \"\")")
     } else {

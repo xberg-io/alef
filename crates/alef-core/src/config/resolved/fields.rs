@@ -28,7 +28,6 @@ impl ResolvedCrateConfig {
             Language::Elixir => self.elixir.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
             Language::Wasm => self.wasm.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
             Language::Ffi => self.ffi.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
-            Language::Gleam => self.gleam.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
             Language::Go => self.go.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
             Language::Java => self.java.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
             Language::Kotlin => self.kotlin.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
@@ -62,7 +61,7 @@ impl ResolvedCrateConfig {
     /// 1. Per-language config override (`[python] serde_rename_all = "..."`)
     /// 2. Language default (idiomatic per-language JSON wire convention):
     ///    - camelCase: node, wasm, java, csharp, php, kotlin, swift, dart
-    ///    - snake_case: python, ruby, go, ffi, elixir, r, rust, gleam, zig, c
+    ///    - snake_case: python, ruby, go, ffi, elixir, r, rust, zig, c
     pub fn serde_rename_all_for_language(&self, lang: Language) -> String {
         let override_val = match lang {
             Language::Python => self.python.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
@@ -72,7 +71,6 @@ impl ResolvedCrateConfig {
             Language::Elixir => self.elixir.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
             Language::Wasm => self.wasm.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
             Language::Ffi => self.ffi.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
-            Language::Gleam => self.gleam.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
             Language::Go => self.go.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
             Language::Java => self.java.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
             Language::Kotlin => self.kotlin.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
@@ -104,7 +102,6 @@ impl ResolvedCrateConfig {
             | Language::Elixir
             | Language::R
             | Language::Rust
-            | Language::Gleam
             | Language::Zig
             | Language::C => "snake_case".to_string(),
         }

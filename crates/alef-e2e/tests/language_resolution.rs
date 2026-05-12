@@ -74,9 +74,9 @@ fn default_excludes_brew_and_other_non_binding_generators() {
 fn default_excludes_languages_not_in_scaffold_list() {
     let scaffolded = vec![Language::Python, Language::Node];
     let names = default_e2e_languages(&scaffolded);
-    // gleam, kotlin, dart, swift, zig should NOT be generated unless
+    // kotlin, dart, swift, zig should NOT be generated unless
     // scaffolded — this is the bug the regression test guards against.
-    for unscaffolded in ["gleam", "kotlin", "dart", "swift", "zig"] {
+    for unscaffolded in ["kotlin", "dart", "swift", "zig"] {
         assert!(
             !names.contains(&unscaffolded.to_string()),
             "{unscaffolded} must not appear when only {scaffolded:?} are scaffolded (got {names:?})"

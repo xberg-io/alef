@@ -173,7 +173,6 @@ impl NewAlefConfig {
             elixir: krate.elixir.clone(),
             wasm: krate.wasm.clone(),
             ffi: krate.ffi.clone(),
-            gleam: krate.gleam.clone(),
             go: krate.go.clone(),
             java: krate.java.clone(),
             dart: krate.dart.clone(),

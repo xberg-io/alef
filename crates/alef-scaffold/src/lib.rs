@@ -381,7 +381,7 @@ pub(crate) fn capitalize_first(s: &str) -> String {
 }
 
 use languages::{
-    scaffold_csharp, scaffold_dart, scaffold_elixir, scaffold_elixir_cargo, scaffold_ffi, scaffold_gleam, scaffold_go,
+    scaffold_csharp, scaffold_dart, scaffold_elixir, scaffold_elixir_cargo, scaffold_ffi, scaffold_go,
     scaffold_java, scaffold_kotlin, scaffold_node, scaffold_node_cargo, scaffold_php, scaffold_php_cargo,
     scaffold_pre_commit_config, scaffold_python, scaffold_python_cargo, scaffold_r, scaffold_r_cargo, scaffold_ruby,
     scaffold_ruby_cargo, scaffold_swift, scaffold_wasm, scaffold_zig,
@@ -430,7 +430,6 @@ fn scaffold_language(
         }
         Language::Rust | Language::C => Ok(vec![]), // Rust/C don't need scaffolded binding crates
         Language::Kotlin => scaffold_kotlin(api, config),
-        Language::Gleam => scaffold_gleam(api, config),
         Language::Zig => scaffold_zig(api, config),
         Language::Dart => scaffold_dart(api, config),
         Language::Swift => scaffold_swift(api, config),

@@ -13,7 +13,7 @@ use std::collections::HashSet;
 /// All recognised release target names.
 pub const ALL_RELEASE_TARGETS: &[&str] = &[
     "python", "node", "ruby", "cli", "crates", "docker", "homebrew", "java", "csharp", "go", "wasm", "php", "elixir",
-    "r", "c-ffi", "dart", "swift", "gleam", "zig", "kotlin",
+    "r", "c-ffi", "dart", "swift", "zig", "kotlin",
 ];
 
 /// Computed release metadata.
@@ -376,7 +376,7 @@ mod tests {
         let meta = compute("v1.0.0", "all", None, "release", false, false, None).unwrap();
         let json_str = meta.to_json().unwrap();
         let val: serde_json::Value = serde_json::from_str(&json_str).unwrap();
-        for lang in ["dart", "swift", "gleam", "zig", "kotlin"] {
+        for lang in ["dart", "swift", "zig", "kotlin"] {
             let key = format!("release_{lang}");
             assert!(val[&key].as_bool().unwrap(), "expected {key}=true when --targets all");
         }
@@ -384,7 +384,7 @@ mod tests {
 
     #[test]
     fn new_languages_individually_selectable() {
-        for lang in ["dart", "swift", "gleam", "zig", "kotlin"] {
+        for lang in ["dart", "swift", "zig", "kotlin"] {
             let meta = compute("v1.0.0", lang, None, "workflow_dispatch", false, false, None).unwrap();
             assert!(
                 meta.targets.get(lang).copied().unwrap_or(false),

@@ -37,7 +37,6 @@ pub(crate) fn per_crate_explicit_output(output: &OutputConfig, lang: &Language) 
         Language::Elixir => output.elixir.as_ref(),
         Language::Wasm => output.wasm.as_ref(),
         Language::Ffi => output.ffi.as_ref(),
-        Language::Gleam => output.gleam.as_ref(),
         Language::Go => output.go.as_ref(),
         Language::Java => output.java.as_ref(),
         Language::Kotlin => output.kotlin.as_ref(),

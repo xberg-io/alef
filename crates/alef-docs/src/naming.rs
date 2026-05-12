@@ -18,7 +18,6 @@ pub(crate) fn lang_display_name(lang: Language) -> &'static str {
         Language::Kotlin => "Kotlin",
         Language::Swift => "Swift",
         Language::Dart => "Dart",
-        Language::Gleam => "Gleam",
         Language::Zig => "Zig",
     }
 }
@@ -41,7 +40,6 @@ pub(crate) fn lang_slug(lang: Language) -> &'static str {
         Language::Kotlin => "kotlin",
         Language::Swift => "swift",
         Language::Dart => "dart",
-        Language::Gleam => "gleam",
         Language::Zig => "zig",
     }
 }
@@ -63,7 +61,6 @@ pub(crate) fn lang_code_fence(lang: Language) -> &'static str {
         Language::Kotlin => "kotlin",
         Language::Swift => "swift",
         Language::Dart => "dart",
-        Language::Gleam => "gleam",
         Language::Zig => "zig",
     }
 }
@@ -87,7 +84,6 @@ pub(crate) fn type_name(name: &str, lang: Language, ffi_prefix: &str) -> String 
         | Language::Kotlin
         | Language::Swift
         | Language::Dart
-        | Language::Gleam
         | Language::Zig => short.to_pascal_case(),
         Language::Ffi | Language::C => {
             // C: prefix with configured FFI prefix (PascalCase) and PascalCase type name
@@ -103,7 +99,7 @@ pub(crate) fn func_name(name: &str, lang: Language, ffi_prefix: &str) -> String 
         Language::Node | Language::Wasm | Language::Java | Language::Php => to_camel_case(name),
         Language::Csharp | Language::Go => name.to_pascal_case(),
         Language::Ffi | Language::C => format!("{}_{}", ffi_prefix.to_snake_case(), name.to_snake_case()),
-        Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => to_camel_case(name),
+        Language::Kotlin | Language::Swift | Language::Dart | Language::Zig => to_camel_case(name),
     };
     // Handle reserved keywords
     match (lang, base.as_str()) {
@@ -126,7 +122,7 @@ pub(crate) fn field_name(name: &str, lang: Language) -> String {
         // Go and C# exported fields/properties are PascalCase
         Language::Go | Language::Csharp => name.to_pascal_case(),
         Language::Node | Language::Wasm | Language::Java | Language::Php => to_camel_case(name),
-        Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => to_camel_case(name),
+        Language::Kotlin | Language::Swift | Language::Dart | Language::Zig => to_camel_case(name),
     }
 }
 
@@ -163,7 +159,6 @@ pub(crate) fn enum_variant_name(name: &str, lang: Language, ffi_prefix: &str) ->
         | Language::Kotlin
         | Language::Swift
         | Language::Dart
-        | Language::Gleam
         | Language::Zig => name.to_pascal_case(),
         Language::R => name.to_snake_case(),
         // Rust: PascalCase enum variants
