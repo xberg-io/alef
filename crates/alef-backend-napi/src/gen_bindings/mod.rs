@@ -1,5 +1,6 @@
 //! NAPI-RS (Node.js) backend: orchestration and `Backend` trait implementation.
 
+pub mod capsule;
 pub mod enums;
 pub mod errors;
 pub mod functions;
@@ -12,8 +13,9 @@ use alef_codegen::builder::RustFileBuilder;
 use alef_codegen::generators::{self, AsyncPattern, RustBindingConfig};
 use alef_codegen::naming::to_node_name;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile, PostBuildStep};
-use alef_core::config::{Language, ResolvedCrateConfig, resolve_output_dir};
+use alef_core::config::{Language, NodeCapsuleTypeConfig, ResolvedCrateConfig, resolve_output_dir};
 use alef_core::ir::{ApiSurface, TypeRef};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 pub struct NapiBackend;
@@ -147,12 +149,21 @@ impl Backend for NapiBackend {
             builder.add_item(&functions::gen_tokio_runtime());
         }
 
+        // Extract capsule_types from NodeConfig. Types listed here skip #[napi] opaque-class
+        // emission; functions returning them produce a JsObject with __parser External<T>.
+        let capsule_types: HashMap<String, NodeCapsuleTypeConfig> = config
+            .node
+            .as_ref()
+            .map(|c| c.capsule_types.clone())
+            .unwrap_or_default();
+
         // Check if we have opaque types and trait types (visitors)
         // Exclude trait types from opaque_types since they use JsVisitorRef instead of Object<'static>
+        // Also exclude capsule types — they do not get #[napi] class wrappers.
         let opaque_types: AHashSet<String> = api
             .types
             .iter()
-            .filter(|t| t.is_opaque && !t.is_trait)
+            .filter(|t| t.is_opaque && !t.is_trait && !capsule_types.contains_key(&t.name))
             .map(|t| t.name.clone())
             .collect();
         let has_traits = api.types.iter().any(|t| t.is_trait);
@@ -256,6 +267,11 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
             .iter()
             .filter(|typ| !typ.is_trait && !exclude_types.contains(&typ.name))
         {
+            // Capsule types bypass #[napi] class emission entirely — they are exposed
+            // as raw External<T> pointers in JsObject wrappers from functions that return them.
+            if capsule_types.contains_key(&typ.name) {
+                continue;
+            }
             if typ.is_opaque {
                 builder.add_item(&alef_codegen::generators::gen_opaque_struct_prefixed(
                     typ, &cfg, &prefix,
@@ -347,6 +363,10 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
                     &opaque_types,
                     &core_import,
                 ));
+            } else if !capsule_types.is_empty() && capsule::function_involves_capsule(func, &capsule_types) {
+                // Function returns a capsule type — emit a napi shim that returns JsObject
+                // with __parser = External<T>(ptr from value.into_raw()).
+                builder.add_item(&capsule::gen_capsule_function(func, &capsule_types, &core_import));
             } else {
                 builder.add_item(&functions::gen_function(
                     func,
@@ -501,6 +521,11 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
         config: &ResolvedCrateConfig,
     ) -> anyhow::Result<Vec<GeneratedFile>> {
         let prefix = config.node_type_prefix();
+        let capsule_types_pub: HashMap<String, NodeCapsuleTypeConfig> = config
+            .node
+            .as_ref()
+            .map(|c| c.capsule_types.clone())
+            .unwrap_or_default();
 
         // Separate exports into functions (plain export) and types (export type)
         let mut type_exports = vec![];
@@ -511,8 +536,13 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
         // *Handle classes for trait bridges, not the trait types themselves, so
         // re-exporting `JsHtmlVisitor` produces a TS2305 'has no exported member'
         // error against the generated index.d.ts.
+        // Skip capsule types — they are not emitted as napi classes and therefore
+        // do not exist in the native module's exports.
         for typ in api.types.iter() {
             if typ.is_trait {
+                continue;
+            }
+            if capsule_types_pub.contains_key(&typ.name) {
                 continue;
             }
             type_exports.push(format!("{prefix}{}", typ.name));
@@ -593,7 +623,12 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
             .as_ref()
             .map(|c| c.exclude_functions.iter().cloned().collect())
             .unwrap_or_default();
-        let content = errors::gen_dts(api, &prefix, &exclude_functions, &config.trait_bridges);
+        let capsule_types: HashMap<String, NodeCapsuleTypeConfig> = config
+            .node
+            .as_ref()
+            .map(|c| c.capsule_types.clone())
+            .unwrap_or_default();
+        let content = errors::gen_dts(api, &prefix, &exclude_functions, &config.trait_bridges, &capsule_types);
 
         // `output_for("node")` points to the `src/` directory (e.g., `crates/{name}-node/src/`).
         // `index.d.ts` belongs at the crate root, one level up from `src/`.
