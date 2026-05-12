@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(e2e/rust): skip primitive / std element_types (`String`, `str`, integer/float types, `bool`, `char`) when emitting `use {module}::{T};` statements. Fixtures that declare `element_type = "String"` were emitting `use kreuzberg::String;`, which triggered E0432 ("unresolved import `kreuzberg::String`"). Primitives are already in scope via the Rust prelude.
 - fix(e2e/python,e2e/elixir): broaden `is_streaming` detection to also fire when an assertion references a streaming-virtual field (e.g. `empty_stream` has `stream_chunks:[]` so `is_streaming_mock()` returns false, but the fixture still asserts on `chunks`/`stream_content` which need the collect snippet). Mirrors the kotlin Phase-A pattern.
 - fix(codegen): backfill ffi_skip_methods field at TraitBridgeConfig construction sites
 - fix(alef-backend-ffi): stop duplicating the `Plugin` super-trait impl in `gen_ffi_trait_impl`. The orchestrator (`trait_bridge::mod.rs`) already emits it before calling the trait impl path; emitting it again triggered E0119 ("conflicting implementations of trait `Plugin`") for every FFI trait bridge (`DocumentExtractor`, `Renderer`, `OcrBackend`, `PostProcessor`, `Validator`, `EmbeddingBackend`).
