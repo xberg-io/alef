@@ -1,4 +1,4 @@
-use crate::type_map::{java_boxed_type, java_type};
+use crate::type_map::{java_boxed_type, java_return_type, java_type};
 use alef_codegen::naming::to_java_name;
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{ApiSurface, PrimitiveType, TypeRef};
@@ -36,7 +36,7 @@ pub(crate) fn gen_facade_class(
                 })
                 .collect();
 
-            let return_type = java_type(&func.return_type).to_string();
+            let return_type = java_return_type(&func.return_type).to_string();
             let is_void = matches!(func.return_type, TypeRef::Unit);
             let is_optional = matches!(func.return_type, TypeRef::Optional(_));
             let java_name = to_java_name(&func.name);

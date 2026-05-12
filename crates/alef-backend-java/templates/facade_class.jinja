@@ -9,7 +9,7 @@ public final class {{ class_name }} {
 {% if func.is_void %}
         {{ raw_class }}.{{ func.java_name }}({{ func.call_args | join(', ') }});
 {% elif func.is_optional %}
-        return {{ raw_class }}.{{ func.java_name }}({{ func.call_args | join(', ') }}).orElse(null);
+        return {{ raw_class }}.{{ func.java_name }}({{ func.call_args | join(', ') }});
 {% else %}
         return {{ raw_class }}.{{ func.java_name }}({{ func.call_args | join(', ') }});
 {% endif %}
@@ -20,7 +20,7 @@ public final class {{ class_name }} {
 {% if func.is_void %}
         {{ raw_class }}.{{ func.java_name }}({{ func.full_args | join(', ') }});
 {% elif func.is_optional %}
-        return {{ raw_class }}.{{ func.java_name }}({{ func.full_args | join(', ') }}).orElse(null);
+        return {{ raw_class }}.{{ func.java_name }}({{ func.full_args | join(', ') }});
 {% else %}
         return {{ raw_class }}.{{ func.java_name }}({{ func.full_args | join(', ') }});
 {% endif %}
