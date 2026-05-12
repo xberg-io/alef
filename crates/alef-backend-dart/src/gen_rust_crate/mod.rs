@@ -1499,6 +1499,16 @@ fn emit_opaque_impl_block(
             continue;
         }
 
+        // Skip static / associated functions (no `&self`). The current emitter only
+        // generates `&self` instance bodies, so `T::new()` or `T::default()` end up as
+        // `self.inner.{name}()` — which trips E0599 (associated fn, not a method).
+        if method.is_static {
+            out.push_str(&format!(
+                "    // Method `{method_name}` is a static/associated function and is not yet bridged through FRB — skipped.\n"
+            ));
+            continue;
+        }
+
         emit_opaque_method(
             out,
             ty,
