@@ -454,13 +454,28 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
                 }
             }
             "string" => {
-                // FRB generates all bridge method parameters as named (`{required T name}`)
-                // in Dart, so string args must be passed as `paramName: 'value'`.
-                // Convert the arg name from snake_case to camelCase for the Dart named param.
+                // The dart wrapper (`KreuzbergBridge`) emits required params as POSITIONAL
+                // and optional params as named (`{...}` block). Match that convention here:
+                // required string args are positional literals, optional string args are
+                // emitted as `paramName: 'value'` named arguments.
+                //
+                // Special case: when dart remaps `extractFile*` → `extractBytes*`
+                // (because dart cannot pass OS file paths through the FFI bridge), the
+                // underlying wrapper signature requires `mime_type` positionally even
+                // though the source IR marks it as optional for `extractFile*`. Force
+                // mime_type to positional in that case.
                 let dart_param_name = snake_to_camel(&arg_def.name);
+                let mime_required_due_to_remap =
+                    has_file_path_arg && !caller_supplied_override && arg_def.name == "mime_type";
+                let is_optional = arg_def.optional && !mime_required_due_to_remap;
                 match arg_value {
                     serde_json::Value::String(s) => {
-                        args.push(format!("{dart_param_name}: '{}'", escape_dart(s)));
+                        let literal = format!("'{}'", escape_dart(s));
+                        if is_optional {
+                            args.push(format!("{dart_param_name}: {literal}"));
+                        } else {
+                            args.push(literal);
+                        }
                     }
                     serde_json::Value::Null
                         if arg_def.optional
@@ -471,7 +486,11 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
                         let inferred = file_path_for_mime
                             .and_then(mime_from_extension)
                             .unwrap_or("application/octet-stream");
-                        args.push(format!("{dart_param_name}: '{inferred}'"));
+                        if is_optional {
+                            args.push(format!("{dart_param_name}: '{inferred}'"));
+                        } else {
+                            args.push(format!("'{inferred}'"));
+                        }
                     }
                     // Other optional strings with null value are omitted.
                     _ => {}
@@ -1113,12 +1132,15 @@ fn emit_extraction_config_dart(overrides: &serde_json::Map<String, serde_json::V
     let include_document_structure = field_overrides
         .remove("includeDocumentStructure")
         .unwrap_or_else(|| "false".to_string());
+    let use_layout_for_markdown = field_overrides
+        .remove("useLayoutForMarkdown")
+        .unwrap_or_else(|| "false".to_string());
     let max_archive_depth = field_overrides
         .remove("maxArchiveDepth")
         .unwrap_or_else(|| "3".to_string());
 
     format!(
-        "ExtractionConfig(useCache: {use_cache}, enableQualityProcessing: {enable_quality_processing}, forceOcr: {force_ocr}, disableOcr: {disable_ocr}, resultFormat: ResultFormat.unified, outputFormat: OutputFormat.plain(), includeDocumentStructure: {include_document_structure}, maxArchiveDepth: {max_archive_depth})"
+        "ExtractionConfig(useCache: {use_cache}, enableQualityProcessing: {enable_quality_processing}, forceOcr: {force_ocr}, disableOcr: {disable_ocr}, resultFormat: ResultFormat.unified, outputFormat: OutputFormat.plain(), includeDocumentStructure: {include_document_structure}, useLayoutForMarkdown: {use_layout_for_markdown}, maxArchiveDepth: {max_archive_depth})"
     )
 }
 
