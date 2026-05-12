@@ -308,7 +308,14 @@ pub(super) fn dts_type(ty: &TypeRef, prefix: &str) -> String {
         TypeRef::Duration => "number".to_string(),
         TypeRef::Unit => "void".to_string(),
         TypeRef::Optional(inner) => format!("{} | undefined | null", dts_type(inner, prefix)),
-        TypeRef::Vec(inner) => format!("Array<{}>", dts_type(inner, prefix)),
+        TypeRef::Vec(inner) => {
+            // Special case: Vec<u8> → Uint8Array | Buffer for Node.js compatibility
+            if matches!(inner.as_ref(), TypeRef::Bytes) {
+                "Uint8Array | Buffer".to_string()
+            } else {
+                format!("Array<{}>", dts_type(inner, prefix))
+            }
+        },
         TypeRef::Map(k, v) => format!("Record<{}, {}>", dts_type(k, prefix), dts_type(v, prefix)),
         TypeRef::Named(name) => format!("{prefix}{name}"),
     }
