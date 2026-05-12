@@ -43,12 +43,7 @@ pub(super) fn gen_struct(
     }
 
     for field in &typ.fields {
-        // Skip cfg-gated fields — they are absent from the binding struct.
-        // The binding struct must mirror the non-cfg surface only; cfg-gated fields
-        // live only in the core type and are filled by ..Default::default() in conversions.
-        if field.cfg.is_some() {
-            continue;
-        }
+        // Cfg-gated fields stay on the binding struct (the binding crate's Cargo.toml gates them).
         // Opaque NAPI classes (e.g. JsVisitorHandle) cannot be embedded in `#[napi(object)]`
         // structs because they don't implement `FromNapiValue`. Use a raw JavaScript object
         // (`napi::bindgen_prelude::Object<'static>`) as the field type instead — the convert
@@ -140,11 +135,6 @@ pub(super) fn gen_struct(
             },
         ));
         for field in &typ.fields {
-            // Skip cfg-gated fields — they are not in the binding struct, so the
-            // manual Clone impl must not reference them.
-            if field.cfg.is_some() {
-                continue;
-            }
             let is_bytes_field = matches!(&field.ty, TypeRef::Bytes);
             let is_opt_bytes =
                 matches!(&field.ty, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Bytes));
