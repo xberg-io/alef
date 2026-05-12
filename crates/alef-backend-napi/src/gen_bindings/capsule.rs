@@ -126,9 +126,9 @@ pub(super) fn gen_capsule_function(
     let property_name = cfg
         .map(|c| c.property_name.clone())
         .unwrap_or_else(|| "__parser".to_string());
-    let type_tag_const = cfg.and_then(|c| c.type_tag.as_ref()).map(|_| {
-        format!("__ALEF_CAPSULE_TAG_{}", capsule_name.to_ascii_uppercase())
-    });
+    let type_tag_const = cfg
+        .and_then(|c| c.type_tag.as_ref())
+        .map(|_| format!("__ALEF_CAPSULE_TAG_{}", capsule_name.to_ascii_uppercase()));
 
     // node-tree-sitter's `Napi::Value::As<External<TSLanguage>>` only recognises
     // values produced by raw `napi_create_external`. napi-rs's
@@ -376,7 +376,10 @@ mod tests {
             !out.contains("bindgen_prelude::External::new"),
             "must NOT use bindgen_prelude::External::new (rejected by node-tree-sitter): {out}"
         );
-        assert!(out.contains("__parser"), "must default property name to __parser: {out}");
+        assert!(
+            out.contains("__parser"),
+            "must default property name to __parser: {out}"
+        );
         assert!(
             !out.contains("napi_type_tag_object"),
             "must NOT emit type-tag call when type_tag is unset: {out}"

@@ -409,17 +409,17 @@ fn render_swift(segments: &[PathSegment], result_var: &str) -> String {
         match seg {
             PathSegment::Field(f) => {
                 out.push('.');
-                out.push_str(&f.to_lower_camel_case());
+                out.push_str(f);
                 out.push_str("()");
             }
             PathSegment::ArrayField { name, index } => {
                 out.push('.');
-                out.push_str(&name.to_lower_camel_case());
+                out.push_str(name);
                 out.push_str(&format!("()[{index}]"));
             }
             PathSegment::MapAccess { field, key } => {
                 out.push('.');
-                out.push_str(&field.to_lower_camel_case());
+                out.push_str(field);
                 if key.chars().all(|c| c.is_ascii_digit()) {
                     out.push_str(&format!("()[{key}]"));
                 } else {
@@ -460,7 +460,7 @@ fn render_swift_with_optionals(
                 }
                 path_so_far.push_str(f);
                 out.push('.');
-                out.push_str(&f.to_lower_camel_case());
+                out.push_str(f);
                 out.push_str("()");
                 // Insert `?` after `()` for non-leaf optional fields so the next
                 // member access becomes `?.`.
@@ -474,7 +474,7 @@ fn render_swift_with_optionals(
                 }
                 path_so_far.push_str(name);
                 out.push('.');
-                out.push_str(&name.to_lower_camel_case());
+                out.push_str(name);
                 out.push_str(&format!("()[{index}]"));
             }
             PathSegment::MapAccess { field, key } => {
@@ -483,7 +483,7 @@ fn render_swift_with_optionals(
                 }
                 path_so_far.push_str(field);
                 out.push('.');
-                out.push_str(&field.to_lower_camel_case());
+                out.push_str(field);
                 if key.chars().all(|c| c.is_ascii_digit()) {
                     out.push_str(&format!("()[{key}]"));
                 } else {
