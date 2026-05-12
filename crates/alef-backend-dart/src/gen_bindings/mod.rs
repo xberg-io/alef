@@ -37,7 +37,7 @@ impl Backend for DartBackend {
             supports_option: true,
             supports_result: true,
             supports_callbacks: false,
-            supports_streaming: false,
+            supports_streaming: true,
         }
     }
 

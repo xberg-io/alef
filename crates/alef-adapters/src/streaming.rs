@@ -25,7 +25,8 @@ pub fn generate_body(
         Language::Csharp => Ok(gen_csharp_body(adapter)),
         Language::R => Ok(gen_r_body(adapter, config)),
         Language::Rust | Language::C => anyhow::bail!("Rust/C do not need generated binding adapters"),
-        Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => {
+        Language::Dart => Ok(gen_dart_body(adapter, config)),
+        Language::Kotlin | Language::Swift | Language::Gleam | Language::Zig => {
             anyhow::bail!("Phase 1: {language} backend not yet implemented")
         }
     }
@@ -614,6 +615,45 @@ fn gen_r_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (String,
          }})"
     );
 
+    (body, None)
+}
+
+// ---------------------------------------------------------------------------
+// Dart (flutter_rust_bridge v2)
+// ---------------------------------------------------------------------------
+
+fn gen_dart_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (String, Option<String>) {
+    let core_path = &adapter.core_path;
+    let item_type = adapter.item_type.as_deref().unwrap_or("()");
+    let core_import = config.core_import_name();
+    let args = call_args(adapter);
+    let call_str = args.join(", ");
+    let let_bindings = core_let_bindings(adapter, &core_import);
+    let bindings_block = if let_bindings.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n        ", let_bindings.join("\n        "))
+    };
+    // FRB v2 StreamSink<T> pattern: the sink is passed as a parameter and the
+    // function drives the core BoxStream into it from a spawned tokio task.
+    let body = format!(
+        "use futures_util::StreamExt;\n        \
+         let inner = self.inner.clone();\n        \
+         {bindings_block}\
+         flutter_rust_bridge::spawn(async move {{\n            \
+             match inner.{core_path}({call_str}).await {{\n                \
+                 Ok(mut stream) => {{\n                    \
+                     while let Some(item) = stream.next().await {{\n                        \
+                         match item {{\n                            \
+                             Ok(chunk) => {{ let _ = sink.add({item_type}::from(chunk)); }}\n                            \
+                             Err(e) => {{ let _ = sink.add_error(e.to_string()); break; }}\n                        \
+                         }}\n                    \
+                     }}\n                \
+                 }}\n                \
+                 Err(e) => {{ let _ = sink.add_error(e.to_string()); }}\n            \
+             }}\n        \
+         }});"
+    );
     (body, None)
 }
 

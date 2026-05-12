@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- feat(alef-backend-dart/frb-stream): implement FRB v2 `StreamSink<T>` streaming for the Dart backend. Sanitized methods with a matching `[[adapters]] pattern = "streaming"` entry in `alef.toml` now emit `#[frb] pub fn method_name(&self, params..., sink: StreamSink<ItemType>)` in the Rust bridge crate instead of being skipped. FRB v2 generates a `Stream<ItemType>` on the Dart side automatically. The generated Cargo.toml gains `futures-util = "0.3"` when any streaming adapter is configured. `supports_streaming` is now `true` in `DartBackend::capabilities()`.
+- feat(alef-e2e/dart): streaming fixture support in the Dart e2e codegen. Fixtures with `mock_response.stream_chunks` now emit `await _client.method().toList()` instead of `await _client.method()`. Streaming assertions: `count_min` on `chunks` emits `expect(result.length, greaterThanOrEqualTo(N))`, `equals` on `stream_content` concatenates deltas and compares, error cases use `.toList()` in the `expectLater` lambda.
+- feat(alef-backend-gleam): emit `<snake_type>_from_json(json: String) -> Result(<TypeName>, String)` NIF externals for every non-opaque `has_serde = true` struct type. This enables Gleam e2e tests to deserialize typed request objects from JSON strings via the Rustler shim instead of constructing every optional field by hand.
+- feat(alef-backend-rustler): emit `#[rustler::nif] pub fn <snake_type>_from_json` shims that deserialize a JSON string via `serde_json::from_str`, convert to the binding type, and return `Result<TypeName, String>`. Corresponds to the Gleam NIF externals added above.
+- feat(alef-e2e/gleam): `options_via = "from_json"` support in `build_args_and_setup`. When a call override sets `options_via = "from_json"` and `options_type = "<TypeName>"`, the generated test emits `let assert Ok(req_json__) = module.snake_type_from_json("{...}")` setup lines instead of a `// skipped: json_object` stub.
+
 ### Fixed
 
 - fix(alef-backend-pyo3): import `has_default` config DTOs from `.options` even when they expose `Self`-returning builder methods. The api.py import classifier built `return_type_names` by walking method return types (and their transitive field references), which pulled config types like `PackConfig` (with `from_toml_file -> PackConfig`) and `ProcessConfig` (with `default`/`with_chunking`/`all`/`minimal` builders) out of `options_type_names`. The generated api.py then imported them from `._native`, breaking `mypy --strict` for any caller passing the re-exported dataclass. Use the IR-level `is_return_type` flag alone (set by alef-extract only for direct free-function returns), removing the over-broad method/field walk. Fixes [#72](https://github.com/kreuzberg-dev/alef/issues/72).

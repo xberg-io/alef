@@ -337,6 +337,7 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
     let _is_async = call_overrides.and_then(|o| o.r#async).unwrap_or(call_config.r#async);
 
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
+    let is_streaming = fixture.is_streaming_mock();
 
     // Resolve options_type and options_via from per-fixture → per-call → default.
     // These drive how `json_object` args are constructed:
@@ -623,7 +624,11 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
                 let _ = writeln!(out, "      {line}");
             }
         }
-        let _ = writeln!(out, "      return {receiver}.{function_name}({args_str});");
+        if is_streaming {
+            let _ = writeln!(out, "      return {receiver}.{function_name}({args_str}).toList();");
+        } else {
+            let _ = writeln!(out, "      return {receiver}.{function_name}({args_str});");
+        }
         let _ = writeln!(out, "    }}(), throwsA(anything));");
     } else if expects_error {
         // No setup lines, direct call — same throwsA(anything) rationale as above.
@@ -632,10 +637,17 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
                 let _ = writeln!(out, "    {line}");
             }
         }
-        let _ = writeln!(
-            out,
-            "    await expectLater({receiver}.{function_name}({args_str}), throwsA(anything));"
-        );
+        if is_streaming {
+            let _ = writeln!(
+                out,
+                "    await expectLater({receiver}.{function_name}({args_str}).toList(), throwsA(anything));"
+            );
+        } else {
+            let _ = writeln!(
+                out,
+                "    await expectLater({receiver}.{function_name}({args_str}), throwsA(anything));"
+            );
+        }
     } else {
         for line in &setup_lines {
             let _ = writeln!(out, "    {line}");
@@ -645,12 +657,23 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
                 let _ = writeln!(out, "    {line}");
             }
         }
-        let _ = writeln!(
-            out,
-            "    final {result_var} = await {receiver}.{function_name}({args_str});"
-        );
+        if is_streaming {
+            let _ = writeln!(
+                out,
+                "    final {result_var} = await {receiver}.{function_name}({args_str}).toList();"
+            );
+        } else {
+            let _ = writeln!(
+                out,
+                "    final {result_var} = await {receiver}.{function_name}({args_str});"
+            );
+        }
         for assertion in &fixture.assertions {
-            render_assertion_dart(out, assertion, result_var);
+            if is_streaming {
+                render_streaming_assertion_dart(out, assertion, result_var);
+            } else {
+                render_assertion_dart(out, assertion, result_var);
+            }
         }
     }
 
@@ -711,6 +734,43 @@ fn render_assertion_dart(out: &mut String, assertion: &Assertion, result_var: &s
         }
         other => {
             let _ = writeln!(out, "    // skipped: unknown assertion type '{other}'");
+        }
+    }
+}
+
+/// Render a single fixture assertion for a streaming result.
+///
+/// `result_var` is the `List<T>` collected via `.toList()` on the stream.
+/// Supports:
+/// - `not_error`: no-op (a thrown error would already fail the test).
+/// - `count_min` with `field = "chunks"`: assert `result_var.length >= value`.
+/// - `equals` with `field = "stream_content"`: concatenate `delta.content` and compare.
+/// Other assertion types are emitted as comments.
+fn render_streaming_assertion_dart(out: &mut String, assertion: &Assertion, result_var: &str) {
+    match assertion.assertion_type.as_str() {
+        "not_error" => {
+            // No-op: a thrown error from `.toList()` would have failed the test already.
+        }
+        "count_min" if assertion.field.as_deref() == Some("chunks") => {
+            if let Some(serde_json::Value::Number(n)) = &assertion.value {
+                let _ = writeln!(
+                    out,
+                    "    expect({result_var}.length, greaterThanOrEqualTo({n}));"
+                );
+            }
+        }
+        "equals" if assertion.field.as_deref() == Some("stream_content") => {
+            if let Some(serde_json::Value::String(expected)) = &assertion.value {
+                let escaped = escape_dart(expected);
+                let _ = writeln!(
+                    out,
+                    "    final _content = {result_var}.map((c) => c.choices.firstOrNull?.delta.content ?? '').join();"
+                );
+                let _ = writeln!(out, "    expect(_content, equals('{escaped}'));");
+            }
+        }
+        other => {
+            let _ = writeln!(out, "    // skipped streaming assertion: '{other}'");
         }
     }
 }
