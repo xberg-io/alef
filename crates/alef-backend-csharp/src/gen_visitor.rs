@@ -22,590 +22,188 @@ use heck::ToSnakeCase;
 
 pub struct CallbackSpec {
     /// Field name in `HTMHtmVisitorCallbacks`.
-    pub c_field: &'static str,
+    pub c_field: String,
     /// C# interface method name (PascalCase).
-    pub cs_method: &'static str,
+    pub cs_method: String,
     /// XML doc summary.
-    pub doc: &'static str,
+    pub doc: String,
     /// Extra parameters beyond `NodeContext` in the C# interface.
-    pub extra: &'static [ExtraParam],
+    pub extra: Vec<ExtraParam>,
     /// If true, add `bool isHeader` (only visit_table_row).
     pub has_is_header: bool,
 }
 
 pub struct ExtraParam {
     /// C# parameter name in the interface.
-    pub cs_name: &'static str,
+    pub cs_name: String,
     /// C# type in the interface method signature.
-    pub cs_type: &'static str,
+    pub cs_type: String,
     /// P/Invoke types for each raw C parameter (one or more per Java param).
-    pub pinvoke_types: &'static [&'static str],
+    pub pinvoke_types: Vec<String>,
     /// C# expression to decode the raw P/Invoke args (vars named `raw<CsName>N`).
-    pub decode: &'static str,
+    pub decode: String,
 }
 
-pub const CALLBACKS: &[CallbackSpec] = &[
-    CallbackSpec {
-        c_field: "visit_text",
-        cs_method: "VisitText",
-        doc: "Called for text nodes.",
-        extra: &[ExtraParam {
-            cs_name: "text",
-            cs_type: "string",
-            pinvoke_types: &["IntPtr"],
-            decode: "Marshal.PtrToStringUTF8(rawText0)!",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_element_start",
-        cs_method: "VisitElementStart",
-        doc: "Called before entering any element.",
-        extra: &[],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_element_end",
-        cs_method: "VisitElementEnd",
-        doc: "Called after exiting any element; receives the default markdown output.",
-        extra: &[ExtraParam {
-            cs_name: "output",
-            cs_type: "string",
-            pinvoke_types: &["IntPtr"],
-            decode: "Marshal.PtrToStringUTF8(rawOutput0)!",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_link",
-        cs_method: "VisitLink",
-        doc: "Called for anchor links. title is null when the attribute is absent.",
-        extra: &[
-            ExtraParam {
-                cs_name: "href",
-                cs_type: "string",
-                pinvoke_types: &["IntPtr"],
-                decode: "Marshal.PtrToStringUTF8(rawHref0)!",
-            },
-            ExtraParam {
-                cs_name: "text",
-                cs_type: "string",
-                pinvoke_types: &["IntPtr"],
-                decode: "Marshal.PtrToStringUTF8(rawText0)!",
-            },
-            ExtraParam {
-                cs_name: "title",
-                cs_type: "string?",
-                pinvoke_types: &["IntPtr"],
-                decode: "rawTitle0 == IntPtr.Zero ? null : Marshal.PtrToStringUTF8(rawTitle0)",
-            },
-        ],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_image",
-        cs_method: "VisitImage",
-        doc: "Called for images. title is null when absent.",
-        extra: &[
-            ExtraParam {
-                cs_name: "src",
-                cs_type: "string",
-                pinvoke_types: &["IntPtr"],
-                decode: "Marshal.PtrToStringUTF8(rawSrc0)!",
-            },
-            ExtraParam {
-                cs_name: "alt",
-                cs_type: "string",
-                pinvoke_types: &["IntPtr"],
-                decode: "Marshal.PtrToStringUTF8(rawAlt0)!",
-            },
-            ExtraParam {
-                cs_name: "title",
-                cs_type: "string?",
-                pinvoke_types: &["IntPtr"],
-                decode: "rawTitle0 == IntPtr.Zero ? null : Marshal.PtrToStringUTF8(rawTitle0)",
-            },
-        ],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_heading",
-        cs_method: "VisitHeading",
-        doc: "Called for heading elements h1-h6. id is null when absent.",
-        extra: &[
-            ExtraParam {
-                cs_name: "level",
-                cs_type: "uint",
-                pinvoke_types: &["uint"],
-                decode: "rawLevel0",
-            },
-            ExtraParam {
-                cs_name: "text",
-                cs_type: "string",
-                pinvoke_types: &["IntPtr"],
-                decode: "Marshal.PtrToStringUTF8(rawText0)!",
-            },
-            ExtraParam {
-                cs_name: "id",
-                cs_type: "string?",
-                pinvoke_types: &["IntPtr"],
-                decode: "rawId0 == IntPtr.Zero ? null : Marshal.PtrToStringUTF8(rawId0)",
-            },
-        ],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_code_block",
-        cs_method: "VisitCodeBlock",
-        doc: "Called for code blocks. lang is null when absent.",
-        extra: &[
-            ExtraParam {
-                cs_name: "lang",
-                cs_type: "string?",
-                pinvoke_types: &["IntPtr"],
-                decode: "rawLang0 == IntPtr.Zero ? null : Marshal.PtrToStringUTF8(rawLang0)",
-            },
-            ExtraParam {
-                cs_name: "code",
-                cs_type: "string",
-                pinvoke_types: &["IntPtr"],
-                decode: "Marshal.PtrToStringUTF8(rawCode0)!",
-            },
-        ],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_code_inline",
-        cs_method: "VisitCodeInline",
-        doc: "Called for inline code elements.",
-        extra: &[ExtraParam {
-            cs_name: "code",
-            cs_type: "string",
-            pinvoke_types: &["IntPtr"],
-            decode: "Marshal.PtrToStringUTF8(rawCode0)!",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_list_item",
-        cs_method: "VisitListItem",
-        doc: "Called for list items.",
-        extra: &[
-            ExtraParam {
-                cs_name: "ordered",
-                cs_type: "bool",
-                pinvoke_types: &["int"],
-                decode: "rawOrdered0 != 0",
-            },
-            ExtraParam {
-                cs_name: "marker",
-                cs_type: "string",
-                pinvoke_types: &["IntPtr"],
-                decode: "Marshal.PtrToStringUTF8(rawMarker0)!",
-            },
-            ExtraParam {
-                cs_name: "text",
-                cs_type: "string",
-                pinvoke_types: &["IntPtr"],
-                decode: "Marshal.PtrToStringUTF8(rawText0)!",
-            },
-        ],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_list_start",
-        cs_method: "VisitListStart",
-        doc: "Called before processing a list.",
-        extra: &[ExtraParam {
-            cs_name: "ordered",
-            cs_type: "bool",
-            pinvoke_types: &["int"],
-            decode: "rawOrdered0 != 0",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_list_end",
-        cs_method: "VisitListEnd",
-        doc: "Called after processing a list.",
-        extra: &[
-            ExtraParam {
-                cs_name: "ordered",
-                cs_type: "bool",
-                pinvoke_types: &["int"],
-                decode: "rawOrdered0 != 0",
-            },
-            ExtraParam {
-                cs_name: "output",
-                cs_type: "string",
-                pinvoke_types: &["IntPtr"],
-                decode: "Marshal.PtrToStringUTF8(rawOutput0)!",
-            },
-        ],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_table_start",
-        cs_method: "VisitTableStart",
-        doc: "Called before processing a table.",
-        extra: &[],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_table_row",
-        cs_method: "VisitTableRow",
-        doc: "Called for table rows. cells contains the cell text values.",
-        extra: &[ExtraParam {
-            cs_name: "cells",
-            cs_type: "string[]",
-            pinvoke_types: &["IntPtr", "UIntPtr"],
-            decode: "DecodeCells(rawCells0, (long)(ulong)rawCells1)",
-        }],
-        has_is_header: true,
-    },
-    CallbackSpec {
-        c_field: "visit_table_end",
-        cs_method: "VisitTableEnd",
-        doc: "Called after processing a table.",
-        extra: &[ExtraParam {
-            cs_name: "output",
-            cs_type: "string",
-            pinvoke_types: &["IntPtr"],
-            decode: "Marshal.PtrToStringUTF8(rawOutput0)!",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_blockquote",
-        cs_method: "VisitBlockquote",
-        doc: "Called for blockquote elements.",
-        extra: &[
-            ExtraParam {
-                cs_name: "content",
-                cs_type: "string",
-                pinvoke_types: &["IntPtr"],
-                decode: "Marshal.PtrToStringUTF8(rawContent0)!",
-            },
-            ExtraParam {
-                cs_name: "depth",
-                cs_type: "ulong",
-                pinvoke_types: &["UIntPtr"],
-                decode: "(ulong)rawDepth0",
-            },
-        ],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_strong",
-        cs_method: "VisitStrong",
-        doc: "Called for strong/bold elements.",
-        extra: &[ExtraParam {
-            cs_name: "text",
-            cs_type: "string",
-            pinvoke_types: &["IntPtr"],
-            decode: "Marshal.PtrToStringUTF8(rawText0)!",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_emphasis",
-        cs_method: "VisitEmphasis",
-        doc: "Called for emphasis/italic elements.",
-        extra: &[ExtraParam {
-            cs_name: "text",
-            cs_type: "string",
-            pinvoke_types: &["IntPtr"],
-            decode: "Marshal.PtrToStringUTF8(rawText0)!",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_strikethrough",
-        cs_method: "VisitStrikethrough",
-        doc: "Called for strikethrough elements.",
-        extra: &[ExtraParam {
-            cs_name: "text",
-            cs_type: "string",
-            pinvoke_types: &["IntPtr"],
-            decode: "Marshal.PtrToStringUTF8(rawText0)!",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_underline",
-        cs_method: "VisitUnderline",
-        doc: "Called for underline elements.",
-        extra: &[ExtraParam {
-            cs_name: "text",
-            cs_type: "string",
-            pinvoke_types: &["IntPtr"],
-            decode: "Marshal.PtrToStringUTF8(rawText0)!",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_subscript",
-        cs_method: "VisitSubscript",
-        doc: "Called for subscript elements.",
-        extra: &[ExtraParam {
-            cs_name: "text",
-            cs_type: "string",
-            pinvoke_types: &["IntPtr"],
-            decode: "Marshal.PtrToStringUTF8(rawText0)!",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_superscript",
-        cs_method: "VisitSuperscript",
-        doc: "Called for superscript elements.",
-        extra: &[ExtraParam {
-            cs_name: "text",
-            cs_type: "string",
-            pinvoke_types: &["IntPtr"],
-            decode: "Marshal.PtrToStringUTF8(rawText0)!",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_mark",
-        cs_method: "VisitMark",
-        doc: "Called for mark/highlight elements.",
-        extra: &[ExtraParam {
-            cs_name: "text",
-            cs_type: "string",
-            pinvoke_types: &["IntPtr"],
-            decode: "Marshal.PtrToStringUTF8(rawText0)!",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_line_break",
-        cs_method: "VisitLineBreak",
-        doc: "Called for line break elements.",
-        extra: &[],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_horizontal_rule",
-        cs_method: "VisitHorizontalRule",
-        doc: "Called for horizontal rule elements.",
-        extra: &[],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_custom_element",
-        cs_method: "VisitCustomElement",
-        doc: "Called for custom or unknown elements.",
-        extra: &[
-            ExtraParam {
-                cs_name: "tagName",
-                cs_type: "string",
-                pinvoke_types: &["IntPtr"],
-                decode: "Marshal.PtrToStringUTF8(rawTagName0)!",
-            },
-            ExtraParam {
-                cs_name: "html",
-                cs_type: "string",
-                pinvoke_types: &["IntPtr"],
-                decode: "Marshal.PtrToStringUTF8(rawHtml0)!",
-            },
-        ],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_definition_list_start",
-        cs_method: "VisitDefinitionListStart",
-        doc: "Called before a definition list.",
-        extra: &[],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_definition_term",
-        cs_method: "VisitDefinitionTerm",
-        doc: "Called for definition term elements.",
-        extra: &[ExtraParam {
-            cs_name: "text",
-            cs_type: "string",
-            pinvoke_types: &["IntPtr"],
-            decode: "Marshal.PtrToStringUTF8(rawText0)!",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_definition_description",
-        cs_method: "VisitDefinitionDescription",
-        doc: "Called for definition description elements.",
-        extra: &[ExtraParam {
-            cs_name: "text",
-            cs_type: "string",
-            pinvoke_types: &["IntPtr"],
-            decode: "Marshal.PtrToStringUTF8(rawText0)!",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_definition_list_end",
-        cs_method: "VisitDefinitionListEnd",
-        doc: "Called after a definition list.",
-        extra: &[ExtraParam {
-            cs_name: "output",
-            cs_type: "string",
-            pinvoke_types: &["IntPtr"],
-            decode: "Marshal.PtrToStringUTF8(rawOutput0)!",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_form",
-        cs_method: "VisitForm",
-        doc: "Called for form elements. action and method may be null.",
-        extra: &[
-            ExtraParam {
-                cs_name: "action",
-                cs_type: "string?",
-                pinvoke_types: &["IntPtr"],
-                decode: "rawAction0 == IntPtr.Zero ? null : Marshal.PtrToStringUTF8(rawAction0)",
-            },
-            ExtraParam {
-                cs_name: "method",
-                cs_type: "string?",
-                pinvoke_types: &["IntPtr"],
-                decode: "rawMethod0 == IntPtr.Zero ? null : Marshal.PtrToStringUTF8(rawMethod0)",
-            },
-        ],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_input",
-        cs_method: "VisitInput",
-        doc: "Called for input elements. name and value may be null.",
-        extra: &[
-            ExtraParam {
-                cs_name: "inputType",
-                cs_type: "string",
-                pinvoke_types: &["IntPtr"],
-                decode: "Marshal.PtrToStringUTF8(rawInputType0)!",
-            },
-            ExtraParam {
-                cs_name: "name",
-                cs_type: "string?",
-                pinvoke_types: &["IntPtr"],
-                decode: "rawName0 == IntPtr.Zero ? null : Marshal.PtrToStringUTF8(rawName0)",
-            },
-            ExtraParam {
-                cs_name: "value",
-                cs_type: "string?",
-                pinvoke_types: &["IntPtr"],
-                decode: "rawValue0 == IntPtr.Zero ? null : Marshal.PtrToStringUTF8(rawValue0)",
-            },
-        ],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_button",
-        cs_method: "VisitButton",
-        doc: "Called for button elements.",
-        extra: &[ExtraParam {
-            cs_name: "text",
-            cs_type: "string",
-            pinvoke_types: &["IntPtr"],
-            decode: "Marshal.PtrToStringUTF8(rawText0)!",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_audio",
-        cs_method: "VisitAudio",
-        doc: "Called for audio elements. src may be null.",
-        extra: &[ExtraParam {
-            cs_name: "src",
-            cs_type: "string?",
-            pinvoke_types: &["IntPtr"],
-            decode: "rawSrc0 == IntPtr.Zero ? null : Marshal.PtrToStringUTF8(rawSrc0)",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_video",
-        cs_method: "VisitVideo",
-        doc: "Called for video elements. src may be null.",
-        extra: &[ExtraParam {
-            cs_name: "src",
-            cs_type: "string?",
-            pinvoke_types: &["IntPtr"],
-            decode: "rawSrc0 == IntPtr.Zero ? null : Marshal.PtrToStringUTF8(rawSrc0)",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_iframe",
-        cs_method: "VisitIframe",
-        doc: "Called for iframe elements. src may be null.",
-        extra: &[ExtraParam {
-            cs_name: "src",
-            cs_type: "string?",
-            pinvoke_types: &["IntPtr"],
-            decode: "rawSrc0 == IntPtr.Zero ? null : Marshal.PtrToStringUTF8(rawSrc0)",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_details",
-        cs_method: "VisitDetails",
-        doc: "Called for details elements.",
-        extra: &[ExtraParam {
-            cs_name: "open",
-            cs_type: "bool",
-            pinvoke_types: &["int"],
-            decode: "rawOpen0 != 0",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_summary",
-        cs_method: "VisitSummary",
-        doc: "Called for summary elements.",
-        extra: &[ExtraParam {
-            cs_name: "text",
-            cs_type: "string",
-            pinvoke_types: &["IntPtr"],
-            decode: "Marshal.PtrToStringUTF8(rawText0)!",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_figure_start",
-        cs_method: "VisitFigureStart",
-        doc: "Called before a figure element.",
-        extra: &[],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_figcaption",
-        cs_method: "VisitFigcaption",
-        doc: "Called for figcaption elements.",
-        extra: &[ExtraParam {
-            cs_name: "text",
-            cs_type: "string",
-            pinvoke_types: &["IntPtr"],
-            decode: "Marshal.PtrToStringUTF8(rawText0)!",
-        }],
-        has_is_header: false,
-    },
-    CallbackSpec {
-        c_field: "visit_figure_end",
-        cs_method: "VisitFigureEnd",
-        doc: "Called after a figure element.",
-        extra: &[ExtraParam {
-            cs_name: "output",
-            cs_type: "string",
-            pinvoke_types: &["IntPtr"],
-            decode: "Marshal.PtrToStringUTF8(rawOutput0)!",
-        }],
-        has_is_header: false,
-    },
-];
+// ---------------------------------------------------------------------------
+// IR-driven callback spec builder
+// ---------------------------------------------------------------------------
+
+/// Convert snake_case to lowerCamelCase for C# parameter names.
+/// E.g. "tag_name" → "tagName", "inputType" → "inputType" (passthrough).
+fn snake_to_lower_camel(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut next_upper = false;
+    for ch in s.chars() {
+        if ch == '_' {
+            next_upper = true;
+        } else if next_upper {
+            result.extend(ch.to_uppercase());
+            next_upper = false;
+        } else {
+            result.push(ch);
+        }
+    }
+    result
+}
+
+/// Build a `Vec<CallbackSpec>` from a trait's IR definition for the C# backend.
+///
+/// Derives all language-specific C# fields (method names, P/Invoke types, decode
+/// expressions) from `TypeRef` + `optional` flag. Methods with unsupported parameter
+/// types are skipped with a warning.
+pub(crate) fn callback_specs_from_trait(trait_def: &alef_core::ir::TypeDef) -> Vec<CallbackSpec> {
+    use alef_core::ir::{PrimitiveType, TypeRef};
+    use heck::ToPascalCase;
+
+    let mut specs = Vec::with_capacity(trait_def.methods.len());
+    'methods: for m in &trait_def.methods {
+        if m.trait_source.is_some() {
+            continue;
+        }
+        let cs_method = m.name.to_pascal_case();
+        let first_line = m.doc.lines().next().unwrap_or("").trim().to_string();
+        let doc = if first_line.is_empty() {
+            format!("Called for {} elements.", m.name.replace('_', " "))
+        } else {
+            first_line
+        };
+
+        let mut extra = Vec::new();
+        let mut has_is_header = false;
+
+        for p in &m.params {
+            if matches!(&p.ty, TypeRef::Named(_)) {
+                // Context parameter — skip, handled separately
+                continue;
+            }
+            let raw_name = p.name.trim_start_matches('_').to_string();
+            let cs_name = snake_to_lower_camel(&raw_name);
+            // Capitalise for the raw var names (e.g. "text" → "Text", "inputType" → "InputType")
+            let cs_name_pascal: String = {
+                let mut chars = cs_name.chars();
+                match chars.next() {
+                    None => String::new(),
+                    Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                }
+            };
+
+            match (&p.ty, p.optional) {
+                (TypeRef::String, false) => {
+                    let raw_var = format!("raw{cs_name_pascal}0");
+                    extra.push(ExtraParam {
+                        cs_name,
+                        cs_type: "string".to_string(),
+                        pinvoke_types: vec!["IntPtr".to_string()],
+                        decode: format!("Marshal.PtrToStringUTF8({raw_var})!"),
+                    });
+                }
+                (TypeRef::String, true) => {
+                    let raw_var = format!("raw{cs_name_pascal}0");
+                    extra.push(ExtraParam {
+                        cs_name,
+                        cs_type: "string?".to_string(),
+                        pinvoke_types: vec!["IntPtr".to_string()],
+                        decode: format!(
+                            "{raw_var} == IntPtr.Zero ? null : Marshal.PtrToStringUTF8({raw_var})"
+                        ),
+                    });
+                }
+                (TypeRef::Primitive(PrimitiveType::Bool), false) => {
+                    let raw_var = format!("raw{cs_name_pascal}0");
+                    extra.push(ExtraParam {
+                        cs_name,
+                        cs_type: "bool".to_string(),
+                        pinvoke_types: vec!["int".to_string()],
+                        decode: format!("{raw_var} != 0"),
+                    });
+                }
+                (
+                    TypeRef::Primitive(
+                        PrimitiveType::U32 | PrimitiveType::I32 | PrimitiveType::U16 | PrimitiveType::I16 | PrimitiveType::U8 | PrimitiveType::I8,
+                    ),
+                    false,
+                ) => {
+                    let raw_var = format!("raw{cs_name_pascal}0");
+                    extra.push(ExtraParam {
+                        cs_name,
+                        cs_type: "uint".to_string(),
+                        pinvoke_types: vec!["uint".to_string()],
+                        decode: raw_var,
+                    });
+                }
+                (
+                    TypeRef::Primitive(PrimitiveType::Usize | PrimitiveType::U64 | PrimitiveType::I64),
+                    false,
+                ) => {
+                    let raw_var = format!("raw{cs_name_pascal}0");
+                    extra.push(ExtraParam {
+                        cs_name,
+                        cs_type: "ulong".to_string(),
+                        pinvoke_types: vec!["UIntPtr".to_string()],
+                        decode: format!("(ulong){raw_var}"),
+                    });
+                }
+                (TypeRef::Vec(inner), false) => match inner.as_ref() {
+                    TypeRef::String => {
+                        let raw_ptr = format!("raw{cs_name_pascal}0");
+                        let raw_len = format!("raw{cs_name_pascal}1");
+                        extra.push(ExtraParam {
+                            cs_name,
+                            cs_type: "string[]".to_string(),
+                            pinvoke_types: vec!["IntPtr".to_string(), "UIntPtr".to_string()],
+                            decode: format!("DecodeCells({raw_ptr}, (long)(ulong){raw_len})"),
+                        });
+                        has_is_header = true;
+                        break;
+                    }
+                    _ => {
+                        eprintln!(
+                            "[alef] gen_visitor(csharp): skip method `{}` — unsupported Vec param `{}`",
+                            m.name, p.name
+                        );
+                        continue 'methods;
+                    }
+                },
+                _ => {
+                    eprintln!(
+                        "[alef] gen_visitor(csharp): skip method `{}` — unsupported param `{}: {:?}`",
+                        m.name, p.name, p.ty
+                    );
+                    continue 'methods;
+                }
+            }
+        }
+
+        specs.push(CallbackSpec {
+            c_field: m.name.clone(),
+            cs_method,
+            doc,
+            extra,
+            has_is_header,
+        });
+    }
+    specs
+}
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -616,7 +214,13 @@ pub const CALLBACKS: &[CallbackSpec] = &[
 /// IVisitor.cs and VisitorCallbacks.cs are superseded by IVisitor and VisitorCallbacks
 /// in TraitBridges.cs which use the HtmlVisitorBridge approach. They are intentionally
 /// excluded here; stale committed copies are removed by delete_superseded_visitor_files.
-pub fn gen_visitor_files(namespace: &str) -> Vec<(String, String)> {
+pub fn gen_visitor_files(
+    namespace: &str,
+    _trait_def: &alef_core::ir::TypeDef,
+) -> Vec<(String, String)> {
+    // callback_specs_from_trait(_trait_def) drives future expansion of NodeContext.cs
+    // and VisitResult.cs when those files need IR-derived per-method data.
+    let _ = callback_specs_from_trait(_trait_def);
     vec![
         ("NodeContext.cs".to_string(), gen_node_context(namespace)),
         ("VisitResult.cs".to_string(), gen_visit_result(namespace)),

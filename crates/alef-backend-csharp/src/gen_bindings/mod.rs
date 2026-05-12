@@ -184,12 +184,57 @@ impl Backend for CsharpBackend {
 
         // 3b. Generate visitor support files when a bridge is configured.
         if has_visitor_callbacks {
-            for (filename, content) in crate::gen_visitor::gen_visitor_files(&namespace) {
-                files.push(GeneratedFile {
-                    path: base_path.join(filename),
-                    content: strip_trailing_whitespace(&content),
-                    generated_header: true,
-                });
+            // Look up the visitor trait def from the IR via TraitBridgeConfig.trait_name,
+            // mirroring the Go backend's pattern so that gen_visitor_files is IR-driven.
+            let visitor_bridge_cfg = config
+                .trait_bridges
+                .iter()
+                .find(|b| b.bind_via == alef_core::config::BridgeBinding::OptionsField);
+            let trait_map: std::collections::HashMap<&str, &alef_core::ir::TypeDef> = api
+                .types
+                .iter()
+                .filter(|t| t.is_trait)
+                .map(|t| (t.name.as_str(), t))
+                .collect();
+            let visitor_trait = visitor_bridge_cfg
+                .and_then(|b| trait_map.get(b.trait_name.as_str()).copied());
+
+            if let Some(trait_def) = visitor_trait {
+                for (filename, content) in crate::gen_visitor::gen_visitor_files(&namespace, trait_def) {
+                    files.push(GeneratedFile {
+                        path: base_path.join(filename),
+                        content: strip_trailing_whitespace(&content),
+                        generated_header: true,
+                    });
+                }
+            } else {
+                // Trait not in IR (e.g. parsed separately); fall back to a minimal placeholder.
+                let placeholder = alef_core::ir::TypeDef {
+                    name: String::new(),
+                    rust_path: String::new(),
+                    original_rust_path: String::new(),
+                    fields: vec![],
+                    methods: vec![],
+                    is_opaque: false,
+                    is_clone: false,
+                    is_copy: false,
+                    is_trait: true,
+                    has_default: false,
+                    has_stripped_cfg_fields: false,
+                    is_return_type: false,
+                    serde_rename_all: None,
+                    has_serde: false,
+                    super_traits: vec![],
+                    doc: String::new(),
+                    cfg: None,
+                };
+                for (filename, content) in crate::gen_visitor::gen_visitor_files(&namespace, &placeholder) {
+                    files.push(GeneratedFile {
+                        path: base_path.join(filename),
+                        content: strip_trailing_whitespace(&content),
+                        generated_header: true,
+                    });
+                }
             }
             // IVisitor.cs and VisitorCallbacks.cs were removed from gen_visitor_files() in favour
             // of the HtmlVisitorBridge path in TraitBridges.cs.  Delete any stale copies left
