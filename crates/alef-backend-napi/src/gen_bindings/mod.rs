@@ -85,7 +85,19 @@ impl Backend for NapiBackend {
         // Detect serde availability from the output crate's Cargo.toml
         let output_dir = resolve_output_dir(config.output_paths.get("node"), &config.name, "crates/{name}-node/src/");
         let has_serde = alef_core::config::detect_serde_available(&output_dir);
-        let cfg = Self::binding_config(&core_import, &prefix, has_serde);
+        let mut cfg = Self::binding_config(&core_import, &prefix, has_serde);
+        let never_skip_cfg_field_names: Vec<String> = config
+            .trait_bridges
+            .iter()
+            .filter_map(|b| {
+                if b.bind_via == alef_core::config::BridgeBinding::OptionsField {
+                    b.resolved_options_field().map(|s| s.to_string())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        cfg.never_skip_cfg_field_names = &never_skip_cfg_field_names;
 
         let mut builder = RustFileBuilder::new().with_generated_header();
         builder.add_inner_attribute("allow(dead_code, unused_imports, unused_variables)");
@@ -385,6 +397,7 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
             // Json fields are stored as serde_json::Value in the binding so JS
             // callers can pass objects/arrays/scalars directly.
             json_as_value: true,
+            never_skip_cfg_field_names: &never_skip_cfg_field_names,
             ..Default::default()
         };
         // From/Into conversions using shared parameterized generators

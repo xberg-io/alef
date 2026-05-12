@@ -137,8 +137,14 @@ pub fn gen_struct_with_per_field_attrs(
         attrs.extend(extra_field_attrs(field));
         // Add #[serde(skip)] for opaque fields or sanitized fields when the struct derives serde.
         // Cow-backed strings are lossless String bindings, so they must remain serializable.
+        // Also skip cfg-gated fields restored via never_skip_cfg_field_names — their binding
+        // wrapper types (e.g. trait-bridge handles like PyVisitorRef) typically don't implement
+        // serde::Serialize/Deserialize, so the field must be excluded from JSON round-trip.
         let skip_sanitized_field = field.sanitized && field.core_wrapper != CoreWrapper::Cow;
-        if has_serde && (opaque_fields.contains(&field.name.as_str()) || skip_sanitized_field) {
+        let skip_cfg_gated_field = field.cfg.is_some();
+        if has_serde
+            && (opaque_fields.contains(&field.name.as_str()) || skip_sanitized_field || skip_cfg_gated_field)
+        {
             attrs.push("serde(skip)".to_string());
         }
         sb.add_field_with_doc(&field.name, &ty, attrs, &field.doc);
@@ -225,8 +231,14 @@ pub fn gen_struct_with_rename(
         // gen_struct_with_per_field_attrs: sanitized fields have placeholder String types that
         // cause JSON round-trip failures with "unknown variant ''" errors. Cow-backed strings
         // are lossless String bindings, so they must remain serializable/deserializable.
+        // Also skip cfg-gated fields restored via never_skip_cfg_field_names — their binding
+        // wrapper types (e.g. trait-bridge handles like PyVisitorRef) typically don't implement
+        // serde::Serialize/Deserialize, so the field must be excluded from JSON round-trip.
         let skip_sanitized_field = field.sanitized && field.core_wrapper != CoreWrapper::Cow;
-        if has_serde && (opaque_fields.contains(&field.name.as_str()) || skip_sanitized_field) {
+        let skip_cfg_gated_field = field.cfg.is_some();
+        if has_serde
+            && (opaque_fields.contains(&field.name.as_str()) || skip_sanitized_field || skip_cfg_gated_field)
+        {
             attrs.push("serde(skip)".to_string());
         }
         // Mirror per-field `#[serde(rename = "...")]` from the core type so the binding

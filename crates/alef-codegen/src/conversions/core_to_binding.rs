@@ -179,8 +179,9 @@ pub fn gen_from_core_to_binding_cfg(
         } else {
             conversion
         };
-        // Skip cfg-gated fields — they don't exist in the binding struct
-        if field.cfg.is_some() {
+        // Skip cfg-gated fields unless they're force-restored via never_skip_cfg_field_names
+        // (trait-bridge bind_via = "options_field" config).
+        if field.cfg.is_some() && !config.never_skip_cfg_field_names.contains(&field.name) {
             continue;
         }
         // In core→binding direction, the binding struct field may be keyword-escaped

@@ -68,8 +68,9 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
         let optionalized = config.optionalize_defaults && typ.has_default;
         let mut statements = Vec::new();
         for field in &typ.fields {
-            // Skip cfg-gated fields — they don't exist in the binding struct.
-            if field.cfg.is_some() {
+            // Skip cfg-gated fields unless they're force-restored via never_skip_cfg_field_names
+            // (trait-bridge bind_via = "options_field" config).
+            if field.cfg.is_some() && !config.never_skip_cfg_field_names.contains(&field.name) {
                 continue;
             }
             if field.sanitized && field.core_wrapper != CoreWrapper::Cow {
@@ -139,11 +140,9 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
     let mut statements = Vec::new();
 
     for field in &typ.fields {
-        // Skip cfg-gated fields — they don't exist in the binding struct.
-        // When the binding is compiled, these fields are absent, and accessing them would fail.
-        // The ..Default::default() at the end fills in these fields when the core type is compiled
-        // with the required feature enabled.
-        if field.cfg.is_some() {
+        // Skip cfg-gated fields unless they're force-restored via never_skip_cfg_field_names
+        // (trait-bridge bind_via = "options_field" config).
+        if field.cfg.is_some() && !config.never_skip_cfg_field_names.contains(&field.name) {
             continue;
         }
         // Fields referencing excluded types don't exist in the binding struct.

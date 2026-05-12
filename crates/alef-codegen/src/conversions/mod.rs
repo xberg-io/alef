@@ -103,6 +103,10 @@ pub struct ConversionConfig<'a> {
     ///   - core→binding: `serde_json::to_value(val.<name>).unwrap_or_default()`
     ///   - binding→core: `serde_json::from_value(val.<name>).unwrap_or_default()`
     pub untagged_data_enum_names: Option<&'a AHashSet<String>>,
+    /// Names of cfg-gated fields that must NOT be skipped in conversions because the binding
+    /// emits them (via [`super::generators::RustBindingConfig::never_skip_cfg_field_names`]).
+    /// Empty by default; backends populate from trait-bridge `bind_via = "options_field"` config.
+    pub never_skip_cfg_field_names: &'a [String],
 }
 
 impl<'a> ConversionConfig<'a> {
