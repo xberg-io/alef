@@ -837,6 +837,20 @@ fn render_test_method(
     let description = &fixture.description;
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
+    // Streaming fixtures: drain the iterator into a `chunks` list after the call.
+    let is_streaming = fixture.is_streaming_mock();
+    let collect_snippet =
+        if is_streaming && !expects_error {
+            crate::codegen::streaming_assertions::StreamingFieldResolver::collect_snippet(
+                "kotlin",
+                result_var,
+                "chunks",
+            )
+            .unwrap_or_default()
+        } else {
+            String::new()
+        };
+
     // Check if this test needs ObjectMapper deserialization for json_object args.
     // Uses `resolve_field` so that `field = "input"` resolves to the whole fixture
     // input (and not a nested key called "input"), matching dart/swift behavior.
@@ -893,6 +907,9 @@ fn render_test_method(
             return;
         }
         let _ = writeln!(out, "        val {result_var} = client.{function_name}({args_str})");
+        if !collect_snippet.is_empty() {
+            let _ = writeln!(out, "        {collect_snippet}");
+        }
         for assertion in &fixture.assertions {
             render_assertion(
                 out,
@@ -931,6 +948,10 @@ fn render_test_method(
         out,
         "        val {result_var} = {class_name}.{function_name}({args_str})"
     );
+
+    if !collect_snippet.is_empty() {
+        let _ = writeln!(out, "        {collect_snippet}");
+    }
 
     for assertion in &fixture.assertions {
         render_assertion(
@@ -1049,6 +1070,80 @@ fn render_assertion(
     result_is_simple: bool,
     enum_fields: &HashSet<String>,
 ) {
+    // Streaming virtual fields resolve against the `chunks` collected-list variable.
+    // Intercept before is_valid_for_result so they are never skipped.
+    if let Some(f) = &assertion.field {
+        if !f.is_empty() && crate::codegen::streaming_assertions::is_streaming_virtual_field(f) {
+            if let Some(expr) =
+                crate::codegen::streaming_assertions::StreamingFieldResolver::accessor(f, "kotlin", "chunks")
+            {
+                let line = match assertion.assertion_type.as_str() {
+                    "count_min" => {
+                        if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                            format!("        assertTrue({expr}.size >= {n}, \"expected >= {n} chunks\")\n")
+                        } else {
+                            String::new()
+                        }
+                    }
+                    "count_equals" => {
+                        if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                            format!("        assertEquals({n}.toLong(), {expr}.size.toLong(), \"expected exactly {n} elements\")\n")
+                        } else {
+                            String::new()
+                        }
+                    }
+                    "equals" => {
+                        if let Some(serde_json::Value::String(s)) = &assertion.value {
+                            let escaped = escape_kotlin(s);
+                            format!("        assertEquals(\"{escaped}\", {expr})\n")
+                        } else if let Some(b) = assertion.value.as_ref().and_then(|v| v.as_bool()) {
+                            format!("        assertEquals({b}, {expr})\n")
+                        } else {
+                            String::new()
+                        }
+                    }
+                    "not_empty" => {
+                        format!("        assertFalse({expr}.isEmpty(), \"expected non-empty\")\n")
+                    }
+                    "is_empty" => {
+                        format!("        assertTrue({expr}.isEmpty(), \"expected empty\")\n")
+                    }
+                    "is_true" => {
+                        format!("        assertTrue({expr}, \"expected true\")\n")
+                    }
+                    "is_false" => {
+                        format!("        assertFalse({expr}, \"expected false\")\n")
+                    }
+                    "greater_than" => {
+                        if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                            format!("        assertTrue({expr} > {n}, \"expected > {n}\")\n")
+                        } else {
+                            String::new()
+                        }
+                    }
+                    "contains" => {
+                        if let Some(serde_json::Value::String(s)) = &assertion.value {
+                            let escaped = escape_kotlin(s);
+                            format!(
+                                "        assertTrue({expr}.contains(\"{escaped}\"), \"expected to contain: {escaped}\")\n"
+                            )
+                        } else {
+                            String::new()
+                        }
+                    }
+                    _ => format!(
+                        "        // streaming field '{f}': assertion type '{}' not rendered\n",
+                        assertion.assertion_type
+                    ),
+                };
+                if !line.is_empty() {
+                    out.push_str(&line);
+                }
+            }
+            return;
+        }
+    }
+
     // Skip assertions on fields that don't exist on the result type.
     if let Some(f) = &assertion.field {
         if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
