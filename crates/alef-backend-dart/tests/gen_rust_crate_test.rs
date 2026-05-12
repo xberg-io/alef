@@ -458,6 +458,7 @@ fn make_config_with_bridge(bridge_trait_name: &str) -> ResolvedCrateConfig {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        ffi_skip_methods: vec![],
     }];
     config
 }
@@ -622,6 +623,7 @@ fn lib_rs_emits_register_forwarder_when_register_fn_configured() {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        ffi_skip_methods: vec![],
     }];
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
     let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
@@ -730,6 +732,7 @@ fn lib_rs_register_forwarder_appends_register_extra_args() {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        ffi_skip_methods: vec![],
     }];
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
     let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
@@ -779,6 +782,7 @@ fn lib_rs_emits_clear_forwarder_when_clear_fn_configured() {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        ffi_skip_methods: vec![],
     }];
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
     let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");

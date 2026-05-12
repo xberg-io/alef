@@ -611,6 +611,7 @@ fn make_config_with_bridge(bridge_trait_name: &str) -> ResolvedCrateConfig {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        ffi_skip_methods: vec![],
     }];
     config
 }
@@ -770,6 +771,7 @@ fn multiple_trait_bridges_emit_multiple_abstract_classes() {
             bind_via: alef_core::config::BridgeBinding::FunctionParam,
             options_type: None,
             options_field: None,
+            ffi_skip_methods: vec![],
         },
         TraitBridgeConfig {
             trait_name: "Validator".to_string(),
@@ -787,6 +789,7 @@ fn multiple_trait_bridges_emit_multiple_abstract_classes() {
             bind_via: alef_core::config::BridgeBinding::FunctionParam,
             options_type: None,
             options_field: None,
+            ffi_skip_methods: vec![],
         },
     ];
 
@@ -850,6 +853,7 @@ fn excluded_trait_bridge_does_not_appear_in_traits_dart() {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        ffi_skip_methods: vec![],
     }];
 
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
@@ -952,6 +956,7 @@ fn make_config_with_full_bridge(bridge_trait_name: &str) -> ResolvedCrateConfig 
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        ffi_skip_methods: vec![],
     }];
     config
 }

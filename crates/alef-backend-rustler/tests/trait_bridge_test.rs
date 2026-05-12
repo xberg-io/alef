@@ -97,6 +97,7 @@ fn make_plugin_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        ffi_skip_methods: vec![],
     }
 }
 
@@ -117,6 +118,7 @@ fn make_visitor_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        ffi_skip_methods: vec![],
     }
 }
 
@@ -294,6 +296,7 @@ fn test_plugin_bridge_with_super_trait_generates_plugin_impl() {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        ffi_skip_methods: vec![],
     };
     let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
 
