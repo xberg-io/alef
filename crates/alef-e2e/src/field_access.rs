@@ -15,6 +15,10 @@ pub struct FieldResolver {
     result_fields: HashSet<String>,
     array_fields: HashSet<String>,
     method_calls: HashSet<String>,
+    /// Aliases for error-path field access (used when assertion_type == "error").
+    /// Maps fixture sub-field names (the part after "error.") to actual field names
+    /// on the error type. E.g., `"status_code" -> "status_code"`.
+    error_field_aliases: HashMap<String, String>,
 }
 
 /// A parsed segment of a field path.
@@ -22,8 +26,11 @@ pub struct FieldResolver {
 enum PathSegment {
     /// Struct field access: `foo`
     Field(String),
-    /// Array field access with index: `foo[0]`
-    ArrayField(String),
+    /// Array field access with explicit numeric index: `foo[N]`
+    ///
+    /// The `index` is the integer parsed from the bracket (e.g. `choices[2]` → index 2).
+    /// When synthesised by `inject_array_indexing` the index defaults to `0`.
+    ArrayField { name: String, index: usize },
     /// Map/dict key access: `foo[key]`
     MapAccess { field: String, key: String },
     /// Length/count of the preceding collection: `.length`
@@ -47,6 +54,30 @@ impl FieldResolver {
             result_fields: result_fields.clone(),
             array_fields: array_fields.clone(),
             method_calls: method_calls.clone(),
+            error_field_aliases: HashMap::new(),
+        }
+    }
+
+    /// Create a new resolver that also includes error-path field aliases.
+    ///
+    /// `error_field_aliases` maps fixture sub-field names (the part after `"error."`)
+    /// to the actual field names on the error type, enabling `accessor_for_error` to
+    /// resolve fields like `"status_code"` against the error value.
+    pub fn new_with_error_aliases(
+        fields: &HashMap<String, String>,
+        optional: &HashSet<String>,
+        result_fields: &HashSet<String>,
+        array_fields: &HashSet<String>,
+        method_calls: &HashSet<String>,
+        error_field_aliases: &HashMap<String, String>,
+    ) -> Self {
+        Self {
+            aliases: fields.clone(),
+            optional_fields: optional.clone(),
+            result_fields: result_fields.clone(),
+            array_fields: array_fields.clone(),
+            method_calls: method_calls.clone(),
+            error_field_aliases: error_field_aliases.clone(),
         }
     }
 
@@ -162,8 +193,47 @@ impl FieldResolver {
             "csharp" => render_csharp_with_optionals(&segments, result_var, &self.optional_fields),
             "zig" => render_zig_with_optionals(&segments, result_var, &self.optional_fields, &self.method_calls),
             "swift" => render_swift_with_optionals(&segments, result_var, &self.optional_fields),
+            "dart" => render_dart_with_optionals(&segments, result_var, &self.optional_fields),
             _ => render_accessor(&segments, language, result_var),
         }
+    }
+
+    /// Generate a language-specific accessor expression for an error-path field.
+    ///
+    /// Used when `assertion_type == "error"` and the fixture declares a `field`
+    /// like `"error.status_code"`. The caller strips the `"error."` prefix and
+    /// passes the sub-field name (e.g. `"status_code"`) here.
+    ///
+    /// Resolves against `error_field_aliases` (instead of the success-path
+    /// `aliases`). Falls back to direct field access (i.e. `err_var.status_code`)
+    /// when no alias exists.
+    ///
+    /// For Rust, uses `render_rust_with_optionals` so that fields in
+    /// `method_calls` emit parentheses (e.g. `err.status_code()` when
+    /// `"status_code"` is in `fields_method_calls`).
+    pub fn accessor_for_error(&self, sub_field: &str, language: &str, err_var: &str) -> String {
+        let resolved = self
+            .error_field_aliases
+            .get(sub_field)
+            .map(String::as_str)
+            .unwrap_or(sub_field);
+        let segments = parse_path(resolved);
+        // Error fields are simple scalar fields — no array injection needed.
+        // For Rust, delegate to render_rust_with_optionals so method_calls are honoured.
+        match language {
+            "rust" => render_rust_with_optionals(&segments, err_var, &self.optional_fields, &self.method_calls),
+            _ => render_accessor(&segments, language, err_var),
+        }
+    }
+
+    /// Check whether a sub-field (the part after `"error."`) has an entry in
+    /// `error_field_aliases` or if there are any error aliases at all.
+    ///
+    /// When there are no error aliases configured, callers fall back to
+    /// direct field access, which is the safe default for known public fields
+    /// like `status_code` on `LiterLlmError`.
+    pub fn has_error_aliases(&self) -> bool {
+        !self.error_field_aliases.is_empty()
     }
 
     fn inject_array_indexing(&self, segments: Vec<PathSegment>) -> Vec<PathSegment> {
@@ -183,18 +253,33 @@ impl FieldResolver {
                     path_so_far.push_str(f);
                     let next_is_length = i + 1 < len && matches!(segments[i + 1], PathSegment::Length);
                     if i + 1 < len && self.array_fields.contains(&path_so_far) && !next_is_length {
-                        result.push(PathSegment::ArrayField(f.clone()));
+                        // Config-registered array field without explicit index — default to 0.
+                        result.push(PathSegment::ArrayField {
+                            name: f.clone(),
+                            index: 0,
+                        });
                     } else {
                         result.push(seg.clone());
                     }
+                }
+                // Explicit ArrayField from parse_path — pass through unchanged; the user's
+                // explicit index takes precedence over any config default.
+                PathSegment::ArrayField { .. } => {
+                    result.push(seg.clone());
                 }
                 PathSegment::MapAccess { field, key } => {
                     if !path_so_far.is_empty() {
                         path_so_far.push('.');
                     }
                     path_so_far.push_str(field);
-                    if key == "0" && self.array_fields.contains(&path_so_far) {
-                        result.push(PathSegment::ArrayField(field.clone()));
+                    let is_numeric = !key.is_empty() && key.chars().all(|c| c.is_ascii_digit());
+                    if is_numeric && self.array_fields.contains(&path_so_far) {
+                        // Numeric map-access on a registered array field — upgrade to ArrayField.
+                        let index: usize = key.parse().unwrap_or(0);
+                        result.push(PathSegment::ArrayField {
+                            name: field.clone(),
+                            index,
+                        });
                     } else {
                         result.push(seg.clone());
                     }
@@ -272,12 +357,18 @@ fn parse_path(path: &str) -> Vec<PathSegment> {
         if part == "length" || part == "count" || part == "size" {
             segments.push(PathSegment::Length);
         } else if let Some(bracket_pos) = part.find('[') {
-            let field = part[..bracket_pos].to_string();
+            let name = part[..bracket_pos].to_string();
             let key = part[bracket_pos + 1..].trim_end_matches(']').to_string();
             if key.is_empty() {
-                segments.push(PathSegment::ArrayField(field));
+                // `foo[]` — bare array bracket, index defaults to 0 (upgraded by inject_array_indexing).
+                segments.push(PathSegment::ArrayField { name, index: 0 });
+            } else if !key.is_empty() && key.chars().all(|c| c.is_ascii_digit()) {
+                // `foo[N]` — user-typed explicit numeric index.
+                let index: usize = key.parse().unwrap_or(0);
+                segments.push(PathSegment::ArrayField { name, index });
             } else {
-                segments.push(PathSegment::MapAccess { field, key });
+                // `foo[key]` — string-keyed map access.
+                segments.push(PathSegment::MapAccess { field: name, key });
             }
         } else {
             segments.push(PathSegment::Field(part.to_string()));
@@ -302,6 +393,7 @@ fn render_accessor(segments: &[PathSegment], language: &str, result_var: &str) -
         "r" => render_r(segments, result_var),
         "c" => render_c(segments, result_var),
         "swift" => render_swift(segments, result_var),
+        "dart" => render_dart(segments, result_var),
         _ => render_dot_access(segments, result_var, language),
     }
 }
@@ -317,17 +409,17 @@ fn render_swift(segments: &[PathSegment], result_var: &str) -> String {
         match seg {
             PathSegment::Field(f) => {
                 out.push('.');
-                out.push_str(f);
+                out.push_str(&f.to_lower_camel_case());
                 out.push_str("()");
             }
-            PathSegment::ArrayField(f) => {
+            PathSegment::ArrayField { name, index } => {
                 out.push('.');
-                out.push_str(f);
-                out.push_str("()[0]");
+                out.push_str(&name.to_lower_camel_case());
+                out.push_str(&format!("()[{index}]"));
             }
             PathSegment::MapAccess { field, key } => {
                 out.push('.');
-                out.push_str(field);
+                out.push_str(&field.to_lower_camel_case());
                 if key.chars().all(|c| c.is_ascii_digit()) {
                     out.push_str(&format!("()[{key}]"));
                 } else {
@@ -376,14 +468,14 @@ fn render_swift_with_optionals(
                     out.push('?');
                 }
             }
-            PathSegment::ArrayField(f) => {
+            PathSegment::ArrayField { name, index } => {
                 if !path_so_far.is_empty() {
                     path_so_far.push('.');
                 }
-                path_so_far.push_str(f);
+                path_so_far.push_str(name);
                 out.push('.');
-                out.push_str(f);
-                out.push_str("()[0]");
+                out.push_str(&name.to_lower_camel_case());
+                out.push_str(&format!("()[{index}]"));
             }
             PathSegment::MapAccess { field, key } => {
                 if !path_so_far.is_empty() {
@@ -391,7 +483,7 @@ fn render_swift_with_optionals(
                 }
                 path_so_far.push_str(field);
                 out.push('.');
-                out.push_str(field);
+                out.push_str(&field.to_lower_camel_case());
                 if key.chars().all(|c| c.is_ascii_digit()) {
                     out.push_str(&format!("()[{key}]"));
                 } else {
@@ -414,10 +506,10 @@ fn render_rust(segments: &[PathSegment], result_var: &str) -> String {
                 out.push('.');
                 out.push_str(&f.to_snake_case());
             }
-            PathSegment::ArrayField(f) => {
+            PathSegment::ArrayField { name, index } => {
                 out.push('.');
-                out.push_str(&f.to_snake_case());
-                out.push_str("[0]");
+                out.push_str(&name.to_snake_case());
+                out.push_str(&format!("[{index}]"));
             }
             PathSegment::MapAccess { field, key } => {
                 out.push('.');
@@ -444,14 +536,14 @@ fn render_dot_access(segments: &[PathSegment], result_var: &str, language: &str)
                 out.push('.');
                 out.push_str(f);
             }
-            PathSegment::ArrayField(f) => {
+            PathSegment::ArrayField { name, index } => {
                 if language == "elixir" {
                     let current = std::mem::take(&mut out);
-                    out = format!("Enum.at({current}.{f}, 0)");
+                    out = format!("Enum.at({current}.{name}, {index})");
                 } else {
                     out.push('.');
-                    out.push_str(f);
-                    out.push_str("[0]");
+                    out.push_str(name);
+                    out.push_str(&format!("[{index}]"));
                 }
             }
             PathSegment::MapAccess { field, key } => {
@@ -500,10 +592,10 @@ fn render_typescript(segments: &[PathSegment], result_var: &str) -> String {
                 out.push('.');
                 out.push_str(&f.to_lower_camel_case());
             }
-            PathSegment::ArrayField(f) => {
+            PathSegment::ArrayField { name, index } => {
                 out.push('.');
-                out.push_str(&f.to_lower_camel_case());
-                out.push_str("[0]");
+                out.push_str(&name.to_lower_camel_case());
+                out.push_str(&format!("[{index}]"));
             }
             PathSegment::MapAccess { field, key } => {
                 out.push('.');
@@ -532,10 +624,10 @@ fn render_wasm(segments: &[PathSegment], result_var: &str) -> String {
                 out.push('.');
                 out.push_str(&f.to_lower_camel_case());
             }
-            PathSegment::ArrayField(f) => {
+            PathSegment::ArrayField { name, index } => {
                 out.push('.');
-                out.push_str(&f.to_lower_camel_case());
-                out.push_str("[0]");
+                out.push_str(&name.to_lower_camel_case());
+                out.push_str(&format!("[{index}]"));
             }
             PathSegment::MapAccess { field, key } => {
                 out.push('.');
@@ -558,10 +650,10 @@ fn render_go(segments: &[PathSegment], result_var: &str) -> String {
                 out.push('.');
                 out.push_str(&to_go_name(f));
             }
-            PathSegment::ArrayField(f) => {
+            PathSegment::ArrayField { name, index } => {
                 out.push('.');
-                out.push_str(&to_go_name(f));
-                out.push_str("[0]");
+                out.push_str(&to_go_name(name));
+                out.push_str(&format!("[{index}]"));
             }
             PathSegment::MapAccess { field, key } => {
                 out.push('.');
@@ -590,10 +682,10 @@ fn render_java(segments: &[PathSegment], result_var: &str) -> String {
                 out.push_str(&f.to_lower_camel_case());
                 out.push_str("()");
             }
-            PathSegment::ArrayField(f) => {
+            PathSegment::ArrayField { name, index } => {
                 out.push('.');
-                out.push_str(&f.to_lower_camel_case());
-                out.push_str("().getFirst()");
+                out.push_str(&name.to_lower_camel_case());
+                out.push_str(&format!("().get({index})"));
             }
             PathSegment::MapAccess { field, key } => {
                 out.push('.');
@@ -617,7 +709,8 @@ fn render_java(segments: &[PathSegment], result_var: &str) -> String {
 /// Kotlin accessor: same camelCase method calls as Java but uses Kotlin idioms.
 ///
 /// Differences from Java:
-/// - Array first element: `.field().first()` instead of `.field().getFirst()`
+/// - Array index-0: `.field().first()` instead of `.field().getFirst()`
+/// - Array index-N: `.field().get(N)` (explicit index)
 /// - Collection size: `.size` (property) instead of `.size()` (method)
 fn render_kotlin(segments: &[PathSegment], result_var: &str) -> String {
     let mut out = result_var.to_string();
@@ -628,10 +721,14 @@ fn render_kotlin(segments: &[PathSegment], result_var: &str) -> String {
                 out.push_str(&f.to_lower_camel_case());
                 out.push_str("()");
             }
-            PathSegment::ArrayField(f) => {
+            PathSegment::ArrayField { name, index } => {
                 out.push('.');
-                out.push_str(&f.to_lower_camel_case());
-                out.push_str("().first()");
+                out.push_str(&name.to_lower_camel_case());
+                if *index == 0 {
+                    out.push_str("().first()");
+                } else {
+                    out.push_str(&format!("().get({index})"));
+                }
             }
             PathSegment::MapAccess { field, key } => {
                 out.push('.');
@@ -668,14 +765,14 @@ fn render_java_with_optionals(segments: &[PathSegment], result_var: &str, option
                 let _ = is_leaf;
                 let _ = optional_fields;
             }
-            PathSegment::ArrayField(f) => {
+            PathSegment::ArrayField { name, index } => {
                 if !path_so_far.is_empty() {
                     path_so_far.push('.');
                 }
-                path_so_far.push_str(f);
+                path_so_far.push_str(name);
                 out.push('.');
-                out.push_str(&f.to_lower_camel_case());
-                out.push_str("().getFirst()");
+                out.push_str(&name.to_lower_camel_case());
+                out.push_str(&format!("().get({index})"));
             }
             PathSegment::MapAccess { field, key } => {
                 if !path_so_far.is_empty() {
@@ -732,18 +829,19 @@ fn render_kotlin_with_optionals(
                 out.push_str("()");
                 prev_was_nullable = is_optional;
             }
-            PathSegment::ArrayField(f) => {
+            PathSegment::ArrayField { name, index } => {
                 if !path_so_far.is_empty() {
                     path_so_far.push('.');
                 }
-                path_so_far.push_str(f);
+                path_so_far.push_str(name);
                 let is_optional = optional_fields.contains(&path_so_far);
                 out.push_str(nav);
-                out.push_str(&f.to_lower_camel_case());
-                if prev_was_nullable || is_optional {
-                    out.push_str("()?.first()");
+                out.push_str(&name.to_lower_camel_case());
+                let safe = if prev_was_nullable || is_optional { "?" } else { "" };
+                if *index == 0 {
+                    out.push_str(&format!("(){safe}.first()"));
                 } else {
-                    out.push_str("().first()");
+                    out.push_str(&format!("(){safe}.get({index})"));
                 }
                 prev_was_nullable = is_optional;
             }
@@ -814,14 +912,14 @@ fn render_rust_with_optionals(
                     out.push_str(".as_ref().unwrap()");
                 }
             }
-            PathSegment::ArrayField(f) => {
+            PathSegment::ArrayField { name, index } => {
                 if !path_so_far.is_empty() {
                     path_so_far.push('.');
                 }
-                path_so_far.push_str(f);
+                path_so_far.push_str(name);
                 out.push('.');
-                out.push_str(&f.to_snake_case());
-                out.push_str("[0]");
+                out.push_str(&name.to_snake_case());
+                out.push_str(&format!("[{index}]"));
             }
             PathSegment::MapAccess { field, key } => {
                 if !path_so_far.is_empty() {
@@ -883,17 +981,17 @@ fn render_zig_with_optionals(
                     out.push_str(".?");
                 }
             }
-            PathSegment::ArrayField(f) => {
+            PathSegment::ArrayField { name, index } => {
                 if !path_so_far.is_empty() {
                     path_so_far.push('.');
                 }
-                path_so_far.push_str(f);
+                path_so_far.push_str(name);
                 out.push('.');
-                out.push_str(f);
+                out.push_str(name);
                 if !method_calls.contains(&path_so_far) && optional_fields.contains(&path_so_far) {
                     out.push_str(".?");
                 }
-                out.push_str("[0]");
+                out.push_str(&format!("[{index}]"));
             }
             PathSegment::MapAccess { field, key } => {
                 if !path_so_far.is_empty() {
@@ -927,10 +1025,10 @@ fn render_pascal_dot(segments: &[PathSegment], result_var: &str) -> String {
                 out.push('.');
                 out.push_str(&f.to_pascal_case());
             }
-            PathSegment::ArrayField(f) => {
+            PathSegment::ArrayField { name, index } => {
                 out.push('.');
-                out.push_str(&f.to_pascal_case());
-                out.push_str("[0]");
+                out.push_str(&name.to_pascal_case());
+                out.push_str(&format!("[{index}]"));
             }
             PathSegment::MapAccess { field, key } => {
                 out.push('.');
@@ -970,14 +1068,14 @@ fn render_csharp_with_optionals(
                     out.push('!');
                 }
             }
-            PathSegment::ArrayField(f) => {
+            PathSegment::ArrayField { name, index } => {
                 if !path_so_far.is_empty() {
                     path_so_far.push('.');
                 }
-                path_so_far.push_str(f);
+                path_so_far.push_str(name);
                 out.push('.');
-                out.push_str(&f.to_pascal_case());
-                out.push_str("[0]");
+                out.push_str(&name.to_pascal_case());
+                out.push_str(&format!("[{index}]"));
             }
             PathSegment::MapAccess { field, key } => {
                 if !path_so_far.is_empty() {
@@ -1010,10 +1108,10 @@ fn render_php(segments: &[PathSegment], result_var: &str) -> String {
                 // so convert snake_case field names to camelCase.
                 out.push_str(&f.to_lower_camel_case());
             }
-            PathSegment::ArrayField(f) => {
+            PathSegment::ArrayField { name, index } => {
                 out.push_str("->");
-                out.push_str(&f.to_lower_camel_case());
-                out.push_str("[0]");
+                out.push_str(&name.to_lower_camel_case());
+                out.push_str(&format!("[{index}]"));
             }
             PathSegment::MapAccess { field, key } => {
                 out.push_str("->");
@@ -1037,10 +1135,11 @@ fn render_r(segments: &[PathSegment], result_var: &str) -> String {
                 out.push('$');
                 out.push_str(f);
             }
-            PathSegment::ArrayField(f) => {
+            PathSegment::ArrayField { name, index } => {
                 out.push('$');
-                out.push_str(f);
-                out.push_str("[[1]]");
+                out.push_str(name);
+                // R uses 1-based indexing.
+                out.push_str(&format!("[[{}]]", index + 1));
             }
             PathSegment::MapAccess { field, key } => {
                 out.push('$');
@@ -1061,7 +1160,8 @@ fn render_c(segments: &[PathSegment], result_var: &str) -> String {
     let mut trailing_length = false;
     for seg in segments {
         match seg {
-            PathSegment::Field(f) | PathSegment::ArrayField(f) => parts.push(f.to_snake_case()),
+            PathSegment::Field(f) => parts.push(f.to_snake_case()),
+            PathSegment::ArrayField { name, .. } => parts.push(name.to_snake_case()),
             PathSegment::MapAccess { field, key } => {
                 parts.push(field.to_snake_case());
                 parts.push(key.clone());
@@ -1077,6 +1177,98 @@ fn render_c(segments: &[PathSegment], result_var: &str) -> String {
     } else {
         format!("result_{suffix}({result_var})")
     }
+}
+
+/// Dart accessor using camelCase field names (FRB v2 convention).
+///
+/// FRB v2 generates Dart property getters with camelCase names for every
+/// snake_case Rust field, so `snake_case_field` becomes `snakeCaseField`.
+/// Array fields index with `[N]`; map fields use `["key"]` or `[N]` notation.
+/// Length/count segments use `.length` (Dart `List.length`).
+fn render_dart(segments: &[PathSegment], result_var: &str) -> String {
+    let mut out = result_var.to_string();
+    for seg in segments {
+        match seg {
+            PathSegment::Field(f) => {
+                out.push('.');
+                out.push_str(&f.to_lower_camel_case());
+            }
+            PathSegment::ArrayField { name, index } => {
+                out.push('.');
+                out.push_str(&name.to_lower_camel_case());
+                out.push_str(&format!("[{index}]"));
+            }
+            PathSegment::MapAccess { field, key } => {
+                out.push('.');
+                out.push_str(&field.to_lower_camel_case());
+                if key.chars().all(|c| c.is_ascii_digit()) {
+                    out.push_str(&format!("[{key}]"));
+                } else {
+                    out.push_str(&format!("[\"{key}\"]"));
+                }
+            }
+            PathSegment::Length => {
+                out.push_str(".length");
+            }
+        }
+    }
+    out
+}
+
+/// Dart accessor with optional-safe navigation using `?.` (FRB v2 convention).
+///
+/// When an intermediate field is in `optional_fields`, the next segment uses
+/// `?.` safe-call navigation instead of `.` to avoid a null-dereference on
+/// a nullable Dart type.  Field names are camelCase (FRB v2 generation rule).
+fn render_dart_with_optionals(segments: &[PathSegment], result_var: &str, optional_fields: &HashSet<String>) -> String {
+    let mut out = result_var.to_string();
+    let mut path_so_far = String::new();
+    let mut prev_was_nullable = false;
+    for seg in segments {
+        let nav = if prev_was_nullable { "?." } else { "." };
+        match seg {
+            PathSegment::Field(f) => {
+                if !path_so_far.is_empty() {
+                    path_so_far.push('.');
+                }
+                path_so_far.push_str(f);
+                let is_optional = optional_fields.contains(&path_so_far);
+                out.push_str(nav);
+                out.push_str(&f.to_lower_camel_case());
+                prev_was_nullable = is_optional;
+            }
+            PathSegment::ArrayField { name, index } => {
+                if !path_so_far.is_empty() {
+                    path_so_far.push('.');
+                }
+                path_so_far.push_str(name);
+                out.push_str(nav);
+                out.push_str(&name.to_lower_camel_case());
+                out.push_str(&format!("[{index}]"));
+                prev_was_nullable = false;
+            }
+            PathSegment::MapAccess { field, key } => {
+                if !path_so_far.is_empty() {
+                    path_so_far.push('.');
+                }
+                path_so_far.push_str(field);
+                let is_optional = optional_fields.contains(&path_so_far);
+                out.push_str(nav);
+                out.push_str(&field.to_lower_camel_case());
+                if key.chars().all(|c| c.is_ascii_digit()) {
+                    out.push_str(&format!("[{key}]"));
+                } else {
+                    out.push_str(&format!("[\"{key}\"]"));
+                }
+                prev_was_nullable = is_optional;
+            }
+            PathSegment::Length => {
+                out.push_str(".length");
+                prev_was_nullable = false;
+            }
+        }
+    }
+    out
 }
 
 #[cfg(test)]

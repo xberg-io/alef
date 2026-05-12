@@ -13,6 +13,7 @@ use alef_core::config::ResolvedCrateConfig;
 use alef_core::hash::{self, CommentStyle};
 use alef_core::template_versions::pub_dev;
 use anyhow::Result;
+use heck::ToLowerCamelCase;
 use std::cell::Cell;
 use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
@@ -681,17 +682,13 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
     let _ = writeln!(out);
 }
 
-/// Render a single fixture assertion as a Dart `expect(...)` call against the
-/// non-HTTP result variable.
+/// Render a single fixture assertion as a Dart `package:test` `expect(...)` call.
 ///
-/// The non-HTTP path does not have access to the [`FieldResolver`] / enum-field
-/// metadata used by the HTTP-style renderers, so this helper deliberately emits
-/// the simplest possible accessors. It mirrors the assertion vocabulary used by
-/// other backends (`equals`, `field_equals`, `contains`, `not_null`,
-/// `not_error`) and skips unknown assertion types with a comment.
+/// Field paths are converted per-segment to camelCase (FRB v2 convention) using
+/// [`field_to_dart_accessor`].  All 24 fixture assertion types are handled.
 fn render_assertion_dart(out: &mut String, assertion: &Assertion, result_var: &str) {
     let field_accessor = match assertion.field.as_deref() {
-        Some(f) if !f.is_empty() => format!("{result_var}.{}", snake_to_camel(f)),
+        Some(f) if !f.is_empty() => format!("{result_var}.{}", field_to_dart_accessor(f)),
         _ => result_var.to_string(),
     };
 
@@ -718,6 +715,12 @@ fn render_assertion_dart(out: &mut String, assertion: &Assertion, result_var: &s
                 );
             }
         }
+        "not_equals" => {
+            if let Some(expected) = &assertion.value {
+                let dart_val = format_value(expected);
+                let _ = writeln!(out, "    expect({field_accessor}, isNot(equals({dart_val})));");
+            }
+        }
         "contains" => {
             if let Some(expected) = &assertion.value {
                 let dart_val = format_value(expected);
@@ -726,11 +729,165 @@ fn render_assertion_dart(out: &mut String, assertion: &Assertion, result_var: &s
                 let _ = writeln!(out, "    // skipped: 'contains' assertion missing value");
             }
         }
+        "contains_all" => {
+            if let Some(values) = &assertion.values {
+                for val in values {
+                    let dart_val = format_value(val);
+                    let _ = writeln!(out, "    expect({field_accessor}, contains({dart_val}));");
+                }
+            }
+        }
+        "contains_any" => {
+            if let Some(values) = &assertion.values {
+                let checks: Vec<String> = values
+                    .iter()
+                    .map(|v| {
+                        let dart_val = format_value(v);
+                        format!("{field_accessor}.contains({dart_val})")
+                    })
+                    .collect();
+                let joined = checks.join(" || ");
+                let _ = writeln!(out, "    expect({joined}, isTrue);");
+            }
+        }
+        "not_contains" => {
+            if let Some(expected) = &assertion.value {
+                let dart_val = format_value(expected);
+                let _ = writeln!(out, "    expect({field_accessor}, isNot(contains({dart_val})));");
+            } else if let Some(values) = &assertion.values {
+                for val in values {
+                    let dart_val = format_value(val);
+                    let _ = writeln!(out, "    expect({field_accessor}, isNot(contains({dart_val})));");
+                }
+            }
+        }
+        "not_empty" => {
+            let _ = writeln!(out, "    expect({field_accessor}, isNotEmpty);");
+        }
+        "is_empty" => {
+            let _ = writeln!(out, "    expect({field_accessor}, isEmpty);");
+        }
+        "starts_with" => {
+            if let Some(expected) = &assertion.value {
+                let dart_val = format_value(expected);
+                let _ = writeln!(out, "    expect({field_accessor}, startsWith({dart_val}));");
+            }
+        }
+        "ends_with" => {
+            if let Some(expected) = &assertion.value {
+                let dart_val = format_value(expected);
+                let _ = writeln!(out, "    expect({field_accessor}, endsWith({dart_val}));");
+            }
+        }
+        "min_length" => {
+            if let Some(val) = &assertion.value {
+                if let Some(n) = val.as_u64() {
+                    let _ = writeln!(out, "    expect({field_accessor}.length, greaterThanOrEqualTo({n}));");
+                }
+            }
+        }
+        "max_length" => {
+            if let Some(val) = &assertion.value {
+                if let Some(n) = val.as_u64() {
+                    let _ = writeln!(out, "    expect({field_accessor}.length, lessThanOrEqualTo({n}));");
+                }
+            }
+        }
+        "count_equals" => {
+            if let Some(val) = &assertion.value {
+                if let Some(n) = val.as_u64() {
+                    let _ = writeln!(out, "    expect({field_accessor}.length, equals({n}));");
+                }
+            }
+        }
+        "count_min" => {
+            if let Some(val) = &assertion.value {
+                if let Some(n) = val.as_u64() {
+                    let _ = writeln!(out, "    expect({field_accessor}.length, greaterThanOrEqualTo({n}));");
+                }
+            }
+        }
+        "matches_regex" => {
+            if let Some(expected) = &assertion.value {
+                let dart_val = format_value(expected);
+                let _ = writeln!(out, "    expect({field_accessor}, matches(RegExp({dart_val})));");
+            }
+        }
+        "is_true" => {
+            let _ = writeln!(out, "    expect({field_accessor}, isTrue);");
+        }
+        "is_false" => {
+            let _ = writeln!(out, "    expect({field_accessor}, isFalse);");
+        }
+        "greater_than" => {
+            if let Some(val) = &assertion.value {
+                let dart_val = format_value(val);
+                let _ = writeln!(out, "    expect({field_accessor}, greaterThan({dart_val}));");
+            }
+        }
+        "less_than" => {
+            if let Some(val) = &assertion.value {
+                let dart_val = format_value(val);
+                let _ = writeln!(out, "    expect({field_accessor}, lessThan({dart_val}));");
+            }
+        }
+        "greater_than_or_equal" => {
+            if let Some(val) = &assertion.value {
+                let dart_val = format_value(val);
+                let _ = writeln!(out, "    expect({field_accessor}, greaterThanOrEqualTo({dart_val}));");
+            }
+        }
+        "less_than_or_equal" => {
+            if let Some(val) = &assertion.value {
+                let dart_val = format_value(val);
+                let _ = writeln!(out, "    expect({field_accessor}, lessThanOrEqualTo({dart_val}));");
+            }
+        }
         "not_null" => {
             let _ = writeln!(out, "    expect({field_accessor}, isNotNull);");
         }
         "not_error" => {
             // No-op: a thrown error from `await` would have failed the test already.
+        }
+        "error" => {
+            // Handled at the test method level via throwsA(anything).
+        }
+        "method_result" => {
+            if let Some(method) = &assertion.method {
+                let dart_method = method.to_lower_camel_case();
+                let check = assertion.check.as_deref().unwrap_or("not_null");
+                let method_call = format!("{field_accessor}.{dart_method}()");
+                match check {
+                    "equals" => {
+                        if let Some(expected) = &assertion.value {
+                            let dart_val = format_value(expected);
+                            let _ = writeln!(out, "    expect({method_call}, equals({dart_val}));");
+                        }
+                    }
+                    "is_true" => {
+                        let _ = writeln!(out, "    expect({method_call}, isTrue);");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out, "    expect({method_call}, isFalse);");
+                    }
+                    "greater_than_or_equal" => {
+                        if let Some(val) = &assertion.value {
+                            let dart_val = format_value(val);
+                            let _ = writeln!(out, "    expect({method_call}, greaterThanOrEqualTo({dart_val}));");
+                        }
+                    }
+                    "count_min" => {
+                        if let Some(val) = &assertion.value {
+                            if let Some(n) = val.as_u64() {
+                                let _ = writeln!(out, "    expect({method_call}.length, greaterThanOrEqualTo({n}));");
+                            }
+                        }
+                    }
+                    _ => {
+                        let _ = writeln!(out, "    expect({method_call}, isNotNull);");
+                    }
+                }
+            }
         }
         other => {
             let _ = writeln!(out, "    // skipped: unknown assertion type '{other}'");
@@ -753,10 +910,7 @@ fn render_streaming_assertion_dart(out: &mut String, assertion: &Assertion, resu
         }
         "count_min" if assertion.field.as_deref() == Some("chunks") => {
             if let Some(serde_json::Value::Number(n)) = &assertion.value {
-                let _ = writeln!(
-                    out,
-                    "    expect({result_var}.length, greaterThanOrEqualTo({n}));"
-                );
+                let _ = writeln!(out, "    expect({result_var}.length, greaterThanOrEqualTo({n}));");
             }
         }
         "equals" if assertion.field.as_deref() == Some("stream_content") => {
@@ -787,6 +941,38 @@ fn snake_to_camel(s: &str) -> String {
             next_upper = false;
         } else {
             result.push(ch);
+        }
+    }
+    result
+}
+
+/// Convert a dot-separated fixture field path to a Dart accessor expression.
+///
+/// Each segment is converted to camelCase (FRB v2 convention); array-index brackets
+/// (e.g. `choices[0]`) and map-key brackets (e.g. `tags[name]`) are preserved.
+/// This replaces the former single-pass `snake_to_camel` call which incorrectly
+/// treated the entire path string as one identifier.
+///
+/// Examples:
+/// - `"choices"` → `"choices"`
+/// - `"choices[0].message.content"` → `"choices[0].message.content"`
+/// - `"metadata.document_title"` → `"metadata.documentTitle"`
+/// - `"model_id"` → `"modelId"`
+fn field_to_dart_accessor(path: &str) -> String {
+    let mut result = String::with_capacity(path.len());
+    for (i, segment) in path.split('.').enumerate() {
+        if i > 0 {
+            result.push('.');
+        }
+        // Separate a trailing `[...]` bracket from the field name so we only
+        // camelCase the identifier part, not the bracket content.
+        if let Some(bracket_pos) = segment.find('[') {
+            let name = &segment[..bracket_pos];
+            let bracket = &segment[bracket_pos..];
+            result.push_str(&name.to_lower_camel_case());
+            result.push_str(bracket);
+        } else {
+            result.push_str(&segment.to_lower_camel_case());
         }
     }
     result
