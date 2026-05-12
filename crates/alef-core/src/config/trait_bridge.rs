@@ -60,6 +60,12 @@ pub struct TraitBridgeConfig {
     /// omitted from that backend's output.
     #[serde(default)]
     pub exclude_languages: Vec<String>,
+    /// Methods that the FFI backend should NOT forward through the vtable.
+    /// These methods fall back to the trait's default implementation.
+    /// Useful for methods whose signatures involve trait-object references
+    /// (`&dyn Trait`) that can't traverse the C FFI boundary.
+    #[serde(default)]
+    pub ffi_skip_methods: Vec<String>,
     /// How the bridge attaches to the public API.
     ///
     /// - `"function_param"` (default): the bridge object arrives as a function argument

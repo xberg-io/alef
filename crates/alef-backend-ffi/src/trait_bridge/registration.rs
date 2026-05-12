@@ -167,8 +167,18 @@ impl FfiBridgeGenerator {
 
         // Include ALL methods, not just those without defaults (unlike gen_bridge_trait_impl).
         // FFI visitor bridges must implement every method so the vtable pattern works.
+        // Methods listed in `bridge_config.ffi_skip_methods` are dropped here too — their
+        // signatures can't traverse the C FFI boundary (e.g. `Option<&dyn SyncExtractor>`)
+        // and the trait's default impl fires for them.
+        let skip_methods = &spec.bridge_config.ffi_skip_methods;
         let mut methods_code = String::with_capacity(2048);
-        for (i, method) in spec.trait_def.methods.iter().enumerate() {
+        for (i, method) in spec
+            .trait_def
+            .methods
+            .iter()
+            .filter(|m| !skip_methods.iter().any(|s| s == &m.name))
+            .enumerate()
+        {
             if i > 0 {
                 methods_code.push_str("\n\n");
             }
