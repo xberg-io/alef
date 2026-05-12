@@ -589,6 +589,20 @@ fn render_test_fn(
         .filter(|a| a.assertion_type != "error")
         .any(|a| assertion_emits_code(a, field_resolver));
 
+    // Pre-compute streaming-virtual path conditions.
+    let has_streaming_virtual_assertions = fixture.assertions.iter().any(|a| {
+        a.field.as_ref().is_some_and(|f| !f.is_empty() && is_streaming_virtual_field(f))
+    });
+    let is_stream_fn = function_name.contains("stream");
+    let uses_streaming_virtual_path =
+        result_is_json_struct && has_streaming_virtual_assertions && is_stream_fn && client_factory.is_some();
+    // Whether the streaming-virtual path also parses JSON (for non-streaming assertions).
+    let streaming_path_has_non_streaming = uses_streaming_virtual_path && fixture.assertions.iter().any(|a| {
+        !a.field.as_ref().is_some_and(|f| !f.is_empty() && is_streaming_virtual_field(f))
+            && !matches!(a.assertion_type.as_str(), "not_error" | "error")
+            && a.field.as_ref().is_some_and(|f| !f.is_empty() && field_resolver.is_valid_for_result(f))
+    });
+
     let _ = writeln!(out, "test \"{test_name}\" {{");
     let _ = writeln!(out, "    // {description}");
 
@@ -597,9 +611,12 @@ fn render_test_fn(
     // will call `std.json.parseFromSlice`. The binding is not needed for
     // error-only paths or tests with no field assertions.
     // Note: `bytes` arg setup uses c_allocator directly and does NOT require GPA.
+    // For the streaming-virtual path, `allocator` is only needed if there are also
+    // non-streaming assertions that require JSON parsing via parseFromSlice.
     let needs_gpa = setup_needs_gpa
-        || (result_is_json_struct && !expects_error && any_happy_emits_code)
-        || (result_is_json_struct && expects_error && any_non_error_emits_code);
+        || streaming_path_has_non_streaming
+        || (!uses_streaming_virtual_path && result_is_json_struct && !expects_error && any_happy_emits_code)
+        || (!uses_streaming_virtual_path && result_is_json_struct && expects_error && any_non_error_emits_code);
     if needs_gpa {
         let _ = writeln!(out, "    var gpa: std.heap.DebugAllocator(.{{}}) = .init;");
         let _ = writeln!(out, "    defer _ = gpa.deinit();");
@@ -704,21 +721,53 @@ fn render_test_fn(
             .iter()
             .any(|a| assertion_emits_code(a, field_resolver));
         if result_is_json_struct {
-            // JSON struct path: parse result JSON and access fields dynamically.
-            let _ = writeln!(
-                out,
-                "    const _result_json = try {call_prefix}.{function_name}({args_str});"
-            );
-            let _ = writeln!(out, "    defer std.heap.c_allocator.free(_result_json);");
-            if any_emits_code {
-                let _ = writeln!(
-                    out,
-                    "    var _parsed = try std.json.parseFromSlice(std.json.Value, allocator, _result_json, .{{}});"
-                );
-                let _ = writeln!(out, "    defer _parsed.deinit();");
-                let _ = writeln!(out, "    const {result_var} = &_parsed.value;");
+            // When streaming-virtual field assertions are present (pre-computed above),
+            // emit raw FFI code to collect all chunks instead of calling
+            // `chat_stream` (which only returns the last chunk's JSON).
+            if uses_streaming_virtual_path {
+                // Streaming-virtual path: inline FFI collect.
+                // Build a sentinel-terminated request string.
+                let _ = writeln!(out, "    const _req_z = try std.heap.c_allocator.dupeZ(u8, {args_str});");
+                let _ = writeln!(out, "    defer std.heap.c_allocator.free(_req_z);");
+                let _ = writeln!(out, "    const _req_handle = {module_name}.c.literllm_chat_completion_request_from_json(_req_z.ptr);");
+                let _ = writeln!(out, "    defer {module_name}.c.literllm_chat_completion_request_free(_req_handle);");
+                let _ = writeln!(out, "    const _stream_handle = {module_name}.c.literllm_default_client_chat_stream_start(@as(*{module_name}.c.LITERLLMDefaultClient, @ptrCast(_client._handle)), _req_handle);");
+                let _ = writeln!(out, "    if (_stream_handle == null) return error.StreamStartFailed;");
+                let _ = writeln!(out, "    defer {module_name}.c.literllm_default_client_chat_stream_free(_stream_handle);");
+                // Emit the collect snippet (already has 4-space indentation baked in).
+                if let Some(snip) = StreamingFieldResolver::collect_snippet("zig", "_stream_handle", "chunks") {
+                    out.push_str("    ");
+                    out.push_str(&snip);
+                    out.push('\n');
+                }
+                // For non-streaming assertions (e.g. usage), we also need _result_json.
+                // Re-serialize the last chunk in `chunks` to get the JSON.
+                if streaming_path_has_non_streaming {
+                    let _ = writeln!(out, "    const _result_json = if (chunks.items.len > 0) chunks.items[chunks.items.len - 1] else &[_]u8{{}};");
+                    let _ = writeln!(out, "    var _parsed = try std.json.parseFromSlice(std.json.Value, allocator, _result_json, .{{}});");
+                    let _ = writeln!(out, "    defer _parsed.deinit();");
+                    let _ = writeln!(out, "    const {result_var} = &_parsed.value;");
+                }
                 for assertion in &fixture.assertions {
                     render_json_assertion(out, assertion, result_var, field_resolver);
+                }
+            } else {
+                // JSON struct path: parse result JSON and access fields dynamically.
+                let _ = writeln!(
+                    out,
+                    "    const _result_json = try {call_prefix}.{function_name}({args_str});"
+                );
+                let _ = writeln!(out, "    defer std.heap.c_allocator.free(_result_json);");
+                if any_emits_code {
+                    let _ = writeln!(
+                        out,
+                        "    var _parsed = try std.json.parseFromSlice(std.json.Value, allocator, _result_json, .{{}});"
+                    );
+                    let _ = writeln!(out, "    defer _parsed.deinit();");
+                    let _ = writeln!(out, "    const {result_var} = &_parsed.value;");
+                    for assertion in &fixture.assertions {
+                        render_json_assertion(out, assertion, result_var, field_resolver);
+                    }
                 }
             }
         } else if any_emits_code {
