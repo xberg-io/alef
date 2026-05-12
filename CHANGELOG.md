@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.47] - 2026-05-12
+
 ### Added
 
 - feat(alef-e2e/field_access): support user-typed array indices in fixture field paths — `choices[0].message.content` now parses as `Segment::ArrayField{name:choices,index:0}` → `Field(message)` → `Field(content)` instead of being treated as a literal dot-key. Wired through every per-language renderer so explicit indices are emitted correctly: Rust/Python/Go/Zig/C#/Swift/TS/PHP/Ruby/Dart use bracket notation `[N]`, Java emits `.get(N)`, Kotlin emits `.first()` for index 0 or `.get(N)` for others, Elixir emits `Enum.at(expr, N)`. Config-registered array fields without explicit `[N]` continue to default to index 0.
@@ -25,10 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(alef-e2e/java): `not_contains` assertions now handle the plural `values: [...]` array (symmetric to `contains_all`) in addition to the singular `value`. Previously, a fixture using `not_contains` with `values` produced `result.contains()` (empty argument) — a Java compile error. The codegen now wraps a singular `value` into a one-element list, and the jinja template loops over `values_java` emitting one `assertFalse(...contains(val))` call per entry.
 - fix(alef-codegen): cfg-gated fields restored via trait-bridge `bind_via = "options_field"` now emit `#[serde(skip)]` and are propagated through both `binding→core` and `core→binding` From impls. Previously, restoring such a field (e.g. `visitor: Option<VisitorHandle>` on `ConversionOptions`) produced uncompilable bindings: the struct derived `serde::{Serialize, Deserialize}` over a non-serde-compatible bridge handle type, and the `From<Core>` impls omitted the field, so `Self { ... }` initializers were missing it. Adds `never_skip_cfg_field_names` to `ConversionConfig`, populated from `trait_bridges` by each backend.
 - fix(alef-backend-napi,php): apply the trait-bridge `never_skip_cfg_field_names` mechanism added in alef-codegen so the NAPI (Node) and PHP bindings keep `bind_via = "options_field"` fields (e.g. `visitor` on `ConversionOptions`) instead of dropping them with the rest of the cfg-gated fields. Mirrors the existing PyO3 backend behavior.
-
-### Removed
-
-- removed: Gleam backend (`alef-backend-gleam`, `alef-e2e/gleam`, `Language::Gleam`). Gleam runs on the BEAM VM and shares the Rustler NIF layer with Elixir, providing no differentiation. Removes `crates/alef-backend-gleam`, `GleamConfig`/`GleamElementConstructor`/`GleamElementField` config structs, `GLEAM_KEYWORDS`/`gleam_safe_name`/`gleam_ident` keyword helpers, Gleam-specific hex version constants, the `gleam.toml` version restore handler, the Gleam e2e codegen module, and all `Language::Gleam` dispatch arms across `alef-docs`, `alef-adapters`, `alef-codegen`, `alef-scaffold`, `alef-publish`, and `alef-cli`.
+- fix(alef-backend-ffi,php): emit `*result` (Copy) for `TypeRef::Char` and `result.to_vec()` for `TypeRef::Vec/Map` slice returns in `gen_method_wrapper`, instead of `result.clone()` (clippy noop on `&char` and unsized slices). Also emit `.to_string()` rather than `.clone()` for `&str` params before moving into `spawn_blocking` closures (avoids E0521 borrow-escape).
 
 ## [0.15.44] - 2026-05-12
 
