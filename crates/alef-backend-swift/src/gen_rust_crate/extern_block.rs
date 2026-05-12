@@ -142,7 +142,9 @@ pub(crate) fn emit_extern_block_for_enum(en: &EnumDef) -> String {
 ///
 /// Skips sanitized methods (their signatures contain types that cannot be bridged).
 pub(crate) fn emit_extern_block_for_type_methods(ty: &TypeDef) -> Option<String> {
-    let bridgeable: Vec<_> = ty.methods.iter().filter(|m| !m.sanitized).collect();
+    // Static / associated functions (e.g. `T::default()`) can't be bridged via
+    // `client: &T` shims — see the matching filter in `wrappers::emit_type_method_shims`.
+    let bridgeable: Vec<_> = ty.methods.iter().filter(|m| !m.sanitized && !m.is_static).collect();
     if bridgeable.is_empty() {
         return None;
     }

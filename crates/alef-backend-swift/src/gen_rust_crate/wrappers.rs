@@ -678,6 +678,16 @@ pub(crate) fn emit_type_method_shims(
         if method.sanitized {
             continue;
         }
+        // Skip static/associated functions: the shim is `pub fn type_method(client: &T)`
+        // and the body uses `client.0.method()`. Static methods like `T::default()`
+        // need to be called as associated functions (`T::default()`), not via the
+        // receiver — calling `client.0.default()` trips E0599. We skip them rather
+        // than emitting a separate constructor surface; static constructors are
+        // exposed via `create_<T>` shims when an explicit client_constructor_body is
+        // configured, not via method shims.
+        if method.is_static {
+            continue;
+        }
         let method_snake = method.name.to_snake_case();
         let fn_name = format!("{type_snake}_{method_snake}");
 
@@ -755,7 +765,16 @@ pub(crate) fn emit_type_method_shims(
                         source
                     }
                 }
-                TypeRef::String | TypeRef::Path => format!("{source}.to_string()"),
+                TypeRef::String => format!("{source}.to_string()"),
+                TypeRef::Path => format!("{source}.to_string_lossy().into_owned()"),
+                // Trait methods that return `&[&str]` (Vec<String> + returns_ref)
+                // can't be bridged to swift's `Vec<String>` without copying each
+                // element to owned `String`.
+                TypeRef::Vec(inner)
+                    if method.returns_ref && matches!(inner.as_ref(), TypeRef::String) =>
+                {
+                    format!("{source}.iter().map(|s| s.to_string()).collect()")
+                }
                 _ => source,
             }
         };
