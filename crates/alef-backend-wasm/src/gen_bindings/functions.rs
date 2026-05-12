@@ -773,9 +773,18 @@ pub(super) fn wasm_wrap_return_fn(
             TypeRef::Path => {
                 format!("{expr}.into_iter().map(Into::into).collect()")
             }
-            TypeRef::String | TypeRef::Char | TypeRef::Bytes => {
+            TypeRef::String | TypeRef::Char => {
                 if returns_ref {
-                    format!("{expr}.into_iter().map(Into::into).collect()")
+                    // `&[&str]` → `Vec<String>`. `Into::into` would need
+                    // `impl From<&&str> for String`, which doesn't exist.
+                    format!("{expr}.iter().map(|s| s.to_string()).collect()")
+                } else {
+                    expr.to_string()
+                }
+            }
+            TypeRef::Bytes => {
+                if returns_ref {
+                    format!("{expr}.iter().map(|b| b.to_vec()).collect()")
                 } else {
                     expr.to_string()
                 }
