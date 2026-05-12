@@ -770,9 +770,7 @@ pub(crate) fn emit_type_method_shims(
                 // Trait methods that return `&[&str]` (Vec<String> + returns_ref)
                 // can't be bridged to swift's `Vec<String>` without copying each
                 // element to owned `String`.
-                TypeRef::Vec(inner)
-                    if method.returns_ref && matches!(inner.as_ref(), TypeRef::String) =>
-                {
+                TypeRef::Vec(inner) if method.returns_ref && matches!(inner.as_ref(), TypeRef::String) => {
                     format!("{source}.iter().map(|s| s.to_string()).collect()")
                 }
                 _ => source,

@@ -460,7 +460,7 @@ fn render_swift_with_optionals(
                 }
                 path_so_far.push_str(f);
                 out.push('.');
-                out.push_str(f);
+                out.push_str(&f.to_lower_camel_case());
                 out.push_str("()");
                 // Insert `?` after `()` for non-leaf optional fields so the next
                 // member access becomes `?.`.

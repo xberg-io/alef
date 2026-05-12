@@ -666,6 +666,7 @@ fn render_test_method(
         &fixture.input,
         args,
         &fixture.id,
+        fixture.has_host_root_route(),
         &function_name,
         options_via_str,
         options_type_str,
@@ -686,10 +687,21 @@ fn render_test_method(
     // Otherwise fall back to free-function call (Kreuzberg / non-client-factory libraries).
     let has_mock = fixture.mock_response.is_some();
     let (call_setup, call_expr) = if let Some(_factory) = client_factory {
-        let mock_url = format!(
-            "ProcessInfo.processInfo.environment[\"MOCK_SERVER_URL\"]! + \"/fixtures/{}\"",
-            fixture.id
+        let env_key = format!(
+            "MOCK_SERVER_{}",
+            fixture.id.to_ascii_uppercase().replace('-', "_")
         );
+        let mock_url = if fixture.has_host_root_route() {
+            format!(
+                "ProcessInfo.processInfo.environment[\"{env_key}\"] ?? (ProcessInfo.processInfo.environment[\"MOCK_SERVER_URL\"]! + \"/fixtures/{}\")",
+                fixture.id
+            )
+        } else {
+            format!(
+                "ProcessInfo.processInfo.environment[\"MOCK_SERVER_URL\"]! + \"/fixtures/{}\"",
+                fixture.id
+            )
+        };
         let client_constructor = if has_mock {
             format!("let _client = try DefaultClient(apiKey: \"test-key\", baseUrl: {mock_url})")
         } else {
@@ -799,6 +811,7 @@ fn build_args_and_setup(
     input: &serde_json::Value,
     args: &[crate::config::ArgMapping],
     fixture_id: &str,
+    has_host_root_route: bool,
     function_name: &str,
     options_via: Option<&str>,
     options_type: Option<&str>,
@@ -827,10 +840,17 @@ fn build_args_and_setup(
 
     for (idx, arg) in args.iter().enumerate() {
         if arg.arg_type == "mock_url" {
-            setup_lines.push(format!(
-                "let {} = ProcessInfo.processInfo.environment[\"MOCK_SERVER_URL\"]! + \"/fixtures/{fixture_id}\"",
-                arg.name,
-            ));
+            let env_key = format!("MOCK_SERVER_{}", fixture_id.to_ascii_uppercase().replace('-', "_"));
+            let url_expr = if has_host_root_route {
+                format!(
+                    "ProcessInfo.processInfo.environment[\"{env_key}\"] ?? (ProcessInfo.processInfo.environment[\"MOCK_SERVER_URL\"]! + \"/fixtures/{fixture_id}\")"
+                )
+            } else {
+                format!(
+                    "ProcessInfo.processInfo.environment[\"MOCK_SERVER_URL\"]! + \"/fixtures/{fixture_id}\""
+                )
+            };
+            setup_lines.push(format!("let {} = {url_expr}", arg.name));
             parts.push(arg.name.clone());
             continue;
         }
@@ -1109,10 +1129,9 @@ fn render_assertion(
     // Non-string opaque fields (DocumentStructure, etc.) should not appear in string
     // assertions — the fixture schema controls which assertions apply to which fields.
     let string_expr = if field_is_enum {
-        // swift-bridge exposes enum types as opaque classes. The generated Rust wrapper
-        // implements `fn to_string(&self) -> String` (swift-bridge keeps Rust name as
-        // `.to_string()` returning `RustString`). `.toString()` converts RustString to Swift String.
-        format!("{field_expr}.to_string().toString()")
+        // swift-bridge exposes opaque enum types with a `toString()` method that returns
+        // `RustString`. The second `.toString()` converts that `RustString` to a Swift String.
+        format!("{field_expr}.toString().toString()")
     } else if field_is_optional {
         // Leaf field itself is Optional<RustString> — need ?.toString() to unwrap.
         format!("({field_expr}?.toString() ?? \"\")")

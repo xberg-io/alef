@@ -1545,7 +1545,10 @@ fn test_capsule_types_end_to_end() {
     let backend = NapiBackend;
 
     let mut capsule_map: HashMap<String, NodeCapsuleTypeConfig> = HashMap::new();
-    capsule_map.insert("Language".to_string(), make_capsule_config_node("Language", "tree-sitter"));
+    capsule_map.insert(
+        "Language".to_string(),
+        make_capsule_config_node("Language", "tree-sitter"),
+    );
 
     let api = ApiSurface {
         crate_name: "ts_pack".to_string(),
@@ -1612,7 +1615,10 @@ fn test_capsule_types_dts_generation() {
     let backend = NapiBackend;
 
     let mut capsule_map: HashMap<String, NodeCapsuleTypeConfig> = HashMap::new();
-    capsule_map.insert("Language".to_string(), make_capsule_config_node("Language", "tree-sitter"));
+    capsule_map.insert(
+        "Language".to_string(),
+        make_capsule_config_node("Language", "tree-sitter"),
+    );
 
     let api = ApiSurface {
         crate_name: "ts_pack".to_string(),

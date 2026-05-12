@@ -284,8 +284,7 @@ impl Backend for JavaBackend {
         // error variants whose generated names collide (e.g. ConversionError::InvalidInput
         // → InvalidInputException). Skip those to avoid double-writes that produce
         // malformed Java with duplicate constructor blocks.
-        const INFRASTRUCTURE_EXCEPTION_NAMES: &[&str] =
-            &["InvalidInputException", "ConversionErrorException"];
+        const INFRASTRUCTURE_EXCEPTION_NAMES: &[&str] = &["InvalidInputException", "ConversionErrorException"];
         for error in &api.errors {
             for (class_name, content) in alef_codegen::error_gen::gen_java_error_types(error, &package) {
                 if INFRASTRUCTURE_EXCEPTION_NAMES.contains(&class_name.as_str()) {

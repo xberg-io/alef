@@ -284,6 +284,7 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
                     &prefix,
                     &adapter_bodies,
                     &streaming_item_types,
+                    &capsule_types,
                 ));
             } else {
                 // Non-opaque structs use #[napi(object)] — plain JS objects without methods.

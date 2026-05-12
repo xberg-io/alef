@@ -789,7 +789,7 @@ mod trait_bridge {
             bind_via: alef_core::config::BridgeBinding::FunctionParam,
             options_type: None,
             options_field: None,
-        ffi_skip_methods: Vec::new(),
+            ffi_skip_methods: Vec::new(),
         }
     }
 
@@ -810,7 +810,7 @@ mod trait_bridge {
             bind_via: alef_core::config::BridgeBinding::FunctionParam,
             options_type: None,
             options_field: None,
-        ffi_skip_methods: Vec::new(),
+            ffi_skip_methods: Vec::new(),
         }
     }
 
@@ -971,7 +971,7 @@ mod trait_bridge {
             bind_via: alef_core::config::BridgeBinding::FunctionParam,
             options_type: None,
             options_field: None,
-        ffi_skip_methods: Vec::new(),
+            ffi_skip_methods: Vec::new(),
         };
         let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
 

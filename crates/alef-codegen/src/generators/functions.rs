@@ -405,9 +405,18 @@ pub fn gen_function(
                     TypeRef::Path => {
                         format!("{expr}.into_iter().map(|v| v.to_string_lossy().to_string()).collect()")
                     }
-                    TypeRef::String | TypeRef::Bytes => {
+                    TypeRef::String => {
                         if returns_ref {
-                            format!("{expr}.into_iter().map(Into::into).collect()")
+                            // `&[&str]` → `Vec<String>`. `Into::into` would require
+                            // `impl From<&&str> for String` (which doesn't exist).
+                            format!("{expr}.iter().map(|s| s.to_string()).collect()")
+                        } else {
+                            expr.to_string()
+                        }
+                    }
+                    TypeRef::Bytes => {
+                        if returns_ref {
+                            format!("{expr}.iter().map(|b| b.to_vec()).collect()")
                         } else {
                             expr.to_string()
                         }

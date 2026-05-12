@@ -116,11 +116,15 @@ pub(super) fn gen_dts(
                 for method in &typ.methods {
                     let js_name = to_node_name(&method.name);
                     let params = dts_params(&method.params, prefix);
-                    let ret = dts_return_type(
+                    // Use capsule-aware return type so that methods returning a capsule type
+                    // emit the ecosystem type name (e.g. `Language`) rather than the now-
+                    // undeclared opaque handle (e.g. `JsLanguage`).
+                    let ret = dts_return_type_capsule(
                         &method.return_type,
                         method.error_type.is_some(),
                         method.is_async,
                         prefix,
+                        capsule_types,
                     );
                     lines.extend(format_jsdoc(&method.doc, "  "));
                     if method.is_static {

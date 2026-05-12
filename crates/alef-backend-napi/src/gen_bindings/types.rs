@@ -7,7 +7,9 @@ use alef_codegen::generators::{self, RustBindingConfig};
 use alef_codegen::naming::to_node_name;
 use alef_codegen::shared::{can_auto_delegate, function_params, partition_methods};
 use alef_codegen::type_mapper::TypeMapper;
+use alef_core::config::NodeCapsuleTypeConfig;
 use alef_core::ir::{MethodDef, TypeDef, TypeRef};
+use std::collections::HashMap;
 
 use super::functions::{napi_apply_primitive_casts_to_call_args, napi_gen_call_args, napi_wrap_return};
 
@@ -183,6 +185,7 @@ pub(super) fn gen_opaque_struct_methods(
     prefix: &str,
     adapter_bodies: &alef_adapters::AdapterBodies,
     streaming_item_types: &ahash::AHashMap<String, String>,
+    capsule_types: &HashMap<String, NodeCapsuleTypeConfig>,
 ) -> String {
     let mut impl_builder = ImplBuilder::new(&format!("{prefix}{}", typ.name));
     impl_builder.add_attr("napi");
@@ -218,6 +221,7 @@ pub(super) fn gen_opaque_struct_methods(
             prefix,
             adapter_bodies,
             streaming_item_types,
+            capsule_types,
         ));
     }
     for method in &statics {
@@ -232,6 +236,85 @@ pub(super) fn gen_opaque_struct_methods(
     impl_builder.build()
 }
 
+/// Generate an opaque instance method whose return type is a capsule type.
+///
+/// Mirrors `gen_capsule_function` but for `&self` methods: accepts `env: napi::Env`
+/// as the first parameter (after `&self`), calls `self.inner.{method}(args)`, then
+/// wraps the result via `into_raw()` + `create_external` + `__parser` property.
+///
+/// ASSUMPTION: the capsule type exposes `pub fn into_raw(self) -> *const <opaque>`.
+/// This is a compile-time contract — a mismatch causes a compile error in the
+/// downstream crate, not a silent runtime failure.
+fn gen_opaque_capsule_method(
+    method: &MethodDef,
+    _typ: &TypeDef,
+    js_name_attr: String,
+    _core_import: &str,
+) -> String {
+
+    // Build the parameter list for the shim. We need `env: napi::Env` first (after &self),
+    // then all user-facing params as simple String / primitive types. Capsule methods in
+    // the NAPI pattern must return `napi::Result<napi::JsObject>`.
+    let mut sig_params: Vec<String> = vec!["env: napi::Env".to_string()];
+    for param in &method.params {
+        let ts = match &param.ty {
+            TypeRef::String | TypeRef::Char => "String".to_string(),
+            TypeRef::Optional(inner) => match inner.as_ref() {
+                TypeRef::String | TypeRef::Char => "Option<String>".to_string(),
+                TypeRef::Primitive(p) => {
+                    format!("Option<{}>", super::capsule::prim_rust_str_pub(p))
+                }
+                _ => "Option<String>".to_string(),
+            },
+            TypeRef::Primitive(p) => super::capsule::prim_rust_str_pub(p).to_string(),
+            _ => "String".to_string(),
+        };
+        sig_params.push(format!("{}: {ts}", param.name));
+    }
+
+    let call_args: Vec<String> = method
+        .params
+        .iter()
+        .map(|p| {
+            if p.is_ref && matches!(p.ty, TypeRef::String | TypeRef::Char) {
+                format!("&{}", p.name)
+            } else {
+                p.name.clone()
+            }
+        })
+        .collect();
+
+    let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?";
+
+    // SAFETY comment mirrors gen_capsule_function: into_raw() transfers ownership.
+    let body = format!(
+        r#"    let value = self.inner.{method_name}({args}){err_conv};
+    // ASSUMPTION: the capsule type exposes `into_raw()` returning a raw pointer.
+    // SAFETY: `into_raw()` transfers ownership of the raw pointer. The external value
+    // is kept alive by the JS runtime as long as the returned object is reachable.
+    let ptr = value.into_raw() as *mut std::ffi::c_void;
+    let mut obj = env.create_object()?;
+    let external = env.create_external(ptr, None)?;
+    obj.set_named_property("__parser", external)?;
+    Ok(obj)"#,
+        method_name = method.name,
+        args = call_args.join(", "),
+        err_conv = err_conv,
+    );
+
+    let mut attrs = String::new();
+    if method.params.len() + 1 > 7 {
+        attrs.push_str("#[allow(clippy::too_many_arguments)]\n");
+    }
+    attrs.push_str("#[allow(clippy::missing_errors_doc)]\n");
+
+    format!(
+        "{attrs}#[napi{js_name_attr}]\npub fn {method_name}(&self, {params}) -> napi::Result<napi::JsObject> {{\n{body}\n}}",
+        method_name = method.name,
+        params = sig_params.join(", "),
+    )
+}
+
 /// Generate an opaque instance method that delegates to self.inner.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn gen_opaque_instance_method(
@@ -243,7 +326,27 @@ pub(super) fn gen_opaque_instance_method(
     prefix: &str,
     adapter_bodies: &alef_adapters::AdapterBodies,
     streaming_item_types: &ahash::AHashMap<String, String>,
+    capsule_types: &HashMap<String, NodeCapsuleTypeConfig>,
 ) -> String {
+    // When the method returns a capsule type, emit a JsObject + External<T> shim
+    // (same pattern as gen_capsule_function for free functions), instead of the
+    // normal opaque-delegation path.
+    let capsule_return_name = match &method.return_type {
+        TypeRef::Named(n) if capsule_types.contains_key(n.as_str()) => Some(n.as_str()),
+        _ => None,
+    };
+
+    let js_name = to_node_name(&method.name);
+    let js_name_attr = if js_name != method.name {
+        format!("(js_name = \"{}\")", js_name)
+    } else {
+        String::new()
+    };
+
+    if let Some(_capsule_name) = capsule_return_name {
+        return gen_opaque_capsule_method(method, typ, js_name_attr, cfg.core_import);
+    }
+
     let params = function_params(&method.params, &|ty| mapper.map_type(ty));
     let adapter_key_for_stream = format!("{}.{}", typ.name, method.name);
     let stream_item = streaming_item_types.get(&adapter_key_for_stream);
@@ -253,13 +356,6 @@ pub(super) fn gen_opaque_instance_method(
         mapper.map_type(&method.return_type)
     };
     let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
-
-    let js_name = to_node_name(&method.name);
-    let js_name_attr = if js_name != method.name {
-        format!("(js_name = \"{}\")", js_name)
-    } else {
-        String::new()
-    };
 
     let async_kw = if method.is_async { "async " } else { "" };
 

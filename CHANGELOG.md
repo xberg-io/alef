@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(codegen): backfill ffi_skip_methods field at TraitBridgeConfig construction sites
 - fix(alef-backend-ffi): stop duplicating the `Plugin` super-trait impl in `gen_ffi_trait_impl`. The orchestrator (`trait_bridge::mod.rs`) already emits it before calling the trait impl path; emitting it again triggered E0119 ("conflicting implementations of trait `Plugin`") for every FFI trait bridge (`DocumentExtractor`, `Renderer`, `OcrBackend`, `PostProcessor`, `Validator`, `EmbeddingBackend`).
 - fix(alef-backend-dart): skip static / associated methods (e.g. `T::default()`, `T::new()`) on opaque impl blocks. The emitter previously generated `pub fn name(&self) -> T { self.inner.name() }` for every method including statics, but calling an associated function with method syntax (`self.inner.default()`) trips E0599 ("this is an associated function, not a method").
 - fix(alef-backend-dart): emit explicit conversion wrappers for opaque method returns where the core type doesn't match the FRB-widened bridge type. `&str` → `String`, `&Path` → `String` via `to_string_lossy`, `&[&str]` → `Vec<String>`, and `i32`/`u32`/`usize` → `i64`, `f32` → `f64` per FRB's primitive widening contract. Previously the body emitted bare `self.inner.method()` which produced E0308 ("mismatched types") for these returns.

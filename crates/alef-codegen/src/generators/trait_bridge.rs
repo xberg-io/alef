@@ -942,6 +942,7 @@ mod tests {
             bind_via: BridgeBinding::FunctionParam,
             options_type: None,
             options_field: None,
+            ffi_skip_methods: Vec::new(),
         }
     }
 
@@ -1924,6 +1925,7 @@ mod tests {
             bind_via,
             options_type: options_type.map(str::to_string),
             options_field: options_field.map(str::to_string),
+            ffi_skip_methods: Vec::new(),
         }
     }
 
