@@ -130,9 +130,31 @@ pub(super) fn gen_api_py(
         }
     }
 
+    // Detect whether any function returns a capsule type — drives whether the api.py needs
+    // `cast` in typing imports (used to bridge `Any` from the native stub to the public
+    // third-party return annotation, e.g. `tree_sitter.Language`).
+    let needs_cast = api.functions.iter().any(|f| {
+        let leaf = match &f.return_type {
+            alef_core::ir::TypeRef::Named(n) => Some(n.as_str()),
+            alef_core::ir::TypeRef::Optional(inner) => match inner.as_ref() {
+                alef_core::ir::TypeRef::Named(n) => Some(n.as_str()),
+                _ => None,
+            },
+            _ => None,
+        };
+        leaf.is_some_and(|n| capsule_types.contains_key(n))
+    });
+
     let mut out = String::with_capacity(4096);
     out.push_str(&hash::header(CommentStyle::Hash));
     out.push_str("\"\"\"Public API for conversion.\"\"\"\n\n");
+    // stdlib first (isort section 1)
+    if needs_cast {
+        out.push_str("from typing import Any, TypeVar, cast\n\n");
+    } else {
+        out.push_str("from typing import Any, TypeVar\n\n");
+    }
+    // third-party / package self-import (isort section 3)
     out.push_str(&crate::template_env::render(
         "import_as_module.jinja",
         minijinja::context! {
@@ -245,7 +267,27 @@ pub(super) fn gen_api_py(
             },
         ));
     }
-    out.push_str("\nfrom typing import Any, TypeVar\n");
+    // Capsule type imports: group by python_type module path, one `from {module} import {names}`
+    // per group. Capsule types (e.g. tree_sitter.Language) are not in `._native` or `.options`;
+    // they need their own first-party import so the bare names in function signatures resolve
+    // (otherwise ruff F821 / mypy unresolved).
+    {
+        use std::collections::BTreeMap;
+        let mut capsule_imports: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for (rust_name, cfg) in capsule_types {
+            let python_type = cfg.python_type();
+            if let Some((module_path, _class_name)) = python_type.rsplit_once('.') {
+                capsule_imports
+                    .entry(module_path.to_string())
+                    .or_default()
+                    .push(rust_name.clone());
+            }
+        }
+        for (module_path, mut names) in capsule_imports {
+            names.sort_unstable();
+            out.push_str(&format!("from {} import {}\n", module_path, names.join(", ")));
+        }
+    }
     out.push('\n');
 
     // Emit a helper that coerces strings or PyO3 enum aliases into the
@@ -965,14 +1007,42 @@ pub(super) fn gen_api_py(
         let kwargs: Vec<String> = call_args.iter().map(|(k, v)| format!("{k}={v}")).collect();
         // Async pyo3 functions return a coroutine that must be awaited by the Python caller.
         let return_prefix = if func.is_async { "await " } else { "" };
-        out.push_str(&crate::template_env::render(
-            "function_call.jinja",
-            minijinja::context! {
-                return_prefix => return_prefix,
-                name => &func.name,
-                kwargs => kwargs.join(", "),
+        // When the return type is a capsule type, the native stub returns `Any`. The api.py
+        // annotation says the public third-party type (e.g. `tree_sitter.Language`). Wrap
+        // the call in `cast("Type", …)` so mypy --strict (warn_return_any) is happy. Use
+        // the string-quoted form to satisfy ruff TC006.
+        let returns_capsule = match &func.return_type {
+            alef_core::ir::TypeRef::Named(n) => capsule_types.contains_key(n),
+            alef_core::ir::TypeRef::Optional(inner) => match inner.as_ref() {
+                alef_core::ir::TypeRef::Named(n) => capsule_types.contains_key(n),
+                _ => false,
             },
-        ));
+            _ => false,
+        };
+        if returns_capsule {
+            let cast_target = match &func.return_type {
+                alef_core::ir::TypeRef::Named(n) => n.clone(),
+                alef_core::ir::TypeRef::Optional(inner) => match inner.as_ref() {
+                    alef_core::ir::TypeRef::Named(n) => format!("{n} | None"),
+                    _ => crate::type_map::python_type(&func.return_type),
+                },
+                _ => crate::type_map::python_type(&func.return_type),
+            };
+            out.push_str(&format!(
+                "    return cast(\"{cast_target}\", {return_prefix}_rust.{name}({kwargs}))\n",
+                name = &func.name,
+                kwargs = kwargs.join(", ")
+            ));
+        } else {
+            out.push_str(&crate::template_env::render(
+                "function_call.jinja",
+                minijinja::context! {
+                    return_prefix => return_prefix,
+                    name => &func.name,
+                    kwargs => kwargs.join(", "),
+                },
+            ));
+        }
     }
 
     // Emit pass-through wrappers for trait-bridge registration functions.

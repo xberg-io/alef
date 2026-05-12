@@ -902,6 +902,7 @@ fn render_assertion_dart(out: &mut String, assertion: &Assertion, result_var: &s
 /// - `not_error`: no-op (a thrown error would already fail the test).
 /// - `count_min` with `field = "chunks"`: assert `result_var.length >= value`.
 /// - `equals` with `field = "stream_content"`: concatenate `delta.content` and compare.
+///
 /// Other assertion types are emitted as comments.
 fn render_streaming_assertion_dart(out: &mut String, assertion: &Assertion, result_var: &str) {
     match assertion.assertion_type.as_str() {

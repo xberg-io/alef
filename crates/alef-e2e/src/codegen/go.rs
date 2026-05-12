@@ -3412,8 +3412,10 @@ mod tests {
         let fixture: Fixture = serde_json::from_str(streaming_fixture_json).unwrap();
         assert!(fixture.is_streaming_mock(), "fixture should be detected as streaming");
 
-        let mut go_override = CallOverride::default();
-        go_override.client_factory = Some("CreateClient".to_string());
+        let go_override = CallOverride {
+            client_factory: Some("CreateClient".to_string()),
+            ..Default::default()
+        };
 
         let mut call_overrides = std::collections::HashMap::new();
         call_overrides.insert("go".to_string(), go_override);
