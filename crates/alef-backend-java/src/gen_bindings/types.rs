@@ -78,17 +78,11 @@ pub(crate) fn gen_record_type(
         let needs_bytes_int_serialize = !f.optional && matches!(&f.ty, TypeRef::Bytes);
 
         // When a field has an explicit `#[serde(rename = "...")]`, use that wire name.
-        // Otherwise, for fields with underscores (snake_case Rust names), emit the camelCase
-        // version as the @JsonProperty so Jackson matches against camelCase JSON keys.
-        // This aligns with the fixture convention (includeDocumentStructure) and common JSON API style.
-        let has_json_property = (lang_rename_all == "camelCase" && f.name.contains('_')) || f.serde_rename.is_some();
-        let json_property_name = f.serde_rename.clone().unwrap_or_else(|| {
-            if f.name.contains('_') {
-                f.name.to_lower_camel_case()
-            } else {
-                f.name.clone()
-            }
-        });
+        // Otherwise keep the snake_case field name as-is — Rust's serde default is snake_case,
+        // so the wire format matches what the FFI bridge emits. Jackson's
+        // setPropertyNamingStrategy(SNAKE_CASE) in fromJson() also handles this correctly.
+        let has_json_property = f.serde_rename.is_some();
+        let json_property_name = f.serde_rename.clone().unwrap_or_else(|| f.name.clone());
         let has_nullable = f.optional;
 
         let mut decl = String::new();
@@ -149,16 +143,6 @@ pub(crate) fn gen_record_type(
             decl.push_str("@JsonProperty(\"");
             decl.push_str(&json_property_name);
             decl.push_str("\") ");
-            // Wire format from the FFI / Rust core is snake_case (default serde without
-            // rename_all on the core type). Adding @JsonAlias("snake_case") lets Jackson
-            // accept both camelCase (Java idiom, primary wire format chosen by alef) and
-            // snake_case (what the FFI bridge actually emits) so result deserialization
-            // doesn't break when the JSON comes from the Rust core via the C FFI.
-            if json_property_name != f.name {
-                decl.push_str("@JsonAlias(\"");
-                decl.push_str(&f.name);
-                decl.push_str("\") ");
-            }
         }
         if has_nullable && !nullable_at_leading_pos {
             // Fully-qualified type: insert `@Nullable` at the last package boundary.
@@ -1468,34 +1452,21 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
         };
 
         // Emit `@JsonProperty(<wire-name>)` so Jackson's BuilderBasedDeserializer matches
-        // the wire key to this builder field. Required in two cases:
-        //   1. Explicit `#[serde(rename = "...")]` (e.g. `tool_type` → wire `"type"`).
-        //   2. Rust fields with underscores (snake_case names) that need camelCase in JSON.
-        //      We convert to camelCase to match the fixture convention and common JSON API style
-        //      (e.g. `include_document_structure` → `includeDocumentStructure`).
+        // the wire key to this builder field. Only required when there is an explicit
+        // `#[serde(rename = "...")]` override — snake_case fields match the wire format
+        // by default because Rust's serde emits snake_case and Jackson is configured with
+        // setPropertyNamingStrategy(SNAKE_CASE) in fromJson().
         let wire_name: Option<String> = if is_flattened_json {
             // Flatten fields have no single wire name — the matching
             // `@JsonAnySetter` setter intercepts every unknown sibling field.
             None
-        } else if let Some(rename) = &field.serde_rename {
-            Some(rename.clone())
-        } else if field.name.contains('_') {
-            Some(field.name.to_lower_camel_case())
         } else {
-            None
+            field.serde_rename.clone()
         };
         if let Some(wire) = wire_name {
             body.push_str("    @JsonProperty(\"");
             body.push_str(&wire);
             body.push_str("\")\n");
-            // Accept snake_case wire keys too — the FFI bridge serializes the Rust core
-            // with default serde (snake_case) so result-direction JSON arrives in
-            // snake_case even when the binding's primary wire format is camelCase.
-            if wire != field.name {
-                body.push_str("    @JsonAlias(\"");
-                body.push_str(&field.name);
-                body.push_str("\")\n");
-            }
         }
         body.push_str("    private ");
         body.push_str(&field_type);
@@ -1541,12 +1512,8 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
         body.push_str(" field. */\n");
         let setter_wire_name: Option<String> = if is_flattened_json {
             None
-        } else if let Some(rename) = &field.serde_rename {
-            Some(rename.clone())
-        } else if field.name.contains('_') {
-            Some(field.name.to_lower_camel_case())
         } else {
-            None
+            field.serde_rename.clone()
         };
         if is_flattened_json {
             // The regular `with<Field>(Map)` setter must not bind to a wire
@@ -1557,17 +1524,11 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
             body.push_str("    @com.fasterxml.jackson.annotation.JsonIgnore\n");
         } else if let Some(wire) = &setter_wire_name {
             // Jackson's BuilderBasedDeserializer reads property names from the `with*`
-            // setter methods, not the private fields — emit @JsonProperty + (optional)
-            // @JsonAlias on the setter so both camelCase and snake_case wire keys map
-            // to this builder method.
+            // setter methods, not the private fields — emit @JsonProperty on the setter
+            // when there is an explicit serde rename so the wire key maps correctly.
             body.push_str("    @JsonProperty(\"");
             body.push_str(wire);
             body.push_str("\")\n");
-            if wire != &field.name {
-                body.push_str("    @JsonAlias(\"");
-                body.push_str(&field.name);
-                body.push_str("\")\n");
-            }
         }
         body.push_str("    public ");
         body.push_str(&typ.name);
