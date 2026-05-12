@@ -425,7 +425,13 @@ fn config_constructor_parts_inner(
                 .map_or_else(|| f.name.as_str(), |s| s.as_str());
             if f.cfg.is_some() {
                 if never_skip_cfg_field_names.contains(&f.name) {
-                    return format!("{}: {}", binding_name, f.name);
+                    // Force-restored cfg-gated field appears as an `Option<T>` parameter
+                    // (per the param-list generation above). For non-Optional bound fields
+                    // we still need to unwrap to the bound field's type.
+                    if f.optional || matches!(&f.ty, TypeRef::Optional(_)) {
+                        return format!("{}: {}", binding_name, f.name);
+                    }
+                    return format!("{}: {}.unwrap_or_default()", binding_name, f.name);
                 }
                 return format!("{}: Default::default()", binding_name);
             }

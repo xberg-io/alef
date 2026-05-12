@@ -263,7 +263,12 @@ impl Backend for Pyo3Backend {
         cfg_unsendable.opaque_type_names = &opaque_names_vec;
         cfg.serializable_opaque_type_names = &serializable_opaque_names_vec;
         cfg_unsendable.serializable_opaque_type_names = &serializable_opaque_names_vec;
-        let never_skip_cfg_field_names: Vec<String> = config
+        // Force-restore cfg-gated config fields into pyo3 constructor signatures so the
+        // generated api.py can pass them as kwargs without TypeError. Without this the
+        // emitted `#[new]` filters out fields with `f.cfg.is_some()`, but the python
+        // `_to_rust_extraction_config` helper always passes pdf_options/keywords/html_*/
+        // layout etc. as kwargs and crashes at runtime.
+        let mut never_skip_cfg_field_names: Vec<String> = config
             .trait_bridges
             .iter()
             .filter_map(|b| {
@@ -274,6 +279,13 @@ impl Backend for Pyo3Backend {
                 }
             })
             .collect();
+        for typ in api.types.iter().filter(|t| t.has_default && !t.is_trait) {
+            for field in &typ.fields {
+                if field.cfg.is_some() && !never_skip_cfg_field_names.contains(&field.name) {
+                    never_skip_cfg_field_names.push(field.name.clone());
+                }
+            }
+        }
         cfg.never_skip_cfg_field_names = &never_skip_cfg_field_names;
         cfg_unsendable.never_skip_cfg_field_names = &never_skip_cfg_field_names;
         let mutex_types: AHashSet<String> = api
