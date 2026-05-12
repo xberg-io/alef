@@ -18,11 +18,17 @@ impl {{ wrapper_name }} {
             std::mem::transmute(js_obj)
         };
 
-        // Try to extract name from the object
-        let cached_name = match js_obj.get_named_property::<String>("name") {
-            Ok(n) => n,
-            Err(_) => "unknown".to_string(),
-        };
+        // Cache the plugin name. `name` may be either a string property or a
+        // zero-arg function returning a string (the trait method form). Try the
+        // function first, then fall back to a string property, and finally to
+        // "unknown" so registration never panics — but the cached value is what
+        // shows up in list_*() output, so plugins authored with the function-style
+        // `name()` must actually be invoked.
+        let cached_name = js_obj
+            .get_named_property::<napi::bindgen_prelude::Function<(), String>>("name")
+            .and_then(|f| f.call(()))
+            .or_else(|_| js_obj.get_named_property::<String>("name"))
+            .unwrap_or_else(|_| "unknown".to_string());
 
         Ok(Self {
             inner: js_obj,

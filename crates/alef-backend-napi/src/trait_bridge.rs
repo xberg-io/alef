@@ -111,6 +111,7 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
             name
         ));
 
+        let has_default_impl = method.has_default_impl;
         if matches!(method.return_type, TypeRef::Unit) {
             crate::template_env::render(
                 "sync_method_unit_return.jinja",
@@ -118,6 +119,7 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
                     method_name => name,
                     args_tuple_ty => args_tuple_ty,
                     has_error => has_error,
+                    has_default_impl => has_default_impl,
                     empty_args => empty_args,
                     tuple_args => tuple_args,
                     error_lookup => error_lookup,
@@ -131,6 +133,7 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
                     method_name => name,
                     args_tuple_ty => args_tuple_ty,
                     has_error => has_error,
+                    has_default_impl => has_default_impl,
                     empty_args => empty_args,
                     tuple_args => tuple_args,
                     error_lookup => error_lookup,

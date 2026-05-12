@@ -1,6 +1,10 @@
 let func: napi::bindgen_prelude::Function<{{ args_tuple_ty }}, napi::bindgen_prelude::Unknown> = match self.inner.get_named_property("{{ method_name }}") {
     Ok(f) => f,
-{% if has_error %}
+{% if has_default_impl %}
+    // Method has a default impl on the Rust trait — treat missing JS property as a no-op
+    // (the foreign object opted out of overriding it). Falls back to Default::default().
+    Err(_) => return {% if has_error %}Ok(Default::default()){% else %}Default::default(){% endif %},
+{% elif has_error %}
     Err(e) => return Err({{ error_lookup }}),
 {% else %}
     Err(_) => return Default::default(),
