@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [0.15.57] - 2026-05-13
+
+### Fixed
+
+- **alef-backend-wasm**: `gen_opaque_method` now respects `mutex_types` for both `&self` and `&mut self` methods on opaque types whose `inner` field is `Arc<Mutex<T>>`. Previously: (a) `&self` methods on Mutex-wrapped opaque types emitted `self.inner.{method}(...)` which fails to compile against `Arc<Mutex<T>>`, and (b) `&mut self` methods on opaque types fell through `shared::can_auto_delegate`'s blanket `RefMut → false` exclusion and were emitted as no-op `gen_wasm_unimplemented_body` stubs. Concretely surfaced in tree-sitter-language-pack's `WasmTreeCursor::node()`, `field_name()`, `goto_first_child()`, `goto_parent()`, `goto_next_sibling()`. Fix: override `can_delegate` for RefMut methods when `mutex_types.contains(type_name)` (mirrors the existing override in `methods.rs:33`), and dispatch via `self.inner.lock().unwrap().{method}(...)` for both `&self` and Owned receivers on Mutex-wrapped types.
+
 ## [0.15.56] - 2026-05-13
 
 ### Fixed

@@ -117,7 +117,24 @@ fn gen_opaque_method(
     adapter_bodies: &alef_adapters::AdapterBodies,
     mutex_types: &AHashSet<String>,
 ) -> String {
-    let can_delegate = shared::can_auto_delegate(method, opaque_types);
+    // Whether the parent opaque type's inner is `Arc<Mutex<T>>` (it has at least one `&mut self`
+    // method). RefMut methods on Mutex-wrapped types ARE delegatable (lock yields `&mut T`),
+    // contra `shared::can_auto_delegate`'s blanket exclusion. `&self` methods on Mutex-wrapped
+    // types must also lock; otherwise the call dispatches against `Arc<Mutex<T>>`.
+    let type_is_mutex_wrapped = mutex_types.contains(type_name);
+    let is_ref_mut = matches!(method.receiver.as_ref(), Some(ReceiverKind::RefMut));
+
+    let can_delegate_base = shared::can_auto_delegate(method, opaque_types);
+    let can_delegate = if is_ref_mut && type_is_mutex_wrapped && method.trait_source.is_none() {
+        !method.sanitized
+            && method
+                .params
+                .iter()
+                .all(|p| !p.sanitized && shared::is_delegatable_param(&p.ty, opaque_types))
+            && shared::is_opaque_delegatable_type(&method.return_type)
+    } else {
+        can_delegate_base
+    };
     let adapter_key = format!("{type_name}.{}", method.name);
     let has_adapter = adapter_bodies.contains_key(&adapter_key);
 
@@ -147,10 +164,9 @@ fn gen_opaque_method(
     let async_kw = if method.is_async { "async " } else { "" };
 
     // Check if the core method takes ownership (Owned receiver) or mutable reference.
-    // For Owned: clone out of Arc since wasm_bindgen methods take &self.
+    // For Owned: clone out of Arc (or Arc<Mutex<>>) since wasm_bindgen methods take &self.
     // For RefMut: lock the Mutex and get &mut, then call the method.
     let needs_clone = matches!(method.receiver, Some(ReceiverKind::Owned));
-    let is_ref_mut = matches!(method.receiver.as_ref(), Some(ReceiverKind::RefMut));
 
     let body = if can_delegate {
         let call_args = generators::gen_call_args(&method.params, opaque_types);
@@ -158,7 +174,15 @@ fn gen_opaque_method(
             // RefMut: inner is Arc<Mutex<T>>, lock and call &mut method
             format!("self.inner.lock().unwrap().{}({})", method.name, call_args)
         } else if needs_clone {
-            format!("(*self.inner).clone().{}({})", method.name, call_args)
+            if type_is_mutex_wrapped {
+                format!("self.inner.lock().unwrap().clone().{}({})", method.name, call_args)
+            } else {
+                format!("(*self.inner).clone().{}({})", method.name, call_args)
+            }
+        } else if type_is_mutex_wrapped {
+            // `&self` method on a Mutex-wrapped opaque type: dispatch through .lock().unwrap()
+            // since `self.inner: Arc<Mutex<T>>` does not expose the inner type's methods.
+            format!("self.inner.lock().unwrap().{}({})", method.name, call_args)
         } else {
             format!("self.inner.{}({})", method.name, call_args)
         };
