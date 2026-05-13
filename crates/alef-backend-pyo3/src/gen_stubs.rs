@@ -415,7 +415,7 @@ fn gen_type_init_stub(
     // the IR, so the partition above strips it, but the PyO3 macro keeps it via
     // `never_skip_cfg_field_names`. Surface it here so api.py callers type-check.
     if let Some((kwarg_name, type_alias)) = options_field_bridges.get(typ.name.as_str()) {
-        let visitor_type = type_alias.unwrap_or(&"object");
+        let visitor_type = type_alias.unwrap_or("object");
         params.push(format!("{kwarg_name}: {visitor_type} | None = None"));
     }
 

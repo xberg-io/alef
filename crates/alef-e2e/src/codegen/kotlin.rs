@@ -213,7 +213,9 @@ fn is_enum_typed(ty: &alef_core::ir::TypeRef, struct_names: &HashSet<&str>) -> b
     use alef_core::ir::TypeRef;
     match ty {
         TypeRef::Named(name) => !struct_names.contains(name.as_str()),
-        TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Named(name) if !struct_names.contains(name.as_str())),
+        TypeRef::Optional(inner) => {
+            matches!(inner.as_ref(), TypeRef::Named(name) if !struct_names.contains(name.as_str()))
+        }
         _ => false,
     }
 }
@@ -1037,8 +1039,7 @@ fn render_test_method(
             .and_then(|co| co.result_type.as_deref())
             .or_else(|| call_config.overrides.get("java").and_then(|o| o.result_type.as_deref()))
             .or_else(|| call_config.overrides.get("c").and_then(|o| o.result_type.as_deref()));
-        let auto_enum_fields: Option<&HashSet<String>> =
-            result_type_name.and_then(|name| type_enum_fields.get(name));
+        let auto_enum_fields: Option<&HashSet<String>> = result_type_name.and_then(|name| type_enum_fields.get(name));
         let has_per_call = call_overrides.is_some_and(|co| !co.enum_fields.is_empty());
         let has_auto = auto_enum_fields.is_some_and(|f| !f.is_empty());
         if has_per_call || has_auto {
@@ -2060,7 +2061,7 @@ mod tests {
         };
 
         // `BatchObject` is the only struct — `BatchStatus` is not in struct_names.
-        let type_defs = vec![batch_object_def];
+        let type_defs = [batch_object_def];
         let struct_names: HashSet<&str> = type_defs.iter().map(|td| td.name.as_str()).collect();
 
         // Verify is_enum_typed correctly identifies `status` as enum-typed.
@@ -2093,7 +2094,9 @@ mod tests {
             })
             .collect();
 
-        let batch_enum_fields = type_enum_fields.get("BatchObject").expect("BatchObject should have enum fields");
+        let batch_enum_fields = type_enum_fields
+            .get("BatchObject")
+            .expect("BatchObject should have enum fields");
         assert!(
             batch_enum_fields.contains("status"),
             "BatchObject.status should be auto-detected as enum-typed, got: {batch_enum_fields:?}"

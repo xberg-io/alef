@@ -147,7 +147,13 @@ fn render_wasm_enum_assertion(out: &mut String, assertion: &Assertion, field_exp
 }
 
 /// Try to render a synthetic/virtual field assertion. Returns `true` when the field was handled.
-fn render_synthetic_field_assertion(out: &mut String, assertion: &Assertion, result_var: &str, field: &str, is_streaming: bool) -> bool {
+fn render_synthetic_field_assertion(
+    out: &mut String,
+    assertion: &Assertion,
+    result_var: &str,
+    field: &str,
+    is_streaming: bool,
+) -> bool {
     match field {
         "chunks_have_content" => {
             let pred = format!("({result_var}.chunks ?? []).every((c: {{ content?: string }}) => !!c.content)");

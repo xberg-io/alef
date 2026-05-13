@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [0.15.55] - 2026-05-13
+
+### Added
+
+- **alef-backend-gleam**: restore the Gleam backend, e2e codegen, scaffold, publish package, and `Language::Gleam` enum variant that were removed in v0.15.54 by mistake. Gleam is a first-class alef-supported binding language again, with the full backend crate (`alef-backend-gleam`), e2e codegen (`crates/alef-e2e/src/codegen/gleam.rs`), publish package handler, scaffold, readme template, doc emission, and downstream registry/match-arm wiring across `alef-core`, `alef-codegen`, `alef-adapters`, `alef-docs`, `alef-cli`, `alef-publish`, `alef-readme`, and `alef-scaffold`. Note: kreuzberg has independently dropped its own Gleam binding (BEAM users can call the Elixir binding via Erlang interop); restoring Gleam here keeps the language available for downstream alef users who want it.
+
+### Fixed
+
 - **alef-e2e/kotlin**: sticky nullability in `render_kotlin_with_optionals`. Once a `?.` safe-call is emitted for any segment in a Kotlin accessor chain, all subsequent segments are on a nullable receiver and must also use `?.`. The previous code reset `prev_was_nullable` to just `is_optional` on each segment, so non-optional fields after a `?.` call dropped the safe-call, producing uncompilable code (e.g. `toolCalls()?.first().function()` instead of `toolCalls()?.first()?.function()`). Fixed in all three `PathSegment` arms (`Field`, `ArrayField`, `MapAccess`).
 
 - **alef-e2e/kotlin**: auto-detect enum-typed fields from IR `TypeDef` to route through `.getValue()`. Fields whose Rust type is `Named(T)` where `T` is not a known struct (i.e. an enum) must call `.getValue()` in Kotlin assertions. Previously only fields in the global `fields_enum` or a per-call `enum_fields` override were handled; `BatchObject.status` (type `BatchStatus`) was silently treated as `String`, causing `"BatchStatus has no method trim"` at Kotlin compile time. Now `generate()` builds a `type_enum_fields` map from the IR and merges it into `effective_enum_fields` per call. Also extends `field_is_optional` to detect nullability from the accessor expression itself (sticky-`?.` chain makes the whole expression `T?` regardless of what the path-prefix lookup finds).

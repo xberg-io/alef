@@ -223,6 +223,7 @@ mod tests {
             Language::Kotlin,
             Language::Swift,
             Language::Dart,
+            Language::Gleam,
             Language::Zig,
         ]
     }
@@ -410,6 +411,22 @@ mod tests {
             "Dart build should use dart pub get, got: {build}"
         );
         assert_eq!(c.precondition.as_deref(), Some("command -v dart >/dev/null 2>&1"));
+    }
+
+    #[test]
+    fn gleam_uses_gleam_build() {
+        let c = cfg(Language::Gleam, "packages/gleam", "my-lib");
+        let build = c.build.unwrap().commands().join(" ");
+        let release = c.build_release.unwrap().commands().join(" ");
+        assert!(
+            build.contains("gleam build"),
+            "Gleam build should use gleam build, got: {build}"
+        );
+        assert!(
+            release.contains("gleam build"),
+            "Gleam release should use gleam build, got: {release}"
+        );
+        assert_eq!(c.precondition.as_deref(), Some("command -v gleam >/dev/null 2>&1"));
     }
 
     #[test]

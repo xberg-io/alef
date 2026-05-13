@@ -131,9 +131,7 @@ fn build_method_preamble(
                     ));
                 }
             }
-            TypeRef::Vec(inner)
-                if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref =>
-            {
+            TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref => {
                 if p.optional {
                     out.push_str(&format!(
                         "let {}_refs: Vec<&str> = {}.as_ref().map(|v| v.iter().map(|s| s.as_str()).collect()).unwrap_or_default();\n        ",
@@ -192,9 +190,10 @@ fn gen_opaque_instance_method(
         // since we cannot move out of an Arc from a &self method.
         // For Mutex-wrapped types (has_mut_methods), all methods need .lock().unwrap().
         let is_owned_receiver = matches!(method.receiver, Some(ReceiverKind::Owned));
-        let has_mut_methods = typ.methods.iter().any(|m|
-            matches!(m.receiver.as_ref(), Some(ReceiverKind::RefMut))
-        );
+        let has_mut_methods = typ
+            .methods
+            .iter()
+            .any(|m| matches!(m.receiver.as_ref(), Some(ReceiverKind::RefMut)));
         let inner_access = if is_owned_receiver {
             "self.inner.as_ref().clone()".to_string()
         } else if has_mut_methods {
@@ -287,9 +286,10 @@ fn gen_opaque_async_instance_method(
             generators::gen_call_args(&method.params, opaque_types)
         };
         let refs_preamble = preamble;
-        let has_mut_methods = typ.methods.iter().any(|m|
-            matches!(m.receiver.as_ref(), Some(ReceiverKind::RefMut))
-        );
+        let has_mut_methods = typ
+            .methods
+            .iter()
+            .any(|m| matches!(m.receiver.as_ref(), Some(ReceiverKind::RefMut)));
         let inner_setup = if has_mut_methods {
             "let inner = self.inner.lock().unwrap();\n        ".to_string()
         } else {
