@@ -145,10 +145,10 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     </dependencies>
 
     <build>
-        <!-- The alef Java backend emits source files at the package root (e.g.
-             packages/java/dev/<group>/<artifact>/Foo.java), not under the
-             Maven-default `src/main/java/` layout. Point sourceDirectory at
-             the package root so `mvn package` finds them. -->
+        <!-- The alef Java backend emits source files at the package root
+             (e.g. packages/java/dev/<group>/<artifact>/Foo.java), not under
+             the Maven-default `src/main/java/` layout. Point sourceDirectory
+             at the package root so `mvn package` finds them. -->
         <sourceDirectory>${{project.basedir}}</sourceDirectory>
         <resources>
             <resource>
@@ -238,6 +238,18 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-source-plugin</artifactId>
                 <version>${{maven-source-plugin.version}}</version>
+                <configuration>
+                    <!-- sourceDirectory is the project basedir, so the default
+                         source-archive include of everything under basedir
+                         pulls in target/ as well (which contains the archive
+                         being assembled — "A zip file cannot include itself").
+                         Restrict to the alef-emitted dev/ subtree and any
+                         conventional `src/main/java/` overlay. -->
+                    <includes>
+                        <include>dev/**/*.java</include>
+                        <include>src/main/java/**/*.java</include>
+                    </includes>
+                </configuration>
                 <executions>
                     <execution>
                         <id>attach-sources</id>
