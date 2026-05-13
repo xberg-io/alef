@@ -1439,6 +1439,9 @@ fn render_assertion(
 
     // String-context expression: append .orEmpty() for nullable string fields so
     // string operations (contains, trim) don't require a safe-call chain.
+    // Note: this is only sound when the leaf type is `String?`. For enum-typed
+    // optional fields (`T?` where `T` is an enum class), `.orEmpty()` is undefined;
+    // the enum branch below handles those by going through `?.getValue()` first.
     let string_field_expr = if field_is_optional {
         format!("{field_expr}.orEmpty()")
     } else {
@@ -1453,11 +1456,15 @@ fn render_assertion(
         field_expr.clone()
     };
 
-    // For enum fields, use .getValue() to get the string value.
-    let string_expr = if field_is_enum {
-        format!("{string_field_expr}.getValue()")
-    } else {
-        string_field_expr.clone()
+    // For enum fields, use .getValue() to get the string value. When the enum
+    // field (or any intermediate segment in its path) is optional, use a safe
+    // call before `.getValue()` and then `.orEmpty()` to coerce `String?` back
+    // to `String` — this matches the Java codegen's
+    // `Optional.ofNullable(...).map(v -> v.getValue()).orElse("")` pattern.
+    let string_expr = match (field_is_enum, field_is_optional) {
+        (true, true) => format!("{field_expr}?.getValue().orEmpty()"),
+        (true, false) => format!("{field_expr}.getValue()"),
+        (false, _) => string_field_expr.clone(),
     };
 
     // Determine if this assertion field maps to a 64-bit C type (uint64_t / int64_t),
@@ -1719,5 +1726,105 @@ fn json_to_kotlin(value: &serde_json::Value) -> String {
             let json_str = serde_json::to_string(value).unwrap_or_default();
             format!("\"{}\"", escape_kotlin(&json_str))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn make_resolver_for_finish_reason() -> FieldResolver {
+        // Resolver for `choices[0].finish_reason` where:
+        //   - `choices` is a registered array field (default index 0)
+        //   - `choices.finish_reason` is optional (`@Nullable`)
+        let mut optional = HashSet::new();
+        optional.insert("choices.finish_reason".to_string());
+        let mut arrays = HashSet::new();
+        arrays.insert("choices".to_string());
+        FieldResolver::new(&HashMap::new(), &optional, &HashSet::new(), &arrays, &HashSet::new())
+    }
+
+    /// Regression: enum-typed optional fields must route through `?.getValue()`
+    /// before falling back via `.orEmpty()`. Emitting `.orEmpty().getValue()`
+    /// is invalid Kotlin because `T?.orEmpty()` is only defined for `String?`.
+    #[test]
+    fn assertion_enum_optional_uses_safe_get_value_then_or_empty() {
+        let resolver = make_resolver_for_finish_reason();
+        let mut enum_fields = HashSet::new();
+        enum_fields.insert("choices.finish_reason".to_string());
+        let assertion = Assertion {
+            assertion_type: "equals".to_string(),
+            field: Some("choices.finish_reason".to_string()),
+            value: Some(serde_json::Value::String("stop".to_string())),
+            values: None,
+            method: None,
+            check: None,
+            args: None,
+            return_type: None,
+        };
+        let mut out = String::new();
+        render_assertion(
+            &mut out,
+            &assertion,
+            "result",
+            "",
+            &resolver,
+            false,
+            false,
+            &enum_fields,
+            &HashMap::new(),
+        );
+        assert!(
+            out.contains("result.choices().first().finishReason()?.getValue().orEmpty().trim()"),
+            "expected enum-optional safe-call pattern, got: {out}"
+        );
+        assert!(
+            !out.contains(".finishReason().orEmpty().getValue()"),
+            "must not emit .orEmpty().getValue() on a nullable enum: {out}"
+        );
+    }
+
+    /// Non-optional enum field should call `.getValue()` directly without
+    /// safe-call or fallback (no need to handle null).
+    #[test]
+    fn assertion_enum_non_optional_uses_plain_get_value() {
+        let mut arrays = HashSet::new();
+        arrays.insert("choices".to_string());
+        let resolver = FieldResolver::new(
+            &HashMap::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &arrays,
+            &HashSet::new(),
+        );
+        let mut enum_fields = HashSet::new();
+        enum_fields.insert("choices.finish_reason".to_string());
+        let assertion = Assertion {
+            assertion_type: "equals".to_string(),
+            field: Some("choices.finish_reason".to_string()),
+            value: Some(serde_json::Value::String("stop".to_string())),
+            values: None,
+            method: None,
+            check: None,
+            args: None,
+            return_type: None,
+        };
+        let mut out = String::new();
+        render_assertion(
+            &mut out,
+            &assertion,
+            "result",
+            "",
+            &resolver,
+            false,
+            false,
+            &enum_fields,
+            &HashMap::new(),
+        );
+        assert!(
+            out.contains("result.choices().first().finishReason().getValue().trim()"),
+            "expected plain .getValue() for non-optional enum, got: {out}"
+        );
     }
 }
