@@ -1244,7 +1244,11 @@ fn render_assertion(
     // We add .toString() here so string assertions (contains, hasPrefix, etc.) work.
     // Non-string opaque fields (DocumentStructure, etc.) should not appear in string
     // assertions — the fixture schema controls which assertions apply to which fields.
-    let string_expr = if field_is_enum {
+    let string_expr = if field_is_enum && (field_is_optional || accessor_is_optional) {
+        // Enum-typed fields that are also optional (e.g. `finish_reason() -> Optional<RustString>`)
+        // must use optional chaining: `?.toString() ?? ""` to unwrap before converting to Swift String.
+        format!("({field_expr}?.toString() ?? \"\")")
+    } else if field_is_enum {
         // Enum-typed fields are now bridged as `String` (RustString in Swift) rather than
         // as opaque enum handles. The getter on the Rust side calls `to_string()` internally
         // and returns a `String` across the FFI. In Swift this arrives as `RustString`, so
