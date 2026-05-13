@@ -550,16 +550,10 @@ pub fn visitor_reply(ref_id: u64, result: Option<String>) {
     ),
     (
         "elixir_spec_multiline.jinja",
-        r#"  @spec {{ func_name }}(
-{%- for type_str in param_types %}
-{%- if not loop.last %}
-          {{ type_str }},
-{%- else %}
-          {{ type_str }}
-{%- endif %}
-{%- endfor %}
-        ) :: {{ return_spec }}
-"#,
+        // alef's minijinja env has trim_blocks=true (first newline after every
+        // {% ... %} tag is stripped). Use an explicit {{ "\n" }} expression at
+        // the start of each loop iteration so the per-arg newline survives.
+        "  @spec {{ func_name }}({% for type_str in param_types %}{{ \"\\n          \" }}{{ type_str }}{% if not loop.last %},{% endif %}{% endfor %}{{ \"\\n        \" }}) :: {{ return_spec }}\n",
     ),
     (
         "elixir_def_with_guard.jinja",

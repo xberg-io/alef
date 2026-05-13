@@ -10,7 +10,9 @@
               {:error, _} -> nil
             end
           end)
+
         {:ok, stream}
+
       {:error, reason} ->
         {:error, reason}
     end
