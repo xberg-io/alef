@@ -530,12 +530,13 @@ fn gen_getter(field: &FieldDef, mapper: &WasmMapper, enum_names: &AHashSet<Strin
         String::new()
     };
 
-    // Fix A: optional enum fields must return Option<String> so JS receives the serde wire
+    // Fix A: enum fields must return String (or Option<String>) so JS receives the serde wire
     // string (e.g. "stop", "tool_calls") instead of a numeric discriminant.
     // Fix B: optional Vec-of-struct fields must return Option<js_sys::Array> so JS can
     // access prototype methods on each element (e.g. [0].function.name).
     let inner_ty = optional_inner(&field.ty);
     let is_optional_enum = field.optional && matches!(inner_ty, TypeRef::Named(n) if enum_names.contains(n));
+    let is_required_enum = !field.optional && matches!(field.ty, TypeRef::Named(ref n) if enum_names.contains(n));
     let is_optional_vec_of_struct = field.optional
         && matches!(
             inner_ty,
@@ -546,6 +547,10 @@ fn gen_getter(field: &FieldDef, mapper: &WasmMapper, enum_names: &AHashSet<Strin
         // Return Option<String> using the generated to_api_str() method.
         let expr = format!("self.{}.map(|v| v.to_api_str().to_owned())", field.name);
         ("Option<String>".to_string(), expr)
+    } else if is_required_enum {
+        // Return String directly using the generated to_api_str() method.
+        let expr = format!("self.{}.to_api_str().to_owned()", field.name);
+        ("String".to_string(), expr)
     } else if is_optional_vec_of_struct {
         // Return Option<js_sys::Array> so JS can call prototype methods on each element.
         let expr = format!(
