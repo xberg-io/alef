@@ -145,6 +145,11 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     </dependencies>
 
     <build>
+        <!-- The alef Java backend emits source files at the package root (e.g.
+             packages/java/dev/<group>/<artifact>/Foo.java), not under the
+             Maven-default `src/main/java/` layout. Point sourceDirectory at
+             the package root so `mvn package` finds them. -->
+        <sourceDirectory>${{project.basedir}}</sourceDirectory>
         <resources>
             <resource>
                 <directory>src/main/resources</directory>
