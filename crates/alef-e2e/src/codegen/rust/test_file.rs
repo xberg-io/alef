@@ -579,16 +579,11 @@ pub fn render_test_function(
     // Non-error path: unwrap the result.
     let has_not_error = fixture.assertions.iter().any(|a| a.assertion_type == "not_error");
 
-    // Detect streaming fixtures: is_streaming_mock() checks for stream_chunks in mock_response.
-    // Also treat fixtures with streaming-virtual-field assertions as streaming so the
-    // collect snippet is emitted (handles empty_stream and similar edge-case fixtures
-    // whose mock_response has no stream_chunks but whose assertions reference `chunks`).
-    let is_streaming = fixture.is_streaming_mock()
-        || fixture.assertions.iter().any(|a| {
-            a.field
-                .as_deref()
-                .is_some_and(|f| !f.is_empty() && crate::codegen::streaming_assertions::is_streaming_virtual_field(f))
-        });
+    // Detect streaming fixtures: shared helper honors `streaming` opt-in/out and
+    // auto-detects from unambiguous streaming-only field names (chunks,
+    // stream_content, …) — but not from ambiguous fields like `usage` or
+    // `finish_reason` that also exist on non-streaming response shapes.
+    let is_streaming = crate::codegen::streaming_assertions::resolve_is_streaming(fixture, None);
     // Name of the stream-level variable (the raw stream returned by the call).
     let stream_var = "stream";
     // Name of the collected-list variable produced by draining the stream.
