@@ -50,15 +50,26 @@ pub(super) fn gen_native_methods(
     // Enums passed as parameters in any FFI function flow through *_from_json + *_free
     // (the alef-backend-ffi side now emits these for param-passed enums). Treat them
     // like opaque struct params so the DllImport entries get generated.
+    //
+    // Walk through Optional/Vec wrappers when collecting returned Named types — the FFI
+    // surfaces Option<T> and Vec<T> Named returns as `*mut T` and still emits matching
+    // `_to_json` / `_free` exports, so the C# side needs the DllImport declarations.
+    fn inner_named(ty: &TypeRef) -> Option<&str> {
+        match ty {
+            TypeRef::Named(n) => Some(n.as_str()),
+            TypeRef::Optional(inner) | TypeRef::Vec(inner) => inner_named(inner),
+            _ => None,
+        }
+    }
     for func in api.functions.iter().filter(|f| !exclude_functions.contains(&f.name)) {
         for param in &func.params {
             if let TypeRef::Named(name) = &param.ty {
                 opaque_param_types.insert(name.clone());
             }
         }
-        if let TypeRef::Named(name) = &func.return_type {
+        if let Some(name) = inner_named(&func.return_type) {
             if !enum_names.contains(name) {
-                opaque_return_types.insert(name.clone());
+                opaque_return_types.insert(name.to_string());
             }
         }
     }
@@ -85,9 +96,9 @@ pub(super) fn gen_native_methods(
                     opaque_param_types.insert(name.clone());
                 }
             }
-            if let TypeRef::Named(name) = &method.return_type {
+            if let Some(name) = inner_named(&method.return_type) {
                 if !enum_names.contains(name) {
-                    opaque_return_types.insert(name.clone());
+                    opaque_return_types.insert(name.to_string());
                 }
             }
         }
