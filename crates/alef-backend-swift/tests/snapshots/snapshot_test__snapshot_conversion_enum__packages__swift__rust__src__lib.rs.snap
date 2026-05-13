@@ -27,6 +27,11 @@ mod ffi {
         fn value(&self) -> i32;
     }
 
+    extern "Rust" {
+        type Result;
+        fn to_string(&self) -> String;
+    }
+
 }
 
 pub struct Data(pub demo::Data);

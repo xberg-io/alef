@@ -216,7 +216,10 @@ fn emit_getters(
         // because Option<Vec<String>> is not supported by swift-bridge as a getter return.
         let bridge_ty = bridge_type_enum_aware_ref(&field.ty, enum_names);
         let bridge_ty_owned = if field.optional && !needs_json_bridge(&field.ty) {
-            if bridge_ty.starts_with("Vec<") {
+            // Option<Vec<String>> is not natively supported by swift-bridge; collapse
+            // to plain String (JSON) only when the Vec inner type is an enum.  For
+            // Option<Vec<Named(struct)>> keep the opaque-wrapper vector form.
+            if is_vec_of_enum(&field.ty, enum_names) {
                 "String".to_string()
             } else {
                 format!("Option<{bridge_ty}>")

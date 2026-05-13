@@ -584,14 +584,16 @@ fn lib_rs_enum_extern_block_and_wrapper() {
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
-    // Enum types are NOT declared as opaque `type T;` in the extern block.
-    // swift-bridge 0.1.59 generates Vec<T> Vectorizable conformance for every opaque type,
-    // but the Rust proc macro does NOT generate the matching C symbols for enums, causing
-    // linker errors. Enums are kept as internal Rust wrappers; struct getters that return
-    // enum fields return String (the serialized variant name) instead.
+    // Enum types ARE declared as opaque `type T;` in their own extern block.
+    // This is required so that the enum can be used as a function parameter
+    // (e.g. `fn new(content: Status, ...)`); without the declaration swift-bridge
+    // rejects any function whose signature mentions the enum.
+    // Struct-field getters that return enum-typed fields still serialize to String
+    // (via to_string()) rather than returning the opaque handle, so that the
+    // swift-bridge Vec<T> Vectorizable conformance does not affect field access.
     assert!(
-        !lib.content.contains("type Status;"),
-        "lib.rs must NOT contain Status opaque type declaration: {}",
+        lib.content.contains("type Status;"),
+        "lib.rs must contain Status opaque type declaration: {}",
         lib.content
     );
     assert!(
@@ -640,10 +642,11 @@ fn lib_rs_struct_with_enum_field_returns_string() {
         "wrapper impl must call Status::from(...).to_string(): {}",
         lib.content
     );
-    // Opaque enum type must NOT be declared in the extern block.
+    // Opaque enum type IS declared in its own extern block (required for parameter usage).
+    // It must NOT appear inside the struct's extern block (where the getter returns String).
     assert!(
-        !lib.content.contains("type Status;"),
-        "lib.rs must NOT declare Status as opaque extern type: {}",
+        lib.content.contains("type Status;"),
+        "lib.rs must declare Status as opaque extern type (needed for param usage): {}",
         lib.content
     );
 }

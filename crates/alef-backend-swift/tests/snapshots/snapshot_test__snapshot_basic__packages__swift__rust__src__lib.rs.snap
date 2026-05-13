@@ -28,6 +28,11 @@ mod ffi {
     }
 
     extern "Rust" {
+        type Status;
+        fn to_string(&self) -> String;
+    }
+
+    extern "Rust" {
         fn process(input: String, count: u32) -> Result<String, String>;
     }
 
