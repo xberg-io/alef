@@ -853,6 +853,10 @@ fn render_kotlin_with_optionals(
                 } else {
                     out.push_str(&format!("(){safe}.get({index})"));
                 }
+                // Record the "[0]" suffix so subsequent optional-field checks against
+                // paths like "choices[0].message.tool_calls" continue to match when the
+                // optional_fields set uses indexed keys (mirrors the Rust renderer).
+                path_so_far.push_str("[0]");
                 prev_was_nullable = is_optional;
             }
             PathSegment::MapAccess { field, key } => {
@@ -1540,6 +1544,34 @@ mod tests {
             "result.nodes()?.first()?.name()"
         );
         assert_eq!(r.accessor("tag", "kotlin", "result"), "result.tags()?.get(\"name\")");
+    }
+
+    /// Regression: optional-field keys with explicit `[0]` indices (e.g.
+    /// `"choices[0].message.tool_calls"`) were not matched by
+    /// `render_kotlin_with_optionals` because `path_so_far` omitted the `[0]`
+    /// suffix after traversing an ArrayField segment. Fix: append `"[0]"` to
+    /// `path_so_far` after each ArrayField, mirroring the Rust renderer.
+    #[test]
+    fn test_accessor_kotlin_optional_field_after_indexed_array() {
+        // "choices[0].message.tool_calls" is optional; the path is accessed as
+        // choices[0].message.tool_calls[0].function.name.
+        let mut fields = HashMap::new();
+        fields.insert(
+            "tool_call_name".to_string(),
+            "choices[0].message.tool_calls[0].function.name".to_string(),
+        );
+        let mut optional = HashSet::new();
+        optional.insert("choices[0].message.tool_calls".to_string());
+        let mut arrays = HashSet::new();
+        arrays.insert("choices".to_string());
+        arrays.insert("choices[0].message.tool_calls".to_string());
+        let r = FieldResolver::new(&fields, &optional, &HashSet::new(), &arrays, &HashSet::new());
+        let expr = r.accessor("tool_call_name", "kotlin", "result");
+        // toolCalls() is optional so it must use `?.` before `.first()`.
+        assert!(
+            expr.contains("toolCalls()?.first()"),
+            "expected toolCalls()?.first() for optional list, got: {expr}"
+        );
     }
 
     #[test]
