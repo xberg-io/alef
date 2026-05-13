@@ -193,6 +193,12 @@ pub fn default_update_config(lang: Language, output_dir: &str, ctx: &LangContext
             update: Some(StringOrVec::Single(format!("cd {output_dir} && zig build --fetch"))),
             upgrade: Some(StringOrVec::Single(format!("cd {output_dir} && zig build --fetch"))),
         },
+        Language::Gleam => UpdateConfig {
+            precondition: Some(require_tool("gleam")),
+            before: None,
+            update: Some(StringOrVec::Single(format!("cd {output_dir} && gleam deps update"))),
+            upgrade: Some(StringOrVec::Single(format!("cd {output_dir} && gleam deps update"))),
+        },
     }
 }
 
@@ -218,6 +224,7 @@ mod tests {
             Language::Kotlin,
             Language::Swift,
             Language::Dart,
+            Language::Gleam,
             Language::Zig,
         ]
     }
@@ -430,6 +437,22 @@ mod tests {
             upgrade.contains("--major-versions"),
             "Dart upgrade should include --major-versions, got: {upgrade}"
         );
+    }
+
+    #[test]
+    fn gleam_uses_gleam_deps_update() {
+        let c = cfg(Language::Gleam, "packages/gleam");
+        let update = c.update.unwrap().commands().join(" ");
+        let upgrade = c.upgrade.unwrap().commands().join(" ");
+        assert!(
+            update.contains("gleam deps update"),
+            "Gleam update should use gleam deps update, got: {update}"
+        );
+        assert!(
+            upgrade.contains("gleam deps update"),
+            "Gleam upgrade should use gleam deps update, got: {upgrade}"
+        );
+        assert_eq!(c.precondition.as_deref(), Some("command -v gleam >/dev/null 2>&1"));
     }
 
     #[test]

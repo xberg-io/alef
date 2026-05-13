@@ -588,8 +588,8 @@ fn render_test_method(
     // no explicit `result_is_simple` on the Swift override — yet the Swift binding
     // returns `Data` directly (not a struct), so assertions must use `result.isEmpty`
     // rather than `result.audio().toString().isEmpty`.
-    let result_is_bytes_any_lang = call_config.result_is_bytes
-        || call_config.overrides.values().any(|o| o.result_is_bytes);
+    let result_is_bytes_any_lang =
+        call_config.result_is_bytes || call_config.overrides.values().any(|o| o.result_is_bytes);
     eprintln!(
         "[swift debug] fixture={} call={:?} result_is_bytes={} any_override_bytes={} overrides={}",
         fixture.id,

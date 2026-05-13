@@ -105,9 +105,10 @@ pub(crate) fn default_clean_config(lang: Language, output_dir: &str, _ctx: &Lang
             clean: Some(StringOrVec::Single("rm -rf zig-out zig-cache .zig-cache".to_string())),
         },
         Language::Gleam => CleanConfig {
-            precondition: Some(require_tool("gleam")),
+            // Gleam has no `gleam clean`; it uses a `build/` directory.
+            precondition: None,
             before: None,
-            clean: Some(StringOrVec::Single(format!("cd {output_dir} && gleam clean"))),
+            clean: Some(StringOrVec::Single("rm -rf build".to_string())),
         },
         Language::C => CleanConfig {
             precondition: None,
@@ -139,6 +140,7 @@ mod tests {
             Language::Kotlin,
             Language::Swift,
             Language::Dart,
+            Language::Gleam,
             Language::Zig,
         ]
     }

@@ -26,7 +26,9 @@ pub(crate) fn format_field_default(field: &FieldDef, lang: Language, api: &ApiSu
             Language::R => "`NULL`".to_string(),
             Language::Rust => "`None`".to_string(),
             Language::Ffi | Language::C => "`NULL`".to_string(),
-            Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => "`null`".to_string(),
+            Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => {
+                "`null`".to_string()
+            }
         };
     }
     "—".to_string()
@@ -142,7 +144,9 @@ pub(crate) fn format_typed_default(
                     Language::Rust => "`vec![]`".to_string(),
                     Language::Ffi | Language::C => "`NULL`".to_string(),
                     Language::R => "`list()`".to_string(),
-                    Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => "`[]`".to_string(),
+                    Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => {
+                        "`[]`".to_string()
+                    }
                 };
             }
             if matches!(inner_ty, TypeRef::Map(_, _)) {
@@ -164,7 +168,9 @@ pub(crate) fn format_typed_default(
                     Language::Rust => "`HashMap::new()`".to_string(),
                     Language::Ffi | Language::C => "`NULL`".to_string(),
                     Language::R => "`list()`".to_string(),
-                    Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => "`{}`".to_string(),
+                    Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => {
+                        "`{}`".to_string()
+                    }
                 };
             }
             // Non-collection Empty: only show null for optional fields
@@ -183,7 +189,9 @@ pub(crate) fn format_typed_default(
                 Language::R => "`NULL`".to_string(),
                 Language::Rust => "`Default::default()`".to_string(),
                 Language::Ffi | Language::C => "`NULL`".to_string(),
-                Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => "`null`".to_string(),
+                Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => {
+                    "`null`".to_string()
+                }
             }
         }
         DefaultValue::None => {
@@ -202,7 +210,9 @@ pub(crate) fn format_typed_default(
                 Language::R => "`NULL`".to_string(),
                 Language::Rust => "`None`".to_string(),
                 Language::Ffi | Language::C => "`NULL`".to_string(),
-                Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => "`null`".to_string(),
+                Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => {
+                    "`null`".to_string()
+                }
             }
         }
     }

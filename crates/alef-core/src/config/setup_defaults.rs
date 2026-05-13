@@ -180,6 +180,7 @@ mod tests {
             Language::Kotlin,
             Language::Swift,
             Language::Dart,
+            Language::Gleam,
             Language::Zig,
         ]
     }
@@ -363,6 +364,17 @@ mod tests {
         let c = cfg(Language::R, "packages/r");
         let install = c.install.unwrap().commands().join(" ");
         assert!(install.contains("remotes::install_deps()"));
+    }
+
+    #[test]
+    fn gleam_uses_gleam_deps_download() {
+        let c = cfg(Language::Gleam, "packages/gleam");
+        let install = c.install.unwrap().commands().join(" ");
+        assert!(
+            install.contains("gleam deps download"),
+            "Gleam setup should use gleam deps download, got: {install}"
+        );
+        assert_eq!(c.precondition.as_deref(), Some("command -v gleam >/dev/null 2>&1"));
     }
 
     #[test]

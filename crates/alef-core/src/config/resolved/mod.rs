@@ -26,9 +26,9 @@ use crate::config::dto::DtoConfig;
 use crate::config::e2e::E2eConfig;
 use crate::config::extras::{AdapterConfig, Language};
 use crate::config::languages::{
-    CSharpConfig, CustomModulesConfig, CustomRegistrationsConfig, DartConfig, ElixirConfig, FfiConfig, GoConfig,
-    JavaConfig, KotlinConfig, NodeConfig, PhpConfig, PythonConfig, RConfig, RubyConfig, SwiftConfig, WasmConfig,
-    ZigConfig,
+    CSharpConfig, CustomModulesConfig, CustomRegistrationsConfig, DartConfig, ElixirConfig, FfiConfig, GleamConfig,
+    GoConfig, JavaConfig, KotlinConfig, NodeConfig, PhpConfig, PythonConfig, RConfig, RubyConfig, SwiftConfig,
+    WasmConfig, ZigConfig,
 };
 use crate::config::output::{
     BuildCommandConfig, CleanConfig, ExcludeConfig, IncludeConfig, LintConfig, OutputConfig, ReadmeConfig,
@@ -87,6 +87,7 @@ pub struct ResolvedCrateConfig {
     pub dart: Option<DartConfig>,
     pub kotlin: Option<KotlinConfig>,
     pub swift: Option<SwiftConfig>,
+    pub gleam: Option<GleamConfig>,
     pub csharp: Option<CSharpConfig>,
     pub r: Option<RConfig>,
     pub zig: Option<ZigConfig>,

@@ -232,6 +232,7 @@ impl ResolvedCrateConfig {
             Language::Zig => self.zig.as_ref().and_then(|c| c.features.as_deref()),
             Language::Dart => self.dart.as_ref().and_then(|c| c.features.as_deref()),
             Language::Swift => self.swift.as_ref().and_then(|c| c.features.as_deref()),
+            Language::Gleam => self.gleam.as_ref().and_then(|c| c.features.as_deref()),
             Language::Rust | Language::C => None,
         };
         override_features.unwrap_or(&self.features)
