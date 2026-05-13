@@ -435,7 +435,9 @@ fn render_file_setup(test_documents_dir: &str) -> String {
     out.push_str("    return inst;\n");
     out.push_str("  } as unknown as typeof WebAssembly.Instance;\n");
     out.push_str("  PatchedInstance.prototype = _OrigInstance.prototype;\n");
-    out.push_str("  (WebAssembly as unknown as { Instance: typeof WebAssembly.Instance }).Instance = PatchedInstance;\n");
+    out.push_str(
+        "  (WebAssembly as unknown as { Instance: typeof WebAssembly.Instance }).Instance = PatchedInstance;\n",
+    );
     out.push_str("}\n\n");
     out.push_str("// Change to the configured test-documents directory so that fixture file paths like\n");
     out.push_str("// \"pdf/fake_memo.pdf\" resolve correctly when vitest runs from e2e/wasm/.\n");
