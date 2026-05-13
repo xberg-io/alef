@@ -512,9 +512,10 @@ fn test_java_checkstyle_no_cosmetic_checks() {
     assert!(checkstyle.content.contains("UnusedImports"));
     assert!(checkstyle.content.contains("MethodLength"));
     assert!(checkstyle.content.contains("LineLength"));
-    // LineLength max is 140 (not 120) to accommodate Eclipse's record-component
-    // continuation indent that spotless applies before checkstyle runs.
-    assert!(checkstyle.content.contains("\"140\""));
+    // LineLength max is 200 to accommodate the alef-emitted DefaultClient FFM
+    // call shims (single-line chains of arena allocation + marshalling that
+    // don't reflow cleanly within shorter limits).
+    assert!(checkstyle.content.contains("\"200\""));
 }
 
 // --- Go golangci v2 format tests ---
