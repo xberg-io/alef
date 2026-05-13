@@ -66,27 +66,29 @@ pub(super) fn render_test_function(
         String::new()
     };
 
+    let has_error_assertion = fixture.assertions.iter().any(|a| a.assertion_type == "error");
+
     // Streaming fixtures require async test functions so the async iterator
     // (ChatStreamIterator.__anext__) can be driven with `async for`.
-    // Streaming detection: trigger when mock_response has stream_chunks OR any
-    // assertion references a streaming-virtual field (e.g. empty_stream has
-    // stream_chunks:[] so is_streaming_mock() returns false, but the fixture
-    // still asserts on `chunks`/`stream_content` which need the collect snippet).
-    let is_streaming = fixture.is_streaming_mock()
-        || fixture.assertions.iter().any(|a| {
-            a.field
-                .as_deref()
-                .is_some_and(|f| !f.is_empty() && crate::codegen::streaming_assertions::is_streaming_virtual_field(f))
-        });
-    let is_async = is_streaming || python_override.and_then(|o| o.r#async).unwrap_or(call_config.r#async);
+    let is_streaming = crate::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming);
+    // Streaming error tests: a fixture that calls a streaming function (function name
+    // contains "stream") with an error assertion but no stream_chunks in the mock —
+    // the server rejects before streaming begins (e.g. 401, 400 content-policy).
+    // The Python binding returns the iterator synchronously; errors only surface when
+    // iterating via __anext__.  Make the test async and drain the iterator inside
+    // `pytest.raises` so the error propagates before the `with` block exits.
+    let is_streaming_error_call = has_error_assertion
+        && !is_streaming
+        && function_name.to_lowercase().contains("stream");
+    let is_async = is_streaming
+        || is_streaming_error_call
+        || python_override.and_then(|o| o.r#async).unwrap_or(call_config.r#async);
     let async_decorator = if is_async {
         "@pytest.mark.asyncio\n".to_string()
     } else {
         String::new()
     };
     let async_kw = if is_async { "async " } else { "" };
-
-    let has_error_assertion = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
     let (arg_bindings, kwarg_exprs) = build_args_and_setup(
         fixture,
@@ -195,7 +197,7 @@ pub(super) fn render_test_function(
         // call ever runs). Pass arg_bindings_str to emit_error_assertion so it
         // can emit them indented one level deeper, inside the with block.
         let mut error_assertion_block = String::new();
-        emit_error_assertion(&mut error_assertion_block, fixture, &arg_bindings_str, &call_expr);
+        emit_error_assertion(&mut error_assertion_block, fixture, &arg_bindings_str, &call_expr, is_streaming_error_call);
 
         let ctx = minijinja::context! {
             skip_decorator => skip_decorator,
@@ -246,7 +248,13 @@ pub(super) fn render_test_function(
     out.push_str(&rendered);
 }
 
-fn emit_error_assertion(out: &mut String, fixture: &Fixture, arg_bindings_str: &str, call_expr: &str) {
+fn emit_error_assertion(
+    out: &mut String,
+    fixture: &Fixture,
+    arg_bindings_str: &str,
+    call_expr: &str,
+    is_streaming_error_call: bool,
+) {
     let error_assertion = fixture.assertions.iter().find(|a| a.assertion_type == "error");
     let has_message = error_assertion
         .and_then(|a| a.value.as_ref())
@@ -265,7 +273,16 @@ fn emit_error_assertion(out: &mut String, fixture: &Fixture, arg_bindings_str: &
     if has_message {
         let _ = writeln!(out, "    with pytest.raises(Exception) as exc_info:  # noqa: B017");
         out.push_str(&indented_bindings);
-        let _ = writeln!(out, "        {call_expr}");
+        if is_streaming_error_call {
+            // The streaming iterator returns synchronously; errors only appear when
+            // iterating via __anext__.  Drain the iterator inside the raises block
+            // so the exception propagates before the with-block exits.
+            let _ = writeln!(out, "        _iterator = {call_expr}");
+            let _ = writeln!(out, "        async for _ in _iterator:");
+            let _ = writeln!(out, "            pass");
+        } else {
+            let _ = writeln!(out, "        {call_expr}");
+        }
         if let Some(msg) = error_assertion.and_then(|a| a.value.as_ref()).and_then(|v| v.as_str()) {
             let escaped = escape_python(msg);
             // Match against EITHER the rendered exception message OR the
@@ -286,7 +303,13 @@ fn emit_error_assertion(out: &mut String, fixture: &Fixture, arg_bindings_str: &
     } else {
         let _ = writeln!(out, "    with pytest.raises(Exception):  # noqa: B017");
         out.push_str(&indented_bindings);
-        let _ = writeln!(out, "        {call_expr}");
+        if is_streaming_error_call {
+            let _ = writeln!(out, "        _iterator = {call_expr}");
+            let _ = writeln!(out, "        async for _ in _iterator:");
+            let _ = writeln!(out, "            pass");
+        } else {
+            let _ = writeln!(out, "        {call_expr}");
+        }
     }
 }
 
