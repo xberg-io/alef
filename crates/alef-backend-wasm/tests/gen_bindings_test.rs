@@ -2181,3 +2181,175 @@ fn test_default_factory_skipped_when_explicit_default_method_present() {
         content
     );
 }
+
+fn make_enum_def(name: &str, variants: &[&str], serde_rename_all: Option<&str>) -> EnumDef {
+    EnumDef {
+        name: name.to_string(),
+        rust_path: format!("test_lib::{name}"),
+        original_rust_path: String::new(),
+        variants: variants
+            .iter()
+            .map(|v| EnumVariant {
+                name: v.to_string(),
+                fields: vec![],
+                is_tuple: false,
+                doc: String::new(),
+                is_default: false,
+                serde_rename: None,
+            })
+            .collect(),
+        doc: String::new(),
+        cfg: None,
+        is_copy: true,
+        has_serde: true,
+        serde_tag: None,
+        serde_untagged: false,
+        serde_rename_all: serde_rename_all.map(str::to_string),
+    }
+}
+
+fn make_type_def(name: &str, fields: Vec<FieldDef>) -> TypeDef {
+    TypeDef {
+        name: name.to_string(),
+        rust_path: format!("test_lib::{name}"),
+        original_rust_path: String::new(),
+        fields,
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+    }
+}
+
+/// Optional enum fields must generate `Option<String>` getters (not `Option<WasmEnum>`)
+/// so JS receives the serde wire string (e.g. "stop", "tool_calls") rather than a
+/// numeric discriminant.
+#[test]
+fn test_optional_enum_getter_returns_option_string() {
+    let backend = WasmBackend;
+
+    let finish_reason_enum = make_enum_def("FinishReason", &["Stop", "ToolCalls", "Length"], Some("snake_case"));
+
+    let choice_type = make_type_def(
+        "StreamChoice",
+        vec![make_field(
+            "finish_reason",
+            TypeRef::Named("FinishReason".to_string()),
+            true, // optional
+        )],
+    );
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![choice_type],
+        functions: vec![],
+        enums: vec![finish_reason_enum],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config();
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generate_bindings should succeed");
+    let content = &files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap().content;
+
+    // Getter must return Option<String>, not Option<WasmFinishReason>
+    assert!(
+        content.contains("pub fn finish_reason(&self) -> Option<String>"),
+        "optional enum getter must return Option<String>;\nactual content:\n{}",
+        content
+    );
+    // Getter must call to_api_str()
+    assert!(
+        content.contains("self.finish_reason.map(|v| v.to_api_str().to_owned())"),
+        "optional enum getter must use to_api_str().to_owned();\nactual content:\n{}",
+        content
+    );
+    // Setter must still accept Option<WasmFinishReason> (unchanged)
+    assert!(
+        content.contains("fn set_finish_reason(&mut self, value: Option<WasmFinishReason>)"),
+        "setter must still accept Option<WasmFinishReason>;\nactual content:\n{}",
+        content
+    );
+    // The enum itself must emit to_api_str()
+    assert!(
+        content.contains("Self::Stop => \"stop\""),
+        "enum must emit to_api_str with snake_case strings;\nactual content:\n{}",
+        content
+    );
+    assert!(
+        content.contains("Self::ToolCalls => \"tool_calls\""),
+        "ToolCalls variant must map to \"tool_calls\";\nactual content:\n{}",
+        content
+    );
+}
+
+/// Optional Vec-of-struct fields must generate `Option<js_sys::Array>` getters so JS
+/// can access prototype methods on each element (e.g. `choice.toolCalls[0].function.name`).
+#[test]
+fn test_optional_vec_of_struct_getter_returns_js_array() {
+    let backend = WasmBackend;
+
+    // ToolCall is a plain struct (not an enum)
+    let tool_call_type = make_type_def("ToolCall", vec![make_field("id", TypeRef::String, false)]);
+
+    let delta_type = make_type_def(
+        "StreamDelta",
+        vec![make_field(
+            "tool_calls",
+            TypeRef::Vec(Box::new(TypeRef::Named("ToolCall".to_string()))),
+            true, // optional
+        )],
+    );
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![tool_call_type, delta_type],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config();
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generate_bindings should succeed");
+    let content = &files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap().content;
+
+    // Getter must return Option<js_sys::Array>
+    assert!(
+        content.contains("pub fn tool_calls(&self) -> Option<js_sys::Array>"),
+        "optional Vec-of-struct getter must return Option<js_sys::Array>;\nactual content:\n{}",
+        content
+    );
+    // Getter body must use js_sys::Array::new() and push items
+    assert!(
+        content.contains("js_sys::Array::new()"),
+        "getter body must create js_sys::Array;\nactual content:\n{}",
+        content
+    );
+    assert!(
+        content.contains("arr.push(&JsValue::from(item.clone()))"),
+        "getter body must push items via JsValue::from;\nactual content:\n{}",
+        content
+    );
+    // Setter must still accept Option<Vec<WasmToolCall>> (unchanged)
+    assert!(
+        content.contains("fn set_tool_calls(&mut self, value: Option<Vec<WasmToolCall>>)"),
+        "setter must still accept Option<Vec<WasmToolCall>>;\nactual content:\n{}",
+        content
+    );
+}
