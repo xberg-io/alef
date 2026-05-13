@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - fix(alef-backend-csharp): include `api.enums` (alongside `api.types`) when building the `visible_type_names` set passed to trait-bridge codegen. Without this, enum types like `VisitResult` were treated as non-API by `csharp_type_visible`, which substituted them with `string` in generated trait-method signatures (`string VisitFigureEnd(...)`). E2e visitor tests that returned `VisitResult.Continue` then failed to compile with CS0738 "does not have the matching return type of 'string'".
 
+- fix(alef-e2e/csharp): look up `enum_fields` and `nested_types` overrides by both snake_case (fixture JSON key) and camelCase (alef.toml convention) when emitting C# object initializers. Previously fixtures with `code_block_style: "Backticks"` produced `CodeBlockStyle = "Backticks"` (raw string literal) instead of `CodeBlockStyle = CodeBlockStyle.Backticks` (enum constant), causing ~18 CS0029 compile errors. C# is strongly typed and does not accept string-to-enum implicit conversion, unlike Python's ConversionOptions which accepts strings and converts internally.
+
 ## [0.15.52] - 2026-05-13
 
 ### Added
