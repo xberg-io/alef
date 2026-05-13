@@ -118,6 +118,23 @@ pub fn gen_stubs(api: &ApiSurface, trait_bridges: &[TraitBridgeConfig], config: 
     let bridge_param_names: std::collections::HashSet<&str> =
         trait_bridges.iter().filter_map(|b| b.param_name.as_deref()).collect();
 
+    // Build options-field-bridge lookup keyed by the options type name.
+    // For each function whose params contain a value of one of these types, the PyO3
+    // binding accepts an additional `{kwarg_name}: {type_alias} | None = None` kwarg
+    // (e.g. ConversionOptions → `visitor: VisitorHandle | None = None`).
+    // The stub `__init__` of the options type itself, and any module-level function
+    // taking that type, must surface this kwarg so api.py's wrapper type-checks.
+    let options_field_bridges: std::collections::HashMap<&str, (&str, Option<&str>)> = trait_bridges
+        .iter()
+        .filter(|b| b.bind_via == alef_core::config::BridgeBinding::OptionsField)
+        .filter_map(|b| {
+            let options_type = b.options_type.as_deref()?;
+            let param_name = b.param_name.as_deref()?;
+            let type_alias = b.type_alias.as_deref();
+            Some((options_type, (param_name, type_alias)))
+        })
+        .collect();
+
     // Collect capsule type names so we can skip their opaque class stubs and replace
     // any return/param type references with `Any` (they live in third-party packages).
     let capsule_names: std::collections::HashSet<&str> = config
@@ -137,7 +154,7 @@ pub fn gen_stubs(api: &ApiSurface, trait_bridges: &[TraitBridgeConfig], config: 
 
     let mut body_lines: Vec<String> = Vec::new();
     for typ in &non_opaque {
-        body_lines.push(gen_type_stub(typ, api, config, &capsule_names));
+        body_lines.push(gen_type_stub(typ, api, config, &capsule_names, &options_field_bridges));
         body_lines.push("".to_string());
     }
 
@@ -162,7 +179,12 @@ pub fn gen_stubs(api: &ApiSurface, trait_bridges: &[TraitBridgeConfig], config: 
 
     // Generate function stubs — no blank lines between consecutive stubs (ruff strips them)
     for func in &api.functions {
-        body_lines.push(gen_function_stub(func, &bridge_param_names, &capsule_names));
+        body_lines.push(gen_function_stub(
+            func,
+            &bridge_param_names,
+            &capsule_names,
+            &options_field_bridges,
+        ));
     }
 
     // Build the `from typing import …` line based on names actually referenced in the body,
@@ -285,6 +307,7 @@ fn gen_type_stub(
     api: &ApiSurface,
     config: &ResolvedCrateConfig,
     capsule_names: &std::collections::HashSet<&str>,
+    options_field_bridges: &std::collections::HashMap<&str, (&str, Option<&str>)>,
 ) -> String {
     let mut lines = vec![];
 
@@ -314,7 +337,7 @@ fn gen_type_stub(
     }
 
     // Add __init__ signature
-    lines.push(gen_type_init_stub(typ, api, config));
+    lines.push(gen_type_init_stub(typ, api, config, options_field_bridges));
 
     // Add instance methods
     for method in &typ.methods {
@@ -334,7 +357,12 @@ fn gen_type_stub(
 }
 
 /// Generate __init__ signature stub for a struct.
-fn gen_type_init_stub(typ: &TypeDef, api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
+fn gen_type_init_stub(
+    typ: &TypeDef,
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+    options_field_bridges: &std::collections::HashMap<&str, (&str, Option<&str>)>,
+) -> String {
     // Partition fields into required (non-optional) and optional.
     //
     // When `typ.has_default` is true, the Rust binding uses
@@ -380,6 +408,16 @@ fn gen_type_init_stub(typ: &TypeDef, api: &ApiSurface, config: &ResolvedCrateCon
             .unwrap_or_else(|| f.name.clone());
         format!("{param_name}: {param_type} = None")
     }));
+
+    // When this struct is the options-type of a trait bridge with `bind_via=OptionsField`,
+    // the PyO3 `#[new]` constructor accepts an additional `{kwarg_name}: {type_alias} = None`
+    // kwarg (e.g. `visitor: VisitorHandle | None = None`). The bridge field is cfg-gated in
+    // the IR, so the partition above strips it, but the PyO3 macro keeps it via
+    // `never_skip_cfg_field_names`. Surface it here so api.py callers type-check.
+    if let Some((kwarg_name, type_alias)) = options_field_bridges.get(typ.name.as_str()) {
+        let visitor_type = type_alias.unwrap_or(&"object");
+        params.push(format!("{kwarg_name}: {visitor_type} | None = None"));
+    }
 
     // If any parameter shadows a Python builtin we must use the multi-line form so we can
     // append `# noqa: A002` on those lines. The noqa suppression is not valid on a single-line
@@ -654,6 +692,7 @@ fn gen_function_stub(
     func: &FunctionDef,
     bridge_param_names: &std::collections::HashSet<&str>,
     capsule_names: &std::collections::HashSet<&str>,
+    options_field_bridges: &std::collections::HashMap<&str, (&str, Option<&str>)>,
 ) -> String {
     // Partition params into required (non-optional) and optional
     let (required, optional): (Vec<_>, Vec<_>) = func.params.iter().partition(|p| !p.optional);
@@ -684,6 +723,27 @@ fn gen_function_stub(
         };
         format!("{}: {} = None", p.name, param_type)
     }));
+
+    // If any param's type is the options-type of an OptionsField trait bridge, the PyO3
+    // wrapper exposes an additional `{kwarg_name}: {type_alias} | None = None` kwarg.
+    // Surface it here so api.py callers type-check (the visitor field is cfg-gated and so
+    // does not appear directly on the IR struct, but the binding accepts it as a kwarg).
+    let bridge_kwarg = func.params.iter().find_map(|p| {
+        let type_name = match &p.ty {
+            TypeRef::Named(n) => Some(n.as_str()),
+            TypeRef::Optional(inner) => match inner.as_ref() {
+                TypeRef::Named(n) => Some(n.as_str()),
+                _ => None,
+            },
+            _ => None,
+        }?;
+        let (kwarg_name, type_alias) = options_field_bridges.get(type_name)?;
+        Some((*kwarg_name, *type_alias))
+    });
+    if let Some((kwarg_name, type_alias)) = bridge_kwarg {
+        let visitor_type = type_alias.unwrap_or("object");
+        params.push(format!("{kwarg_name}: {visitor_type} | None = None"));
+    }
 
     let return_type = substitute_capsule_type(&python_type(&func.return_type), capsule_names);
     let safe_name = python_safe_name(&func.name);
