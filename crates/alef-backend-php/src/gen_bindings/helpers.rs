@@ -491,6 +491,16 @@ pub(crate) fn core_prim_str(p: &PrimitiveType) -> &'static str {
     }
 }
 
+/// Detect whether the core-call expression already evaluates to `Arc<T>` for the
+/// binding's `inner` field. Mirrors `expr_is_already_arc` in `alef-codegen`.
+fn php_expr_is_already_arc(expr: &str) -> bool {
+    let trimmed = expr.trim();
+    trimmed == "self.inner"
+        || trimmed == "self.inner.clone()"
+        || trimmed.starts_with("self.inner.as_ref()")
+        || trimmed.starts_with("self.inner.clone()")
+}
+
 /// PHP-specific return wrapping that handles i64 casts for u64/usize/isize primitives.
 /// Extends the shared `wrap_return` with type conversions for primitives that are i64 in PHP.
 pub(crate) fn php_wrap_return(
@@ -518,6 +528,11 @@ pub(crate) fn php_wrap_return(
         TypeRef::Duration => format!("{expr}.as_millis() as i64"),
         // Opaque Named returns need Arc wrapper (and Mutex for mutex types)
         TypeRef::Named(n) if n == type_name && self_is_opaque => {
+            // If the expression already evaluates to Arc<T> (e.g. `self.inner.clone()`
+            // where `inner: Arc<T>`), don't wrap in another Arc.
+            if php_expr_is_already_arc(expr) {
+                return format!("Self {{ inner: {expr} }}");
+            }
             let wrapper = if mutex_types.contains(type_name) {
                 |v: String| format!("Arc::new(std::sync::Mutex::new({v}))")
             } else {
@@ -532,6 +547,9 @@ pub(crate) fn php_wrap_return(
             }
         }
         TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
+            if php_expr_is_already_arc(expr) {
+                return format!("{n} {{ inner: {expr} }}");
+            }
             let wrapper = if mutex_types.contains(n) {
                 |v: String| format!("Arc::new(std::sync::Mutex::new({v}))")
             } else {
@@ -906,7 +924,10 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
     for field in &typ.fields {
         // cfg-gated fields are absent from the binding struct and must not appear in the
         // From impl field list — they are filled by the ..Default::default() spread.
-        if field.cfg.is_some() {
+        // Exception: fields in `never_skip_cfg_field_names` (trait-bridge options-field
+        // attachments like `visitor`) are emitted unconditionally on the binding side,
+        // so they must appear in the From impl too — otherwise the handle is silently dropped.
+        if field.cfg.is_some() && !config.never_skip_cfg_field_names.contains(&field.name) {
             continue;
         }
         let name = &field.name;

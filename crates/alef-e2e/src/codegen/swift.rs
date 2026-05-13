@@ -1172,7 +1172,7 @@ fn render_assertion(
         !f.is_empty() && (field_resolver.is_array(f) || field_resolver.is_array(field_resolver.resolve(f)))
     });
 
-    let field_expr = if result_is_simple {
+    let field_expr_raw = if result_is_simple {
         result_var.to_string()
     } else {
         match &assertion.field {
@@ -1180,6 +1180,16 @@ fn render_assertion(
             _ => result_var.to_string(),
         }
     };
+
+    // swift-bridge `RustVec<T>` exposes its elements as `T.SelfRef`, which holds
+    // a raw pointer into the parent Vec's storage. When the Vec is a temporary
+    // (e.g. `result.json_ld()` called inline), Swift ARC may release it before
+    // the ref is used, leaving the ref's pointer dangling. Materialise the
+    // temporary into a local so it survives the full expression chain.
+    let (vec_setup, field_expr) = materialise_vec_temporaries(&field_expr_raw);
+    for line in &vec_setup {
+        let _ = writeln!(out, "        {line}");
+    }
 
     // In Swift, optional chaining with `?.` makes the result optional even if the
     // called method's return type isn't marked optional. For example:
@@ -1652,6 +1662,47 @@ fn render_assertion(
 /// This is the core helper for count/contains helpers that need to reconstruct
 /// the path with correct optional chaining from the raw fixture field name.
 ///
+/// Rewrite a Swift accessor expression to capture any `RustVec` temporaries
+/// in a local before subscripting them. Returns `(setup_lines, rewritten_expr)`.
+///
+/// swift-bridge's `Vec_<T>$get` returns a raw pointer into the Vec's storage
+/// wrapped in a `T.SelfRef`. If the Vec was a temporary, ARC may release it
+/// before the ref is dereferenced, leaving the pointer dangling and reads
+/// returning empty/garbage. Hoisting the Vec into a `let` binding ties the
+/// Vec's lifetime to the enclosing function scope, so the ref stays valid.
+///
+/// Only the first `()[...]` occurrence per expression is materialised — that
+/// covers all current fixture access patterns (single-level subscripts on a
+/// result field). Nested subscripts are rare and would need a more elaborate
+/// pass; if they appear, this returns conservative output (just the first
+/// hoist) which is still correct.
+fn materialise_vec_temporaries(expr: &str) -> (Vec<String>, String) {
+    // Find the first `()[` boundary that follows a method call on `result`.
+    // The accessor builder always emits Vec calls as `.<name>()[...]`, so we
+    // look for `()[` and back-walk to the previous `.` to find the method
+    // name.
+    let Some(idx) = expr.find("()[") else {
+        return (Vec::new(), expr.to_string());
+    };
+    // Closing bracket of the subscript.
+    let after_open = idx + 3; // position after `()[`
+    let Some(close_rel) = expr[after_open..].find(']') else {
+        return (Vec::new(), expr.to_string());
+    };
+    let subscript_end = after_open + close_rel; // index of `]`
+    // The prefix up to and including `()` is the Vec-producing expression.
+    let prefix = &expr[..idx + 2]; // includes `()`
+    let subscript = &expr[idx + 2..=subscript_end]; // `[N]`
+    let tail = &expr[subscript_end + 1..]; // everything after `]`
+    // Derive a local variable name from the method right before `()[`.
+    let method_dot = expr[..idx].rfind('.').unwrap_or(0);
+    let method = &expr[method_dot + 1..idx];
+    let local = format!("_vec_{}", method);
+    let setup = format!("let {local} = {prefix}");
+    let rewritten = format!("{local}{subscript}{tail}");
+    (vec![setup], rewritten)
+}
+
 /// Returns `(accessor_expr, has_optional)` where `has_optional` is true when
 /// at least one `?.` was inserted.
 fn swift_build_accessor(field: &str, result_var: &str, field_resolver: &FieldResolver) -> (String, bool) {

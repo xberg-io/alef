@@ -8,13 +8,48 @@ use crate::type_mapper::TypeMapper;
 use ahash::{AHashMap, AHashSet};
 use alef_core::ir::{ApiSurface, FunctionDef, TypeRef};
 
-/// Generate a free function.
+/// Detect whether the core-call expression already evaluates to `Arc<T>` for the
+/// binding's `inner` field. Used to avoid wrapping `Self { inner: Arc::new(self.inner.clone()) }`
+/// where `self.inner` is already `Arc<T>`.
+fn expr_is_already_arc(expr: &str) -> bool {
+    let trimmed = expr.trim();
+    trimmed == "self.inner"
+        || trimmed == "self.inner.clone()"
+        || trimmed.starts_with("self.inner.as_ref()")
+        || trimmed.starts_with("self.inner.clone()")
+}
+
+/// Build the Arc-wrapping expression for an opaque type's `inner` field. Wraps in a
+/// `Mutex` when the opaque type has `&mut self` methods (signalled by `mutex_types`).
+fn arc_wrap_expr(val: &str, name: &str, mutex_types: &AHashSet<String>) -> String {
+    if mutex_types.contains(name) {
+        format!("Arc::new(std::sync::Mutex::new({val}))")
+    } else {
+        format!("Arc::new({val})")
+    }
+}
+
+/// Generate a free function. Equivalent to `gen_function_with_mutex` with no mutex types.
 pub fn gen_function(
     func: &FunctionDef,
     mapper: &dyn TypeMapper,
     cfg: &RustBindingConfig,
     adapter_bodies: &AdapterBodies,
     opaque_types: &AHashSet<String>,
+) -> String {
+    gen_function_with_mutex(func, mapper, cfg, adapter_bodies, opaque_types, &AHashSet::new())
+}
+
+/// Generate a free function. `mutex_types` is the subset of opaque types whose `inner`
+/// field is `Arc<Mutex<T>>` (because the type has `&mut self` methods); their
+/// constructors emit `Arc::new(Mutex::new(v))` instead of `Arc::new(v)`.
+pub fn gen_function_with_mutex(
+    func: &FunctionDef,
+    mapper: &dyn TypeMapper,
+    cfg: &RustBindingConfig,
+    adapter_bodies: &AdapterBodies,
+    opaque_types: &AHashSet<String>,
+    mutex_types: &AHashSet<String>,
 ) -> String {
     let map_fn = |ty: &alef_core::ir::TypeRef| mapper.map_type(ty);
     // When named_non_opaque_params_by_ref is true (extendr backend), Named non-opaque struct
@@ -279,7 +314,8 @@ pub fn gen_function(
         let return_wrap = match &func.return_type {
             TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
                 let mapped_n = mapper.named(n);
-                format!("{mapped_n} {{ inner: Arc::new(result) }}")
+                let wrap = arc_wrap_expr("result", n, mutex_types);
+                format!("{mapped_n} {{ inner: {wrap} }}")
             }
             TypeRef::Named(_) => {
                 format!("{return_type}::from(result)")
@@ -287,7 +323,8 @@ pub fn gen_function(
             TypeRef::Vec(inner) => match inner.as_ref() {
                 TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
                     let mapped_n = mapper.named(n);
-                    format!("result.into_iter().map(|v| {mapped_n} {{ inner: Arc::new(v) }}).collect::<Vec<_>>()")
+                    let wrap = arc_wrap_expr("v", n, mutex_types);
+                    format!("result.into_iter().map(|v| {mapped_n} {{ inner: {wrap} }}).collect::<Vec<_>>()")
                 }
                 TypeRef::Named(_) => {
                     let inner_mapped = mapper.map_type(inner);
@@ -324,13 +361,18 @@ pub fn gen_function(
         let returns_ref = func.returns_ref;
         let wrap_return = |expr: &str| -> String {
             match &func.return_type {
-                // Opaque type return: wrap in Arc
+                // Opaque type return: wrap in Arc (or Arc<Mutex<_>> when the type
+                // has &mut self methods). Skip the wrap if `expr` is already Arc<T>.
                 TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
                     let mapped_name = mapper.named(name);
-                    if returns_ref {
-                        format!("{mapped_name} {{ inner: Arc::new({expr}.clone()) }}")
+                    if expr_is_already_arc(expr) {
+                        format!("{mapped_name} {{ inner: {expr} }}")
+                    } else if returns_ref {
+                        let wrap = arc_wrap_expr(&format!("{expr}.clone()"), name, mutex_types);
+                        format!("{mapped_name} {{ inner: {wrap} }}")
                     } else {
-                        format!("{mapped_name} {{ inner: Arc::new({expr}) }}")
+                        let wrap = arc_wrap_expr(expr, name, mutex_types);
+                        format!("{mapped_name} {{ inner: {wrap} }}")
                     }
                 }
                 // Non-opaque Named: use .into() if From impl exists
@@ -358,9 +400,11 @@ pub fn gen_function(
                     TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
                         let mapped_name = mapper.named(name);
                         if returns_ref {
-                            format!("{expr}.map(|v| {mapped_name} {{ inner: Arc::new(v.clone()) }})")
+                            let wrap = arc_wrap_expr("v.clone()", name, mutex_types);
+                            format!("{expr}.map(|v| {mapped_name} {{ inner: {wrap} }})")
                         } else {
-                            format!("{expr}.map(|v| {mapped_name} {{ inner: Arc::new(v) }})")
+                            let wrap = arc_wrap_expr("v", name, mutex_types);
+                            format!("{expr}.map(|v| {mapped_name} {{ inner: {wrap} }})")
                         }
                     }
                     TypeRef::Named(_) => {
@@ -383,8 +427,9 @@ pub fn gen_function(
                     TypeRef::Vec(vi) => match vi.as_ref() {
                         TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
                             let mapped_name = mapper.named(name);
+                            let wrap = arc_wrap_expr("x", name, mutex_types);
                             format!(
-                                "{expr}.map(|v| v.into_iter().map(|x| {mapped_name} {{ inner: Arc::new(x) }}).collect())"
+                                "{expr}.map(|v| v.into_iter().map(|x| {mapped_name} {{ inner: {wrap} }}).collect())"
                             )
                         }
                         TypeRef::Named(_) => {
@@ -399,11 +444,11 @@ pub fn gen_function(
                     TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
                         let mapped_name = mapper.named(name);
                         if returns_ref {
-                            format!(
-                                "{expr}.into_iter().map(|v| {mapped_name} {{ inner: Arc::new(v.clone()) }}).collect()"
-                            )
+                            let wrap = arc_wrap_expr("v.clone()", name, mutex_types);
+                            format!("{expr}.into_iter().map(|v| {mapped_name} {{ inner: {wrap} }}).collect()")
                         } else {
-                            format!("{expr}.into_iter().map(|v| {mapped_name} {{ inner: Arc::new(v) }}).collect()")
+                            let wrap = arc_wrap_expr("v", name, mutex_types);
+                            format!("{expr}.into_iter().map(|v| {mapped_name} {{ inner: {wrap} }}).collect()")
                         }
                     }
                     TypeRef::Named(_) => {

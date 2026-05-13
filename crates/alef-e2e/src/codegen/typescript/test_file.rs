@@ -259,6 +259,43 @@ pub fn render_test_file(
         }
     }
 
+    // WASM: even if needs_options_import is false, if we have nested types
+    // (e.g., from handle_config_type), we should import them because they're
+    // used in handle config construction in setup lines. Example: WasmAuthConfig
+    // is used when building WasmCrawlConfig fields, even if there's no direct
+    // json_object arg in the fixture input.
+    if lang == "wasm" && !all_nested_types.is_empty() {
+        let mut additional_imports: Vec<String> = Vec::new();
+        for nested_type in all_nested_types.values() {
+            if !import_modules.contains(nested_type) && !additional_imports.contains(nested_type) {
+                additional_imports.push(nested_type.clone());
+            }
+        }
+        // Also import enum types that might be used in handle config
+        for enum_type in all_enum_fields.values() {
+            if !import_modules.contains(enum_type) && !additional_imports.contains(enum_type) {
+                additional_imports.push(enum_type.clone());
+            }
+        }
+        if !additional_imports.is_empty() {
+            if import_modules.is_empty() {
+                let imports_str = additional_imports.join(", ");
+                import_modules = format!("import {{ {imports_str} }} from '{pkg_name}';");
+            } else {
+                // Append to existing imports
+                let existing_import_start = "import { ".len();
+                let existing_import_end = import_modules.rfind(" } from").unwrap_or(import_modules.len());
+                let existing_part = &import_modules[existing_import_start..existing_import_end];
+                let mut all_imports: Vec<&str> = existing_part.split(", ").collect();
+                for imp in &additional_imports {
+                    all_imports.push(imp);
+                }
+                let imports_str = all_imports.join(", ");
+                import_modules = format!("import {{ {imports_str} }} from '{pkg_name}';");
+            }
+        }
+    }
+
     // Build helper functions string
     let helper_functions = if has_non_http_fixtures {
         crate::template_env::render("typescript/helpers.jinja", minijinja::context! {})

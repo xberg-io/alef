@@ -1,7 +1,7 @@
 //! C# wrapper class and method code generation.
 
 use super::errors::{
-    emit_return_marshalling, emit_return_marshalling_indented, emit_return_statement, emit_return_statement_indented,
+    emit_return_marshalling_indented, emit_return_statement, emit_return_statement_indented,
 };
 use super::functions::{is_bytes_result_func, is_bytes_result_method};
 use super::{
@@ -58,6 +58,9 @@ pub(super) fn gen_wrapper_class(
         .map(|t| t.name.clone())
         .collect();
 
+    // Types returned as opaque handles (Named return type from any public function/method).
+    let handle_returned_types = super::errors::compute_handle_returned_types(api);
+
     // Generate wrapper methods for functions
     for func in api.functions.iter().filter(|f| !exclude_functions.contains(&f.name)) {
         // Check if this function has a bridge_field binding (e.g., visitor field on options)
@@ -69,6 +72,7 @@ pub(super) fn gen_wrapper_class(
                 exception_name,
                 &enum_names,
                 &true_opaque_types,
+                &handle_returned_types,
             ));
         } else {
             out.push_str(&gen_wrapper_function(
@@ -77,6 +81,7 @@ pub(super) fn gen_wrapper_class(
                 prefix,
                 &enum_names,
                 &true_opaque_types,
+                &handle_returned_types,
                 bridge_param_names,
                 bridge_type_aliases,
                 has_visitor_callbacks,
@@ -102,6 +107,7 @@ pub(super) fn gen_wrapper_class(
                 &typ.name,
                 &enum_names,
                 &true_opaque_types,
+                &handle_returned_types,
                 bridge_param_names,
                 bridge_type_aliases,
             ));
@@ -174,6 +180,7 @@ fn gen_wrapper_function(
     _prefix: &str,
     enum_names: &HashSet<String>,
     true_opaque_types: &HashSet<String>,
+    handle_returned_types: &HashSet<String>,
     bridge_param_names: &HashSet<String>,
     bridge_type_aliases: &HashSet<String>,
     has_visitor_callbacks: bool,
@@ -500,7 +507,14 @@ fn gen_wrapper_function(
             }
         }
 
-        emit_return_marshalling(&mut out, &func.return_type, enum_names, true_opaque_types);
+        emit_return_marshalling_indented(
+            &mut out,
+            &func.return_type,
+            "        ",
+            enum_names,
+            true_opaque_types,
+            handle_returned_types,
+        );
         emit_named_param_teardown(&mut out, &visible_params, true_opaque_types);
         emit_return_statement(&mut out, &func.return_type);
     }
@@ -525,6 +539,7 @@ fn gen_bridge_field_wrapper_function(
     _exception_name: &str,
     _enum_names: &HashSet<String>,
     _true_opaque_types: &HashSet<String>,
+    _handle_returned_types: &HashSet<String>,
 ) -> String {
     let mut out = String::with_capacity(2048);
 
@@ -720,6 +735,7 @@ fn gen_wrapper_method(
     type_name: &str,
     enum_names: &HashSet<String>,
     true_opaque_types: &HashSet<String>,
+    handle_returned_types: &HashSet<String>,
     bridge_param_names: &HashSet<String>,
     bridge_type_aliases: &HashSet<String>,
 ) -> String {
@@ -984,7 +1000,14 @@ fn gen_wrapper_method(
             out.push_str("        );\n");
         }
 
-        emit_return_marshalling(&mut out, &method.return_type, enum_names, true_opaque_types);
+        emit_return_marshalling_indented(
+            &mut out,
+            &method.return_type,
+            "        ",
+            enum_names,
+            true_opaque_types,
+            handle_returned_types,
+        );
         emit_named_param_teardown(&mut out, &visible_params, true_opaque_types);
         emit_return_statement(&mut out, &method.return_type);
     }

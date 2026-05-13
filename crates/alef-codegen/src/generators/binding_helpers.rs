@@ -21,6 +21,20 @@ fn arc_wrap(val: &str, name: &str, mutex_types: &AHashSet<String>) -> String {
     .to_string()
 }
 
+/// Detect whether the core-call expression already evaluates to `Arc<T>` (or the
+/// equivalent mutex-wrapped variant) for the binding's `inner` field.
+///
+/// When the method body forwards `self.inner` (e.g. `Node::clone` whose core impl
+/// calls `Arc::clone(&self.tree)` internally), the expression is already an
+/// `Arc<Node>` and must not be wrapped in another `Arc::new(...)`.
+fn expr_is_already_arc(expr: &str) -> bool {
+    let trimmed = expr.trim();
+    trimmed == "self.inner"
+        || trimmed == "self.inner.clone()"
+        || trimmed.starts_with("self.inner.as_ref()")
+        || trimmed.starts_with("self.inner.clone()")
+}
+
 /// Wrap a core-call result for opaque delegation methods.
 ///
 /// - `TypeRef::Named(n)` where `n == type_name` → re-wrap in `Self { inner: Arc::new(...) }`
@@ -74,6 +88,11 @@ pub fn wrap_return_with_mutex_mapped(
     let _ = self_arc; // just to reference mutex_types in context
     match return_type {
         TypeRef::Named(n) if n == type_name && self_is_opaque => {
+            // If the expression already evaluates to `Arc<T>` (e.g. `self.inner.clone()`
+            // where `inner: Arc<T>`), don't wrap in another Arc — pass through.
+            if expr_is_already_arc(expr) {
+                return format!("Self {{ inner: {expr} }}");
+            }
             let inner = if returns_cow {
                 format!("{expr}.into_owned()")
             } else if returns_ref {
@@ -85,6 +104,10 @@ pub fn wrap_return_with_mutex_mapped(
         }
         TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
             let mapped_n = mapper.named(n);
+            // Same already-Arc guard as the Self branch above.
+            if expr_is_already_arc(expr) {
+                return format!("{mapped_n} {{ inner: {expr} }}");
+            }
             let inner = if returns_cow {
                 format!("{expr}.into_owned()")
             } else if returns_ref {

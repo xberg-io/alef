@@ -177,7 +177,31 @@ pub fn gen_from_core_to_binding_cfg(
         // Display so .to_string() (emitted by apply_core_wrapper_from_core for Cow) is correct.
         // Other sanitized fields (unknown Named types) still fall through to Debug formatting.
         let conversion = if is_opaque_no_wrapper_field {
-            format!("{}: Default::default()", field.name)
+            // Trait-bridge OptionsField fields wrap the core handle in `Arc<core::T>` on the
+            // binding side. Construct the wrapper so the value round-trips through `.into()`
+            // (e.g. PHP's `builder().visitor(v).build()` -> `convert(html, opts)`) instead of
+            // being silently dropped. Other backends (e.g. NAPI where the binding stores a raw
+            // host Object) keep the Default::default() fallback.
+            if config.trait_bridge_field_is_arc_wrapper(&field.name) {
+                if let TypeRef::Named(name) = &field.ty {
+                    let wrapper = format!("{}{}", config.type_name_prefix, name);
+                    if field.optional {
+                        format!(
+                            "{}: val.{}.map(|v| {wrapper} {{ inner: std::sync::Arc::new(v) }})",
+                            field.name, field.name
+                        )
+                    } else {
+                        format!(
+                            "{}: {wrapper} {{ inner: std::sync::Arc::new(val.{}) }}",
+                            field.name, field.name
+                        )
+                    }
+                } else {
+                    format!("{}: Default::default()", field.name)
+                }
+            } else {
+                format!("{}: Default::default()", field.name)
+            }
         } else if !field.sanitized || field.core_wrapper == alef_core::ir::CoreWrapper::Cow {
             apply_core_wrapper_from_core(
                 &conversion,

@@ -715,13 +715,25 @@ mod alef_json_str_opt {
                     &error_converters,
                 ));
             } else {
-                builder.add_item(&generators::gen_function(
+                let mut fn_code = generators::gen_function_with_mutex(
                     f,
                     &mapper,
                     &cfg,
                     &adapter_bodies,
                     &opaque_types,
-                ));
+                    &mutex_types,
+                );
+                // Rewrite std::sync::Mutex → tokio::sync::Mutex when the returned opaque
+                // type is in `tokio_mutex_types`. The struct/impl rewriter only touches
+                // impl blocks, so apply targeted replacement here for free functions.
+                if !tokio_mutex_types.is_empty()
+                    && fn_code.contains("Arc::new(std::sync::Mutex::new(")
+                    && returns_tokio_mutex_type(f, &tokio_mutex_types)
+                {
+                    fn_code = fn_code
+                        .replace("Arc::new(std::sync::Mutex::new(", "Arc::new(tokio::sync::Mutex::new(");
+                }
+                builder.add_item(&fn_code);
             }
         }
 
@@ -1400,6 +1412,20 @@ fn find_method_end(code: &str, fn_idx: usize) -> Option<usize> {
         byte_offset += ch.len_utf8();
     }
     None
+}
+
+/// Whether a free function's return type involves an opaque type that requires the
+/// tokio variant of `Mutex` (because every `&mut self` method on that type is async).
+fn returns_tokio_mutex_type(func: &alef_core::ir::FunctionDef, tokio_mutex_types: &AHashSet<String>) -> bool {
+    use alef_core::ir::TypeRef;
+    fn check(ty: &TypeRef, set: &AHashSet<String>) -> bool {
+        match ty {
+            TypeRef::Named(n) => set.contains(n.as_str()),
+            TypeRef::Optional(inner) | TypeRef::Vec(inner) => check(inner, set),
+            _ => false,
+        }
+    }
+    check(&func.return_type, tokio_mutex_types)
 }
 
 fn rewrite_to_tokio_mutex_struct(struct_code: &str) -> String {

@@ -611,6 +611,16 @@ pub(super) fn gen_wasm_unimplemented_body(return_type: &TypeRef, fn_name: &str, 
     }
 }
 
+/// Detect whether the core-call expression already evaluates to `Arc<T>` for the
+/// binding's `inner` field. Mirrors `expr_is_already_arc` in `alef-codegen`.
+fn wasm_expr_is_already_arc(expr: &str) -> bool {
+    let trimmed = expr.trim();
+    trimmed == "self.inner"
+        || trimmed == "self.inner.clone()"
+        || trimmed.starts_with("self.inner.as_ref()")
+        || trimmed.starts_with("self.inner.clone()")
+}
+
 /// WASM-specific return wrapping for opaque methods (adds prefix for opaque Named returns).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn wasm_wrap_return(
@@ -626,7 +636,11 @@ pub(super) fn wasm_wrap_return(
     match return_type {
         // Self-returning opaque method
         TypeRef::Named(n) if n == type_name && self_is_opaque => {
-            if returns_ref {
+            // If the expression already evaluates to Arc<T> (e.g. `self.inner.clone()`
+            // where `inner: Arc<T>`), don't wrap in another Arc.
+            if wasm_expr_is_already_arc(expr) {
+                format!("Self {{ inner: {expr} }}")
+            } else if returns_ref {
                 format!("Self {{ inner: Arc::new({expr}.clone()) }}")
             } else {
                 format!("Self {{ inner: Arc::new({expr}) }}")
@@ -634,7 +648,9 @@ pub(super) fn wasm_wrap_return(
         }
         // Other opaque Named return: needs prefix
         TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
-            if returns_ref {
+            if wasm_expr_is_already_arc(expr) {
+                format!("{prefix}{n} {{ inner: {expr} }}")
+            } else if returns_ref {
                 format!("{prefix}{n} {{ inner: Arc::new({expr}.clone()) }}")
             } else {
                 format!("{prefix}{n} {{ inner: Arc::new({expr}) }}")
@@ -701,7 +717,9 @@ pub(super) fn wasm_wrap_return_fn(
 ) -> String {
     match return_type {
         TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
-            if returns_ref {
+            if wasm_expr_is_already_arc(expr) {
+                format!("{prefix}{n} {{ inner: {expr} }}")
+            } else if returns_ref {
                 format!("{prefix}{n} {{ inner: Arc::new({expr}.clone()) }}")
             } else {
                 format!("{prefix}{n} {{ inner: Arc::new({expr}) }}")

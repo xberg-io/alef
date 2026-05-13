@@ -17,25 +17,30 @@ pub(super) fn gen_exception_class(namespace: &str, class_name: &str) -> String {
     )
 }
 
-/// Emit the return-value marshalling code shared by both function and method wrappers.
-///
-/// This function emits the code to convert the raw P/Invoke `result` into the managed return
-/// type and store it in a local variable `returnValue`.  It intentionally does **not** emit
-/// the `return` statement so that callers can interpose cleanup (param handle teardown) between
-/// the value computation and the return.
-///
-/// `enum_names`: the set of C# type names that are enums (not opaque handles).
-/// `true_opaque_types`: types with `is_opaque = true` — wrapped in `new CsType(result)`.
-///
-/// Callers must invoke `emit_return_statement` after their cleanup to complete the method body.
-pub(super) fn emit_return_marshalling(
-    out: &mut String,
-    return_type: &TypeRef,
-    enum_names: &HashSet<String>,
-    true_opaque_types: &HashSet<String>,
-) {
-    emit_return_marshalling_indented(out, return_type, "        ", enum_names, true_opaque_types);
+/// Compute the set of types that are returned as opaque handles (matching `*mut T` pattern).
+/// A type is considered opaque-handle-returned if any public function returns TypeRef::Named(T).
+pub(super) fn compute_handle_returned_types(api: &alef_core::ir::ApiSurface) -> HashSet<String> {
+    let mut handle_types = HashSet::new();
+
+    // Scan functions for Named return types (will be emitted as *mut T in FFI).
+    for func in &api.functions {
+        if let alef_core::ir::TypeRef::Named(name) = &func.return_type {
+            handle_types.insert(name.clone());
+        }
+    }
+
+    // Scan methods for Named return types.
+    for typ in &api.types {
+        for method in &typ.methods {
+            if let alef_core::ir::TypeRef::Named(name) = &method.return_type {
+                handle_types.insert(name.clone());
+            }
+        }
+    }
+
+    handle_types
 }
+
 
 /// Emit the final `return returnValue;` statement after cleanup.
 pub(super) fn emit_return_statement(out: &mut String, return_type: &TypeRef) {
@@ -52,6 +57,7 @@ pub(super) fn emit_return_marshalling_indented(
     indent: &str,
     enum_names: &HashSet<String>,
     true_opaque_types: &HashSet<String>,
+    handle_returned_types: &HashSet<String>,
 ) {
     use super::{returns_bool_via_int, returns_json_object, returns_string};
     use crate::template_env::render;
@@ -71,8 +77,9 @@ pub(super) fn emit_return_marshalling_indented(
         out.push_str(&render("return_bool_from_int.jinja", minijinja::context! { indent }));
     } else if let TypeRef::Named(type_name) = return_type {
         let pascal = type_name.to_pascal_case();
-        if true_opaque_types.contains(type_name) {
-            // Truly opaque handle: wrap the IntPtr in the C# handle class.
+        if true_opaque_types.contains(type_name) || handle_returned_types.contains(type_name) {
+            // Truly opaque handle (is_opaque = true) OR returned from a public function (as *mut T).
+            // Both are wrapped in the C# handle class.
             out.push_str(&render(
                 "return_opaque_ctor.jinja",
                 minijinja::context! { indent, pascal },

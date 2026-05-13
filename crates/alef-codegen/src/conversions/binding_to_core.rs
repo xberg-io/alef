@@ -243,21 +243,6 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
             && matches!(&field.ty, TypeRef::Named(n) if config
                 .opaque_types
                 .is_some_and(|opaque| opaque.contains(n.as_str())));
-        if field.name == "visitor" {
-            eprintln!(
-                "DEBUG visitor field: typ={} core_wrapper={:?} ty={:?} optional={} sanitized={} is_opaque_arc={} is_opaque_no_wrap={} arc_wrapper_match={} opaque_types_present={} from_binding_skip_types={:?}",
-                typ.name,
-                field.core_wrapper,
-                field.ty,
-                field.optional,
-                field.sanitized,
-                is_opaque_arc_field,
-                is_opaque_no_wrapper_field,
-                config.trait_bridge_field_is_arc_wrapper(&field.name),
-                config.opaque_types.is_some_and(|s| s.iter().any(|n| n == "VisitorHandle")),
-                config.from_binding_skip_types,
-            );
-        }
         let conversion = if is_opaque_arc_field {
             if field.optional {
                 format!("{}: val.{}.map(|v| v.inner)", field.name, field.name)
