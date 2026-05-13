@@ -1113,12 +1113,17 @@ fn ts_builder_expression_inner(
             } else {
                 stmts.push(format!("_u.{camel_key} = {};", json_to_js(val)));
             }
-        } else if let Some(enum_type) = enum_fields.get(key.as_str()) {
-            // This is an enum field — generate EnumType.EnumValue
+        } else if let Some(enum_type) = enum_fields
+            .get(key.as_str())
+            .or_else(|| enum_fields.get(camel_key.as_str()))
+        {
+            // This is an enum field — generate EnumType.EnumValue.
+            // Look up by both snake_case (fixture key) and camelCase (alef.toml override key
+            // convention) so the alef.toml `enum_fields = { codeBlockStyle = "..." }` style
+            // matches fixtures written with snake_case keys.
             if let serde_json::Value::String(s) = val {
                 stmts.push(format!("_u.{camel_key} = {enum_type}.{};", s));
             } else {
-                // Non-string enum value, just use json_to_js
                 stmts.push(format!("_u.{camel_key} = {};", json_to_js(val)));
             }
         } else if is_bigint {
