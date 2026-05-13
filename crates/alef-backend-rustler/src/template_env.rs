@@ -272,7 +272,7 @@ pub fn {{ func_name }}_with_visitor({{ with_params_str }}) -> Result<(), String>
 
     std::thread::spawn(move || {
         let bridge = {{ struct_name }}::new_from_saved(pid, visitor_owned_env, visitor_saved);
-        let {{ param_name }}: Option<{{ handle_path }}> = Some(std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {{ handle_path }});
+        let {{ param_name }}: Option<{{ handle_path }}> = Some(std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {{ handle_path }});
         let mut result_env = rustler::OwnedEnv::new();
         let _ = result_env.send_and_clear(&pid, |env| {
             match {{ core_fn_path }}({{ with_call_args_str }}) {

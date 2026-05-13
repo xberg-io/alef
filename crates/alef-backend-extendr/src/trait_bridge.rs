@@ -570,7 +570,7 @@ pub fn gen_bridge_function(
             "let {param_name}: Option<{handle_path}> = match {param_name} {{\n        \
              Some(v) if !v.is_null() => {{\n            \
              let bridge = {struct_name}::new(v);\n            \
-             Some(std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path})\n        \
+             Some(std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path})\n        \
              }},\n        \
              _ => None,\n    \
              }};"
@@ -582,7 +582,7 @@ pub fn gen_bridge_function(
             "let {param_name}: Option<{handle_path}> = match {param_name} {{\n        \
              Some(v) if !v.is_null() => {{\n            \
              let bridge = {struct_name}::new(v);\n            \
-             Some(std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path})\n        \
+             Some(std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path})\n        \
              }},\n        \
              _ => None,\n    \
              }};"

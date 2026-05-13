@@ -33,6 +33,15 @@ impl {{ struct_name }} {
     }
 }
 
+// SAFETY: `magnus::Value` wraps a `VALUE` (a GC-managed Ruby object pointer).
+// Ruby is effectively single-threaded (GIL/GVL); the bridge is only invoked
+// synchronously from the Ruby thread that constructed it. The `Arc<Mutex>`
+// outer wrapper ensures exclusive access. Sending the bridge across threads
+// would cause undefined behaviour in the Ruby runtime — callers must not do so.
+unsafe impl Send for {{ struct_name }} {}
+// SAFETY: see Send impl above.
+unsafe impl Sync for {{ struct_name }} {}
+
 impl {{ trait_path }} for {{ struct_name }} {
 {%- for method in methods %}
 {{ method }}

@@ -423,6 +423,8 @@ pub struct {pascal_prefix}VisitorCallbacks {{
 // threads without synchronisation). The callbacks themselves are `extern "C"`
 // and therefore inherently `Send`.
 unsafe impl Send for {pascal_prefix}VisitorCallbacks {{}}
+// SAFETY: see Send impl above; the callbacks struct is effectively a POD vtable.
+unsafe impl Sync for {pascal_prefix}VisitorCallbacks {{}}
 
 /// Opaque handle wrapping a `{pascal_prefix}VisitorCallbacks` and implementing
 /// the Rust `HtmlVisitor` trait.
@@ -432,8 +434,16 @@ unsafe impl Send for {pascal_prefix}VisitorCallbacks {{}}
 pub struct {pascal_prefix}Visitor {{
     callbacks: {pascal_prefix}VisitorCallbacks,
     /// CString storage for tag names / parent tags that we pass back to C.
+    /// RefCell is used for interior mutability; it is Send (Vec<CString> is Send) and
+    /// the outer Arc<Mutex> serialises all access, so Sync is not required on RefCell itself.
     _tag_scratch: std::cell::RefCell<Vec<std::ffi::CString>>,
 }}
+
+// SAFETY: {pascal_prefix}Visitor is only accessed through the outer Arc<Mutex<dyn HtmlVisitor + Send>>
+// which serialises access. The `user_data` pointer is the caller's responsibility.
+unsafe impl Send for {pascal_prefix}Visitor {{}}
+// SAFETY: see Send impl above; Sync is safe because all mutation goes through Mutex.
+unsafe impl Sync for {pascal_prefix}Visitor {{}}
 
 impl std::fmt::Debug for {pascal_prefix}Visitor {{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{
@@ -609,11 +619,16 @@ pub unsafe extern "C" fn {prefix}_options_set_visitor_handle(
             f.debug_struct("VisitorRef").finish_non_exhaustive()
         }}
     }}
+    // SAFETY: VisitorRef is a thin wrapper around a raw pointer to {pascal_prefix}Visitor which
+    // is itself Send + Sync. The caller guarantees the pointer remains valid during conversion.
+    unsafe impl Send for VisitorRef {{}}
+    // SAFETY: see Send impl above.
+    unsafe impl Sync for VisitorRef {{}}
     impl {core_import}::visitor::HtmlVisitor for VisitorRef {{
 {visitor_ref_methods}    }}
     // SAFETY: options is non-null (checked above); caller guarantees it is valid for write.
     let options_ref = unsafe {{ &mut *options }};
-    options_ref.visitor = Some(std::rc::Rc::new(std::cell::RefCell::new(VisitorRef(visitor))));
+    options_ref.visitor = Some(std::sync::Arc::new(std::sync::Mutex::new(VisitorRef(visitor))));
 }}"#,
         VISIT_RESULT_SKIP = VISIT_RESULT_SKIP,
         VISIT_RESULT_PRESERVE_HTML = VISIT_RESULT_PRESERVE_HTML,
@@ -674,12 +689,17 @@ pub unsafe extern "C" fn {prefix}_convert_with_visitor(
             f.debug_struct("VisitorRef").finish_non_exhaustive()
         }}
     }}
+    // SAFETY: VisitorRef is a thin wrapper around a raw pointer to {pascal_prefix}Visitor which
+    // is itself Send + Sync. The caller guarantees the pointer remains valid during conversion.
+    unsafe impl Send for VisitorRef {{}}
+    // SAFETY: see Send impl above.
+    unsafe impl Sync for VisitorRef {{}}
     impl {core_import}::visitor::HtmlVisitor for VisitorRef {{
 {visitor_ref_methods}    }}
-    let visitor_handle: Option<std::rc::Rc<std::cell::RefCell<dyn {core_import}::visitor::HtmlVisitor>>> = if visitor.is_null() {{
+    let visitor_handle: Option<std::sync::Arc<std::sync::Mutex<dyn {core_import}::visitor::HtmlVisitor + Send>>> = if visitor.is_null() {{
         None
     }} else {{
-        Some(std::rc::Rc::new(std::cell::RefCell::new(VisitorRef(visitor))))
+        Some(std::sync::Arc::new(std::sync::Mutex::new(VisitorRef(visitor))))
     }};
 
 {convert_call}

@@ -1,4 +1,4 @@
 let visitor_handle = {{ options_name }}.as_ref().and_then(|o| o.visitor.clone()).map(|v| {
     let bridge = {{ struct_name }}::new(v);
-    std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {{ handle_path }}
+    std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {{ handle_path }}
 });

@@ -1,4 +1,4 @@
 let {{ param_name }} = {
         let bridge = {{ struct_name }}::new({{ param_name }});
-        std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {{ handle_path }}
+        std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {{ handle_path }}
     };
