@@ -627,7 +627,7 @@ impl Backend for RustlerBackend {
             .iter()
             .filter(|typ| typ.is_opaque && !typ.is_trait && !exclude_types.contains(typ.name.as_str()))
         {
-            let opaque_content = gen_elixir_opaque_module(typ, &app_module);
+            let opaque_content = gen_elixir_opaque_module(typ, &app_module, config);
             let file_name = format!("{}.ex", typ.name.to_snake_case());
             files.push(GeneratedFile {
                 path: PathBuf::from(&output_dir)

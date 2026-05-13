@@ -404,7 +404,12 @@ pub(super) fn gen_elixir_struct_module(
 /// (`%TreeSitterLanguagePack.Parser{ref: ...}`) and exposes the type's
 /// methods as functions that delegate to the corresponding NIF
 /// (`{type_lower}_{method_name}`) provided by `{AppModule}.Native`.
-pub(super) fn gen_elixir_opaque_module(typ: &TypeDef, app_module: &str) -> String {
+///
+/// Async methods delegate to the `_async` NIF variant (see
+/// `gen_bindings/functions.rs`). Methods that map to a `Streaming` adapter
+/// emit a `Stream.unfold/2`-based wrapper that drives the underlying
+/// `_start`/`_next` NIF pair instead of attempting a sync call.
+pub(super) fn gen_elixir_opaque_module(typ: &TypeDef, app_module: &str, config: &ResolvedCrateConfig) -> String {
     let mut out = String::with_capacity(512);
 
     out.push_str(&hash::header(CommentStyle::Hash));
@@ -429,6 +434,16 @@ pub(super) fn gen_elixir_opaque_module(typ: &TypeDef, app_module: &str) -> Strin
 
     let type_lower = typ.name.to_lowercase();
 
+    // Streaming-adapter method names owned by this type. Sync calls would fail
+    // (the NIFs are `{name}_start`/`{name}_next`); emit a Stream wrapper instead.
+    let streaming_method_names: AHashSet<String> = config
+        .adapters
+        .iter()
+        .filter(|a| matches!(a.pattern, alef_core::config::AdapterPattern::Streaming))
+        .filter(|a| a.owner_type.as_deref() == Some(typ.name.as_str()))
+        .map(|a| a.name.clone())
+        .collect();
+
     // Constructor for types with a default — wraps the native default reference.
     if typ.has_default {
         out.push_str("  @doc \"Build a default instance.\"\n");
@@ -443,7 +458,62 @@ pub(super) fn gen_elixir_opaque_module(typ: &TypeDef, app_module: &str) -> Strin
     // are emitted as module-level functions.
     for method in &typ.methods {
         let method_name = method.name.to_snake_case();
-        let nif_fn = format!("{type_lower}_{}", method.name);
+
+        // Streaming methods: emit a Stream.unfold wrapper driving _start/_next NIFs.
+        if streaming_method_names.contains(&method.name) {
+            let start_fn = format!("{type_lower}_{}_start", method.name);
+            let next_fn = format!("{type_lower}_{}_next", method.name);
+
+            let mut def_args: Vec<String> = Vec::new();
+            let mut start_call_args: Vec<String> = Vec::new();
+            if method.receiver.is_some() {
+                def_args.push("obj".to_string());
+                start_call_args.push("obj.ref".to_string());
+            }
+            for p in &method.params {
+                let safe = elixir_safe_param_name(&p.name);
+                def_args.push(safe.clone());
+                start_call_args.push(safe);
+            }
+
+            let doc_first = method.doc.lines().next().unwrap_or("").replace('"', "\\\"");
+            if !doc_first.is_empty() {
+                out.push_str(&format!("  @doc \"{doc_first}\"\n"));
+            }
+            out.push_str(&format!("  def {method_name}({}) do\n", def_args.join(", ")));
+            out.push_str(&format!(
+                "    case Native.{start_fn}({}) do\n",
+                start_call_args.join(", ")
+            ));
+            out.push_str("      {:ok, handle} ->\n");
+            out.push_str("        stream =\n");
+            out.push_str("          Stream.unfold(handle, fn h ->\n");
+            out.push_str(&format!("            case Native.{next_fn}(h) do\n"));
+            out.push_str("              {:ok, nil} -> nil\n");
+            out.push_str("              {:ok, chunk_json} when is_binary(chunk_json) ->\n");
+            out.push_str("                {Jason.decode!(chunk_json, keys: :atoms), h}\n");
+            out.push_str("              {:ok, chunk} -> {chunk, h}\n");
+            out.push_str("              {:error, _} -> nil\n");
+            out.push_str("            end\n");
+            out.push_str("          end)\n");
+            out.push_str("        {:ok, stream}\n");
+            out.push_str("      {:error, reason} -> {:error, reason}\n");
+            out.push_str("    end\n");
+            out.push_str("  end\n\n");
+            continue;
+        }
+
+        // Async methods delegate to the `_async` NIF unless the Rust name already
+        // ends in `_async` (preserved per functions.rs convention).
+        let nif_fn = if method.is_async {
+            if method.name.ends_with("_async") {
+                format!("{type_lower}_{}", method.name)
+            } else {
+                format!("{type_lower}_{}_async", method.name)
+            }
+        } else {
+            format!("{type_lower}_{}", method.name)
+        };
 
         let mut call_args: Vec<String> = Vec::new();
         let mut def_args: Vec<String> = Vec::new();
@@ -466,6 +536,11 @@ pub(super) fn gen_elixir_opaque_module(typ: &TypeDef, app_module: &str) -> Strin
         out.push_str("  end\n\n");
     }
 
+    // Methods leave a trailing blank line after `end`; `mix format` rejects a
+    // blank between the last def's `end` and the module's closing `end`.
+    while out.ends_with("\n\n") {
+        out.pop();
+    }
     out.push_str(&template_env::render(
         "struct_module_footer.jinja",
         minijinja::context! {},
