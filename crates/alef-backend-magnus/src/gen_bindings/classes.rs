@@ -74,6 +74,7 @@ pub(super) fn gen_opaque_struct_methods(
             }
             if method.is_async {
                 impl_builder.add_method(&gen_opaque_async_instance_method(
+                    typ,
                     method,
                     mapper,
                     &typ.name,
@@ -82,6 +83,7 @@ pub(super) fn gen_opaque_struct_methods(
                 ));
             } else {
                 impl_builder.add_method(&gen_opaque_instance_method(
+                    typ,
                     method,
                     mapper,
                     &typ.name,
@@ -97,6 +99,7 @@ pub(super) fn gen_opaque_struct_methods(
 
 /// Generate an opaque sync instance method for Magnus (delegates to self.inner).
 fn gen_opaque_instance_method(
+    typ: &TypeDef,
     method: &MethodDef,
     mapper: &MagnusMapper,
     type_name: &str,
@@ -180,6 +183,7 @@ fn gen_opaque_instance_method(
 
 /// Generate an opaque async instance method for Magnus (block on runtime, delegates to self.inner).
 fn gen_opaque_async_instance_method(
+    typ: &TypeDef,
     method: &MethodDef,
     mapper: &MagnusMapper,
     type_name: &str,
