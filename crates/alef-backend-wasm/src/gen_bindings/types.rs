@@ -497,6 +497,17 @@ fn gen_default_method(typ: &TypeDef, prefix: &str) -> String {
     )
 }
 
+/// Extract the inner type of an `Optional` wrapper, or return the type itself.
+/// `FieldDef::optional` + `FieldDef::ty` can be:
+/// - `optional=true, ty=Named(X)`      → inner is Named(X)  (Optional<> added by mapping)
+/// - `optional=true, ty=Optional(X)`   → inner is X         (Optional already in IR)
+fn optional_inner(ty: &TypeRef) -> &TypeRef {
+    match ty {
+        TypeRef::Optional(inner) => inner.as_ref(),
+        other => other,
+    }
+}
+
 /// Generate a getter method for a field.
 fn gen_getter(field: &FieldDef, mapper: &WasmMapper, enum_names: &AHashSet<String>, has_default: bool) -> String {
     // On has_default types, non-optional Duration fields are stored as Option<u64>.
@@ -519,11 +530,42 @@ fn gen_getter(field: &FieldDef, mapper: &WasmMapper, enum_names: &AHashSet<Strin
         String::new()
     };
 
-    // Only clone non-Copy types; Copy types are returned directly.
-    let return_expr = if is_copy_type(&field.ty, enum_names) {
-        format!("self.{}", field.name)
+    // Fix A: optional enum fields must return Option<String> so JS receives the serde wire
+    // string (e.g. "stop", "tool_calls") instead of a numeric discriminant.
+    // Fix B: optional Vec-of-struct fields must return Option<js_sys::Array> so JS can
+    // access prototype methods on each element (e.g. [0].function.name).
+    let inner_ty = optional_inner(&field.ty);
+    let is_optional_enum = field.optional && matches!(inner_ty, TypeRef::Named(n) if enum_names.contains(n));
+    let is_optional_vec_of_struct = field.optional
+        && matches!(
+            inner_ty,
+            TypeRef::Vec(elem) if matches!(elem.as_ref(), TypeRef::Named(n) if !enum_names.contains(n))
+        );
+
+    let (field_type, return_expr) = if is_optional_enum {
+        // Return Option<String> using the generated to_api_str() method.
+        let expr = format!("self.{}.map(|v| v.to_api_str().to_owned())", field.name);
+        ("Option<String>".to_string(), expr)
+    } else if is_optional_vec_of_struct {
+        // Return Option<js_sys::Array> so JS can call prototype methods on each element.
+        let expr = format!(
+            "self.{f}.as_ref().map(|items| {{\n        \
+             let arr = js_sys::Array::new();\n        \
+             for item in items {{\n            \
+             arr.push(&JsValue::from(item.clone()));\n        \
+             }}\n        \
+             arr\n    }})",
+            f = field.name
+        );
+        ("Option<js_sys::Array>".to_string(), expr)
     } else {
-        format!("self.{}.clone()", field.name)
+        // Default: only clone non-Copy types; Copy types are returned directly.
+        let expr = if is_copy_type(&field.ty, enum_names) {
+            format!("self.{}", field.name)
+        } else {
+            format!("self.{}.clone()", field.name)
+        };
+        (field_type, expr)
     };
 
     format!(

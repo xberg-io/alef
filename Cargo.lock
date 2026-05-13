@@ -233,6 +233,7 @@ dependencies = [
  "alef-codegen",
  "alef-core",
  "anyhow",
+ "heck",
  "minijinja",
  "toml",
 ]
