@@ -1198,7 +1198,16 @@ fn build_args_and_setup(
         }
 
         let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-        let val = input.get(field);
+        // When `field` is empty or refers to `input` itself (no dotted subfield),
+        // the entire fixture `input` value is the payload — most commonly for
+        // `json_object` request bodies (chat/embed/etc.). Without this guard
+        // `input.get("input")` returns `None` and we fall through to `"{}"`,
+        // which the FFI rejects as a deserialization error.
+        let val = if field.is_empty() || field == "input" {
+            Some(input)
+        } else {
+            input.get(field)
+        };
         match val {
             None | Some(serde_json::Value::Null) if arg.optional => {
                 // Zig functions don't have default arguments, so we must
