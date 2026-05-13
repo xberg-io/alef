@@ -147,8 +147,8 @@ pub(crate) fn patch_workspace_dep_versions(
 ) -> anyhow::Result<bool> {
     use toml_edit::{DocumentMut, Item};
 
-    let content = std::fs::read_to_string(cargo_toml_path)
-        .with_context(|| format!("failed to read {cargo_toml_path}"))?;
+    let content =
+        std::fs::read_to_string(cargo_toml_path).with_context(|| format!("failed to read {cargo_toml_path}"))?;
     let mut doc: DocumentMut = content
         .parse()
         .with_context(|| format!("failed to parse TOML in {cargo_toml_path}"))?;
@@ -424,8 +424,7 @@ pub fn sync_versions(
             // Collect all workspace-member crate names so we can identify
             // which dep entries to bump. A crate name is the `name` field in
             // its [package] table; we derive it from the Cargo.toml path.
-            let mut workspace_member_names: std::collections::HashSet<String> =
-                std::collections::HashSet::new();
+            let mut workspace_member_names: std::collections::HashSet<String> = std::collections::HashSet::new();
             for pattern_val in members.iter().chain(excludes.iter()) {
                 if let Some(pattern) = pattern_val.as_str() {
                     if let Ok(paths) = glob::glob(&format!("{pattern}/Cargo.toml")) {
@@ -461,11 +460,10 @@ pub fn sync_versions(
             for path_str in &cargo_toml_paths {
                 // Update [package] version (regex-anchored to start-of-line).
                 // Skip crates that use workspace version inheritance or have no version.
-                if write_version_to_cargo_toml(path_str, &version).is_ok() {
-                    if !updated.contains(path_str) {
+                if write_version_to_cargo_toml(path_str, &version).is_ok()
+                    && !updated.contains(path_str) {
                         updated.push(path_str.clone());
                     }
-                }
                 // Also patch intra-workspace dep version pins in all dep tables.
                 if !workspace_member_names.is_empty() {
                     match patch_workspace_dep_versions(path_str, &version, &workspace_member_names) {
@@ -1525,8 +1523,7 @@ tokio = { version = "1.0", features = ["full"] }
 
         let members: HashSet<String> = ["crate-b", "crate-c"].iter().map(|s| s.to_string()).collect();
 
-        let changed = patch_workspace_dep_versions(path.to_str().unwrap(), "5.0.0-rc.2", &members)
-            .expect("patch ok");
+        let changed = patch_workspace_dep_versions(path.to_str().unwrap(), "5.0.0-rc.2", &members).expect("patch ok");
 
         assert!(changed, "at least one version pin must have been updated");
 
@@ -1539,7 +1536,10 @@ tokio = { version = "1.0", features = ["full"] }
             .lines()
             .filter(|l| l.contains("crate-b") && l.contains("version"))
             .collect();
-        assert!(!crate_b_lines.is_empty(), "expected crate-b dep lines with version=:\n{result}");
+        assert!(
+            !crate_b_lines.is_empty(),
+            "expected crate-b dep lines with version=:\n{result}"
+        );
         for line in &crate_b_lines {
             assert!(
                 line.contains("5.0.0-rc.2"),
@@ -1551,7 +1551,10 @@ tokio = { version = "1.0", features = ["full"] }
             .lines()
             .filter(|l| l.contains("crate-c") && l.contains("version"))
             .collect();
-        assert!(!crate_c_lines.is_empty(), "expected crate-c dep lines with version=:\n{result}");
+        assert!(
+            !crate_c_lines.is_empty(),
+            "expected crate-c dep lines with version=:\n{result}"
+        );
         for line in &crate_c_lines {
             assert!(
                 line.contains("5.0.0-rc.2"),
@@ -1560,9 +1563,18 @@ tokio = { version = "1.0", features = ["full"] }
         }
 
         // External crates must be untouched.
-        assert!(result.contains(r#"serde = "1.0""#), "serde must not be touched:\n{result}");
-        assert!(result.contains(r#"tempfile = "3""#), "tempfile must not be touched:\n{result}");
-        assert!(result.contains(r#"libc = "0.2""#), "libc must not be touched:\n{result}");
+        assert!(
+            result.contains(r#"serde = "1.0""#),
+            "serde must not be touched:\n{result}"
+        );
+        assert!(
+            result.contains(r#"tempfile = "3""#),
+            "tempfile must not be touched:\n{result}"
+        );
+        assert!(
+            result.contains(r#"libc = "0.2""#),
+            "libc must not be touched:\n{result}"
+        );
         assert!(
             result.contains(r#"tokio = { version = "1.0", features = ["full"] }"#),
             "tokio must not be touched:\n{result}"
@@ -1584,8 +1596,7 @@ tokio = { version = "1.0", features = ["full"] }
 
         let members: HashSet<String> = std::iter::once("crate-b".to_string()).collect();
 
-        let changed = patch_workspace_dep_versions(path.to_str().unwrap(), "5.0.0-rc.2", &members)
-            .expect("patch ok");
+        let changed = patch_workspace_dep_versions(path.to_str().unwrap(), "5.0.0-rc.2", &members).expect("patch ok");
         assert!(!changed, "no change expected when already at target version");
     }
 
@@ -1603,8 +1614,7 @@ tokio = { version = "1.0", features = ["full"] }
 
         let members: HashSet<String> = std::iter::once("crate-b".to_string()).collect();
 
-        let changed = patch_workspace_dep_versions(path.to_str().unwrap(), "2.0.0", &members)
-            .expect("patch ok");
+        let changed = patch_workspace_dep_versions(path.to_str().unwrap(), "2.0.0", &members).expect("patch ok");
         assert!(!changed, "path-only deps without version= must not be touched");
     }
 
@@ -1710,8 +1720,17 @@ tokio = { version = "1.0", features = ["full"] }
         );
 
         // External deps in beta must be untouched.
-        assert!(beta_cargo.contains(r#"serde = "1.0""#), "serde must not be touched:\n{beta_cargo}");
-        assert!(beta_cargo.contains(r#"tempfile = "3""#), "tempfile must not be touched:\n{beta_cargo}");
-        assert!(beta_cargo.contains(r#"libc = "0.2""#), "libc must not be touched:\n{beta_cargo}");
+        assert!(
+            beta_cargo.contains(r#"serde = "1.0""#),
+            "serde must not be touched:\n{beta_cargo}"
+        );
+        assert!(
+            beta_cargo.contains(r#"tempfile = "3""#),
+            "tempfile must not be touched:\n{beta_cargo}"
+        );
+        assert!(
+            beta_cargo.contains(r#"libc = "0.2""#),
+            "libc must not be touched:\n{beta_cargo}"
+        );
     }
 }
