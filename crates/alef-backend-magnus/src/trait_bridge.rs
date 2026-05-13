@@ -925,8 +925,7 @@ pub fn gen_options_field_bridge_function(
         "let {options_name}_core = match visitor {{\n    \
          Some(v) if !v.is_nil() => {{\n        \
          if magnus::RHash::from_value(v).is_some() {{\n            \
-         let json = v.funcall::<_, _, String>(\"to_json\", ()).unwrap_or_default();\n            \
-         serde_json::from_str::<{core_import}::ConversionOptions>(&json).unwrap_or_default()\n        \
+         <{core_import}::ConversionOptions as magnus::TryConvert>::try_convert(v).unwrap_or_default()\n        \
          }} else {{\n            \
          let bridge = {struct_name}::new(v);\n            \
          let handle = std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path};\n            \

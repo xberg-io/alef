@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(alef-codegen): stop wiping cfg-gated trait-bridge fields to `Default::default()` in the core→binding conversion. The previous block in `gen_from_core_to_binding_cfg` forced `visitor: Default::default()` whenever the field's type referenced an opaque wrapper, dropping PHP/Node/WASM visitor objects between the binding builder and the core call. The field now flows through the normal `val.field.into()` conversion (or the `Option<Option<T>>` recursive path), so bindings that wrap visitors as their own opaque types forward them correctly.
+- fix(alef-backend-napi): soften the `find_options_field_binding` filter to accept cfg-gated trait-bridge fields whose names appear in `never_skip_cfg_field_names` (e.g. `visitor`). The previous `f.cfg.is_none()` predicate rejected the visitor field outright, causing the NAPI `convert` codegen to fall through to the plain `gen_function` path with no visitor parameter and a `From<JsConversionOptions>` impl that hardcoded `__result.visitor = Default::default()`. With the softened filter the options-field-bridge codepath activates: `convert` exposes `visitor: Option<Object>` and the JS visitor is woven into the core `ConversionOptions` before `core::convert()` is called.
+- fix(alef-backend-magnus): use `magnus::TryConvert` to deserialize Ruby `Hash` options instead of `funcall("to_json", ())` + `serde_json::from_str` + `unwrap_or_default()`. The previous path silently swallowed `NoMethodError` (raised when the gem hadn't `require "json"`) and fell back to default options, causing `include_document_structure: true` to be lost and `result.document` to be `nil` in the Ruby binding. `TryConvert::try_convert(v)` uses the binding's existing conversion impl (which itself has a JSON fallback wrapped in proper error handling) so options round-trip correctly without requiring an explicit `require "json"`.
+
 ## [0.15.51] - 2026-05-13
 
 ### Fixed

@@ -1746,3 +1746,39 @@ fn test_visitor_bridge_debug_not_duplicated() {
         &code[..code.len().min(2000)]
     );
 }
+
+#[test]
+fn test_visitor_bridge_uses_try_convert_for_options_deserialization() {
+    // This test verifies that the alef-backend-magnus trait_bridge code uses
+    // TryConvert instead of calling to_json() directly.
+    // The fix changes line 928 in trait_bridge.rs from:
+    //   let json = v.funcall::<_, _, String>("to_json", ()).unwrap_or_default();
+    // to:
+    //   <{core_import}::ConversionOptions as magnus::TryConvert>::try_convert(v)
+    //
+    // This allows proper error handling when a Ruby Hash is passed without requiring
+    // `require "json"` to have been called first.
+    //
+    // We verify this by checking that the trait_bridge.rs source code contains the
+    // correct TryConvert pattern.
+
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let trait_bridge_path = std::path::Path::new(manifest_dir)
+        .join("src")
+        .join("trait_bridge.rs");
+    let trait_bridge_src = std::fs::read_to_string(trait_bridge_path)
+        .expect("Failed to read trait_bridge.rs");
+
+    // Verify new pattern is present
+    assert!(
+        trait_bridge_src.contains("as magnus::TryConvert>::try_convert(v).unwrap_or_default()"),
+        "trait_bridge.rs must use TryConvert for options deserialization"
+    );
+
+    // Verify old pattern is NOT present (in the options extraction context)
+    // The old pattern would be: to_json with unwrap_or_default immediately after funcall
+    assert!(
+        !trait_bridge_src.contains("funcall::<_, _, String>(\"to_json\", ()).unwrap_or_default()"),
+        "trait_bridge.rs must not use to_json().unwrap_or_default() for options deserialization"
+    );
+}
