@@ -13,9 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(alef-e2e/csharp): emit `<GenerateAssemblyInfo>false</GenerateAssemblyInfo>` in the e2e test project `.csproj` to prevent duplicate `AssemblyInfo` attributes when a hand-written `Properties/AssemblyInfo.cs` file provides assembly metadata manually. The .NET SDK auto-generates `obj/*/AssemblyInfo.cs` by default, leading to CS0579 errors when both files define the same attributes. Complements the assembly info file previously generated for e2e projects.
+
 - fix(alef-e2e/python): also include per-fixture streaming in the file-level `is_async` calculation used to gate `import pytest`. Previously a file containing fixtures whose `is_streaming` was triggered only by virtual-field assertions (not by call-level `async`) would emit `@pytest.mark.asyncio` decorators without the matching `import pytest`, producing `NameError`/F821 on test collection. Now `needs_pytest` correctly reflects every code path that emits an async test.
 
 - fix(alef-backend-extendr): generate `String` (not `Robj`) for non-options string parameters in `gen_extendr_bridge_field_function`, and build the core-function call from the actual params instead of a hardcoded `convert(&html, …)` literal. The previous output emitted `pub fn convert(html: Robj, options: Robj)` and then called `core::convert(&html, Some(opts))` — `&Robj` doesn't satisfy `&str`, so the generated R binding crate failed to compile. Now string params decode via extendr's `TryFrom<Robj> for String` and the `&name` call site deref-coerces to `&str`.
+
+- fix(alef-e2e/r): wrap array-valued fields in `I(...)` when emitting `jsonlite::toJSON(list(...), auto_unbox = TRUE)` for the `Type$from_json(...)` typed-config code path. Without the `AsIs` marker, single-element vectors were unboxed to scalars (`c("foo")` → `"foo"`) and empty vectors collapsed to `{}`, causing serde to reject `Vec<T>` fields with `invalid type: string "foo", expected a sequence`. Non-empty arrays now emit as `I(c(...))` (→ `[...]`) and empty arrays as `I(list())` (→ `[]`), fixing 9 R e2e failures across `exclude_selectors`, `strip_tags`, `preserve_tags`, and `keep_inline_images_in`.
 
 ## [0.15.52] - 2026-05-13
 
