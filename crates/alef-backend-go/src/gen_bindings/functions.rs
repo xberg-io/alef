@@ -62,6 +62,7 @@ pub(super) fn gen_function_wrapper(
     opaque_names: &std::collections::HashSet<&str>,
     bridge_param_names: &HashSet<String>,
     bridge_type_aliases: &HashSet<String>,
+    value_only_types: &std::collections::HashSet<String>,
 ) -> String {
     let mut out = String::with_capacity(2048);
 
@@ -337,7 +338,8 @@ pub(super) fn gen_function_wrapper(
                         out.push_str("\t}\n");
                         out.push_str("\treturn &result, nil\n");
                     } else {
-                        let return_expr = go_return_expr(&func.return_type, "ptr", ffi_prefix, opaque_names);
+                        let return_expr =
+                            go_return_expr(&func.return_type, "ptr", ffi_prefix, opaque_names, value_only_types);
                         out.push_str(&crate::template_env::render(
                             "method_return_simple.jinja",
                             minijinja::context! {
@@ -376,7 +378,8 @@ pub(super) fn gen_function_wrapper(
                         ));
                     }
                 } else {
-                    let return_expr = go_return_expr(&func.return_type, "ptr", ffi_prefix, opaque_names);
+                    let return_expr =
+                        go_return_expr(&func.return_type, "ptr", ffi_prefix, opaque_names, value_only_types);
                     out.push_str(&crate::template_env::render(
                         "method_return_simple.jinja",
                         minijinja::context! {
@@ -385,7 +388,7 @@ pub(super) fn gen_function_wrapper(
                     ));
                 }
             } else {
-                let return_expr = go_return_expr(&func.return_type, "ptr", ffi_prefix, opaque_names);
+                let return_expr = go_return_expr(&func.return_type, "ptr", ffi_prefix, opaque_names, value_only_types);
                 out.push_str(&crate::template_env::render(
                     "method_return_simple.jinja",
                     minijinja::context! {
@@ -437,7 +440,7 @@ pub(super) fn gen_function_wrapper(
                 ));
             }
         }
-        let return_expr = go_return_expr(&func.return_type, "ptr", ffi_prefix, opaque_names);
+        let return_expr = go_return_expr(&func.return_type, "ptr", ffi_prefix, opaque_names, value_only_types);
         out.push_str(&crate::template_env::render(
             "method_return_simple.jinja",
             minijinja::context! {
@@ -461,6 +464,7 @@ pub(super) fn gen_convert_with_visitor_wrapper(
     func: &FunctionDef,
     ffi_prefix: &str,
     opaque_names: &std::collections::HashSet<&str>,
+    _value_only_types: &std::collections::HashSet<String>,
 ) -> String {
     let mut out = String::with_capacity(2048);
 

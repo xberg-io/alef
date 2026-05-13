@@ -519,6 +519,14 @@ pub(super) fn gen_enum(enum_def: &EnumDef) -> String {
     let has_data = enum_def.variants.iter().any(|v| !v.fields.is_empty());
     let first_variant = enum_def.variants.first().map(|v| v.name.as_str()).unwrap_or("Default");
 
+    // Find the variant marked with #[default], or fall back to first_variant
+    let default_variant = enum_def
+        .variants
+        .iter()
+        .find(|v| v.is_default)
+        .map(|v| v.name.as_str())
+        .unwrap_or(first_variant);
+
     let first_variant_default = if has_data && !enum_def.variants.first().unwrap().fields.is_empty() {
         let field_defaults: Vec<String> = enum_def
             .variants
@@ -567,6 +575,7 @@ pub(super) fn gen_enum(enum_def: &EnumDef) -> String {
             serde_rename_all => &enum_def.serde_rename_all,
             variants => &variants,
             first_variant => first_variant,
+            default_variant => default_variant,
             first_variant_default => &first_variant_default,
         },
     )
@@ -671,6 +680,60 @@ pub(super) fn gen_magnus_default_impl(typ: &TypeDef, core_import: &str) -> Strin
          }}\n}}\n",
         typ.name
     )
+}
+
+/// Generate an explicit Default impl for a binding struct using field-level defaults.
+/// This is used when the struct has field-level defaults (e.g., from typed_default)
+/// that don't match what the derived Default would produce. Uses the same defaults
+/// as the kwargs constructor. Filters out thread-unsafe fields like the struct definition does.
+pub(super) fn gen_struct_default_impl_explicit(
+    typ: &TypeDef,
+    _type_mapper: &dyn Fn(&TypeRef) -> String,
+) -> Option<String> {
+    // Filter out thread-unsafe fields (e.g., VisitorHandle) that cannot be used with Magnus wrap,
+    // matching the filtering done in gen_struct
+    let filtered_fields: Vec<FieldDef> = typ
+        .fields
+        .iter()
+        .filter(|f| !is_thread_unsafe_field(f))
+        .cloned()
+        .collect();
+
+    // For Update/partial structs, all fields are Option<T> and should default to None
+    let is_update_struct = typ.name.ends_with("Update");
+
+    // Check if any field has a non-trivial default that wouldn't match the derived Default
+    let has_non_trivial_default = filtered_fields.iter().any(|field| {
+        // A field needs explicit handling if:
+        // 1. It's NOT an Option field (those always default to None)
+        // 2. It has a typed_default (e.g., enum variant or specific value)
+        // 3. It has an explicit default string set (e.g., "true" for bool fields)
+        !matches!(&field.ty, TypeRef::Optional(_)) && (field.typed_default.is_some() || field.default.is_some())
+    });
+
+    if !has_non_trivial_default && !is_update_struct {
+        return None;
+    }
+
+    let field_assignments: Vec<String> = filtered_fields
+        .iter()
+        .map(|field| {
+            // For Option fields, always default to None
+            if matches!(&field.ty, TypeRef::Optional(_)) || field.optional {
+                format!("{}: None", field.name)
+            } else {
+                // Use the same default logic as the kwargs constructor
+                let default_val = alef_codegen::config_gen::default_value_for_field(field, "rust");
+                format!("{}: {}", field.name, default_val)
+            }
+        })
+        .collect();
+
+    Some(format!(
+        "impl Default for {} {{\n    fn default() -> Self {{\n        Self {{\n            {},\n        }}\n    }}\n}}\n",
+        typ.name,
+        field_assignments.join(",\n            ")
+    ))
 }
 
 #[cfg(test)]

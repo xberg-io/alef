@@ -3077,10 +3077,7 @@ fn render_assertion(
                 // Opaque struct handle: `strlen` on a struct pointer is UB.
                 // Weaken to a non-null check — strictly weaker than the
                 // original intent but won't false-trigger SIGABRT.
-                let _ = writeln!(
-                    out,
-                    "    assert({field_expr} != NULL && \"expected non-null handle\");"
-                );
+                let _ = writeln!(out, "    assert({field_expr} != NULL && \"expected non-null handle\");");
             } else {
                 let _ = writeln!(
                     out,
@@ -3090,10 +3087,7 @@ fn render_assertion(
         }
         "is_empty" => {
             if field_is_opaque_handle {
-                let _ = writeln!(
-                    out,
-                    "    assert({field_expr} == NULL && \"expected null handle\");"
-                );
+                let _ = writeln!(out, "    assert({field_expr} == NULL && \"expected null handle\");");
             } else if assertion_field_is_optional || !field_is_primitive {
                 // Optional string fields may return NULL — treat NULL as empty.
                 let _ = writeln!(

@@ -17,6 +17,7 @@ pub(super) fn gen_streaming_method_wrapper(
     ffi_prefix: &str,
     item_type: &str,
     opaque_names: &std::collections::HashSet<&str>,
+    _value_only_types: &std::collections::HashSet<String>,
 ) -> String {
     let mut out = String::with_capacity(2048);
 
@@ -133,6 +134,7 @@ pub(super) fn gen_method_wrapper(
     method: &MethodDef,
     ffi_prefix: &str,
     opaque_names: &std::collections::HashSet<&str>,
+    value_only_types: &std::collections::HashSet<String>,
 ) -> String {
     let mut out = String::with_capacity(2048);
 
@@ -444,7 +446,8 @@ pub(super) fn gen_method_wrapper(
                         },
                     ));
                 } else {
-                    let return_expr = go_return_expr(&method.return_type, "ptr", ffi_prefix, opaque_names);
+                    let return_expr =
+                        go_return_expr(&method.return_type, "ptr", ffi_prefix, opaque_names, value_only_types);
                     out.push_str(&crate::template_env::render(
                         "method_return_simple.jinja",
                         minijinja::context! {
@@ -512,7 +515,8 @@ pub(super) fn gen_method_wrapper(
                     },
                 ));
             } else {
-                let return_expr = go_return_expr(&method.return_type, "ptr", ffi_prefix, opaque_names);
+                let return_expr =
+                    go_return_expr(&method.return_type, "ptr", ffi_prefix, opaque_names, value_only_types);
                 out.push_str(&crate::template_env::render(
                     "method_return_simple.jinja",
                     minijinja::context! {

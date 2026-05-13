@@ -1017,8 +1017,16 @@ fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner
     out.push_str(&method_name);
     out.push('(');
     out.push_str(&params_sig.join(", "));
-    out.push_str(") throws ");
-    out.push_str(&exception_class);
+    out.push(')');
+
+    // Methods named "clone" cannot declare throws because they override Object.clone()
+    // which only throws CloneNotSupportedException. All other methods on opaque types
+    // may call FFI functions that fail, so they declare throws.
+    if method.name != "clone" {
+        out.push_str(" throws ");
+        out.push_str(&exception_class);
+    }
+
     out.push_str(" {\n");
 
     for p in &method.params {
@@ -1235,8 +1243,16 @@ fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner
         ));
     }
 
+    // For clone() methods, wrap exceptions in RuntimeException since the method
+    // cannot declare throws (it overrides Object.clone() which only throws
+    // CloneNotSupportedException). All other methods can declare throws.
+    let catch_template = if method.name == "clone" {
+        "stream_method_catch_unchecked.jinja"
+    } else {
+        "stream_method_catch.jinja"
+    };
     out.push_str(&crate::template_env::render(
-        "stream_method_catch.jinja",
+        catch_template,
         minijinja::context! {
             exception_class => exception_class,
             method_name => method_name,

@@ -295,7 +295,10 @@ fn emit_lib_rs(
     }
     if !visible_functions.is_empty() {
         let visible: Vec<FunctionDef> = visible_functions.iter().map(|f| (*f).clone()).collect();
-        extern_blocks.push(extern_block::emit_extern_block_for_functions(&visible, &handle_returned_types));
+        extern_blocks.push(extern_block::emit_extern_block_for_functions(
+            &visible,
+            &handle_returned_types,
+        ));
     }
     for (_bridge_cfg, trait_def) in &active_bridges {
         extern_blocks.push(trait_bridge::emit_extern_block_for_trait_bridge(

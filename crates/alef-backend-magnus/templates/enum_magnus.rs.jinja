@@ -14,7 +14,7 @@
 {% endif %}{% endfor %}}
 
 impl Default for {{ enum_name }} {
-    fn default() -> Self { Self::{{ first_variant }}{{ first_variant_default }} }
+    fn default() -> Self { Self::{{ default_variant }}{{ first_variant_default }} }
 }
 
 impl magnus::IntoValue for {{ enum_name }} {
@@ -78,7 +78,7 @@ impl {{ enum_name }} {
 {% endfor %}}
 
 impl Default for {{ enum_name }} {
-    fn default() -> Self { Self::{{ first_variant }} }
+    fn default() -> Self { Self::{{ default_variant }} }
 }
 
 impl magnus::IntoValue for {{ enum_name }} {

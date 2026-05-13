@@ -609,8 +609,8 @@ fn render_test_case(
                             // FRB-generated `create<Type>FromJson(json: '...')` helper which
                             // round-trips the JSON through serde and so preserves enum tags,
                             // nested configs, and string-valued enum variants verbatim.
-                            let explicit_options = options_type
-                                .is_some_and(|t| t != "ExtractionConfig" && t != "FileExtractionConfig");
+                            let explicit_options =
+                                options_type.is_some_and(|t| t != "ExtractionConfig" && t != "FileExtractionConfig");
                             let has_non_scalar = map.values().any(|v| match v {
                                 serde_json::Value::String(_)
                                 | serde_json::Value::Object(_)
@@ -1022,7 +1022,7 @@ fn render_assertion_dart(
             // "empty" and the fixture intent is "the field is present".
             let is_collection = assertion.field.as_deref().is_some_and(|f| {
                 let resolved = field_resolver.resolve(f);
-                field_resolver.is_array(f) || field_resolver.is_array(&resolved)
+                field_resolver.is_array(f) || field_resolver.is_array(resolved)
             });
             if is_collection {
                 let _ = writeln!(out, "    expect({field_accessor}, isNotEmpty);");

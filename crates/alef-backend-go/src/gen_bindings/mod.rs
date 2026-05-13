@@ -131,6 +131,19 @@ impl Backend for GoBackend {
             .map(|f| f.exclude_functions.iter().cloned().collect())
             .unwrap_or_default();
 
+        // Collect value-only types (all fields are primitives). These don't have _to_json
+        // functions emitted by the FFI backend, so Go codegen must construct them from
+        // field accessors instead of JSON deserialization.
+        let value_only_types: HashSet<String> = api
+            .types
+            .iter()
+            .filter(|t| !t.is_opaque && t.fields.iter().all(|f| {
+                matches!(f.ty, alef_core::ir::TypeRef::Primitive(_) | alef_core::ir::TypeRef::String | alef_core::ir::TypeRef::Char | alef_core::ir::TypeRef::Path)
+                    || matches!(&f.ty, alef_core::ir::TypeRef::Optional(inner) if matches!(inner.as_ref(), alef_core::ir::TypeRef::Primitive(_) | alef_core::ir::TypeRef::String | alef_core::ir::TypeRef::Char | alef_core::ir::TypeRef::Path))
+            }))
+            .map(|t| t.name.clone())
+            .collect();
+
         let content = format_go_code(&strip_trailing_whitespace(&gen_go_file(
             api,
             config,
@@ -144,6 +157,7 @@ impl Backend for GoBackend {
             &bridge_type_aliases,
             &streaming_methods,
             &ffi_exclude_functions,
+            &value_only_types,
             has_options_field_bridge,
         )));
 
@@ -344,6 +358,7 @@ fn gen_go_file(
     bridge_type_aliases: &HashSet<String>,
     streaming_methods: &std::collections::HashMap<(String, String), String>,
     ffi_exclude_functions: &HashSet<String>,
+    value_only_types: &HashSet<String>,
     has_options_field_bridge: bool,
 ) -> String {
     let mut out = String::with_capacity(4096);
@@ -560,7 +575,12 @@ fn gen_go_file(
         // For the convert function with visitor support, wrap it with visitor-awareness logic
         // instead of generating the basic wrapper.
         if func.name == "convert" && has_options_field_bridge {
-            out.push_str(&gen_convert_with_visitor_wrapper(func, ffi_prefix, &opaque_names));
+            out.push_str(&gen_convert_with_visitor_wrapper(
+                func,
+                ffi_prefix,
+                &opaque_names,
+                value_only_types,
+            ));
             out.push_str("\n\n");
         } else {
             out.push_str(&gen_function_wrapper(
@@ -569,6 +589,7 @@ fn gen_go_file(
                 &opaque_names,
                 bridge_param_names,
                 bridge_type_aliases,
+                value_only_types,
             ));
             out.push_str("\n\n");
         }
@@ -603,6 +624,7 @@ fn gen_go_file(
                     ffi_prefix,
                     item_type,
                     &opaque_names,
+                    value_only_types,
                 ));
                 out.push_str("\n\n");
                 continue;
@@ -613,7 +635,13 @@ fn gen_go_file(
             if uses_ffi_enum_type(&method.params, &method.return_type, &ffi_enum_names, &opaque_names) {
                 continue;
             }
-            out.push_str(&gen_method_wrapper(typ, method, ffi_prefix, &opaque_names));
+            out.push_str(&gen_method_wrapper(
+                typ,
+                method,
+                ffi_prefix,
+                &opaque_names,
+                value_only_types,
+            ));
             out.push_str("\n\n");
         }
     }

@@ -7,6 +7,7 @@ mod streaming;
 use ahash::AHashSet;
 use alef_codegen::builder::RustFileBuilder;
 use alef_codegen::generators;
+use alef_codegen::type_mapper::TypeMapper;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{Language, ResolvedCrateConfig, resolve_output_dir};
 use alef_core::hash::{self, CommentStyle};
@@ -262,19 +263,34 @@ impl Backend for MagnusBackend {
             } else {
                 let generates_default =
                     typ.has_default && alef_codegen::generators::can_generate_default_impl(typ, &default_types);
-                builder.add_item(&classes::gen_struct(typ, &mapper, &module_name, api, generates_default));
+                // For Magnus bindings, always emit explicit Default impl when struct has fields.
+                // This ensures serde deserialization uses correct field defaults instead of all-false/zeros.
+                let has_explicit_impl_default = !typ.fields.is_empty();
+                builder.add_item(&classes::gen_struct(
+                    typ,
+                    &mapper,
+                    &module_name,
+                    api,
+                    has_explicit_impl_default,
+                ));
                 if generates_default {
                     // Use Magnus-specific Default impl that delegates to core type's Default
                     // instead of field-level defaults. This preserves core semantics
                     // (e.g., SecurityLimits::default() returns proper limits, not 0).
                     builder.add_item(&classes::gen_magnus_default_impl(typ, &core_import));
+                } else if has_explicit_impl_default {
+                    // Generate explicit impl Default using field-level defaults
+                    let map_fn = |ty: &alef_core::ir::TypeRef| mapper.map_type(ty);
+                    if let Some(impl_str) = classes::gen_struct_default_impl_explicit(typ, &map_fn) {
+                        builder.add_item(&impl_str);
+                    }
                 }
                 builder.add_item(&classes::gen_struct_methods(
                     typ,
                     &mapper,
                     &opaque_types,
                     &core_import,
-                    generates_default,
+                    has_explicit_impl_default,
                 ));
             }
         }

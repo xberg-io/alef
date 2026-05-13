@@ -223,6 +223,85 @@ impl Backend for NapiBackend {
             })
             .collect();
 
+        // JsBytes: a newtype wrapper for Vec<u8> with custom FromNapiValue that accepts
+        // Buffer.from(...) from JavaScript. Fixes NAPI v3 macro-derived deserialization
+        // of Vec<u8> fields in #[napi(object)] structs, which normally expect Array[number].
+        let js_bytes_def = r#"
+/// Wrapper for byte arrays that implements custom FromNapiValue to accept Buffer.from(...).
+///
+/// NAPI v3's default FromNapiValue for Vec<u8> expects Array[number], not Buffer.
+/// This wrapper provides custom deserialization that accepts Buffer, Uint8Array, or Array,
+/// converting them to Vec<u8>. Implements Clone and serde traits for use in struct fields.
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct JsBytes(pub Vec<u8>);
+
+impl From<Vec<u8>> for JsBytes {
+    fn from(v: Vec<u8>) -> Self {
+        JsBytes(v)
+    }
+}
+
+impl From<JsBytes> for Vec<u8> {
+    fn from(js_bytes: JsBytes) -> Self {
+        js_bytes.0
+    }
+}
+
+impl AsRef<[u8]> for JsBytes {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl std::ops::Deref for JsBytes {
+    type Target = Vec<u8>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for JsBytes {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl napi::bindgen_prelude::FromNapiValue for JsBytes {
+    unsafe fn from_napi_value(env: napi::sys::napi_env, napi_val: napi::sys::napi_value) -> napi::Result<Self> {
+        use napi::bindgen_prelude::FromNapiValue;
+
+        // Try Buffer first (most common for binary data in JS)
+        if let Ok(buffer) = unsafe { napi::bindgen_prelude::Buffer::from_napi_value(env, napi_val) } {
+            return Ok(JsBytes(buffer.as_ref().to_vec()));
+        }
+
+        // Try Uint8Array
+        if let Ok(ua) = unsafe { napi::bindgen_prelude::Uint8Array::from_napi_value(env, napi_val) } {
+            return Ok(JsBytes(ua.to_vec()));
+        }
+
+        // Fall back to Array[number]
+        if let Ok(vec) = unsafe { Vec::<u8>::from_napi_value(env, napi_val) } {
+            return Ok(JsBytes(vec));
+        }
+
+        Err(napi::Error::new(
+            napi::Status::InvalidArg,
+            "Expected Buffer, Uint8Array, or Array<number> for bytes field",
+        ))
+    }
+}
+
+impl napi::bindgen_prelude::ToNapiValue for JsBytes {
+    unsafe fn to_napi_value(env: napi::sys::napi_env, val: Self) -> napi::Result<napi::sys::napi_value> {
+        // Delegate to Vec<u8>'s implementation (which returns an Uint8Array/Buffer).
+        let vec_impl = unsafe { <Vec<u8> as napi::bindgen_prelude::ToNapiValue>::to_napi_value(env, val.0) };
+        vec_impl
+    }
+}
+"#;
+        builder.add_item(js_bytes_def);
+
         // JsVisitorRef: a thin wrapper around napi::Object that implements Clone.
         // This newtype makes Object<'static> work with napi(object) field derivations,
         // which require Clone. Uses std::sync::Arc to make the handle cheaply cloneable.

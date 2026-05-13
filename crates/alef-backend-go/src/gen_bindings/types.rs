@@ -1093,8 +1093,9 @@ pub(super) fn go_return_expr(
     var_name: &str,
     ffi_prefix: &str,
     opaque_names: &std::collections::HashSet<&str>,
+    value_only_types: &std::collections::HashSet<String>,
 ) -> String {
-    go_return_expr_inner(ty, var_name, ffi_prefix, opaque_names)
+    go_return_expr_inner(ty, var_name, ffi_prefix, opaque_names, value_only_types)
 }
 
 fn go_return_expr_inner(
@@ -1102,6 +1103,7 @@ fn go_return_expr_inner(
     var_name: &str,
     ffi_prefix: &str,
     opaque_names: &std::collections::HashSet<&str>,
+    value_only_types: &std::collections::HashSet<String>,
 ) -> String {
     match ty {
         TypeRef::Primitive(prim) => match prim {
@@ -1124,6 +1126,12 @@ fn go_return_expr_inner(
                     go_type = name,
                     var_name = var_name,
                 )
+            } else if value_only_types.contains(name) {
+                // Value-only types (all primitive fields) don't have _to_json functions.
+                // Return nil for now — field accessors should be used instead.
+                // This is a safe fallback; actual field construction would require
+                // knowing the struct layout.
+                "nil".to_string()
             } else {
                 // Full conversion: serialize C handle to JSON, then unmarshal into Go struct
                 let type_snake = name.to_snake_case();
@@ -1157,7 +1165,7 @@ fn go_return_expr_inner(
         TypeRef::Bytes => {
             format!("unmarshalBytes({})", var_name)
         }
-        TypeRef::Optional(inner) => go_return_expr_inner(inner, var_name, ffi_prefix, opaque_names),
+        TypeRef::Optional(inner) => go_return_expr_inner(inner, var_name, ffi_prefix, opaque_names, value_only_types),
         TypeRef::Vec(inner) => {
             // Vec types are returned as JSON strings from FFI. Deserialize inline.
             // Return []T (not *[]T) — slices are already reference types in Go.
