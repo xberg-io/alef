@@ -336,8 +336,11 @@ impl StreamingFieldResolver {
                     )
                 }
                 "java" => {
+                    // FinishReason.getValue() returns the JSON wire string (e.g. "tool_calls").
+                    // Without it, assertEquals(String, FinishReason) fails because Object.equals
+                    // doesn't cross types even when toString() matches.
                     format!(
-                        "({chunks_var}.isEmpty() ? null : {chunks_var}.get({chunks_var}.size()-1).choices().stream().findFirst().map(ch -> ch.finishReason()).orElse(null))"
+                        "({chunks_var}.isEmpty() ? null : {chunks_var}.get({chunks_var}.size()-1).choices().stream().findFirst().map(ch -> ch.finishReason() == null ? null : ch.finishReason().getValue()).orElse(null))"
                     )
                 }
                 "php" => {
