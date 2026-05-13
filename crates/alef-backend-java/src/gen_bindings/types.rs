@@ -929,7 +929,7 @@ pub(crate) fn gen_opaque_handle_class(
 
     let mut imports: Vec<&str> = vec!["java.lang.foreign.MemorySegment"];
     if needs_helpers {
-        // `Arena.ofConfined()` is referenced by every helper / instance-method
+        // `Arena.ofShared()` is referenced by every helper / instance-method
         // template even when the method body is a stub, so the import is
         // always live in that branch.
         imports.push("java.lang.foreign.Arena");
@@ -1039,7 +1039,7 @@ fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner
         }
     }
 
-    out.push_str("        try (var arena = Arena.ofConfined()) {\n");
+    out.push_str("        try (var arena = Arena.ofShared()) {\n");
 
     let mut named_ptr_frees: Vec<(String, String)> = Vec::new();
     let mut call_args: Vec<String> = Vec::new();

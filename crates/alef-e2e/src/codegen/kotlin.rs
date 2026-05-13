@@ -1105,7 +1105,13 @@ fn render_test_method(
     // raw apiKey + baseUrl pair the test owns.
     if let Some(factory) = client_factory {
         let fixture_id = &fixture.id;
-        let mock_url_expr = format!("System.getenv(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\"");
+        // Prefer system properties set by MockServerListener (which spawns the
+        // mock-server in-process when MOCK_SERVER_URL isn't pre-set). The
+        // per-fixture property holds the full URL; fall back to the base URL
+        // (mockServerUrl or env var) with the /fixtures/<id> suffix appended.
+        let mock_url_expr = format!(
+            "System.getProperty(\"mockServer.{fixture_id}\", System.getProperty(\"mockServerUrl\", System.getenv(\"MOCK_SERVER_URL\") ?: \"\") + \"/fixtures/{fixture_id}\")"
+        );
         for line in &setup_lines {
             let _ = writeln!(out, "        {line}");
         }
