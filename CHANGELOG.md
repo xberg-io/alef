@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(alef-backend-csharp): pass length argument alongside pinned pointer when delegating byte-slice params to native P/Invoke. Wrapper methods now emit both the `AddrOfPinnedObject()` pointer AND the `(UIntPtr)source.Length` argument for `&[u8]` parameters, matching the FFI signature. Previously only the pointer was passed, causing C# compile errors (CS7036: missing required parameter) when parsing byte arrays.
+
 ## [0.15.53] - 2026-05-13
 
 ### Added
