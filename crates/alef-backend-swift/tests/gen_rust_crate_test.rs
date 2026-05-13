@@ -1121,3 +1121,154 @@ fn trait_bridge_no_unregister_or_clear_when_both_none() {
         lib.content
     );
 }
+
+// ── streaming adapter bridge function tests ───────────────────────────────────
+
+/// When a `[[crates.adapters]]` entry has `pattern = "streaming"` and
+/// `owner_type` set to an opaque-handle type, the generated `lib.rs` must:
+///
+/// 1. Declare the free function in an `extern "Rust"` block inside the
+///    `#[swift_bridge::bridge]` module, returning `Result<(), String>`.
+/// 2. Emit a concrete Rust free-function implementation that blocks on a Tokio
+///    runtime and drives the stream to completion, also returning `Result<(), String>`.
+///
+/// Without these two pieces swift-bridge cannot generate the Swift glue that
+/// the host wrapper's `try await RustBridge.defaultClientChatStream(…)` call requires.
+#[test]
+fn streaming_adapter_emits_extern_block_and_rust_shim() {
+    use alef_core::ir::ReceiverKind;
+
+    let config = {
+        let toml = r#"
+[workspace]
+languages = ["swift"]
+
+[[crates]]
+name = "demo_lib"
+sources = ["src/lib.rs"]
+
+[[crates.adapters]]
+name = "chat_stream"
+pattern = "streaming"
+core_path = "demo_lib::chat_stream"
+owner_type = "DefaultClient"
+item_type = "ChatCompletionChunk"
+error_type = "DemoError"
+
+[[crates.adapters.params]]
+name = "req"
+type = "ChatCompletionRequest"
+"#;
+        let cfg: alef_core::config::new_config::NewAlefConfig = toml::from_str(toml).expect("test config must parse");
+        cfg.resolve().expect("test config must resolve").remove(0)
+    };
+
+    let api = ApiSurface {
+        crate_name: "demo_lib".into(),
+        version: "0.1.0".into(),
+        types: vec![TypeDef {
+            name: "DefaultClient".to_string(),
+            rust_path: "demo_lib::DefaultClient".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![MethodDef {
+                name: "chat".to_string(),
+                params: vec![],
+                return_type: TypeRef::String,
+                is_async: true,
+                is_static: false,
+                error_type: Some("DemoError".to_string()),
+                doc: String::new(),
+                sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                receiver: Some(ReceiverKind::Ref),
+                trait_source: None,
+                has_default_impl: false,
+            }],
+            is_opaque: true,
+            is_clone: false,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = gen_rust_crate::emit(&api, &config).unwrap();
+    let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+    // 1. The extern "Rust" block must declare the free function so swift-bridge
+    //    generates the corresponding Swift glue.
+    assert!(
+        lib.content.contains("fn default_client_chat_stream("),
+        "extern block must declare default_client_chat_stream; got:\n{}",
+        lib.content
+    );
+    assert!(
+        lib.content.contains("Result<(), String>"),
+        "streaming adapter bridge fn must return Result<(), String>; got:\n{}",
+        lib.content
+    );
+    // The swift_name attribute must produce the camelCase name that the Swift
+    // host wrapper references as `RustBridge.defaultClientChatStream(…)`.
+    assert!(
+        lib.content.contains("defaultClientChatStream"),
+        "extern block must set swift_name = \"defaultClientChatStream\"; got:\n{}",
+        lib.content
+    );
+
+    // 2. The concrete Rust shim must block on a Tokio runtime.
+    assert!(
+        lib.content.contains("pub fn default_client_chat_stream("),
+        "lib.rs must emit a concrete default_client_chat_stream fn; got:\n{}",
+        lib.content
+    );
+    assert!(
+        lib.content.contains("tokio::runtime::Builder"),
+        "streaming shim must construct a Tokio runtime; got:\n{}",
+        lib.content
+    );
+    assert!(
+        lib.content.contains(".block_on("),
+        "streaming shim must call block_on; got:\n{}",
+        lib.content
+    );
+}
+
+/// When no adapters are configured (or none with pattern = streaming), no
+/// extra extern blocks or shims must be emitted.
+#[test]
+fn no_streaming_adapters_emits_no_extra_blocks() {
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
+    let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+    // The only extern block present should be the module declaration itself.
+    // A bare config with no adapters must not mention "chat_stream" or streaming symbols.
+    assert!(
+        !lib.content.contains("chat_stream"),
+        "lib.rs must not contain streaming symbols when no adapters configured; got:\n{}",
+        lib.content
+    );
+}
