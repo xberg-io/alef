@@ -501,6 +501,7 @@ pub(crate) fn php_wrap_return(
     self_is_opaque: bool,
     returns_ref: bool,
     returns_cow: bool,
+    mutex_types: &ahash::AHashSet<String>,
 ) -> String {
     match return_type {
         TypeRef::Bytes => {
@@ -515,23 +516,33 @@ pub(crate) fn php_wrap_return(
             format!("{expr} as i64")
         }
         TypeRef::Duration => format!("{expr}.as_millis() as i64"),
-        // Opaque Named returns need Arc wrapper
+        // Opaque Named returns need Arc wrapper (and Mutex for mutex types)
         TypeRef::Named(n) if n == type_name && self_is_opaque => {
-            if returns_cow {
-                format!("Self {{ inner: Arc::new({expr}.into_owned()) }}")
-            } else if returns_ref {
-                format!("Self {{ inner: Arc::new({expr}.clone()) }}")
+            let wrapper = if mutex_types.contains(type_name) {
+                |v: String| format!("Arc::new(std::sync::Mutex::new({v}))")
             } else {
-                format!("Self {{ inner: Arc::new({expr}) }}")
+                |v: String| format!("Arc::new({v})")
+            };
+            if returns_cow {
+                format!("Self {{ inner: {} }}", wrapper(format!("{expr}.into_owned()")))
+            } else if returns_ref {
+                format!("Self {{ inner: {} }}", wrapper(format!("{expr}.clone()")))
+            } else {
+                format!("Self {{ inner: {} }}", wrapper(expr.to_string()))
             }
         }
         TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
-            if returns_cow {
-                format!("{n} {{ inner: Arc::new({expr}.into_owned()) }}")
-            } else if returns_ref {
-                format!("{n} {{ inner: Arc::new({expr}.clone()) }}")
+            let wrapper = if mutex_types.contains(n) {
+                |v: String| format!("Arc::new(std::sync::Mutex::new({v}))")
             } else {
-                format!("{n} {{ inner: Arc::new({expr}) }}")
+                |v: String| format!("Arc::new({v})")
+            };
+            if returns_cow {
+                format!("{n} {{ inner: {} }}", wrapper(format!("{expr}.into_owned()")))
+            } else if returns_ref {
+                format!("{n} {{ inner: {} }}", wrapper(format!("{expr}.clone()")))
+            } else {
+                format!("{n} {{ inner: {} }}", wrapper(expr.to_string()))
             }
         }
         TypeRef::Named(_) => {
@@ -550,10 +561,18 @@ pub(crate) fn php_wrap_return(
             }
             TypeRef::Duration => format!("{expr}.map(|d| d.as_millis() as i64)"),
             TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
-                if returns_ref {
-                    format!("{expr}.map(|v| {n} {{ inner: Arc::new(v.clone()) }})")
+                if mutex_types.contains(n) {
+                    if returns_ref {
+                        format!("{expr}.map(|v| {n} {{ inner: Arc::new(std::sync::Mutex::new(v.clone())) }})")
+                    } else {
+                        format!("{expr}.map(|v| {n} {{ inner: Arc::new(std::sync::Mutex::new(v)) }})")
+                    }
                 } else {
-                    format!("{expr}.map(|v| {n} {{ inner: Arc::new(v) }})")
+                    if returns_ref {
+                        format!("{expr}.map(|v| {n} {{ inner: Arc::new(v.clone()) }})")
+                    } else {
+                        format!("{expr}.map(|v| {n} {{ inner: Arc::new(v) }})")
+                    }
                 }
             }
             TypeRef::Named(_) => {

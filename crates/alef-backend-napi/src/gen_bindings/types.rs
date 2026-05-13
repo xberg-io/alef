@@ -294,6 +294,12 @@ pub(super) fn gen_opaque_instance_method(
     let type_name = &typ.name;
     let is_owned_receiver = matches!(method.receiver.as_ref(), Some(alef_core::ir::ReceiverKind::Owned));
     let is_ref_mut_receiver = matches!(method.receiver.as_ref(), Some(alef_core::ir::ReceiverKind::RefMut));
+
+    // Check if the type has any RefMut methods (which means inner is wrapped in Mutex).
+    let has_mut_methods = typ.methods.iter().any(|m| {
+        matches!(m.receiver.as_ref(), Some(alef_core::ir::ReceiverKind::RefMut))
+    });
+
     let call_args = napi_gen_call_args(&method.params, opaque_types);
 
     // Use the shared can_auto_delegate check for opaque instance methods.
@@ -307,7 +313,13 @@ pub(super) fn gen_opaque_instance_method(
             .all(|p| !p.sanitized && alef_codegen::shared::is_delegatable_param(&p.ty, opaque_types))
         && alef_codegen::shared::is_opaque_delegatable_type(&method.return_type);
 
-    let make_async_core_call = |method_name: &str| -> String { format!("inner.{method_name}({call_args})") };
+    let make_async_core_call = |method_name: &str| -> String {
+        if has_mut_methods && !is_ref_mut_receiver {
+            format!("inner.lock().unwrap().{method_name}({call_args})")
+        } else {
+            format!("inner.{method_name}({call_args})")
+        }
+    };
 
     let async_result_wrap = napi_wrap_return(
         "result",
@@ -334,7 +346,11 @@ pub(super) fn gen_opaque_instance_method(
             let serde_bindings =
                 generators::gen_serde_let_bindings(&method.params, opaque_types, cfg.core_import, err_conv, "        ");
             let serde_call_args = generators::gen_call_args_with_let_bindings(&method.params, opaque_types);
-            let core_call = format!("self.inner.{}({serde_call_args})", method.name);
+            let core_call = if has_mut_methods {
+                format!("self.inner.lock().unwrap().{}({serde_call_args})", method.name)
+            } else {
+                format!("self.inner.{}({serde_call_args})", method.name)
+            };
             if matches!(method.return_type, TypeRef::Unit) {
                 format!("{serde_bindings}{core_call}{err_conv}?;\n    Ok(())")
             } else {
@@ -389,6 +405,8 @@ pub(super) fn gen_opaque_instance_method(
         };
         let core_call = if is_owned_receiver {
             format!("(*self.inner).clone().{}({})", method.name, call_args_for_call)
+        } else if has_mut_methods {
+            format!("self.inner.lock().unwrap().{}({})", method.name, call_args_for_call)
         } else {
             format!("self.inner.{}({})", method.name, call_args_for_call)
         };

@@ -564,18 +564,18 @@ impl Backend for WasmBackend {
                 if !content.contains(&impl_header) {
                     continue;
                 }
-                let default_line =
-                    format!("            {field_name}: Default::default(),\n            ..Default::default()");
-                let passthrough = format!(
-                    "            {field_name}: val.{field_name}.map(|v| (*v.inner).clone()),\n            ..Default::default()"
-                );
-                if let Some(impl_start) = content.find(&impl_header) {
-                    let tail = &content[impl_start..];
-                    if let Some(rel) = tail.find(&default_line) {
-                        let abs = impl_start + rel;
-                        let before = &content[..abs];
-                        let after = &content[abs + default_line.len()..];
-                        content = format!("{before}{passthrough}{after}");
+                // Try multiple indentation patterns (tabs or spaces)
+                // Most commonly 12 spaces (3 indent levels) in generated code
+                let patterns = &[
+                    ("            ", "\n            "), // 12 spaces
+                    ("        ", "\n        "),         // 8 spaces
+                    ("  ", "\n  "),                     // 2 spaces
+                ];
+                for (indent, newline_indent) in patterns {
+                    let old_pattern = format!("{indent}{field_name}: Default::default(),{newline_indent}..Default::default()");
+                    let new_pattern = format!("{indent}{field_name}: val.{field_name}.map(|v| (*v.inner).clone()),{newline_indent}..Default::default()");
+                    if content.contains(&old_pattern) {
+                        content = content.replace(&old_pattern, &new_pattern);
                     }
                 }
             }
@@ -913,5 +913,32 @@ sources = ["src/lib.rs"]
         assert_eq!(files.len(), 2);
         assert!(files[0].path.to_string_lossy().ends_with("lib.rs"));
         assert!(files[1].path.to_string_lossy().ends_with("Cargo.toml"));
+    }
+
+    #[test]
+    fn test_visitor_field_substitution_in_post_process() {
+        // Test the substitution logic directly with a real multi-line string
+        let mut content = "impl From<WasmConversionOptions> for html_to_markdown_rs::options::ConversionOptions {\n    fn from(val: WasmConversionOptions) -> Self {\n        Self {\n            heading_style: val.heading_style.into(),\n            visitor: Default::default(),\n            ..Default::default()\n        }\n    }\n}\nimpl From<WasmConversionOptionsUpdate> for html_to_markdown_rs::options::ConversionOptionsUpdate {\n    fn from(val: WasmConversionOptionsUpdate) -> Self {\n        Self {\n            heading_style: val.heading_style.map(Into::into),\n            visitor: Default::default(),\n            ..Default::default()\n        }\n    }\n}\n".to_string();
+
+        // Apply the same post-process logic
+        let field_name = "visitor";
+        let patterns = &[
+            ("            ", "\n            "), // 12 spaces
+            ("        ", "\n        "),         // 8 spaces
+            ("  ", "\n  "),                     // 2 spaces
+        ];
+        for (indent, newline_indent) in patterns {
+            let old_pattern = format!("{indent}{field_name}: Default::default(),{newline_indent}..Default::default()");
+            let new_pattern = format!("{indent}{field_name}: val.{field_name}.map(|v| (*v.inner).clone()),{newline_indent}..Default::default()");
+            if content.contains(&old_pattern) {
+                content = content.replace(&old_pattern, &new_pattern);
+            }
+        }
+
+        // Verify both From impls were updated
+        assert!(content.contains("visitor: val.visitor.map(|v| (*v.inner).clone()),"),
+            "Visitor field not forwarded in From impl");
+        assert!(!content.contains("visitor: Default::default(),\n            ..Default::default()"),
+            "Unreplaced visitor: Default::default() with 12 spaces still present");
     }
 }

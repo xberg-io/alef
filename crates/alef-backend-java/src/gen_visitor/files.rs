@@ -5,6 +5,10 @@ use alef_core::hash::{self, CommentStyle};
 use super::callbacks::CALLBACKS;
 use super::helpers::{callback_descriptor, callback_method_type, gen_handle_method, iface_param_str, stub_var_name};
 
+/// Number of callbacks per generated `registerStubsN` Java method.
+/// Used by both the stub-call list (constructor body) and the stub-method emitter.
+const CHUNK_SIZE: usize = 5;
+
 pub(super) fn gen_node_context(package: &str) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
     crate::template_env::render(
@@ -75,7 +79,7 @@ pub(super) fn gen_visitor_bridge(package: &str, _class_name: &str) -> String {
     let num_callbacks = CALLBACKS.len();
 
     // Build stub_calls list: which registerStubsN method to call at each step
-    let num_chunks = CALLBACKS.chunks(10).count();
+    let num_chunks = CALLBACKS.chunks(CHUNK_SIZE).count();
     let mut stub_calls = Vec::new();
     for i in 1..=num_chunks {
         stub_calls.push(format!("registerStubs{i}(offset)"));
@@ -83,7 +87,6 @@ pub(super) fn gen_visitor_bridge(package: &str, _class_name: &str) -> String {
 
     // Build stub_methods: the actual method implementations as a list of strings
     let mut stub_methods = Vec::new();
-    const CHUNK_SIZE: usize = 5;
     for (chunk_idx, chunk) in CALLBACKS.chunks(CHUNK_SIZE).enumerate() {
         let method_num = chunk_idx + 1;
         let mut method = String::new();
@@ -208,6 +211,24 @@ mod tests {
         assert!(
             out.contains("VISIT_RESULT_CONTINUE"),
             "must have VISIT_RESULT_CONTINUE constant"
+        );
+    }
+
+    #[test]
+    fn gen_visitor_bridge_chunk_counts_consistent() {
+        let src = gen_visitor_bridge("dev.test", "VisitorBridge");
+        let expected = (CALLBACKS.len() + CHUNK_SIZE - 1) / CHUNK_SIZE;
+        let stub_call_count = src.matches("offset = registerStubs").count();
+        let stub_method_count = src.matches("private long registerStubs").count();
+        assert_eq!(
+            stub_call_count, expected,
+            "constructor must invoke every registerStubsN; got {} calls, expected {}",
+            stub_call_count, expected
+        );
+        assert_eq!(
+            stub_method_count, expected,
+            "must emit one registerStubsN method per chunk; got {} methods, expected {}",
+            stub_method_count, expected
         );
     }
 }

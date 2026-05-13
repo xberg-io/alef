@@ -582,14 +582,23 @@ fn test_opaque_types_not_get_struct_module() {
     let config = make_config("my_lib");
     let files = backend.generate_public_api(&api, &config).unwrap();
 
-    // Opaque types should not get struct modules
-    let has_engine_struct = files
+    // Opaque types get a dedicated wrapper module that wraps a ResourceArc
+    // reference (`defstruct [:ref]`), distinct from the value-struct modules
+    // emitted for non-opaque types.
+    let engine_file = files
         .iter()
-        .any(|f| f.path.to_string_lossy().ends_with("my_lib/engine.ex"));
+        .find(|f| f.path.to_string_lossy().ends_with("my_lib/engine.ex"))
+        .expect("opaque type Engine should produce an engine.ex wrapper module");
     assert!(
-        !has_engine_struct,
-        "Opaque types should not get struct modules; got: {:?}",
-        files.iter().map(|f| f.path.display().to_string()).collect::<Vec<_>>()
+        engine_file.content.contains("defstruct [:ref]"),
+        "opaque wrapper module must use ResourceArc-reference defstruct; content:\n{}",
+        engine_file.content
+    );
+    assert!(
+        !engine_file.content.contains("@type t :: %__MODULE__{")
+            || engine_file.content.contains("ref: reference()"),
+        "opaque wrapper module's typespec must describe a Rustler ResourceArc reference; content:\n{}",
+        engine_file.content
     );
 }
 

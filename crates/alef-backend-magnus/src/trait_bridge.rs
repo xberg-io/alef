@@ -925,8 +925,18 @@ pub fn gen_options_field_bridge_function(
         "let {options_name}_core = match visitor {{\n    \
          Some(v) if !v.is_nil() => {{\n        \
          if magnus::RHash::from_value(v).is_some() {{\n            \
-         let json = v.funcall::<_, _, String>(\"to_json\", ()).unwrap_or_default();\n            \
-         serde_json::from_str::<{core_import}::ConversionOptions>(&json).unwrap_or_default()\n        \
+         let json = v.funcall::<_, _, String>(\"to_json\", ()).map_err(|e| {{\n                \
+         magnus::Error::new(\n                    \
+         unsafe {{ magnus::Ruby::get_unchecked() }}.exception_runtime_error(),\n                    \
+         format!(\"failed to serialize Ruby options to JSON: {{}}\", e),\n                \
+         )\n            \
+         }})?;\n            \
+         serde_json::from_str::<{core_import}::ConversionOptions>(&json).map_err(|e| {{\n                \
+         magnus::Error::new(\n                    \
+         unsafe {{ magnus::Ruby::get_unchecked() }}.exception_runtime_error(),\n                    \
+         format!(\"failed to deserialize options JSON: {{}}\", e),\n                \
+         )\n            \
+         }})?\n        \
          }} else {{\n            \
          let bridge = {struct_name}::new(v);\n            \
          let handle = std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path};\n            \

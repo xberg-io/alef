@@ -243,6 +243,17 @@ impl Backend for PhpBackend {
             builder.add_import("std::sync::Arc");
         }
 
+        // Compute mutex types: opaque types with &mut self methods
+        let mutex_types: AHashSet<String> = api
+            .types
+            .iter()
+            .filter(|t| t.is_opaque && alef_codegen::generators::type_needs_mutex(t))
+            .map(|t| t.name.clone())
+            .collect();
+        if !mutex_types.is_empty() {
+            builder.add_import("std::sync::Mutex");
+        }
+
         // Compute the PHP namespace for namespaced class registration.
         // Delegates to config so [php].namespace overrides are respected.
         let extension_name = config.php_extension_name();
@@ -297,6 +308,7 @@ impl Backend for PhpBackend {
                     &opaque_types,
                     &core_import,
                     &adapter_bodies,
+                    &mutex_types,
                 ));
             } else {
                 // gen_struct adds #[derive(Default)] when typ.has_default is true,
@@ -320,6 +332,7 @@ impl Backend for PhpBackend {
                     &exclude_functions,
                     &bridge_type_aliases_set,
                     &never_skip_cfg_field_names,
+                    &mutex_types,
                 ));
             }
         }
@@ -867,11 +880,28 @@ impl Backend for PhpBackend {
             .map(|s| s.output.to_string_lossy().to_string())
             .unwrap_or_else(|| "packages/php/src/".to_string());
 
-        Ok(vec![GeneratedFile {
+        let mut files: Vec<GeneratedFile> = Vec::new();
+        files.push(GeneratedFile {
             path: PathBuf::from(&output_dir).join(format!("{}.php", class_name)),
             content,
             generated_header: false,
-        }])
+        });
+
+        // Emit a per-opaque-type PHP class file alongside the facade. These provide
+        // method declarations for static analysis (PHPStan) and IDE autocomplete.
+        // The native PHP extension registers the same class names at module load
+        // (before Composer autoload runs), so these userland files are never
+        // included at runtime — the native class always wins.
+        for typ in api.types.iter().filter(|t| t.is_opaque && !t.is_trait) {
+            let opaque_file = gen_php_opaque_class_file(typ, &namespace);
+            files.push(GeneratedFile {
+                path: PathBuf::from(&output_dir).join(format!("{}.php", typ.name)),
+                content: opaque_file,
+                generated_header: false,
+            });
+        }
+
+        Ok(files)
     }
 
     fn generate_type_stubs(
@@ -918,28 +948,10 @@ impl Backend for PhpBackend {
         );
         content.push_str("}\n\n");
 
-        // Opaque handle classes
-        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
-            if typ.is_opaque {
-                if !typ.doc.is_empty() {
-                    content.push_str("/**\n");
-                    content.push_str(&crate::template_env::render(
-                        "php_phpdoc_lines.jinja",
-                        context! {
-                            doc_lines => typ.doc.lines().collect::<Vec<_>>(),
-                            indent => "",
-                        },
-                    ));
-                    content.push_str(" */\n");
-                }
-                content.push_str(&crate::template_env::render(
-                    "php_opaque_class_stub_declaration.jinja",
-                    context! { class_name => &typ.name },
-                ));
-                // Opaque handles have no public constructors in PHP
-                content.push_str("}\n\n");
-            }
-        }
+        // Opaque handle classes are declared as per-type PHP files in
+        // `packages/php/src/{TypeName}.php` (see `generate_public_api`). They
+        // are intentionally omitted from this aggregate extension stub so PHPStan
+        // does not see two class declarations for the same fully-qualified name.
 
         // Record / struct types (non-opaque with fields)
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
@@ -1290,6 +1302,92 @@ fn php_type_fq(ty: &TypeRef, namespace: &str) -> String {
         }
         _ => php_type(ty),
     }
+}
+
+/// Generate a per-opaque-type PHP class file for `packages/php/src/{TypeName}.php`.
+///
+/// The native ext-php-rs extension registers the same class at module load time
+/// (before Composer autoload runs), so this userland file is never included at
+/// runtime — the native class always wins. The file is consumed by PHPStan and
+/// IDEs as the authoritative declaration of the type's public API surface.
+fn gen_php_opaque_class_file(typ: &alef_core::ir::TypeDef, namespace: &str) -> String {
+    let mut content = String::new();
+    content.push_str(&crate::template_env::render(
+        "php_file_header.jinja",
+        minijinja::Value::default(),
+    ));
+    content.push_str(&hash::header(CommentStyle::DoubleSlash));
+    content.push_str(&crate::template_env::render(
+        "php_declare_strict_types.jinja",
+        minijinja::Value::default(),
+    ));
+    content.push_str(&crate::template_env::render(
+        "php_namespace.jinja",
+        context! { namespace => namespace },
+    ));
+
+    // Type-level docblock.
+    if !typ.doc.is_empty() {
+        content.push_str("/**\n");
+        content.push_str(&crate::template_env::render(
+            "php_phpdoc_lines.jinja",
+            context! {
+                doc_lines => typ.doc.lines().collect::<Vec<_>>(),
+                indent => "",
+            },
+        ));
+        content.push_str(" */\n");
+    }
+
+    content.push_str(&format!("final class {}\n{{\n", typ.name));
+
+    // Instance methods first, static methods second.
+    let mut method_order: Vec<&alef_core::ir::MethodDef> = Vec::new();
+    method_order.extend(typ.methods.iter().filter(|m| m.receiver.is_some()));
+    method_order.extend(typ.methods.iter().filter(|m| m.receiver.is_none()));
+
+    for method in method_order {
+        let method_name = method.name.to_lower_camel_case();
+        let return_type = php_type(&method.return_type);
+        let is_void = matches!(&method.return_type, TypeRef::Unit);
+        let is_static = method.receiver.is_none();
+
+        // PHPDoc block — keep it short to avoid line-width issues.
+        let doc_line = method.doc.lines().next().unwrap_or("").trim();
+        if !doc_line.is_empty() {
+            content.push_str("    /**\n");
+            content.push_str(&format!("     * {doc_line}\n"));
+            content.push_str("     */\n");
+        }
+
+        // Method signature.
+        let static_kw = if is_static { "static " } else { "" };
+        let params: Vec<String> = method
+            .params
+            .iter()
+            .map(|p| {
+                let ptype = php_type(&p.ty);
+                if p.optional {
+                    format!("?{} ${} = null", ptype, p.name)
+                } else {
+                    format!("{} ${}", ptype, p.name)
+                }
+            })
+            .collect();
+        content.push_str(&format!(
+            "    public {static_kw}function {method_name}({}): {return_type}\n",
+            params.join(", ")
+        ));
+        let body = if is_void {
+            "    {\n    }\n"
+        } else {
+            "    {\n        throw new \\RuntimeException('Not implemented — provided by the native extension.');\n    }\n"
+        };
+        content.push_str(body);
+    }
+
+    content.push_str("}\n");
+    content
 }
 
 /// Map an IR [`TypeRef`] to a PHP type-hint string.

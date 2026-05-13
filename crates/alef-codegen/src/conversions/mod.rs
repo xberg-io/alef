@@ -107,6 +107,12 @@ pub struct ConversionConfig<'a> {
     /// emits them (via [`super::generators::RustBindingConfig::never_skip_cfg_field_names`]).
     /// Empty by default; backends populate from trait-bridge `bind_via = "options_field"` config.
     pub never_skip_cfg_field_names: &'a [String],
+    /// Names of trait-bridge OptionsField fields whose binding wrapper holds the core value
+    /// as `inner: Arc<core::T>` (the standard codegen layout for every OptionsField bridge).
+    /// When a field matches both `is_opaque_no_wrapper_field` and this list, the binding→core
+    /// From impl emits `(*v.inner).clone()` instead of `Default::default()`, so the visitor
+    /// (or other bridge handle) is forwarded rather than silently dropped.
+    pub trait_bridge_arc_wrapper_field_names: &'a [String],
     /// When true, cfg-gated fields (not listed in `never_skip_cfg_field_names`) are
     /// stripped from the binding struct entirely (no field at all in the struct body).
     /// Conversions must then skip those fields and rely on `..Default::default()` in
@@ -134,6 +140,15 @@ impl<'a> ConversionConfig<'a> {
         // `&'b str` parameter without unsafe. Use a helper that returns an owned String instead.
         let _ = type_name;
         field_name
+    }
+
+    /// Returns `true` when `field_name` is a trait-bridge OptionsField whose binding wrapper
+    /// stores the core value as `inner: Arc<core::T>`. Used by `gen_from_binding_to_core_cfg`
+    /// to emit `(*v.inner).clone()` instead of `Default::default()` for opaque-no-wrapper fields.
+    pub fn trait_bridge_field_is_arc_wrapper(&self, field_name: &str) -> bool {
+        self.trait_bridge_arc_wrapper_field_names
+            .iter()
+            .any(|n| n == field_name)
     }
 
     /// Like `binding_field_name` but returns an owned `String`, suitable for use in

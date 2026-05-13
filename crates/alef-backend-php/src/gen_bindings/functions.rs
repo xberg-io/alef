@@ -195,6 +195,7 @@ pub(crate) fn gen_instance_method(
     opaque_types: &AHashSet<String>,
     core_import: &str,
     adapter_bodies: &AdapterBodies,
+    mutex_types: &AHashSet<String>,
 ) -> String {
     let empty_bridges = AHashSet::new();
     let params = gen_php_function_params(&method.params, mapper, opaque_types, &empty_bridges);
@@ -216,13 +217,13 @@ pub(crate) fn gen_instance_method(
         let call_args = gen_php_call_args(&method.params, opaque_types);
         let is_owned_receiver = matches!(method.receiver.as_ref(), Some(alef_core::ir::ReceiverKind::Owned));
         // For opaque types, self.inner is Arc<T> or Arc<Mutex<T>>.
-        // Arc implements Deref, so method calls work via coercion.
-        // For Arc<Mutex<T>>, the Deref is to Mutex<T>, which doesn't have methods.
-        // We generate a try-both approach: try direct call, or if needed, lock().unwrap().
-        // To keep it simple, generate code that works for Arc<T> since most types are that.
-        // For Arc<Mutex<T>> types, users should provide adapter bodies via alef.adapters.
+        // When the type is in mutex_types, we need .lock().unwrap() to access the inner value,
+        // regardless of whether the method is &self or &mut self. The Mutex protects the inner value.
+        let needs_lock = mutex_types.contains(type_name);
         let core_call = if is_owned_receiver {
             format!("(*self.inner).clone().{}({})", method.name, call_args)
+        } else if needs_lock {
+            format!("self.inner.lock().unwrap().{}({})", method.name, call_args)
         } else {
             format!("self.inner.{}({})", method.name, call_args)
         };
@@ -243,6 +244,7 @@ pub(crate) fn gen_instance_method(
                     true,
                     method.returns_ref,
                     method.returns_cow,
+                    mutex_types,
                 );
                 crate::template_env::render(
                     "php_result_wrapped_body.jinja",
@@ -261,13 +263,21 @@ pub(crate) fn gen_instance_method(
                 true,
                 method.returns_ref,
                 method.returns_cow,
+                mutex_types,
             )
         }
     } else if is_opaque {
         // Not auto-delegatable opaque instance method — use let-binding conversion
         let let_bindings = gen_php_named_let_bindings(&method.params, opaque_types, core_import);
         let call_args = gen_php_call_args_with_let_bindings(&method.params, opaque_types);
-        let core_call = format!("self.inner.{}({})", method.name, call_args);
+        // When the type is in mutex_types, we need .lock().unwrap() to access the inner value,
+        // regardless of whether the method is &self or &mut self. The Mutex protects the inner value.
+        let needs_lock = mutex_types.contains(type_name);
+        let core_call = if needs_lock {
+            format!("self.inner.lock().unwrap().{}({})", method.name, call_args)
+        } else {
+            format!("self.inner.{}({})", method.name, call_args)
+        };
         if method.error_type.is_some() {
             if matches!(method.return_type, TypeRef::Unit) {
                 crate::template_env::render(
@@ -286,6 +296,7 @@ pub(crate) fn gen_instance_method(
                     true,
                     method.returns_ref,
                     method.returns_cow,
+                    mutex_types,
                 );
                 crate::template_env::render(
                     "php_result_wrapped_body_with_let_bindings.jinja",
@@ -306,7 +317,8 @@ pub(crate) fn gen_instance_method(
                     opaque_types,
                     true,
                     method.returns_ref,
-                    method.returns_cow
+                    method.returns_cow,
+                    mutex_types,
                 )
             )
         }
@@ -369,6 +381,7 @@ pub(crate) fn gen_instance_method_non_opaque(
     opaque_types: &AHashSet<String>,
     enums: &[EnumDef],
     bridge_type_aliases: &AHashSet<String>,
+    mutex_types: &AHashSet<String>,
 ) -> String {
     let params = gen_php_function_params(&method.params, mapper, opaque_types, bridge_type_aliases);
     let return_type = mapper.map_type(&method.return_type);
@@ -401,6 +414,7 @@ pub(crate) fn gen_instance_method_non_opaque(
             typ.is_opaque,
             method.returns_ref,
             method.returns_cow,
+            mutex_types,
         );
 
         let is_enum_return = matches!(&method.return_type, TypeRef::Named(n) if mapper.enum_names.contains(n.as_str()));
@@ -423,6 +437,7 @@ pub(crate) fn gen_instance_method_non_opaque(
                     typ.is_opaque,
                     method.returns_ref,
                     method.returns_cow,
+                    mutex_types,
                 );
                 crate::template_env::render(
                     "php_result_wrapped_body_with_let_bindings.jinja",
@@ -493,6 +508,7 @@ pub(crate) fn gen_static_method(
     opaque_types: &AHashSet<String>,
     typ: &TypeDef,
     _core_import: &str,
+    mutex_types: &AHashSet<String>,
 ) -> String {
     let empty_bridges = AHashSet::new();
     let params = gen_php_function_params(&method.params, mapper, opaque_types, &empty_bridges);
@@ -538,6 +554,7 @@ pub(crate) fn gen_static_method(
                     typ.is_opaque,
                     method.returns_ref,
                     method.returns_cow,
+                    mutex_types,
                 );
                 if wrap == "val" {
                     format!("{core_call}.map_err(|e| PhpException::default(e.to_string()))")
@@ -556,6 +573,7 @@ pub(crate) fn gen_static_method(
                 typ.is_opaque,
                 method.returns_ref,
                 method.returns_cow,
+                mutex_types,
             )
         }
     } else {
@@ -687,6 +705,7 @@ fn gen_function_body(
                     false,
                     func.returns_ref,
                     false,
+                    &AHashSet::<String>::new(),
                 );
                 crate::template_env::render(
                     "php_result_wrapped_body_with_let_bindings.jinja",
@@ -714,6 +733,7 @@ fn gen_function_body(
                 false,
                 func.returns_ref,
                 false,
+                &AHashSet::<String>::new(),
             );
             crate::template_env::render(
                 "php_wrapped_body_with_let_bindings.jinja",
@@ -761,6 +781,7 @@ fn gen_function_body(
                 false,
                 func.returns_ref,
                 false,
+                &AHashSet::<String>::new(),
             );
             crate::template_env::render(
                 "php_result_wrapped_body_with_let_bindings.jinja",
@@ -779,6 +800,7 @@ fn gen_function_body(
                 false,
                 func.returns_ref,
                 false,
+                &AHashSet::<String>::new(),
             );
             crate::template_env::render(
                 "php_wrapped_body_with_let_bindings.jinja",
@@ -879,6 +901,7 @@ fn gen_async_function_body(
                 false,
                 func.returns_ref,
                 false,
+                &AHashSet::<String>::new(),
             )
         };
         if func.error_type.is_some() {
@@ -937,6 +960,7 @@ pub(crate) fn gen_async_instance_method(
             true,
             method.returns_ref,
             method.returns_cow,
+            &AHashSet::<String>::new(),
         );
         if method.error_type.is_some() {
             crate::template_env::render(

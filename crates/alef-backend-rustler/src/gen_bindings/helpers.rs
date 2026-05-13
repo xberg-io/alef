@@ -397,6 +397,82 @@ pub(super) fn gen_elixir_struct_module(
     out
 }
 
+/// Generate an idiomatic Elixir wrapper module for an opaque type.
+///
+/// The native NIF returns the opaque type as a Rustler resource (passed as
+/// `reference()` to Elixir). This wrapper wraps the reference in a struct
+/// (`%TreeSitterLanguagePack.Parser{ref: ...}`) and exposes the type's
+/// methods as functions that delegate to the corresponding NIF
+/// (`{type_lower}_{method_name}`) provided by `{AppModule}.Native`.
+pub(super) fn gen_elixir_opaque_module(typ: &TypeDef, app_module: &str) -> String {
+    let mut out = String::with_capacity(512);
+
+    out.push_str(&hash::header(CommentStyle::Hash));
+
+    let doc_first = if !typ.doc.is_empty() {
+        doc_first_paragraph_joined(&typ.doc).replace('"', "\\\"")
+    } else {
+        String::new()
+    };
+    let ctx = minijinja::context! {
+        app_module => app_module,
+        type_name => &typ.name,
+        has_doc => !typ.doc.is_empty(),
+        doc => doc_first,
+    };
+    out.push_str(&template_env::render("struct_module_header.jinja", ctx));
+
+    // Native alias and reference-only struct.
+    out.push_str(&format!("  alias {app_module}.Native\n\n"));
+    out.push_str("  defstruct [:ref]\n\n");
+    out.push_str("  @type t :: %__MODULE__{ref: reference()}\n\n");
+
+    let type_lower = typ.name.to_lowercase();
+
+    // Constructor for types with a default — wraps the native default reference.
+    if typ.has_default {
+        out.push_str("  @doc \"Build a default instance.\"\n");
+        out.push_str("  @spec new() :: t()\n");
+        out.push_str("  def new do\n");
+        out.push_str(&format!("    %__MODULE__{{ref: Native.{type_lower}_default()}}\n"));
+        out.push_str("  end\n\n");
+    }
+
+    // Wrapper for each method. Methods with a receiver take the struct as the
+    // first argument and pass `obj.ref` to the NIF. Static methods (no receiver)
+    // are emitted as module-level functions.
+    for method in &typ.methods {
+        let method_name = method.name.to_snake_case();
+        let nif_fn = format!("{type_lower}_{}", method.name);
+
+        let mut call_args: Vec<String> = Vec::new();
+        let mut def_args: Vec<String> = Vec::new();
+        if method.receiver.is_some() {
+            def_args.push("obj".to_string());
+            call_args.push("obj.ref".to_string());
+        }
+        for p in &method.params {
+            let safe = elixir_safe_param_name(&p.name);
+            def_args.push(safe.clone());
+            call_args.push(safe);
+        }
+
+        let doc_first = method.doc.lines().next().unwrap_or("").replace('"', "\\\"");
+        if !doc_first.is_empty() {
+            out.push_str(&format!("  @doc \"{doc_first}\"\n"));
+        }
+        out.push_str(&format!("  def {method_name}({}) do\n", def_args.join(", ")));
+        out.push_str(&format!("    Native.{nif_fn}({})\n", call_args.join(", ")));
+        out.push_str("  end\n\n");
+    }
+
+    out.push_str(&template_env::render(
+        "struct_module_footer.jinja",
+        minijinja::context! {},
+    ));
+    out
+}
+
 /// Elixir built-in type names that must not be redefined with `@type`.
 ///
 /// Emitting `@type list :: ...` shadows the built-in `list/0` and produces a

@@ -7,6 +7,7 @@
 use crate::codegen::resolve_field;
 use crate::config::E2eConfig;
 use crate::escape::sanitize_filename;
+use crate::field_access::FieldResolver;
 use crate::fixture::{Assertion, Fixture, FixtureGroup, HttpFixture, ValidationErrorExpectation};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::ResolvedCrateConfig;
@@ -162,6 +163,18 @@ fn render_test_file(
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
 
+    // Build the field resolver from the e2e config so assertion rendering can validate
+    // fixture field paths against the configured result type — assertions on fields that
+    // don't exist on the result type are emitted as `// skipped:` comments rather than
+    // compile-time errors. Mirrors the Python/Go/Java/TypeScript codegen pattern.
+    let field_resolver = FieldResolver::new(
+        &e2e_config.fields,
+        &e2e_config.fields_optional,
+        &e2e_config.result_fields,
+        &e2e_config.fields_array,
+        &std::collections::HashSet::new(),
+    );
+
     // Check if any fixture needs the http package (HTTP server tests).
     let has_http_fixtures = fixtures.iter().any(|f| f.is_http_test());
 
@@ -187,14 +200,20 @@ fn render_test_file(
             .any(|a| a.arg_type == "file_path" || a.arg_type == "bytes")
     });
 
-    // Detect whether any non-HTTP fixture uses a handle arg — if so we need dart:convert
-    // to call jsonDecode when building the engine config from a JSON string.
+    // Detect whether any non-HTTP fixture uses a json_object arg that resolves to a JSON array —
+    // those are materialized via `jsonDecode` at test-run time and cast to `List<String>`.
+    // Handle args themselves no longer require `jsonDecode` since they construct the config via
+    // the FRB-generated `createCrawlConfigFromJson(json:)` helper which accepts the JSON string
+    // directly. The variable name is kept as `has_handle_args` for downstream stability.
     let has_handle_args = fixtures.iter().any(|f| {
         if f.is_http_test() {
             return false;
         }
         let call_config = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
-        call_config.args.iter().any(|a| a.arg_type == "handle")
+        call_config
+            .args
+            .iter()
+            .any(|a| a.arg_type == "json_object" && super::resolve_field(&f.input, &a.field).is_array())
     });
 
     let _ = writeln!(out, "import 'package:test/test.dart';");
@@ -292,14 +311,21 @@ fn render_test_file(
     }
 
     for fixture in fixtures {
-        render_test_case(&mut out, fixture, e2e_config, lang, bridge_class);
+        render_test_case(&mut out, fixture, e2e_config, lang, bridge_class, &field_resolver);
     }
 
     let _ = writeln!(out, "}}");
     out
 }
 
-fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig, lang: &str, bridge_class: &str) {
+fn render_test_case(
+    out: &mut String,
+    fixture: &Fixture,
+    e2e_config: &E2eConfig,
+    lang: &str,
+    bridge_class: &str,
+    field_resolver: &FieldResolver,
+) {
     // HTTP fixtures: hit the mock server.
     if let Some(http) = &fixture.http {
         render_http_test_case(out, fixture, http);
@@ -425,15 +451,20 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
                 if config_value.is_null()
                     || config_value.is_object() && config_value.as_object().is_some_and(|o| o.is_empty())
                 {
-                    setup_lines.push(format!("final {name} = await {bridge_class}.{create_fn}(null);"));
+                    setup_lines.push(format!("final {name} = await {bridge_class}.{create_fn}();"));
                 } else {
                     let json_str = serde_json::to_string(&config_value).unwrap_or_default();
                     let config_var = format!("{name}Config");
+                    // FRB-generated free function: `createCrawlConfigFromJson(json: '...')` — async,
+                    // deserializes the JSON into the mirror struct via the Rust `create_<type>_from_json`
+                    // helper emitted by the dart backend. This avoids relying on a Dart-side `fromJson`
+                    // constructor (FRB classes don't expose one).
                     setup_lines.push(format!(
-                        "final {config_var} = CrawlConfig.fromJson(jsonDecode(r'{json_str}') as Map<String, dynamic>);"
+                        "final {config_var} = await createCrawlConfigFromJson(json: r'{json_str}');"
                     ));
+                    // Facade exposes `createEngine` with a named `config:` parameter — call it that way.
                     setup_lines.push(format!(
-                        "final {name} = await {bridge_class}.{create_fn}({config_var});"
+                        "final {name} = await {bridge_class}.{create_fn}(config: {config_var});"
                     ));
                 }
                 args.push(name);
@@ -697,7 +728,7 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
             if is_streaming {
                 render_streaming_assertion_dart(out, assertion, result_var);
             } else {
-                render_assertion_dart(out, assertion, result_var, result_is_simple);
+                render_assertion_dart(out, assertion, result_var, result_is_simple, field_resolver);
             }
         }
     }
@@ -720,7 +751,34 @@ fn dart_format_value(val: &serde_json::Value) -> String {
 ///
 /// Field paths are converted per-segment to camelCase (FRB v2 convention) using
 /// [`field_to_dart_accessor`].  All 24 fixture assertion types are handled.
-fn render_assertion_dart(out: &mut String, assertion: &Assertion, result_var: &str, result_is_simple: bool) {
+///
+/// Assertions on fixture fields that are not in the configured `result_fields` set
+/// are emitted as a `// skipped:` comment instead — the Dart binding may model a
+/// different result shape than the fixture asserts on (e.g. flat `ScrapeResult` vs.
+/// nested `result.browser.*`), and emitting unresolvable getters would break the
+/// whole file at compile time.
+fn render_assertion_dart(
+    out: &mut String,
+    assertion: &Assertion,
+    result_var: &str,
+    result_is_simple: bool,
+    field_resolver: &FieldResolver,
+) {
+    // Skip assertions on fields that don't exist on the dart result type. This must run
+    // BEFORE the array-traversal and standard accessor paths since both emit code that
+    // references the field — an unknown field path produces an `isn't defined` error.
+    if !result_is_simple {
+        if let Some(f) = assertion.field.as_deref() {
+            // Use the head segment (before any `[].`) for validation since `is_valid_for_result`
+            // only checks the first path component.
+            let head = f.split("[].").next().unwrap_or(f);
+            if !head.is_empty() && !field_resolver.is_valid_for_result(head) {
+                let _ = writeln!(out, "    // skipped: field '{f}' not available on dart result type");
+                return;
+            }
+        }
+    }
+
     // Handle array traversal (e.g. "links[].link_type" → any() expression).
     if let Some(f) = assertion.field.as_deref() {
         if let Some(dot) = f.find("[].") {

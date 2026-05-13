@@ -223,10 +223,18 @@ pub fn render_assertion(
     // Exception: fields prefixed with "error." target the error value in error-context
     // assertions — they are resolved against the error type via accessor_for_error,
     // not against the success result type, so they must not be skipped here.
+    // However, when NOT in error context (i.e. the call site uses .expect() and binds
+    // the Ok value), there is no Err to inspect — skip error.* assertions with a comment.
     if let Some(f) = &assertion.field {
-        if !f.is_empty() && !f.starts_with("error.") && !field_resolver.is_valid_for_result(f) {
-            let _ = writeln!(out, "    // skipped: field '{f}' not available on result type");
-            return;
+        if !f.is_empty() {
+            if f.starts_with("error.") && !is_error_context {
+                let _ = writeln!(out, "    // skipped: field '{f}' not available on result type");
+                return;
+            }
+            if !f.starts_with("error.") && !field_resolver.is_valid_for_result(f) {
+                let _ = writeln!(out, "    // skipped: field '{f}' not available on result type");
+                return;
+            }
         }
     }
 

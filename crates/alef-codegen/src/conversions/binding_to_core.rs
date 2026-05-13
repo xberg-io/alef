@@ -250,7 +250,18 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
                 format!("{}: val.{}.inner", field.name, field.name)
             }
         } else if is_opaque_no_wrapper_field {
-            format!("{}: Default::default()", field.name)
+            // Trait-bridge OptionsField fields: the binding wrapper holds `inner: Arc<core::T>`.
+            // Clone out of the Arc so the visitor (or other bridge handle) is forwarded instead
+            // of silently dropped. Fall back to Default::default() when no Arc wrapper is present.
+            if config.trait_bridge_field_is_arc_wrapper(&field.name) {
+                if field.optional {
+                    format!("{}: val.{}.map(|v| (*v.inner).clone())", field.name, field.name)
+                } else {
+                    format!("{}: (*val.{}.inner).clone()", field.name, field.name)
+                }
+            } else {
+                format!("{}: Default::default()", field.name)
+            }
         } else {
             apply_core_wrapper_to_core(
                 &conversion,
@@ -1088,6 +1099,9 @@ pub fn apply_core_wrapper_to_core(
 #[cfg(test)]
 mod tests {
     use super::gen_from_binding_to_core;
+    use super::gen_from_binding_to_core_cfg;
+    use crate::conversions::ConversionConfig;
+    use ahash::AHashSet;
     use alef_core::ir::{CoreWrapper, DefaultValue, FieldDef, TypeDef, TypeRef};
 
     fn type_with_field(field: FieldDef) -> TypeDef {
@@ -1136,5 +1150,98 @@ mod tests {
 
         assert!(out.contains("language: val.language.into()"));
         assert!(!out.contains("language: Default::default()"));
+    }
+
+    /// Trait-bridge OptionsField field with Arc wrapper: the binding→core From impl must
+    /// emit `val.visitor.map(|v| (*v.inner).clone())` and must NOT fall back to
+    /// `visitor: Default::default()`, which would silently drop the visitor handle.
+    #[test]
+    fn trait_bridge_arc_wrapper_field_forwards_value_not_default() {
+        let opaque_type_name = "VisitorHandle".to_string();
+        let mut opaque_set = AHashSet::new();
+        opaque_set.insert(opaque_type_name.clone());
+
+        let field = FieldDef {
+            name: "visitor".to_string(),
+            ty: TypeRef::Named(opaque_type_name.clone()),
+            optional: true,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: Some("feature = \"visitor\"".to_string()),
+            typed_default: None,
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
+        };
+
+        let never_skip = vec!["visitor".to_string()];
+        let arc_wrapper = vec!["visitor".to_string()];
+
+        let config = ConversionConfig {
+            opaque_types: Some(&opaque_set),
+            never_skip_cfg_field_names: &never_skip,
+            trait_bridge_arc_wrapper_field_names: &arc_wrapper,
+            ..ConversionConfig::default()
+        };
+
+        let out = gen_from_binding_to_core_cfg(&type_with_field(field), "crate", &config);
+
+        assert!(
+            out.contains("val.visitor.map(|v| (*v.inner).clone())"),
+            "expected arc-wrapper clone forwarding, got:\n{out}"
+        );
+        assert!(
+            !out.contains("visitor: Default::default()"),
+            "must not emit Default::default() for arc-wrapper trait-bridge field, got:\n{out}"
+        );
+    }
+
+    /// When `trait_bridge_arc_wrapper_field_names` is empty (default), the old
+    /// `Default::default()` fallback is preserved for opaque-no-wrapper fields.
+    #[test]
+    fn opaque_no_wrapper_field_without_arc_flag_emits_default() {
+        let opaque_type_name = "OpaqueHandle".to_string();
+        let mut opaque_set = AHashSet::new();
+        opaque_set.insert(opaque_type_name.clone());
+
+        let field = FieldDef {
+            name: "handle".to_string(),
+            ty: TypeRef::Named(opaque_type_name.clone()),
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
+        };
+
+        let config = ConversionConfig {
+            opaque_types: Some(&opaque_set),
+            // trait_bridge_arc_wrapper_field_names left empty (default)
+            ..ConversionConfig::default()
+        };
+
+        let out = gen_from_binding_to_core_cfg(&type_with_field(field), "crate", &config);
+
+        assert!(
+            out.contains("handle: Default::default()"),
+            "expected Default::default() for non-arc-wrapper opaque field, got:\n{out}"
+        );
+        assert!(
+            !out.contains("(*val.handle.inner).clone()"),
+            "must not emit arc-clone for non-arc-wrapper opaque field, got:\n{out}"
+        );
     }
 }

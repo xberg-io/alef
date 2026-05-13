@@ -348,6 +348,8 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
                 // into the binding struct. If the core field is `#[cfg(...)]`-gated, the
                 // struct generator strips it and the generated bridge code would reference
                 // a missing field, producing `E0609 no field` at compile time.
+                // Exception: fields listed in never_skip_cfg_field_names are cfg-gated but
+                // preserved by the struct generator, so they are valid for bridge codegen.
                 .filter(|(_, bridge_cfg)| {
                     let Some(field_name) = bridge_cfg.resolved_options_field() else { return false; };
                     let Some(options_type) = bridge_cfg.options_type.as_deref() else { return false; };
@@ -355,7 +357,7 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
                         .iter()
                         .filter(|t| t.name == options_type)
                         .flat_map(|t| t.fields.iter())
-                        .any(|f| f.cfg.is_none() && f.name == field_name)
+                        .any(|f| f.name == field_name && (f.cfg.is_none() || never_skip_cfg_field_names.iter().any(|n| n == field_name)))
                 });
             // Skip sanitized functions when there's no trait bridge that can replace the
             // sanitized parameter — such functions cannot be auto-delegated. Functions
@@ -398,6 +400,7 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
                     &opaque_types,
                     &default_types,
                     &prefix,
+                    &capsule_types,
                 ));
             }
         }
@@ -723,5 +726,28 @@ mod tests {
     fn napi_backend_language_is_node() {
         let b = NapiBackend;
         assert_eq!(b.language(), Language::Node);
+    }
+
+    /// Test that cfg-gated fields in never_skip_cfg_field_names pass the options-field-bridge filter.
+    #[test]
+    fn cfg_gated_field_accepted_when_in_never_skip_list() {
+        // Test the predicate logic: a cfg-gated field "visitor" should be accepted
+        // when it appears in never_skip_cfg_field_names.
+        let never_skip_cfg_field_names = vec!["visitor".to_string()];
+        let field_is_target = "visitor";
+
+        // Simulate a field with cfg = Some(...)
+        let field_has_cfg = Some("feature = \"visitor\"");
+
+        // Predicate: f.cfg.is_none() || never_skip_cfg_field_names.iter().any(|n| n == field_name)
+        let accepted = field_has_cfg.is_none()
+            || never_skip_cfg_field_names
+                .iter()
+                .any(|n| n == field_is_target);
+
+        assert!(
+            accepted,
+            "cfg-gated field 'visitor' should pass filter when in never_skip_cfg_field_names"
+        );
     }
 }

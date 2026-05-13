@@ -16,6 +16,7 @@ pub(super) fn gen_function(
     opaque_types: &AHashSet<String>,
     default_types: &AHashSet<String>,
     prefix: &str,
+    capsule_types: &std::collections::HashMap<String, alef_core::config::NodeCapsuleTypeConfig>,
 ) -> String {
     // Treat any Named param whose type derives Default as binding-optional so
     // JS callers can omit it (or pass undefined) — we materialise the default
@@ -37,9 +38,16 @@ pub(super) fn gen_function(
         })
         .collect();
     let params = function_params(&augmented_params, &|ty| {
+        // Capsule types reference external ecosystem types (not wrapped with Js prefix).
         // Opaque Named params must be received by reference since NAPI opaque
         // structs don't implement FromNapiValue (they use Arc<T> internally).
         if let TypeRef::Named(n) = ty {
+            if capsule_types.contains_key(n.as_str()) {
+                // Capsule types use the external type name from config
+                if let Some(capsule_cfg) = capsule_types.get(n.as_str()) {
+                    return capsule_cfg.from_module.clone();
+                }
+            }
             if opaque_types.contains(n.as_str()) {
                 return format!("&{prefix}{n}");
             }
@@ -124,7 +132,7 @@ pub(super) fn gen_function(
             if matches!(func.return_type, TypeRef::Unit) {
                 format!("{vec_str_bindings}{serde_bindings}{core_call}{await_kw}{err_conv}?;\n    Ok(())")
             } else {
-                let wrapped = napi_wrap_return_fn("val", &func.return_type, opaque_types, func.returns_ref, prefix);
+                let wrapped = napi_wrap_return_fn("val", &func.return_type, opaque_types, func.returns_ref, prefix, Some(capsule_types));
                 if wrapped == "val" {
                     format!("{vec_str_bindings}{serde_bindings}{core_call}{await_kw}{err_conv}")
                 } else {
@@ -153,7 +161,7 @@ pub(super) fn gen_function(
         // Add napi::Buffer to Vec<u8> conversion bindings
         let_bindings.push_str(&gen_napi_buffer_conversion_bindings(&func.params));
         let core_call = format!("{core_fn_path}({call_args})");
-        let return_wrap = napi_wrap_return_fn("result", &func.return_type, opaque_types, func.returns_ref, prefix);
+        let return_wrap = napi_wrap_return_fn("result", &func.return_type, opaque_types, func.returns_ref, prefix, Some(capsule_types));
         let return_type = mapper.map_type(&func.return_type);
         generators::gen_async_body(
             &core_call,
@@ -179,7 +187,7 @@ pub(super) fn gen_function(
         let_bindings.push_str(&gen_napi_buffer_conversion_bindings(&func.params));
 
         if func.error_type.is_some() {
-            let wrapped = napi_wrap_return_fn("val", &func.return_type, opaque_types, func.returns_ref, prefix);
+            let wrapped = napi_wrap_return_fn("val", &func.return_type, opaque_types, func.returns_ref, prefix, Some(capsule_types));
             if wrapped == "val" {
                 format!("{let_bindings}{core_call}{err_conv}")
             } else {
@@ -188,7 +196,7 @@ pub(super) fn gen_function(
         } else {
             format!(
                 "{let_bindings}{}",
-                napi_wrap_return_fn(&core_call, &func.return_type, opaque_types, func.returns_ref, prefix)
+                napi_wrap_return_fn(&core_call, &func.return_type, opaque_types, func.returns_ref, prefix, Some(capsule_types))
             )
         }
     };
@@ -457,7 +465,15 @@ pub(super) fn napi_wrap_return(
             }
         }
         TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
-            if returns_ref {
+            // When expr is self.inner or self.inner.clone(), it's already Arc<T>, so don't wrap again.
+            // For method calls that return the inner type directly, we need to wrap in Arc.
+            let already_arc = expr == "self.inner"
+                || expr == "self.inner.clone()"
+                || expr.starts_with("self.inner.as_ref()")
+                || expr.starts_with("self.inner.clone()");
+            if already_arc {
+                format!("{prefix}{n} {{ inner: {expr} }}")
+            } else if returns_ref {
                 format!("{prefix}{n} {{ inner: Arc::new({expr}.clone()) }}")
             } else {
                 format!("{prefix}{n} {{ inner: Arc::new({expr}) }}")
@@ -489,12 +505,17 @@ pub(super) fn napi_wrap_return_fn(
     opaque_types: &AHashSet<String>,
     returns_ref: bool,
     prefix: &str,
+    capsule_types: Option<&std::collections::HashMap<String, alef_core::config::NodeCapsuleTypeConfig>>,
 ) -> String {
     match return_type {
         TypeRef::Primitive(p) if needs_napi_cast(p) => {
             format!("{expr} as i64")
         }
         TypeRef::Duration => format!("{expr}.as_millis() as i64"),
+        TypeRef::Named(n) if capsule_types.map_or(false, |ct| ct.contains_key(n.as_str())) => {
+            // Capsule types are returned as-is from the core, no wrapper wrapping
+            expr.to_string()
+        }
         TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
             if returns_ref {
                 format!("{prefix}{n} {{ inner: Arc::new({expr}.clone()) }}")
@@ -521,6 +542,10 @@ pub(super) fn napi_wrap_return_fn(
         TypeRef::Path => format!("{expr}.to_string_lossy().to_string()"),
         TypeRef::Json => format!("{expr}.to_string()"),
         TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(name) if capsule_types.map_or(false, |ct| ct.contains_key(name.as_str())) => {
+                // Capsule types wrapped in Option are returned as-is
+                expr.to_string()
+            }
             TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
                 if returns_ref {
                     format!("{expr}.map(|v| {prefix}{name} {{ inner: Arc::new(v.clone()) }})")
@@ -536,6 +561,13 @@ pub(super) fn napi_wrap_return_fn(
                 }
             }
             TypeRef::Vec(inner) => match inner.as_ref() {
+                TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
+                    if returns_ref {
+                        format!("{expr}.map(|v| v.into_iter().map(|x| {prefix}{n} {{ inner: Arc::new(x.clone()) }}).collect())")
+                    } else {
+                        format!("{expr}.map(|v| v.into_iter().map(|x| {prefix}{n} {{ inner: Arc::new(x) }}).collect())")
+                    }
+                }
                 TypeRef::Named(_) => {
                     if returns_ref {
                         format!("{expr}.map(|v| v.into_iter().map(|x| x.clone().into()).collect())")

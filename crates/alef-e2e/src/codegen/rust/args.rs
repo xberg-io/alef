@@ -24,8 +24,12 @@ pub fn render_rust_arg(
     test_documents_dir: &str,
 ) -> (Vec<String>, String) {
     if arg_type == "mock_url" {
+        // Prefer the per-fixture `MOCK_SERVER_<FIXTURE_ID>` env var when set (host-root
+        // fixtures get their own listener — robots.txt and sitemap.xml must live at the
+        // host root). Fall back to `MOCK_SERVER_URL/fixtures/<id>` for the common case.
+        let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
         let lines = vec![format!(
-            "let {name} = format!(\"{{}}/fixtures/{{}}\", common::mock_server_url(), \"{fixture_id}\");"
+            "let {name} = std::env::var(\"{env_key}\").unwrap_or_else(|_| {{ let _ = common::mock_server_url(); std::env::var(\"{env_key}\").unwrap_or_else(|_| format!(\"{{}}/fixtures/{{}}\", common::mock_server_url(), \"{fixture_id}\")) }});"
         )];
         return (lines, format!("&{name}"));
     }

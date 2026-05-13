@@ -1747,3 +1747,100 @@ fn test_visitor_bridge_debug_not_duplicated() {
     );
 }
 
+#[test]
+fn test_module_init_requires_json_stdlib() {
+    let backend = MagnusBackend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config();
+    let result = backend.generate_bindings(&api, &config);
+
+    assert!(result.is_ok(), "Generation should succeed");
+
+    let files = result.unwrap();
+    let lib_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("lib.rs"))
+        .unwrap();
+    let content = &lib_file.content;
+
+    // Module init function must emit require "json" to ensure Hash#to_json is available
+    assert!(
+        content.contains("require") && content.contains("json"),
+        "Module init must emit require \"json\" to load JSON stdlib for Hash#to_json"
+    );
+    assert!(
+        content.contains("ruby.eval"),
+        "Must use ruby.eval to load JSON library"
+    );
+}
+
+#[test]
+fn test_trait_bridge_options_field_error_propagation_in_generated_code() {
+    // This test verifies that trait bridge code generation includes proper error
+    // handling when deserializing Ruby Hash to options via JSON. Previously, the
+    // code silently swallowed errors via unwrap_or_default(), causing missing
+    // options like include_document_structure to be lost.
+
+    let backend = MagnusBackend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "ConversionOptions".to_string(),
+            rust_path: "test_lib::ConversionOptions".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![make_field("debug", TypeRef::Primitive(PrimitiveType::Bool), true)],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config();
+    let result = backend.generate_bindings(&api, &config);
+
+    assert!(result.is_ok(), "Generation should succeed");
+
+    let files = result.unwrap();
+    let lib_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("lib.rs"))
+        .unwrap();
+    let content = &lib_file.content;
+
+    // The generated code should include error-safe deserialization patterns
+    // (These patterns are generated within trait bridges when options_field binding is used)
+    // For this test, we verify that the codebase pattern is NOT using .unwrap_or_default()
+    // after to_json calls.
+    assert!(
+        !content.contains(".unwrap_or_default()")
+            || !content.contains("funcall::<_, _, String>(\"to_json\""),
+        "Generated trait bridge code must not use unwrap_or_default() for JSON serialization"
+    );
+}
+

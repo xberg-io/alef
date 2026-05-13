@@ -181,7 +181,7 @@ enum Commands {
         #[arg(long, short)]
         release: bool,
     },
-    /// Run all: generate + stubs + scaffold + readme + sync.
+    /// Run all: generate + stubs + scaffold + readme + sync + e2e.
     All {
         /// Ignore cache.
         #[arg(long)]
@@ -1119,6 +1119,7 @@ fn main() -> Result<()> {
             let crates_to_process = dispatch::select_crates(&resolved, &cli.crate_filter)?;
             let multi = dispatch::is_multi_crate(&crates_to_process);
             let base_dir = std::env::current_dir()?;
+            let config_toml = std::fs::read_to_string(config_path)?;
 
             let mut grand_binding_count: usize = 0;
             let mut grand_stub_count: usize = 0;
@@ -1293,12 +1294,32 @@ fn main() -> Result<()> {
                         }
                     }
 
-                    eprintln!("Generating e2e test suites...");
-                    let files = alef_e2e::generate_e2e(resolved_cfg, e2e_config, None, &api.types)?;
-                    e2e_count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, clean)?;
-                    alef_e2e::format::run_formatters(&files, e2e_config);
-                    for file in &files {
-                        current_gen_paths.insert(base_dir.join(&file.path));
+                    // Check e2e stage cache: skip regeneration if fixtures + IR + config
+                    // are all unchanged (unless --clean forces a full regeneration).
+                    let fixtures_dir = std::path::Path::new(&e2e_config.fixtures);
+                    let fixture_hash = cache::hash_directory(fixtures_dir).unwrap_or_default();
+                    let ir_json = serde_json::to_string(&api)?;
+                    let e2e_stage_hash = cache::compute_stage_hash(&ir_json, "e2e", &config_toml, &fixture_hash);
+                    if !clean && cache::is_stage_cached(&resolved_cfg.name, "e2e", &e2e_stage_hash) {
+                        eprintln!("  [e2e] up to date (skipping)");
+                    } else {
+                        eprintln!("Generating e2e test suites...");
+                        let files = alef_e2e::generate_e2e(resolved_cfg, e2e_config, None, &api.types)?;
+                        e2e_count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true)?;
+                        alef_e2e::format::run_formatters(&files, e2e_config);
+
+                        let output_paths: Vec<PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();
+                        let path_set: std::collections::HashSet<PathBuf> = output_paths.iter().cloned().collect();
+
+                        // Sweep orphan alef-generated e2e files from the output directory.
+                        let e2e_output_root = base_dir.join(&e2e_config.output);
+                        pipeline::sweep_orphans(&[e2e_output_root], &path_set)?;
+
+                        cache::write_stage_hash(&resolved_cfg.name, "e2e", &e2e_stage_hash, &output_paths)?;
+
+                        for path in output_paths {
+                            current_gen_paths.insert(path);
+                        }
                     }
                 }
 

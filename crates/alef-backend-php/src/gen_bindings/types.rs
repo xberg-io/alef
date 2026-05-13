@@ -51,6 +51,7 @@ pub(crate) fn gen_opaque_struct_methods(
     opaque_types: &AHashSet<String>,
     core_import: &str,
     adapter_bodies: &AdapterBodies,
+    mutex_types: &AHashSet<String>,
 ) -> String {
     let mut impl_builder = ImplBuilder::new(&typ.name);
     impl_builder.add_attr("php_impl");
@@ -76,6 +77,7 @@ pub(crate) fn gen_opaque_struct_methods(
                 opaque_types,
                 core_import,
                 adapter_bodies,
+                mutex_types,
             ));
         }
     }
@@ -83,7 +85,7 @@ pub(crate) fn gen_opaque_struct_methods(
         if method.is_async {
             impl_builder.add_method(&gen_async_static_method(method, mapper, opaque_types));
         } else {
-            impl_builder.add_method(&gen_static_method(method, mapper, opaque_types, typ, core_import));
+            impl_builder.add_method(&gen_static_method(method, mapper, opaque_types, typ, core_import, mutex_types));
         }
     }
 
@@ -256,6 +258,7 @@ pub(crate) fn gen_struct_methods(
     opaque_types: &AHashSet<String>,
     enum_names: &AHashSet<String>,
     enums: &[EnumDef],
+    mutex_types: &AHashSet<String>,
 ) -> String {
     gen_struct_methods_impl(
         typ,
@@ -268,6 +271,7 @@ pub(crate) fn gen_struct_methods(
         &[],              // exclude_functions: empty by default
         &AHashSet::new(), // bridge_type_aliases: empty by default
         &[],              // never_skip_cfg_field_names: empty by default
+        mutex_types,
     )
 }
 
@@ -283,6 +287,7 @@ pub fn gen_struct_methods_with_exclude(
     exclude_functions: &[String],
     bridge_type_aliases: &AHashSet<String>,
     never_skip_cfg_field_names: &[String],
+    mutex_types: &AHashSet<String>,
 ) -> String {
     gen_struct_methods_impl(
         typ,
@@ -295,6 +300,7 @@ pub fn gen_struct_methods_with_exclude(
         exclude_functions,
         bridge_type_aliases,
         never_skip_cfg_field_names,
+        mutex_types,
     )
 }
 
@@ -310,6 +316,7 @@ fn gen_struct_methods_impl(
     exclude_functions: &[String],
     bridge_type_aliases: &AHashSet<String>,
     _never_skip_cfg_field_names: &[String],
+    mutex_types: &AHashSet<String>,
 ) -> String {
     let mut impl_builder = ImplBuilder::new(&typ.name);
     impl_builder.add_attr("php_impl");
@@ -684,6 +691,7 @@ fn gen_struct_methods_impl(
                 opaque_types,
                 enums,
                 bridge_type_aliases,
+                mutex_types,
             ));
         }
     }
@@ -695,7 +703,7 @@ fn gen_struct_methods_impl(
         if method.is_async {
             impl_builder.add_method(&gen_async_static_method(method, mapper, opaque_types));
         } else {
-            impl_builder.add_method(&gen_static_method(method, mapper, opaque_types, typ, core_import));
+            impl_builder.add_method(&gen_static_method(method, mapper, opaque_types, typ, core_import, mutex_types));
         }
     }
 

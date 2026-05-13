@@ -847,6 +847,9 @@ pub(super) fn gen_module_init(
             },
         ),
         "".to_string(),
+        "    // Ensure JSON library is loaded for Hash#to_json".to_string(),
+        "    let _ = ruby.eval::<Value>(\"require \\\"json\\\"\");".to_string(),
+        "".to_string(),
     ];
 
     // Custom registrations (before generated ones)
