@@ -1607,7 +1607,7 @@ fn render_assertion(
                 let kotlin_val = json_to_kotlin(val);
                 let _ = writeln!(
                     out,
-                    "        assertTrue({nonnull_field_expr} > {kotlin_val}, \"expected > {{kotlin_val}}\")"
+                    "        assertTrue({nonnull_field_expr} > {kotlin_val}, \"expected > {kotlin_val}\")"
                 );
             }
         }
@@ -1616,7 +1616,7 @@ fn render_assertion(
                 let kotlin_val = json_to_kotlin(val);
                 let _ = writeln!(
                     out,
-                    "        assertTrue({nonnull_field_expr} < {kotlin_val}, \"expected < {{kotlin_val}}\")"
+                    "        assertTrue({nonnull_field_expr} < {kotlin_val}, \"expected < {kotlin_val}\")"
                 );
             }
         }
@@ -1625,7 +1625,7 @@ fn render_assertion(
                 let kotlin_val = json_to_kotlin(val);
                 let _ = writeln!(
                     out,
-                    "        assertTrue({nonnull_field_expr} >= {kotlin_val}, \"expected >= {{kotlin_val}}\")"
+                    "        assertTrue({nonnull_field_expr} >= {kotlin_val}, \"expected >= {kotlin_val}\")"
                 );
             }
         }
@@ -1634,7 +1634,7 @@ fn render_assertion(
                 let kotlin_val = json_to_kotlin(val);
                 let _ = writeln!(
                     out,
-                    "        assertTrue({nonnull_field_expr} <= {kotlin_val}, \"expected <= {{kotlin_val}}\")"
+                    "        assertTrue({nonnull_field_expr} <= {kotlin_val}, \"expected <= {kotlin_val}\")"
                 );
             }
         }

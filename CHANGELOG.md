@@ -11,7 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(alef-backend-wasm): wrap opaque types with `&mut self` methods in `Arc<Mutex<T>>` matching NAPI/PyO3/Magnus pattern. Opaque types now detect `RefMut` receivers and conditionally wrap the inner type in `std::sync::Mutex` so that method delegation can call `.lock().unwrap()` before invoking mutable methods. Previously generated `Arc<T>` unconditionally, causing invalid code when methods tried to call `.lock()` on non-Mutex types.
 - fix(alef-backend-csharp): pass length argument alongside pinned pointer when delegating byte-slice params to native P/Invoke. Wrapper methods now emit both the `AddrOfPinnedObject()` pointer AND the `(UIntPtr)source.Length` argument for `&[u8]` parameters, matching the FFI signature. Previously only the pointer was passed, causing C# compile errors (CS7036: missing required parameter) when parsing byte arrays.
+- fix(alef-e2e/kotlin): fix `{kotlin_val}` placeholder in numeric comparison assertion failure messages. The `greater_than`, `less_than`, `greater_than_or_equal`, and `less_than_or_equal` assertions emitted literal text `expected > {kotlin_val}` because the placeholder was doubly-escaped (`{{kotlin_val}}`), causing Kotlin source parse errors (`Expecting an element`).
+- fix(alef-e2e): backtick-escape Kotlin hard keywords when emitting field accessors. Field paths like `result.data().first().object()` are syntax errors in Kotlin because `object` is a hard keyword; now emitted as `` result.data().first().`object`() ``. Applies to both plain and nullable-aware Kotlin accessor renderers.
 
 ## [0.15.53] - 2026-05-13
 

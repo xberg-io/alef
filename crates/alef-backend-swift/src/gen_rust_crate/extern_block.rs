@@ -7,6 +7,7 @@ use crate::gen_rust_crate::type_bridge::{
     bridge_type, bridge_type_enum_aware, bridge_type_with_handles, is_vec_of_enum, needs_json_bridge,
 };
 use crate::gen_rust_crate::wrappers::is_unbridgeable_getter;
+use alef_core::config::AdapterConfig;
 use alef_core::ir::{EnumDef, FunctionDef, TypeDef, TypeRef};
 use alef_core::keywords::swift_ident;
 use heck::{ToLowerCamelCase, ToSnakeCase};
@@ -352,4 +353,69 @@ pub(crate) fn emit_extern_block_for_functions(
 
     block.push_str("    }\n\n");
     block
+}
+
+/// Emit a single `extern "Rust"` block declaring all streaming adapter free functions.
+///
+/// Each streaming adapter with an `owner_type` becomes a free function
+/// `{owner_snake}_{adapter_name}(client: &OwnerType, …params…) -> Result<(), String>`
+/// in the swift-bridge module. swift-bridge maps `Result<(), String>` to a throwing
+/// Swift call, so HTTP-level errors (e.g. 401) propagate before any chunks arrive.
+///
+/// Returns `None` when `adapters` contains no streaming entries.
+pub(crate) fn emit_extern_block_for_streaming_adapters(adapters: &[AdapterConfig]) -> Option<String> {
+    use alef_core::config::AdapterPattern;
+
+    let streaming: Vec<&AdapterConfig> = adapters
+        .iter()
+        .filter(|a| matches!(a.pattern, AdapterPattern::Streaming))
+        .filter(|a| a.owner_type.is_some())
+        .collect();
+
+    if streaming.is_empty() {
+        return None;
+    }
+
+    let mut block = String::new();
+    block.push_str("    extern \"Rust\" {\n");
+
+    for adapter in &streaming {
+        let owner_type = adapter.owner_type.as_deref().unwrap_or("");
+        let owner_snake = owner_type.to_snake_case();
+        let fn_name = format!("{owner_snake}_{}", adapter.name);
+        let swift_name = swift_ident(&fn_name.to_lower_camel_case());
+
+        // First param is always the opaque client receiver.
+        let mut params: Vec<String> = vec![format!("client: &{owner_type}")];
+        for p in &adapter.params {
+            // Adapter param types are stored as Rust path strings (e.g.
+            // `liter_llm::ChatCompletionRequest`). Strip any module prefix for the
+            // swift-bridge extern declaration — the bridge sees only the simple
+            // wrapper-newtype name (which mirrors what `wrappers.rs` declares).
+            let simple_ty = p.ty.rsplit("::").next().unwrap_or(&p.ty);
+            let param_name = swift_ident(&p.name.to_snake_case());
+            params.push(format!("{param_name}: {simple_ty}"));
+        }
+        let params_str = params.join(", ");
+
+        if swift_name != fn_name {
+            block.push_str(&crate::template_env::render(
+                "extern_swift_name_attr.jinja",
+                minijinja::context! {
+                    swift_name => &swift_name,
+                },
+            ));
+        }
+        block.push_str(&crate::template_env::render(
+            "extern_fn_decl.jinja",
+            minijinja::context! {
+                fn_name => &fn_name,
+                params => &params_str,
+                return_type => "Result<(), String>",
+            },
+        ));
+    }
+
+    block.push_str("    }\n\n");
+    Some(block)
 }

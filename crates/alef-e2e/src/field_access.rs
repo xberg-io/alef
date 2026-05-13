@@ -742,18 +742,31 @@ fn render_java(segments: &[PathSegment], result_var: &str) -> String {
 /// - Array index-0: `.field().first()` instead of `.field().getFirst()`
 /// - Array index-N: `.field().get(N)` (explicit index)
 /// - Collection size: `.size` (property) instead of `.size()` (method)
+/// Wrap a Kotlin getter name in backticks when it collides with a Kotlin hard keyword.
+/// Hard keywords cannot be used as identifiers without escaping, so `result.object()`
+/// is a syntax error; `result.`object`()` is the legal form.
+fn kotlin_getter(name: &str) -> String {
+    let camel = name.to_lower_camel_case();
+    match camel.as_str() {
+        "as" | "break" | "class" | "continue" | "do" | "else" | "false" | "for" | "fun" | "if" | "in" | "interface"
+        | "is" | "null" | "object" | "package" | "return" | "super" | "this" | "throw" | "true" | "try"
+        | "typealias" | "typeof" | "val" | "var" | "when" | "while" => format!("`{camel}`"),
+        _ => camel,
+    }
+}
+
 fn render_kotlin(segments: &[PathSegment], result_var: &str) -> String {
     let mut out = result_var.to_string();
     for seg in segments {
         match seg {
             PathSegment::Field(f) => {
                 out.push('.');
-                out.push_str(&f.to_lower_camel_case());
+                out.push_str(&kotlin_getter(f));
                 out.push_str("()");
             }
             PathSegment::ArrayField { name, index } => {
                 out.push('.');
-                out.push_str(&name.to_lower_camel_case());
+                out.push_str(&kotlin_getter(name));
                 if *index == 0 {
                     out.push_str("().first()");
                 } else {
@@ -762,7 +775,7 @@ fn render_kotlin(segments: &[PathSegment], result_var: &str) -> String {
             }
             PathSegment::MapAccess { field, key } => {
                 out.push('.');
-                out.push_str(&field.to_lower_camel_case());
+                out.push_str(&kotlin_getter(field));
                 let is_numeric = !key.is_empty() && key.chars().all(|c| c.is_ascii_digit());
                 if is_numeric {
                     out.push_str(&format!("().get({key})"));
@@ -855,7 +868,7 @@ fn render_kotlin_with_optionals(
                 // return type T? in Kotlin).
                 let is_optional = optional_fields.contains(&path_so_far);
                 out.push_str(nav);
-                out.push_str(&f.to_lower_camel_case());
+                out.push_str(&kotlin_getter(f));
                 out.push_str("()");
                 prev_was_nullable = is_optional;
             }
@@ -866,7 +879,7 @@ fn render_kotlin_with_optionals(
                 path_so_far.push_str(name);
                 let is_optional = optional_fields.contains(&path_so_far);
                 out.push_str(nav);
-                out.push_str(&name.to_lower_camel_case());
+                out.push_str(&kotlin_getter(name));
                 let safe = if prev_was_nullable || is_optional { "?" } else { "" };
                 if *index == 0 {
                     out.push_str(&format!("(){safe}.first()"));
@@ -886,7 +899,7 @@ fn render_kotlin_with_optionals(
                 path_so_far.push_str(field);
                 let is_optional = optional_fields.contains(&path_so_far);
                 out.push_str(nav);
-                out.push_str(&field.to_lower_camel_case());
+                out.push_str(&kotlin_getter(field));
                 let is_numeric = !key.is_empty() && key.chars().all(|c| c.is_ascii_digit());
                 if is_numeric {
                     if is_optional {

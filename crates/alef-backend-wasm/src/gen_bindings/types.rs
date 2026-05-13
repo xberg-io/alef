@@ -24,10 +24,16 @@ pub(super) fn is_copy_type(ty: &TypeRef, enum_names: &AHashSet<String>) -> bool 
     }
 }
 
-/// Generate an opaque wasm-bindgen struct with inner Arc.
+/// Generate an opaque wasm-bindgen struct with inner Arc or Arc<Mutex<>>.
 pub(super) fn gen_opaque_struct(typ: &TypeDef, core_import: &str, prefix: &str) -> String {
     let js_name = format!("{prefix}{}", typ.name);
     let core_path = alef_codegen::conversions::core_type_path(typ, core_import);
+
+    // Check if any method takes &mut self, requiring Arc<Mutex<T>>
+    let has_mut_methods = typ
+        .methods
+        .iter()
+        .any(|m| matches!(m.receiver.as_ref(), Some(ReceiverKind::RefMut)));
 
     let mut out = String::with_capacity(256);
     out.push_str(&emit_rustdoc(&typ.doc));
@@ -36,6 +42,7 @@ pub(super) fn gen_opaque_struct(typ: &TypeDef, core_import: &str, prefix: &str) 
         minijinja::context! {
             struct_name => js_name,
             core_path => core_path,
+            has_mut_methods => has_mut_methods,
         },
     ));
     out
@@ -135,13 +142,18 @@ fn gen_opaque_method(
 
     let async_kw = if method.is_async { "async " } else { "" };
 
-    // Check if the core method takes ownership (Owned receiver).
-    // If so, we must clone out of Arc since wasm_bindgen methods take &self.
+    // Check if the core method takes ownership (Owned receiver) or mutable reference.
+    // For Owned: clone out of Arc since wasm_bindgen methods take &self.
+    // For RefMut: lock the Mutex and get &mut, then call the method.
     let needs_clone = matches!(method.receiver, Some(ReceiverKind::Owned));
+    let is_ref_mut = matches!(method.receiver.as_ref(), Some(ReceiverKind::RefMut));
 
     let body = if can_delegate {
         let call_args = generators::gen_call_args(&method.params, opaque_types);
-        let core_call = if needs_clone {
+        let core_call = if is_ref_mut {
+            // RefMut: inner is Arc<Mutex<T>>, lock and call &mut method
+            format!("self.inner.lock().unwrap().{}({})", method.name, call_args)
+        } else if needs_clone {
             format!("(*self.inner).clone().{}({})", method.name, call_args)
         } else {
             format!("self.inner.{}({})", method.name, call_args)

@@ -1,5 +1,5 @@
 #[derive(Clone)]
 #[wasm_bindgen]
 pub struct {{ struct_name }} {
-    pub(crate) inner: Arc<{{ core_path }}>,
+    pub(crate) inner: {% if has_mut_methods %}Arc<std::sync::Mutex<{{ core_path }}>>{% else %}Arc<{{ core_path }}>{% endif %},
 }

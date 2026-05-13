@@ -306,6 +306,15 @@ impl Backend for WasmBackend {
             .collect();
         if !opaque_types.is_empty() {
             builder.add_import("std::sync::Arc");
+            // Check if any opaque type has &mut self methods, requiring Mutex
+            let needs_mutex = api
+                .types
+                .iter()
+                .filter(|t| t.is_opaque && !exclude_types.contains(&t.name))
+                .any(|t| t.methods.iter().any(|m| m.receiver == Some(alef_core::ir::ReceiverKind::RefMut)));
+            if needs_mutex {
+                builder.add_import("std::sync::Mutex");
+            }
         }
 
         // Trait bridge type aliases (e.g. `VisitorHandle`) are opaque — they map to
