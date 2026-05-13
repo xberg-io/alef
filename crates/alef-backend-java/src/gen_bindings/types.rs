@@ -77,12 +77,17 @@ pub(crate) fn gen_record_type(
         // default Jackson behaviour for this field only.
         let needs_bytes_int_serialize = !f.optional && matches!(&f.ty, TypeRef::Bytes);
 
-        // When a field has an explicit `#[serde(rename = "...")]`, use that wire name.
-        // Otherwise keep the snake_case field name as-is — Rust's serde default is snake_case,
-        // so the wire format matches what the FFI bridge emits. Jackson's
-        // setPropertyNamingStrategy(SNAKE_CASE) in fromJson() also handles this correctly.
-        let has_json_property = f.serde_rename.is_some();
+        // Emit `@JsonProperty` in two cases:
+        // 1. The field has an explicit `#[serde(rename = "...")]` attribute.
+        // 2. The Java camelCase name differs from the snake_case wire name — e.g. `max_tokens`
+        //    serialises as `"max_tokens"` on the wire (Rust serde default) but Java converts it
+        //    to `maxTokens`. Without `@JsonProperty("max_tokens")`, Jackson serialises using the
+        //    Java field name and Rust's serde rejects the camelCase key as unrecognised.
+        //
+        // The wire name is the explicit serde rename if set, otherwise the original Rust field
+        // name (already snake_case per project convention).
         let json_property_name = f.serde_rename.clone().unwrap_or_else(|| f.name.clone());
+        let has_json_property = f.serde_rename.is_some() || jname != json_property_name;
         let has_nullable = f.optional;
 
         let mut decl = String::new();
@@ -1834,7 +1839,7 @@ fn gen_sealed_union_serializer(out: &mut String, _package: &str, enum_def: &Enum
 mod tests {
     use super::*;
     use ahash::AHashSet;
-    use alef_core::ir::{CoreWrapper, DefaultValue, FieldDef, TypeRef};
+    use alef_core::ir::{CoreWrapper, DefaultValue, FieldDef, PrimitiveType, TypeRef};
 
     fn make_config_type_with_duration_default() -> TypeDef {
         TypeDef {
@@ -1872,6 +1877,131 @@ mod tests {
             has_serde: true,
             super_traits: vec![],
         }
+    }
+
+    fn make_request_type_with_multiword_fields() -> TypeDef {
+        TypeDef {
+            name: "ChatCompletionRequest".to_string(),
+            rust_path: "liter_llm::ChatCompletionRequest".to_string(),
+            original_rust_path: "liter_llm::ChatCompletionRequest".to_string(),
+            fields: vec![
+                FieldDef {
+                    name: "model".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    doc: String::new(),
+                    sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    typed_default: None,
+                    core_wrapper: CoreWrapper::None,
+                    vec_inner_core_wrapper: CoreWrapper::None,
+                    newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
+                },
+                FieldDef {
+                    name: "max_tokens".to_string(),
+                    ty: TypeRef::Optional(Box::new(TypeRef::Primitive(PrimitiveType::I64))),
+                    optional: true,
+                    default: None,
+                    doc: String::new(),
+                    sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    typed_default: None,
+                    core_wrapper: CoreWrapper::None,
+                    vec_inner_core_wrapper: CoreWrapper::None,
+                    newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
+                },
+                FieldDef {
+                    name: "top_p".to_string(),
+                    ty: TypeRef::Optional(Box::new(TypeRef::Primitive(PrimitiveType::F64))),
+                    optional: true,
+                    default: None,
+                    doc: String::new(),
+                    sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    typed_default: None,
+                    core_wrapper: CoreWrapper::None,
+                    vec_inner_core_wrapper: CoreWrapper::None,
+                    newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
+                },
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: false,
+            is_copy: false,
+            doc: String::new(),
+            cfg: None,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+        }
+    }
+
+    /// Single-word field names like `model` should NOT get `@JsonProperty`
+    /// — camelCase equals snake_case, so no annotation is needed.
+    #[test]
+    fn single_word_field_has_no_json_property() {
+        let typ = make_request_type_with_multiword_fields();
+        let out = gen_record_type(
+            "dev.kreuzberg",
+            &typ,
+            &AHashSet::default(),
+            &AHashSet::default(),
+            "SNAKE_CASE",
+            false,
+            "LiterLlmRs",
+        );
+        // `model` is single-word: camelCase == snake_case, so no annotation needed.
+        assert!(
+            !out.contains("@JsonProperty(\"model\")"),
+            "single-word field must not get @JsonProperty"
+        );
+    }
+
+    /// Multi-word snake_case fields like `max_tokens` → `maxTokens` MUST get
+    /// `@JsonProperty("max_tokens")` so Jackson sends the snake_case wire name
+    /// that Rust's serde expects.
+    #[test]
+    fn multiword_snake_case_field_gets_json_property_annotation() {
+        let typ = make_request_type_with_multiword_fields();
+        let out = gen_record_type(
+            "dev.kreuzberg",
+            &typ,
+            &AHashSet::default(),
+            &AHashSet::default(),
+            "SNAKE_CASE",
+            false,
+            "LiterLlmRs",
+        );
+        assert!(
+            out.contains("@JsonProperty(\"max_tokens\")"),
+            "multi-word field max_tokens must have @JsonProperty(\"max_tokens\") annotation; got:\n{out}"
+        );
+        assert!(
+            out.contains("@JsonProperty(\"top_p\")"),
+            "multi-word field top_p must have @JsonProperty(\"top_p\") annotation; got:\n{out}"
+        );
+        // The import must also be present.
+        assert!(
+            out.contains("import com.fasterxml.jackson.annotation.JsonProperty;"),
+            "JsonProperty import must be present when @JsonProperty annotations are emitted"
+        );
     }
 
     #[test]

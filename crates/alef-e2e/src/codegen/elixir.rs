@@ -1006,7 +1006,7 @@ fn render_test_case(
                 out,
                 "        IO.puts(\"{fixture_id}: using mock server ({api_key_var} not set)\")"
             );
-            let _ = writeln!(out, "        {{nil, {mock_url_expr}}}");
+            let _ = writeln!(out, "        {{\"test-key\", {mock_url_expr}}}");
             let _ = writeln!(out, "      end");
             let _ = writeln!(
                 out,

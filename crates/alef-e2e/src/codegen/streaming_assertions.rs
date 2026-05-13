@@ -149,7 +149,9 @@ impl StreamingFieldResolver {
                     )
                 }
                 "elixir" => {
-                    format!("{chunks_var} |> Enum.map(&(&1.choices[0].delta.content || \"\")) |> Enum.join(\"\")")
+                    format!(
+                        "{chunks_var} |> Enum.map(&(Enum.at(&1.choices, 0).delta.content || \"\")) |> Enum.join(\"\")"
+                    )
                 }
                 "python" => {
                     format!("\"\".join(c.choices[0].delta.content or \"\" for c in {chunks_var} if c.choices)")
@@ -197,7 +199,7 @@ impl StreamingFieldResolver {
                     format!("bool({chunks_var}) and {chunks_var}[-1].choices[0].finish_reason is not None")
                 }
                 "elixir" => {
-                    format!("List.last({chunks_var}).choices[0].finish_reason != nil")
+                    format!("Enum.at(List.last({chunks_var}).choices, 0).finish_reason != nil")
                 }
                 // zig: the collect snippet exhausts the stream; check last chunk JSON
                 // was collected (chunks.items is non-empty) as a proxy for completion.
@@ -312,7 +314,7 @@ impl StreamingFieldResolver {
                     )
                 }
                 "elixir" => {
-                    format!("List.last({chunks_var}).choices[0].finish_reason")
+                    format!("Enum.at(List.last({chunks_var}).choices, 0).finish_reason")
                 }
                 // Zig: finish_reason from the last chunk's JSON via an inline labeled block.
                 // Returns `[]const u8` (unwrapped with orelse "" for expectEqualStrings).
@@ -743,6 +745,15 @@ mod tests {
         let expr = StreamingFieldResolver::accessor("stream_content", "elixir", "chunks").unwrap();
         assert!(expr.contains("|> Enum.join"), "elixir stream_content: {expr}");
         assert!(expr.contains("|> Enum.map"), "elixir stream_content: {expr}");
+        // Elixir lists do not support bracket access — must use Enum.at, never choices[0]
+        assert!(
+            !expr.contains("choices[0]"),
+            "elixir stream_content must not use bracket access on list: {expr}"
+        );
+        assert!(
+            expr.contains("Enum.at("),
+            "elixir stream_content must use Enum.at for list index: {expr}"
+        );
     }
 
     #[test]
@@ -750,6 +761,15 @@ mod tests {
         let expr = StreamingFieldResolver::accessor("stream_complete", "elixir", "chunks").unwrap();
         assert!(expr.contains("List.last(chunks)"), "elixir stream_complete: {expr}");
         assert!(expr.contains("finish_reason != nil"), "elixir stream_complete: {expr}");
+        // Elixir lists do not support bracket access — must use Enum.at, never choices[0]
+        assert!(
+            !expr.contains("choices[0]"),
+            "elixir stream_complete must not use bracket access on list: {expr}"
+        );
+        assert!(
+            expr.contains("Enum.at("),
+            "elixir stream_complete must use Enum.at for list index: {expr}"
+        );
     }
 
     #[test]
@@ -757,6 +777,15 @@ mod tests {
         let expr = StreamingFieldResolver::accessor("finish_reason", "elixir", "chunks").unwrap();
         assert!(expr.contains("List.last(chunks)"), "elixir finish_reason: {expr}");
         assert!(expr.contains("finish_reason"), "elixir finish_reason: {expr}");
+        // Elixir lists do not support bracket access — must use Enum.at, never choices[0]
+        assert!(
+            !expr.contains("choices[0]"),
+            "elixir finish_reason must not use bracket access on list: {expr}"
+        );
+        assert!(
+            expr.contains("Enum.at("),
+            "elixir finish_reason must use Enum.at for list index: {expr}"
+        );
     }
 
     #[test]

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.51] - 2026-05-13
+
+### Fixed
+
+- fix(backend-java): emit `@JsonProperty("snake_case_name")` on request type fields where the Java camelCase name differs from the original snake_case IR name; adds `import com.fasterxml.jackson.annotation.JsonProperty` automatically when needed
+- fix(e2e-elixir): streaming assertions now use `Enum.at(choices, 0)` instead of invalid `choices[0]` bracket access on Elixir lists
+- fix(e2e-elixir): smoke test fallback api_key uses `"test-key"` instead of `nil` when no env var is set, preventing NIF rejection of nil for required String parameter
+- fix(wasm): optional-enum getters return `Option<String>` via `to_api_str()` instead of raw C-style enum discriminant; optional `Vec<Struct>` getters return `Option<js_sys::Array>` for correct JS element access
+- fix(e2e): mock server serves `data: [DONE]\n\n` SSE response for streaming fixtures with empty `stream_chunks` array, preventing Python SSE parser from hanging
+
 ## [0.15.50] - 2026-05-12
 
 ### Removed
