@@ -61,6 +61,12 @@ pub(super) fn gen_opaque_struct_methods(
 ) -> String {
     let mut impl_builder = ImplBuilder::new(&typ.name);
 
+    // Check if this opaque type has any RefMut methods (indicating Mutex-wrapping).
+    let has_mut_methods = typ
+        .methods
+        .iter()
+        .any(|m| matches!(m.receiver.as_ref(), Some(alef_core::ir::ReceiverKind::RefMut)));
+
     for method in &typ.methods {
         if !method.is_static {
             if streaming_method_names.contains(&method.name) {
@@ -73,9 +79,16 @@ pub(super) fn gen_opaque_struct_methods(
                     mapper,
                     &typ.name,
                     opaque_types,
+                    has_mut_methods,
                 ));
             } else {
-                impl_builder.add_method(&gen_opaque_instance_method(method, mapper, &typ.name, opaque_types));
+                impl_builder.add_method(&gen_opaque_instance_method(
+                    method,
+                    mapper,
+                    &typ.name,
+                    opaque_types,
+                    has_mut_methods,
+                ));
             }
         }
     }
@@ -89,21 +102,34 @@ fn gen_opaque_instance_method(
     mapper: &MagnusMapper,
     type_name: &str,
     opaque_types: &AHashSet<String>,
+    has_mut_methods: bool,
 ) -> String {
     use alef_codegen::shared;
     let params = function_params(&method.params, &|ty| mapper.map_type(ty));
     let return_type = mapper.map_type(&method.return_type);
     let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
 
-    let can_delegate = shared::can_auto_delegate(method, opaque_types);
+    let is_ref_mut_receiver = matches!(method.receiver, Some(alef_core::ir::ReceiverKind::RefMut));
+    // RefMut methods can be delegated if the type is Mutex-wrapped (has_mut_methods).
+    // Arc<T> doesn't support &mut T directly, but Arc<Mutex<T>> does via lock().
+    let can_delegate = !method.sanitized
+        && (!is_ref_mut_receiver || has_mut_methods)
+        && method
+            .params
+            .iter()
+            .all(|p| !p.sanitized && shared::is_delegatable_param(&p.ty, opaque_types))
+        && shared::is_delegatable_return(&method.return_type);
 
     let body = if can_delegate {
         let call_args = generators::gen_call_args(&method.params, opaque_types);
         // For owned-receiver (consuming) methods, clone the Arc's inner value before calling,
         // since we cannot move out of an Arc from a &self method.
+        // For RefMut receivers on Mutex-wrapped types, lock the mutex.
         let is_owned_receiver = matches!(method.receiver, Some(ReceiverKind::Owned));
         let inner_access = if is_owned_receiver {
             "self.inner.as_ref().clone()".to_string()
+        } else if is_ref_mut_receiver && has_mut_methods {
+            "self.inner.lock().unwrap()".to_string()
         } else {
             "self.inner".to_string()
         };
@@ -159,17 +185,31 @@ fn gen_opaque_async_instance_method(
     mapper: &MagnusMapper,
     type_name: &str,
     opaque_types: &AHashSet<String>,
+    has_mut_methods: bool,
 ) -> String {
     use alef_codegen::shared;
     let params = function_params(&method.params, &|ty| mapper.map_type(ty));
     let return_type = mapper.map_type(&method.return_type);
     let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
 
-    let can_delegate = shared::can_auto_delegate(method, opaque_types);
+    let is_ref_mut_receiver = matches!(method.receiver, Some(alef_core::ir::ReceiverKind::RefMut));
+    // RefMut methods can be delegated if the type is Mutex-wrapped (has_mut_methods).
+    // Arc<T> doesn't support &mut T directly, but Arc<Mutex<T>> does via lock().
+    let can_delegate = !method.sanitized
+        && (!is_ref_mut_receiver || has_mut_methods)
+        && method
+            .params
+            .iter()
+            .all(|p| !p.sanitized && shared::is_delegatable_param(&p.ty, opaque_types))
+        && shared::is_delegatable_return(&method.return_type);
 
     let body = if can_delegate {
         let call_args = generators::gen_call_args(&method.params, opaque_types);
-        let inner_clone = "let inner = self.inner.clone();\n        ";
+        let inner_setup = if is_ref_mut_receiver && has_mut_methods {
+            "let inner = self.inner.lock().unwrap();\n        ".to_string()
+        } else {
+            "let inner = self.inner.clone();\n        ".to_string()
+        };
         let core_call = format!("inner.{}({})", method.name, call_args);
         let result_wrap = generators::wrap_return(
             "result",
@@ -182,13 +222,13 @@ fn gen_opaque_async_instance_method(
         );
         if method.error_type.is_some() {
             format!(
-                "{inner_clone}let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
+                "{inner_setup}let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
                  let result = rt.block_on(async {{ {core_call}.await }}).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
                  Ok({result_wrap})"
             )
         } else {
             format!(
-                "{inner_clone}let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
+                "{inner_setup}let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
                  let result = rt.block_on(async {{ {core_call}.await }});\n        \
                  {result_wrap}"
             )
