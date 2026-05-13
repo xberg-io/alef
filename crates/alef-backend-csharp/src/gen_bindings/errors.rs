@@ -20,6 +20,7 @@ pub(super) fn gen_exception_class(namespace: &str, class_name: &str) -> String {
 /// Compute the set of types that are returned as opaque handles (matching `*mut T` pattern).
 /// A type is considered opaque-handle-returned if any public function or method returns the
 /// type directly or wrapped in Optional/Vec — those all surface across FFI as `*mut T`.
+/// Only includes types that have NO serde support (i.e., truly opaque, with no ToJson function).
 pub(super) fn compute_handle_returned_types(api: &alef_core::ir::ApiSurface) -> HashSet<String> {
     fn inner_named(ty: &alef_core::ir::TypeRef) -> Option<&str> {
         match ty {
@@ -29,18 +30,34 @@ pub(super) fn compute_handle_returned_types(api: &alef_core::ir::ApiSurface) -> 
         }
     }
 
+    // Build a map of type names to their TypeDef for quick lookup of has_serde.
+    let mut type_def_map = std::collections::HashMap::new();
+    for typ in &api.types {
+        type_def_map.insert(typ.name.clone(), typ);
+    }
+
     let mut handle_types = HashSet::new();
 
     for func in &api.functions {
         if let Some(name) = inner_named(&func.return_type) {
-            handle_types.insert(name.to_string());
+            // Only include types that don't have serde (can't be JSON serialized).
+            if let Some(type_def) = type_def_map.get(name) {
+                if !type_def.has_serde {
+                    handle_types.insert(name.to_string());
+                }
+            }
         }
     }
 
     for typ in &api.types {
         for method in &typ.methods {
             if let Some(name) = inner_named(&method.return_type) {
-                handle_types.insert(name.to_string());
+                // Only include types that don't have serde (can't be JSON serialized).
+                if let Some(type_def) = type_def_map.get(name) {
+                    if !type_def.has_serde {
+                        handle_types.insert(name.to_string());
+                    }
+                }
             }
         }
     }
