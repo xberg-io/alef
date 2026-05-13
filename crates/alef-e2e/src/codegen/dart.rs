@@ -533,6 +533,20 @@ fn render_test_case(
                     if (elem_type == "BatchBytesItem" || elem_type == "BatchFileItem") && arg_value.is_array() {
                         let dart_items = emit_dart_batch_item_array(arg_value, elem_type);
                         args.push(dart_items);
+                    } else if elem_type == "String" && arg_value.is_array() {
+                        // Scalar string array (e.g. `texts: ["a", "b"]` for embed_texts).
+                        // Emit a Dart typed list literal `<String>['a', 'b']` and pass as
+                        // a named arg matching the snake→camel param name (FRB bridge methods
+                        // take named params for non-self positional Rust args).
+                        let items: Vec<String> = arg_value
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .filter_map(|v| v.as_str())
+                            .map(|s| format!("'{}'", escape_dart(s)))
+                            .collect();
+                        let dart_param_name = snake_to_camel(&arg_def.name);
+                        args.push(format!("{dart_param_name}: <String>[{}]", items.join(", ")));
                     }
                 } else if options_via == "from_json" {
                     // `from_json` path: construct a typed mirror-struct via the generated
