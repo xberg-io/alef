@@ -119,8 +119,11 @@ pub(super) fn gen_struct(
         // For Vec<u8> fields (bare, nested in Option, or HashMap values),
         // add serde_bytes attributes to deserialize Buffer correctly.
         // Helper: detect if a type contains Vec<u8> at any depth.
+        // The alef IR represents `Vec<u8>` directly as TypeRef::Bytes (not Vec(Bytes));
+        // match that at the top level and recurse through Option/Map wrappers.
         fn contains_vec_u8(ty: &TypeRef) -> bool {
             match ty {
+                TypeRef::Bytes => true,
                 TypeRef::Vec(inner) => matches!(inner.as_ref(), TypeRef::Bytes),
                 TypeRef::Optional(inner) => contains_vec_u8(inner),
                 TypeRef::Map(_k, v) => contains_vec_u8(v),
@@ -130,20 +133,18 @@ pub(super) fn gen_struct(
         let has_vec_u8 = contains_vec_u8(&field.ty);
         if has_serde && has_vec_u8 {
             // For Option<Vec<u8>>, use #[serde(default, with = "serde_bytes")].
-            // For bare Vec<u8>, use #[serde(with = "serde_bytes")].
+            // For bare Vec<u8> (TypeRef::Bytes), use #[serde(with = "serde_bytes")].
             // For HashMap<_, Vec<u8>>, use serde_with + custom handling.
             match &field.ty {
                 TypeRef::Optional(_) => {
                     attrs.push("serde(default, with = \"serde_bytes\")".to_string());
                 }
-                TypeRef::Map(_k, v) if matches!(v.as_ref(), TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Bytes)) =>
+                TypeRef::Map(_k, v)
+                    if matches!(v.as_ref(), TypeRef::Bytes)
+                        || matches!(v.as_ref(), TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Bytes)) =>
                 {
                     // HashMap<K, Vec<u8>>: use serde_with's Bytes helper for map values.
-                    // Emit #[serde_with::serde_as] + #[serde_as(as = "HashMap<_, serde_with::Bytes>")] pattern.
-                    // For now, use a simpler helper: add to attrs and assume serde_with is available.
                     attrs.push("serde_as(as = \"HashMap<_, serde_with::Bytes>\")".to_string());
-                    // Ensure we have the struct-level #[serde_as] if not already present.
-                    // This is handled per-struct below.
                 }
                 _ => {
                     attrs.push("serde(with = \"serde_bytes\")".to_string());
