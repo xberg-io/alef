@@ -3,7 +3,7 @@ use crate::{
     cargo_package_header, core_dep_features, detect_workspace_inheritance, render_extra_deps, scaffold_meta, to_pep440,
 };
 use alef_core::backend::GeneratedFile;
-use alef_core::config::{Language, ResolvedCrateConfig};
+use alef_core::config::{AdapterPattern, Language, ResolvedCrateConfig};
 use alef_core::ir::ApiSurface;
 use alef_core::template_versions as tv;
 use std::path::PathBuf;
@@ -30,6 +30,10 @@ pub(crate) fn scaffold_python_cargo(
     let extra_deps = render_extra_deps(config, Language::Python);
 
     let has_trait_bridges = !config.trait_bridges.is_empty();
+    let has_streaming = config
+        .adapters
+        .iter()
+        .any(|a| matches!(a.pattern, AdapterPattern::Streaming));
     let mut all_deps = extra_deps;
     if has_trait_bridges && !all_deps.contains("async-trait") {
         if !all_deps.is_empty() {
@@ -37,11 +41,22 @@ pub(crate) fn scaffold_python_cargo(
         }
         all_deps.push_str("async-trait = \"0.1\"");
     }
-    if has_trait_bridges && !all_deps.contains("tokio = ") {
+    if (has_trait_bridges || has_streaming) && !all_deps.contains("tokio = ") {
         if !all_deps.is_empty() {
             all_deps.push('\n');
         }
-        all_deps.push_str("tokio = { version = \"1\", features = [\"rt-multi-thread\"] }");
+        let features = if has_streaming {
+            "[\"rt-multi-thread\", \"sync\"]"
+        } else {
+            "[\"rt-multi-thread\"]"
+        };
+        all_deps.push_str(&format!("tokio = {{ version = \"1\", features = {features} }}"));
+    }
+    if has_streaming && !all_deps.contains("futures = ") && !all_deps.contains("futures =\"") {
+        if !all_deps.is_empty() {
+            all_deps.push('\n');
+        }
+        all_deps.push_str("futures = \"0.3\"");
     }
 
     let extra_deps_section = if all_deps.is_empty() {
