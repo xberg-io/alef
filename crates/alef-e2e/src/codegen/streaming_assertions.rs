@@ -92,6 +92,20 @@ fn split_streaming_deep_path(field: &str) -> Option<(&str, &str)> {
     None
 }
 
+/// Field names that unambiguously imply a streaming test (no overlap with
+/// non-streaming response shapes). `usage`, `tool_calls`, and `finish_reason`
+/// are intentionally excluded — they exist on non-streaming responses too
+/// (`usage.total_tokens` on ChatCompletionResponse, `choices[0].finish_reason`,
+/// etc.) and would otherwise drag non-streaming fixtures into streaming
+/// codegen.
+const STREAMING_ONLY_AUTO_DETECT_FIELDS: &[&str] = &[
+    "chunks",
+    "chunks.length",
+    "stream_content",
+    "stream_complete",
+    "no_chunks_after_done",
+];
+
 /// Resolve whether a fixture should be treated as streaming, honoring the
 /// call-level three-valued opt-in/out (`CallConfig::streaming`):
 ///
@@ -99,8 +113,8 @@ fn split_streaming_deep_path(field: &str) -> Option<(&str, &str)> {
 /// - `Some(false)` → forced non-streaming (skip the auto-detect even when an
 ///   assertion references a streaming-virtual-field name like `chunks`).
 /// - `None` → auto-detect: streaming iff the fixture has a streaming mock
-///   (`mock_response.stream_chunks`) or any assertion references a
-///   streaming-virtual-field.
+///   (`mock_response.stream_chunks`) or any assertion references one of the
+///   unambiguous streaming-only field names.
 ///
 /// All backends should use this helper so the opt-out is respected uniformly.
 pub fn resolve_is_streaming(fixture: &crate::fixture::Fixture, call_streaming: Option<bool>) -> bool {
@@ -109,9 +123,9 @@ pub fn resolve_is_streaming(fixture: &crate::fixture::Fixture, call_streaming: O
     }
     fixture.is_streaming_mock()
         || fixture.assertions.iter().any(|a| {
-            a.field
-                .as_deref()
-                .is_some_and(|f| !f.is_empty() && is_streaming_virtual_field(f))
+            a.field.as_deref().is_some_and(|f| {
+                !f.is_empty() && STREAMING_ONLY_AUTO_DETECT_FIELDS.iter().any(|root| f == *root)
+            })
         })
 }
 
@@ -376,9 +390,7 @@ impl StreamingFieldResolver {
                     format!("({chunks_var}[-1].usage if {chunks_var} else None)")
                 }
                 "rust" => {
-                    format!(
-                        "{chunks_var}.last().and_then(|c| c.usage.as_ref())"
-                    )
+                    format!("{chunks_var}.last().and_then(|c| c.usage.as_ref())")
                 }
                 "go" => {
                     format!(
@@ -386,14 +398,10 @@ impl StreamingFieldResolver {
                     )
                 }
                 "java" => {
-                    format!(
-                        "({chunks_var}.isEmpty() ? null : {chunks_var}.get({chunks_var}.size()-1).usage())"
-                    )
+                    format!("({chunks_var}.isEmpty() ? null : {chunks_var}.get({chunks_var}.size()-1).usage())")
                 }
                 "kotlin" => {
-                    format!(
-                        "(if ({chunks_var}.isEmpty()) null else {chunks_var}.last().usage())"
-                    )
+                    format!("(if ({chunks_var}.isEmpty()) null else {chunks_var}.last().usage())")
                 }
                 "php" => {
                     format!("(!empty(${chunks_var}) ? end(${chunks_var})->usage ?? null : null)")
@@ -402,9 +410,7 @@ impl StreamingFieldResolver {
                     format!("(if length({chunks_var}) > 0, do: List.last({chunks_var}).usage, else: nil)")
                 }
                 _ => {
-                    format!(
-                        "({chunks_var}.length > 0 ? {chunks_var}[{chunks_var}.length - 1].usage : undefined)"
-                    )
+                    format!("({chunks_var}.length > 0 ? {chunks_var}[{chunks_var}.length - 1].usage : undefined)")
                 }
             }),
 
@@ -749,10 +755,7 @@ mod tests {
     fn is_streaming_virtual_field_recognizes_usage_paths() {
         // `usage` is a streaming virtual root — deep paths like `usage.total_tokens`
         // resolve against the last chunk's usage payload.
-        assert!(
-            is_streaming_virtual_field("usage"),
-            "bare 'usage' must be recognized"
-        );
+        assert!(is_streaming_virtual_field("usage"), "bare 'usage' must be recognized");
         assert!(
             is_streaming_virtual_field("usage.total_tokens"),
             "usage.total_tokens must be recognized as streaming virtual"
