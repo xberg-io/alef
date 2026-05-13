@@ -99,6 +99,12 @@ impl FieldResolver {
         if index_normalized != field && self.optional_fields.contains(index_normalized.as_str()) {
             return true;
         }
+        // Also check with all numeric indices stripped: "choices[0].message.tool_calls"
+        // should match optional_fields entry "choices.message.tool_calls".
+        let de_indexed = strip_numeric_indices(field);
+        if de_indexed != field && self.optional_fields.contains(de_indexed.as_str()) {
+            return true;
+        }
         let normalized = field.replace("[].", ".");
         if normalized != field && self.optional_fields.contains(normalized.as_str()) {
             return true;
@@ -333,6 +339,47 @@ impl FieldResolver {
     }
 }
 
+/// Strip all numeric indices from a path so `"choices[0].message.tool_calls"` →
+/// `"choices.message.tool_calls"`. Used by `is_optional` to match entries like
+/// `"choices.message.tool_calls"` in `optional_fields` when the caller supplies a
+/// path that includes a concrete index.
+fn strip_numeric_indices(path: &str) -> String {
+    let mut result = String::with_capacity(path.len());
+    let mut chars = path.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '[' {
+            let mut key = String::new();
+            let mut closed = false;
+            for inner in chars.by_ref() {
+                if inner == ']' {
+                    closed = true;
+                    break;
+                }
+                key.push(inner);
+            }
+            if closed && !key.is_empty() && key.chars().all(|k| k.is_ascii_digit()) {
+                // Numeric index — drop it entirely (including any trailing dot).
+            } else {
+                result.push('[');
+                result.push_str(&key);
+                if closed {
+                    result.push(']');
+                }
+            }
+        } else {
+            result.push(c);
+        }
+    }
+    // Collapse any double-dots introduced by dropping `[N].` sequences.
+    while result.contains("..") {
+        result = result.replace("..", ".");
+    }
+    if result.starts_with('.') {
+        result.remove(0);
+    }
+    result
+}
+
 fn normalize_numeric_indices(path: &str) -> String {
     let mut result = String::with_capacity(path.len());
     let mut chars = path.chars().peekable();
@@ -502,12 +549,13 @@ fn render_swift_with_optionals(
                 // subsequent Field segments build paths like "choices[0].message"
                 // which match optional_fields entries that use indexed keys.
                 path_so_far.push_str("[0]");
-                // When the array field is optional and not the leaf, append `?`
-                // so the next member access becomes `?.` (the subscript result is
-                // Optional<T> because the vec itself was Optional).
-                if !is_leaf && is_optional {
-                    out.push('?');
-                }
+                // Do NOT append `?` after `[index]` even when the vec is optional.
+                // In swift-bridge, `RustVec<T>`'s subscript operator returns `T`
+                // directly (non-optional). After `vec()?[N]` Swift has already
+                // consumed the optional via the `?` before the subscript, so the
+                // value at `[N]` is a plain `T` — appending `?` here would produce
+                // a compiler error: "cannot use optional chaining on non-optional".
+                let _ = is_leaf;
             }
             PathSegment::MapAccess { field, key } => {
                 if !path_so_far.is_empty() {
@@ -845,6 +893,15 @@ fn render_java_with_optionals(segments: &[PathSegment], result_var: &str, option
 /// When the previous field in the chain is optional (nullable), uses `?.`
 /// safe-call navigation for the next segment so the Kotlin compiler is
 /// satisfied by the nullable receiver.
+///
+/// Nullability is **sticky**: once a `?.` safe-call has been emitted for any
+/// segment, all subsequent segments also use `?.` because they operate on a
+/// nullable receiver. A non-optional field after a `?.` call still returns
+/// `T?` (because the whole chain can be null if any prefix was null).
+///
+/// Example: for `toolCalls[0].function.name` where `toolCalls` is optional:
+/// `result.toolCalls()?.first()?.function()?.name()` — even though `function`
+/// and `name` are themselves non-optional, they follow a `?.` chain.
 fn render_kotlin_with_optionals(
     segments: &[PathSegment],
     result_var: &str,
@@ -854,6 +911,11 @@ fn render_kotlin_with_optionals(
     let mut path_so_far = String::new();
     // Track whether the previous segment returned a nullable type. Starts
     // false because `result_var` is always non-null.
+    //
+    // This flag is sticky: once set to true it stays true for the rest of
+    // the chain because a `?.` call returns `T?` regardless of whether the
+    // subsequent field itself is declared optional. All accesses on a
+    // nullable receiver must also use `?.`.
     let mut prev_was_nullable = false;
     for seg in segments {
         let nav = if prev_was_nullable { "?." } else { "." };
@@ -865,12 +927,13 @@ fn render_kotlin_with_optionals(
                 path_so_far.push_str(f);
                 // After this call, the receiver is nullable if the field is in
                 // optional_fields (the Java @Nullable annotation makes the
-                // return type T? in Kotlin).
+                // return type T? in Kotlin) OR if the incoming receiver was
+                // already nullable (sticky: `?.` call yields `T?`).
                 let is_optional = optional_fields.contains(&path_so_far);
                 out.push_str(nav);
                 out.push_str(&kotlin_getter(f));
                 out.push_str("()");
-                prev_was_nullable = is_optional;
+                prev_was_nullable = prev_was_nullable || is_optional;
             }
             PathSegment::ArrayField { name, index } => {
                 if !path_so_far.is_empty() {
@@ -890,7 +953,7 @@ fn render_kotlin_with_optionals(
                 // paths like "choices[0].message.tool_calls" continue to match when the
                 // optional_fields set uses indexed keys (mirrors the Rust renderer).
                 path_so_far.push_str("[0]");
-                prev_was_nullable = is_optional;
+                prev_was_nullable = prev_was_nullable || is_optional;
             }
             PathSegment::MapAccess { field, key } => {
                 if !path_so_far.is_empty() {
@@ -902,17 +965,17 @@ fn render_kotlin_with_optionals(
                 out.push_str(&kotlin_getter(field));
                 let is_numeric = !key.is_empty() && key.chars().all(|c| c.is_ascii_digit());
                 if is_numeric {
-                    if is_optional {
+                    if prev_was_nullable || is_optional {
                         out.push_str(&format!("()?.get({key})"));
                     } else {
                         out.push_str(&format!("().get({key})"));
                     }
-                } else if is_optional {
+                } else if prev_was_nullable || is_optional {
                     out.push_str(&format!("()?.get(\"{key}\")"));
                 } else {
                     out.push_str(&format!("().get(\"{key}\")"));
                 }
-                prev_was_nullable = is_optional;
+                prev_was_nullable = prev_was_nullable || is_optional;
             }
             PathSegment::Length => {
                 // .size is a Kotlin property, no () needed.

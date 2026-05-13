@@ -1,0 +1,15 @@
+/// Call this from your `handle_info/2` after processing a
+/// `{:trait_call, "{{ method_snake }}", args_json, call_id}` message:
+///
+/// ```gleam
+/// // pub fn handle_info(msg, state) {
+/// //   case msg {
+/// //     #(atom.create("{{ method_snake }}"), args_json, call_id) ->
+/// //       let result = do_{{ method_snake }}(args_json)
+/// //       {{ nif_fn_name }}(call_id, result)
+/// //       actor.continue(state)
+/// //     _ -> actor.continue(state)
+/// //   }
+/// // }
+/// ```
+///
