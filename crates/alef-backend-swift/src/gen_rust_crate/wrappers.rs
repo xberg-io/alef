@@ -933,3 +933,96 @@ pub(crate) fn emit_type_method_shims(
     }
     out
 }
+
+/// Emit Rust free-function shims for streaming adapters that have an `owner_type`.
+///
+/// Each shim has the signature:
+/// ```text
+/// pub fn {owner_snake}_{adapter_name}(client: &OwnerType, ...params...) -> Result<(), String>
+/// ```
+///
+/// The body blocks on a Tokio current-thread runtime, drives the stream to its
+/// first error (or EOF), and returns `Ok(())` if no error occurred.  HTTP-level
+/// errors (e.g. 401) are expected to surface as a `Result::Err` from the core
+/// function before any chunks arrive.
+///
+/// swift-bridge maps `Result<(), String>` to a throwing Swift call, so the
+/// generated Swift wrapper (`try await RustBridge.{camel}(…)`) propagates errors
+/// as Swift throws.
+pub(crate) fn emit_streaming_adapter_shims(
+    adapters: &[alef_core::config::AdapterConfig],
+    source_crate: &str,
+) -> String {
+    use alef_core::config::AdapterPattern;
+    use heck::ToSnakeCase;
+
+    let mut out = String::new();
+
+    for adapter in adapters
+        .iter()
+        .filter(|a| matches!(a.pattern, AdapterPattern::Streaming))
+        .filter(|a| a.owner_type.is_some())
+    {
+        let owner_type = adapter.owner_type.as_deref().unwrap_or("");
+        let owner_snake = owner_type.to_snake_case();
+        let fn_name = format!("{owner_snake}_{}", adapter.name);
+
+        // Build param list: first param is the opaque client receiver.
+        let mut params_vec: Vec<String> = vec![format!("client: &{owner_type}")];
+        for p in &adapter.params {
+            let simple_ty = p.ty.rsplit("::").next().unwrap_or(&p.ty);
+            let param_name = swift_ident(&p.name.to_snake_case());
+            params_vec.push(format!("{param_name}: {simple_ty}"));
+        }
+        let params_str = params_vec.join(", ");
+
+        // Build call args (excluding the receiver).
+        let call_args: Vec<String> = adapter
+            .params
+            .iter()
+            .map(|p| {
+                let name = p.name.to_snake_case();
+                // Named types bridged as newtypes must be unwrapped to `.0`.
+                format!("{name}.0")
+            })
+            .collect();
+        let call_args_str = call_args.join(", ");
+
+        // Resolve the core Rust path. `adapter.core_path` may be a bare name or a
+        // fully-qualified path.  If it already contains `::` use it as-is; otherwise
+        // prefix with the source crate so rustc can resolve it.
+        let core_call = if adapter.core_path.contains("::") {
+            format!("{}({call_args_str})", adapter.core_path)
+        } else {
+            format!("{source_crate}::{}({call_args_str})", adapter.core_path)
+        };
+
+        // The body: block on a Tokio runtime, drive the stream to completion (or
+        // first error), and map errors to String.
+        let body = format!(
+            concat!(
+                "    use ::futures_util::StreamExt;\n",
+                "    ::tokio::runtime::Builder::new_current_thread()\n",
+                "        .enable_all()\n",
+                "        .build()\n",
+                "        .expect(\"build tokio runtime\")\n",
+                "        .block_on(async {{\n",
+                "            let mut stream = {core_call}\n",
+                "                .await\n",
+                "                .map_err(|e| e.to_string())?;\n",
+                "            while let Some(item) = stream.next().await {{\n",
+                "                let _ = item.map_err(|e| e.to_string())?;\n",
+                "            }}\n",
+                "            Ok::<(), String>(())\n",
+                "        }})",
+            ),
+            core_call = core_call,
+        );
+
+        out.push_str(&format!(
+            "pub fn {fn_name}({params_str}) -> Result<(), String> {{\n{body}\n}}\n"
+        ));
+    }
+
+    out
+}

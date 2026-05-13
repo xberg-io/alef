@@ -322,6 +322,15 @@ fn emit_lib_rs(
         extern_blocks.push(plugin_inbound::emit_extern_block_for_inbound(trait_def));
     }
 
+    // Streaming adapters: emit an extern "Rust" block for each streaming adapter
+    // that owns a client type.  The Swift host wrapper references these as
+    // `RustBridge.{camelName}(client, …)`, so they must be declared in the
+    // swift-bridge module or the Swift compiler will produce
+    // "module 'RustBridge' has no member named …".
+    if let Some(streaming_block) = extern_block::emit_extern_block_for_streaming_adapters(&config.adapters) {
+        extern_blocks.push(streaming_block);
+    }
+
     // Detect kreuzberg-style e2e types: when the api surface exposes
     // `ExtractionConfig`, `BatchBytesItem`, and `BatchFileItem` (all serde-enabled),
     // emit JSON factory shims so the e2e test layer can deserialise fixture JSON
@@ -445,6 +454,15 @@ fn emit_lib_rs(
             &type_paths,
         ));
         out.push('\n');
+    }
+
+    // Emit Rust free-function shims for streaming adapters.
+    // The matching extern "Rust" declarations are emitted inside the ffi module above.
+    // Each shim blocks on a Tokio runtime and drives the stream to completion (or first
+    // error), returning Result<(), String> so swift-bridge maps it to a throwing Swift call.
+    let streaming_shims = wrappers::emit_streaming_adapter_shims(&config.adapters, &source_crate);
+    if !streaming_shims.is_empty() {
+        out.push_str(&streaming_shims);
     }
 
     // Emit JSON-factory shims for kreuzberg-style e2e types when present.

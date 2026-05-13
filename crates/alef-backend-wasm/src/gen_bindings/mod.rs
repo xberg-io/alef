@@ -311,7 +311,11 @@ impl Backend for WasmBackend {
                 .types
                 .iter()
                 .filter(|t| t.is_opaque && !exclude_types.contains(&t.name))
-                .any(|t| t.methods.iter().any(|m| m.receiver == Some(alef_core::ir::ReceiverKind::RefMut)));
+                .any(|t| {
+                    t.methods
+                        .iter()
+                        .any(|m| m.receiver == Some(alef_core::ir::ReceiverKind::RefMut))
+                });
             if needs_mutex {
                 builder.add_import("std::sync::Mutex");
             }
