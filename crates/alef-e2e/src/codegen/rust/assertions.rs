@@ -138,8 +138,14 @@ pub fn render_assertion(
 
     // Streaming virtual fields: intercept before is_valid_for_result so they are
     // never skipped.  These fields resolve against the `chunks` collected-list variable.
+    // Gate on `result_var == "chunks"` so non-streaming tests asserting on ambiguous
+    // fields like `usage.total_tokens` don't accidentally reach for an undefined chunks
+    // var; the streaming codegen always names the collected list `chunks`.
     if let Some(f) = &assertion.field {
-        if !f.is_empty() && crate::codegen::streaming_assertions::is_streaming_virtual_field(f) {
+        if result_var == "chunks"
+            && !f.is_empty()
+            && crate::codegen::streaming_assertions::is_streaming_virtual_field(f)
+        {
             if let Some(expr) =
                 crate::codegen::streaming_assertions::StreamingFieldResolver::accessor(f, "rust", "chunks")
             {
