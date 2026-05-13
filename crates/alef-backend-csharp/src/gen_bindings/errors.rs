@@ -132,6 +132,19 @@ pub(super) fn emit_return_marshalling_indented(
                 out.push_str(&render("free_native_string.jinja", minijinja::context! { indent }));
                 return;
             }
+            // Optional<Named<T>> where T is an opaque-handle return: emit constructor wrapper.
+            // (The IntPtr.Zero null-check has already been emitted by the caller via
+            // `emit_named_param_setup` / the wrapper template's null-sentinel handling.)
+            if let TypeRef::Named(type_name) = inner.as_ref() {
+                let pascal = type_name.to_pascal_case();
+                if true_opaque_types.contains(type_name) || handle_returned_types.contains(type_name) {
+                    out.push_str(&render(
+                        "return_opaque_ctor.jinja",
+                        minijinja::context! { indent, pascal },
+                    ));
+                    return;
+                }
+            }
         }
         // IntPtr → JSON string → deserialized object, then free the native buffer.
         let cs_ty = csharp_type(return_type);
