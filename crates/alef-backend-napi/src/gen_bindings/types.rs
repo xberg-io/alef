@@ -24,10 +24,19 @@ pub(super) fn gen_struct(
     // NAPI can't auto-convert a JS Buffer to Vec<u8> in serde context.
     let has_bytes_field = false; // No longer used (napi::Buffer replaced with Vec<u8>)
 
-    // Pre-check if any field uses serde_with (HashMap<_, Vec<u8>>) so we can add struct-level attr
-    let has_serde_with_field = has_serde && typ.fields.iter().any(|f| {
-        matches!(&f.ty, TypeRef::Map(_k, v) if matches!(v.as_ref(), TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Bytes)))
-    });
+    // Pre-check if any field uses serde_with (HashMap<_, Vec<u8>>) so we can add struct-level attr.
+    // The IR represents `Vec<u8>` as TypeRef::Bytes (not Vec(Bytes)); accept both wrappers for safety.
+    let has_serde_with_field = has_serde
+        && typ.fields.iter().any(|f| match &f.ty {
+            TypeRef::Map(_k, v) => {
+                matches!(v.as_ref(), TypeRef::Bytes)
+                    || matches!(v.as_ref(), TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Bytes))
+            }
+            TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Map(_k, v)
+                if matches!(v.as_ref(), TypeRef::Bytes)
+                    || matches!(v.as_ref(), TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Bytes))),
+            _ => false,
+        });
 
     let mut struct_builder = StructBuilder::new(&format!("{prefix}{}", typ.name));
     // Use napi(object) so the struct can be used as function/method parameters (FromNapiValue)
