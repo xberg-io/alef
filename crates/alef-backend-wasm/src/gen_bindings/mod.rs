@@ -572,8 +572,11 @@ impl Backend for WasmBackend {
                     ("  ", "\n  "),                     // 2 spaces
                 ];
                 for (indent, newline_indent) in patterns {
-                    let old_pattern = format!("{indent}{field_name}: Default::default(),{newline_indent}..Default::default()");
-                    let new_pattern = format!("{indent}{field_name}: val.{field_name}.map(|v| (*v.inner).clone()),{newline_indent}..Default::default()");
+                    let old_pattern =
+                        format!("{indent}{field_name}: Default::default(),{newline_indent}..Default::default()");
+                    let new_pattern = format!(
+                        "{indent}{field_name}: val.{field_name}.map(|v| (*v.inner).clone()),{newline_indent}..Default::default()"
+                    );
                     if content.contains(&old_pattern) {
                         content = content.replace(&old_pattern, &new_pattern);
                     }
@@ -929,16 +932,22 @@ sources = ["src/lib.rs"]
         ];
         for (indent, newline_indent) in patterns {
             let old_pattern = format!("{indent}{field_name}: Default::default(),{newline_indent}..Default::default()");
-            let new_pattern = format!("{indent}{field_name}: val.{field_name}.map(|v| (*v.inner).clone()),{newline_indent}..Default::default()");
+            let new_pattern = format!(
+                "{indent}{field_name}: val.{field_name}.map(|v| (*v.inner).clone()),{newline_indent}..Default::default()"
+            );
             if content.contains(&old_pattern) {
                 content = content.replace(&old_pattern, &new_pattern);
             }
         }
 
         // Verify both From impls were updated
-        assert!(content.contains("visitor: val.visitor.map(|v| (*v.inner).clone()),"),
-            "Visitor field not forwarded in From impl");
-        assert!(!content.contains("visitor: Default::default(),\n            ..Default::default()"),
-            "Unreplaced visitor: Default::default() with 12 spaces still present");
+        assert!(
+            content.contains("visitor: val.visitor.map(|v| (*v.inner).clone()),"),
+            "Visitor field not forwarded in From impl"
+        );
+        assert!(
+            !content.contains("visitor: Default::default(),\n            ..Default::default()"),
+            "Unreplaced visitor: Default::default() with 12 spaces still present"
+        );
     }
 }

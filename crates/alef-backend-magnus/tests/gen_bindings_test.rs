@@ -1778,10 +1778,7 @@ fn test_module_init_requires_json_stdlib() {
         content.contains("require") && content.contains("json"),
         "Module init must emit require \"json\" to load JSON stdlib for Hash#to_json"
     );
-    assert!(
-        content.contains("ruby.eval"),
-        "Must use ruby.eval to load JSON library"
-    );
+    assert!(content.contains("ruby.eval"), "Must use ruby.eval to load JSON library");
 }
 
 #[test]
@@ -1838,9 +1835,7 @@ fn test_trait_bridge_options_field_error_propagation_in_generated_code() {
     // For this test, we verify that the codebase pattern is NOT using .unwrap_or_default()
     // after to_json calls.
     assert!(
-        !content.contains(".unwrap_or_default()")
-            || !content.contains("funcall::<_, _, String>(\"to_json\""),
+        !content.contains(".unwrap_or_default()") || !content.contains("funcall::<_, _, String>(\"to_json\""),
         "Generated trait bridge code must not use unwrap_or_default() for JSON serialization"
     );
 }
-

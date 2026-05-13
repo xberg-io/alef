@@ -2,8 +2,16 @@
 fn test_visitor_substitution_pattern() {
     let content = r#"            visitor: Default::default(),
             ..Default::default()"#;
-    let pattern = format!("            {}: Default::default(),\n            ..Default::default()", "visitor");
-    assert!(content.contains(&pattern), "Pattern not found.\nExpected: {:?}\nIn: {:?}", pattern, content);
+    let pattern = format!(
+        "            {}: Default::default(),\n            ..Default::default()",
+        "visitor"
+    );
+    assert!(
+        content.contains(&pattern),
+        "Pattern not found.\nExpected: {:?}\nIn: {:?}",
+        pattern,
+        content
+    );
 }
 
 #[test]
