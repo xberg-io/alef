@@ -887,13 +887,15 @@ pub fn gen_options_field_bridge_function(
     );
 
     // Generate options conversion with visitor injection.
-    // Unlike the template-based approach that tries to extract visitor from options,
-    // we inject the wrapped handle into options before conversion.
+    // The From<JsConversionOptions> impl post-processes the visitor field to forward
+    // val.visitor through JsHtmlVisitorBridge, so we let the From impl handle it.
+    // The separate visitor kwarg (if provided) overrides options.visitor.
     let options_convert = format!(
-        "let {options_name}_core: Option<{core_import}::ConversionOptions> = {options_name}.map(|mut o| {{\n    \
-         o.{field_name} = None;\n    \
+        "let {options_name}_core: Option<{core_import}::ConversionOptions> = {options_name}.map(|o| {{\n    \
          let mut result: {core_import}::ConversionOptions = o.into();\n    \
+         if {visitor_kwarg}_handle.is_some() {{\n    \
          result.{field_name} = {visitor_kwarg}_handle.clone();\n    \
+         }}\n    \
          result\n    \
          }}).or_else(|| {{\n    \
          if {visitor_kwarg}_handle.is_some() {{\n    \

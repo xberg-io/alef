@@ -92,10 +92,12 @@ pub fn render_test_file(
                 }
             }
         }
-        // For WASM with visitor specs, ensure WasmConversionOptions is imported
-        // so the test can call WasmConversionOptions.default()
+        // For WASM with visitor specs, ensure WasmConversionOptions and WasmVisitorHandle
+        // are imported so the test can call WasmConversionOptions.default() and
+        // new WasmVisitorHandle(...) to wrap the raw visitor object.
         if lang == "wasm" && fixture.visitor.is_some() {
             all_options_types.insert("WasmConversionOptions".to_string());
+            all_options_types.insert("WasmVisitorHandle".to_string());
         }
     }
 
@@ -641,45 +643,40 @@ fn render_test_case(
         args_str
     } else if lang == "wasm" {
         // WASM: visitor must be assigned to a WasmConversionOptions class instance.
-        // wasm-bindgen requires the second arg to be an actual class instance, not a
-        // plain object literal. The test generator always wraps options in an IIFE with
-        // the pattern: (() => { const _u = WasmConversionOptions.default(); ... return _u; })()
-        // Splice the visitor assignment into that pattern.
+        // wasm-bindgen requires the options arg to be an actual class instance, not a
+        // plain object literal. The visitor field setter additionally requires the value
+        // to be a WasmVisitorHandle class instance, so wrap the raw visitor object via
+        // `new WasmVisitorHandle(...)`. args_str shapes: empty (just-visitor), trailing
+        // `undefined` (positional options omitted), trailing IIFE (options already an
+        // IIFE), or other.
+        let iife = format!(
+            "(() => {{ const _u = WasmConversionOptions.default(); _u.visitor = new WasmVisitorHandle({visitor_arg}); return _u; }})()"
+        );
         if args_str.is_empty() {
-            // No other options: construct WasmConversionOptions via IIFE with visitor setter
-            format!(
-                "(() => {{ const _u = WasmConversionOptions.default(); _u.visitor = {visitor_arg}; return _u; }})()"
-            )
+            iife
         } else if let Some(return_pos) = args_str.rfind("return _u;") {
-            // args_str is already an IIFE ending with "return _u;)"
-            // Insert the visitor assignment before the return statement
             let (iife_body, ret_part) = args_str.split_at(return_pos);
-            format!("{iife_body}_u.visitor = {visitor_arg}; {ret_part}")
+            format!("{iife_body}_u.visitor = new WasmVisitorHandle({visitor_arg}); {ret_part}")
+        } else if let Some(stripped) = args_str.strip_suffix(", undefined") {
+            // Replace the trailing `undefined` options placeholder with the IIFE.
+            format!("{stripped}, {iife}")
         } else {
-            // Fallback: construct a new IIFE with the visitor
-            format!(
-                "(() => {{ const _u = WasmConversionOptions.default(); _u.visitor = {visitor_arg}; return _u; }})()"
-            )
+            // Append the IIFE as the trailing options arg.
+            format!("{args_str}, {iife}")
         }
     } else if lang == "node" {
-        // Node: visitor is merged into a plain object literal (ConversionOptions is an interface)
+        // Node: napi-rs cannot deserialize `Option<Object<'static>>` fields from a JS object
+        // property, so visitors must be passed as the third positional argument to convert.
+        // The generated `convert(html, options, visitor)` reads this kwarg directly and wraps
+        // it via JsHtmlVisitorBridge.
         if args_str.is_empty() {
-            format!("{{ visitor: {visitor_arg} }}")
-        } else if let Some(as_pos) = args_str.rfind(" as unknown as ") {
-            let (before_cast, type_suffix) = args_str.split_at(as_pos);
-            let merged_obj = if let Some(prefix) = before_cast.strip_suffix("{}") {
-                format!("{prefix}{{ visitor: {visitor_arg} }}")
-            } else if let Some(close_brace) = before_cast.rfind('}') {
-                let (obj_body, _) = before_cast.split_at(close_brace);
-                format!("{obj_body}, visitor: {visitor_arg} }}")
-            } else {
-                format!("{before_cast}, {{ visitor: {visitor_arg} }}")
-            };
-            format!("{merged_obj}{type_suffix}")
-        } else if let Some(stripped) = args_str.strip_suffix(", undefined") {
-            format!("{stripped}, {{ visitor: {visitor_arg} }}")
+            format!("undefined, undefined, {visitor_arg}")
+        } else if args_str.contains(", ") {
+            // args_str already includes options (e.g. `html, opts`). Append visitor as 3rd.
+            format!("{args_str}, {visitor_arg}")
         } else {
-            format!("{args_str}, {{ visitor: {visitor_arg} }}")
+            // Only positional html present; pad options with undefined.
+            format!("{args_str}, undefined, {visitor_arg}")
         }
     } else if args_str.is_empty() {
         format!("{{ visitor: {visitor_arg} }}")
