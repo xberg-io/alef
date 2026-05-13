@@ -320,7 +320,13 @@ fn render_file_setup(test_documents_dir: &str) -> String {
     out.push_str("{\n");
     out.push_str("  const _require = createRequire(import.meta.url);\n");
     out.push_str("  const Module = _require('module');\n");
-    out.push_str("  const env = {};\n");
+    out.push_str("  // env.system / env.mkstemp come from C-runtime calls embedded in some\n");
+    out.push_str("  // WASM-compiled deps (e.g. tesseract-wasm). Tests that don't exercise\n");
+    out.push_str("  // those paths only need the imports to be callable for module instantiation.\n");
+    out.push_str("  const env = {\n");
+    out.push_str("    system: (_cmd: number) => -1,\n");
+    out.push_str("    mkstemp: (_template: number) => -1,\n");
+    out.push_str("  };\n");
     out.push_str("  const wasi_snapshot_preview1 = {\n");
     out.push_str("    proc_exit: () => {},\n");
     out.push_str("    environ_get: () => 0,\n");
