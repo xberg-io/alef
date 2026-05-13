@@ -847,12 +847,17 @@ fn emit_typescript_batch_item_array(arr: &serde_json::Value, elem_type: &str) ->
                         "BatchBytesItem" => {
                             let content = obj.get("content").and_then(|v| v.as_array());
                             let mime_type = obj.get("mime_type").and_then(|v| v.as_str()).unwrap_or("text/plain");
+                            // napi-rs v3 #[napi(object)] for Vec<u8> fields accepts only
+                            // JS `Array<number>` at runtime (not Buffer/Uint8Array — the
+                            // macro-generated FromNapiValue calls napi_get_array_length).
+                            // Emit a raw array literal; the d.ts is aligned via
+                            // #[napi(ts_type = "Array<number>")] on the struct field.
                             let content_code = if let Some(arr) = content {
                                 let bytes: Vec<String> =
                                     arr.iter().filter_map(|v| v.as_u64().map(|n| n.to_string())).collect();
-                                format!("Buffer.from([{}])", bytes.join(", "))
+                                format!("[{}]", bytes.join(", "))
                             } else {
-                                "Buffer.from([])".to_string()
+                                "[]".to_string()
                             };
                             Some(format!("{{ content: {}, mimeType: \"{}\" }}", content_code, mime_type))
                         }
