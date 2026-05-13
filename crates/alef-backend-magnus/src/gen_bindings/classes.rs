@@ -126,11 +126,14 @@ fn gen_opaque_instance_method(
         let call_args = generators::gen_call_args(&method.params, opaque_types);
         // For owned-receiver (consuming) methods, clone the Arc's inner value before calling,
         // since we cannot move out of an Arc from a &self method.
-        // For RefMut receivers on Mutex-wrapped types, lock the mutex.
+        // For Mutex-wrapped types (has_mut_methods), all methods need .lock().unwrap().
         let is_owned_receiver = matches!(method.receiver, Some(ReceiverKind::Owned));
+        let has_mut_methods = typ.methods.iter().any(|m|
+            matches!(m.receiver.as_ref(), Some(ReceiverKind::RefMut))
+        );
         let inner_access = if is_owned_receiver {
             "self.inner.as_ref().clone()".to_string()
-        } else if is_ref_mut_receiver && needs_mutex {
+        } else if has_mut_methods {
             "self.inner.lock().unwrap()".to_string()
         } else {
             "self.inner".to_string()
@@ -208,7 +211,10 @@ fn gen_opaque_async_instance_method(
 
     let body = if can_delegate {
         let call_args = generators::gen_call_args(&method.params, opaque_types);
-        let inner_setup = if is_ref_mut_receiver && needs_mutex {
+        let has_mut_methods = typ.methods.iter().any(|m|
+            matches!(m.receiver.as_ref(), Some(ReceiverKind::RefMut))
+        );
+        let inner_setup = if has_mut_methods {
             "let inner = self.inner.lock().unwrap();\n        ".to_string()
         } else {
             "let inner = self.inner.clone();\n        ".to_string()
