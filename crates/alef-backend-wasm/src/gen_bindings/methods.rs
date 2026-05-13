@@ -148,13 +148,18 @@ pub(super) fn gen_method(
         } else {
             generators::gen_call_args_with_let_bindings(&method.params, opaque_types)
         };
-        let core_call = if has_mut_methods && !is_ref_mut_receiver {
-            // For Mutex-wrapped types, access via lock() even for immutable methods
+        let is_opaque_type = opaque_types.contains(type_name);
+        let core_call = if is_opaque_type && has_mut_methods && !is_ref_mut_receiver {
+            // Opaque types whose inner is `Arc<Mutex<T>>` (the type has any `&mut self`
+            // method) must access through `.lock().unwrap()` even for immutable methods.
             format!(
                 "self.inner.lock().unwrap().{method_name}({call_args})",
                 method_name = method.name
             )
         } else {
+            // Transparent (named-field) structs go through `From<WasmT> for T`. The
+            // previous unconditional Mutex branch broke any non-opaque type whose
+            // type had a sibling `&mut self` method (e.g. `WasmDocumentStructure`).
             format!(
                 "{core_import}::{type_name}::from(self.clone()).{method_name}({call_args})",
                 method_name = method.name
@@ -251,8 +256,9 @@ pub(super) fn gen_method(
             } else {
                 generators::gen_call_args_with_let_bindings(&method.params, opaque_types)
             };
-            let core_call = if has_mut_methods && !is_ref_mut_receiver {
-                // For Mutex-wrapped types, access via lock() even for immutable methods
+            let is_opaque_type = opaque_types.contains(type_name);
+            let core_call = if is_opaque_type && has_mut_methods && !is_ref_mut_receiver {
+                // Opaque types whose inner is `Arc<Mutex<T>>` must lock for any method.
                 format!(
                     "self.inner.lock().unwrap().{method_name}({call_args})",
                     method_name = method.name

@@ -1737,7 +1737,14 @@ fn json_to_kotlin(value: &serde_json::Value) -> String {
         serde_json::Value::Bool(b) => b.to_string(),
         serde_json::Value::Number(n) => {
             if n.is_f64() {
-                format!("{}d", n)
+                // Kotlin Double literals use no suffix (or `.0` if integer-shaped).
+                // `0.9d` would parse as identifier `d` following a malformed literal.
+                let s = n.to_string();
+                if s.contains('.') || s.contains('e') || s.contains('E') {
+                    s
+                } else {
+                    format!("{s}.0")
+                }
             } else {
                 n.to_string()
             }
