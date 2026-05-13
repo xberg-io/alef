@@ -249,7 +249,7 @@ pub(super) fn gen_opaque_struct_methods(
             adapter_bodies,
             streaming_item_types,
             mutex_types,
-            &capsule_types,
+            capsule_types,
         ));
     }
     for method in &statics {
@@ -258,7 +258,15 @@ pub(super) fn gen_opaque_struct_methods(
         if method.sanitized && !adapter_bodies.contains_key(&adapter_key) {
             continue;
         }
-        impl_builder.add_method(&gen_static_method(method, mapper, typ, cfg, opaque_types, prefix, mutex_types));
+        impl_builder.add_method(&gen_static_method(
+            method,
+            mapper,
+            typ,
+            cfg,
+            opaque_types,
+            prefix,
+            mutex_types,
+        ));
     }
 
     impl_builder.build()
@@ -282,7 +290,11 @@ pub(super) fn gen_opaque_instance_method(
         // For capsule types in method params, use fully-qualified names
         if let alef_core::ir::TypeRef::Named(name) = ty {
             if let Some(capsule_cfg) = capsule_types.get(name) {
-                return format!("{}::{}", capsule_cfg.from_module.replace('-', "_"), capsule_cfg.type_name);
+                return format!(
+                    "{}::{}",
+                    capsule_cfg.from_module.replace('-', "_"),
+                    capsule_cfg.type_name
+                );
             }
         }
         mapper.map_type(ty)

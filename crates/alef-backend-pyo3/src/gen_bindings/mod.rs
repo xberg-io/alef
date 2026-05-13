@@ -1124,9 +1124,10 @@ fn rewrite_capsule_methods(
         };
 
         // Check if any parameter is a capsule type.
-        let has_capsule_param = method.params.iter().any(|p| {
-            matches!(&p.ty, TypeRef::Named(n) if capsule_types.contains_key(n.as_str()))
-        });
+        let has_capsule_param = method
+            .params
+            .iter()
+            .any(|p| matches!(&p.ty, TypeRef::Named(n) if capsule_types.contains_key(n.as_str())));
 
         // Skip methods that don't involve capsules in parameters or return type.
         if capsule_ret_name.is_none() && !has_capsule_param {
@@ -1262,12 +1263,12 @@ fn rewrite_capsule_methods(
             // Method returns a capsule (and may also have capsule params).
             let cfg = cfg.unwrap();
             match cfg {
-            alef_core::config::CapsuleTypeConfig::Capsule(capsule_name_str) => {
-                let capsule_cstr = capsule_name_str.replace('.', "_").to_ascii_uppercase();
-                // If capsule_name_str is dotted (e.g. "tree_sitter.Language"), also construct the
-                // target Python type from the capsule so callers receive a real tree_sitter.Language,
-                // not the bare PyCapsule.
-                let construct = match capsule_name_str.rsplit_once('.') {
+                alef_core::config::CapsuleTypeConfig::Capsule(capsule_name_str) => {
+                    let capsule_cstr = capsule_name_str.replace('.', "_").to_ascii_uppercase();
+                    // If capsule_name_str is dotted (e.g. "tree_sitter.Language"), also construct the
+                    // target Python type from the capsule so callers receive a real tree_sitter.Language,
+                    // not the bare PyCapsule.
+                    let construct = match capsule_name_str.rsplit_once('.') {
                     Some((module_path, class_name)) => format!(
                         r#"        // SAFETY: capsule_ptr is a valid, non-null Python object pointer we just created above.
         let _capsule_obj = unsafe {{ pyo3::Bound::from_owned_ptr(py, capsule_ptr) }};
@@ -1279,8 +1280,8 @@ fn rewrite_capsule_methods(
                         "        // SAFETY: capsule_ptr is a valid, non-null Python object pointer we just created above.\n        Ok(unsafe { pyo3::Bound::from_owned_ptr(py, capsule_ptr) }.unbind())".to_string()
                     }
                 };
-                format!(
-                    r#"    {sig_attr}    #[allow(clippy::missing_errors_doc)]
+                    format!(
+                        r#"    {sig_attr}    #[allow(clippy::missing_errors_doc)]
     pub fn {method_name}({params_str}) -> pyo3::PyResult<pyo3::Py<pyo3::PyAny>> {{
         const {capsule_cstr}_NAME: &::std::ffi::CStr = c"{capsule_name_str}";
 {capsule_param_extract}        let result = {core_call}{err_map_suffix};
@@ -1292,25 +1293,25 @@ fn rewrite_capsule_methods(
         }}
 {construct}
     }}"#,
-                )
-            }
-            alef_core::config::CapsuleTypeConfig::ConstructFrom {
-                python_type,
-                construct_from,
-            } => {
-                // For ConstructFrom: produce the dependency capsule by calling the matching
-                // free function, then call the Python factory to construct the target type.
-                let dep_snake = construct_from.to_snake_case();
-                let first_str_param = method.params.iter().find(|p| matches!(p.ty, TypeRef::String));
-                let dep_expr = if let Some(sp) = first_str_param {
-                    format!("get_{dep_snake}(py, {}.clone())?.bind(py).clone()", sp.name)
-                } else {
-                    format!("/* TODO: obtain {construct_from} capsule */ unreachable!()")
-                };
+                    )
+                }
+                alef_core::config::CapsuleTypeConfig::ConstructFrom {
+                    python_type,
+                    construct_from,
+                } => {
+                    // For ConstructFrom: produce the dependency capsule by calling the matching
+                    // free function, then call the Python factory to construct the target type.
+                    let dep_snake = construct_from.to_snake_case();
+                    let first_str_param = method.params.iter().find(|p| matches!(p.ty, TypeRef::String));
+                    let dep_expr = if let Some(sp) = first_str_param {
+                        format!("get_{dep_snake}(py, {}.clone())?.bind(py).clone()", sp.name)
+                    } else {
+                        format!("/* TODO: obtain {construct_from} capsule */ unreachable!()")
+                    };
 
-                if let Some((module_path, class_name)) = python_type.rsplit_once('.') {
-                    format!(
-                        r#"    {sig_attr}    #[allow(clippy::missing_errors_doc)]
+                    if let Some((module_path, class_name)) = python_type.rsplit_once('.') {
+                        format!(
+                            r#"    {sig_attr}    #[allow(clippy::missing_errors_doc)]
     pub fn {method_name}({params_str}) -> pyo3::PyResult<pyo3::Py<pyo3::PyAny>> {{
         // Construct {python_type} via Python-side factory.
         let _dep = {dep_expr};
@@ -1318,20 +1319,20 @@ fn rewrite_capsule_methods(
         let _cls = _ts_mod.getattr("{class_name}")?;
         Ok(_cls.call1((_dep,))?.unbind())
     }}"#,
-                    )
-                } else {
-                    format!(
-                        r#"    {sig_attr}    #[allow(clippy::missing_errors_doc)]
+                        )
+                    } else {
+                        format!(
+                            r#"    {sig_attr}    #[allow(clippy::missing_errors_doc)]
     pub fn {method_name}({params_str}) -> pyo3::PyResult<pyo3::Py<pyo3::PyAny>> {{
         // Construct {python_type} via Python-side factory.
         let _dep = {dep_expr};
         let _cls = py.eval(c"{python_type}", None, None)?;
         Ok(_cls.call1((_dep,))?.unbind())
     }}"#,
-                    )
+                        )
+                    }
                 }
             }
-        }
         };
 
         // Find and replace the old method in the impl block.

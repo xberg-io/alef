@@ -121,18 +121,19 @@ pub fn render_test_file(
     // 2. There are visitor specs (which require WasmConversionOptions.default())
     let has_visitor_fixtures = lang == "wasm" && fixtures.iter().any(|f| f.visitor.is_some());
     let needs_options_import = !all_options_types.is_empty()
-        && (has_visitor_fixtures || fixtures.iter().any(|f| {
-            let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
-            cc.args.iter().any(|arg| {
-                let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-                let val = if field == "input" {
-                    Some(&f.input)
-                } else {
-                    f.input.get(field)
-                };
-                arg.arg_type == "json_object" && val.is_some_and(|v| !v.is_null())
-            })
-        }));
+        && (has_visitor_fixtures
+            || fixtures.iter().any(|f| {
+                let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
+                cc.args.iter().any(|arg| {
+                    let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+                    let val = if field == "input" {
+                        Some(&f.input)
+                    } else {
+                        f.input.get(field)
+                    };
+                    arg.arg_type == "json_object" && val.is_some_and(|v| !v.is_null())
+                })
+            }));
 
     // Collect handle constructor function names that need to be imported.
     let handle_constructors: Vec<String> = args

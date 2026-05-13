@@ -613,20 +613,8 @@ fn gen_struct_methods_impl(
         }
     }
 
-    // Generate custom Clone impl for mutex types to avoid double-wrapping Arc.
-    // When a type is in mutex_types, its inner field is Arc<Mutex<T>>, not Arc<T>.
-    // The #[derive(Clone)] would call clone() on Arc, which is correct, but we need
-    // to ensure it doesn't get wrapped again. For non-mutex types, derived Clone is fine.
-    if mutex_types.contains(&typ.name) && !typ.fields.is_empty() {
-        let clone_body = format!(
-            "        Self {{\n            inner: self.inner.clone(),\n        }}"
-        );
-        let clone_impl = format!(
-            "pub fn clone(&self) -> Self {{\n{}\n    }}",
-            clone_body
-        );
-        impl_builder.add_method(&clone_impl);
-    }
+    // Note: Clone is derived automatically and works correctly for both Arc<T> and Arc<Mutex<T>>
+    // since Arc::clone() and Mutex::clone() both increment refcounts without wrapping.
 
     // Generate #[php(getter)] methods for non-scalar fields so PHP can access them as
     // $obj->fieldName.  Scalar fields already have #[php(prop)] on the struct field itself.

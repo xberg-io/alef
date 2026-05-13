@@ -1,8 +1,7 @@
 use crate::generators::binding_helpers::{
     apply_return_newtype_unwrap, gen_async_body, gen_call_args, gen_call_args_cfg, gen_call_args_with_let_bindings,
     gen_lossy_binding_to_core_fields, gen_lossy_binding_to_core_fields_mut, gen_named_let_bindings_pub,
-    gen_serde_let_bindings, gen_unimplemented_body, has_named_params, is_simple_non_opaque_param,
-    wrap_return_with_mutex, wrap_return_with_mutex_mapped,
+    gen_serde_let_bindings, gen_unimplemented_body, has_named_params, is_simple_non_opaque_param, wrap_return_with_mutex_mapped,
 };
 use crate::generators::{AdapterBodies, AsyncPattern, RustBindingConfig};
 use crate::shared::{function_params, function_sig_defaults, partition_methods};
