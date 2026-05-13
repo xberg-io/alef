@@ -379,6 +379,7 @@ impl Backend for PhpBackend {
                         &opaque_types,
                         &core_import,
                         &config.trait_bridges,
+                        &mutex_types,
                     ));
                 } else {
                     method_items.push(gen_function_as_static_method(
@@ -388,6 +389,7 @@ impl Backend for PhpBackend {
                         &core_import,
                         &config.trait_bridges,
                         has_serde,
+                        &mutex_types,
                     ));
                 }
             }
@@ -450,6 +452,7 @@ impl Backend for PhpBackend {
         let bridge_skip_types: Vec<String> = config
             .trait_bridges
             .iter()
+            .filter(|b| !matches!(b.bind_via, alef_core::config::BridgeBinding::OptionsField))
             .filter_map(|b| b.type_alias.clone())
             .collect();
         // Trait-bridge fields whose binding-side wrapper holds `inner: Arc<core::T>`

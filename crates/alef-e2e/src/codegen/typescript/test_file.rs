@@ -85,6 +85,17 @@ pub fn render_test_file(
             for v in o.result_enum_fields.values() {
                 all_result_enum_classes.insert(v.clone());
             }
+            // For WASM, also collect handle_config_type so its nested types are imported
+            if lang == "wasm" {
+                if let Some(handle_type) = &o.handle_config_type {
+                    all_options_types.insert(handle_type.clone());
+                }
+            }
+        }
+        // For WASM with visitor specs, ensure WasmConversionOptions is imported
+        // so the test can call WasmConversionOptions.default()
+        if lang == "wasm" && fixture.visitor.is_some() {
+            all_options_types.insert("WasmConversionOptions".to_string());
         }
     }
 
@@ -105,8 +116,12 @@ pub fn render_test_file(
         }
     }
 
+    // For WASM, we need to import the options type when:
+    // 1. There are json_object args with values, OR
+    // 2. There are visitor specs (which require WasmConversionOptions.default())
+    let has_visitor_fixtures = lang == "wasm" && fixtures.iter().any(|f| f.visitor.is_some());
     let needs_options_import = !all_options_types.is_empty()
-        && fixtures.iter().any(|f| {
+        && (has_visitor_fixtures || fixtures.iter().any(|f| {
             let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
             cc.args.iter().any(|arg| {
                 let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
@@ -117,7 +132,7 @@ pub fn render_test_file(
                 };
                 arg.arg_type == "json_object" && val.is_some_and(|v| !v.is_null())
             })
-        });
+        }));
 
     // Collect handle constructor function names that need to be imported.
     let handle_constructors: Vec<String> = args
@@ -586,10 +601,30 @@ fn render_test_case(
 
     let final_args = if visitor_arg.is_empty() {
         args_str
-    } else if lang == "wasm" || lang == "node" {
-        // WASM and Node: visitor must be merged into the options object (2nd arg) — both
-        // bindings expose convert(html, options?) and ignore any additional positional
-        // arguments, so 'append the visitor as a 3rd arg' silently dropped the visitor.
+    } else if lang == "wasm" {
+        // WASM: visitor must be assigned to a WasmConversionOptions class instance.
+        // wasm-bindgen requires the second arg to be an actual class instance, not a
+        // plain object literal. The test generator always wraps options in an IIFE with
+        // the pattern: (() => { const _u = WasmConversionOptions.default(); ... return _u; })()
+        // Splice the visitor assignment into that pattern.
+        if args_str.is_empty() {
+            // No other options: construct WasmConversionOptions via IIFE with visitor setter
+            format!(
+                "(() => {{ const _u = WasmConversionOptions.default(); _u.visitor = {visitor_arg}; return _u; }})()"
+            )
+        } else if let Some(return_pos) = args_str.rfind("return _u;") {
+            // args_str is already an IIFE ending with "return _u;)"
+            // Insert the visitor assignment before the return statement
+            let (iife_body, ret_part) = args_str.split_at(return_pos);
+            format!("{iife_body}_u.visitor = {visitor_arg}; {ret_part}")
+        } else {
+            // Fallback: construct a new IIFE with the visitor
+            format!(
+                "(() => {{ const _u = WasmConversionOptions.default(); _u.visitor = {visitor_arg}; return _u; }})()"
+            )
+        }
+    } else if lang == "node" {
+        // Node: visitor is merged into a plain object literal (ConversionOptions is an interface)
         if args_str.is_empty() {
             format!("{{ visitor: {visitor_arg} }}")
         } else if let Some(as_pos) = args_str.rfind(" as unknown as ") {
@@ -604,9 +639,6 @@ fn render_test_case(
             };
             format!("{merged_obj}{type_suffix}")
         } else if let Some(stripped) = args_str.strip_suffix(", undefined") {
-            // After the `{} as OptionsType` → `undefined` change, the empty-options
-            // tail no longer carries a cast for us to splice into. Replace the trailing
-            // undefined with the visitor-bearing options object.
             format!("{stripped}, {{ visitor: {visitor_arg} }}")
         } else {
             format!("{args_str}, {{ visitor: {visitor_arg} }}")
@@ -1148,9 +1180,37 @@ fn build_args_and_setup(
                         name = arg.name
                     ));
                     if let Some(obj) = config_value.as_object() {
+                        // Derive nested types for the handle config type so nested objects
+                        // are wrapped with their proper class constructors
+                        let derived_nested = derive_nested_types_for_wasm(config_type, type_defs);
+                        let effective_nested: std::collections::HashMap<String, String> = {
+                            let mut m = derived_nested;
+                            for (k, v) in nested_types {
+                                m.insert(k.clone(), v.clone());
+                            }
+                            m
+                        };
+
                         for (key, val) in obj {
                             let camel_key = snake_to_camel(key);
-                            let value_expr = json_to_js_camel(val);
+                            let value_expr = if let serde_json::Value::Object(nested_obj) = val {
+                                if let Some(nested_type) = effective_nested.get(key.as_str()) {
+                                    // Use builder expression for nested class types
+                                    ts_builder_expression_inner(
+                                        nested_obj,
+                                        nested_type,
+                                        nested_types,
+                                        lang,
+                                        enum_fields,
+                                        bigint_fields,
+                                        type_defs,
+                                    )
+                                } else {
+                                    json_to_js_camel(val)
+                                }
+                            } else {
+                                json_to_js_camel(val)
+                            };
                             setup_lines.push(format!("{name}Config.{camel_key} = {value_expr};", name = arg.name));
                         }
                     }

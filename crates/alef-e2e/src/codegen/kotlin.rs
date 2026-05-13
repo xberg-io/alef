@@ -201,7 +201,7 @@ fn render_build_gradle(
             // We must also pull in the binding's runtime dependencies (JNA,
             // Jackson, jspecify, kotlinx-coroutines) since `files()` does not
             // resolve transitive metadata.
-            let jar_name = pkg_name.rsplit(':').next().unwrap_or(pkg_name);
+            let jar_name = pkg_name.rsplit(':').next().unwrap_or(pkg_name).replace('-', "_");
             let jna = maven::JNA;
             let jackson = maven::JACKSON_E2E;
             let jspecify = maven::JSPECIFY;
@@ -459,6 +459,22 @@ fn render_test_file(
     // Detect if any fixture in this group is an HTTP server test.
     let has_http_fixtures = fixtures.iter().any(|f| f.is_http_test());
 
+    // Detect if any non-HTTP fixture uses a client_factory (coroutine-based client).
+    // When true, test functions must use `= runBlocking { ... }` to call suspend fns.
+    let has_client_factory_fixtures = fixtures.iter().any(|f| {
+        if f.is_http_test() {
+            return false;
+        }
+        let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
+        let per_call_factory = cc.overrides.get("kotlin").and_then(|o| o.client_factory.as_deref());
+        let global_factory = e2e_config
+            .call
+            .overrides
+            .get("kotlin")
+            .and_then(|o| o.client_factory.as_deref());
+        per_call_factory.or(global_factory).is_some()
+    });
+
     // Collect every (per-call) options_type referenced by fixtures in this file.
     // Per-call kotlin overrides win over the file-level options_type passed in.
     // Each entry is a json_object arg's options_type — we need to import each one.
@@ -515,6 +531,9 @@ fn render_test_file(
     let _ = writeln!(out, "import kotlin.test.assertTrue");
     let _ = writeln!(out, "import kotlin.test.assertFalse");
     let _ = writeln!(out, "import kotlin.test.assertFailsWith");
+    if has_client_factory_fixtures {
+        let _ = writeln!(out, "import kotlinx.coroutines.runBlocking");
+    }
     // Effective binding package for FQN imports. When the binding `class_name` is
     // not fully-qualified, fall back to `kotlin_pkg_id` — the kotlin binding emits
     // top-level typealiases at that package (e.g. `package com.github.kreuzberg_dev`)
@@ -589,7 +608,7 @@ fn render_test_file(
         let _ = writeln!(out, "    companion object {{");
         let _ = writeln!(
             out,
-            "        private val MAPPER = ObjectMapper().registerModule(Jdk8Module())"
+            "        private val MAPPER = ObjectMapper().registerModule(Jdk8Module()).setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE)"
         );
         let _ = writeln!(out, "    }}");
     }
@@ -965,7 +984,11 @@ fn render_test_method(
             .any(|arg| arg.arg_type == "json_object" && !super::resolve_field(&fixture.input, &arg.field).is_null());
 
     let _ = writeln!(out, "    @Test");
-    let _ = writeln!(out, "    fun test{method_name}() {{");
+    if client_factory.is_some() {
+        let _ = writeln!(out, "    fun test{method_name}() = runBlocking {{");
+    } else {
+        let _ = writeln!(out, "    fun test{method_name}() {{");
+    }
     let _ = writeln!(out, "        // {description}");
 
     // Emit ObjectMapper deserialization bindings for json_object args.
@@ -999,7 +1022,7 @@ fn render_test_method(
         }
     }
 
-    let (setup_lines, args_str) = build_args_and_setup(&fixture.input, args, class_name, options_type, &fixture.id);
+    let (setup_lines, args_str) = build_args_and_setup(fixture, &fixture.input, args, class_name, options_type, &fixture.id);
 
     // When client_factory is set, emit client-object instantiation + instance method call.
     // The factory name is a function on the Kotlin facade object (e.g. `LiterLlm.createClient`)
@@ -1091,6 +1114,7 @@ fn render_test_method(
 ///
 /// Returns `(setup_lines, args_string)`.
 fn build_args_and_setup(
+    fixture: &Fixture,
     input: &serde_json::Value,
     args: &[crate::config::ArgMapping],
     class_name: &str,
@@ -1106,10 +1130,17 @@ fn build_args_and_setup(
 
     for arg in args {
         if arg.arg_type == "mock_url" {
-            setup_lines.push(format!(
-                "val {} = System.getenv(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\"",
-                arg.name,
-            ));
+            if fixture.has_host_root_route() {
+                setup_lines.push(format!(
+                    "val {} = System.getProperty(\"mockServer.{fixture_id}\", System.getProperty(\"mockServerUrl\", System.getenv(\"MOCK_SERVER_URL\")) + \"/fixtures/{fixture_id}\")",
+                    arg.name,
+                ));
+            } else {
+                setup_lines.push(format!(
+                    "val {} = System.getProperty(\"mockServerUrl\", System.getenv(\"MOCK_SERVER_URL\")) + \"/fixtures/{fixture_id}\"",
+                    arg.name,
+                ));
+            }
             parts.push(arg.name.clone());
             continue;
         }
