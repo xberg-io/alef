@@ -494,6 +494,12 @@ pub(crate) fn gen_enum_class(package: &str, enum_def: &EnumDef, main_class: &str
     out.push_str("        }\n");
     out.push_str("        throw new IllegalArgumentException(\"Unknown value: \" + value);\n");
     out.push_str("    }\n");
+    out.push('\n');
+    out.push_str("    /** Returns the wire-format string value (matches JSON serialization). */\n");
+    out.push_str("    @Override\n");
+    out.push_str("    public String toString() {\n");
+    out.push_str("        return value;\n");
+    out.push_str("    }\n");
 
     out.push_str("}\n");
 
