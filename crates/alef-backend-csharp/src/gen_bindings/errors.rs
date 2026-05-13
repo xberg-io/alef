@@ -18,22 +18,29 @@ pub(super) fn gen_exception_class(namespace: &str, class_name: &str) -> String {
 }
 
 /// Compute the set of types that are returned as opaque handles (matching `*mut T` pattern).
-/// A type is considered opaque-handle-returned if any public function returns TypeRef::Named(T).
+/// A type is considered opaque-handle-returned if any public function or method returns the
+/// type directly or wrapped in Optional/Vec — those all surface across FFI as `*mut T`.
 pub(super) fn compute_handle_returned_types(api: &alef_core::ir::ApiSurface) -> HashSet<String> {
-    let mut handle_types = HashSet::new();
-
-    // Scan functions for Named return types (will be emitted as *mut T in FFI).
-    for func in &api.functions {
-        if let alef_core::ir::TypeRef::Named(name) = &func.return_type {
-            handle_types.insert(name.clone());
+    fn inner_named(ty: &alef_core::ir::TypeRef) -> Option<&str> {
+        match ty {
+            alef_core::ir::TypeRef::Named(n) => Some(n.as_str()),
+            alef_core::ir::TypeRef::Optional(inner) | alef_core::ir::TypeRef::Vec(inner) => inner_named(inner),
+            _ => None,
         }
     }
 
-    // Scan methods for Named return types.
+    let mut handle_types = HashSet::new();
+
+    for func in &api.functions {
+        if let Some(name) = inner_named(&func.return_type) {
+            handle_types.insert(name.to_string());
+        }
+    }
+
     for typ in &api.types {
         for method in &typ.methods {
-            if let alef_core::ir::TypeRef::Named(name) = &method.return_type {
-                handle_types.insert(name.clone());
+            if let Some(name) = inner_named(&method.return_type) {
+                handle_types.insert(name.to_string());
             }
         }
     }
