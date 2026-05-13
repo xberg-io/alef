@@ -715,14 +715,8 @@ mod alef_json_str_opt {
                     &error_converters,
                 ));
             } else {
-                let mut fn_code = generators::gen_function_with_mutex(
-                    f,
-                    &mapper,
-                    &cfg,
-                    &adapter_bodies,
-                    &opaque_types,
-                    &mutex_types,
-                );
+                let mut fn_code =
+                    generators::gen_function_with_mutex(f, &mapper, &cfg, &adapter_bodies, &opaque_types, &mutex_types);
                 // Rewrite std::sync::Mutex → tokio::sync::Mutex when the returned opaque
                 // type is in `tokio_mutex_types`. The struct/impl rewriter only touches
                 // impl blocks, so apply targeted replacement here for free functions.
@@ -730,8 +724,7 @@ mod alef_json_str_opt {
                     && fn_code.contains("Arc::new(std::sync::Mutex::new(")
                     && returns_tokio_mutex_type(f, &tokio_mutex_types)
                 {
-                    fn_code = fn_code
-                        .replace("Arc::new(std::sync::Mutex::new(", "Arc::new(tokio::sync::Mutex::new(");
+                    fn_code = fn_code.replace("Arc::new(std::sync::Mutex::new(", "Arc::new(tokio::sync::Mutex::new(");
                 }
                 builder.add_item(&fn_code);
             }

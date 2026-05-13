@@ -1,8 +1,6 @@
 //! C# opaque handle and record type code generation.
 
-use super::errors::{
-    emit_return_marshalling_indented, emit_return_statement, emit_return_statement_indented,
-};
+use super::errors::{emit_return_marshalling_indented, emit_return_statement, emit_return_statement_indented};
 use super::{
     StreamingMethodMeta, csharp_file_header, emit_named_param_setup, emit_named_param_teardown,
     emit_named_param_teardown_indented, is_tuple_field, returns_ptr,

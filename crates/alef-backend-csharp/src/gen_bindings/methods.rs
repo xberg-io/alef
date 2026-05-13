@@ -1,8 +1,6 @@
 //! C# wrapper class and method code generation.
 
-use super::errors::{
-    emit_return_marshalling_indented, emit_return_statement, emit_return_statement_indented,
-};
+use super::errors::{emit_return_marshalling_indented, emit_return_statement, emit_return_statement_indented};
 use super::functions::{is_bytes_result_func, is_bytes_result_method};
 use super::{
     StreamingMethodMeta, emit_named_param_setup, emit_named_param_teardown, emit_named_param_teardown_indented,

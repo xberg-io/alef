@@ -41,7 +41,6 @@ pub(super) fn compute_handle_returned_types(api: &alef_core::ir::ApiSurface) -> 
     handle_types
 }
 
-
 /// Emit the final `return returnValue;` statement after cleanup.
 pub(super) fn emit_return_statement(out: &mut String, return_type: &TypeRef) {
     emit_return_statement_indented(out, return_type, "        ");
