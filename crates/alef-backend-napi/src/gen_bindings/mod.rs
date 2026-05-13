@@ -740,10 +740,7 @@ mod tests {
         let field_has_cfg = Some("feature = \"visitor\"");
 
         // Predicate: f.cfg.is_none() || never_skip_cfg_field_names.iter().any(|n| n == field_name)
-        let accepted = field_has_cfg.is_none()
-            || never_skip_cfg_field_names
-                .iter()
-                .any(|n| n == field_is_target);
+        let accepted = field_has_cfg.is_none() || never_skip_cfg_field_names.iter().any(|n| n == field_is_target);
 
         assert!(
             accepted,

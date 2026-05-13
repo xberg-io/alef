@@ -217,7 +217,7 @@ mod tests {
     #[test]
     fn gen_visitor_bridge_chunk_counts_consistent() {
         let src = gen_visitor_bridge("dev.test", "VisitorBridge");
-        let expected = (CALLBACKS.len() + CHUNK_SIZE - 1) / CHUNK_SIZE;
+        let expected = CALLBACKS.len().div_ceil(CHUNK_SIZE);
         let stub_call_count = src.matches("offset = registerStubs").count();
         let stub_method_count = src.matches("private long registerStubs").count();
         assert_eq!(
