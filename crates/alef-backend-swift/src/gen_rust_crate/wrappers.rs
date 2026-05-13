@@ -8,7 +8,10 @@
 //! Enum wrappers live in `enums.rs`.
 
 use crate::gen_rust_crate::default_construction::{emit_default_construction_body, emit_direct_field_inits};
-use crate::gen_rust_crate::type_bridge::{bridge_type, needs_json_bridge, swift_bridge_rust_type};
+use crate::gen_rust_crate::type_bridge::{
+    bridge_type, bridge_type_enum_aware_ref, is_enum_named, is_vec_of_enum, needs_json_bridge,
+    swift_bridge_rust_type,
+};
 use alef_codegen::generators::type_paths::resolve_type_path;
 use alef_core::ir::{CoreWrapper, FieldDef, TypeDef, TypeRef};
 use alef_core::keywords::swift_ident;
@@ -207,9 +210,17 @@ fn emit_getters(
     out: &mut String,
 ) {
     for field in &ty.fields {
-        let bridge_ty = bridge_type(&field.ty);
+        // Use enum-aware bridge type so enum-typed Named fields resolve to String.
+        // This keeps extern block declarations consistent with the getter impl bodies.
+        // For optional Vec<Named(enum)> fields, fall back to String (JSON-serialized)
+        // because Option<Vec<String>> is not supported by swift-bridge as a getter return.
+        let bridge_ty = bridge_type_enum_aware_ref(&field.ty, enum_names);
         let bridge_ty_owned = if field.optional && !needs_json_bridge(&field.ty) {
-            format!("Option<{bridge_ty}>")
+            if bridge_ty.starts_with("Vec<") {
+                "String".to_string()
+            } else {
+                format!("Option<{bridge_ty}>")
+            }
         } else {
             bridge_ty
         };
@@ -244,6 +255,14 @@ fn emit_getters(
                     name => &ctx.name,
                 },
             ));
+        } else if is_enum_named(&field.ty, enum_names) {
+            // Enum-typed Named field: return String via to_string() on the wrapper enum.
+            // The opaque enum type is NOT declared in the extern block (see extern_block.rs),
+            // so we must not return the wrapper type here.
+            emit_enum_string_getter(field, &ctx, enum_names, out);
+        } else if is_vec_of_enum(&field.ty, enum_names) {
+            // Vec<Named(enum)>: map each element to String via to_string().
+            emit_vec_enum_string_getter(field, &ctx, enum_names, out);
         } else if let TypeRef::Named(wrapper) = &field.ty {
             emit_named_getter(field, wrapper, &ctx, enum_names, out);
         } else if let TypeRef::Vec(inner) = &field.ty {
@@ -324,6 +343,94 @@ fn emit_getters(
                 },
             ));
         }
+    }
+}
+
+/// Emit a `String`-returning getter for an enum-typed `Named` field.
+///
+/// Instead of returning the opaque enum wrapper (which would trigger swift-bridge's
+/// `Vec<EnumType> Vectorizable` generation), this converts the enum to `String` by
+/// constructing the bridge wrapper enum and calling `.to_string()`.
+fn emit_enum_string_getter(
+    field: &alef_core::ir::FieldDef,
+    ctx: &GetterCtx,
+    enum_names: &HashSet<&str>,
+    out: &mut String,
+) {
+    let TypeRef::Named(wrapper) = &field.ty else {
+        return;
+    };
+    let is_enum = enum_names.contains(wrapper.as_str());
+    debug_assert!(is_enum, "emit_enum_string_getter called with non-enum Named type");
+
+    let name = &ctx.name;
+    let getter_name = &ctx.getter_name;
+
+    if field.optional {
+        // Option<EnumType> → Option<String>
+        let map_expr = if field.is_boxed {
+            format!("self.0.{name}.clone().map(|w| {wrapper}::from(*w).to_string())")
+        } else if matches!(field.core_wrapper, CoreWrapper::Arc) {
+            format!("self.0.{name}.clone().map(|w| {wrapper}::from((*w).clone()).to_string())")
+        } else {
+            format!("self.0.{name}.clone().map(|w| {wrapper}::from(w).to_string())")
+        };
+        out.push_str(&format!(
+            "    pub fn {getter_name}(&self) -> Option<String> {{\n        {map_expr}\n    }}\n"
+        ));
+    } else {
+        // EnumType → String
+        let expr = if field.is_boxed {
+            format!("{wrapper}::from(*self.0.{name}.clone()).to_string()")
+        } else if matches!(field.core_wrapper, CoreWrapper::Arc) {
+            format!("{wrapper}::from((*self.0.{name}).clone()).to_string()")
+        } else {
+            format!("{wrapper}::from(self.0.{name}.clone()).to_string()")
+        };
+        out.push_str(&format!(
+            "    pub fn {getter_name}(&self) -> String {{\n        {expr}\n    }}\n"
+        ));
+    }
+}
+
+/// Emit a `Vec<String>`-returning getter for a `Vec<Named(enum)>` field.
+///
+/// Maps each enum element through the bridge wrapper's `to_string()`.
+fn emit_vec_enum_string_getter(
+    field: &alef_core::ir::FieldDef,
+    ctx: &GetterCtx,
+    enum_names: &HashSet<&str>,
+    out: &mut String,
+) {
+    let TypeRef::Vec(inner) = &field.ty else {
+        return;
+    };
+    let TypeRef::Named(wrapper) = inner.as_ref() else {
+        return;
+    };
+    let is_enum = enum_names.contains(wrapper.as_str());
+    debug_assert!(is_enum, "emit_vec_enum_string_getter called with non-enum Vec<Named>");
+
+    let name = &ctx.name;
+    let getter_name = &ctx.getter_name;
+
+    // Build the per-element mapping expression based on wrapping strategy.
+    let elem_expr = match field.vec_inner_core_wrapper {
+        CoreWrapper::Arc => format!("{wrapper}::from((**elem).clone()).to_string()"),
+        _ => format!("{wrapper}::from(elem.clone()).to_string()"),
+    };
+
+    if field.optional {
+        out.push_str(&format!(
+            "    pub fn {getter_name}(&self) -> String {{\n        \
+             serde_json::to_string(&self.0.{name}.as_ref().map(|v| \
+             v.iter().map(|elem| {elem_expr}).collect::<Vec<_>>())).expect(\"serializable enum vec\")\n    }}\n"
+        ));
+    } else {
+        out.push_str(&format!(
+            "    pub fn {getter_name}(&self) -> Vec<String> {{\n        \
+             self.0.{name}.iter().map(|elem| {elem_expr}).collect()\n    }}\n"
+        ));
     }
 }
 

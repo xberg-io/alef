@@ -1245,9 +1245,11 @@ fn render_assertion(
     // Non-string opaque fields (DocumentStructure, etc.) should not appear in string
     // assertions — the fixture schema controls which assertions apply to which fields.
     let string_expr = if field_is_enum {
-        // swift-bridge exposes opaque enum types with a `to_string()` method (snake_case)
-        // that returns `RustString`. Then `.toString()` converts that RustString to Swift String.
-        format!("{field_expr}.to_string().toString()")
+        // Enum-typed fields are now bridged as `String` (RustString in Swift) rather than
+        // as opaque enum handles. The getter on the Rust side calls `to_string()` internally
+        // and returns a `String` across the FFI. In Swift this arrives as `RustString`, so
+        // `.toString()` converts it to a Swift `String` — one call, not two.
+        format!("{field_expr}.toString()")
     } else if field_is_optional {
         // Leaf field itself is Optional<RustString> — need ?.toString() to unwrap.
         format!("({field_expr}?.toString() ?? \"\")")
@@ -1825,9 +1827,9 @@ fn swift_traversal_contains_assert(
     let elem_is_optional = field_resolver.is_optional(resolved_elem_part)
         || field_resolver.is_optional(field_resolver.resolve(resolved_elem_part));
     let elem_str = if elem_is_enum {
-        // swift-bridge opaque enum types expose `to_string() -> RustString`.
-        // Call .to_string() first, then .toString() to convert RustString → Swift String.
-        format!("{elem_accessor}.to_string().toString()")
+        // Enum-typed fields are bridged as `String` (RustString in Swift).
+        // A single `.toString()` converts RustString → Swift String.
+        format!("{elem_accessor}.toString()")
     } else if elem_is_optional {
         format!("({elem_accessor}?.toString() ?? \"\")")
     } else {
