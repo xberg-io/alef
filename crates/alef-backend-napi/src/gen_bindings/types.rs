@@ -11,6 +11,24 @@ use alef_core::ir::{MethodDef, TypeDef, TypeRef};
 
 use super::functions::{napi_apply_primitive_casts_to_call_args, napi_gen_call_args, napi_wrap_return};
 
+/// Map a struct-field `TypeRef` containing `TypeRef::Bytes` (Rust `Vec<u8>`) to the TS
+/// type napi-rs v3 actually accepts at runtime. The macro-generated `FromNapiValue`
+/// for `Vec<u8>` only reads JS Arrays (it calls `napi_get_array_length`), but napi-rs's
+/// default d.ts emitter declares `Uint8Array`. Returning `Some("...")` triggers a
+/// `#[napi(ts_type = "...")]` override that aligns the published types with runtime.
+fn ts_type_for_bytes_field(ty: &TypeRef) -> Option<String> {
+    fn inner(ty: &TypeRef) -> Option<String> {
+        match ty {
+            TypeRef::Bytes => Some("Array<number>".to_string()),
+            TypeRef::Optional(i) => inner(i).map(|s| format!("{s} | null | undefined")),
+            TypeRef::Vec(i) => inner(i).map(|s| format!("Array<{s}>")),
+            TypeRef::Map(_k, v) => inner(v).map(|s| format!("Record<string, {s}>")),
+            _ => None,
+        }
+    }
+    inner(ty)
+}
+
 pub(super) fn gen_struct(
     typ: &TypeDef,
     mapper: &NapiMapper,
@@ -119,8 +137,25 @@ pub(super) fn gen_struct(
         // Honor `#[serde(rename = "...")]` on the core field so JS callers see the wire
         // name (e.g. core `tool_type` with rename `"type"` is exposed to JS as `type`).
         let js_name = field.serde_rename.clone().unwrap_or_else(|| to_node_name(&field.name));
-        let mut attrs = if js_name != field.name {
-            vec![format!("napi(js_name = \"{}\")", js_name)]
+        // For `Vec<u8>` fields in `#[napi(object)]` structs, napi-rs v3's macro-generated
+        // FromNapiValue only accepts a JS `Array<number>` at runtime (it calls
+        // `napi_get_array_length`), but its default d.ts emitter declares `Uint8Array`.
+        // Override the d.ts type to match the runtime contract so callers know to pass
+        // `[1, 2, 3]` rather than `Buffer.from(...)`. The override covers Option/Map/Vec
+        // wrappers that ultimately bottom out at `Vec<u8>`.
+        let ts_type_override = ts_type_for_bytes_field(&field.ty);
+        let napi_attr_inner: Vec<String> = {
+            let mut v = vec![];
+            if js_name != field.name {
+                v.push(format!("js_name = \"{}\"", js_name));
+            }
+            if let Some(ts) = &ts_type_override {
+                v.push(format!("ts_type = \"{}\"", ts));
+            }
+            v
+        };
+        let mut attrs = if !napi_attr_inner.is_empty() {
+            vec![format!("napi({})", napi_attr_inner.join(", "))]
         } else {
             vec![]
         };
