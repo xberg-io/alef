@@ -1452,16 +1452,18 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
         };
 
         // Emit `@JsonProperty(<wire-name>)` so Jackson's BuilderBasedDeserializer matches
-        // the wire key to this builder field. Only required when there is an explicit
-        // `#[serde(rename = "...")]` override — snake_case fields match the wire format
-        // by default because Rust's serde emits snake_case and Jackson is configured with
-        // setPropertyNamingStrategy(SNAKE_CASE) in fromJson().
+        // the wire key to this builder field. Always emit it — relying on Jackson's
+        // SNAKE_CASE naming strategy alone breaks for fields whose camelCase form starts
+        // with a single lowercase letter followed by an uppercase (e.g. `xRobotsTag`
+        // → `xrobots_tag`, not `x_robots_tag`). The wire name is the field's
+        // `#[serde(rename = "...")]` override if set, otherwise the Rust field name
+        // (already snake_case per project convention).
         let wire_name: Option<String> = if is_flattened_json {
             // Flatten fields have no single wire name — the matching
             // `@JsonAnySetter` setter intercepts every unknown sibling field.
             None
         } else {
-            field.serde_rename.clone()
+            Some(field.serde_rename.clone().unwrap_or_else(|| field.name.clone()))
         };
         if let Some(wire) = wire_name {
             body.push_str("    @JsonProperty(\"");
@@ -1513,7 +1515,7 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
         let setter_wire_name: Option<String> = if is_flattened_json {
             None
         } else {
-            field.serde_rename.clone()
+            Some(field.serde_rename.clone().unwrap_or_else(|| field.name.clone()))
         };
         if is_flattened_json {
             // The regular `with<Field>(Map)` setter must not bind to a wire
@@ -1524,8 +1526,9 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
             body.push_str("    @com.fasterxml.jackson.annotation.JsonIgnore\n");
         } else if let Some(wire) = &setter_wire_name {
             // Jackson's BuilderBasedDeserializer reads property names from the `with*`
-            // setter methods, not the private fields — emit @JsonProperty on the setter
-            // when there is an explicit serde rename so the wire key maps correctly.
+            // setter methods, not the private fields — always emit @JsonProperty so the
+            // wire key maps deterministically regardless of Jackson's naming strategy
+            // quirks (e.g. `withXRobotsTag` → `xrobots_tag` instead of `x_robots_tag`).
             body.push_str("    @JsonProperty(\"");
             body.push_str(wire);
             body.push_str("\")\n");

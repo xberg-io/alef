@@ -1164,16 +1164,20 @@ mod tests {
         );
     }
 
-    /// Bug 4: Methods with `has_default_impl = true` must NOT get a generated body.
+    /// Bug 4 (FFI variant): `ffi_skip_methods` opts a method out of the FFI trait impl.
     ///
-    /// When a trait provides a default implementation, the bridge should let the
-    /// trait's own default take effect rather than generating a vtable-forwarding body.
+    /// FFI's vtable bridge intentionally emits every trait method (including those with
+    /// `has_default_impl = true`) so the vtable can forward them — this is required for
+    /// visitor traits like `HtmlVisitor` where every method has a default. The only way
+    /// to opt out of vtable forwarding (and fall back to the trait's own default) is to
+    /// list the method in `ffi_skip_methods`.
     #[test]
-    fn bug4_has_default_impl_method_not_generated_in_trait_impl() {
-        let required = make_method("run", TypeRef::String, true, false); // required
-        let optional = make_method("shutdown", TypeRef::Unit, false, true); // has default
+    fn bug4_ffi_skip_methods_opts_out_of_trait_impl() {
+        let required = make_method("run", TypeRef::String, true, false);
+        let optional = make_method("shutdown", TypeRef::Unit, false, true);
         let trait_def = make_trait_def("Backend", vec![required, optional]);
-        let bridge_cfg = sample_bridge_cfg("Backend");
+        let mut bridge_cfg = sample_bridge_cfg("Backend");
+        bridge_cfg.ffi_skip_methods = vec!["shutdown".to_string()];
         let api = sample_api();
 
         let code = gen_trait_bridge(
@@ -1194,10 +1198,10 @@ mod tests {
              actual code:\n{code}"
         );
 
-        // Default method must NOT appear — let the trait's own default take effect
+        // Method in ffi_skip_methods must NOT appear — let the trait's own default take effect
         assert!(
             !code.contains("fn shutdown("),
-            "method with has_default_impl=true must NOT get a generated body;\n\
+            "method listed in ffi_skip_methods must NOT get a generated body;\n\
              actual code:\n{code}"
         );
     }

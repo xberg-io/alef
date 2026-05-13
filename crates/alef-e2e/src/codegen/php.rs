@@ -1113,7 +1113,7 @@ fn build_args_and_setup(
                 let filtered_config = filter_empty_enum_strings(config_value);
                 setup_lines.push(format!(
                     "${name}_config = CrawlConfig::from_json(json_encode({}));",
-                    json_to_php(&filtered_config)
+                    json_to_php_camel_keys(&filtered_config)
                 ));
                 setup_lines.push(format!(
                     "${} = {class_name}::{constructor_name}(${name}_config);",
