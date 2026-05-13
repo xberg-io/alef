@@ -95,6 +95,7 @@ pub fn render_mock_server_setup(out: &mut String, fixture: &Fixture, e2e_config:
             let _ = writeln!(out, "        method: \"{method}\",");
             let _ = writeln!(out, "        status: {status},");
             let _ = writeln!(out, "        body: String::new(),");
+            let _ = writeln!(out, "        is_streaming: true,");
             let _ = writeln!(out, "        stream_chunks: vec![");
             for chunk in chunks {
                 let chunk_str = match chunk {
@@ -144,6 +145,7 @@ pub fn render_mock_server_setup(out: &mut String, fixture: &Fixture, e2e_config:
         let _ = writeln!(out, "        method: \"{method}\",");
         let _ = writeln!(out, "        status: {status},");
         let _ = writeln!(out, "        body: {body_str}.to_string(),");
+        let _ = writeln!(out, "        is_streaming: false,");
         let _ = writeln!(out, "        stream_chunks: vec![],");
         let _ = writeln!(out, "        headers: vec![");
         for (name, value) in &header_entries {
@@ -168,6 +170,7 @@ pub fn render_mock_server_setup(out: &mut String, fixture: &Fixture, e2e_config:
             let _ = writeln!(out, "        method: \"{method}\",");
             let _ = writeln!(out, "        status: {status},");
             let _ = writeln!(out, "        body: {body_str}.to_string(),");
+            let _ = writeln!(out, "        is_streaming: false,");
             let _ = writeln!(out, "        stream_chunks: vec![],");
             let _ = writeln!(out, "        headers: vec![");
             for (name, value) in &header_entries {
@@ -210,8 +213,12 @@ pub struct MockRoute {
     pub method: &'static str,
     /// HTTP status code to return.
     pub status: u16,
-    /// Response body JSON string (used when `stream_chunks` is empty).
+    /// Response body JSON string (used when `is_streaming` is false).
     pub body: String,
+    /// Whether this route serves a streaming SSE response.
+    /// True even when `stream_chunks` is empty (e.g. an empty stream still sends
+    /// `data: [DONE]\n\n` with the correct `content-type: text/event-stream` header).
+    pub is_streaming: bool,
     /// Ordered SSE data payloads for streaming responses.
     /// Each entry becomes `data: <chunk>\n\n` in the response.
     /// A final `data: [DONE]\n\n` is always appended.
@@ -286,8 +293,10 @@ async fn handle_request(State(state): State<Arc<ServerState>>, req: Request<Body
             let status =
                 StatusCode::from_u16(route.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
 
-            if !route.stream_chunks.is_empty() {
+            if route.is_streaming {
                 // Build SSE body: data: <chunk>\n\n ... data: [DONE]\n\n
+                // Note: stream_chunks may be empty for an empty-stream fixture; we still
+                // emit `data: [DONE]\n\n` with the correct SSE headers so clients do not hang.
                 let mut sse = String::new();
                 for chunk in &route.stream_chunks {
                     sse.push_str("data: ");
@@ -696,6 +705,10 @@ impl Fixture {
 struct MockRoute {
     status: u16,
     body: Vec<u8>,
+    /// Whether this route serves a streaming SSE response.
+    /// True even when `stream_chunks` is empty (e.g. an empty stream still sends
+    /// `data: [DONE]\n\n` with the correct `content-type: text/event-stream` header).
+    is_streaming: bool,
     stream_chunks: Vec<String>,
     headers: Vec<(String, String)>,
     /// Optional artificial delay applied before the handler returns. When set,
@@ -743,7 +756,9 @@ async fn handle_request(State(routes): State<RouteTable>, req: Request<Body>) ->
 fn serve_route(route: &MockRoute) -> Response {
     let status = StatusCode::from_u16(route.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
 
-    if !route.stream_chunks.is_empty() {
+    if route.is_streaming {
+        // Note: stream_chunks may be empty for an empty-stream fixture; we still emit
+        // `data: [DONE]\n\n` with the correct SSE headers so clients do not hang.
         let mut sse = String::new();
         for chunk in &route.stream_chunks {
             sse.push_str("data: ");
@@ -934,6 +949,7 @@ fn load_routes_recursive(
                     || resolved_routes.iter().any(|r| is_host_root_path(&r.original_path));
 
                 for resolved in resolved_routes {
+                    let is_streaming = resolved.response.stream_chunks.is_some();
                     let stream_chunks = resolved.response
                         .stream_chunks
                         .unwrap_or_default()
@@ -949,6 +965,7 @@ fn load_routes_recursive(
                     let mock_route = MockRoute {
                         status: resolved.response.status,
                         body: resolved.body_bytes,
+                        is_streaming,
                         stream_chunks,
                         headers,
                         delay_ms: resolved.response.delay_ms,
