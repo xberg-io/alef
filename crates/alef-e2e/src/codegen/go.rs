@@ -1284,6 +1284,7 @@ fn render_test_function(
                             &optional_locals,
                             result_is_simple,
                             result_is_array,
+                            is_streaming,
                         );
                         for line in nil_buf.lines() {
                             let _ = writeln!(out, "\t{line}");
@@ -1299,6 +1300,7 @@ fn render_test_function(
                             &optional_locals,
                             result_is_simple,
                             result_is_array,
+                            is_streaming,
                         );
                     }
                     continue;
@@ -1314,6 +1316,7 @@ fn render_test_function(
             &optional_locals,
             result_is_simple,
             result_is_array,
+            is_streaming,
         );
     }
 
@@ -1875,6 +1878,7 @@ fn render_assertion(
     optional_locals: &std::collections::HashMap<String, String>,
     result_is_simple: bool,
     result_is_array: bool,
+    is_streaming: bool,
 ) {
     // Handle synthetic / derived fields before the is_valid_for_result check
     // so they are never treated as struct field accesses on the result.
@@ -2039,7 +2043,11 @@ fn render_assertion(
 
     // Streaming virtual fields: intercept before is_valid_for_result so they are
     // never skipped.  These fields resolve against the `chunks` collected-list variable.
-    if !result_is_simple {
+    // Skip the streaming interception entirely when the call has opted out
+    // (`[e2e.calls.<name>] streaming = false`) — `chunks` then names a plain
+    // field on the synchronous result struct and must flow through normal
+    // accessor resolution (e.g. `result.Chunks`).
+    if !result_is_simple && is_streaming {
         if let Some(f) = &assertion.field {
             if !f.is_empty() && crate::codegen::streaming_assertions::is_streaming_virtual_field(f) {
                 if let Some(expr) =

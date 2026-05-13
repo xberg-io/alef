@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(alef-e2e/go): gate the streaming-virtual-field assertion interception in `render_assertion` on the resolved `is_streaming` flag (threaded through from `render_test_function`). Without this gate, a call with `streaming = false` whose result type happens to have a `chunks` field would still emit `len(chunks)` referencing an undeclared local (streaming chunks-var) instead of the plain `len(result.Chunks)` field accessor. Matches the python/typescript backends which already short-circuit when streaming is disabled.
+
 - fix(alef-backend-magnus): wrap opaque types with `&mut self` methods in `Arc<Mutex<T>>` instead of bare `Arc<T>`, and allow delegation of `&mut self` methods via `.lock().unwrap()`. Previously, opaque structs were always wrapped in `Arc` with no mutex, and methods with `&mut self` receivers were stubbed as "Not implemented". This fix enables real implementations for methods like `Parser::set_language`. Complements equivalent fixes already in NAPI and PHP backends.
 
 - fix(alef-backend-php): allow delegation of `&mut self` methods on opaque types wrapped in `Arc<Mutex<T>>`. Previously the can_delegate check rejected all RefMut receivers (line 396) assuming Arc doesn't support `&mut T`. However, when a type has any RefMut methods (indicating Mutex-wrapping), those methods CAN be delegated by locking the mutex. This fix enables real implementations for methods like `Parser::set_language` instead of stubbed "Not implemented" bodies.
