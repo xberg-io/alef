@@ -196,6 +196,14 @@ fn emit_lib_rs(
     out.push_str("    clippy::manual_flatten,\n");
     out.push_str("    clippy::match_single_binding,\n");
     out.push_str("    clippy::redundant_closure,\n");
+    // `useless_conversion`: bytes-field defaults emit `__target.x = x.into();`
+    // (see templates/default_field_bytes_assign.jinja). For consumers where the
+    // source and target field types are identical (e.g. `Option<Vec<u8>>`), the
+    // `.into()` is a no-op and clippy flags it; for consumers with different
+    // types it is necessary. The template can't know which case applies, so
+    // suppress at the crate root.
+    out.push_str("    clippy::useless_conversion,\n");
+    out.push_str("    clippy::inherent_to_string,\n");
     out.push_str(")]\n\n");
 
     let visible_types: Vec<&TypeDef> = api
