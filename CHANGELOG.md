@@ -11,9 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [0.15.56] - 2026-05-13
+
+### Fixed
+
 - **alef-backend-wasm**: wrap opaque-type constructor returns and `&self`-method returns in `Arc::new(std::sync::Mutex::new(...))` when the target type has `&mut self` methods (i.e. is in the new `mutex_types` set). Previously `gen_function` / `gen_method` / `gen_opaque_struct_methods` emitted bare `Arc::new(...)` regardless of whether the opaque struct field was `Arc<T>` or `Arc<Mutex<T>>`, producing invalid Rust like `inner: Arc::new(Parser::default())` against an `Arc<Mutex<Parser>>` field. Threads a `mutex_types: &AHashSet<String>` set through `gen_bindings/{functions,methods,types,mod}.rs` and uses `generators::wrap_return_with_mutex` at every Arc-wrapping site (parallels the Magnus fix in v0.15.55). Constructors no longer emit a double-nested struct-init (the wrap helper already returns the complete `Self { inner: ... }` expression).
 - **alef-e2e/kotlin**: additional sticky-nullability + enum-typed field detection refinements in `crates/alef-e2e/src/codegen/kotlin.rs` plus shared `crates/alef-e2e/src/field_access.rs`; corresponding go/swift/streaming generator updates and `crates/alef-scaffold/src/languages/kotlin.rs` adjustments.
 - **all visitor backends**: update all codegen sites that construct a `VisitorHandle` to use `Arc::new(Mutex::new(...))` instead of `Rc::new(RefCell::new(...))`, matching the updated `VisitorHandle` type alias (`Arc<Mutex<dyn HtmlVisitor + Send>>`). Affected backends: PHP, PyO3, NAPI (4 Jinja templates + 2 Rust sites), WASM (Jinja template + 3 Rust sites + `unsafe impl Send + Sync` in visitor bridge), Magnus (Rust + Jinja visitor bridge + `unsafe impl Send + Sync`), Rustler (template env + trait bridge), extendr (trait bridge + gen_bindings use stmts), FFI (gen_bridge_field + gen_visitor VisitorRef + `unsafe impl Send + Sync` on `{Prefix}Visitor` and `VisitorRef`). Also updates the Rust e2e test generator (`alef-e2e`) to emit `Arc::new(Mutex::new(...))` for the test visitor.
+- **alef-backend-java**: switch generated instance-method `Arena` from `Arena.ofConfined()` to `Arena.ofShared()` so cross-thread access to `MemorySegment`s doesn't panic in pooled / async caller contexts.
+- **alef-e2e/kotlin**: mock URL now resolves via the per-fixture system property set by `MockServerListener`, falling back to `mockServerUrl` / `MOCK_SERVER_URL` env var with the `/fixtures/<id>` suffix appended.
 
 ## [0.15.55] - 2026-05-13
 
