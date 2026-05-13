@@ -88,7 +88,7 @@ pub(crate) fn gen_native_lib(
 
         // Bytes-result functions use the out-param convention: JAVA_INT return +
         // 3 trailing ADDRESS/ADDRESS/ADDRESS params for (out_ptr: *mut *mut u8, out_len: *mut usize, out_cap: *mut usize).
-        // For input Bytes parameters, expand them to (ADDRESS pointer, JAVA_LONG length) pairs.
+        // For input Bytes parameters (in ALL functions), expand them to (ADDRESS pointer, JAVA_LONG length) pairs.
         let (return_layout, param_layouts) = if is_bytes_result(func) {
             let mut layouts: Vec<String> = Vec::new();
             for param in &func.params {
@@ -114,7 +114,25 @@ pub(crate) fn gen_native_lib(
             ("ValueLayout.JAVA_INT".to_string(), layouts)
         } else {
             let return_layout = gen_ffi_layout(&func.return_type);
-            let param_layouts: Vec<String> = func.params.iter().map(|p| gen_ffi_layout(&p.ty)).collect();
+            // For non-bytes-result functions, still expand Bytes params to (ptr, len)
+            let mut param_layouts: Vec<String> = Vec::new();
+            for param in &func.params {
+                match &param.ty {
+                    TypeRef::Bytes => {
+                        // Input byte slice: expand to pointer + length
+                        param_layouts.push("ValueLayout.ADDRESS".to_string()); // pointer
+                        param_layouts.push("ValueLayout.JAVA_LONG".to_string()); // length
+                    }
+                    TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Bytes) => {
+                        // Optional byte slice: expand to pointer + length
+                        param_layouts.push("ValueLayout.ADDRESS".to_string());
+                        param_layouts.push("ValueLayout.JAVA_LONG".to_string());
+                    }
+                    other => {
+                        param_layouts.push(gen_ffi_layout(other));
+                    }
+                }
+            }
             (return_layout, param_layouts)
         };
 
@@ -565,8 +583,23 @@ pub(crate) fn gen_native_lib(
             let ffi_name = format!("{}_{}_{}", prefix, owner_snake, method_snake);
 
             let mut param_layouts: Vec<String> = vec!["ValueLayout.ADDRESS".to_string()];
+            // For method parameters, expand Bytes to (ptr, len) pairs
             for p in &method.params {
-                param_layouts.push(gen_ffi_layout(&p.ty));
+                match &p.ty {
+                    TypeRef::Bytes => {
+                        // Input byte slice: expand to pointer + length
+                        param_layouts.push("ValueLayout.ADDRESS".to_string()); // pointer
+                        param_layouts.push("ValueLayout.JAVA_LONG".to_string()); // length
+                    }
+                    TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Bytes) => {
+                        // Optional byte slice: expand to pointer + length
+                        param_layouts.push("ValueLayout.ADDRESS".to_string());
+                        param_layouts.push("ValueLayout.JAVA_LONG".to_string());
+                    }
+                    other => {
+                        param_layouts.push(gen_ffi_layout(other));
+                    }
+                }
             }
             let return_layout = if is_bytes_result_method(method) {
                 param_layouts.push("ValueLayout.ADDRESS".to_string()); // out_ptr

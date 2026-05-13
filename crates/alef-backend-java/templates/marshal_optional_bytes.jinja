@@ -1,0 +1,2 @@
+            var {{ cname }} = {{ name }} != null ? arena.allocateFrom(ValueLayout.JAVA_BYTE, {{ name }}) : MemorySegment.NULL;
+            var {{ cname }}Len = (long) ({{ name }} != null ? {{ name }}.length : 0);

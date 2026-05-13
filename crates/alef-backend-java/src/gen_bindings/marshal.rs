@@ -166,6 +166,16 @@ pub(crate) fn marshal_param_to_ffi(
                         },
                     ));
                 }
+                TypeRef::Bytes => {
+                    let cname = "c".to_string() + name;
+                    out.push_str(&crate::template_env::render(
+                        "marshal_optional_bytes.jinja",
+                        minijinja::context! {
+                            cname => &cname,
+                            name => name,
+                        },
+                    ));
+                }
                 TypeRef::Named(type_name) => {
                     let cname = "c".to_string() + name;
                     if opaque_types.contains(type_name.as_str()) {
@@ -248,22 +258,39 @@ pub(crate) fn marshal_param_to_ffi(
     }
 }
 
-pub(crate) fn ffi_param_name(name: &str, ty: &TypeRef, _opaque_types: &AHashSet<String>) -> String {
+/// Generate the FFI argument(s) for a parameter.
+///
+/// Most parameters map to a single FFI argument. However, some expand to multiple:
+/// - `Bytes` expands to (pointer, length)
+/// - Bytes input parameters in bytes-result functions similarly expand
+///
+/// Returns a vector of argument expressions to be passed to MethodHandle.invoke().
+pub(crate) fn ffi_param_args(name: &str, ty: &TypeRef, _opaque_types: &AHashSet<String>) -> Vec<String> {
     match ty {
-        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json | TypeRef::Bytes => "c".to_string() + name,
-        TypeRef::Named(_) => "c".to_string() + name,
-        TypeRef::Vec(_) | TypeRef::Map(_, _) => "c".to_string() + name,
+        TypeRef::Bytes => {
+            // Bytes expands to pointer + length pair
+            let cname = "c".to_string() + name;
+            vec![cname.clone(), format!("{}Len", cname)]
+        }
+        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Bytes) => {
+            // Optional<Bytes> also expands to pointer + length
+            let cname = "c".to_string() + name;
+            vec![cname.clone(), format!("{}Len", cname)]
+        }
+        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => vec!["c".to_string() + name],
+        TypeRef::Named(_) => vec!["c".to_string() + name],
+        TypeRef::Vec(_) | TypeRef::Map(_, _) => vec!["c".to_string() + name],
         TypeRef::Optional(inner) => match inner.as_ref() {
             TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json | TypeRef::Named(_) => {
-                "c".to_string() + name
+                vec!["c".to_string() + name]
             }
             // Optional primitives are unwrapped via a `c<Name>` local that coerces null → 0/false
             // (see marshal_param_to_ffi). Reference that local instead of the raw boxed parameter
             // so MethodHandle.invoke doesn't auto-unbox a null Long/Integer and throw NPE.
-            TypeRef::Primitive(_) => "c".to_string() + name,
-            _ => name.to_string(),
+            TypeRef::Primitive(_) => vec!["c".to_string() + name],
+            _ => vec![name.to_string()],
         },
-        _ => name.to_string(),
+        _ => vec![name.to_string()],
     }
 }
 

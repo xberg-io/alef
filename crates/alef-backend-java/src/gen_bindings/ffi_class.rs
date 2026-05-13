@@ -9,7 +9,7 @@ use std::collections::HashSet;
 
 use super::helpers::is_bridge_param_java;
 use super::marshal::{
-    ffi_param_name, gen_helper_methods, is_bytes_result, is_ffi_string_return, java_ffi_return_cast,
+    ffi_param_args, gen_helper_methods, is_bytes_result, is_ffi_string_return, java_ffi_return_cast,
     marshal_param_to_ffi,
 };
 
@@ -217,12 +217,14 @@ pub(crate) fn gen_sync_function_method(
     let ffi_handle = format!("NativeLib.{}_{}", prefix.to_uppercase(), func.name.to_uppercase());
 
     // Build call args: bridge params get MemorySegment.NULL, others are marshalled normally.
+    // Important: Bytes parameters expand to (pointer, length) pairs, so each FFI param
+    // must have a corresponding argument.
     let call_args: Vec<String> = func
         .params
         .iter()
-        .map(|p| {
+        .flat_map(|p| {
             if is_bridge_param_java(p, bridge_param_names, bridge_type_aliases) {
-                "MemorySegment.NULL".to_string()
+                vec!["MemorySegment.NULL".to_string()]
             } else {
                 // Apply the same optional-wrapping logic used when marshalling.
                 let effective_ty = if p.optional && !matches!(p.ty, TypeRef::Optional(_)) {
@@ -230,7 +232,8 @@ pub(crate) fn gen_sync_function_method(
                 } else {
                     p.ty.clone()
                 };
-                ffi_param_name(&to_java_name(&p.name), &effective_ty, opaque_types)
+                // ffi_param_args returns one or more args (Bytes expands to 2)
+                ffi_param_args(&to_java_name(&p.name), &effective_ty, opaque_types)
             }
         })
         .collect();

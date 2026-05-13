@@ -782,3 +782,112 @@ type = "ChatCompletionRequest"
         );
     }
 }
+
+#[test]
+fn test_bytes_parameter_expansion_in_ffi_descriptor_and_invoke() {
+    // Regression test for SIGBUS bug: Bytes parameters must expand to (pointer, length)
+    // in both the FunctionDescriptor AND the invoke() call arguments.
+    let backend = JavaBackend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "process".to_string(),
+            rust_path: "test_lib::process".to_string(),
+            original_rust_path: String::new(),
+            // Rust signature: fn(*const u8, usize, *const c_char) -> i32
+            // This mimics kreuzberg_extract_bytes signature
+            params: vec![
+                ParamDef {
+                    name: "content".to_string(),
+                    ty: TypeRef::Bytes,
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                },
+                ParamDef {
+                    name: "file_type".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                },
+            ],
+            return_type: TypeRef::Primitive(PrimitiveType::I32),
+            is_async: false,
+            error_type: Some("Error".to_string()),
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = resolved_one(
+        r#"
+[workspace]
+languages = ["java", "ffi"]
+
+[[crates]]
+name = "test_lib"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "test"
+
+[crates.java]
+package = "com.test"
+"#,
+    );
+
+    let result = backend.generate_bindings(&api, &config);
+    assert!(result.is_ok());
+    let files = result.unwrap();
+
+    // Check NativeLib.java for descriptor
+    let native_lib = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("NativeLib"))
+        .unwrap();
+
+    // Descriptor must have 4 params: ADDRESS (content ptr), JAVA_LONG (content len), ADDRESS (file_type ptr), no return
+    // Since return is i32 (primitive), descriptor should be:
+    // FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS)
+    assert!(
+        native_lib.content.contains("FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS)"),
+        "FunctionDescriptor must have 4 params: int return, ptr, len, string ptr. Got:\n{}",
+        native_lib.content
+    );
+
+    // Check main class for invoke call
+    let main_class = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("TestLibRs.java"))
+        .unwrap();
+
+    // The invoke call must pass ALL 3 arguments (ptr, len, string), not just 2
+    // Expected pattern: TEST_PROCESS.invoke(ccontent, ccontentLen, cfileType)
+    assert!(
+        main_class.content.contains(".invoke(ccontent, ccontentLen, cfileType"),
+        "invoke() call must pass (ptr, len, string) for bytes parameter. Got:\n{}",
+        main_class.content
+    );
+}
