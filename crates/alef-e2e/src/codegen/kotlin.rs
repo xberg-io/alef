@@ -1532,9 +1532,17 @@ fn render_assertion(
             // and matches the Java codegen's `Optional.ofNullable(...).isEmpty()`.
             // When the bare result is `T?` (result_is_option) the same null-check
             // applies, because `.isEmpty()` is undefined on arbitrary nullable types.
+            // The Kotlin e2e tests call the Java facade class which returns
+            // `java.util.Optional<T>` for option results — use `.isPresent` rather
+            // than `!= null` so the assertion semantics match the JVM return type.
             let bare_result_is_option =
                 result_is_option && assertion.field.as_deref().filter(|f| !f.is_empty()).is_none();
-            if field_is_optional || bare_result_is_option {
+            if bare_result_is_option {
+                let _ = writeln!(
+                    out,
+                    "        assertTrue({field_expr}.isPresent, \"expected non-empty value\")"
+                );
+            } else if field_is_optional {
                 let _ = writeln!(
                     out,
                     "        assertTrue({field_expr} != null, \"expected non-empty value\")"
@@ -1549,7 +1557,12 @@ fn render_assertion(
         "is_empty" => {
             let bare_result_is_option =
                 result_is_option && assertion.field.as_deref().filter(|f| !f.is_empty()).is_none();
-            if field_is_optional || bare_result_is_option {
+            if bare_result_is_option {
+                let _ = writeln!(
+                    out,
+                    "        assertTrue({field_expr}.isEmpty, \"expected empty value\")"
+                );
+            } else if field_is_optional {
                 let _ = writeln!(
                     out,
                     "        assertTrue({field_expr} == null, \"expected empty value\")"
