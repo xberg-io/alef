@@ -119,10 +119,17 @@ fn gen_python_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (St
         "Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))".to_string()
     };
 
+    // The iterator forwards stream items through an mpsc channel populated by a
+    // background tokio task. Driving the stream from a task (rather than calling
+    // `block_on` inside `chat_stream`) is critical: `block_on` on the calling
+    // thread deadlocks when the sync binding method is invoked from inside an
+    // asyncio event loop. End-of-stream is signalled via PyStopAsyncIteration
+    // because `future_into_py` resolving to `None` does not terminate an
+    // `async for` loop on its own.
     let struct_def = format!(
         "#[pyclass]\n\
          pub struct {iter_name} {{\n    \
-             inner: Arc<tokio::sync::Mutex<futures::stream::BoxStream<'static, Result<{core_import}::{item_type}, {core_import}::{error_type}>>>>,\n\
+             receiver: Arc<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<Result<{core_import}::{item_type}, {core_import}::{error_type}>>>>,\n\
          }}\n\
          \n\
          #[pymethods]\n\
@@ -130,13 +137,13 @@ fn gen_python_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (St
              fn __aiter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {{ slf }}\n\
              \n    \
              fn __anext__<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {{\n        \
-                 let inner = self.inner.clone();\n        \
+                 let receiver = self.receiver.clone();\n        \
                  pyo3_async_runtimes::tokio::future_into_py(py, async move {{\n            \
-                     let mut stream = inner.lock().await;\n            \
-                     match futures::StreamExt::next(&mut *stream).await {{\n                \
-                         Some(Ok(chunk)) => Ok(Some({item_type}::from(chunk))),\n                \
+                     let mut rx = receiver.lock().await;\n            \
+                     match rx.recv().await {{\n                \
+                         Some(Ok(chunk)) => Ok({item_type}::from(chunk)),\n                \
                          Some(Err(e)) => {anext_err_handler},\n                \
-                         None => Ok(None),  // StopAsyncIteration\n            \
+                         None => Err(pyo3::exceptions::PyStopAsyncIteration::new_err(())),\n            \
                      }}\n        \
                  }}).map(Some)\n    \
              }}\n\
@@ -150,22 +157,26 @@ fn gen_python_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (St
         format!("{}\n    ", let_bindings.join("\n    "))
     };
 
-    let method_err_mapper = if error_type != "anyhow::Error" {
-        let simple_name = error_type.split("::").last().unwrap_or(error_type);
-        let fn_name = format!("{}_to_py_err", simple_name.to_snake_case());
-        format!(".map_err({fn_name})")
-    } else {
-        ".map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))".to_string()
-    };
-
     let method_body = format!(
         "let inner = self.inner.clone();\n    \
          {bindings_block}\
-         let stream = pyo3_async_runtimes::tokio::get_runtime()\n        \
-             .block_on(inner.{core_path}({call_str}))\n        \
-             {method_err_mapper}?;\n    \
+         let (tx, rx) = tokio::sync::mpsc::channel(32);\n    \
+         pyo3_async_runtimes::tokio::get_runtime().spawn(async move {{\n        \
+             match inner.{core_path}({call_str}).await {{\n            \
+                 Err(e) => {{\n                \
+                     let _ = tx.send(Err(e)).await;\n            \
+                 }}\n            \
+                 Ok(mut stream) => {{\n                \
+                     while let Some(chunk) = futures::StreamExt::next(&mut stream).await {{\n                    \
+                         if tx.send(chunk).await.is_err() {{\n                        \
+                             break;\n                    \
+                         }}\n                \
+                     }}\n            \
+                 }}\n        \
+             }}\n    \
+         }});\n    \
          let iter = {iter_name} {{\n        \
-             inner: Arc::new(tokio::sync::Mutex::new(stream)),\n    \
+             receiver: Arc::new(tokio::sync::Mutex::new(rx)),\n    \
          }};\n    \
          Ok(Bound::new(py, iter)?.into_any())"
     );
