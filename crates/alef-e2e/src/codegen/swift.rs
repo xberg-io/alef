@@ -586,6 +586,11 @@ fn render_test_method(
     let result_is_simple =
         call_config.result_is_simple || call_overrides.is_some_and(|o| o.result_is_simple) || result_is_simple;
     let result_is_array = call_config.result_is_array;
+    // When the call returns `Option<T>` the Swift binding exposes the result as
+    // `Optional<…>` (e.g. `getEmbeddingPreset(...) -> EmbeddingPreset?`). Bare-result
+    // `is_empty`/`not_empty` assertions must use `XCTAssertNil` / `XCTAssertNotNil`
+    // rather than `.toString().isEmpty`, which is undefined on opaque optionals.
+    let result_is_option = call_config.result_is_option || call_overrides.is_some_and(|o| o.result_is_option);
 
     let method_name = fixture.id.to_upper_camel_case();
     let description = &fixture.description;
@@ -840,6 +845,7 @@ fn render_test_method(
             field_resolver,
             result_is_simple,
             result_is_array,
+            result_is_option,
             &effective_enum_fields,
         );
     }
@@ -1054,6 +1060,7 @@ fn build_args_and_setup(
     (setup_lines, parts.join(", "))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_assertion(
     out: &mut String,
     assertion: &Assertion,
@@ -1061,8 +1068,15 @@ fn render_assertion(
     field_resolver: &FieldResolver,
     result_is_simple: bool,
     result_is_array: bool,
+    result_is_option: bool,
     enum_fields: &HashSet<String>,
 ) {
+    // When the bare result is `Optional<T>` (no field path) the opaque class
+    // exposed by swift-bridge has no `.toString()` method, so the usual
+    // `.toString().isEmpty` pattern produces compile errors. Detect the
+    // "bare result" case and prefer `XCTAssertNil` / `XCTAssertNotNil`.
+    let bare_result_is_option =
+        result_is_option && assertion.field.as_deref().filter(|f| !f.is_empty()).is_none();
     // Streaming virtual fields resolve against the `chunks` collected-array variable.
     // Intercept before is_valid_for_result so they are never skipped.
     if let Some(f) = &assertion.field {
@@ -1207,8 +1221,20 @@ fn render_assertion(
         )
     };
     let (vec_setup, field_expr) = materialise_vec_temporaries(&field_expr_raw, &local_suffix);
-    for line in &vec_setup {
-        let _ = writeln!(out, "        {line}");
+    // The `contains` / `not_contains` traversal branch builds its own
+    // accessor from `field_resolver.accessor(array_part, ...)`, ignoring
+    // `field_expr`. Emitting the vec_setup there would produce dead
+    // `let _vec_… = …` lines, so skip it for those traversal cases.
+    let field_uses_traversal = assertion.field.as_deref().is_some_and(|f| f.contains("[]."));
+    let traversal_skips_field_expr = field_uses_traversal
+        && matches!(
+            assertion.assertion_type.as_str(),
+            "contains" | "not_contains" | "not_empty" | "is_empty"
+        );
+    if !traversal_skips_field_expr {
+        for line in &vec_setup {
+            let _ = writeln!(out, "        {line}");
+        }
     }
 
     // In Swift, optional chaining with `?.` makes the result optional even if the
@@ -1476,7 +1502,9 @@ fn render_assertion(
                 false
             };
             if !traversal_not_empty_handled {
-                if field_is_optional {
+                if bare_result_is_option {
+                    let _ = writeln!(out, "        XCTAssertNotNil({result_var}, \"expected non-nil value\")");
+                } else if field_is_optional {
                     let _ = writeln!(out, "        XCTAssertNotNil({field_expr}, \"expected non-nil value\")");
                 } else if field_is_array {
                     let _ = writeln!(
@@ -1499,7 +1527,9 @@ fn render_assertion(
             }
         }
         "is_empty" => {
-            if field_is_optional {
+            if bare_result_is_option {
+                let _ = writeln!(out, "        XCTAssertNil({result_var}, \"expected nil value\")");
+            } else if field_is_optional {
                 let _ = writeln!(out, "        XCTAssertNil({field_expr}, \"expected nil value\")");
             } else if field_is_array {
                 let _ = writeln!(
