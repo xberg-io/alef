@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-backend-magnus**: WIP: correctly convert `&DTO` and `&[&str]` parameter shapes when calling core functions. Functions and methods accepting references to generated DTO structs and string slices now emit proper type conversions at the FFI boundary. Serde recovery path creates `{name}_core` bindings for Named params; Vec<String> ref params create `{name}_core` intermediate Vec<&str> bindings consumed by `gen_call_args_with_let_bindings`.
+
 - **alef-backend-csharp**: serialize enum values as strings via JsonStringEnumConverter (matches python/node/go/java/ruby/php). All C# enums now emit `[JsonConverter(typeof(JsonStringEnumConverter))]` to serialize as JSON strings (e.g. `"function"`) instead of numeric discriminants (e.g. `0`), matching other language bindings.
 
 ## [0.15.54] - 2026-05-13
