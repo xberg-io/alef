@@ -51,6 +51,15 @@ version = "{version}"
 edition = "2024"
 license = "{license}"
 
+# `async-trait` and `serde` are conditionally referenced by alef-emitted
+# code: only when the umbrella crate declares trait bridges (inbound
+# plugins) or `Serialize`/`Deserialize`-derived response types. They are
+# listed unconditionally in `[dependencies]` so the manifest is stable
+# across regens, and ignored here so cargo-machete does not flag the
+# downstream (no-adapters, no-derives) case as unused.
+[package.metadata.cargo-machete]
+ignored = ["async-trait", "serde"]
+
 [lib]
 crate-type = ["cdylib", "staticlib"]
 
