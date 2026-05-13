@@ -784,10 +784,13 @@ fn render_assertion_dart(
         if let Some(dot) = f.find("[].") {
             let array_part = &f[..dot];
             let elem_part = &f[dot + 3..];
+            // Apply alias resolution to the array part too — same reasoning as for the
+            // standard field accessor below.
             let array_accessor = if array_part.is_empty() {
                 result_var.to_string()
             } else {
-                format!("{result_var}.{}", field_to_dart_accessor(array_part))
+                let resolved = field_resolver.resolve(array_part);
+                format!("{result_var}.{}", field_to_dart_accessor(resolved))
             };
             let elem_accessor = field_to_dart_accessor(elem_part);
             match assertion.assertion_type.as_str() {
@@ -852,7 +855,14 @@ fn render_assertion_dart(
         result_var.to_string()
     } else {
         match assertion.field.as_deref() {
-            Some(f) if !f.is_empty() => format!("{result_var}.{}", field_to_dart_accessor(f)),
+            // Resolve the fixture field path through aliases first (e.g. `robots.is_allowed`
+            // → `is_allowed` when the binding flattens the result type). Then convert each
+            // segment to dart camelCase. Without `resolve` the codegen would emit
+            // `result.robots.isAllowed` against a flat `ScrapeResult` and fail to compile.
+            Some(f) if !f.is_empty() => {
+                let resolved = field_resolver.resolve(f);
+                format!("{result_var}.{}", field_to_dart_accessor(resolved))
+            }
             _ => result_var.to_string(),
         }
     };
@@ -1147,6 +1157,51 @@ fn field_to_dart_accessor(path: &str) -> String {
             result.push_str(bracket);
         } else {
             result.push_str(&segment.to_lower_camel_case());
+        }
+    }
+    result
+}
+
+/// Convert a struct path to a Dart accessor, injecting `!` after any segment whose
+/// cumulative path is registered as optional. Without these non-null assertions Dart
+/// refuses to compile chained field access on `Optional<T>` (e.g.
+/// `result.markdown.content` where `markdown` is `MarkdownResult?` must be
+/// `result.markdown!.content`). The terminal segment is intentionally left bare so
+/// equality assertions can still compare against `null`.
+fn field_to_dart_accessor_with_nullability(path: &str, field_resolver: &FieldResolver) -> String {
+    let segments: Vec<&str> = path.split('.').collect();
+    let mut result = String::with_capacity(path.len());
+    let mut cumulative = String::new();
+
+    for (i, segment) in segments.iter().enumerate() {
+        if i > 0 {
+            result.push('.');
+        }
+        // Track the cumulative path so we can probe `is_optional` for each prefix.
+        if !cumulative.is_empty() {
+            cumulative.push('.');
+        }
+        cumulative.push_str(segment);
+
+        let mut emitted_bang = false;
+        if let Some(bracket_pos) = segment.find('[') {
+            let name = &segment[..bracket_pos];
+            let bracket = &segment[bracket_pos..];
+            result.push_str(&name.to_lower_camel_case());
+            // Preserve the existing `!` on bracketed segments (List<T>? force-unwrap).
+            result.push('!');
+            emitted_bang = true;
+            result.push_str(bracket);
+        } else {
+            result.push_str(&segment.to_lower_camel_case());
+        }
+
+        // Append `!` to non-terminal optional intermediate segments so the trailing
+        // field access compiles under sound null safety. Skip when the segment already
+        // carries `!` from the bracket branch above.
+        let is_last = i == segments.len() - 1;
+        if !is_last && !emitted_bang && field_resolver.is_optional(&cumulative) {
+            result.push('!');
         }
     }
     result

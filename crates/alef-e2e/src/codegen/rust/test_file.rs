@@ -365,6 +365,9 @@ pub fn render_test_function(
     let mut arg_exprs: Vec<String> = Vec::new();
     // Track the name of the json_object options arg so we can inject the visitor later.
     let mut options_arg_name: Option<String> = None;
+    // When has_error_assertion is true and a handle arg is present, track its name so we
+    // can wrap the main call in a match that propagates engine-creation failures as Err.
+    let mut error_context_handle_name: Option<String> = None;
     for arg in &call_config.args {
         let value = crate::codegen::resolve_field(&fixture.input, &arg.field);
         let var_name = &arg.name;
@@ -383,6 +386,7 @@ pub fn render_test_function(
             arg.owned,
             arg.element_type.as_deref(),
             &e2e_config.test_documents_dir,
+            has_error_assertion,
         );
         // Add explicit type annotation to json_object bindings so Rust can resolve
         // `Default::default()` and `serde_json::from_value(…)` without a trailing
@@ -420,13 +424,24 @@ pub fn render_test_function(
                 })
                 .collect();
         }
+        // When in error context and the arg is a handle, the binding emitted by
+        // render_rust_arg is `{name}_result` (a Result). Track the handle name so
+        // the error-context call site can emit a match wrapper.
+        if has_error_assertion && arg.arg_type == "handle" {
+            error_context_handle_name = Some(var_name.clone());
+        }
         for binding in &bindings {
             let _ = writeln!(out, "    {binding}");
         }
         // For functions whose options slot is owned `Option<T>` rather than `&T`,
         // wrap the json_object expression in `Some(...).clone()` so it matches
         // the parameter shape. Other arg types pass through unchanged.
-        let final_expr = if wrap_options_in_some && arg.arg_type == "json_object" {
+        let final_expr = if has_error_assertion && arg.arg_type == "handle" {
+            // In error context, the handle binding is `{name}_result` (a Result).
+            // The actual call will be emitted inside a `match {name}_result { Ok({name}) => ...}`
+            // wrapper, so the call expression still uses `&{name}` (the unwrapped handle).
+            format!("&{var_name}")
+        } else if wrap_options_in_some && arg.arg_type == "json_object" {
             if visitor_via_options {
                 // Visitor will be injected into options before the call; pass by move
                 // (no .clone() needed).
@@ -514,7 +529,19 @@ pub fn render_test_function(
     let result_is_option = call_config.result_is_option || rust_overrides.is_some_and(|o| o.result_is_option);
 
     if has_error_assertion {
-        let _ = writeln!(out, "    let {result_var} = {call_expr}{await_suffix};");
+        // When a handle (engine) arg is present, the engine creation itself may fail.
+        // Wrap the primary call in a match so engine-creation errors propagate as Err
+        // instead of panicking via .expect().
+        if let Some(ref handle_name) = error_context_handle_name {
+            let _ = writeln!(out, "    let {result_var} = match {handle_name}_result {{");
+            let _ = writeln!(out, "        Err(e) => Err(e),");
+            let _ = writeln!(out, "        Ok({handle_name}) => {{");
+            let _ = writeln!(out, "            {call_expr}{await_suffix}");
+            let _ = writeln!(out, "        }}");
+            let _ = writeln!(out, "    }};");
+        } else {
+            let _ = writeln!(out, "    let {result_var} = {call_expr}{await_suffix};");
+        }
         // Check if any assertion accesses fields on the Ok value (not error-path fields).
         // Assertions on `error.*` fields access the Err value and do not need `result_ok`.
         let has_non_error_assertions = fixture.assertions.iter().any(|a| {

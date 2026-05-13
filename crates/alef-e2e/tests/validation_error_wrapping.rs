@@ -12,6 +12,7 @@
 //! - C#:     `Assert.ThrowsAnyAsync<Exc>(async () => { setup_lines; await call_expr; })`
 //! - Elixir: `assert {:error, _} = Module.create_engine(config)` (no separate call)
 //! - Go:     `engine, createErr := pkg.CreateEngine(&cfg); assert.Error(t, createErr); return`
+//! - Rust:   `let engine_result = create_engine(...); let result = match engine_result { Err(e) => Err(e), Ok(engine) => { scrape(...).await } }; assert!(result.is_err(), ...)`
 
 use alef_core::config::NewAlefConfig;
 use alef_e2e::codegen::E2eCodegen;
@@ -20,6 +21,7 @@ use alef_e2e::codegen::elixir::ElixirCodegen;
 use alef_e2e::codegen::go::GoCodegen;
 use alef_e2e::codegen::php::PhpCodegen;
 use alef_e2e::codegen::ruby::RubyCodegen;
+use alef_e2e::codegen::rust::RustE2eCodegen;
 use alef_e2e::fixture::{Assertion, Fixture, FixtureGroup};
 
 // ── helpers ──────────────────────────────────────────────────────────────────

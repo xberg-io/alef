@@ -85,7 +85,14 @@ pub(crate) fn gen_opaque_struct_methods(
         if method.is_async {
             impl_builder.add_method(&gen_async_static_method(method, mapper, opaque_types));
         } else {
-            impl_builder.add_method(&gen_static_method(method, mapper, opaque_types, typ, core_import, mutex_types));
+            impl_builder.add_method(&gen_static_method(
+                method,
+                mapper,
+                opaque_types,
+                typ,
+                core_import,
+                mutex_types,
+            ));
         }
     }
 
@@ -703,7 +710,14 @@ fn gen_struct_methods_impl(
         if method.is_async {
             impl_builder.add_method(&gen_async_static_method(method, mapper, opaque_types));
         } else {
-            impl_builder.add_method(&gen_static_method(method, mapper, opaque_types, typ, core_import, mutex_types));
+            impl_builder.add_method(&gen_static_method(
+                method,
+                mapper,
+                opaque_types,
+                typ,
+                core_import,
+                mutex_types,
+            ));
         }
     }
 

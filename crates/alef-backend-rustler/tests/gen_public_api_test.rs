@@ -595,8 +595,7 @@ fn test_opaque_types_not_get_struct_module() {
         engine_file.content
     );
     assert!(
-        !engine_file.content.contains("@type t :: %__MODULE__{")
-            || engine_file.content.contains("ref: reference()"),
+        !engine_file.content.contains("@type t :: %__MODULE__{") || engine_file.content.contains("ref: reference()"),
         "opaque wrapper module's typespec must describe a Rustler ResourceArc reference; content:\n{}",
         engine_file.content
     );

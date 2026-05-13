@@ -970,7 +970,8 @@ fn render_test_function(
                 let _ = writeln!(out, "    const char* api_key = getenv(\"{var}\");");
                 let _ = writeln!(out, "    const char* mock_base = getenv(\"MOCK_SERVER_URL\");");
                 let _ = writeln!(out, "    char base_url_buf[512];");
-                let _ = writeln!(out, "    if (api_key && api_key[0] != '\\0') {{");
+                let _ = writeln!(out, "    int use_mock = !(api_key && api_key[0] != '\\0');");
+                let _ = writeln!(out, "    if (!use_mock) {{");
                 let _ = writeln!(
                     out,
                     "        fprintf(stderr, \"{fixture_id}: using real API ({var} is set)\\n\");"
@@ -1152,12 +1153,9 @@ fn render_test_function(
         // request deadline) and breaks every HTTP fixture.
         if has_mock && api_key_var.is_some() {
             // api_key and base_url_buf are already declared in the env-fallback block above.
-            // When api_key is set we pass NULL as the base_url (real API); otherwise we
-            // pass base_url_buf which was snprintf'd to the mock server URL.
-            let _ = writeln!(
-                out,
-                "    const char* _base_url_arg = (api_key && api_key[0] != '\\0') ? NULL : base_url_buf;"
-            );
+            // use_mock was captured before api_key was potentially reassigned to "test-key",
+            // so it correctly reflects the original env state.
+            let _ = writeln!(out, "    const char* _base_url_arg = use_mock ? base_url_buf : NULL;");
             let _ = writeln!(
                 out,
                 "    {prefix_upper}DefaultClient* client = {prefix}_{factory}(api_key, _base_url_arg, (uint64_t)-1, (uint32_t)-1, NULL);"
@@ -2139,10 +2137,9 @@ fn render_chat_stream_test_function(
         // `api_key` and `base_url_buf` are already declared by the env-fallback
         // block above (the smoke+mock path). Reuse them — don't redeclare
         // `mock_base`/`base_url`, which would be a C compile error.
-        let _ = writeln!(
-            out,
-            "    const char* _base_url_arg = (api_key && api_key[0] != '\\0') ? NULL : base_url_buf;"
-        );
+        // use_mock was captured before api_key was potentially reassigned to "test-key",
+        // so it correctly reflects the original env state.
+        let _ = writeln!(out, "    const char* _base_url_arg = use_mock ? base_url_buf : NULL;");
         let _ = writeln!(
             out,
             "    {prefix_upper}DefaultClient* client = {prefix}_create_client(api_key, _base_url_arg, (uint64_t)-1, (uint32_t)-1, NULL);"

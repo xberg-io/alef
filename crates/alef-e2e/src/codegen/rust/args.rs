@@ -10,6 +10,10 @@ use crate::escape::rust_raw_string;
 /// [`E2eConfig::test_documents_dir`]). It is concatenated at compile time with
 /// the `CARGO_MANIFEST_DIR` so that fixture-relative paths resolve from any
 /// `cargo` invocation cwd.
+///
+/// `is_error_context` — when `true` the fixture asserts an error outcome.
+/// For `handle` args this changes `.expect(...)` to a bare `Result` binding
+/// so engine-creation failures can be propagated to the final assertion.
 #[allow(clippy::too_many_arguments)]
 pub fn render_rust_arg(
     name: &str,
@@ -22,6 +26,7 @@ pub fn render_rust_arg(
     owned: bool,
     element_type: Option<&str>,
     test_documents_dir: &str,
+    is_error_context: bool,
 ) -> (Vec<String>, String) {
     if arg_type == "mock_url" {
         // Prefer the per-fixture `MOCK_SERVER_<FIXTURE_ID>` env var when set (host-root
@@ -47,6 +52,24 @@ pub fn render_rust_arg(
         use heck::ToSnakeCase;
         let constructor_name = format!("create_{}", name.to_snake_case());
         let mut lines = Vec::new();
+        if is_error_context {
+            // In error context the engine creation itself may legitimately fail (e.g.
+            // invalid config). Bind to a Result so the caller can propagate the error
+            // to the final assertion instead of panicking with .expect().
+            if value.is_null() || value.is_object() && value.as_object().unwrap().is_empty() {
+                lines.push(format!("let {name}_result = {constructor_name}(None);"));
+            } else {
+                let json_literal = serde_json::to_string(value).unwrap_or_default();
+                let escaped = json_literal.replace('\\', "\\\\").replace('"', "\\\"");
+                lines.push(format!(
+                    "let {name}_config: CrawlConfig = serde_json::from_str(\"{escaped}\").expect(\"config should parse\");"
+                ));
+                lines.push(format!("let {name}_result = {constructor_name}(Some({name}_config));"));
+            }
+            // The call expression is a sentinel that the test_file emitter will detect
+            // and wrap in a match; we return the result binding name as the expression.
+            return (lines, format!("{name}_result"));
+        }
         if value.is_null() || value.is_object() && value.as_object().unwrap().is_empty() {
             lines.push(format!(
                 "let {name} = {constructor_name}(None).expect(\"handle creation should succeed\");"

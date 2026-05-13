@@ -296,9 +296,10 @@ pub(super) fn gen_opaque_instance_method(
     let is_ref_mut_receiver = matches!(method.receiver.as_ref(), Some(alef_core::ir::ReceiverKind::RefMut));
 
     // Check if the type has any RefMut methods (which means inner is wrapped in Mutex).
-    let has_mut_methods = typ.methods.iter().any(|m| {
-        matches!(m.receiver.as_ref(), Some(alef_core::ir::ReceiverKind::RefMut))
-    });
+    let has_mut_methods = typ
+        .methods
+        .iter()
+        .any(|m| matches!(m.receiver.as_ref(), Some(alef_core::ir::ReceiverKind::RefMut)));
 
     let call_args = napi_gen_call_args(&method.params, opaque_types);
 
