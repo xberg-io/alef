@@ -149,8 +149,11 @@ impl StreamingFieldResolver {
                     )
                 }
                 "elixir" => {
+                    // StreamDelta has all fields optional with skip_serializing_if, so
+                    // absent fields are not present as keys in the Jason-decoded map.
+                    // Use Map.get with defaults to avoid KeyError on absent :content.
                     format!(
-                        "{chunks_var} |> Enum.map(&(Enum.at(&1.choices, 0).delta.content || \"\")) |> Enum.join(\"\")"
+                        "{chunks_var} |> Enum.map(fn c -> (Enum.at(c.choices, 0) || %{{}}) |> Map.get(:delta, %{{}}) |> Map.get(:content, \"\") end) |> Enum.join(\"\")"
                     )
                 }
                 "python" => {
