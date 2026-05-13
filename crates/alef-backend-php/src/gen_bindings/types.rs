@@ -256,6 +256,7 @@ pub(crate) fn gen_php_struct(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Generate ext-php-rs methods for a struct.
 #[allow(dead_code)]
 pub(crate) fn gen_struct_methods(

@@ -611,11 +611,13 @@ fn render_test_case(
                             // nested configs, and string-valued enum variants verbatim.
                             let explicit_options =
                                 options_type.is_some_and(|t| t != "ExtractionConfig" && t != "FileExtractionConfig");
-                            let has_non_scalar = map.values().any(|v| match v {
-                                serde_json::Value::String(_)
-                                | serde_json::Value::Object(_)
-                                | serde_json::Value::Array(_) => true,
-                                _ => false,
+                            let has_non_scalar = map.values().any(|v| {
+                                matches!(
+                                    v,
+                                    serde_json::Value::String(_)
+                                        | serde_json::Value::Object(_)
+                                        | serde_json::Value::Array(_)
+                                )
                             });
                             if explicit_options || has_non_scalar {
                                 let opts_type = options_type.unwrap_or("ExtractionConfig");

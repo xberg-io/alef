@@ -9,6 +9,7 @@ use alef_core::ir::{FunctionDef, ParamDef, TypeRef};
 
 use crate::type_map::NapiMapper;
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn gen_function(
     func: &FunctionDef,
     mapper: &NapiMapper,
@@ -482,6 +483,7 @@ fn arc_wrap(val: &str, type_name: &str, mutex_types: &AHashSet<String>) -> Strin
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 /// NAPI-specific return wrapping for opaque instance methods.
 /// Extends the shared `wrap_return` with i64 casts for u64/usize/isize primitives.
 pub(super) fn napi_wrap_return(

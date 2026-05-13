@@ -1264,9 +1264,8 @@ fn rewrite_capsule_methods(
 {capsule_param_extract}        {core_call}{err_map_suffix}
     }}"#,
             )
-        } else {
+        } else if let Some(cfg) = cfg {
             // Method returns a capsule (and may also have capsule params).
-            let cfg = cfg.unwrap();
             match cfg {
                 alef_core::config::CapsuleTypeConfig::Capsule(capsule_name_str) => {
                     let capsule_cstr = capsule_name_str.replace('.', "_").to_ascii_uppercase();
@@ -1338,6 +1337,8 @@ fn rewrite_capsule_methods(
                     }
                 }
             }
+        } else {
+            unreachable!("Method capsule config should be present when cfg.is_none() is false.");
         };
 
         // Find and replace the old method in the impl block.

@@ -186,6 +186,7 @@ fn gen_php_serde_let_bindings(
     }
     out
 }
+#[allow(clippy::too_many_arguments)]
 /// Generate an instance method binding for an opaque struct.
 pub(crate) fn gen_instance_method(
     method: &MethodDef,
@@ -372,6 +373,7 @@ pub(crate) fn gen_instance_method(
     out
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Generate an instance method binding for a non-opaque struct (uses gen_lossy_binding_to_core_fields).
 pub(crate) fn gen_instance_method_non_opaque(
     method: &MethodDef,

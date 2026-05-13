@@ -1479,6 +1479,7 @@ fn has_unbridgeable_param(f: &alef_core::ir::FunctionDef) -> bool {
 /// Methods listed in `stub_methods` get `unimplemented!()` bodies, matching the
 /// treatment of top-level free functions (e.g. `chat_stream` which returns a
 /// `BoxStream` that cannot be bridged through FRB).
+#[allow(clippy::too_many_arguments)]
 fn emit_opaque_impl_block(
     out: &mut String,
     ty: &TypeDef,

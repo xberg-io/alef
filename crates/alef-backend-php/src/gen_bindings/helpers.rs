@@ -501,6 +501,7 @@ fn php_expr_is_already_arc(expr: &str) -> bool {
         || trimmed.starts_with("self.inner.clone()")
 }
 
+#[allow(clippy::too_many_arguments)]
 /// PHP-specific return wrapping that handles i64 casts for u64/usize/isize primitives.
 /// Extends the shared `wrap_return` with type conversions for primitives that are i64 in PHP.
 pub(crate) fn php_wrap_return(

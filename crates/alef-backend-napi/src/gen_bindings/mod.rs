@@ -681,7 +681,7 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
                     let mut brace_depth = 0;
                     let mut impl_end = 0;
                     let mut found_fn_from = false;
-                    for (i, ch) in impl_body.chars().enumerate() {
+                    for (i, ch) in impl_body.char_indices() {
                         if ch == '{' {
                             brace_depth += 1;
                             // Once we see the opening brace of `fn from(...) {`, mark it

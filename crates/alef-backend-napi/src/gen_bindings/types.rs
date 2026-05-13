@@ -268,6 +268,7 @@ pub(super) fn gen_struct(
 }
 
 /// Generate NAPI methods for an opaque struct (delegates to self.inner).
+#[allow(clippy::too_many_arguments)]
 pub(super) fn gen_opaque_struct_methods(
     typ: &TypeDef,
     mapper: &NapiMapper,

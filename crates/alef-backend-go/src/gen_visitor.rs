@@ -229,6 +229,7 @@ fn callback_specs_from_trait(trait_def: &alef_core::ir::TypeDef) -> Vec<Callback
 ///   (e.g. `"HtmlVisitor"` → `"HtmHtmlVisitorVTable"`).
 /// - `options_field`: field name on `ConversionOptions` that holds the bridge
 ///   (e.g. `"visitor"`).
+#[allow(clippy::too_many_arguments)]
 pub fn gen_visitor_file(
     pkg_name: &str,
     ffi_prefix: &str,

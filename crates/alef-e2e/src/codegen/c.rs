@@ -2227,6 +2227,7 @@ fn render_bytes_test_function(
 /// `stream_complete`, `no_chunks_after_done`, `finish_reason`, `tool_calls`,
 /// `tool_calls[0].function.name`, `usage.total_tokens`) are translated to
 /// assertions on these locals.
+#[allow(clippy::too_many_arguments)]
 fn render_chat_stream_test_function(
     out: &mut String,
     fixture: &Fixture,
@@ -2916,6 +2917,7 @@ fn build_args_string_c(
     parts.join(", ")
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_assertion(
     out: &mut String,
     assertion: &Assertion,

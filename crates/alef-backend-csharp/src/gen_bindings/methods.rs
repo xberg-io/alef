@@ -647,11 +647,12 @@ fn gen_bridge_field_wrapper_function(
     let call_args: Vec<String> = func
         .params
         .iter()
-        .filter_map(|p| {
+        .map(|p| {
             if p.name == *options_param {
-                return Some(format!("{options_param_camel}Handle"));
+                format!("{options_param_camel}Handle")
+            } else {
+                p.name.to_lower_camel_case().to_string()
             }
-            Some(p.name.to_lower_camel_case().to_string())
         })
         .collect();
 

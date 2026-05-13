@@ -764,7 +764,8 @@ mod tests {
         let opaque: std::collections::HashSet<&str> = std::collections::HashSet::new();
         let bridge_names: HashSet<String> = HashSet::new();
         let bridge_aliases: HashSet<String> = HashSet::new();
-        let out = gen_function_wrapper(&func, "krz", &opaque, &bridge_names, &bridge_aliases);
+        let value_only_types: HashSet<String> = HashSet::new();
+        let out = gen_function_wrapper(&func, "krz", &opaque, &bridge_names, &bridge_aliases, &value_only_types);
         // Return type must be ([]byte, error)
         assert!(out.contains("([]byte, error)"), "missing bytes return type in:\n{out}");
         // Must declare out-param variables (outLen and outCap are declared together)

@@ -881,7 +881,8 @@ mod tests {
         let typ = opaque_type("Client");
         let method = simple_method("close", TypeRef::Unit, false);
         let opaque: std::collections::HashSet<&str> = ["Client"].into();
-        let out = gen_method_wrapper(&typ, &method, "krz", &opaque);
+        let value_only_types: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let out = gen_method_wrapper(&typ, &method, "krz", &opaque, &value_only_types);
         // The function signature may span multiple lines (method_receiver_instance + params + method_return).
         // Check for the receiver and name components rather than the full single-line form.
         assert!(
@@ -915,7 +916,8 @@ mod tests {
         typ.fields = vec![simple_field("value", TypeRef::String)];
         let method = simple_method("default_value", TypeRef::String, true);
         let opaque: std::collections::HashSet<&str> = std::collections::HashSet::new();
-        let out = gen_method_wrapper(&typ, &method, "krz", &opaque);
+        let value_only_types: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let out = gen_method_wrapper(&typ, &method, "krz", &opaque, &value_only_types);
         // Static methods become package-level functions (no receiver)
         assert!(out.contains("func Config"));
     }
@@ -951,7 +953,8 @@ mod tests {
             has_default_impl: false,
         };
         let opaque: std::collections::HashSet<&str> = ["Renderer"].into();
-        let out = gen_method_wrapper(&typ, &method, "krz", &opaque);
+        let value_only_types: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let out = gen_method_wrapper(&typ, &method, "krz", &opaque, &value_only_types);
         // Return type must be ([]byte, error).
         assert!(out.contains("([]byte, error)"), "missing bytes return type in:\n{out}");
         // Must declare out-param variables.

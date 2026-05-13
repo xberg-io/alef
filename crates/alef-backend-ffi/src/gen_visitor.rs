@@ -53,7 +53,7 @@ enum ParamKind {
 }
 
 /// Specification for one visitor callback.
-struct CallbackSpec {
+pub(crate) struct CallbackSpec {
     name: String,
     doc: String,
     params: Vec<ParamKind>,

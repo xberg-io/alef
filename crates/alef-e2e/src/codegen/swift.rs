@@ -853,6 +853,7 @@ fn render_test_method(
     let _ = writeln!(out, "    }}");
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Build setup lines and the argument list for the function call.
 ///
 /// Swift-bridge wrappers require strongly-typed values that don't have implicit
@@ -918,7 +919,7 @@ fn build_args_and_setup(
             let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
             let config_val = input.get(field);
             let has_config = config_val
-                .is_some_and(|v| !v.is_null() && !(v.is_object() && v.as_object().is_some_and(|o| o.is_empty())));
+                .is_some_and(|v| !(v.is_null() || v.is_object() && v.as_object().is_some_and(|o| o.is_empty())));
             if has_config {
                 if let Some(from_json_fn) = handle_config_fn {
                     let json_str = serde_json::to_string(config_val.unwrap()).unwrap_or_default();
@@ -1809,6 +1810,7 @@ fn swift_build_accessor(field: &str, result_var: &str, field_resolver: &FieldRes
 /// `array_part` — left side of `[].` (e.g. `"links"`)
 /// `element_part` — right side (e.g. `"url"` or `"link_type"`)
 /// `full_field` — original assertion.field (used for enum lookup against the full path)
+#[allow(clippy::too_many_arguments)]
 fn swift_traversal_contains_assert(
     array_part: &str,
     element_part: &str,
