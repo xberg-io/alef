@@ -1075,8 +1075,7 @@ fn render_assertion(
     // exposed by swift-bridge has no `.toString()` method, so the usual
     // `.toString().isEmpty` pattern produces compile errors. Detect the
     // "bare result" case and prefer `XCTAssertNil` / `XCTAssertNotNil`.
-    let bare_result_is_option =
-        result_is_option && assertion.field.as_deref().filter(|f| !f.is_empty()).is_none();
+    let bare_result_is_option = result_is_option && assertion.field.as_deref().filter(|f| !f.is_empty()).is_none();
     // Streaming virtual fields resolve against the `chunks` collected-array variable.
     // Intercept before is_valid_for_result so they are never skipped.
     if let Some(f) = &assertion.field {
