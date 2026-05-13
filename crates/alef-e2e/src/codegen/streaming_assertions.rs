@@ -38,6 +38,7 @@ pub const STREAMING_VIRTUAL_FIELDS: &[&str] = &[
     "no_chunks_after_done",
     "tool_calls",
     "finish_reason",
+    "usage",
 ];
 
 /// The set of streaming-virtual root names that may have deep-path continuations.
@@ -45,7 +46,11 @@ pub const STREAMING_VIRTUAL_FIELDS: &[&str] = &[
 /// A field like `tool_calls[0].function.name` starts with `tool_calls` and has
 /// a continuation `[0].function.name`. These are handled by
 /// [`StreamingFieldResolver::accessor`] via the deep-path logic.
-const STREAMING_VIRTUAL_ROOTS: &[&str] = &["tool_calls", "finish_reason"];
+///
+/// `usage` is a stream-level root: `usage.total_tokens` resolves against the
+/// last chunk that carried a usage payload (accessed via the collected chunks
+/// list). Python accessor: `(chunks[-1].usage if chunks else None)`.
+const STREAMING_VIRTUAL_ROOTS: &[&str] = &["tool_calls", "finish_reason", "usage"];
 
 /// Returns `true` when `field` is a streaming-virtual field name, including
 /// deep-nested paths that start with a known streaming-virtual root.
@@ -85,6 +90,29 @@ fn split_streaming_deep_path(field: &str) -> Option<(&str, &str)> {
         }
     }
     None
+}
+
+/// Resolve whether a fixture should be treated as streaming, honoring the
+/// call-level three-valued opt-in/out (`CallConfig::streaming`):
+///
+/// - `Some(true)` → forced streaming.
+/// - `Some(false)` → forced non-streaming (skip the auto-detect even when an
+///   assertion references a streaming-virtual-field name like `chunks`).
+/// - `None` → auto-detect: streaming iff the fixture has a streaming mock
+///   (`mock_response.stream_chunks`) or any assertion references a
+///   streaming-virtual-field.
+///
+/// All backends should use this helper so the opt-out is respected uniformly.
+pub fn resolve_is_streaming(fixture: &crate::fixture::Fixture, call_streaming: Option<bool>) -> bool {
+    if let Some(forced) = call_streaming {
+        return forced;
+    }
+    fixture.is_streaming_mock()
+        || fixture.assertions.iter().any(|a| {
+            a.field
+                .as_deref()
+                .is_some_and(|f| !f.is_empty() && is_streaming_virtual_field(f))
+        })
 }
 
 /// Shared streaming-virtual-fields resolver for e2e test codegen.
@@ -312,8 +340,11 @@ impl StreamingFieldResolver {
                     )
                 }
                 "python" => {
+                    // FinishReason is a PyO3 enum object, not a plain string.
+                    // Wrap in str() so callers can do `.strip()` / string comparisons
+                    // without `AttributeError: 'FinishReason' has no attribute 'strip'`.
                     format!(
-                        "({chunks_var}[-1].choices[0].finish_reason if {chunks_var} and {chunks_var}[-1].choices else None)"
+                        "(str({chunks_var}[-1].choices[0].finish_reason) if {chunks_var} and {chunks_var}[-1].choices else None)"
                     )
                 }
                 "elixir" => {
@@ -329,6 +360,50 @@ impl StreamingFieldResolver {
                 _ => {
                     format!(
                         "{chunks_var}.length > 0 ? {chunks_var}[{chunks_var}.length - 1].choices?.[0]?.finishReason : undefined"
+                    )
+                }
+            }),
+
+            // `usage` is a stream-level virtual root: resolves against the last
+            // chunk that carried a usage payload.  Deep paths like `usage.total_tokens`
+            // are handled by the deep-path logic in the `_` arm below (root=`usage`,
+            // tail=`.total_tokens`), which calls this base accessor and appends the tail.
+            "usage" => Some(match lang {
+                "python" => {
+                    // Access the last chunk's usage object (may be None).
+                    // Deep paths like usage.total_tokens are rendered as:
+                    //   (chunks[-1].usage if chunks else None).total_tokens
+                    format!("({chunks_var}[-1].usage if {chunks_var} else None)")
+                }
+                "rust" => {
+                    format!(
+                        "{chunks_var}.last().and_then(|c| c.usage.as_ref())"
+                    )
+                }
+                "go" => {
+                    format!(
+                        "func() interface{{}} {{ if len({chunks_var}) == 0 {{ return nil }}; return {chunks_var}[len({chunks_var})-1].Usage }}()"
+                    )
+                }
+                "java" => {
+                    format!(
+                        "({chunks_var}.isEmpty() ? null : {chunks_var}.get({chunks_var}.size()-1).usage())"
+                    )
+                }
+                "kotlin" => {
+                    format!(
+                        "(if ({chunks_var}.isEmpty()) null else {chunks_var}.last().usage())"
+                    )
+                }
+                "php" => {
+                    format!("(!empty(${chunks_var}) ? end(${chunks_var})->usage ?? null : null)")
+                }
+                "elixir" => {
+                    format!("(if length({chunks_var}) > 0, do: List.last({chunks_var}).usage, else: nil)")
+                }
+                _ => {
+                    format!(
+                        "({chunks_var}.length > 0 ? {chunks_var}[{chunks_var}.length - 1].usage : undefined)"
                     )
                 }
             }),
@@ -667,8 +742,25 @@ mod tests {
         // `tool_calls` because byte 10 onward is `.finish_reason`.
         assert!(!is_streaming_virtual_field("choices[0].finish_reason"));
         assert!(!is_streaming_virtual_field("choices[0].message.content"));
-        assert!(!is_streaming_virtual_field("usage.total_tokens"));
         assert!(!is_streaming_virtual_field("data[0].embedding"));
+    }
+
+    #[test]
+    fn is_streaming_virtual_field_recognizes_usage_paths() {
+        // `usage` is a streaming virtual root — deep paths like `usage.total_tokens`
+        // resolve against the last chunk's usage payload.
+        assert!(
+            is_streaming_virtual_field("usage"),
+            "bare 'usage' must be recognized"
+        );
+        assert!(
+            is_streaming_virtual_field("usage.total_tokens"),
+            "usage.total_tokens must be recognized as streaming virtual"
+        );
+        assert!(
+            is_streaming_virtual_field("usage.prompt_tokens"),
+            "usage.prompt_tokens must be recognized as streaming virtual"
+        );
     }
 
     #[test]
@@ -867,6 +959,11 @@ mod tests {
     fn accessor_finish_reason_python_uses_last_chunk() {
         let expr = StreamingFieldResolver::accessor("finish_reason", "python", "chunks").unwrap();
         assert!(expr.contains("chunks[-1]"), "python finish_reason: {expr}");
+        // Must wrap in str() so FinishReason enum objects support .strip() comparisons
+        assert!(
+            expr.starts_with("(str(") || expr.contains("str(chunks"),
+            "python finish_reason must wrap in str(): {expr}"
+        );
     }
 
     #[test]
@@ -874,6 +971,31 @@ mod tests {
         let expr = StreamingFieldResolver::accessor("tool_calls", "python", "chunks").unwrap();
         assert!(expr.contains("for c in chunks"), "python tool_calls: {expr}");
         assert!(expr.contains("tool_calls"), "python tool_calls: {expr}");
+    }
+
+    #[test]
+    fn accessor_usage_python_uses_last_chunk() {
+        let expr = StreamingFieldResolver::accessor("usage", "python", "chunks").unwrap();
+        assert!(
+            expr.contains("chunks[-1].usage"),
+            "python usage: expected chunks[-1].usage, got: {expr}"
+        );
+    }
+
+    #[test]
+    fn accessor_usage_total_tokens_deep_path_python() {
+        // `usage.total_tokens` is a deep path: root=`usage`, tail=`.total_tokens`.
+        // Python accessor must produce an expression that resolves .total_tokens on
+        // the last chunk's usage object.
+        let expr = StreamingFieldResolver::accessor("usage.total_tokens", "python", "chunks").unwrap();
+        assert!(
+            expr.contains("chunks[-1].usage"),
+            "python usage.total_tokens: expected chunks[-1].usage in expr, got: {expr}"
+        );
+        assert!(
+            expr.contains(".total_tokens"),
+            "python usage.total_tokens: expected .total_tokens suffix, got: {expr}"
+        );
     }
 
     #[test]
