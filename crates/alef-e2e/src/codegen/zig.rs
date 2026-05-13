@@ -569,7 +569,17 @@ fn render_test_fn(
     // (see alef-backend-zig/src/gen_bindings/opaque_handles.rs). Force the flag
     // on whenever a client_factory is in play so the test path parses the JSON
     // result rather than attempting direct field access on `[]u8`.
-    let result_is_json_struct = call_overrides.is_some_and(|o| o.result_is_json_struct) || client_factory.is_some();
+    //
+    // Exception: when the call returns raw bytes (e.g. speech/file_content use the
+    // FFI byte-buffer out-pointer shape and return `[]u8` audio/file bytes rather
+    // than a serialised struct). Detect this by checking the call-level flag first
+    // and then falling back to any per-language override that declares `result_is_bytes`.
+    // The zig and C bindings share the same byte-buffer convention, so a C override
+    // of `result_is_bytes = true` is a reliable proxy when no zig override exists.
+    let call_result_is_bytes = call_config.result_is_bytes
+        || call_config.overrides.values().any(|o| o.result_is_bytes);
+    let result_is_json_struct = !call_result_is_bytes
+        && (call_overrides.is_some_and(|o| o.result_is_json_struct) || client_factory.is_some());
 
     // Whether the bare wrapper return type is `?T` (Optional). The zig backend
     // emits `?[]u8` for nullable JSON results and `?<Primitive>` for nullable
@@ -753,7 +763,41 @@ fn render_test_fn(
             .assertions
             .iter()
             .any(|a| assertion_emits_code(a, field_resolver));
-        if result_is_json_struct {
+        if call_result_is_bytes && client_factory.is_some() {
+            // Bytes path: the function returns raw `[]u8` (audio/file bytes), not
+            // a JSON struct. Call, defer-free, then check len for not_empty/is_empty.
+            let _ = writeln!(
+                out,
+                "    const _result_json = try {call_prefix}.{function_name}({args_str});"
+            );
+            let _ = writeln!(out, "    defer std.heap.c_allocator.free(_result_json);");
+            let has_bytes_assertions = fixture.assertions.iter().any(|a| {
+                matches!(a.assertion_type.as_str(), "not_empty" | "is_empty")
+            });
+            if has_bytes_assertions {
+                for assertion in &fixture.assertions {
+                    match assertion.assertion_type.as_str() {
+                        "not_empty" => {
+                            let _ = writeln!(out, "    try testing.expect(_result_json.len > 0);");
+                        }
+                        "is_empty" => {
+                            let _ = writeln!(
+                                out,
+                                "    try testing.expectEqual(@as(usize, 0), _result_json.len);"
+                            );
+                        }
+                        "not_error" | "error" => {}
+                        _ => {
+                            let atype = &assertion.assertion_type;
+                            let _ = writeln!(
+                                out,
+                                "    // bytes result: assertion '{atype}' not implemented for zig bytes"
+                            );
+                        }
+                    }
+                }
+            }
+        } else if result_is_json_struct {
             // When streaming-virtual field assertions are present (pre-computed above),
             // emit raw FFI code to collect all chunks instead of calling
             // `chat_stream` (which only returns the last chunk's JSON).
