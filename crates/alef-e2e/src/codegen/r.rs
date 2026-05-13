@@ -437,7 +437,12 @@ fn build_args_string(
                 if default_expr.ends_with("$default()") {
                     // Extract the type name from "TypeName$default()"
                     let type_name = default_expr.trim_end_matches("$default()");
-                    let r_list = json_to_r(val, true);
+                    // Use the `I(...)` (AsIs) wrapper for array-valued fields so
+                    // `jsonlite::toJSON(..., auto_unbox = TRUE)` preserves them as
+                    // JSON arrays. Without this, single-element vectors get
+                    // unboxed to scalars (e.g. `c("foo")` → `"foo"`) and serde
+                    // rejects them when deserializing `Vec<T>` fields.
+                    let r_list = json_to_r_preserve_arrays(val, true);
                     let r_value = format!("{type_name}$from_json(jsonlite::toJSON({r_list}, auto_unbox = TRUE))");
                     return Some(format!("{arg_name} = {r_value}"));
                 }
@@ -952,6 +957,43 @@ fn pascal_to_snake_case(s: &str) -> String {
         }
     }
     result
+}
+
+/// Convert a JSON value to an R expression suitable for embedding inside a
+/// `list(...)` that will be passed to `jsonlite::toJSON(..., auto_unbox = TRUE)`.
+///
+/// Differs from [`json_to_r`] in that any array-valued field is wrapped with
+/// `I(...)` (jsonlite's `AsIs` marker) so it remains a JSON array after the
+/// `auto_unbox` transform. Empty arrays become `I(list())` (→ `[]`) and
+/// non-empty arrays become `I(c(...))` (→ `[..]`). Without this wrapping,
+/// `Vec<String>` fields like `exclude_selectors` get unboxed to scalars and
+/// serde deserialization on the Rust side fails with
+/// `invalid type: string "foo", expected a sequence`.
+fn json_to_r_preserve_arrays(value: &serde_json::Value, lowercase_enum_values: bool) -> String {
+    match value {
+        serde_json::Value::Array(arr) => {
+            if arr.is_empty() {
+                "I(list())".to_string()
+            } else {
+                let items: Vec<String> = arr.iter().map(|v| json_to_r(v, lowercase_enum_values)).collect();
+                format!("I(c({}))", items.join(", "))
+            }
+        }
+        serde_json::Value::Object(map) => {
+            let entries: Vec<String> = map
+                .iter()
+                .map(|(k, v)| {
+                    format!(
+                        "\"{}\" = {}",
+                        escape_r(k),
+                        json_to_r_preserve_arrays(v, lowercase_enum_values)
+                    )
+                })
+                .collect();
+            format!("list({})", entries.join(", "))
+        }
+        _ => json_to_r(value, lowercase_enum_values),
+    }
 }
 
 /// * `lowercase_enum_values` - If true, convert PascalCase strings to snake_case (for enum values).
