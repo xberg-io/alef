@@ -12,7 +12,7 @@ mod typealiases;
 
 use crate::naming::kotlin_target;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
-use alef_core::config::{KotlinTarget, Language, ResolvedCrateConfig};
+use alef_core::config::{AdapterPattern, KotlinTarget, Language, ResolvedCrateConfig};
 use alef_core::ir::{ApiSurface, EnumDef, ErrorDef, FunctionDef, MethodDef, ParamDef, TypeDef, TypeRef};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -61,10 +61,11 @@ pub(crate) fn emit_function_jvm(f: &FunctionDef, out: &mut String, imports: &mut
 ///
 /// The emitted Kotlin class wraps the sibling Java facade type (same simple
 /// name) and re-exposes each instance method as a Kotlin `suspend` function
-/// that hops onto `Dispatchers.IO` before the blocking JNI call. Methods whose
-/// IR signature was sanitized (e.g. `chat_stream` whose real Java return type
-/// is a custom Iterator) are skipped — they need language-specific surfaces
-/// that the generic generator cannot synthesize from IR alone.
+/// that hops onto `Dispatchers.IO` before the blocking JNI call. Streaming
+/// adapters (pattern = `streaming`) whose `owner_type` matches a client type
+/// are also emitted as plain (non-suspend) wrapper methods that return
+/// `Iterator<ItemType>` — iteration is lazy and blocking, so the caller
+/// controls the thread context.
 pub(crate) fn emit_jvm_client_class(api: &ApiSurface, config: &ResolvedCrateConfig) -> Option<GeneratedFile> {
     // A type qualifies for a coroutine-friendly wrapper class only when:
     //   * it is opaque-handle (constructed via a factory and freed via close),
@@ -134,6 +135,13 @@ pub(crate) fn emit_jvm_client_class(api: &ApiSurface, config: &ResolvedCrateConf
         content.push('\n');
     }
 
+    // Collect streaming adapters indexed by owner type name for quick lookup.
+    let streaming_adapters: Vec<&alef_core::config::AdapterConfig> = config
+        .adapters
+        .iter()
+        .filter(|a| matches!(a.pattern, AdapterPattern::Streaming))
+        .collect();
+
     // Emit one class per client type. Each wraps a same-named Java instance so
     // construction is delegated to a Kotlin-side facade factory (see the
     // `LiterLlm` object emitted by the flat-function pass) that produces a
@@ -151,6 +159,19 @@ pub(crate) fn emit_jvm_client_class(api: &ApiSurface, config: &ResolvedCrateConf
         let mut method_imports: BTreeSet<String> = BTreeSet::new();
         for method in ty.methods.iter().filter(|m| !m.sanitized && !m.is_static) {
             emit_client_method(method, &mut content, &mut method_imports);
+        }
+
+        // Emit wrapper methods for streaming adapters owned by this client type.
+        // The Java facade generates these methods (e.g. `chatStream`) directly on
+        // the Java class — they are not part of the IR `methods` list and so are
+        // invisible to the generic method loop above. We emit thin non-suspend
+        // wrappers here so Kotlin callers can use them without an explicit Java
+        // facade import.
+        for adapter in streaming_adapters
+            .iter()
+            .filter(|a| a.owner_type.as_deref() == Some(class_name.as_str()))
+        {
+            emit_streaming_client_method(adapter, &mut content);
         }
 
         content.push_str("    override fun close() { inner.close() }\n");
@@ -209,6 +230,44 @@ fn emit_client_method(m: &MethodDef, out: &mut String, imports: &mut BTreeSet<St
     } else {
         out.push_str(&format!("        return inner.{method_name}({call_args})\n"));
     }
+    out.push_str("    }\n\n");
+}
+
+/// Emit a thin non-suspend wrapper for a streaming adapter method.
+///
+/// Streaming adapters (e.g. `chatStream`) are generated directly on the Java
+/// facade class and return `Iterator<ItemType>`. Since iteration is lazy and
+/// synchronous (each `next()` call blocks the calling thread), these wrappers
+/// are NOT `suspend` functions — the caller is responsible for running them on
+/// an appropriate dispatcher (e.g. inside `runBlocking` or `withContext(IO)`).
+///
+/// Generated form:
+/// ```kotlin
+///     fun chatStream(req: ChatCompletionRequest): Iterator<ChatCompletionChunk> {
+///         return inner.chatStream(req)
+///     }
+/// ```
+fn emit_streaming_client_method(adapter: &alef_core::config::AdapterConfig, out: &mut String) {
+    let method_name = to_lower_camel(&adapter.name);
+    let item_type = adapter.item_type.as_deref().unwrap_or("Any");
+    // The request type may be a fully-qualified Rust path (e.g.
+    // `liter_llm::ChatCompletionRequest`). Strip any module prefix so we use
+    // the simple Kotlin type name that the Kotlin package re-exports via typealias.
+    let params: Vec<String> = adapter
+        .params
+        .iter()
+        .map(|p| {
+            let simple_ty = p.ty.rsplit("::").next().unwrap_or(&p.ty);
+            let param_name = to_lower_camel(&p.name);
+            format!("{param_name}: {simple_ty}")
+        })
+        .collect();
+    let call_args: String = adapter.params.iter().map(|p| to_lower_camel(&p.name)).collect::<Vec<_>>().join(", ");
+    out.push_str(&format!(
+        "    fun {method_name}({}): Iterator<{item_type}> {{\n",
+        params.join(", ")
+    ));
+    out.push_str(&format!("        return inner.{method_name}({call_args})\n"));
     out.push_str("    }\n\n");
 }
 
