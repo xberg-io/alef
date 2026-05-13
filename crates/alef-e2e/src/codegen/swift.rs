@@ -597,16 +597,8 @@ fn render_test_method(
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
     let is_async = call_config.r#async;
 
-    // Streaming fixtures: drain the async sequence into a `chunks` array after the call.
-    // Also trigger when any assertion references a streaming virtual field (e.g. empty_stream
-    // has stream_chunks:[] so is_streaming_mock() returns false, but assertions still reference
-    // `chunks`/`stream_content` which require the collect snippet).
-    let is_streaming = fixture.is_streaming_mock()
-        || fixture.assertions.iter().any(|a| {
-            a.field
-                .as_deref()
-                .is_some_and(|f| !f.is_empty() && crate::codegen::streaming_assertions::is_streaming_virtual_field(f))
-        });
+    // Streaming detection (call-level `streaming` opt-out is honored).
+    let is_streaming = crate::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming);
     let collect_snippet_opt = if is_streaming && !expects_error {
         crate::codegen::streaming_assertions::StreamingFieldResolver::collect_snippet(lang, result_var, "chunks")
     } else {

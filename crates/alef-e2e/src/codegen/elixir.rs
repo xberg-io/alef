@@ -1039,16 +1039,8 @@ fn render_test_case(
     // bare binary instead of a struct accessor that doesn't exist.
     let result_is_simple = call_config.result_is_simple || call_overrides.is_some_and(|o| o.result_is_simple);
 
-    // Streaming detection: trigger when mock_response has stream_chunks OR any
-    // assertion references a streaming-virtual field (e.g. empty_stream has
-    // stream_chunks:[] so is_streaming_mock() returns false, but the fixture
-    // still asserts on `chunks`/`stream_content` which need the collect snippet).
-    let is_streaming = fixture.is_streaming_mock()
-        || fixture.assertions.iter().any(|a| {
-            a.field
-                .as_deref()
-                .is_some_and(|f| !f.is_empty() && crate::codegen::streaming_assertions::is_streaming_virtual_field(f))
-        });
+    // Streaming detection (call-level `streaming` opt-out is honored).
+    let is_streaming = crate::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming);
     // For streaming fixtures the stream is bound to `result_var` first, then drained into `chunks`.
     let chunks_var = "chunks";
 

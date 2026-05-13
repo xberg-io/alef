@@ -9,7 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- feat(alef-e2e): add `[e2e.calls.<name>] streaming = false | true` opt-in/out at the call config level. When set to `false`, the streaming-virtual-field auto-detection is disabled — assertions that reference field names like `chunks` / `chunks.length` / `tool_calls` / `finish_reason` on a synchronous result type are treated as plain field accessors rather than streaming adapters. Without this, an API whose return value happens to have a `chunks: Vec<T>` field that is not actually streamed (e.g. a code-chunking result) would be incorrectly emitted with `async for chunk in result` and `@pytest.mark.asyncio` decorators across every backend that supports streaming. `None` (default) preserves the prior auto-detect heuristic so existing LLM-style downstream crates are unchanged. Honored by all backends that previously hard-coded the heuristic: python, typescript (node + wasm), go, java, php, elixir, kotlin, swift, dart. A new `resolve_is_streaming(fixture, call_config.streaming)` helper in `codegen/streaming_assertions.rs` is the single source of truth so future backends pick up the opt-out automatically.
+
 ### Fixed
+
+- fix(alef-e2e/python): also include per-fixture streaming in the file-level `is_async` calculation used to gate `import pytest`. Previously a file containing fixtures whose `is_streaming` was triggered only by virtual-field assertions (not by call-level `async`) would emit `@pytest.mark.asyncio` decorators without the matching `import pytest`, producing `NameError`/F821 on test collection. Now `needs_pytest` correctly reflects every code path that emits an async test.
 
 - fix(alef-backend-extendr): generate `String` (not `Robj`) for non-options string parameters in `gen_extendr_bridge_field_function`, and build the core-function call from the actual params instead of a hardcoded `convert(&html, …)` literal. The previous output emitted `pub fn convert(html: Robj, options: Robj)` and then called `core::convert(&html, Some(opts))` — `&Robj` doesn't satisfy `&str`, so the generated R binding crate failed to compile. Now string params decode via extendr's `TryFrom<Robj> for String` and the `&name` call site deref-coerces to `&str`.
 

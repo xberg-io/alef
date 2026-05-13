@@ -752,16 +752,8 @@ fn render_test_case(
         );
     }
 
-    // Streaming detection: trigger when mock_response has stream_chunks OR any
-    // assertion references a streaming-virtual field (e.g. empty_stream has
-    // stream_chunks:[] so is_streaming_mock() returns false, but the fixture
-    // still asserts on `chunks`/`stream_content` which need the collect snippet).
-    let is_streaming = fixture.is_streaming_mock()
-        || fixture.assertions.iter().any(|a| {
-            a.field
-                .as_deref()
-                .is_some_and(|f| !f.is_empty() && crate::codegen::streaming_assertions::is_streaming_virtual_field(f))
-        });
+    // Streaming detection (call-level `streaming` opt-out is honored).
+    let is_streaming = crate::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming);
 
     let has_usable_assertion = fixture.assertions.iter().any(|a| {
         if a.assertion_type == "not_error" || a.assertion_type == "error" {

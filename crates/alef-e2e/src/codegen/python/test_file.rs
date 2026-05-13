@@ -66,12 +66,15 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config
     // File-level is_async: true if ANY fixture in this file will emit an async test function.
     // The Python CallOverride `async` field takes precedence per-fixture over the call-level
     // `async` flag. For the file-level import decision we need the union across all fixtures.
+    // Streaming fixtures also emit async tests, so we must check that too — otherwise files
+    // with streaming-only async would omit `import pytest`.
     let global_python_async_override = e2e_config.call.overrides.get("python").and_then(|o| o.r#async);
     let is_async = global_python_async_override.unwrap_or_else(|| {
         fixtures.iter().any(|f| {
             let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
             let per_fixture_override = cc.overrides.get("python").and_then(|o| o.r#async);
             per_fixture_override.unwrap_or(cc.r#async)
+                || crate::codegen::streaming_assertions::resolve_is_streaming(f, cc.streaming)
         }) || e2e_config.call.r#async
     });
     let has_env_api_key = fixtures
