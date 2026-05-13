@@ -353,8 +353,8 @@ fn gen_visit_result(namespace: &str) -> String {
     out.push_str("        VisitResult.Continue => \"\\\"Continue\\\"\",\n");
     out.push_str("        VisitResult.Skip => \"\\\"Skip\\\"\",\n");
     out.push_str("        VisitResult.PreserveHtml => \"\\\"PreserveHtml\\\"\",\n");
-    out.push_str("        VisitResult.Custom c => \"{{\\\"Custom\\\":\" + System.Text.Json.JsonSerializer.Serialize(c.Markdown) + \"}}\",\n");
-    out.push_str("        VisitResult.Error e => \"{{\\\"Error\\\":\" + System.Text.Json.JsonSerializer.Serialize(e.Message) + \"}}\",\n");
+    out.push_str("        VisitResult.Custom c => \"{\\\"Custom\\\":\" + System.Text.Json.JsonSerializer.Serialize(c.Markdown) + \"}\",\n");
+    out.push_str("        VisitResult.Error e => \"{\\\"Error\\\":\" + System.Text.Json.JsonSerializer.Serialize(e.Message) + \"}\",\n");
     out.push_str("        _ => \"\\\"Continue\\\"\"\n");
     out.push_str("    };\n");
     out.push_str("}\n");
