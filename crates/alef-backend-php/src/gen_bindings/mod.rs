@@ -839,15 +839,11 @@ impl Backend for PhpBackend {
                 "php_method_signature_end.jinja",
                 context! { return_type => &return_php_type },
             ));
-            // Async functions are registered in the extension with an `_async` suffix
-            // (see gen_async_function which generates `pub fn {name}_async`).
             // Delegate to the native extension class (registered as `{namespace}\{class_name}Api`).
-            // ext-php-rs auto-converts Rust snake_case to PHP camelCase
-            let ext_method_name = if func.is_async {
-                format!("{}_async", func.name).to_lower_camel_case()
-            } else {
-                func.name.to_lower_camel_case()
-            };
+            // ext-php-rs auto-converts Rust snake_case to PHP camelCase.
+            // PHP does not expose async — async behaviour is handled internally via Tokio
+            // block_on, so the Rust function name matches the PHP method name exactly.
+            let ext_method_name = func.name.to_lower_camel_case();
             let is_void = matches!(&func.return_type, TypeRef::Unit);
             // Pass parameters to the native function in their ORIGINAL order (not sorted).
             // The native extension expects parameters in the order defined in the Rust function.
@@ -1232,11 +1228,9 @@ impl Backend for PhpBackend {
                     })
                     .collect();
                 // ext-php-rs auto-converts Rust snake_case to PHP camelCase.
-                let stub_method_name = if func.is_async {
-                    format!("{}_async", func.name).to_lower_camel_case()
-                } else {
-                    func.name.to_lower_camel_case()
-                };
+                // PHP does not expose async — async behaviour is handled internally via
+                // Tokio block_on, so the stub method name matches the Rust function name.
+                let stub_method_name = func.name.to_lower_camel_case();
                 let is_void_stub = return_type == "void";
                 let stub_body = if is_void_stub {
                     "{ }".to_string()
@@ -1378,10 +1372,35 @@ fn gen_php_opaque_class_file(typ: &alef_core::ir::TypeDef, namespace: &str) -> S
         let is_static = method.receiver.is_none();
 
         // PHPDoc block — keep it short to avoid line-width issues.
+        let mut doc_lines: Vec<String> = vec![];
         let doc_line = method.doc.lines().next().unwrap_or("").trim();
         if !doc_line.is_empty() {
+            doc_lines.push(doc_line.to_string());
+        }
+
+        // Add @param PHPDoc for array parameters so PHPStan knows the element type
+        let mut phpdoc_params: Vec<String> = vec![];
+        for param in &method.params {
+            if matches!(&param.ty, TypeRef::Vec(_) | TypeRef::Map(_, _)) {
+                let phpdoc_type = php_phpdoc_type(&param.ty);
+                phpdoc_params.push(format!("@param {} ${}", phpdoc_type, param.name));
+            }
+        }
+        doc_lines.extend(phpdoc_params);
+
+        // Add @return PHPDoc for array types so PHPStan knows the element type
+        let needs_return_phpdoc = matches!(&method.return_type, TypeRef::Vec(_) | TypeRef::Map(_, _));
+        if needs_return_phpdoc {
+            let phpdoc_type = php_phpdoc_type(&method.return_type);
+            doc_lines.push(format!("@return {phpdoc_type}"));
+        }
+
+        // Emit PHPDoc if needed
+        if !doc_lines.is_empty() {
             content.push_str("    /**\n");
-            content.push_str(&format!("     * {doc_line}\n"));
+            for line in doc_lines {
+                content.push_str(&format!("     * {}\n", line));
+            }
             content.push_str("     */\n");
         }
 
