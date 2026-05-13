@@ -7,8 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.15.52] - 2026-05-13
-
 ### Added
 
 - feat(scaffold/node): add `futures-util` to generated Node binding `Cargo.toml` so `chat_stream` compiles without requiring a manual dependency addition

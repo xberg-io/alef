@@ -625,7 +625,15 @@ pub(crate) fn gen_function_as_static_method(
     has_serde: bool,
     mutex_types: &AHashSet<String>,
 ) -> String {
-    let body = gen_function_body(func, opaque_types, core_import, &mapper.enum_names, bridges, has_serde, mutex_types);
+    let body = gen_function_body(
+        func,
+        opaque_types,
+        core_import,
+        &mapper.enum_names,
+        bridges,
+        has_serde,
+        mutex_types,
+    );
     let bridge_names = bridge_param_names(bridges);
     let visible_params: Vec<_> = func
         .params
@@ -825,7 +833,14 @@ pub(crate) fn gen_async_function_as_static_method(
     bridges: &[TraitBridgeConfig],
     mutex_types: &AHashSet<String>,
 ) -> String {
-    let body = gen_async_function_body(func, opaque_types, core_import, &mapper.enum_names, bridges, mutex_types);
+    let body = gen_async_function_body(
+        func,
+        opaque_types,
+        core_import,
+        &mapper.enum_names,
+        bridges,
+        mutex_types,
+    );
     let bridge_names = bridge_param_names(bridges);
     let visible_params: Vec<_> = func
         .params
