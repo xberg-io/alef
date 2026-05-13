@@ -305,7 +305,15 @@ fn render_test_case(
         // R doesn't define its own override list yet for most embed calls,
         // and the underlying Rust signature is the same regardless of
         // binding, so reusing csharp/java/go/php options_type is safe.
-        call_config.overrides.values().find_map(|o| o.options_type.as_deref())
+        //
+        // Skip `Js`-prefixed types from the Node/wasm bindings: those are
+        // NAPI/wasm-bindgen specific wrapper types, while extendr exposes the
+        // bare Rust type names (e.g. `ExtractionConfig`, not `JsExtractionConfig`).
+        call_config
+            .overrides
+            .values()
+            .filter_map(|o| o.options_type.as_deref())
+            .find(|name| !name.starts_with("Js"))
     });
     let args_str = build_args_string(&fixture.input, &call_config.args, arg_name_map, options_type);
 
