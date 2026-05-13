@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(alef-backend-magnus): enums now use the variant marked with `#[default]` instead of always the first variant in source order. This respects Rust's `#[derive(Default)]` semantics. Fixes `CodeBlockStyle` defaulting to `Backticks` (marked `#[default]`) instead of `Indented`, enabling fenced code blocks with language annotations.
+- fix(alef-backend-magnus): emit explicit `impl Default` for all binding structs with fields instead of deriving `Default`, which gives all-zeros initialization. Explicit impls use field-level defaults computed by config_gen (same as kwargs constructors), ensuring serde deserialization with missing fields produces correct values (e.g., `PreprocessingOptions.enabled=true` instead of false). Properly handles `Option<T>` fields which always default to `None`.
+
 - fix(napi,pyo3,wasm,php): allow `clippy::should_implement_trait` at the crate level so opaque-type wrappers carrying a `pub fn clone(&self) -> Self` method (lifted from the upstream `Clone` derive on the wrapped Rust type) compile under `-D warnings`. Without the allow, NAPI/PyO3/wasm-bindgen/ext-php-rs surfaces fail clippy because the inherent method shadows `std::clone::Clone::clone`; the bindings still derive `Clone` for the wrapper type so trait dispatch is unaffected.
 
 - fix(alef-backend-magnus): unit-enum `TryConvert` now also accepts the PascalCase Rust variant name (e.g. `"Tildes"`, `"AtxClosed"`) alongside the serde wire form (e.g. `"tildes"`). Fixtures and tests written in either style now deserialize correctly.
