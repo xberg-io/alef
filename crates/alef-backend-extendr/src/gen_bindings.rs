@@ -1035,15 +1035,19 @@ fn gen_extendr_bridge_field_function(
     let options_param = &bridge_match.param_name;
     let field_name = &bridge_match.field_name;
 
-    // Build the param list for the Rust function signature
+    // Build the param list for the Rust function signature.
+    // Non-options params are emitted with the closest extendr-convertible Rust type
+    // so the call site can hand them to the core function with the expected reference shape.
     let mut param_parts = Vec::new();
     for param in &func.params {
         if param.name == *options_param {
-            // Options param is always Robj in the bridge_field case
+            // Options param is always Robj in the bridge_field case (decoded by decode_options).
             param_parts.push(format!("{}: Robj", param.name));
         } else {
-            // Other params stay as Robj or their default extendr-convertible types
-            param_parts.push(format!("{}: Robj", param.name));
+            match &param.ty {
+                TypeRef::String => param_parts.push(format!("{}: String", param.name)),
+                _ => param_parts.push(format!("{}: Robj", param.name)),
+            }
         }
     }
     let params_str = param_parts.join(", ");
@@ -1079,19 +1083,20 @@ fn gen_extendr_bridge_field_function(
     body.push_str("        .map_err(|e| extendr_api::Error::Other(e))?;\n");
     body.push_str(&format!("    opts.{field_name} = {field_name}_handle;\n"));
 
-    // Build the core function call
+    // Build the core function call. For `String` params we pass `&name` (deref-coerces to `&str`);
+    // for `Robj` fall back to passing by reference as before. Options always becomes `Some(opts)`.
     let mut call_args = Vec::new();
     for param in &func.params {
         if param.name == *options_param {
             call_args.push("Some(opts)".to_string());
         } else {
-            // For simplicity, assume other params can be passed directly or need decoding
-            // This is a simplified version - real version might need more sophisticated type handling
-            call_args.push("&html".to_string()); // For convert, html is the first param
+            call_args.push(format!("&{}", param.name));
         }
     }
-    // Actually, for convert specifically, let's hardcode it properly
-    body.push_str(&format!("    {core_import}::{func_name}(&html, Some(opts))\n"));
+    body.push_str(&format!(
+        "    {core_import}::{func_name}({})\n",
+        call_args.join(", ")
+    ));
     body.push_str("        .map(crate::types::conversion_result_to_robj)\n");
     body.push_str("        .map_err(|e| extendr_api::Error::Other(e.to_string()))\n");
 

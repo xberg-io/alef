@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(alef-backend-extendr): generate `String` (not `Robj`) for non-options string parameters in `gen_extendr_bridge_field_function`, and build the core-function call from the actual params instead of a hardcoded `convert(&html, …)` literal. The previous output emitted `pub fn convert(html: Robj, options: Robj)` and then called `core::convert(&html, Some(opts))` — `&Robj` doesn't satisfy `&str`, so the generated R binding crate failed to compile. Now string params decode via extendr's `TryFrom<Robj> for String` and the `&name` call site deref-coerces to `&str`.
+
 ## [0.15.52] - 2026-05-13
 
 ### Added
