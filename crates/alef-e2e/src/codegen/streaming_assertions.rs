@@ -185,9 +185,9 @@ impl StreamingFieldResolver {
                 }
                 "php" => {
                     // PHP streaming chunks come from `json_decode` of the binding's JSON
-                    // string return, so property names follow the JSON wire format
-                    // (snake_case `finish_reason`, not camelCase `finishReason`).
-                    format!("!empty(${chunks_var}) && isset(end(${chunks_var})->choices[0]->finish_reason)")
+                    // string return. The PHP binding serializes with rename_all = "camelCase",
+                    // so use `finishReason` (camelCase) to match the emitted JSON keys.
+                    format!("!empty(${chunks_var}) && isset(end(${chunks_var})->choices[0]->finishReason)")
                 }
                 "kotlin" => {
                     // Kotlin: use isNotEmpty() + last() + safe-call chain
@@ -245,10 +245,10 @@ impl StreamingFieldResolver {
                     )
                 }
                 "php" => {
-                    // PHP streaming chunks are json_decoded stdClass — use snake_case
-                    // `tool_calls` to match the JSON wire format.
+                    // PHP streaming chunks are json_decoded stdClass. The PHP binding
+                    // serializes with rename_all = "camelCase", so use `toolCalls`.
                     format!(
-                        "array_merge(...array_map(fn($c) => $c->choices[0]->delta->tool_calls ?? [], ${chunks_var}))"
+                        "array_merge(...array_map(fn($c) => $c->choices[0]->delta->toolCalls ?? [], ${chunks_var}))"
                     )
                 }
                 "kotlin" => {
@@ -297,9 +297,9 @@ impl StreamingFieldResolver {
                     )
                 }
                 "php" => {
-                    // PHP streaming chunks are json_decoded stdClass — use snake_case
-                    // `finish_reason` to match the JSON wire format.
-                    format!("(!empty(${chunks_var}) ? (end(${chunks_var})->choices[0]->finish_reason ?? null) : null)")
+                    // PHP streaming chunks are json_decoded stdClass. The PHP binding
+                    // serializes with rename_all = "camelCase", so use `finishReason`.
+                    format!("(!empty(${chunks_var}) ? (end(${chunks_var})->choices[0]->finishReason ?? null) : null)")
                 }
                 "kotlin" => {
                     // Returns the string value of the finish_reason enum from the last chunk.
