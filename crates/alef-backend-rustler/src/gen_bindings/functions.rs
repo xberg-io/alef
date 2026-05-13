@@ -752,7 +752,7 @@ pub(super) fn gen_nif_method(
             // method can consume — requires T: Clone (callers needing non-Clone
             // opaque types with mutating methods should configure exclude_methods).
             match receiver {
-                ReceiverKind::Ref => format!("resource.inner.{}({})", method.name, call_args),
+                ReceiverKind::Ref => format!("resource.inner.as_ref().{}({})", method.name, call_args),
                 ReceiverKind::RefMut | ReceiverKind::Owned => {
                     format!("(*resource.inner).clone().{}({})", method.name, call_args)
                 }
@@ -978,7 +978,7 @@ pub(super) fn gen_nif_async_method(
             // method can consume — requires T: Clone (callers needing non-Clone
             // opaque types with mutating methods should configure exclude_methods).
             match receiver {
-                ReceiverKind::Ref => format!("resource.inner.{}({})", method.name, call_args),
+                ReceiverKind::Ref => format!("resource.inner.as_ref().{}({})", method.name, call_args),
                 ReceiverKind::RefMut | ReceiverKind::Owned => {
                     format!("(*resource.inner).clone().{}({})", method.name, call_args)
                 }

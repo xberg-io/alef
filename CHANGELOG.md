@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(alef-backend-rustler): wrap bare opaque returns and Optional<opaque> returns in ResourceArc<T> in NIF function/method signatures. Functions returning T (opaque type) now emit `ResourceArc<T>` instead of bare `T`, and functions returning `Option<T>` emit `Option<ResourceArc<T>>` instead of `Option<T>`. Methods on opaque types now call inner methods via `resource.inner.as_ref().method()` to properly dereference the Arc and invoke the inner type's methods (required for methods like `clone()`). Fixes compile errors where `Tree`, `Node`, `TreeCursor`, `Parser` were used directly without ResourceArc wrapping, which violated Rustler's Encoder trait bounds.
+
 - fix(alef-e2e/typescript): gate streaming-virtual interception on is_streaming, matching go fix. TypeScript codegen now respects the `streaming = false` opt-out at the call level, skipping the virtual field interception (chunks, stream_content, etc.) and allowing them to be resolved normally through the result struct accessor path. Non-streaming fixtures no longer emit references to undeclared `chunks` variable.
 
 - fix(alef-backend-magnus): delegate all methods through `Mutex` on types with `&mut self` methods. When an opaque type has any `&mut self` methods, ALL its methods (including `&self` methods) must use `.lock().unwrap()` to access the inner value in `Arc<Mutex<T>>`. Previously, only `&mut self` methods got the lock, leaving `&self` methods calling `.method()` directly on `Arc<Mutex<T>>`, which fails because `Arc` has no such methods. Now matches the NAPI and PyO3 patterns: if `has_mut_methods`, emit `.lock().unwrap()` for all delegation.
