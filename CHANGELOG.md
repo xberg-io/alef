@@ -21,6 +21,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-e2e/swift**: coalesce `.len()` via `?? 0` when emitting `not_empty` /
+  `is_empty` assertions over a `?.` optional-chain accessor. Previously the
+  generator emitted `XCTAssertGreaterThan(result.field()?.inner().len(), 0, ...)`
+  which Swift rejects with `cannot convert value of type 'UInt?' to expected
+  argument type 'Int'` because optional chaining propagates `?` through the
+  whole expression. The not_empty / is_empty arms in
+  `crates/alef-e2e/src/codegen/swift.rs` now check `accessor_is_optional` (the
+  same heuristic already used by every other assertion arm) and wrap as
+  `(field_expr.len() ?? 0)` when the chain crosses an optional field. Surfaced
+  in kreuzcrawl's swift test target where `result.markdown()?.content().len()`
+  failed to compile across MarkdownTests.swift.
+
 ## [0.15.57] - 2026-05-13
 
 ### Fixed

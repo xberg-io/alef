@@ -1541,9 +1541,18 @@ fn render_assertion(
                     // len() -> Int) expose a `.len()` method. Using `.len() > 0` avoids the
                     // `.toString().isEmpty` path that fails to compile when the field returns
                     // `RustVec<T>` — `RustVec<T>` has no `.toString()` member.
+                    //
+                    // When the accessor contains a `?.` optional chain, `.len()` returns an
+                    // Optional (e.g. `UInt?`) which Swift cannot compare directly to `0`;
+                    // coalesce via `?? 0` so the assertion typechecks.
+                    let len_expr = if accessor_is_optional {
+                        format!("({field_expr}.len() ?? 0)")
+                    } else {
+                        format!("{field_expr}.len()")
+                    };
                     let _ = writeln!(
                         out,
-                        "        XCTAssertGreaterThan({field_expr}.len(), 0, \"expected non-empty value\")"
+                        "        XCTAssertGreaterThan({len_expr}, 0, \"expected non-empty value\")"
                     );
                 }
             }
@@ -1560,11 +1569,14 @@ fn render_assertion(
                 );
             } else {
                 // Symmetric with not_empty: use .len() == 0 to avoid .toString() on
-                // RustVec<T> fields that have no .toString() method.
-                let _ = writeln!(
-                    out,
-                    "        XCTAssertEqual({field_expr}.len(), 0, \"expected empty value\")"
-                );
+                // RustVec<T> fields that have no .toString() method. When the accessor
+                // contains a `?.` optional chain, coalesce so the comparison typechecks.
+                let len_expr = if accessor_is_optional {
+                    format!("({field_expr}.len() ?? 0)")
+                } else {
+                    format!("{field_expr}.len()")
+                };
+                let _ = writeln!(out, "        XCTAssertEqual({len_expr}, 0, \"expected empty value\")");
             }
         }
         "contains_any" => {
