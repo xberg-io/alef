@@ -81,7 +81,13 @@ impl Backend for NapiBackend {
             .filter(|t| t.is_trait)
             .map(|t| t.name.clone())
             .collect();
-        let mapper = NapiMapper::with_traits(prefix.clone(), trait_type_names);
+        let capsule_type_names_for_mapper: AHashSet<String> = config
+            .node
+            .as_ref()
+            .map(|c| c.capsule_types.keys().cloned().collect())
+            .unwrap_or_default();
+        let mapper =
+            NapiMapper::with_traits_and_capsules(prefix.clone(), trait_type_names, capsule_type_names_for_mapper);
         let core_import = config.core_import_name();
 
         // Detect serde availability from the output crate's Cargo.toml
@@ -426,6 +432,16 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
         let binding_to_core = alef_codegen::conversions::convertible_types(api);
         let core_to_binding = alef_codegen::conversions::core_to_binding_convertible_types(api);
         let input_types = alef_codegen::conversions::input_type_names(api);
+        // Trait-bridge fields whose binding-side wrapper holds `inner: Arc<core::T>`
+        // (every OptionsField-style bridge in alef follows this convention). Used by
+        // `binding_to_core` to emit `val.{f}.map(|v| (*v.inner).clone())` instead of
+        // `Default::default()` so the JS visitor handle survives `.into()`.
+        let trait_bridge_arc_wrapper_field_names: Vec<String> = config
+            .trait_bridges
+            .iter()
+            .filter(|b| b.bind_via == alef_core::config::BridgeBinding::OptionsField)
+            .filter_map(|b| b.resolved_options_field().map(String::from))
+            .collect();
         let napi_conv_config = alef_codegen::conversions::ConversionConfig {
             type_name_prefix: &prefix,
             cast_large_ints_to_i64: true,
@@ -444,6 +460,7 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
             // callers can pass objects/arrays/scalars directly.
             json_as_value: true,
             never_skip_cfg_field_names: &never_skip_cfg_field_names,
+            trait_bridge_arc_wrapper_field_names: &trait_bridge_arc_wrapper_field_names,
             ..Default::default()
         };
         // From/Into conversions using shared parameterized generators

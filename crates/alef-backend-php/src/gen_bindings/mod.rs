@@ -452,6 +452,16 @@ impl Backend for PhpBackend {
             .iter()
             .filter_map(|b| b.type_alias.clone())
             .collect();
+        // Trait-bridge fields whose binding-side wrapper holds `inner: Arc<core::T>`
+        // (every OptionsField-style bridge in alef follows this convention). Used by
+        // `binding_to_core` to emit `val.{f}.map(|v| (*v.inner).clone())` instead of
+        // `Default::default()` so the visitor handle survives the `.into()` call.
+        let trait_bridge_arc_wrapper_field_names: Vec<String> = config
+            .trait_bridges
+            .iter()
+            .filter(|b| b.bind_via == alef_core::config::BridgeBinding::OptionsField)
+            .filter_map(|b| b.resolved_options_field().map(String::from))
+            .collect();
         let php_conv_config = ConversionConfig {
             cast_large_ints_to_i64: true,
             enum_string_names: Some(enum_names_ref),
@@ -464,6 +474,7 @@ impl Backend for PhpBackend {
             option_duration_on_defaults: true,
             from_binding_skip_types: &bridge_skip_types,
             never_skip_cfg_field_names: &never_skip_cfg_field_names,
+            trait_bridge_arc_wrapper_field_names: &trait_bridge_arc_wrapper_field_names,
             ..Default::default()
         };
         // Build transitive set of types that can't have binding->core From

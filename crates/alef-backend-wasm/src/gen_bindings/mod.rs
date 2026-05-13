@@ -451,6 +451,16 @@ impl Backend for WasmBackend {
             }
         }
 
+        // Trait-bridge fields whose binding-side wrapper holds `inner: Arc<core::T>`
+        // (every OptionsField-style bridge in alef follows this convention). Used by
+        // `binding_to_core` to emit `val.{f}.map(|v| (*v.inner).clone())` instead of
+        // `Default::default()` so the JS visitor handle survives `.into()`.
+        let trait_bridge_arc_wrapper_field_names: Vec<String> = config
+            .trait_bridges
+            .iter()
+            .filter(|b| b.bind_via == alef_core::config::BridgeBinding::OptionsField)
+            .filter_map(|b| b.resolved_options_field().map(String::from))
+            .collect();
         let wasm_conv_config = alef_codegen::conversions::ConversionConfig {
             type_name_prefix: &prefix,
             map_uses_jsvalue: true,
@@ -458,12 +468,15 @@ impl Backend for WasmBackend {
             exclude_types: &exclude_types,
             source_crate_remaps: &source_remaps_borrowed,
             // Treat bridge type aliases (e.g. VisitorHandle) as opaque so binding→core
-            // From impls emit Default::default() instead of val.visitor.map(Into::into).
+            // From impls emit Default::default() instead of val.visitor.map(Into::into),
+            // unless the field is in `trait_bridge_arc_wrapper_field_names` (then it gets
+            // proper Arc-dereferencing forwarding).
             opaque_types: if opaque_names_set.is_empty() {
                 None
             } else {
                 Some(&opaque_names_set)
             },
+            trait_bridge_arc_wrapper_field_names: &trait_bridge_arc_wrapper_field_names,
             ..Default::default()
         };
         let convertible = alef_codegen::conversions::convertible_types(api);
