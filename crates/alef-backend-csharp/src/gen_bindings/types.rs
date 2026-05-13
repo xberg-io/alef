@@ -386,6 +386,7 @@ fn gen_opaque_method(
             "            ",
             enum_names,
             true_opaque_types,
+            &HashSet::new(), // Opaque handle methods rarely return other Named types
         );
         emit_named_param_teardown_indented(&mut out, &visible_params, "            ", true_opaque_types);
         emit_return_statement_indented(&mut out, &method.return_type, "            ");
