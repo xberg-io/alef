@@ -17,6 +17,7 @@ pub(super) fn gen_function(
     default_types: &AHashSet<String>,
     prefix: &str,
     capsule_types: &std::collections::HashMap<String, alef_core::config::NodeCapsuleTypeConfig>,
+    mutex_types: &AHashSet<String>,
 ) -> String {
     // Treat any Named param whose type derives Default as binding-optional so
     // JS callers can omit it (or pass undefined) — we materialise the default
@@ -139,6 +140,7 @@ pub(super) fn gen_function(
                     func.returns_ref,
                     prefix,
                     Some(capsule_types),
+                    mutex_types,
                 );
                 if wrapped == "val" {
                     format!("{vec_str_bindings}{serde_bindings}{core_call}{await_kw}{err_conv}")
@@ -175,6 +177,7 @@ pub(super) fn gen_function(
             func.returns_ref,
             prefix,
             Some(capsule_types),
+            mutex_types,
         );
         let return_type = mapper.map_type(&func.return_type);
         generators::gen_async_body(
@@ -208,6 +211,7 @@ pub(super) fn gen_function(
                 func.returns_ref,
                 prefix,
                 Some(capsule_types),
+                mutex_types,
             );
             if wrapped == "val" {
                 format!("{let_bindings}{core_call}{err_conv}")
@@ -223,7 +227,8 @@ pub(super) fn gen_function(
                     opaque_types,
                     func.returns_ref,
                     prefix,
-                    Some(capsule_types)
+                    Some(capsule_types),
+                    mutex_types
                 )
             )
         }
@@ -468,6 +473,15 @@ pub(super) fn napi_gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<St
         .join(", ")
 }
 
+/// Helper: wrap a value in Arc::new(...) with optional Mutex::new(...) for mutex types.
+fn arc_wrap(val: &str, type_name: &str, mutex_types: &AHashSet<String>) -> String {
+    if mutex_types.contains(type_name) {
+        format!("Arc::new(std::sync::Mutex::new({val}))")
+    } else {
+        format!("Arc::new({val})")
+    }
+}
+
 /// NAPI-specific return wrapping for opaque instance methods.
 /// Extends the shared `wrap_return` with i64 casts for u64/usize/isize primitives.
 pub(super) fn napi_wrap_return(
@@ -478,6 +492,7 @@ pub(super) fn napi_wrap_return(
     self_is_opaque: bool,
     returns_ref: bool,
     prefix: &str,
+    mutex_types: &AHashSet<String>,
 ) -> String {
     match return_type {
         TypeRef::Primitive(p) if needs_napi_cast(p) => {
@@ -486,10 +501,17 @@ pub(super) fn napi_wrap_return(
         TypeRef::Duration => format!("{expr}.as_millis() as i64"),
         // Opaque Named returns need prefix
         TypeRef::Named(n) if n == type_name && self_is_opaque => {
-            if returns_ref {
-                format!("Self {{ inner: Arc::new({expr}.clone()) }}")
+            // When expr is self.inner or self.inner.clone(), it's already Arc<T>, so don't wrap again.
+            let already_arc = expr == "self.inner"
+                || expr == "self.inner.clone()"
+                || expr.starts_with("self.inner.as_ref()")
+                || expr.starts_with("self.inner.clone()");
+            if already_arc {
+                format!("Self {{ inner: {expr} }}")
+            } else if returns_ref {
+                format!("Self {{ inner: {} }}", arc_wrap(&format!("{expr}.clone()"), n, mutex_types))
             } else {
-                format!("Self {{ inner: Arc::new({expr}) }}")
+                format!("Self {{ inner: {} }}", arc_wrap(expr, n, mutex_types))
             }
         }
         TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
@@ -502,9 +524,9 @@ pub(super) fn napi_wrap_return(
             if already_arc {
                 format!("{prefix}{n} {{ inner: {expr} }}")
             } else if returns_ref {
-                format!("{prefix}{n} {{ inner: Arc::new({expr}.clone()) }}")
+                format!("{prefix}{n} {{ inner: {} }}", arc_wrap(&format!("{expr}.clone()"), n, mutex_types))
             } else {
-                format!("{prefix}{n} {{ inner: Arc::new({expr}) }}")
+                format!("{prefix}{n} {{ inner: {} }}", arc_wrap(expr, n, mutex_types))
             }
         }
         TypeRef::Named(_) => {
@@ -514,6 +536,64 @@ pub(super) fn napi_wrap_return(
                 format!("{expr}.into()")
             }
         }
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
+                if returns_ref {
+                    format!("{expr}.map(|v| {prefix}{name} {{ inner: {} }})", arc_wrap("v.clone()", name, mutex_types))
+                } else {
+                    format!("{expr}.map(|v| {prefix}{name} {{ inner: {} }})", arc_wrap("v", name, mutex_types))
+                }
+            }
+            TypeRef::Vec(vec_inner) => match vec_inner.as_ref() {
+                TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
+                    if returns_ref {
+                        format!(
+                            "{expr}.map(|v| v.into_iter().map(|x| {prefix}{n} {{ inner: {} }}).collect())",
+                            arc_wrap("x.clone()", n, mutex_types)
+                        )
+                    } else {
+                        format!("{expr}.map(|v| v.into_iter().map(|x| {prefix}{n} {{ inner: {} }}).collect())",
+                            arc_wrap("x", n, mutex_types))
+                    }
+                }
+                _ => generators::wrap_return(
+                    expr,
+                    return_type,
+                    type_name,
+                    opaque_types,
+                    self_is_opaque,
+                    returns_ref,
+                    false,
+                ),
+            },
+            _ => generators::wrap_return(
+                expr,
+                return_type,
+                type_name,
+                opaque_types,
+                self_is_opaque,
+                returns_ref,
+                false,
+            ),
+        },
+        TypeRef::Vec(inner) => match inner.as_ref() {
+            TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
+                if returns_ref {
+                    format!("{expr}.into_iter().map(|v| {prefix}{name} {{ inner: {} }}).collect()", arc_wrap("v.clone()", name, mutex_types))
+                } else {
+                    format!("{expr}.into_iter().map(|v| {prefix}{name} {{ inner: {} }}).collect()", arc_wrap("v", name, mutex_types))
+                }
+            }
+            _ => generators::wrap_return(
+                expr,
+                return_type,
+                type_name,
+                opaque_types,
+                self_is_opaque,
+                returns_ref,
+                false,
+            ),
+        },
         _ => generators::wrap_return(
             expr,
             return_type,
@@ -534,6 +614,7 @@ pub(super) fn napi_wrap_return_fn(
     returns_ref: bool,
     prefix: &str,
     capsule_types: Option<&std::collections::HashMap<String, alef_core::config::NodeCapsuleTypeConfig>>,
+    mutex_types: &AHashSet<String>,
 ) -> String {
     match return_type {
         TypeRef::Primitive(p) if needs_napi_cast(p) => {
@@ -546,9 +627,9 @@ pub(super) fn napi_wrap_return_fn(
         }
         TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
             if returns_ref {
-                format!("{prefix}{n} {{ inner: Arc::new({expr}.clone()) }}")
+                format!("{prefix}{n} {{ inner: {} }}", arc_wrap(&format!("{expr}.clone()"), n, mutex_types))
             } else {
-                format!("{prefix}{n} {{ inner: Arc::new({expr}) }}")
+                format!("{prefix}{n} {{ inner: {} }}", arc_wrap(expr, n, mutex_types))
             }
         }
         TypeRef::Named(_) => {
@@ -576,9 +657,9 @@ pub(super) fn napi_wrap_return_fn(
             }
             TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
                 if returns_ref {
-                    format!("{expr}.map(|v| {prefix}{name} {{ inner: Arc::new(v.clone()) }})")
+                    format!("{expr}.map(|v| {prefix}{name} {{ inner: {} }})", arc_wrap("v.clone()", name, mutex_types))
                 } else {
-                    format!("{expr}.map(|v| {prefix}{name} {{ inner: Arc::new(v) }})")
+                    format!("{expr}.map(|v| {prefix}{name} {{ inner: {} }})", arc_wrap("v", name, mutex_types))
                 }
             }
             TypeRef::Named(_) => {
@@ -592,10 +673,12 @@ pub(super) fn napi_wrap_return_fn(
                 TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
                     if returns_ref {
                         format!(
-                            "{expr}.map(|v| v.into_iter().map(|x| {prefix}{n} {{ inner: Arc::new(x.clone()) }}).collect())"
+                            "{expr}.map(|v| v.into_iter().map(|x| {prefix}{n} {{ inner: {} }}).collect())",
+                            arc_wrap("x.clone()", n, mutex_types)
                         )
                     } else {
-                        format!("{expr}.map(|v| v.into_iter().map(|x| {prefix}{n} {{ inner: Arc::new(x) }}).collect())")
+                        format!("{expr}.map(|v| v.into_iter().map(|x| {prefix}{n} {{ inner: {} }}).collect())",
+                            arc_wrap("x", n, mutex_types))
                     }
                 }
                 TypeRef::Named(_) => {

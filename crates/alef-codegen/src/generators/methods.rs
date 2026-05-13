@@ -2,7 +2,7 @@ use crate::generators::binding_helpers::{
     apply_return_newtype_unwrap, gen_async_body, gen_call_args, gen_call_args_cfg, gen_call_args_with_let_bindings,
     gen_lossy_binding_to_core_fields, gen_lossy_binding_to_core_fields_mut, gen_named_let_bindings_pub,
     gen_serde_let_bindings, gen_unimplemented_body, has_named_params, is_simple_non_opaque_param,
-    wrap_return_with_mutex,
+    wrap_return_with_mutex, wrap_return_with_mutex_mapped,
 };
 use crate::generators::{AdapterBodies, AsyncPattern, RustBindingConfig};
 use crate::shared::{function_params, function_sig_defaults, partition_methods};
@@ -205,7 +205,7 @@ pub fn gen_method(
     //   - primitives/String/Vec/Unit → pass through
     let result_expr = apply_return_newtype_unwrap("result", &method.return_newtype_wrapper);
     let async_result_wrap = if is_opaque {
-        wrap_return_with_mutex(
+        wrap_return_with_mutex_mapped(
             &result_expr,
             &method.return_type,
             type_name,
@@ -214,6 +214,7 @@ pub fn gen_method(
             is_opaque,
             method.returns_ref,
             method.returns_cow,
+            mapper,
         )
     } else {
         // For non-opaque types, only use From conversion if the return type is simple
@@ -263,7 +264,7 @@ pub fn gen_method(
             if matches!(method.return_type, TypeRef::Unit) {
                 format!("{serde_bindings}{core_call}{err_conv}?;\n        Ok(())")
             } else {
-                let wrap = wrap_return_with_mutex(
+                let wrap = wrap_return_with_mutex_mapped(
                     "result",
                     &method.return_type,
                     type_name,
@@ -272,6 +273,7 @@ pub fn gen_method(
                     is_opaque,
                     method.returns_ref,
                     method.returns_cow,
+                    mapper,
                 );
                 format!("{serde_bindings}let result = {core_call}{err_conv}?;\n        Ok({wrap})")
             }
@@ -563,7 +565,7 @@ pub fn gen_method(
                     // Unit return: avoid let_unit_value by not binding the result
                     format!("{core_call}{err_conv}?;\n        Ok(())")
                 } else {
-                    let wrap = wrap_return_with_mutex(
+                    let wrap = wrap_return_with_mutex_mapped(
                         &result_expr,
                         &method.return_type,
                         type_name,
@@ -572,6 +574,7 @@ pub fn gen_method(
                         is_opaque,
                         method.returns_ref,
                         method.returns_cow,
+                        mapper,
                     );
                     format!("let result = {core_call}{err_conv}?;\n        Ok({wrap})")
                 }
@@ -580,7 +583,7 @@ pub fn gen_method(
             }
         } else if is_opaque {
             let unwrapped_call = apply_return_newtype_unwrap(&core_call, &method.return_newtype_wrapper);
-            wrap_return_with_mutex(
+            wrap_return_with_mutex_mapped(
                 &unwrapped_call,
                 &method.return_type,
                 type_name,
@@ -589,6 +592,7 @@ pub fn gen_method(
                 is_opaque,
                 method.returns_ref,
                 method.returns_cow,
+                mapper,
             )
         } else {
             core_call
@@ -789,7 +793,7 @@ pub fn gen_static_method(
             };
             // Wrap the Ok value if the return type needs conversion (e.g. PathBuf→String)
             let val_expr = apply_return_newtype_unwrap("val", &method.return_newtype_wrapper);
-            let wrapped = wrap_return_with_mutex(
+            let wrapped = wrap_return_with_mutex_mapped(
                 &val_expr,
                 &method.return_type,
                 type_name,
@@ -798,6 +802,7 @@ pub fn gen_static_method(
                 typ.is_opaque,
                 method.returns_ref,
                 method.returns_cow,
+                mapper,
             );
             if wrapped == val_expr {
                 format!("{core_call}{err_conv}")
@@ -811,7 +816,7 @@ pub fn gen_static_method(
         } else {
             // Wrap return value for non-error case too (e.g. PathBuf→String)
             let unwrapped_call = apply_return_newtype_unwrap(&core_call, &method.return_newtype_wrapper);
-            wrap_return_with_mutex(
+            wrap_return_with_mutex_mapped(
                 &unwrapped_call,
                 &method.return_type,
                 type_name,
@@ -820,6 +825,7 @@ pub fn gen_static_method(
                 typ.is_opaque,
                 method.returns_ref,
                 method.returns_cow,
+                mapper,
             )
         }
     };

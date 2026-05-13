@@ -185,9 +185,18 @@ impl Backend for NapiBackend {
             .filter(|t| t.is_opaque && !t.is_trait && !capsule_types.contains_key(&t.name))
             .map(|t| t.name.clone())
             .collect();
+        let mutex_types: AHashSet<String> = api
+            .types
+            .iter()
+            .filter(|t| t.is_opaque && generators::type_needs_mutex(t))
+            .map(|t| t.name.clone())
+            .collect();
         let has_traits = api.types.iter().any(|t| t.is_trait);
         if !opaque_types.is_empty() || has_traits {
             builder.add_import("std::sync::Arc");
+        }
+        if !mutex_types.is_empty() {
+            builder.add_import("std::sync::Mutex");
         }
 
         let exclude_types: ahash::AHashSet<String> = config
@@ -305,6 +314,8 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
                     &adapter_bodies,
                     &streaming_item_types,
                     &capsule_type_names,
+                    &mutex_types,
+                    &capsule_types,
                 ));
             } else {
                 // Non-opaque structs use #[napi(object)] — plain JS objects without methods.
@@ -407,6 +418,7 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
                     &default_types,
                     &prefix,
                     &capsule_types,
+                    &mutex_types,
                 ));
             }
         }
@@ -545,7 +557,93 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
             builder.add_item(&alef_codegen::error_gen::gen_napi_error_converter(error, &core_import));
         }
 
-        let content = builder.build();
+        let mut content = builder.build();
+
+        // Post-process: Fix From<JsXxx> (binding to core) impls to forward visitor field.
+        // The conversion generator emits `__result.visitor = Default::default();` in binding→core
+        // conversions because the raw JS napi::bindgen_prelude::Object is not Clone-able.
+        // This post-process detects that pattern in the JS→Rust direction and replaces it with
+        // code that wraps val.visitor into a JsHtmlVisitorBridge and then into the core Rc<RefCell<>> type.
+        //
+        // Key: only fix `impl From<Js{type}>` (binding→core), NOT `impl From<core_type>` (core→binding).
+        // The core→binding direction correctly uses Default because the Rc<RefCell<>> is opaque to JS.
+        for bridge in &config.trait_bridges {
+            if bridge.bind_via != alef_core::config::BridgeBinding::OptionsField {
+                continue;
+            }
+            if let Some(field_name) = bridge.resolved_options_field() {
+                // Verify the field is present in the binding struct (not cfg-gated away)
+                let Some(options_type) = bridge.options_type.as_deref() else {
+                    continue;
+                };
+                let field_in_binding = api
+                    .types
+                    .iter()
+                    .filter(|t| t.name == options_type)
+                    .flat_map(|t| t.fields.iter())
+                    .any(|f| f.cfg.is_none() && f.name == field_name);
+                if !field_in_binding {
+                    continue;
+                }
+
+                // Find the binding→core conversion impl: `impl From<Js{options_type}> for core...`
+                let prefix = config.node_type_prefix();
+                let js_type_name = format!("{prefix}{options_type}");
+                let impl_marker = format!("impl From<{js_type_name}> for {core_import}");
+
+                // Search forward from the impl marker to find its closing brace and visitor wipe.
+                // We only fix the impl that converts FROM the JS binding type.
+                if let Some(impl_start) = content.find(&impl_marker) {
+                    // Find the matching closing brace for this impl block
+                    let from_impl_start = impl_start;
+                    let impl_body = &content[from_impl_start..];
+
+                    // Find the next `}` that closes this impl — being careful to count braces
+                    let mut brace_depth = 0;
+                    let mut impl_end = 0;
+                    let mut found_fn_from = false;
+                    for (i, ch) in impl_body.chars().enumerate() {
+                        if ch == '{' {
+                            brace_depth += 1;
+                            // Once we see the opening brace of `fn from(...) {`, mark it
+                            if impl_body[..i].contains("fn from") {
+                                found_fn_from = true;
+                            }
+                        } else if ch == '}' {
+                            brace_depth -= 1;
+                            if brace_depth == 0 && found_fn_from {
+                                impl_end = i;
+                                break;
+                            }
+                        }
+                    }
+
+                    if impl_end > 0 {
+                        let impl_block = &impl_body[..impl_end];
+                        let pattern = "__result.visitor = Default::default();";
+
+                        if let Some(rel_pos) = impl_block.find(pattern) {
+                            let pos = from_impl_start + rel_pos;
+                            let before = &content[..pos];
+                            let after = &content[pos + pattern.len()..];
+
+                            // Build the replacement that wraps val.visitor into JsHtmlVisitorBridge
+                            // and then into the core Rc<RefCell<...>> type.
+                            let type_alias = bridge.type_alias.as_deref().unwrap_or("VisitorHandle");
+                            let handle_path = format!("{core_import}::visitor::{type_alias}");
+                            let replacement = format!(
+                                "__result.visitor = val.{field_name}.map(|obj| {{\n            \
+                                    let bridge = JsHtmlVisitorBridge::new(obj);\n            \
+                                    std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n        \
+                                }});"
+                            );
+
+                            content = format!("{}{}{}", before, replacement, after);
+                        }
+                    }
+                }
+            }
+        }
 
         let output_dir = resolve_output_dir(config.output_paths.get("node"), &config.name, "crates/{name}-node/src/");
 

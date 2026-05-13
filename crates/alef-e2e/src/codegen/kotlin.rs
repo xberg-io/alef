@@ -1022,7 +1022,8 @@ fn render_test_method(
         }
     }
 
-    let (setup_lines, args_str) = build_args_and_setup(fixture, &fixture.input, args, class_name, options_type, &fixture.id);
+    let (setup_lines, args_str) =
+        build_args_and_setup(fixture, &fixture.input, args, class_name, options_type, &fixture.id);
 
     // When client_factory is set, emit client-object instantiation + instance method call.
     // The factory name is a function on the Kotlin facade object (e.g. `LiterLlm.createClient`)
@@ -1060,6 +1061,7 @@ fn render_test_method(
                 result_is_simple,
                 result_is_option,
                 enum_fields,
+                &e2e_config.fields_c_types,
             );
         }
         let _ = writeln!(out, "        client.close()");
@@ -1104,6 +1106,7 @@ fn render_test_method(
             result_is_simple,
             result_is_option,
             enum_fields,
+            &e2e_config.fields_c_types,
         );
     }
 
@@ -1296,6 +1299,7 @@ fn render_assertion(
     result_is_simple: bool,
     result_is_option: bool,
     enum_fields: &HashSet<String>,
+    fields_c_types: &std::collections::HashMap<String, String>,
 ) {
     // Streaming virtual fields resolve against the `chunks` collected-list variable.
     // Intercept before is_valid_for_result so they are never skipped.
@@ -1450,10 +1454,28 @@ fn render_assertion(
         string_field_expr.clone()
     };
 
+    // Determine if this assertion field maps to a 64-bit C type (uint64_t / int64_t),
+    // which corresponds to Kotlin `Long`. When true, integer literals must be suffixed
+    // with `L` to avoid a type mismatch between Kotlin `Int` and `Long`.
+    let field_is_long = assertion.field.as_deref().filter(|f| !f.is_empty()).is_some_and(|f| {
+        let resolved = field_resolver.resolve(f);
+        matches!(
+            fields_c_types.get(resolved).map(String::as_str),
+            Some("uint64_t") | Some("int64_t")
+        )
+    });
+
     match assertion.assertion_type.as_str() {
         "equals" => {
             if let Some(expected) = &assertion.value {
-                let kotlin_val = json_to_kotlin(expected);
+                // Suffix integer literals with `L` when the target field is a Java `long`
+                // (uint64_t / int64_t in C FFI terms). Without the suffix, Kotlin infers
+                // the literal as `Int`, causing a type mismatch with `Long` at runtime.
+                let kotlin_val = if field_is_long && expected.is_number() && !expected.is_f64() {
+                    format!("{}L", expected)
+                } else {
+                    json_to_kotlin(expected)
+                };
                 if expected.is_string() {
                     let _ = writeln!(out, "        assertEquals({kotlin_val}, {string_expr}.trim())");
                 } else {

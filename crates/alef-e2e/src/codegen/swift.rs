@@ -768,6 +768,51 @@ fn render_test_method(
     }
     let _ = writeln!(out, "        // {description}");
 
+    if expects_error {
+        // For error fixtures, setup may itself throw (e.g. config validation
+        // happens at engine construction). Wrap the whole pipeline — setup
+        // and the call — in a single do/catch so any throw counts as success.
+        if is_async {
+            // XCTAssertThrowsError is a synchronous macro; for async-throwing
+            // functions use a do/catch with explicit XCTFail to enforce that
+            // the throw actually happens. `await XCTAssertThrowsError(...)` is
+            // not valid Swift — it evaluates `await` against a non-async expr.
+            let _ = writeln!(out, "        do {{");
+            for line in &setup_lines {
+                let _ = writeln!(out, "            {line}");
+            }
+            if let Some(setup) = &call_setup {
+                let _ = writeln!(out, "            {setup}");
+            }
+            let _ = writeln!(out, "            _ = {call_expr}");
+            let _ = writeln!(out, "            XCTFail(\"expected to throw\")");
+            let _ = writeln!(out, "        }} catch {{");
+            let _ = writeln!(out, "            // success");
+            let _ = writeln!(out, "        }}");
+        } else {
+            // Synchronous: emit setup outside (it's expected to succeed) and
+            // wrap only the throwing call in XCTAssertThrowsError. If setup
+            // itself throws, that propagates as the test's own failure — but
+            // sync tests use `throws` so the test method itself rethrows,
+            // which XCTest still records as caught. Keep this simple: use a
+            // do/catch so setup-time throws also count as expected failures.
+            let _ = writeln!(out, "        do {{");
+            for line in &setup_lines {
+                let _ = writeln!(out, "            {line}");
+            }
+            if let Some(setup) = &call_setup {
+                let _ = writeln!(out, "            {setup}");
+            }
+            let _ = writeln!(out, "            _ = {call_expr}");
+            let _ = writeln!(out, "            XCTFail(\"expected to throw\")");
+            let _ = writeln!(out, "        }} catch {{");
+            let _ = writeln!(out, "            // success");
+            let _ = writeln!(out, "        }}");
+        }
+        let _ = writeln!(out, "    }}");
+        return;
+    }
+
     for line in &setup_lines {
         let _ = writeln!(out, "        {line}");
     }
@@ -775,25 +820,6 @@ fn render_test_method(
     // Emit client construction if a client_factory is configured.
     if let Some(setup) = &call_setup {
         let _ = writeln!(out, "        {setup}");
-    }
-
-    if expects_error {
-        if is_async {
-            // XCTAssertThrowsError is a synchronous macro; for async-throwing
-            // functions use a do/catch with explicit XCTFail to enforce that
-            // the throw actually happens. `await XCTAssertThrowsError(...)` is
-            // not valid Swift — it evaluates `await` against a non-async expr.
-            let _ = writeln!(out, "        do {{");
-            let _ = writeln!(out, "            _ = {call_expr}");
-            let _ = writeln!(out, "            XCTFail(\"expected to throw\")");
-            let _ = writeln!(out, "        }} catch {{");
-            let _ = writeln!(out, "            // success");
-            let _ = writeln!(out, "        }}");
-        } else {
-            let _ = writeln!(out, "        XCTAssertThrowsError({call_expr})");
-        }
-        let _ = writeln!(out, "    }}");
-        return;
     }
 
     let _ = writeln!(out, "        let {result_var} = {call_expr}");

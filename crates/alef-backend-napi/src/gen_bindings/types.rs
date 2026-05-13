@@ -195,6 +195,8 @@ pub(super) fn gen_opaque_struct_methods(
     adapter_bodies: &alef_adapters::AdapterBodies,
     streaming_item_types: &ahash::AHashMap<String, String>,
     capsule_type_names: &AHashSet<String>,
+    mutex_types: &AHashSet<String>,
+    capsule_types: &std::collections::HashMap<String, alef_core::config::NodeCapsuleTypeConfig>,
 ) -> String {
     let mut impl_builder = ImplBuilder::new(&format!("{prefix}{}", typ.name));
     impl_builder.add_attr("napi");
@@ -246,6 +248,8 @@ pub(super) fn gen_opaque_struct_methods(
             prefix,
             adapter_bodies,
             streaming_item_types,
+            mutex_types,
+            &capsule_types,
         ));
     }
     for method in &statics {
@@ -254,7 +258,7 @@ pub(super) fn gen_opaque_struct_methods(
         if method.sanitized && !adapter_bodies.contains_key(&adapter_key) {
             continue;
         }
-        impl_builder.add_method(&gen_static_method(method, mapper, typ, cfg, opaque_types, prefix));
+        impl_builder.add_method(&gen_static_method(method, mapper, typ, cfg, opaque_types, prefix, mutex_types));
     }
 
     impl_builder.build()
@@ -271,8 +275,18 @@ pub(super) fn gen_opaque_instance_method(
     prefix: &str,
     adapter_bodies: &alef_adapters::AdapterBodies,
     streaming_item_types: &ahash::AHashMap<String, String>,
+    mutex_types: &AHashSet<String>,
+    capsule_types: &std::collections::HashMap<String, alef_core::config::NodeCapsuleTypeConfig>,
 ) -> String {
-    let params = function_params(&method.params, &|ty| mapper.map_type(ty));
+    let params = function_params(&method.params, &|ty| {
+        // For capsule types in method params, use fully-qualified names
+        if let alef_core::ir::TypeRef::Named(name) = ty {
+            if let Some(capsule_cfg) = capsule_types.get(name) {
+                return format!("{}::{}", capsule_cfg.from_module.replace('-', "_"), capsule_cfg.type_name);
+            }
+        }
+        mapper.map_type(ty)
+    });
     let adapter_key_for_stream = format!("{}.{}", typ.name, method.name);
     let stream_item = streaming_item_types.get(&adapter_key_for_stream);
     let return_type = if let Some(item) = stream_item {
@@ -330,6 +344,7 @@ pub(super) fn gen_opaque_instance_method(
         true,
         method.returns_ref,
         prefix,
+        mutex_types,
     );
 
     let adapter_key = format!("{type_name}.{}", method.name);
@@ -363,6 +378,7 @@ pub(super) fn gen_opaque_instance_method(
                     true,
                     method.returns_ref,
                     prefix,
+                    mutex_types,
                 );
                 format!("{serde_bindings}let result = {core_call}{err_conv}?;\n    Ok({wrap})")
             }
@@ -424,6 +440,7 @@ pub(super) fn gen_opaque_instance_method(
                     true,
                     method.returns_ref,
                     prefix,
+                    mutex_types,
                 );
                 format!("{let_bindings}let result = {core_call}{err_conv}?;\n    Ok({wrap})")
             }
@@ -438,6 +455,7 @@ pub(super) fn gen_opaque_instance_method(
                     true,
                     method.returns_ref,
                     prefix,
+                    mutex_types,
                 )
             )
         }
@@ -471,6 +489,7 @@ pub(super) fn gen_static_method(
     cfg: &RustBindingConfig,
     opaque_types: &AHashSet<String>,
     prefix: &str,
+    mutex_types: &AHashSet<String>,
 ) -> String {
     let params = function_params(&method.params, &|ty| mapper.map_type(ty));
     let return_type = mapper.map_type(&method.return_type);
@@ -509,6 +528,7 @@ pub(super) fn gen_static_method(
             typ.is_opaque,
             method.returns_ref,
             prefix,
+            mutex_types,
         );
         generators::gen_async_body(
             &core_call,
@@ -532,6 +552,7 @@ pub(super) fn gen_static_method(
                 typ.is_opaque,
                 method.returns_ref,
                 prefix,
+                mutex_types,
             );
             if wrapped == "val" {
                 format!("{core_call}{err_conv}")
@@ -547,6 +568,7 @@ pub(super) fn gen_static_method(
                 typ.is_opaque,
                 method.returns_ref,
                 prefix,
+                mutex_types,
             )
         }
     };

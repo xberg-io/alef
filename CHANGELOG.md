@@ -7,7 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.52] - 2026-05-13
+
 ### Added
+
+- feat(scaffold/node): add `futures-util` to generated Node binding `Cargo.toml` so `chat_stream` compiles without requiring a manual dependency addition
+
+### Fixed
+
+- fix(e2e/kotlin): derive JAR name by replacing hyphens with underscores (`rootProject.name` uses underscores, producing e.g. `liter_llm-VERSION.jar`); bare hyphenated name caused "Unresolved reference" linking errors
+- fix(e2e/kotlin): wrap generated `@Test` bodies in `runBlocking { }` when the binding exposes `suspend fun` methods; previously tests called coroutine methods outside a coroutine scope and crashed with `IllegalStateException`
+- fix(e2e/kotlin): append `L` suffix to integer literals for `uint64_t`/`int64_t` fields (e.g. `assertEquals(6L, result.promptTokens())`) to prevent Kotlin long-vs-int type mismatch compilation errors
 
 - feat(backend-php): emit per-opaque-type PHP stub class files under the configured `output` directory. Each opaque type with public methods gets its own `<TypeName>.php` declaring `public function` signatures, so static analysers and IDEs see the type's surface. Mirrors the existing `.rbs` stub pattern in `alef-backend-magnus`.
 - feat(backend-rustler): emit idiomatic Elixir `.ex` wrapper modules for opaque types with methods. Each opaque type gets `defstruct [:ref]` plus per-method delegations to `TreeSitterLanguagePack.Native.<type>_<method>(obj.ref, ...)`, so Elixir callers get a typed module-based API instead of raw NIF call sites.

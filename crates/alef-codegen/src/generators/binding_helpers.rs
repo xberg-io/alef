@@ -1,5 +1,6 @@
 use crate::conversions::helpers::{core_prim_str, needs_f64_cast, needs_i32_cast};
 use crate::generators::{AsyncPattern, RustBindingConfig};
+use crate::type_mapper::TypeMapper;
 use ahash::AHashSet;
 use alef_core::ir::{CoreWrapper, ParamDef, TypeDef, TypeRef};
 
@@ -44,6 +45,31 @@ pub fn wrap_return_with_mutex(
     returns_ref: bool,
     returns_cow: bool,
 ) -> String {
+    wrap_return_with_mutex_mapped(
+        expr,
+        return_type,
+        type_name,
+        opaque_types,
+        mutex_types,
+        self_is_opaque,
+        returns_ref,
+        returns_cow,
+        &crate::type_mapper::IdentityMapper,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn wrap_return_with_mutex_mapped(
+    expr: &str,
+    return_type: &TypeRef,
+    type_name: &str,
+    opaque_types: &AHashSet<String>,
+    mutex_types: &AHashSet<String>,
+    self_is_opaque: bool,
+    returns_ref: bool,
+    returns_cow: bool,
+    mapper: &dyn TypeMapper,
+) -> String {
     let self_arc = arc_wrap("", type_name, mutex_types); // used for pattern matching only
     let _ = self_arc; // just to reference mutex_types in context
     match return_type {
@@ -58,6 +84,7 @@ pub fn wrap_return_with_mutex(
             format!("Self {{ inner: {} }}", arc_wrap(&inner, type_name, mutex_types))
         }
         TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
+            let mapped_n = mapper.named(n);
             let inner = if returns_cow {
                 format!("{expr}.into_owned()")
             } else if returns_ref {
@@ -65,7 +92,7 @@ pub fn wrap_return_with_mutex(
             } else {
                 expr.to_string()
             };
-            format!("{n} {{ inner: {} }}", arc_wrap(&inner, n, mutex_types))
+            format!("{mapped_n} {{ inner: {} }}", arc_wrap(&inner, n, mutex_types))
         }
         TypeRef::Named(_) => {
             // Non-opaque Named return type — use .into() for core→binding From conversion.
@@ -102,14 +129,15 @@ pub fn wrap_return_with_mutex(
         // Optional: wrap inner conversion in .map(...)
         TypeRef::Optional(inner) => match inner.as_ref() {
             TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
+                let mapped_n = mapper.named(n);
                 let wrap = arc_wrap("v", n, mutex_types);
                 if returns_ref {
                     format!(
-                        "{expr}.map(|v| {n} {{ inner: {} }})",
+                        "{expr}.map(|v| {mapped_n} {{ inner: {} }})",
                         arc_wrap("v.clone()", n, mutex_types)
                     )
                 } else {
-                    format!("{expr}.map(|v| {n} {{ inner: {wrap} }})")
+                    format!("{expr}.map(|v| {mapped_n} {{ inner: {wrap} }})")
                 }
             }
             TypeRef::Named(_) => {
@@ -134,12 +162,13 @@ pub fn wrap_return_with_mutex(
             // Optional<Vec<Named>>: convert each element in the inner Vec
             TypeRef::Vec(vec_inner) => match vec_inner.as_ref() {
                 TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
+                    let mapped_n = mapper.named(n);
                     if returns_ref {
                         let wrap = arc_wrap("x.clone()", n, mutex_types);
-                        format!("{expr}.map(|v| v.into_iter().map(|x| {n} {{ inner: {wrap} }}).collect())")
+                        format!("{expr}.map(|v| v.into_iter().map(|x| {mapped_n} {{ inner: {wrap} }}).collect())")
                     } else {
                         let wrap = arc_wrap("x", n, mutex_types);
-                        format!("{expr}.map(|v| v.into_iter().map(|x| {n} {{ inner: {wrap} }}).collect())")
+                        format!("{expr}.map(|v| v.into_iter().map(|x| {mapped_n} {{ inner: {wrap} }}).collect())")
                     }
                 }
                 TypeRef::Named(_) => {
@@ -156,12 +185,13 @@ pub fn wrap_return_with_mutex(
         // Vec: map each element through the appropriate conversion
         TypeRef::Vec(inner) => match inner.as_ref() {
             TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
+                let mapped_n = mapper.named(n);
                 if returns_ref {
                     let wrap = arc_wrap("v.clone()", n, mutex_types);
-                    format!("{expr}.into_iter().map(|v| {n} {{ inner: {wrap} }}).collect()")
+                    format!("{expr}.into_iter().map(|v| {mapped_n} {{ inner: {wrap} }}).collect()")
                 } else {
                     let wrap = arc_wrap("v", n, mutex_types);
-                    format!("{expr}.into_iter().map(|v| {n} {{ inner: {wrap} }}).collect()")
+                    format!("{expr}.into_iter().map(|v| {mapped_n} {{ inner: {wrap} }}).collect()")
                 }
             }
             TypeRef::Named(_) => {

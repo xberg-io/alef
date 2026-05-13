@@ -1267,8 +1267,15 @@ fn render_dart_with_optionals(segments: &[PathSegment], result_var: &str, option
                     path_so_far.push('.');
                 }
                 path_so_far.push_str(name);
+                let is_optional = optional_fields.contains(&path_so_far);
                 out.push_str(nav);
                 out.push_str(&name.to_lower_camel_case());
+                // FRB models `Option<Vec<T>>` as `List<T>?` — only force-unwrap when the field
+                // is registered as optional. Adding `!` to a non-nullable receiver is a Dart
+                // compile-time error ("unnecessary non-null assertion").
+                if is_optional {
+                    out.push('!');
+                }
                 out.push_str(&format!("[{index}]"));
                 prev_was_nullable = false;
             }
@@ -1288,7 +1295,10 @@ fn render_dart_with_optionals(segments: &[PathSegment], result_var: &str, option
                 prev_was_nullable = is_optional;
             }
             PathSegment::Length => {
-                out.push_str(".length");
+                // Use `?.length` when the receiver is optional — emitting `.length` against
+                // a `List<T>?` is a Dart sound-null-safety error.
+                out.push_str(nav);
+                out.push_str("length");
                 prev_was_nullable = false;
             }
         }

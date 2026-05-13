@@ -242,3 +242,42 @@ fn go_validation_asserts_error_on_engine_creation() {
         );
     }
 }
+
+// ── Rust ──────────────────────────────────────────────────────────────────────
+
+#[test]
+fn rust_validation_uses_match_to_propagate_engine_creation_error() {
+    let content = generate_content(&RustE2eCodegen, "rust");
+
+    // Must emit `let engine_result = create_engine(...)` (no .expect() on creation).
+    assert!(
+        content.contains("let engine_result = create_engine("),
+        "engine_result binding with create_engine missing:\n{content}"
+    );
+
+    // Must NOT use `.expect("handle creation should succeed")` which would panic.
+    assert!(
+        !content.contains(".expect(\"handle creation should succeed\")"),
+        "panicking .expect() on handle creation found — would crash before error assertion:\n{content}"
+    );
+
+    // Must emit the match wrapper that propagates engine-creation errors.
+    assert!(
+        content.contains("match engine_result {"),
+        "match engine_result block missing:\n{content}"
+    );
+    assert!(
+        content.contains("Err(e) => Err(e),"),
+        "Err propagation arm missing in match:\n{content}"
+    );
+    assert!(
+        content.contains("Ok(engine) =>"),
+        "Ok arm with unwrapped engine missing in match:\n{content}"
+    );
+
+    // The final assertion must check the result for an error.
+    assert!(
+        content.contains("result.is_err()"),
+        "result.is_err() assertion missing:\n{content}"
+    );
+}

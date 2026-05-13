@@ -623,8 +623,9 @@ pub(crate) fn gen_function_as_static_method(
     core_import: &str,
     bridges: &[TraitBridgeConfig],
     has_serde: bool,
+    mutex_types: &AHashSet<String>,
 ) -> String {
-    let body = gen_function_body(func, opaque_types, core_import, &mapper.enum_names, bridges, has_serde);
+    let body = gen_function_body(func, opaque_types, core_import, &mapper.enum_names, bridges, has_serde, mutex_types);
     let bridge_names = bridge_param_names(bridges);
     let visible_params: Vec<_> = func
         .params
@@ -670,6 +671,7 @@ fn gen_function_body(
     enum_names: &AHashSet<String>,
     bridges: &[TraitBridgeConfig],
     has_serde: bool,
+    mutex_types: &AHashSet<String>,
 ) -> String {
     let bridge_names = bridge_param_names(bridges);
     let can_delegate = shared::can_auto_delegate_function(func, opaque_types);
@@ -705,7 +707,7 @@ fn gen_function_body(
                     false,
                     func.returns_ref,
                     false,
-                    &AHashSet::<String>::new(),
+                    mutex_types,
                 );
                 crate::template_env::render(
                     "php_result_wrapped_body_with_let_bindings.jinja",
@@ -733,7 +735,7 @@ fn gen_function_body(
                 false,
                 func.returns_ref,
                 false,
-                &AHashSet::<String>::new(),
+                mutex_types,
             );
             crate::template_env::render(
                 "php_wrapped_body_with_let_bindings.jinja",
@@ -781,7 +783,7 @@ fn gen_function_body(
                 false,
                 func.returns_ref,
                 false,
-                &AHashSet::<String>::new(),
+                mutex_types,
             );
             crate::template_env::render(
                 "php_result_wrapped_body_with_let_bindings.jinja",
@@ -800,7 +802,7 @@ fn gen_function_body(
                 false,
                 func.returns_ref,
                 false,
-                &AHashSet::<String>::new(),
+                mutex_types,
             );
             crate::template_env::render(
                 "php_wrapped_body_with_let_bindings.jinja",
@@ -821,8 +823,9 @@ pub(crate) fn gen_async_function_as_static_method(
     opaque_types: &AHashSet<String>,
     core_import: &str,
     bridges: &[TraitBridgeConfig],
+    mutex_types: &AHashSet<String>,
 ) -> String {
-    let body = gen_async_function_body(func, opaque_types, core_import, &mapper.enum_names, bridges);
+    let body = gen_async_function_body(func, opaque_types, core_import, &mapper.enum_names, bridges, mutex_types);
     let bridge_names = bridge_param_names(bridges);
     let visible_params: Vec<_> = func
         .params
@@ -867,6 +870,7 @@ fn gen_async_function_body(
     core_import: &str,
     enum_names: &AHashSet<String>,
     bridges: &[TraitBridgeConfig],
+    mutex_types: &AHashSet<String>,
 ) -> String {
     let bridge_names = bridge_param_names(bridges);
     let can_delegate = shared::can_auto_delegate_function(func, opaque_types);
@@ -901,7 +905,7 @@ fn gen_async_function_body(
                 false,
                 func.returns_ref,
                 false,
-                &AHashSet::<String>::new(),
+                mutex_types,
             )
         };
         if func.error_type.is_some() {
@@ -937,6 +941,7 @@ pub(crate) fn gen_async_instance_method(
     type_name: &str,
     opaque_types: &AHashSet<String>,
     adapter_bodies: &AdapterBodies,
+    _mutex_types: &AHashSet<String>,
 ) -> String {
     let empty_bridges = AHashSet::new();
     let params = gen_php_function_params(&method.params, mapper, opaque_types, &empty_bridges);
@@ -960,7 +965,7 @@ pub(crate) fn gen_async_instance_method(
             true,
             method.returns_ref,
             method.returns_cow,
-            &AHashSet::<String>::new(),
+            _mutex_types,
         );
         if method.error_type.is_some() {
             crate::template_env::render(

@@ -396,11 +396,24 @@ fn render_makefile(categories: &[String], header_name: &str, ffi_crate_path: &st
     // assigned MOCK_SERVER_URL line on stdout, exports it for the test process,
     // runs the suite, then tears the server down. This mirrors the per-language
     // conftest/setup machinery used by Python, Ruby, Java, etc.
+    //
+    // The mock-server also emits MOCK_SERVERS={...json...} mapping fixture IDs to
+    // their per-fixture listener URLs (needed for fixtures like robots/sitemap that
+    // require host-root routes). We parse this with python3 and export
+    // MOCK_SERVER_<UPPER_ID> env vars so the test binary can look them up.
     let _ = writeln!(out, "MOCK_SERVER_BIN ?= ../rust/target/release/mock-server");
     let _ = writeln!(out, "FIXTURES_DIR ?= ../../fixtures");
     let _ = writeln!(out);
     let _ = writeln!(out, "test: $(TARGET)");
     let _ = writeln!(out, "\t@if [ -n \"$$MOCK_SERVER_URL\" ]; then \\");
+    // When MOCK_SERVER_URL is already set (e.g. run under an existing mock-server
+    // process), also parse MOCK_SERVERS env var and export per-fixture vars.
+    let _ = writeln!(out, "\t\tif [ -n \"$$MOCK_SERVERS\" ]; then \\");
+    let _ = writeln!(
+        out,
+        "\t\t\teval $$(python3 -c \"import json,os; d=json.loads(os.environ.get('MOCK_SERVERS','{{}}')); print(' '.join('export MOCK_SERVER_'+k.upper()+'='+v for k,v in d.items()))\"); \\"
+    );
+    let _ = writeln!(out, "\t\tfi; \\");
     let _ = writeln!(out, "\t\t./$(TARGET); \\");
     let _ = writeln!(out, "\telse \\");
     let _ = writeln!(out, "\t\tif [ ! -x \"$(MOCK_SERVER_BIN)\" ]; then \\");
@@ -418,8 +431,9 @@ fn render_makefile(categories: &[String], header_name: &str, ffi_crate_path: &st
     );
     let _ = writeln!(out, "\t\tMOCK_PID=$$!; \\");
     let _ = writeln!(out, "\t\texec 9>mock_server.stdin; \\");
-    let _ = writeln!(out, "\t\tMOCK_URL=\"\"; \\");
-    let _ = writeln!(out, "\t\tfor _ in $$(seq 1 50); do \\");
+    let _ = writeln!(out, "\t\tMOCK_URL=\"\"; MOCK_SERVERS_JSON=\"\"; \\");
+    // Wait until MOCK_SERVER_URL appears in stdout (server is ready), bail after 5 s.
+    let _ = writeln!(out, "\t\tfor _ in $$(seq 1 100); do \\");
     let _ = writeln!(out, "\t\t\tif [ -s mock_server.stdout ]; then \\");
     let _ = writeln!(
         out,
@@ -427,12 +441,27 @@ fn render_makefile(categories: &[String], header_name: &str, ffi_crate_path: &st
     );
     let _ = writeln!(out, "\t\t\t\tif [ -n \"$$MOCK_URL\" ]; then break; fi; \\");
     let _ = writeln!(out, "\t\t\tfi; \\");
-    let _ = writeln!(out, "\t\t\tsleep 0.1; \\");
+    let _ = writeln!(out, "\t\t\tsleep 0.05; \\");
     let _ = writeln!(out, "\t\tdone; \\");
+    // MOCK_SERVERS line is printed after MOCK_SERVER_URL; give it a short extra read.
+    let _ = writeln!(
+        out,
+        "\t\tMOCK_SERVERS_JSON=$$(grep -o 'MOCK_SERVERS={{.*}}' mock_server.stdout | head -1 | cut -d= -f2-); \\"
+    );
     let _ = writeln!(
         out,
         "\t\tif [ -z \"$$MOCK_URL\" ]; then echo 'failed to start mock-server' >&2; cat mock_server.stdout >&2; kill $$MOCK_PID 2>/dev/null || true; exit 1; fi; \\"
     );
+    // Export per-fixture MOCK_SERVER_<UPPER_ID> env vars from the JSON map.
+    let _ = writeln!(
+        out,
+        "\t\tif [ -n \"$$MOCK_SERVERS_JSON\" ] && command -v python3 >/dev/null 2>&1; then \\"
+    );
+    let _ = writeln!(
+        out,
+        "\t\t\teval $$(python3 -c \"import json,sys; d=json.loads(sys.argv[1]); print(' '.join('export MOCK_SERVER_{{}}={{}}'.format(k.upper(),v) for k,v in d.items()))\" \"$$MOCK_SERVERS_JSON\"); \\"
+    );
+    let _ = writeln!(out, "\t\tfi; \\");
     let _ = writeln!(out, "\t\tMOCK_SERVER_URL=\"$$MOCK_URL\" ./$(TARGET); STATUS=$$?; \\");
     let _ = writeln!(out, "\t\texec 9>&-; \\");
     let _ = writeln!(out, "\t\tkill $$MOCK_PID 2>/dev/null || true; \\");
@@ -1011,6 +1040,7 @@ fn render_test_function(
             result_type_name,
             config_type,
             expects_error,
+            raw_c_result_type,
         );
         return;
     }
@@ -1691,7 +1721,8 @@ fn render_engine_factory_test_function(
     fields_enum: &HashSet<String>,
     result_type_name: &str,
     config_type: &str,
-    _expects_error: bool,
+    expects_error: bool,
+    raw_c_result_type: Option<&str>,
 ) {
     let prefix_upper = prefix.to_uppercase();
     let config_snake = config_type.to_snake_case();
@@ -1725,24 +1756,60 @@ fn render_engine_factory_test_function(
         "    {prefix_upper}{config_type}* config_handle = \
          {prefix}_{config_snake}_from_json(\"{config_escaped}\");"
     );
-    let _ = writeln!(out, "    assert(config_handle != NULL && \"failed to parse config\");");
+    if expects_error {
+        // Config parsing may legitimately fail for error fixtures (e.g. invalid config
+        // rejected by the FFI layer). Return early — that counts as the expected failure.
+        let _ = writeln!(out, "    if (config_handle == NULL) {{ return; }}");
+    } else {
+        let _ = writeln!(out, "    assert(config_handle != NULL && \"failed to parse config\");");
+    }
     let _ = writeln!(
         out,
         "    {prefix_upper}CrawlEngineHandle* engine = {prefix}_create_engine(config_handle);"
     );
     let _ = writeln!(out, "    {prefix}_{config_snake}_free(config_handle);");
-    let _ = writeln!(out, "    assert(engine != NULL && \"failed to create engine\");");
+    if expects_error {
+        // Engine creation may legitimately fail for error fixtures (e.g. invalid config
+        // rejected at engine-creation time). Return early — that counts as the expected failure.
+        let _ = writeln!(out, "    if (engine == NULL) {{ return; }}");
+    } else {
+        let _ = writeln!(out, "    assert(engine != NULL && \"failed to create engine\");");
+    }
 
-    // --- URL construction from MOCK_SERVER_URL ---
+    // --- URL construction: prefer per-fixture MOCK_SERVER_<UPPER_ID> (for fixtures
+    // that need host-root routes like /robots.txt or /sitemap.xml), fall back to
+    // MOCK_SERVER_URL/fixtures/<id> for the common case. ---
+    let fixture_env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
+    let _ = writeln!(out, "    const char* mock_per_fixture = getenv(\"{fixture_env_key}\");");
     let _ = writeln!(out, "    const char* mock_base = getenv(\"MOCK_SERVER_URL\");");
-    let _ = writeln!(out, "    assert(mock_base != NULL && \"MOCK_SERVER_URL must be set\");");
     let _ = writeln!(out, "    char url[2048];");
+    let _ = writeln!(out, "    if (mock_per_fixture && mock_per_fixture[0] != '\\0') {{");
+    let _ = writeln!(out, "        snprintf(url, sizeof(url), \"%s\", mock_per_fixture);");
+    let _ = writeln!(out, "    }} else {{");
     let _ = writeln!(
         out,
-        "    snprintf(url, sizeof(url), \"%s/fixtures/{fixture_id}\", mock_base);"
+        "        assert(mock_base != NULL && \"MOCK_SERVER_URL must be set\");"
     );
+    let _ = writeln!(
+        out,
+        "        snprintf(url, sizeof(url), \"%s/fixtures/{fixture_id}\", mock_base);"
+    );
+    let _ = writeln!(out, "    }}");
 
     // --- call ---
+    // When the function returns a raw C type (e.g. char* for JSON-returning batch functions
+    // like batch_scrape / batch_crawl), emit a plain variable declaration rather than an
+    // opaque handle pointer.
+    if raw_c_result_type == Some("char*") {
+        let _ = writeln!(out, "    char* {result_var} = {prefix}_{function_name}(engine, url);");
+        // For char* results there are no structured field accessors — emit a minimal
+        // null-guard and free, then return.
+        let _ = writeln!(out, "    if ({result_var} != NULL) {prefix}_free_string({result_var});");
+        let _ = writeln!(out, "    {prefix}_crawl_engine_handle_free(engine);");
+        let _ = writeln!(out, "}}");
+        return;
+    }
+
     let _ = writeln!(
         out,
         "    {prefix_upper}{result_type_name}* {result_var} = {prefix}_{function_name}(engine, url);"

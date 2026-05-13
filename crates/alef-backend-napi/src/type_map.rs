@@ -11,6 +11,9 @@ pub struct NapiMapper {
     pub prefix: String,
     /// Names of types in the IR that are trait definitions (TypeDef::is_trait == true).
     pub trait_type_names: AHashSet<String>,
+    /// Names of capsule types configured under `[crates.node.capsule_types]`.
+    /// These reference an external ecosystem-library type — no `Js` prefix.
+    pub capsule_type_names: AHashSet<String>,
 }
 
 impl NapiMapper {
@@ -18,13 +21,19 @@ impl NapiMapper {
         Self {
             prefix,
             trait_type_names: AHashSet::new(),
+            capsule_type_names: AHashSet::new(),
         }
     }
 
-    pub fn with_traits(prefix: String, trait_type_names: AHashSet<String>) -> Self {
+    pub fn with_traits_and_capsules(
+        prefix: String,
+        trait_type_names: AHashSet<String>,
+        capsule_type_names: AHashSet<String>,
+    ) -> Self {
         Self {
             prefix,
             trait_type_names,
+            capsule_type_names,
         }
     }
 }
@@ -54,6 +63,11 @@ impl TypeMapper for NapiMapper {
             // Object doesn't implement Clone. Use JsVisitorRef wrapper: a newtype that
             // wraps napi::Object and implements Clone via Arc.
             Cow::Borrowed("JsVisitorRef")
+        } else if self.capsule_type_names.contains(name) {
+            // Capsule types reference an external ecosystem-library type
+            // (e.g. `Language` from `tree-sitter`). Emit the bare name so callers
+            // resolve it via the ambient `use` of the ecosystem package.
+            Cow::Borrowed(name)
         } else {
             Cow::Owned(format!("{}{name}", self.prefix))
         }

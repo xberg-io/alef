@@ -168,10 +168,11 @@ pub fn gen_function(
                         }
                     }
                     TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
+                        let mapped_name = mapper.named(name);
                         if returns_ref {
-                            format!("{name} {{ inner: Arc::new({expr}.clone()) }}")
+                            format!("{mapped_name} {{ inner: Arc::new({expr}.clone()) }}")
                         } else {
-                            format!("{name} {{ inner: Arc::new({expr}) }}")
+                            format!("{mapped_name} {{ inner: Arc::new({expr}) }}")
                         }
                     }
                     TypeRef::Named(_) => {
@@ -277,14 +278,16 @@ pub fn gen_function(
         // target type for .into(). Use explicit From::from() / collect::<Vec<T>>() instead.
         let return_wrap = match &func.return_type {
             TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
-                format!("{n} {{ inner: Arc::new(result) }}")
+                let mapped_n = mapper.named(n);
+                format!("{mapped_n} {{ inner: Arc::new(result) }}")
             }
             TypeRef::Named(_) => {
                 format!("{return_type}::from(result)")
             }
             TypeRef::Vec(inner) => match inner.as_ref() {
                 TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
-                    format!("result.into_iter().map(|v| {n} {{ inner: Arc::new(v) }}).collect::<Vec<_>>()")
+                    let mapped_n = mapper.named(n);
+                    format!("result.into_iter().map(|v| {mapped_n} {{ inner: Arc::new(v) }}).collect::<Vec<_>>()")
                 }
                 TypeRef::Named(_) => {
                     let inner_mapped = mapper.map_type(inner);
@@ -323,10 +326,11 @@ pub fn gen_function(
             match &func.return_type {
                 // Opaque type return: wrap in Arc
                 TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
+                    let mapped_name = mapper.named(name);
                     if returns_ref {
-                        format!("{name} {{ inner: Arc::new({expr}.clone()) }}")
+                        format!("{mapped_name} {{ inner: Arc::new({expr}.clone()) }}")
                     } else {
-                        format!("{name} {{ inner: Arc::new({expr}) }}")
+                        format!("{mapped_name} {{ inner: Arc::new({expr}) }}")
                     }
                 }
                 // Non-opaque Named: use .into() if From impl exists
@@ -352,10 +356,11 @@ pub fn gen_function(
                 // Optional with opaque inner
                 TypeRef::Optional(inner) => match inner.as_ref() {
                     TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
+                        let mapped_name = mapper.named(name);
                         if returns_ref {
-                            format!("{expr}.map(|v| {name} {{ inner: Arc::new(v.clone()) }})")
+                            format!("{expr}.map(|v| {mapped_name} {{ inner: Arc::new(v.clone()) }})")
                         } else {
-                            format!("{expr}.map(|v| {name} {{ inner: Arc::new(v) }})")
+                            format!("{expr}.map(|v| {mapped_name} {{ inner: Arc::new(v) }})")
                         }
                     }
                     TypeRef::Named(_) => {
@@ -377,7 +382,10 @@ pub fn gen_function(
                     }
                     TypeRef::Vec(vi) => match vi.as_ref() {
                         TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
-                            format!("{expr}.map(|v| v.into_iter().map(|x| {name} {{ inner: Arc::new(x) }}).collect())")
+                            let mapped_name = mapper.named(name);
+                            format!(
+                                "{expr}.map(|v| v.into_iter().map(|x| {mapped_name} {{ inner: Arc::new(x) }}).collect())"
+                            )
                         }
                         TypeRef::Named(_) => {
                             format!("{expr}.map(|v| v.into_iter().map(Into::into).collect())")
@@ -389,10 +397,13 @@ pub fn gen_function(
                 // Vec<Named>: map each element through Into
                 TypeRef::Vec(inner) => match inner.as_ref() {
                     TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
+                        let mapped_name = mapper.named(name);
                         if returns_ref {
-                            format!("{expr}.into_iter().map(|v| {name} {{ inner: Arc::new(v.clone()) }}).collect()")
+                            format!(
+                                "{expr}.into_iter().map(|v| {mapped_name} {{ inner: Arc::new(v.clone()) }}).collect()"
+                            )
                         } else {
-                            format!("{expr}.into_iter().map(|v| {name} {{ inner: Arc::new(v) }}).collect()")
+                            format!("{expr}.into_iter().map(|v| {mapped_name} {{ inner: Arc::new(v) }}).collect()")
                         }
                     }
                     TypeRef::Named(_) => {

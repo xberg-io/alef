@@ -103,6 +103,16 @@ pub trait TypeMapper {
     }
 }
 
+/// Identity mapper — all type names pass through unchanged.
+/// Used as the default mapper when no backend-specific renaming is required.
+pub struct IdentityMapper;
+
+impl TypeMapper for IdentityMapper {
+    fn error_wrapper(&self) -> &str {
+        "Result"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

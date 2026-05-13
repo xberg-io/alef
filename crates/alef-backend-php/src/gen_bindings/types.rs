@@ -67,6 +67,7 @@ pub(crate) fn gen_opaque_struct_methods(
                 &typ.name,
                 opaque_types,
                 adapter_bodies,
+                mutex_types,
             ));
         } else {
             impl_builder.add_method(&gen_instance_method(
@@ -612,6 +613,21 @@ fn gen_struct_methods_impl(
         }
     }
 
+    // Generate custom Clone impl for mutex types to avoid double-wrapping Arc.
+    // When a type is in mutex_types, its inner field is Arc<Mutex<T>>, not Arc<T>.
+    // The #[derive(Clone)] would call clone() on Arc, which is correct, but we need
+    // to ensure it doesn't get wrapped again. For non-mutex types, derived Clone is fine.
+    if mutex_types.contains(&typ.name) && !typ.fields.is_empty() {
+        let clone_body = format!(
+            "        Self {{\n            inner: self.inner.clone(),\n        }}"
+        );
+        let clone_impl = format!(
+            "pub fn clone(&self) -> Self {{\n{}\n    }}",
+            clone_body
+        );
+        impl_builder.add_method(&clone_impl);
+    }
+
     // Generate #[php(getter)] methods for non-scalar fields so PHP can access them as
     // $obj->fieldName.  Scalar fields already have #[php(prop)] on the struct field itself.
     // Cfg-gated fields stay in the binding struct (gen_struct keeps them with #[serde(skip)])
@@ -688,6 +704,7 @@ fn gen_struct_methods_impl(
                 &typ.name,
                 opaque_types,
                 &empty_adapter_bodies,
+                &AHashSet::new(),
             ));
         } else {
             impl_builder.add_method(&gen_instance_method_non_opaque(

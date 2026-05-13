@@ -428,7 +428,16 @@ fn build_cli_command(
         match arg.arg_type.as_str() {
             "mock_url" => {
                 // Positional URL argument.
-                parts.push(format!("\"${{MOCK_SERVER_URL}}/fixtures/{}\"", fixture.id));
+                //
+                // Prefer the per-fixture `MOCK_SERVER_<FIXTURE_ID>` env var when set —
+                // host-root fixtures (robots.txt, sitemap.xml) need their own listener
+                // so the path lives at `/robots.txt`, not `/fixtures/<id>/robots.txt`.
+                // Fall back to `MOCK_SERVER_URL/fixtures/<id>` for the common case.
+                let upper_id = fixture.id.to_uppercase();
+                parts.push(format!(
+                    "\"${{MOCK_SERVER_{upper_id}:-${{MOCK_SERVER_URL}}/fixtures/{}}}\"",
+                    fixture.id
+                ));
             }
             "handle" => {
                 // CLI manages its own engine; skip handle args.
@@ -446,6 +455,16 @@ fn build_cli_command(
                     }
                 }
             }
+        }
+    }
+
+    // Check if fixture has input.config and emit it as --config flag.
+    if let Some(config_val) = fixture.input.get("config") {
+        if !config_val.is_null() {
+            // Minify the JSON config object to a single line for shell argument.
+            let config_json = serde_json::to_string(config_val).unwrap_or_default();
+            parts.push("--config".to_string());
+            parts.push(format!("'{}'", escape_shell(&config_json)));
         }
     }
 

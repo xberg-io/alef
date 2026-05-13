@@ -1123,42 +1123,84 @@ fn rewrite_capsule_methods(
             _ => None,
         };
 
-        let capsule_ret_name = match capsule_ret_name {
-            Some(n) => n,
-            None => continue,
-        };
+        // Check if any parameter is a capsule type.
+        let has_capsule_param = method.params.iter().any(|p| {
+            matches!(&p.ty, TypeRef::Named(n) if capsule_types.contains_key(n.as_str()))
+        });
 
-        let cfg = &capsule_types[capsule_ret_name];
-
-        // Build the old signature fragment that the generic generator emitted.
-        // We match on `-> PyResult<{CapsuleTypeName}>` to find and replace the method.
-        let old_ret_sig = format!("-> PyResult<{capsule_ret_name}>");
-        if !result.contains(&old_ret_sig) {
+        // Skip methods that don't involve capsules in parameters or return type.
+        if capsule_ret_name.is_none() && !has_capsule_param {
             continue;
         }
 
-        // Build call args for the inner call.
-        // For `is_ref=true` String/Char params, borrow; for others, pass by value.
-        let call_args_str = method
-            .params
-            .iter()
-            .map(|p| {
+        // If we're only handling parameter extraction (no return capsule), emit a simpler body.
+        let cfg = capsule_ret_name.map(|n| &capsule_types[n]);
+
+        // Build the old signature fragment that the generic generator emitted.
+        let old_sig_search = if let Some(ret_name) = capsule_ret_name {
+            // Methods returning capsules: search for `-> PyResult<{CapsuleTypeName}>`
+            format!("-> PyResult<{ret_name}>")
+        } else {
+            // Methods only with capsule params: search for method name + opening paren.
+            // We'll match by method name pattern and update params + body.
+            format!("pub fn {}(", method.name)
+        };
+
+        // For methods returning capsules, verify the signature exists.
+        if capsule_ret_name.is_some() && !result.contains(&old_sig_search) {
+            continue;
+        }
+
+        // Detect capsule-type parameters and prepare extraction code.
+        let mut capsule_param_extract = String::new();
+        let mut call_args_parts: Vec<String> = Vec::new();
+
+        for p in &method.params {
+            let param_is_capsule = matches!(&p.ty, TypeRef::Named(n) if capsule_types.contains_key(n.as_str()));
+
+            if param_is_capsule {
+                if let TypeRef::Named(capsule_name) = &p.ty {
+                    // Generate extraction code for this capsule parameter
+                    capsule_param_extract.push_str(&format!(
+                        "        let {}_ptr = pyo3::ffi::PyCapsule_GetPointer({}.as_ptr(), None);\n",
+                        p.name, p.name
+                    ));
+                    capsule_param_extract.push_str(&format!(
+                        "        if {}_ptr.is_null() {{ return Err(pyo3::exceptions::PyTypeError::new_err(\"Expected a valid capsule for {}\")) }}\n",
+                        p.name, capsule_name
+                    ));
+                    capsule_param_extract.push_str(&format!(
+                        "        let {} = unsafe {{ {}::from_raw({}_ptr as *mut _) }};\n",
+                        p.name, capsule_name, p.name
+                    ));
+                    call_args_parts.push(p.name.clone());
+                } else {
+                    // Fallback for non-Named types
+                    call_args_parts.push(p.name.clone());
+                }
+            } else {
                 let needs_borrow = p.is_ref && matches!(p.ty, TypeRef::String | TypeRef::Char);
                 if needs_borrow {
-                    format!("&{}", p.name)
+                    call_args_parts.push(format!("&{}", p.name));
                 } else {
-                    p.name.clone()
+                    call_args_parts.push(p.name.clone());
                 }
-            })
-            .collect::<Vec<_>>()
-            .join(", ");
+            }
+        }
+        let call_args_str = call_args_parts.join(", ");
 
         // Build param list for the new signature.
         // Always prepend `py: pyo3::Python<'_>` since we need it for PyCapsule_New / Python calls.
         let mapper = crate::type_map::Pyo3Mapper::new();
         let mut sig_params = vec!["&self".to_string(), "py: pyo3::Python<'_>".to_string()];
         for p in &method.params {
-            sig_params.push(format!("{}: {}", p.name, mapper.map_type(&p.ty)));
+            // Capsule-type parameters are accepted as Py<PyAny>, not as the Rust type
+            let param_type = if matches!(&p.ty, TypeRef::Named(n) if capsule_types.contains_key(n.as_str())) {
+                "pyo3::Py<pyo3::PyAny>".to_string()
+            } else {
+                mapper.map_type(&p.ty)
+            };
+            sig_params.push(format!("{}: {}", p.name, param_type));
         }
 
         // Build the #[pyo3(signature = (...))] attribute (skipped when there are no params).
@@ -1201,7 +1243,25 @@ fn rewrite_capsule_methods(
         let method_name = &method.name;
 
         // Generate the new method body based on capsule variant.
-        let new_body = match cfg {
+        // For methods with only capsule params (no return capsule), emit a simple wrapper.
+        let new_body = if cfg.is_none() {
+            // Method only has capsule params, no capsule return.
+            // Just rewrite to extract capsule params and call the inner method.
+            let return_annotation = if matches!(method.return_type, TypeRef::Unit) {
+                "".to_string()
+            } else {
+                format!(" -> PyResult<{}>", mapper.map_type(&method.return_type))
+            };
+            format!(
+                r#"    {sig_attr}    #[allow(clippy::missing_errors_doc)]
+    pub fn {method_name}({params_str}){return_annotation} {{
+{capsule_param_extract}        {core_call}{err_map_suffix}
+    }}"#,
+            )
+        } else {
+            // Method returns a capsule (and may also have capsule params).
+            let cfg = cfg.unwrap();
+            match cfg {
             alef_core::config::CapsuleTypeConfig::Capsule(capsule_name_str) => {
                 let capsule_cstr = capsule_name_str.replace('.', "_").to_ascii_uppercase();
                 // If capsule_name_str is dotted (e.g. "tree_sitter.Language"), also construct the
@@ -1223,7 +1283,7 @@ fn rewrite_capsule_methods(
                     r#"    {sig_attr}    #[allow(clippy::missing_errors_doc)]
     pub fn {method_name}({params_str}) -> pyo3::PyResult<pyo3::Py<pyo3::PyAny>> {{
         const {capsule_cstr}_NAME: &::std::ffi::CStr = c"{capsule_name_str}";
-        let result = {core_call}{err_map_suffix};
+{capsule_param_extract}        let result = {core_call}{err_map_suffix};
         let raw_ptr = result.into_raw();
         // SAFETY: raw_ptr is a valid pointer derived from into_raw() on a value with program lifetime.
         let capsule_ptr = unsafe {{ pyo3::ffi::PyCapsule_New(raw_ptr as *mut _, {capsule_cstr}_NAME.as_ptr(), None) }};
@@ -1271,6 +1331,7 @@ fn rewrite_capsule_methods(
                     )
                 }
             }
+        }
         };
 
         // Find and replace the old method in the impl block.
