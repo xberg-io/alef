@@ -1401,10 +1401,14 @@ fn build_args_and_setup(
                     parts.push(json_to_java(v));
                     continue;
                 }
-                // bytes args must be passed as byte[], not String.
+                // bytes args carry a relative file path (e.g. "docx/fake.docx") that the
+                // e2e harness resolves against test_documents/. Read the file at runtime,
+                // not the raw path string's UTF-8 bytes.
                 if arg.arg_type == "bytes" {
                     let val = json_to_java(v);
-                    parts.push(format!("{val}.getBytes()"));
+                    parts.push(format!(
+                        "java.nio.file.Files.readAllBytes(java.nio.file.Path.of({val}))"
+                    ));
                     continue;
                 }
                 // file_path args must be wrapped in java.nio.file.Path.of().
