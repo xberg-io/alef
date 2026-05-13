@@ -232,6 +232,7 @@ pub(super) fn gen_function(
     func: &FunctionDef,
     mapper: &MagnusMapper,
     opaque_types: &AHashSet<String>,
+    mutex_types: &AHashSet<String>,
     core_import: &str,
     api: &ApiSurface,
 ) -> String {
@@ -350,14 +351,16 @@ pub(super) fn gen_function(
         if func.is_async {
             // Async core function: wrap in tokio runtime block_on.
             // Runtime::new() can fail, so always use map_err and return Ok(...).
-            let wrap = generators::wrap_return(
+            let wrap = generators::wrap_return_with_mutex_mapped(
                 "result",
                 &func.return_type,
                 "",
                 opaque_types,
+                mutex_types,
                 false,
                 func.returns_ref,
                 false,
+                mapper,
             );
             if func.error_type.is_some() {
                 crate::template_env::render(
@@ -379,14 +382,16 @@ pub(super) fn gen_function(
                 )
             }
         } else if func.error_type.is_some() {
-            let wrap = generators::wrap_return(
+            let wrap = generators::wrap_return_with_mutex_mapped(
                 "result",
                 &func.return_type,
                 "",
                 opaque_types,
+                mutex_types,
                 false,
                 func.returns_ref,
                 false,
+                mapper,
             );
             crate::template_env::render(
                 "function_result_body.rs.jinja",
@@ -397,14 +402,16 @@ pub(super) fn gen_function(
             )
         } else if variadic {
             // Variadic functions must return Result (scan_args uses ?), so wrap plain value in Ok().
-            let inner = generators::wrap_return(
+            let inner = generators::wrap_return_with_mutex_mapped(
                 &core_call,
                 &func.return_type,
                 "",
                 opaque_types,
+                mutex_types,
                 false,
                 func.returns_ref,
                 false,
+                mapper,
             );
             crate::template_env::render(
                 "function_variadic_ok_body.rs.jinja",
@@ -413,14 +420,16 @@ pub(super) fn gen_function(
                 },
             )
         } else {
-            generators::wrap_return(
+            generators::wrap_return_with_mutex_mapped(
                 &core_call,
                 &func.return_type,
                 "",
                 opaque_types,
+                mutex_types,
                 false,
                 func.returns_ref,
                 false,
+                mapper,
             )
         }
     } else {
@@ -620,6 +629,7 @@ pub(super) fn gen_async_function(
     func: &FunctionDef,
     mapper: &MagnusMapper,
     opaque_types: &AHashSet<String>,
+    mutex_types: &AHashSet<String>,
     core_import: &str,
     api: &ApiSurface,
 ) -> String {
@@ -726,14 +736,16 @@ pub(super) fn gen_async_function(
             }
         };
         let core_call = format!("{core_fn_path}({call_args})");
-        let result_wrap = generators::wrap_return(
+        let result_wrap = generators::wrap_return_with_mutex_mapped(
             "result",
             &func.return_type,
             "",
             opaque_types,
+            mutex_types,
             false,
             func.returns_ref,
             false,
+            mapper,
         );
         if func.error_type.is_some() {
             crate::template_env::render(
@@ -1150,7 +1162,14 @@ gem_name = "test_lib"
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
         };
-        let code = gen_function(&func, &mapper, &Default::default(), "test_lib", &api);
+        let code = gen_function(
+            &func,
+            &mapper,
+            &Default::default(),
+            &Default::default(),
+            "test_lib",
+            &api,
+        );
         assert!(code.contains("fn process("), "must emit function name");
         assert!(code.contains("input: String"), "must include typed param");
     }
@@ -1168,7 +1187,14 @@ gem_name = "test_lib"
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
         };
-        let code = gen_function(&func, &mapper, &Default::default(), "test_lib", &api);
+        let code = gen_function(
+            &func,
+            &mapper,
+            &Default::default(),
+            &Default::default(),
+            "test_lib",
+            &api,
+        );
         assert!(code.contains("Result<"), "error function must return Result");
     }
 

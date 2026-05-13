@@ -977,6 +977,26 @@ fn render_test_method(
             .iter()
             .any(|arg| arg.arg_type == "json_object" && !super::resolve_field(&fixture.input, &arg.field).is_null());
 
+    // Merge per-call kotlin enum_fields (HashMap key = field path, value = enum type name)
+    // into the global fields_enum set so that call-specific enum-typed result fields
+    // (e.g. `status` on BatchObject) route through `.getValue()` in assertions even
+    // when absent from the global `fields_enum` list.  Mirrors the Java codegen at
+    // codegen/java.rs where per-call overrides are merged before assertion rendering.
+    let effective_enum_fields: std::borrow::Cow<HashSet<String>> = {
+        if let Some(co) = call_overrides {
+            if !co.enum_fields.is_empty() {
+                let mut merged = enum_fields.clone();
+                merged.extend(co.enum_fields.keys().cloned());
+                std::borrow::Cow::Owned(merged)
+            } else {
+                std::borrow::Cow::Borrowed(enum_fields)
+            }
+        } else {
+            std::borrow::Cow::Borrowed(enum_fields)
+        }
+    };
+    let enum_fields: &HashSet<String> = &effective_enum_fields;
+
     let _ = writeln!(out, "    @Test");
     if client_factory.is_some() {
         let _ = writeln!(out, "    fun test{method_name}() = runBlocking {{");
@@ -1830,6 +1850,75 @@ mod tests {
         assert!(
             out.contains("result.choices().first().finishReason().getValue().trim()"),
             "expected plain .getValue() for non-optional enum, got: {out}"
+        );
+    }
+
+    /// Regression: per-call `enum_fields` overrides (e.g. `status = "BatchStatus"`) must be
+    /// merged into the effective enum-field set before rendering assertions.  Previously the
+    /// kotlin codegen only consulted the global `fields_enum` set, so `status` on `BatchObject`
+    /// was treated as a plain `String` and `.trim()` was emitted directly instead of
+    /// `.getValue().trim()`, causing a Kotlin compile error ("BatchStatus has no method trim").
+    #[test]
+    fn per_call_enum_field_override_routes_through_get_value() {
+        // Simulate `status` field on a non-optional result with no global enum registration.
+        let resolver = FieldResolver::new(
+            &HashMap::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+        );
+        // `status` is NOT in the global enum_fields set...
+        let global_enum_fields: HashSet<String> = HashSet::new();
+        // ...but a per-call override registers it.
+        let mut per_call_enum_fields: HashSet<String> = global_enum_fields.clone();
+        per_call_enum_fields.insert("status".to_string());
+
+        let assertion = Assertion {
+            assertion_type: "equals".to_string(),
+            field: Some("status".to_string()),
+            value: Some(serde_json::Value::String("validating".to_string())),
+            values: None,
+            method: None,
+            check: None,
+            args: None,
+            return_type: None,
+        };
+
+        // Without the merge (global only): must NOT emit .getValue()
+        let mut out_no_merge = String::new();
+        render_assertion(
+            &mut out_no_merge,
+            &assertion,
+            "result",
+            "",
+            &resolver,
+            false,
+            false,
+            &global_enum_fields,
+            &HashMap::new(),
+        );
+        assert!(
+            !out_no_merge.contains(".getValue()"),
+            "global-only set must not emit .getValue() for unregistered status: {out_no_merge}"
+        );
+
+        // With the merge (per-call included): must emit .getValue()
+        let mut out_merged = String::new();
+        render_assertion(
+            &mut out_merged,
+            &assertion,
+            "result",
+            "",
+            &resolver,
+            false,
+            false,
+            &per_call_enum_fields,
+            &HashMap::new(),
+        );
+        assert!(
+            out_merged.contains(".getValue()"),
+            "merged per-call set must emit .getValue() for status: {out_merged}"
         );
     }
 }

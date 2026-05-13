@@ -122,9 +122,9 @@ pub fn resolve_is_streaming(fixture: &crate::fixture::Fixture, call_streaming: O
     }
     fixture.is_streaming_mock()
         || fixture.assertions.iter().any(|a| {
-            a.field.as_deref().is_some_and(|f| {
-                !f.is_empty() && STREAMING_ONLY_AUTO_DETECT_FIELDS.iter().any(|root| f == *root)
-            })
+            a.field
+                .as_deref()
+                .is_some_and(|f| !f.is_empty() && STREAMING_ONLY_AUTO_DETECT_FIELDS.contains(&f))
         })
 }
 

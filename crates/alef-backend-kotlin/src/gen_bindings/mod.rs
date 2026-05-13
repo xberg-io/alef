@@ -262,7 +262,12 @@ fn emit_streaming_client_method(adapter: &alef_core::config::AdapterConfig, out:
             format!("{param_name}: {simple_ty}")
         })
         .collect();
-    let call_args: String = adapter.params.iter().map(|p| to_lower_camel(&p.name)).collect::<Vec<_>>().join(", ");
+    let call_args: String = adapter
+        .params
+        .iter()
+        .map(|p| to_lower_camel(&p.name))
+        .collect::<Vec<_>>()
+        .join(", ");
     out.push_str(&format!(
         "    fun {method_name}({}): Iterator<{item_type}> {{\n",
         params.join(", ")

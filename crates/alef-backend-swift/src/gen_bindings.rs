@@ -1,7 +1,7 @@
 use alef_codegen::keywords::swift_ident;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile, PostBuildStep};
-use alef_core::config::{Language, ResolvedCrateConfig, resolve_output_dir};
+use alef_core::config::{AdapterPattern, Language, ResolvedCrateConfig, resolve_output_dir};
 use alef_core::ir::{ApiSurface, EnumDef, EnumVariant, ErrorDef, FunctionDef, MethodDef, ParamDef, TypeRef};
 use heck::ToLowerCamelCase;
 use std::collections::BTreeSet;
@@ -113,7 +113,7 @@ impl Backend for SwiftBackend {
                 && (t.is_opaque || !t.has_serde)
                 && client_constructor_types.contains(t.name.as_str())
         }) {
-            emit_client_class(ty.name.as_str(), &ty.methods, &mapper, &mut body);
+            emit_client_class(ty.name.as_str(), &ty.methods, &mapper, config, &mut body);
             body.push('\n');
         }
 
@@ -339,7 +339,13 @@ fn emit_error(error: &ErrorDef, out: &mut String, mapper: &SwiftMapper) {
 /// Naming conventions (all snake-case in Rust, all camelCase in Swift):
 /// - Constructor bridge fn: `create_<snake_type_name>` → camelCase `create<PascalTypeName>`
 /// - Method bridge fn: `<snake_type_name>_<method_name>` → camelCase `<camelTypeName><PascalMethod>`
-fn emit_client_class(type_name: &str, methods: &[MethodDef], mapper: &impl TypeMapper, out: &mut String) {
+fn emit_client_class(
+    type_name: &str,
+    methods: &[MethodDef],
+    mapper: &impl TypeMapper,
+    config: &ResolvedCrateConfig,
+    out: &mut String,
+) {
     use heck::ToSnakeCase;
 
     // Swift-bridge free functions bridging this class.
@@ -445,7 +451,79 @@ fn emit_client_class(type_name: &str, methods: &[MethodDef], mapper: &impl TypeM
         out.push_str("    }\n");
     }
 
+    // Emit wrapper methods for streaming adapters owned by this client type.
+    // These adapters (pattern = `streaming`) are not part of the IR `methods` list —
+    // they are defined in `config.adapters` and generate a dedicated bridge function
+    // in the Rust crate.  Emit a public `async throws` wrapper that calls the
+    // corresponding RustBridge free function so Swift callers can initiate a stream
+    // (errors like HTTP 401 propagate before any chunks arrive, making the function throw).
+    for adapter in config
+        .adapters
+        .iter()
+        .filter(|a| matches!(a.pattern, AdapterPattern::Streaming))
+        .filter(|a| a.owner_type.as_deref() == Some(type_name))
+    {
+        emit_streaming_client_method(adapter, &snake_name, out);
+    }
+
     out.push_str("}\n");
+}
+
+/// Emit a thin `async throws` wrapper for a streaming adapter method on a Swift client class.
+///
+/// Streaming adapters (e.g. `chatStream`) are generated as free functions in the Rust
+/// bridge crate (`{snake_type}_{adapter_name}`) that initiate the HTTP request and return
+/// `Result<(), String>` — they validate the server response before any chunks arrive,
+/// so HTTP errors (e.g. 401) propagate as Swift throws immediately.
+///
+/// Since swift-bridge cannot bridge `BoxStream<T>` directly, the adapter returns `Void`
+/// on success; the stream itself must be consumed via a separate mechanism (e.g.
+/// an `AsyncThrowingStream` surface added in a future iteration).  The generated stub
+/// is sufficient to resolve compile errors and to exercise error-path fixtures.
+///
+/// Generated form:
+/// ```swift
+///     public func chatStream(_ req: ChatCompletionRequest) async throws {
+///         try await RustBridge.defaultClientChatStream(self.inner, req)
+///     }
+/// ```
+fn emit_streaming_client_method(adapter: &alef_core::config::AdapterConfig, owner_snake: &str, out: &mut String) {
+    let method_camel = swift_ident(&adapter.name.to_lower_camel_case());
+    let bridge_fn_snake = format!("{owner_snake}_{}", adapter.name);
+    let bridge_fn_camel = swift_ident(&bridge_fn_snake.to_lower_camel_case());
+
+    // Build the Swift parameter list from the adapter params.
+    let params: Vec<String> = adapter
+        .params
+        .iter()
+        .map(|p| {
+            let swift_name = swift_ident(&p.name.to_lower_camel_case());
+            let simple_ty = p.ty.rsplit("::").next().unwrap_or(&p.ty);
+            format!("_ {swift_name}: {simple_ty}")
+        })
+        .collect();
+    let params_str = params.join(", ");
+
+    // Build argument list for forwarding to the bridge function (self.inner first, then args).
+    let call_args: String = adapter
+        .params
+        .iter()
+        .map(|p| swift_ident(&p.name.to_lower_camel_case()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let call_args_str = if call_args.is_empty() {
+        String::new()
+    } else {
+        format!(", {call_args}")
+    };
+
+    out.push_str(&format!(
+        "    public func {method_camel}({params_str}) async throws {{\n"
+    ));
+    out.push_str(&format!(
+        "        try await RustBridge.{bridge_fn_camel}(self.inner{call_args_str})\n"
+    ));
+    out.push_str("    }\n");
 }
 
 /// Emits `/// <line>` doc-comment lines with the given indent prefix.

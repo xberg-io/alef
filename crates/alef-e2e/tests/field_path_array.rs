@@ -329,7 +329,13 @@ fn explicit_index_overrides_config_default() {
 fn resolver_with_optional(optional_path: &str) -> FieldResolver {
     let mut optional = HashSet::new();
     optional.insert(optional_path.to_string());
-    FieldResolver::new(&HashMap::new(), &optional, &HashSet::new(), &HashSet::new(), &HashSet::new())
+    FieldResolver::new(
+        &HashMap::new(),
+        &optional,
+        &HashSet::new(),
+        &HashSet::new(),
+        &HashSet::new(),
+    )
 }
 
 #[test]

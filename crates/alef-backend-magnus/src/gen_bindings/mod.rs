@@ -339,6 +339,7 @@ impl Backend for MagnusBackend {
                         func,
                         &mapper,
                         &opaque_types,
+                        &mutex_types,
                         &core_import,
                         api,
                     ));
@@ -347,6 +348,7 @@ impl Backend for MagnusBackend {
                             func,
                             &mapper,
                             &opaque_types,
+                            &mutex_types,
                             &core_import,
                             api,
                         ));

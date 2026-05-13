@@ -1093,10 +1093,7 @@ fn gen_extendr_bridge_field_function(
             call_args.push(format!("&{}", param.name));
         }
     }
-    body.push_str(&format!(
-        "    {core_import}::{func_name}({})\n",
-        call_args.join(", ")
-    ));
+    body.push_str(&format!("    {core_import}::{func_name}({})\n", call_args.join(", ")));
     body.push_str("        .map(crate::types::conversion_result_to_robj)\n");
     body.push_str("        .map_err(|e| extendr_api::Error::Other(e.to_string()))\n");
 
