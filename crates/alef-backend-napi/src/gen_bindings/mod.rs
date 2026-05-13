@@ -733,7 +733,7 @@ mod tests {
     fn cfg_gated_field_accepted_when_in_never_skip_list() {
         // Test the predicate logic: a cfg-gated field "visitor" should be accepted
         // when it appears in never_skip_cfg_field_names.
-        let never_skip_cfg_field_names = vec!["visitor".to_string()];
+        let never_skip_cfg_field_names = ["visitor".to_string()];
         let field_is_target = "visitor";
 
         // Simulate a field with cfg = Some(...)
