@@ -1186,7 +1186,27 @@ fn render_assertion(
     // (e.g. `result.json_ld()` called inline), Swift ARC may release it before
     // the ref is used, leaving the ref's pointer dangling. Materialise the
     // temporary into a local so it survives the full expression chain.
-    let (vec_setup, field_expr) = materialise_vec_temporaries(&field_expr_raw);
+    //
+    // The local name is suffixed with the assertion type plus a hash of the
+    // assertion's discriminating fields so multiple assertions on the same
+    // collection don't redeclare the same name.
+    let local_suffix = {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        assertion.field.hash(&mut hasher);
+        assertion
+            .value
+            .as_ref()
+            .map(|v| v.to_string())
+            .unwrap_or_default()
+            .hash(&mut hasher);
+        format!(
+            "{}_{:x}",
+            assertion.assertion_type.replace(['-', '.'], "_"),
+            hasher.finish() & 0xffff_ffff,
+        )
+    };
+    let (vec_setup, field_expr) = materialise_vec_temporaries(&field_expr_raw, &local_suffix);
     for line in &vec_setup {
         let _ = writeln!(out, "        {line}");
     }
@@ -1676,28 +1696,21 @@ fn render_assertion(
 /// result field). Nested subscripts are rare and would need a more elaborate
 /// pass; if they appear, this returns conservative output (just the first
 /// hoist) which is still correct.
-fn materialise_vec_temporaries(expr: &str) -> (Vec<String>, String) {
-    // Find the first `()[` boundary that follows a method call on `result`.
-    // The accessor builder always emits Vec calls as `.<name>()[...]`, so we
-    // look for `()[` and back-walk to the previous `.` to find the method
-    // name.
+fn materialise_vec_temporaries(expr: &str, name_suffix: &str) -> (Vec<String>, String) {
     let Some(idx) = expr.find("()[") else {
         return (Vec::new(), expr.to_string());
     };
-    // Closing bracket of the subscript.
     let after_open = idx + 3; // position after `()[`
     let Some(close_rel) = expr[after_open..].find(']') else {
         return (Vec::new(), expr.to_string());
     };
     let subscript_end = after_open + close_rel; // index of `]`
-    // The prefix up to and including `()` is the Vec-producing expression.
     let prefix = &expr[..idx + 2]; // includes `()`
     let subscript = &expr[idx + 2..=subscript_end]; // `[N]`
     let tail = &expr[subscript_end + 1..]; // everything after `]`
-    // Derive a local variable name from the method right before `()[`.
     let method_dot = expr[..idx].rfind('.').unwrap_or(0);
     let method = &expr[method_dot + 1..idx];
-    let local = format!("_vec_{}", method);
+    let local = format!("_vec_{}_{}", method, name_suffix);
     let setup = format!("let {local} = {prefix}");
     let rewritten = format!("{local}{subscript}{tail}");
     (vec![setup], rewritten)

@@ -1,7 +1,7 @@
 //! C# opaque handle and record type code generation.
 
 use super::errors::{
-    emit_return_marshalling, emit_return_marshalling_indented, emit_return_statement, emit_return_statement_indented,
+    emit_return_marshalling_indented, emit_return_statement, emit_return_statement_indented,
 };
 use super::{
     StreamingMethodMeta, csharp_file_header, emit_named_param_setup, emit_named_param_teardown,
@@ -437,7 +437,14 @@ fn gen_opaque_method(
             }
         }
 
-        emit_return_marshalling(&mut out, &method.return_type, enum_names, true_opaque_types);
+        emit_return_marshalling_indented(
+            &mut out,
+            &method.return_type,
+            "        ",
+            enum_names,
+            true_opaque_types,
+            &HashSet::new(),
+        );
         emit_named_param_teardown(&mut out, &visible_params, true_opaque_types);
         emit_return_statement(&mut out, &method.return_type);
     }
