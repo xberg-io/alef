@@ -460,10 +460,9 @@ pub fn sync_versions(
             for path_str in &cargo_toml_paths {
                 // Update [package] version (regex-anchored to start-of-line).
                 // Skip crates that use workspace version inheritance or have no version.
-                if write_version_to_cargo_toml(path_str, &version).is_ok()
-                    && !updated.contains(path_str) {
-                        updated.push(path_str.clone());
-                    }
+                if write_version_to_cargo_toml(path_str, &version).is_ok() && !updated.contains(path_str) {
+                    updated.push(path_str.clone());
+                }
                 // Also patch intra-workspace dep version pins in all dep tables.
                 if !workspace_member_names.is_empty() {
                     match patch_workspace_dep_versions(path_str, &version, &workspace_member_names) {

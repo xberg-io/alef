@@ -2,8 +2,8 @@ use alef_backend_kotlin::KotlinBackend;
 use alef_core::backend::Backend;
 use alef_core::config::{NewAlefConfig, ResolvedCrateConfig};
 use alef_core::ir::{
-    ApiSurface, CoreWrapper, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef, MethodDef,
-    ParamDef, PrimitiveType, TypeDef, TypeRef,
+    ApiSurface, CoreWrapper, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef, MethodDef, ParamDef,
+    PrimitiveType, TypeDef, TypeRef,
 };
 
 fn resolved_one(toml: &str) -> ResolvedCrateConfig {
@@ -482,9 +482,9 @@ type = "ChatCompletionRequest"
 
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
     // DefaultClient.kt is a second generated file alongside LiterLlm.kt.
-    let client_file = files.iter().find(|f| {
-        f.path.file_name().and_then(|n| n.to_str()) == Some("DefaultClient.kt")
-    });
+    let client_file = files
+        .iter()
+        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("DefaultClient.kt"));
     let content = client_file.map(|f| f.content.as_str()).unwrap_or("");
     assert!(
         content.contains("fun chatStream("),

@@ -576,10 +576,9 @@ fn render_test_fn(
     // and then falling back to any per-language override that declares `result_is_bytes`.
     // The zig and C bindings share the same byte-buffer convention, so a C override
     // of `result_is_bytes = true` is a reliable proxy when no zig override exists.
-    let call_result_is_bytes = call_config.result_is_bytes
-        || call_config.overrides.values().any(|o| o.result_is_bytes);
-    let result_is_json_struct = !call_result_is_bytes
-        && (call_overrides.is_some_and(|o| o.result_is_json_struct) || client_factory.is_some());
+    let call_result_is_bytes = call_config.result_is_bytes || call_config.overrides.values().any(|o| o.result_is_bytes);
+    let result_is_json_struct =
+        !call_result_is_bytes && (call_overrides.is_some_and(|o| o.result_is_json_struct) || client_factory.is_some());
 
     // Whether the bare wrapper return type is `?T` (Optional). The zig backend
     // emits `?[]u8` for nullable JSON results and `?<Primitive>` for nullable
@@ -771,9 +770,10 @@ fn render_test_fn(
                 "    const _result_json = try {call_prefix}.{function_name}({args_str});"
             );
             let _ = writeln!(out, "    defer std.heap.c_allocator.free(_result_json);");
-            let has_bytes_assertions = fixture.assertions.iter().any(|a| {
-                matches!(a.assertion_type.as_str(), "not_empty" | "is_empty")
-            });
+            let has_bytes_assertions = fixture
+                .assertions
+                .iter()
+                .any(|a| matches!(a.assertion_type.as_str(), "not_empty" | "is_empty"));
             if has_bytes_assertions {
                 for assertion in &fixture.assertions {
                     match assertion.assertion_type.as_str() {
@@ -781,10 +781,7 @@ fn render_test_fn(
                             let _ = writeln!(out, "    try testing.expect(_result_json.len > 0);");
                         }
                         "is_empty" => {
-                            let _ = writeln!(
-                                out,
-                                "    try testing.expectEqual(@as(usize, 0), _result_json.len);"
-                            );
+                            let _ = writeln!(out, "    try testing.expectEqual(@as(usize, 0), _result_json.len);");
                         }
                         "not_error" | "error" => {}
                         _ => {

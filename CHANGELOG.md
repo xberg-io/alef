@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Fixed
+
+## [0.15.53] - 2026-05-13
+
+### Added
+
+### Fixed
+
+- fix(alef-backend-magnus): pass missing `mutex_types` argument in Magnus `gen_function` unit-test call sites after the signature change, fixing `cargo check` failures in `gen_bindings_test`.
+
+### Added
+
 - feat(alef-e2e): add `[e2e.calls.<name>] streaming = false | true` opt-in/out at the call config level. When set to `false`, the streaming-virtual-field auto-detection is disabled — assertions that reference field names like `chunks` / `chunks.length` / `tool_calls` / `finish_reason` on a synchronous result type are treated as plain field accessors rather than streaming adapters. Without this, an API whose return value happens to have a `chunks: Vec<T>` field that is not actually streamed (e.g. a code-chunking result) would be incorrectly emitted with `async for chunk in result` and `@pytest.mark.asyncio` decorators across every backend that supports streaming. `None` (default) preserves the prior auto-detect heuristic so existing LLM-style downstream crates are unchanged. Honored by all backends that previously hard-coded the heuristic: python, typescript (node + wasm), go, java, php, elixir, kotlin, swift, dart. A new `resolve_is_streaming(fixture, call_config.streaming)` helper in `codegen/streaming_assertions.rs` is the single source of truth so future backends pick up the opt-out automatically.
 
 ### Fixed
@@ -36,6 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(alef-backend-csharp): include `api.enums` (alongside `api.types`) when building the `visible_type_names` set passed to trait-bridge codegen. Without this, enum types like `VisitResult` were treated as non-API by `csharp_type_visible`, which substituted them with `string` in generated trait-method signatures (`string VisitFigureEnd(...)`). E2e visitor tests that returned `VisitResult.Continue` then failed to compile with CS0738 "does not have the matching return type of 'string'".
 
 - fix(alef-e2e/csharp): look up `enum_fields` and `nested_types` overrides by both snake_case (fixture JSON key) and camelCase (alef.toml convention) when emitting C# object initializers. Previously fixtures with `code_block_style: "Backticks"` produced `CodeBlockStyle = "Backticks"` (raw string literal) instead of `CodeBlockStyle = CodeBlockStyle.Backticks` (enum constant), causing ~18 CS0029 compile errors. C# is strongly typed and does not accept string-to-enum implicit conversion, unlike Python's ConversionOptions which accepts strings and converts internally.
+
 
 ## [0.15.52] - 2026-05-13
 

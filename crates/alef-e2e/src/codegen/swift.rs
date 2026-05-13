@@ -1796,12 +1796,15 @@ fn swift_build_accessor(field: &str, result_var: &str, field_resolver: &FieldRes
                 out.push_str("()");
             }
             out.push_str(sub);
-            // If not the leaf and the field is optional, append `?` so the next
-            // member access becomes `?.` (subscript on an optional chain yields
-            // Optional<T>, requiring optional chaining for the next segment).
-            if !is_leaf && field_is_optional {
-                out.push('?');
-            }
+            // Do NOT append a trailing `?` after the subscript index: in Swift,
+            // `optionalVec?[N]` via `Collection.subscript` returns the element
+            // type `T` directly (the subscript is non-optional and the force-unwrap
+            // inside RustVec's subscript is unconditional).  Optional chaining
+            // already consumed the `?` in `?[N]`, so the result is `T` (non-optional
+            // in the compiler's view), and a subsequent `?.member()` would be flagged
+            // as "optional chaining on non-optional value".  The parent `has_optional`
+            // flag is still set when `field_is_optional` is true, which causes the
+            // enclosing expression to be wrapped in `(... ?? fallback)` correctly.
         } else {
             out.push_str("()");
             // Insert `?` after `()` for non-leaf optional fields so the next
@@ -1959,4 +1962,54 @@ fn json_to_swift(value: &serde_json::Value) -> String {
 /// Escape a string for embedding in a Swift double-quoted string literal.
 fn escape_swift(s: &str) -> String {
     escape_swift_str(s)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::field_access::FieldResolver;
+    use std::collections::{HashMap, HashSet};
+
+    fn make_resolver_tool_calls() -> FieldResolver {
+        // Resolver for `choices[0].message.tool_calls[0].function.name`:
+        //   - `choices` is a registered array field
+        //   - `choices.message.tool_calls` is optional (Optional<RustVec<ToolCall>>)
+        let mut optional = HashSet::new();
+        optional.insert("choices.message.tool_calls".to_string());
+        let mut arrays = HashSet::new();
+        arrays.insert("choices".to_string());
+        FieldResolver::new(&HashMap::new(), &optional, &HashSet::new(), &arrays, &HashSet::new())
+    }
+
+    /// Regression: after `tool_calls()?[0]` the codegen must NOT append a trailing `?`
+    /// before the next segment.  The Swift compiler sees `?[0]` as consuming the optional
+    /// chain, yielding `ToolCallRef` (non-optional from the subscript's perspective), so
+    /// `?.function()` triggers "cannot use optional chaining on non-optional value".
+    ///
+    /// The fix: do not emit `?` after the subscript index for non-leaf segments.
+    #[test]
+    fn optional_vec_subscript_does_not_emit_trailing_question_mark_before_next_segment() {
+        let resolver = make_resolver_tool_calls();
+        // Access `choices[0].message.tool_calls[0].function.name`:
+        //   `tool_calls` is optional, `function` and `name` are non-optional.
+        let (accessor, has_optional) =
+            swift_build_accessor("choices[0].message.tool_calls[0].function.name", "result", &resolver);
+        // `?` before `[0]` is correct (tool_calls is optional).
+        assert!(
+            accessor.contains("toolCalls()?[0]"),
+            "expected `?[0]` for optional tool_calls, got: {accessor}"
+        );
+        // There must NOT be `?[0]?` (trailing `?` after the index).
+        assert!(
+            !accessor.contains("?[0]?"),
+            "must not emit trailing `?` after subscript index: {accessor}"
+        );
+        // The expression IS optional overall (tool_calls may be nil).
+        assert!(has_optional, "expected has_optional=true for optional field chain");
+        // Subsequent member access uses `.` (non-optional chain) not `?.`.
+        assert!(
+            accessor.contains("[0].function()"),
+            "expected `.function()` (non-optional) after subscript: {accessor}"
+        );
+    }
 }

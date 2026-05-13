@@ -9,8 +9,7 @@
 
 use crate::gen_rust_crate::default_construction::{emit_default_construction_body, emit_direct_field_inits};
 use crate::gen_rust_crate::type_bridge::{
-    bridge_type, bridge_type_enum_aware_ref, is_enum_named, is_vec_of_enum, needs_json_bridge,
-    swift_bridge_rust_type,
+    bridge_type, bridge_type_enum_aware_ref, is_enum_named, is_vec_of_enum, needs_json_bridge, swift_bridge_rust_type,
 };
 use alef_codegen::generators::type_paths::resolve_type_path;
 use alef_core::ir::{CoreWrapper, FieldDef, TypeDef, TypeRef};

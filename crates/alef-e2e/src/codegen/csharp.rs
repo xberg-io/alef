@@ -2758,37 +2758,40 @@ fn csharp_object_initializer(
             // The alef.toml config uses camelCase keys (e.g., "codeBlockStyle"), but fixture
             // JSON uses snake_case keys (e.g., "code_block_style"). So we check both.
             let camel_key = key.to_lower_camel_case();
-            let cs_val =
-                if let Some(enum_type) = enum_fields.get(key.as_str())
-                    .or_else(|| enum_fields.get(camel_key.as_str()))
-                    .map(String::as_str)
-                    .or(implicit_enum_type) {
-                    // Enum: EnumType.Member
-                    if val.is_null() {
-                        "null".to_string()
-                    } else {
-                        let member = val
-                            .as_str()
-                            .map(|s| s.to_upper_camel_case())
-                            .unwrap_or_else(|| "null".to_string());
-                        format!("{enum_type}.{member}")
-                    }
-                } else if let Some(nested_type) = nested_types.get(key.as_str())
-                    .or_else(|| nested_types.get(camel_key.as_str())) {
-                    // Nested object: JSON deserialization (keys are typically single-word, matching JsonPropertyName)
-                    let normalized = normalize_csharp_enum_values(val, enum_fields);
-                    let json_str = serde_json::to_string(&normalized).unwrap_or_default();
-                    format!(
-                        "JsonSerializer.Deserialize<{nested_type}>(\"{}\", ConfigOptions)!",
-                        escape_csharp(&json_str)
-                    )
-                } else if let Some(arr) = val.as_array() {
-                    // Array: List<string>
-                    let items: Vec<String> = arr.iter().map(json_to_csharp).collect();
-                    format!("new List<string> {{ {} }}", items.join(", "))
+            let cs_val = if let Some(enum_type) = enum_fields
+                .get(key.as_str())
+                .or_else(|| enum_fields.get(camel_key.as_str()))
+                .map(String::as_str)
+                .or(implicit_enum_type)
+            {
+                // Enum: EnumType.Member
+                if val.is_null() {
+                    "null".to_string()
                 } else {
-                    json_to_csharp(val)
-                };
+                    let member = val
+                        .as_str()
+                        .map(|s| s.to_upper_camel_case())
+                        .unwrap_or_else(|| "null".to_string());
+                    format!("{enum_type}.{member}")
+                }
+            } else if let Some(nested_type) = nested_types
+                .get(key.as_str())
+                .or_else(|| nested_types.get(camel_key.as_str()))
+            {
+                // Nested object: JSON deserialization (keys are typically single-word, matching JsonPropertyName)
+                let normalized = normalize_csharp_enum_values(val, enum_fields);
+                let json_str = serde_json::to_string(&normalized).unwrap_or_default();
+                format!(
+                    "JsonSerializer.Deserialize<{nested_type}>(\"{}\", ConfigOptions)!",
+                    escape_csharp(&json_str)
+                )
+            } else if let Some(arr) = val.as_array() {
+                // Array: List<string>
+                let items: Vec<String> = arr.iter().map(json_to_csharp).collect();
+                format!("new List<string> {{ {} }}", items.join(", "))
+            } else {
+                json_to_csharp(val)
+            };
             format!("{pascal_key} = {cs_val}")
         })
         .collect();
@@ -2836,7 +2839,7 @@ fn build_csharp_visitor(
     fixture_id: &str,
     visitor_spec: &crate::fixture::VisitorSpec,
 ) -> String {
-    use heck::{ToLowerCamelCase, ToUpperCamelCase};
+    use heck::ToUpperCamelCase;
     let class_name = format!("{}Visitor", fixture_id.to_upper_camel_case());
     let var_name = format!("_visitor_{}", fixture_id.replace('-', "_"));
 
@@ -2976,7 +2979,7 @@ fn emit_csharp_visitor_method(decl: &mut String, method_name: &str, action: &Cal
 
 /// Convert snake_case method names to C# PascalCase.
 fn method_to_camel(snake: &str) -> String {
-    use heck::{ToLowerCamelCase, ToUpperCamelCase};
+    use heck::ToUpperCamelCase;
     snake.to_upper_camel_case()
 }
 
@@ -3050,7 +3053,7 @@ fn build_csharp_method_call(
             format!("{class_name}.RunQuery({result_var}, \"{language}\", \"{query_source}\", source)")
         }
         _ => {
-            use heck::{ToLowerCamelCase, ToUpperCamelCase};
+            use heck::ToUpperCamelCase;
             let pascal = method_name.to_upper_camel_case();
             format!("{result_var}.{pascal}()")
         }
