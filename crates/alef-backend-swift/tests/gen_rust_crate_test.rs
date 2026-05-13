@@ -584,14 +584,66 @@ fn lib_rs_enum_extern_block_and_wrapper() {
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
+    // Enum types are NOT declared as opaque `type T;` in the extern block.
+    // swift-bridge 0.1.59 generates Vec<T> Vectorizable conformance for every opaque type,
+    // but the Rust proc macro does NOT generate the matching C symbols for enums, causing
+    // linker errors. Enums are kept as internal Rust wrappers; struct getters that return
+    // enum fields return String (the serialized variant name) instead.
     assert!(
-        lib.content.contains("type Status;"),
-        "lib.rs missing Status extern type: {}",
+        !lib.content.contains("type Status;"),
+        "lib.rs must NOT contain Status opaque type declaration: {}",
         lib.content
     );
     assert!(
         lib.content.contains("pub enum Status {"),
         "lib.rs missing Status wrapper enum: {}",
+        lib.content
+    );
+    assert!(
+        lib.content.contains("pub fn to_string"),
+        "lib.rs missing Status to_string impl: {}",
+        lib.content
+    );
+}
+
+#[test]
+fn lib_rs_struct_with_enum_field_returns_string() {
+    // A struct with an enum-typed field must have that getter return `String`,
+    // not the opaque enum wrapper type. The extern block must declare `fn foo(&self) -> String`
+    // (not `fn foo(&self) -> Status`), and the wrapper impl must call Status::from(...).to_string().
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![{
+            let mut t = make_type("Item", vec![make_field("status", TypeRef::Named("Status".to_string()))]);
+            t.has_serde = true;
+            t
+        }],
+        functions: vec![],
+        enums: vec![make_enum("Status", vec!["Active", "Inactive"])],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
+    let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+    // Getter must be declared as String in the extern block.
+    assert!(
+        lib.content.contains("fn status(&self) -> String;"),
+        "extern block must declare status() -> String, not the opaque enum type: {}",
+        lib.content
+    );
+    // Wrapper impl must convert enum to String via to_string().
+    assert!(
+        lib.content.contains("Status::from(") && lib.content.contains(".to_string()"),
+        "wrapper impl must call Status::from(...).to_string(): {}",
+        lib.content
+    );
+    // Opaque enum type must NOT be declared in the extern block.
+    assert!(
+        !lib.content.contains("type Status;"),
+        "lib.rs must NOT declare Status as opaque extern type: {}",
         lib.content
     );
 }

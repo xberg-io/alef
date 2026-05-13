@@ -137,6 +137,70 @@ pub(crate) fn bridge_type(ty: &TypeRef) -> String {
     }
 }
 
+/// Like `bridge_type` but treats `Named(enum_name)` types as `String`.
+///
+/// swift-bridge 0.1.59 generates `Vectorizable` conformance (with `__swift_bridge__$Vec_T$*`
+/// C-ABI symbols) for every opaque `extern "Rust" { type T; }` declaration, including enums.
+/// The generated Swift references these symbols even when no `Vec<T>` field exists, and the
+/// Rust macro does NOT generate the corresponding C symbols for enums.  To avoid the linker
+/// error, enum-typed fields are serialized to `String` (via the wrapper's `to_string()`) at
+/// the bridge boundary instead of being returned as opaque handles.
+///
+/// Accepts both `HashSet<&str>` (from within the generator) and `HashSet<String>` (via the
+/// owned variant below) depending on call site.
+pub(crate) fn bridge_type_enum_aware(ty: &TypeRef, enum_names: &HashSet<String>) -> String {
+    match ty {
+        TypeRef::Named(n) if enum_names.contains(n) => "String".to_string(),
+        TypeRef::Vec(inner) => {
+            if let TypeRef::Named(n) = inner.as_ref() {
+                if enum_names.contains(n) {
+                    return "Vec<String>".to_string();
+                }
+            }
+            bridge_type(ty)
+        }
+        _ => bridge_type(ty),
+    }
+}
+
+/// Like `bridge_type_enum_aware` but accepts `HashSet<&str>` (cheaper at call sites that
+/// already hold the borrowed set).
+pub(crate) fn bridge_type_enum_aware_ref(ty: &TypeRef, enum_names: &HashSet<&str>) -> String {
+    match ty {
+        TypeRef::Named(n) if enum_names.contains(n.as_str()) => "String".to_string(),
+        TypeRef::Vec(inner) => {
+            if let TypeRef::Named(n) = inner.as_ref() {
+                if enum_names.contains(n.as_str()) {
+                    return "Vec<String>".to_string();
+                }
+            }
+            bridge_type(ty)
+        }
+        _ => bridge_type(ty),
+    }
+}
+
+/// Returns `true` when the field type is an enum-typed `Named` reference.
+///
+/// Used by getter emitters to decide whether to serialize via `to_string()` rather than
+/// returning the opaque enum wrapper handle.
+pub(crate) fn is_enum_named(ty: &TypeRef, enum_names: &HashSet<&str>) -> bool {
+    match ty {
+        TypeRef::Named(n) => enum_names.contains(n.as_str()),
+        _ => false,
+    }
+}
+
+/// Returns `true` when a `Vec<Named(T)>` field has T as an enum.
+pub(crate) fn is_vec_of_enum(ty: &TypeRef, enum_names: &HashSet<&str>) -> bool {
+    match ty {
+        TypeRef::Vec(inner) => {
+            matches!(inner.as_ref(), TypeRef::Named(n) if enum_names.contains(n.as_str()))
+        }
+        _ => false,
+    }
+}
+
 /// Maps an IR `TypeRef` to the native Rust type string (used in wrapper impls and shim bodies).
 ///
 /// This is the full native type including nested generics and HashMap — used on the Rust side

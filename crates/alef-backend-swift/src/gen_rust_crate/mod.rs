@@ -261,6 +261,9 @@ fn emit_lib_rs(
         .collect();
 
     // Collect extern "Rust" blocks for the ffi module
+    // Build a HashSet<String> from enum_names (&str) for the enum-aware bridge type helper.
+    let enum_names_owned: std::collections::HashSet<String> =
+        enum_names.iter().map(|s| s.to_string()).collect();
     let mut extern_blocks: Vec<String> = Vec::new();
     for ty in &visible_types {
         extern_blocks.push(extern_block::emit_extern_block_for_type(
@@ -268,6 +271,7 @@ fn emit_lib_rs(
             exclude_fields,
             &type_paths,
             &no_serde_names,
+            &enum_names_owned,
         ));
         // For opaque types with methods, also emit constructor + method extern blocks.
         if ty.is_opaque && !ty.methods.iter().all(|m| m.sanitized) && !ty.methods.is_empty() {
