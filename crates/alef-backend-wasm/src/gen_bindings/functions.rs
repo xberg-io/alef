@@ -74,6 +74,7 @@ pub(super) fn gen_function(
     core_import: &str,
     opaque_types: &AHashSet<String>,
     prefix: &str,
+    mutex_types: &AHashSet<String>,
 ) -> String {
     let can_delegate = alef_codegen::shared::can_auto_delegate_function(func, opaque_types);
 
@@ -189,10 +190,17 @@ pub(super) fn gen_function(
         let return_expr = match &func.return_type {
             TypeRef::Vec(inner) => match inner.as_ref() {
                 TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
-                    format!(
-                        "result.into_iter().map(|v| {} {{ inner: Arc::new(v) }}).collect::<Vec<_>>()",
-                        mapper.map_type(inner)
-                    )
+                    if mutex_types.contains(n.as_str()) {
+                        format!(
+                            "result.into_iter().map(|v| {} {{ inner: Arc::new(std::sync::Mutex::new(v)) }}).collect::<Vec<_>>()",
+                            mapper.map_type(inner)
+                        )
+                    } else {
+                        format!(
+                            "result.into_iter().map(|v| {} {{ inner: Arc::new(v) }}).collect::<Vec<_>>()",
+                            mapper.map_type(inner)
+                        )
+                    }
                 }
                 TypeRef::Named(_) => {
                     let inner_mapped = mapper.map_type(inner);
@@ -202,7 +210,11 @@ pub(super) fn gen_function(
             },
             TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
                 let prefixed = mapper.map_type(&func.return_type);
-                format!("{prefixed} {{ inner: Arc::new(result) }}")
+                if mutex_types.contains(n.as_str()) {
+                    format!("{prefixed} {{ inner: Arc::new(std::sync::Mutex::new(result)) }}")
+                } else {
+                    format!("{prefixed} {{ inner: Arc::new(result) }}")
+                }
             }
             TypeRef::Named(_) => {
                 format!("{return_type}::from(result)")
@@ -293,6 +305,7 @@ pub(super) fn gen_function(
                 func.returns_ref,
                 func.returns_cow,
                 prefix,
+                mutex_types,
             );
             format!(
                 "{let_bindings}let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})"
@@ -306,7 +319,8 @@ pub(super) fn gen_function(
                     opaque_types,
                     func.returns_ref,
                     func.returns_cow,
-                    prefix
+                    prefix,
+                    mutex_types
                 )
             )
         };
@@ -516,6 +530,7 @@ pub(super) fn gen_function(
             func.returns_ref,
             func.returns_cow,
             prefix,
+            mutex_types,
         );
         let body = if matches!(func.return_type, TypeRef::Unit) {
             format!("{serde_bindings}{core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok(())")
@@ -632,14 +647,24 @@ pub(super) fn wasm_wrap_return(
     returns_ref: bool,
     returns_cow: bool,
     prefix: &str,
+    mutex_types: &AHashSet<String>,
 ) -> String {
     match return_type {
         // Self-returning opaque method
         TypeRef::Named(n) if n == type_name && self_is_opaque => {
-            // If the expression already evaluates to Arc<T> (e.g. `self.inner.clone()`
-            // where `inner: Arc<T>`), don't wrap in another Arc.
             if wasm_expr_is_already_arc(expr) {
                 format!("Self {{ inner: {expr} }}")
+            } else if mutex_types.contains(type_name) {
+                generators::wrap_return_with_mutex(
+                    expr,
+                    return_type,
+                    type_name,
+                    opaque_types,
+                    mutex_types,
+                    true,
+                    returns_ref,
+                    returns_cow,
+                )
             } else if returns_ref {
                 format!("Self {{ inner: Arc::new({expr}.clone()) }}")
             } else {
@@ -650,6 +675,24 @@ pub(super) fn wasm_wrap_return(
         TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
             if wasm_expr_is_already_arc(expr) {
                 format!("{prefix}{n} {{ inner: {expr} }}")
+            } else if mutex_types.contains(n.as_str()) {
+                // wrap_return_with_mutex uses IdentityMapper, returns "{n} { inner: ... }"
+                let wrapped = generators::wrap_return_with_mutex(
+                    expr,
+                    return_type,
+                    type_name,
+                    opaque_types,
+                    mutex_types,
+                    true,
+                    returns_ref,
+                    returns_cow,
+                );
+                // wrapped is "{n} { inner: ... }", add prefix: "{prefix}{n} { inner: ... }"
+                if wrapped.starts_with(&format!("{n} {{")) {
+                    format!("{prefix}{}{}", n, &wrapped[n.len()..])
+                } else {
+                    wrapped
+                }
             } else if returns_ref {
                 format!("{prefix}{n} {{ inner: Arc::new({expr}.clone()) }}")
             } else {
@@ -659,7 +702,19 @@ pub(super) fn wasm_wrap_return(
         // Optional<opaque>: wrap with prefix
         TypeRef::Optional(inner) => match inner.as_ref() {
             TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
-                if returns_ref {
+                if mutex_types.contains(name.as_str()) {
+                    let wrap_inner = generators::wrap_return_with_mutex(
+                        "v",
+                        inner.as_ref(),
+                        type_name,
+                        opaque_types,
+                        mutex_types,
+                        true,
+                        returns_ref,
+                        returns_cow,
+                    );
+                    format!("{expr}.map(|v| {prefix}{name} {{ {wrap_inner} }})")
+                } else if returns_ref {
                     format!("{expr}.map(|v| {prefix}{name} {{ inner: Arc::new(v.clone()) }})")
                 } else {
                     format!("{expr}.map(|v| {prefix}{name} {{ inner: Arc::new(v) }})")
@@ -678,7 +733,19 @@ pub(super) fn wasm_wrap_return(
         // Vec<opaque>: wrap with prefix
         TypeRef::Vec(inner) => match inner.as_ref() {
             TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
-                if returns_ref {
+                if mutex_types.contains(name.as_str()) {
+                    let wrap_inner = generators::wrap_return_with_mutex(
+                        "v",
+                        inner.as_ref(),
+                        type_name,
+                        opaque_types,
+                        mutex_types,
+                        true,
+                        returns_ref,
+                        returns_cow,
+                    );
+                    format!("{expr}.into_iter().map(|v| {prefix}{name} {{ {wrap_inner} }}).collect()")
+                } else if returns_ref {
                     format!("{expr}.into_iter().map(|v| {prefix}{name} {{ inner: Arc::new(v.clone()) }}).collect()")
                 } else {
                     format!("{expr}.into_iter().map(|v| {prefix}{name} {{ inner: Arc::new(v) }}).collect()")
@@ -714,11 +781,31 @@ pub(super) fn wasm_wrap_return_fn(
     returns_ref: bool,
     returns_cow: bool,
     prefix: &str,
+    mutex_types: &AHashSet<String>,
 ) -> String {
     match return_type {
         TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
             if wasm_expr_is_already_arc(expr) {
                 format!("{prefix}{n} {{ inner: {expr} }}")
+            } else if mutex_types.contains(n.as_str()) {
+                // wrap_return_with_mutex with empty type_name uses IdentityMapper,
+                // so it returns "{n} { inner: ... }" without prefix — add it manually
+                let wrapped = generators::wrap_return_with_mutex(
+                    expr,
+                    return_type,
+                    "",
+                    opaque_types,
+                    mutex_types,
+                    true,
+                    returns_ref,
+                    returns_cow,
+                );
+                // wrapped is "{n} { inner: ... }", replace "{n}" with "{prefix}{n}"
+                if wrapped.starts_with(&format!("{n} {{")) {
+                    format!("{prefix}{}{}", n, &wrapped[n.len()..])
+                } else {
+                    wrapped
+                }
             } else if returns_ref {
                 format!("{prefix}{n} {{ inner: Arc::new({expr}.clone()) }}")
             } else {
@@ -748,7 +835,19 @@ pub(super) fn wasm_wrap_return_fn(
         TypeRef::Json => format!("{expr}.to_string()"),
         TypeRef::Optional(inner) => match inner.as_ref() {
             TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
-                if returns_ref {
+                if mutex_types.contains(name.as_str()) {
+                    let wrap_inner = generators::wrap_return_with_mutex(
+                        "v",
+                        inner.as_ref(),
+                        "",
+                        opaque_types,
+                        mutex_types,
+                        true,
+                        returns_ref,
+                        returns_cow,
+                    );
+                    format!("{expr}.map(|v| {prefix}{name} {{ {wrap_inner} }})")
+                } else if returns_ref {
                     format!("{expr}.map(|v| {prefix}{name} {{ inner: Arc::new(v.clone()) }})")
                 } else {
                     format!("{expr}.map(|v| {prefix}{name} {{ inner: Arc::new(v) }})")
@@ -775,7 +874,19 @@ pub(super) fn wasm_wrap_return_fn(
         },
         TypeRef::Vec(inner) => match inner.as_ref() {
             TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
-                if returns_ref {
+                if mutex_types.contains(name.as_str()) {
+                    let wrap_inner = generators::wrap_return_with_mutex(
+                        "v",
+                        inner.as_ref(),
+                        "",
+                        opaque_types,
+                        mutex_types,
+                        true,
+                        returns_ref,
+                        returns_cow,
+                    );
+                    format!("{expr}.into_iter().map(|v| {prefix}{name} {{ {wrap_inner} }}).collect()")
+                } else if returns_ref {
                     format!("{expr}.into_iter().map(|v| {prefix}{name} {{ inner: Arc::new(v.clone()) }}).collect()")
                 } else {
                     format!("{expr}.into_iter().map(|v| {prefix}{name} {{ inner: Arc::new(v) }}).collect()")

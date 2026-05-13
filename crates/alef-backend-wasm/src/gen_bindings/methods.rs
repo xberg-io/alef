@@ -17,6 +17,7 @@ pub(super) fn gen_method(
     opaque_types: &AHashSet<String>,
     prefix: &str,
     typ: &TypeDef,
+    mutex_types: &AHashSet<String>,
 ) -> String {
     // Check if the type has any RefMut methods (which means inner is wrapped in Mutex).
     let has_mut_methods = typ
@@ -210,6 +211,7 @@ pub(super) fn gen_method(
                     method.returns_ref,
                     method.returns_cow,
                     prefix,
+                    mutex_types,
                 );
                 format!(
                     "{let_bindings}let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})"
@@ -226,6 +228,7 @@ pub(super) fn gen_method(
                         method.returns_ref,
                         method.returns_cow,
                         prefix,
+                        mutex_types,
                     )
                 )
             }
@@ -279,6 +282,7 @@ pub(super) fn gen_method(
                     method.returns_ref,
                     method.returns_cow,
                     prefix,
+                    mutex_types,
                 );
                 format!(
                     "{let_bindings}let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})"
@@ -295,6 +299,7 @@ pub(super) fn gen_method(
                         method.returns_ref,
                         method.returns_cow,
                         prefix,
+                        mutex_types,
                     )
                 )
             }

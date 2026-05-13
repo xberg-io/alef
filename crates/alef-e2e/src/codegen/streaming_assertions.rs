@@ -681,7 +681,12 @@ fn render_deep_tail(root_expr: &str, tail: &str, lang: &str) -> String {
                 out.push_str("()");
             }
             (TailSeg::Field(f), "kotlin") => {
-                out.push('.');
+                // Use safe-call `?.` for all field accessors in Kotlin deep paths.
+                // All streaming tool-call sub-fields (`function`, `id`, `name`,
+                // `arguments`) are nullable in the generated Java records, so `?.`
+                // is always correct here and prevents "non-null asserted call on
+                // nullable receiver" compile errors.
+                out.push_str("?.");
                 out.push_str(&f.to_lower_camel_case());
                 out.push_str("()");
             }

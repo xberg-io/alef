@@ -1,7 +1,7 @@
     public Iterator<{{ item_type }}> {{ method_name }}(final {{ request_type }} {{ request_param }}) throws {{ exception_class }} {
         java.util.Objects.requireNonNull({{ request_param }}, "{{ request_param }} must not be null");
         final MemorySegment streamHandle;
-        try (var arena = Arena.ofConfined()) {
+        try (var arena = Arena.ofShared()) {
             String requestJson = STREAM_MAPPER.writeValueAsString({{ request_param }});
             var cRequestJson = arena.allocateFrom(requestJson);
             MemorySegment requestPtr = (MemorySegment) NativeLib.{{ req_from_json }}.invoke(cRequestJson);

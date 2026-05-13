@@ -304,19 +304,15 @@ impl Backend for WasmBackend {
             .filter(|t| t.is_opaque && !exclude_types.contains(&t.name))
             .map(|t| t.name.clone())
             .collect();
+        let mutex_types: AHashSet<String> = api
+            .types
+            .iter()
+            .filter(|t| t.is_opaque && !exclude_types.contains(&t.name) && generators::type_needs_mutex(t))
+            .map(|t| t.name.clone())
+            .collect();
         if !opaque_types.is_empty() {
             builder.add_import("std::sync::Arc");
-            // Check if any opaque type has &mut self methods, requiring Mutex
-            let needs_mutex = api
-                .types
-                .iter()
-                .filter(|t| t.is_opaque && !exclude_types.contains(&t.name))
-                .any(|t| {
-                    t.methods
-                        .iter()
-                        .any(|m| m.receiver == Some(alef_core::ir::ReceiverKind::RefMut))
-                });
-            if needs_mutex {
+            if !mutex_types.is_empty() {
                 builder.add_import("std::sync::Mutex");
             }
         }
@@ -373,6 +369,7 @@ impl Backend for WasmBackend {
                     &core_import,
                     &prefix,
                     &adapter_bodies,
+                    &mutex_types,
                 ));
             } else {
                 // gen_struct adds #[derive(Default)] when typ.has_default is true,
@@ -386,6 +383,7 @@ impl Backend for WasmBackend {
                     &opaque_types,
                     &api.enums,
                     &prefix,
+                    &mutex_types,
                 ));
             }
         }
@@ -441,7 +439,14 @@ impl Backend for WasmBackend {
                         &prefix,
                     ));
                 } else {
-                    builder.add_item(&gen_function(func, &mapper, &core_import, &opaque_types, &prefix));
+                    builder.add_item(&gen_function(
+                        func,
+                        &mapper,
+                        &core_import,
+                        &opaque_types,
+                        &prefix,
+                        &mutex_types,
+                    ));
                 }
             }
         }

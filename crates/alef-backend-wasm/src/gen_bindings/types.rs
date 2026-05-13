@@ -56,6 +56,7 @@ pub(super) fn gen_opaque_struct_methods(
     core_import: &str,
     prefix: &str,
     adapter_bodies: &alef_adapters::AdapterBodies,
+    mutex_types: &AHashSet<String>,
 ) -> String {
     let js_name = format!("{prefix}{}", typ.name);
     let mut impl_builder = ImplBuilder::new(&js_name);
@@ -88,6 +89,7 @@ pub(super) fn gen_opaque_struct_methods(
                 opaque_types,
                 core_import,
                 prefix,
+                mutex_types,
             ));
         } else {
             impl_builder.add_method(&gen_opaque_method(
@@ -97,6 +99,7 @@ pub(super) fn gen_opaque_struct_methods(
                 opaque_types,
                 prefix,
                 adapter_bodies,
+                mutex_types,
             ));
         }
     }
@@ -112,6 +115,7 @@ fn gen_opaque_method(
     opaque_types: &AHashSet<String>,
     prefix: &str,
     adapter_bodies: &alef_adapters::AdapterBodies,
+    mutex_types: &AHashSet<String>,
 ) -> String {
     let can_delegate = shared::can_auto_delegate(method, opaque_types);
     let adapter_key = format!("{type_name}.{}", method.name);
@@ -169,6 +173,7 @@ fn gen_opaque_method(
                 method.returns_ref,
                 method.returns_cow,
                 prefix,
+                mutex_types,
             );
             if method.error_type.is_some() {
                 format!(
@@ -192,6 +197,7 @@ fn gen_opaque_method(
                     method.returns_ref,
                     method.returns_cow,
                     prefix,
+                    mutex_types,
                 );
                 format!("let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})")
             }
@@ -205,6 +211,7 @@ fn gen_opaque_method(
                 method.returns_ref,
                 method.returns_cow,
                 prefix,
+                mutex_types,
             )
         }
     } else if let Some(body) = adapter_bodies.get(&adapter_key) {
@@ -255,6 +262,7 @@ fn gen_opaque_static_method(
     opaque_types: &AHashSet<String>,
     core_import: &str,
     prefix: &str,
+    mutex_types: &AHashSet<String>,
 ) -> String {
     let can_delegate = shared::can_auto_delegate(method, opaque_types);
 
@@ -291,6 +299,7 @@ fn gen_opaque_static_method(
                 method.returns_ref,
                 method.returns_cow,
                 prefix,
+                mutex_types,
             );
             format!("let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})")
         } else {
@@ -303,6 +312,7 @@ fn gen_opaque_static_method(
                 method.returns_ref,
                 method.returns_cow,
                 prefix,
+                mutex_types,
             )
         }
     } else {
@@ -394,6 +404,7 @@ pub(super) fn gen_struct_methods(
     opaque_types: &AHashSet<String>,
     api_enums: &[EnumDef],
     prefix: &str,
+    mutex_types: &AHashSet<String>,
 ) -> String {
     use super::field_references_excluded_type;
 
@@ -443,6 +454,7 @@ pub(super) fn gen_struct_methods(
                 opaque_types,
                 prefix,
                 typ,
+                mutex_types,
             ));
         }
     }

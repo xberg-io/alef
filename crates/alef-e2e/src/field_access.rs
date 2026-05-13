@@ -155,6 +155,24 @@ impl FieldResolver {
         self.array_fields.contains(field)
     }
 
+    /// Check if a field name is the root of a collection type (i.e., the field
+    /// itself returns a `Vec`/array, even though it is not in `fields_array`
+    /// directly).
+    ///
+    /// `fields_array` tracks traversal paths like `choices[0].message.tool_calls`
+    /// — the array element paths — not the bare collection accessor (`choices`).
+    /// `fields_optional` may also contain paths like `data[0].url` that reveal
+    /// `data` is a collection root.
+    ///
+    /// Returns `true` when any entry in `array_fields` or `optional_fields`
+    /// starts with `{field}[`, indicating that `field` is the top-level
+    /// collection getter.
+    pub fn is_collection_root(&self, field: &str) -> bool {
+        let prefix = format!("{field}[");
+        self.array_fields.iter().any(|af| af.starts_with(&prefix))
+            || self.optional_fields.iter().any(|of| of.starts_with(&prefix))
+    }
+
     /// Check if a resolved field path traverses a tagged-union variant.
     ///
     /// Returns `Some((prefix, variant, suffix))` where:

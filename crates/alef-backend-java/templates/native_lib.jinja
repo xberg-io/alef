@@ -10,7 +10,7 @@ final class {{ class_name }} {
     static {
         loadNativeLibrary();
         try {
-            Arena arena = Arena.ofConfined();
+            Arena arena = Arena.ofShared();
             // Try the loaded library name first (for System.load() path case)
             try {
                 LIB = SymbolLookup.libraryLookup(loadedLibraryName, arena);

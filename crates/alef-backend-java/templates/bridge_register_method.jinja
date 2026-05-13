@@ -3,7 +3,7 @@
 {% else %}    public static void register{{ trait_pascal }}(final I{{ trait_pascal }} impl, String name) throws Exception {
 {% endif %}        var bridge = new {{ bridge_class }}(impl);
         try {
-            try (var nameArena = Arena.ofConfined()) {
+            try (var nameArena = Arena.ofShared()) {
                 var nameCs = nameArena.allocateFrom({{ name_expr }});
                 MemorySegment outErr = nameArena.allocate(ValueLayout.ADDRESS);
                 int rc = (int) NativeLib.{{ prefix_upper }}_REGISTER_{{ trait_snake_upper }}.invoke(nameCs, bridge.vtableSegment(), MemorySegment.NULL, outErr);

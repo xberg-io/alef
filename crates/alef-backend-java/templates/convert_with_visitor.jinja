@@ -1,5 +1,5 @@
     public static ConversionResult convertWithVisitor(String html, ConversionOptions options, Visitor visitor) throws {{ exception_class }} {
-        try (var arena = Arena.ofConfined();
+        try (var arena = Arena.ofShared();
              var bridge = new VisitorBridge(visitor)) {
             var cHtml = arena.allocateFrom(html);
 

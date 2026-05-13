@@ -1262,7 +1262,23 @@ fn render_test_function(
                     let prefix = parts[..i].join(".");
                     let resolved_prefix = field_resolver.resolve(&prefix);
                     if field_resolver.is_optional(resolved_prefix) {
-                        let accessor = field_resolver.accessor(&prefix, "go", &effective_result_var);
+                        // If the prefix ends with a numeric index (e.g. "segments[0]"),
+                        // the element itself is a value type in Go — it cannot be nil.
+                        // Use the array field without the index (e.g. "segments") as the
+                        // nil guard instead, so we emit `result.Segments != nil` rather
+                        // than the invalid `result.Segments[0] != nil`.
+                        let guard_prefix = if let Some(bracket_pos) = resolved_prefix.rfind('[') {
+                            let suffix = &resolved_prefix[bracket_pos + 1..];
+                            let is_numeric_index = suffix.trim_end_matches(']').chars().all(|c| c.is_ascii_digit());
+                            if is_numeric_index {
+                                &resolved_prefix[..bracket_pos]
+                            } else {
+                                resolved_prefix
+                            }
+                        } else {
+                            resolved_prefix
+                        };
+                        let accessor = field_resolver.accessor(guard_prefix, "go", &effective_result_var);
                         guard_expr = Some(accessor);
                         break;
                     }
@@ -3488,6 +3504,86 @@ mod tests {
         assert!(
             out.contains("for chunk := range stream"),
             "should emit collect loop, got:\n{out}"
+        );
+    }
+
+    /// When `segments` is an optional field (Option<Vec<T>>) and a fixture asserts on
+    /// `segments[0].id`, the prefix guard must be `result.Segments != nil` — NOT
+    /// `result.Segments[0] != nil`, which is a compile error for a value-typed element.
+    #[test]
+    fn test_indexed_element_prefix_guard_uses_array_not_element() {
+        let e2e_config = E2eConfig {
+            call: CallConfig {
+                function: "transcribe".to_string(),
+                module: "github.com/example/mylib".to_string(),
+                result_var: "result".to_string(),
+                returns_result: true,
+                ..CallConfig::default()
+            },
+            ..E2eConfig::default()
+        };
+
+        let fixture = Fixture {
+            id: "edge_transcribe_with_timestamps".to_string(),
+            category: None,
+            description: "Transcription with timestamp segments".to_string(),
+            tags: vec![],
+            skip: None,
+            env: None,
+            call: None,
+            input: serde_json::Value::Null,
+            mock_response: Some(crate::fixture::MockResponse {
+                status: 200,
+                body: Some(serde_json::Value::Null),
+                stream_chunks: None,
+                headers: std::collections::HashMap::new(),
+            }),
+            source: String::new(),
+            http: None,
+            assertions: vec![
+                Assertion {
+                    assertion_type: "not_error".to_string(),
+                    ..Default::default()
+                },
+                Assertion {
+                    assertion_type: "equals".to_string(),
+                    field: Some("segments[0].id".to_string()),
+                    value: Some(serde_json::Value::Number(serde_json::Number::from(0u64))),
+                    ..Default::default()
+                },
+            ],
+            visitor: None,
+        };
+
+        let mut optional_fields = std::collections::HashSet::new();
+        // segments is Option<Vec<TranscriptionSegment>> — the whole field is optional.
+        optional_fields.insert("segments".to_string());
+
+        let mut array_fields = std::collections::HashSet::new();
+        array_fields.insert("segments".to_string());
+
+        let resolver = FieldResolver::new(
+            &std::collections::HashMap::new(),
+            &optional_fields,
+            &array_fields,
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
+        );
+
+        let mut out = String::new();
+        render_test_function(&mut out, &fixture, "pkg", &resolver, &e2e_config);
+
+        eprintln!("generated:\n{out}");
+
+        // Must guard on the slice itself — not on the element.
+        assert!(
+            out.contains("result.Segments != nil"),
+            "guard must be on Segments (the slice), not an element; got:\n{out}"
+        );
+        // Must NOT emit the invalid element nil check.
+        assert!(
+            !out.contains("result.Segments[0] != nil"),
+            "must not emit Segments[0] != nil for a value-type element; got:\n{out}"
         );
     }
 }

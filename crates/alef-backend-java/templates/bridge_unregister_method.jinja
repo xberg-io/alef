@@ -1,7 +1,7 @@
     /** Unregister a {{ trait_pascal }} implementation by name. */
     public static void unregister{{ trait_pascal }}(String name) throws Exception {
         try {
-            try (var nameArena = Arena.ofConfined()) {
+            try (var nameArena = Arena.ofShared()) {
                 var nameCs = nameArena.allocateFrom(name);
                 MemorySegment outErr = nameArena.allocate(ValueLayout.ADDRESS);
                 int rc = (int) NativeLib.{{ prefix_upper }}_UNREGISTER_{{ trait_snake_upper }}.invoke(nameCs, outErr);

@@ -1192,7 +1192,11 @@ fn render_assertion(
         !f.is_empty() && (field_resolver.is_optional(f) || field_resolver.is_optional(field_resolver.resolve(f)))
     });
     let field_is_array = assertion.field.as_deref().is_some_and(|f| {
-        !f.is_empty() && (field_resolver.is_array(f) || field_resolver.is_array(field_resolver.resolve(f)))
+        !f.is_empty()
+            && (field_resolver.is_array(f)
+                || field_resolver.is_array(field_resolver.resolve(f))
+                || field_resolver.is_collection_root(f)
+                || field_resolver.is_collection_root(field_resolver.resolve(f)))
     });
 
     let field_expr_raw = if result_is_simple {
@@ -1533,10 +1537,13 @@ fn render_assertion(
                         "        XCTAssertFalse({result_var}.isEmpty, \"expected non-empty value\")"
                     );
                 } else {
-                    // string_expr has .toString() appended; .isEmpty works on Swift String.
+                    // Both `RustString` (via RustStringRef.len() -> UInt) and `RustVec<T>` (via
+                    // len() -> Int) expose a `.len()` method. Using `.len() > 0` avoids the
+                    // `.toString().isEmpty` path that fails to compile when the field returns
+                    // `RustVec<T>` — `RustVec<T>` has no `.toString()` member.
                     let _ = writeln!(
                         out,
-                        "        XCTAssertFalse({string_expr}.isEmpty, \"expected non-empty value\")"
+                        "        XCTAssertGreaterThan({field_expr}.len(), 0, \"expected non-empty value\")"
                     );
                 }
             }
@@ -1552,9 +1559,11 @@ fn render_assertion(
                     "        XCTAssertTrue({field_expr}.isEmpty, \"expected empty value\")"
                 );
             } else {
+                // Symmetric with not_empty: use .len() == 0 to avoid .toString() on
+                // RustVec<T> fields that have no .toString() method.
                 let _ = writeln!(
                     out,
-                    "        XCTAssertTrue({string_expr}.isEmpty, \"expected empty value\")"
+                    "        XCTAssertEqual({field_expr}.len(), 0, \"expected empty value\")"
                 );
             }
         }

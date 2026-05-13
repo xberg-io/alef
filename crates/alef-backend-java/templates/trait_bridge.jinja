@@ -108,13 +108,13 @@ public final class {{ bridge_class }} implements AutoCloseable {
     public static void register{{ trait_pascal }}(final I{{ trait_pascal }} impl) throws Exception {
         var bridge = new {{ bridge_class }}(impl);
         try {
-            try (var nameArena = Arena.ofConfined()) {
+            try (var nameArena = Arena.ofShared()) {
                 var nameCs = nameArena.allocateFrom(impl.name());
 {% else %}
     public static void register{{ trait_pascal }}(final I{{ trait_pascal }} impl, String name) throws Exception {
         var bridge = new {{ bridge_class }}(impl);
         try {
-            try (var nameArena = Arena.ofConfined()) {
+            try (var nameArena = Arena.ofShared()) {
                 var nameCs = nameArena.allocateFrom(name);
 {% endif %}
                 MemorySegment outErr = nameArena.allocate(ValueLayout.ADDRESS);

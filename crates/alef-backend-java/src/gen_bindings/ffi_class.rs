@@ -609,7 +609,7 @@ fn gen_convert_with_visitor_internal_method(class_name: &str, prefix: &str) -> S
             exception_class => &exc,
         },
     ));
-    out.push_str("        try (var arena = Arena.ofConfined();\n");
+    out.push_str("        try (var arena = Arena.ofShared();\n");
     out.push_str("             var bridge = new VisitorBridge(options.visitor())) {\n");
     out.push_str("            var cHtml = arena.allocateFrom(html);\n");
     out.push('\n');

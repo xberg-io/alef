@@ -1136,6 +1136,7 @@ fn render_test_method(
                 result_is_option,
                 enum_fields,
                 &e2e_config.fields_c_types,
+                is_streaming,
             );
         }
         let _ = writeln!(out, "        client.close()");
@@ -1181,6 +1182,7 @@ fn render_test_method(
             result_is_option,
             enum_fields,
             &e2e_config.fields_c_types,
+            is_streaming,
         );
     }
 
@@ -1378,7 +1380,58 @@ fn render_assertion(
     result_is_option: bool,
     enum_fields: &HashSet<String>,
     fields_c_types: &std::collections::HashMap<String, String>,
+    is_streaming: bool,
 ) {
+    // In streaming context, `usage` and `usage.*` fields must be read from the
+    // last collected chunk, not from the stream iterator (which has no `usage()` method).
+    // Route them through `StreamingFieldResolver::accessor("usage", ...)` + deep-tail
+    // rendering, using `chunks.last().usage()` as the base expression.
+    if is_streaming {
+        if let Some(f) = &assertion.field {
+            if f == "usage" || f.starts_with("usage.") {
+                let base_expr =
+                    crate::codegen::streaming_assertions::StreamingFieldResolver::accessor("usage", "kotlin", "chunks")
+                        .unwrap_or_else(|| "(if (chunks.isEmpty()) null else chunks.last().usage())".to_string());
+
+                // For a deep path like `usage.total_tokens`, render the tail `.total_tokens`
+                // in a Kotlin-idiomatic style (safe-call + camelCase method).
+                let expr = if let Some(tail) = f.strip_prefix("usage.") {
+                    use heck::ToLowerCamelCase;
+                    // Each segment in the tail is a field accessor using `?.` (nullable base).
+                    tail.split('.')
+                        .fold(base_expr, |acc, seg| format!("{acc}?.{}()", seg.to_lower_camel_case()))
+                } else {
+                    base_expr
+                };
+
+                // Determine if the field maps to a 64-bit C type requiring `L` suffix.
+                let field_is_long = fields_c_types
+                    .get(f.as_str())
+                    .is_some_and(|t| matches!(t.as_str(), "uint64_t" | "int64_t"));
+
+                let line = match assertion.assertion_type.as_str() {
+                    "equals" => {
+                        if let Some(expected) = &assertion.value {
+                            let kotlin_val = if field_is_long && expected.is_number() && !expected.is_f64() {
+                                format!("{}L", expected)
+                            } else {
+                                json_to_kotlin(expected)
+                            };
+                            format!("        assertEquals({kotlin_val}, {expr}!!)\n")
+                        } else {
+                            String::new()
+                        }
+                    }
+                    _ => String::new(),
+                };
+                if !line.is_empty() {
+                    out.push_str(&line);
+                }
+                return;
+            }
+        }
+    }
+
     // Streaming virtual fields resolve against the `chunks` collected-list variable.
     // Intercept before is_valid_for_result so they are never skipped.
     if let Some(f) = &assertion.field {
@@ -1873,6 +1926,7 @@ mod tests {
             false,
             &enum_fields,
             &HashMap::new(),
+            false,
         );
         assert!(
             out.contains("result.choices().first().finishReason()?.getValue().orEmpty().trim()"),
@@ -1920,6 +1974,7 @@ mod tests {
             false,
             &enum_fields,
             &HashMap::new(),
+            false,
         );
         assert!(
             out.contains("result.choices().first().finishReason().getValue().trim()"),
@@ -1971,6 +2026,7 @@ mod tests {
             false,
             &global_enum_fields,
             &HashMap::new(),
+            false,
         );
         assert!(
             !out_no_merge.contains(".getValue()"),
@@ -1989,6 +2045,7 @@ mod tests {
             false,
             &per_call_enum_fields,
             &HashMap::new(),
+            false,
         );
         assert!(
             out_merged.contains(".getValue()"),
@@ -2135,6 +2192,7 @@ mod tests {
             false,
             batch_enum_fields,
             &HashMap::new(),
+            false,
         );
         assert!(
             out.contains(".getValue()"),
