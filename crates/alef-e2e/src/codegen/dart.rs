@@ -83,11 +83,31 @@ impl E2eCodegen for DartE2eCodegen {
         // One test file per fixture group.
         let bridge_class = config.dart_bridge_class_name();
 
+        // Methods declared as `stub_methods` in `[crates.dart]` cannot be bridged through
+        // FRB and have `unimplemented!()` bodies on the Rust side. Emitting e2e tests for
+        // these fixtures would result in `PanicException` at run-time. Filter them out
+        // here so the dart e2e suite mirrors the actual runtime surface of the binding.
+        let dart_stub_methods: std::collections::HashSet<String> = config
+            .dart
+            .as_ref()
+            .map(|d| d.stub_methods.iter().cloned().collect())
+            .unwrap_or_default();
+
         for group in groups {
             let active: Vec<&Fixture> = group
                 .fixtures
                 .iter()
                 .filter(|f| super::should_include_fixture(f, lang, e2e_config))
+                .filter(|f| {
+                    let call_config = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
+                    let resolved_function = call_config
+                        .overrides
+                        .get(lang)
+                        .and_then(|o| o.function.as_ref())
+                        .cloned()
+                        .unwrap_or_else(|| call_config.function.clone());
+                    !dart_stub_methods.contains(&resolved_function)
+                })
                 .collect();
 
             if active.is_empty() {
@@ -172,7 +192,7 @@ fn render_test_file(
         &e2e_config.fields_optional,
         &e2e_config.result_fields,
         &e2e_config.fields_array,
-        &std::collections::HashSet::new(),
+        &e2e_config.fields_method_calls,
     );
 
     // Check if any fixture needs the http package (HTTP server tests).
@@ -494,10 +514,15 @@ fn render_test_case(
                 // (because dart cannot pass OS file paths through the FFI bridge), the
                 // underlying wrapper signature requires `mime_type` positionally even
                 // though the source IR marks it as optional for `extractFile*`. Force
-                // mime_type to positional in that case.
+                // mime_type to positional in that case. The remap may have been performed
+                // either implicitly by this codegen (no caller override) or explicitly by
+                // a per-call dart override that sets `function = "extract_bytes"`. Detect
+                // by inspecting the resolved Dart function name — `extractBytes` always
+                // requires `mimeType` as a positional argument in the Dart wrapper.
                 let dart_param_name = snake_to_camel(&arg_def.name);
-                let mime_required_due_to_remap =
-                    has_file_path_arg && !caller_supplied_override && arg_def.name == "mime_type";
+                let mime_required_due_to_remap = has_file_path_arg
+                    && arg_def.name == "mime_type"
+                    && (function_name == "extractBytes" || function_name == "extractBytesSync");
                 let is_optional = arg_def.optional && !mime_required_due_to_remap;
                 match arg_value {
                     serde_json::Value::String(s) => {
@@ -535,9 +560,11 @@ fn render_test_case(
                         args.push(dart_items);
                     } else if elem_type == "String" && arg_value.is_array() {
                         // Scalar string array (e.g. `texts: ["a", "b"]` for embed_texts).
-                        // Emit a Dart typed list literal `<String>['a', 'b']` and pass as
-                        // a named arg matching the snake→camel param name (FRB bridge methods
-                        // take named params for non-self positional Rust args).
+                        // The `KreuzbergBridge` facade declares these parameters as required
+                        // positional (e.g. `embedTexts(List<String> texts, EmbeddingConfig config)`),
+                        // so the list literal must be passed positionally — matching the
+                        // facade contract rather than the underlying FRB bridge's named-arg
+                        // convention.
                         let items: Vec<String> = arg_value
                             .as_array()
                             .unwrap()
@@ -545,8 +572,7 @@ fn render_test_case(
                             .filter_map(|v| v.as_str())
                             .map(|s| format!("'{}'", escape_dart(s)))
                             .collect();
-                        let dart_param_name = snake_to_camel(&arg_def.name);
-                        args.push(format!("{dart_param_name}: <String>[{}]", items.join(", ")));
+                        args.push(format!("<String>[{}]", items.join(", ")));
                     }
                 } else if options_via == "from_json" {
                     // `from_json` path: construct a typed mirror-struct via the generated
@@ -574,11 +600,40 @@ fn render_test_case(
                     }
                 } else if arg_def.name == "config" {
                     if let serde_json::Value::Object(map) = &arg_value {
-                        // Fixture provides config overrides — build an ExtractionConfig constructor
-                        // with defaults, overriding only the fields present in the fixture JSON.
-                        // This handles error-triggering configs like {force_ocr:true, disable_ocr:true}.
                         if !map.is_empty() {
-                            args.push(emit_extraction_config_dart(map));
+                            // When the call override specifies a non-default `options_type`
+                            // (e.g. `EmbeddingConfig` for `embed_texts`), or the override map
+                            // contains a non-scalar field that the literal `ExtractionConfig`
+                            // constructor cannot express (e.g. `output_format: "markdown"` is
+                            // a tagged enum, not a plain string), fall back to the
+                            // FRB-generated `create<Type>FromJson(json: '...')` helper which
+                            // round-trips the JSON through serde and so preserves enum tags,
+                            // nested configs, and string-valued enum variants verbatim.
+                            let explicit_options = options_type
+                                .is_some_and(|t| t != "ExtractionConfig" && t != "FileExtractionConfig");
+                            let has_non_scalar = map.values().any(|v| match v {
+                                serde_json::Value::String(_)
+                                | serde_json::Value::Object(_)
+                                | serde_json::Value::Array(_) => true,
+                                _ => false,
+                            });
+                            if explicit_options || has_non_scalar {
+                                let opts_type = options_type.unwrap_or("ExtractionConfig");
+                                let json_str = serde_json::to_string(&arg_value).unwrap_or_default();
+                                let escaped_json = escape_dart(&json_str);
+                                let var_name = format!("_{}", arg_def.name);
+                                let dart_fn = type_name_to_create_from_json_dart(opts_type);
+                                setup_lines
+                                    .push(format!("final {var_name} = await {dart_fn}(json: '{escaped_json}');"));
+                                args.push(var_name);
+                            } else {
+                                // Fixture provides scalar-only overrides — build an
+                                // `ExtractionConfig` constructor literal with defaults,
+                                // overriding only the bool/int fields present in the
+                                // fixture JSON. Handles configs such as
+                                // {force_ocr:true, disable_ocr:true} that toggle error paths.
+                                args.push(emit_extraction_config_dart(map));
+                            }
                         }
                     }
                     // If config is null/absent, the wrapper supplies the default ExtractionConfig.
@@ -793,6 +848,21 @@ fn render_assertion_dart(
         }
     }
 
+    // Skip assertions that traverse a tagged-union variant boundary. FRB exposes
+    // tagged unions like `FormatMetadata` as sealed classes whose variants are
+    // accessed via pattern matching (`switch (m) { case FormatMetadata_Excel ... }`)
+    // — there is no `.excel?` getter, so the fixture path cannot be expressed as
+    // a simple chained accessor without language-specific pattern-matching codegen.
+    if let Some(f) = assertion.field.as_deref() {
+        if !f.is_empty() && field_resolver.tagged_union_split(f).is_some() {
+            let _ = writeln!(
+                out,
+                "    // skipped: field '{f}' crosses a tagged-union variant boundary (not expressible in Dart)"
+            );
+            return;
+        }
+    }
+
     // Handle array traversal (e.g. "links[].link_type" → any() expression).
     if let Some(f) = assertion.field.as_deref() {
         if let Some(dot) = f.find("[].") {
@@ -946,7 +1016,19 @@ fn render_assertion_dart(
             }
         }
         "not_empty" => {
-            let _ = writeln!(out, "    expect({field_accessor}, isNotEmpty);");
+            // `isNotEmpty` only applies to types with a `.isEmpty` getter (collections,
+            // strings, maps). For struct-shaped fields (e.g. `document: DocumentStructure`)
+            // we instead assert the value is non-null — those types have no notion of
+            // "empty" and the fixture intent is "the field is present".
+            let is_collection = assertion.field.as_deref().is_some_and(|f| {
+                let resolved = field_resolver.resolve(f);
+                field_resolver.is_array(f) || field_resolver.is_array(&resolved)
+            });
+            if is_collection {
+                let _ = writeln!(out, "    expect({field_accessor}, isNotEmpty);");
+            } else {
+                let _ = writeln!(out, "    expect({field_accessor}, isNotNull);");
+            }
         }
         "is_empty" => {
             // FRB models `Option<String>` / `Option<Vec<T>>` as nullable in Dart. The `isEmpty`
