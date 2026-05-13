@@ -160,7 +160,9 @@ impl Backend for ExtendrBackend {
             .collect();
         // Opaque types that use Rc internally cannot be wrapped in Arc for the extendr binding.
         // These types are excluded from struct generation and skipped as struct fields.
-        // VisitorHandle is Rc<RefCell<dyn HtmlVisitor>>: Rc is !Send, cannot be put in Arc.
+        // (Note: VisitorHandle was previously Rc<RefCell<...>> and therefore arc-incompatible;
+        // it is now Arc<Mutex<...>> and no longer requires special treatment here, but the
+        // detection heuristic — opaque + cfg-gated — is retained for other potential cases.)
         // We identify them as opaque types that are cfg-feature-gated — only the visitor
         // machinery (feature = "visitor") produces such types in html-to-markdown.
         let arc_incompatible_opaque: ahash::AHashSet<String> = api
@@ -1058,8 +1060,8 @@ fn gen_extendr_bridge_field_function(
     let mut body = String::with_capacity(1024);
 
     // Extract the bridge field from the options Robj (which is a list)
-    body.push_str("    use std::cell::RefCell;\n");
-    body.push_str("    use std::rc::Rc;\n");
+    body.push_str("    use std::sync::Arc;\n");
+    body.push_str("    use std::sync::Mutex;\n");
     body.push_str(&format!(
         "    let {field_name}_robj: Option<Robj> = {options_param}.clone().as_list().and_then(|list| {{\n"
     ));
@@ -1073,7 +1075,7 @@ fn gen_extendr_bridge_field_function(
         "    let {field_name}_handle: Option<{core_import}::visitor::VisitorHandle> = {field_name}_robj\n"
     ));
     body.push_str(&format!(
-        "        .map(|v| Rc::new(RefCell::new(RHtmlVisitorBridge::new(v))) as {core_import}::visitor::VisitorHandle);\n"
+        "        .map(|v| Arc::new(Mutex::new(RHtmlVisitorBridge::new(v))) as {core_import}::visitor::VisitorHandle);\n"
     ));
 
     // Decode options and inject the bridge

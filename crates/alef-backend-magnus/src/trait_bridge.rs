@@ -728,7 +728,7 @@ pub fn gen_bridge_function(
             "let {param_name}: Option<{handle_path}> = match {param_name} {{\n        \
              Some(v) if !v.is_nil() => {{\n            \
              let bridge = {struct_name}::new(v);\n            \
-             Some(std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path})\n        \
+             Some(std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path})\n        \
              }},\n        \
              _ => None,\n    \
              }};"
@@ -737,7 +737,7 @@ pub fn gen_bridge_function(
         format!(
             "let {param_name} = {{\n        \
              let bridge = {struct_name}::new({param_name});\n        \
-             std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n    \
+             std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path}\n    \
              }};"
         )
     };
@@ -954,7 +954,7 @@ pub fn gen_options_field_bridge_function(
          opts_binding.clone().into()\n        \
          }} else {{\n            \
          let bridge = {struct_name}::new(v);\n            \
-         let handle = std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path};\n            \
+         let handle = std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path};\n            \
          let mut opts = {core_import}::{options_type}::default();\n            \
          opts.visitor = Some(handle);\n            \
          opts\n        \

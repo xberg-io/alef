@@ -585,7 +585,7 @@ pub fn gen_bridge_function(
             "let {param_name}: Option<{handle_path}> = match {param_name} {{\n        \
              Some(term) if term.atom_to_string().ok().as_deref() != Some(\"nil\") => {{\n            \
              let bridge = {struct_name}::new(env, env.pid(), term);\n            \
-             Some(std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path})\n        \
+             Some(std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path})\n        \
              }},\n        \
              _ => None,\n    \
              }};"
@@ -594,7 +594,7 @@ pub fn gen_bridge_function(
         format!(
             "let {param_name} = {{\n        \
              let bridge = {struct_name}::new(env, env.pid(), {param_name});\n        \
-             std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n    \
+             std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path}\n    \
              }};"
         )
     };
@@ -1007,7 +1007,7 @@ pub fn gen_bridge_field_function(
         "let mut {options_param}_core: {core_options_type} = \
          {options_param}.map(|s| serde_json::from_str::<{core_options_type}>(&s).unwrap_or_default()).unwrap_or_default();\n    \
          let bridge = {struct_name}::new(env, pid, visitor_term);\n    \
-         {options_param}_core.{field_name} = Some(std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path});"
+         {options_param}_core.{field_name} = Some(std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path});"
     );
 
     // Build call args for the visitor variant.

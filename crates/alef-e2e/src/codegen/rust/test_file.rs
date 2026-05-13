@@ -478,7 +478,7 @@ pub fn render_test_function(
         let _ = writeln!(out, "    }}");
         let _ = writeln!(
             out,
-            "    let visitor = std::rc::Rc::new(std::cell::RefCell::new(_TestVisitor));"
+            "    let visitor = std::sync::Arc::new(std::sync::Mutex::new(_TestVisitor));"
         );
         if visitor_via_options {
             // Inject the visitor via the options field rather than as a positional arg.

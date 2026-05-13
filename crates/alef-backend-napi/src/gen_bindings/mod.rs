@@ -295,8 +295,7 @@ impl napi::bindgen_prelude::FromNapiValue for JsBytes {
 impl napi::bindgen_prelude::ToNapiValue for JsBytes {
     unsafe fn to_napi_value(env: napi::sys::napi_env, val: Self) -> napi::Result<napi::sys::napi_value> {
         // Delegate to Vec<u8>'s implementation (which returns an Uint8Array/Buffer).
-        let vec_impl = unsafe { <Vec<u8> as napi::bindgen_prelude::ToNapiValue>::to_napi_value(env, val.0) };
-        vec_impl
+        unsafe { <Vec<u8> as napi::bindgen_prelude::ToNapiValue>::to_napi_value(env, val.0) }
     }
 }
 "#;
@@ -707,13 +706,13 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
                             let after = &content[pos + pattern.len()..];
 
                             // Build the replacement that wraps val.visitor into JsHtmlVisitorBridge
-                            // and then into the core Rc<RefCell<...>> type.
+                            // and then into the core Arc<Mutex<...>> type.
                             let type_alias = bridge.type_alias.as_deref().unwrap_or("VisitorHandle");
                             let handle_path = format!("{core_import}::visitor::{type_alias}");
                             let replacement = format!(
                                 "__result.visitor = val.{field_name}.map(|obj| {{\n            \
                                     let bridge = JsHtmlVisitorBridge::new(obj);\n            \
-                                    std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n        \
+                                    std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path}\n        \
                                 }});"
                             );
 

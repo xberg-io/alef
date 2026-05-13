@@ -882,7 +882,7 @@ pub fn gen_options_field_bridge_function(
     let visitor_wrap = format!(
         "let {visitor_kwarg}_handle: Option<{handle_path}> = {visitor_kwarg}.map(|v| {{\n    \
          let bridge = {struct_name}::new(v);\n    \
-         std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n\
+         std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path}\n\
          }});"
     );
 

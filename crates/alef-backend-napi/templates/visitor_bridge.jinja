@@ -62,6 +62,18 @@ impl {{ struct_name }} {
     }
 }
 
+// SAFETY: `napi::bindgen_prelude::Object<'static>` and `napi::Env` are not
+// automatically `Send` because they wrap raw V8/Node.js handles tied to a
+// specific isolate/thread. This bridge is only ever invoked synchronously from
+// the same thread that constructed it (the #[napi] call frame) — the `Arc<Mutex>`
+// wrapper ensures exclusive access and the caller must not move the owning options
+// struct across threads while the bridge is alive. Misuse (calling convert() from
+// a different thread than the one that created the visitor) is the caller's
+// responsibility and will trigger undefined behaviour in the V8 runtime.
+unsafe impl Send for {{ struct_name }} {}
+// SAFETY: see Send impl above.
+unsafe impl Sync for {{ struct_name }} {}
+
 impl {{ trait_path }} for {{ struct_name }} {
 {{ method_impls }}
 }

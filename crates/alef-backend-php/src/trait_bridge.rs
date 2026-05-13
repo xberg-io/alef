@@ -631,14 +631,14 @@ pub fn gen_bridge_function(
         format!(
             "let {param_name} = {param_name}.map(|v| {{\n        \
              let bridge = {struct_name}::new(v);\n        \
-             std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n    \
+             std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path}\n    \
              }});"
         )
     } else {
         format!(
             "let {param_name} = {{\n        \
              let bridge = {struct_name}::new({param_name});\n        \
-             std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n    \
+             std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path}\n    \
              }};"
         )
     };

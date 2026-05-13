@@ -623,7 +623,7 @@ pub fn trait_bridge_imports(configs: &[TraitBridgeConfig]) -> Vec<&'static str> 
 /// ```rust,ignore
 /// let visitor = visitor.map(|v| {
 ///     let bridge = PyHtmlVisitorBridge::new(v);
-///     std::rc::Rc::new(std::cell::RefCell::new(bridge)) as html_to_markdown_rs::visitor::VisitorHandle
+///     std::sync::Arc::new(std::sync::Mutex::new(bridge)) as html_to_markdown_rs::visitor::VisitorHandle
 /// });
 /// ```
 #[allow(clippy::too_many_arguments)]
@@ -706,14 +706,14 @@ pub fn gen_bridge_function(
         format!(
             "let {param_name} = {param_name}.map(|v| {{\n        \
              let bridge = {struct_name}::new(v);\n        \
-             std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n    \
+             std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path}\n    \
              }});"
         )
     } else {
         format!(
             "let {param_name} = {{\n        \
              let bridge = {struct_name}::new({param_name});\n        \
-             std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n    \
+             std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path}\n    \
              }};"
         )
     };
@@ -1022,7 +1022,7 @@ pub fn gen_bridge_field_function(
     let visitor_wrap = format!(
         "let {visitor_kwarg}_handle: Option<{handle_path}> = {visitor_kwarg}.map(|v| {{\n        \
          let bridge = {struct_name}::new(v);\n        \
-         std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n    \
+         std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path}\n    \
          }});"
     );
 
