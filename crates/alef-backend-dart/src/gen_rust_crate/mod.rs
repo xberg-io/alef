@@ -1196,6 +1196,18 @@ fn sanitized_field_from_expr(field: &FieldDef) -> String {
                 format!("v.{name} as _")
             }
         }
+        // Cow<'_, str> fields are erroneously marked sanitized by the IR extractor
+        // even though the underlying type is plainly `String`. Convert via `.into()` /
+        // `.into_owned()` so the actual value reaches the mirror struct rather than an
+        // empty `String::default()` placeholder (which silently broke `mime_type`,
+        // `format`, and similar Cow-wrapped string fields).
+        TypeRef::String | TypeRef::Char if field.core_wrapper == CoreWrapper::Cow => {
+            if field.optional {
+                format!("v.{name}.map(|s| s.into_owned())")
+            } else {
+                format!("v.{name}.into_owned()")
+            }
+        }
         _ => {
             // All other sanitized types: use Default.
             // We cannot safely serde-serialize unknown types.
