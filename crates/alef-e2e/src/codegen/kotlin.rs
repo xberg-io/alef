@@ -29,7 +29,7 @@ impl E2eCodegen for KotlinE2eCodegen {
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
         config: &ResolvedCrateConfig,
-        _type_defs: &[alef_core::ir::TypeDef],
+        type_defs: &[alef_core::ir::TypeDef],
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
         let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
@@ -137,6 +137,29 @@ impl E2eCodegen for KotlinE2eCodegen {
             &HashSet::new(),
         );
 
+        // Build a map from TypeDef name → set of field names whose Rust type
+        // is a `Named(T)` reference where `T` is NOT itself a known struct.
+        // Those fields are enum-typed and should route through `.getValue()` in
+        // generated assertions automatically, even without an explicit per-call
+        // `enum_fields` override in the alef.toml.
+        let struct_names: HashSet<&str> = type_defs.iter().map(|td| td.name.as_str()).collect();
+        let type_enum_fields: std::collections::HashMap<String, HashSet<String>> = type_defs
+            .iter()
+            .filter_map(|td| {
+                let enum_field_names: HashSet<String> = td
+                    .fields
+                    .iter()
+                    .filter(|field| is_enum_typed(&field.ty, &struct_names))
+                    .map(|field| field.name.clone())
+                    .collect();
+                if enum_field_names.is_empty() {
+                    None
+                } else {
+                    Some((td.name.clone(), enum_field_names))
+                }
+            })
+            .collect();
+
         for group in groups {
             let active: Vec<&Fixture> = group
                 .fixtures
@@ -162,6 +185,7 @@ impl E2eCodegen for KotlinE2eCodegen {
                 result_is_simple,
                 &e2e_config.fields_enum,
                 e2e_config,
+                &type_enum_fields,
             );
             files.push(GeneratedFile {
                 path: test_base.join(class_file_name),
@@ -175,6 +199,22 @@ impl E2eCodegen for KotlinE2eCodegen {
 
     fn language_name(&self) -> &'static str {
         "kotlin"
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Returns true when `ty` is a `Named(T)` reference (or `Optional<Named(T)>`)
+/// where `T` is **not** a known struct name. Such fields are enum-typed and
+/// must route through `.getValue()` in generated assertions.
+fn is_enum_typed(ty: &alef_core::ir::TypeRef, struct_names: &HashSet<&str>) -> bool {
+    use alef_core::ir::TypeRef;
+    match ty {
+        TypeRef::Named(name) => !struct_names.contains(name.as_str()),
+        TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Named(name) if !struct_names.contains(name.as_str())),
+        _ => false,
     }
 }
 
@@ -441,6 +481,7 @@ fn render_test_file(
     result_is_simple: bool,
     enum_fields: &HashSet<String>,
     e2e_config: &E2eConfig,
+    type_enum_fields: &std::collections::HashMap<String, HashSet<String>>,
 ) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
@@ -628,6 +669,7 @@ fn render_test_file(
             result_is_simple,
             enum_fields,
             e2e_config,
+            type_enum_fields,
         );
         let _ = writeln!(out);
     }
@@ -888,6 +930,7 @@ fn render_test_method(
     result_is_simple: bool,
     enum_fields: &HashSet<String>,
     e2e_config: &E2eConfig,
+    type_enum_fields: &std::collections::HashMap<String, HashSet<String>>,
 ) {
     // Delegate HTTP fixtures to the HTTP-specific renderer.
     if let Some(http) = &fixture.http {
@@ -982,15 +1025,31 @@ fn render_test_method(
     // (e.g. `status` on BatchObject) route through `.getValue()` in assertions even
     // when absent from the global `fields_enum` list.  Mirrors the Java codegen at
     // codegen/java.rs where per-call overrides are merged before assertion rendering.
+    //
+    // Additionally, auto-detect enum-typed fields by looking up the call's result type
+    // in `type_enum_fields` (built from the IR TypeDef list). This handles the common
+    // case where a field's Rust type is a `Named(EnumName)` that was never explicitly
+    // listed in the alef.toml `enum_fields` table.
     let effective_enum_fields: std::borrow::Cow<HashSet<String>> = {
-        if let Some(co) = call_overrides {
-            if !co.enum_fields.is_empty() {
-                let mut merged = enum_fields.clone();
+        // Resolve the result type name for this call. Prefer the kotlin override, then
+        // java, then c — the Kotlin facade re-exports Java facade types unchanged.
+        let result_type_name: Option<&str> = call_overrides
+            .and_then(|co| co.result_type.as_deref())
+            .or_else(|| call_config.overrides.get("java").and_then(|o| o.result_type.as_deref()))
+            .or_else(|| call_config.overrides.get("c").and_then(|o| o.result_type.as_deref()));
+        let auto_enum_fields: Option<&HashSet<String>> =
+            result_type_name.and_then(|name| type_enum_fields.get(name));
+        let has_per_call = call_overrides.is_some_and(|co| !co.enum_fields.is_empty());
+        let has_auto = auto_enum_fields.is_some_and(|f| !f.is_empty());
+        if has_per_call || has_auto {
+            let mut merged = enum_fields.clone();
+            if let Some(co) = call_overrides {
                 merged.extend(co.enum_fields.keys().cloned());
-                std::borrow::Cow::Owned(merged)
-            } else {
-                std::borrow::Cow::Borrowed(enum_fields)
             }
+            if let Some(auto_fields) = auto_enum_fields {
+                merged.extend(auto_fields.iter().cloned());
+            }
+            std::borrow::Cow::Owned(merged)
         } else {
             std::borrow::Cow::Borrowed(enum_fields)
         }
@@ -1422,32 +1481,39 @@ fn render_assertion(
     // Whether the accessor may return a nullable type in Kotlin. This is true
     // when the leaf field OR any intermediate segment in the path is optional
     // (the `?.` safe-call propagates null through the whole chain).
+    //
+    // Additionally, if the generated accessor expression itself contains `?.`
+    // then the return type is `T?` regardless of what the path-resolver says —
+    // sticky nullability means any `?.` in the chain makes the whole expression
+    // nullable. This handles cases like `toolCalls()?.first()?.function()?.name()`
+    // where the `is_optional` prefix lookup misses due to index notation mismatch.
     let field_is_optional = !result_is_simple
-        && assertion.field.as_deref().filter(|f| !f.is_empty()).is_some_and(|f| {
-            let resolved = field_resolver.resolve(f);
-            if field_resolver.has_map_access(f) {
-                return false;
-            }
-            // Check the leaf field itself.
-            if field_resolver.is_optional(resolved) {
-                return true;
-            }
-            // Also check every prefix segment: if any intermediate field is
-            // optional the ?.  chain propagates null to the final result.
-            let mut prefix = String::new();
-            for part in resolved.split('.') {
-                // Strip array notation for the lookup key.
-                let key = part.split('[').next().unwrap_or(part);
-                if !prefix.is_empty() {
-                    prefix.push('.');
+        && (field_expr.contains("?.")
+            || assertion.field.as_deref().filter(|f| !f.is_empty()).is_some_and(|f| {
+                let resolved = field_resolver.resolve(f);
+                if field_resolver.has_map_access(f) {
+                    return false;
                 }
-                prefix.push_str(key);
-                if field_resolver.is_optional(&prefix) {
+                // Check the leaf field itself.
+                if field_resolver.is_optional(resolved) {
                     return true;
                 }
-            }
-            false
-        });
+                // Also check every prefix segment: if any intermediate field is
+                // optional the ?.  chain propagates null to the final result.
+                let mut prefix = String::new();
+                for part in resolved.split('.') {
+                    // Strip array notation for the lookup key.
+                    let key = part.split('[').next().unwrap_or(part);
+                    if !prefix.is_empty() {
+                        prefix.push('.');
+                    }
+                    prefix.push_str(key);
+                    if field_resolver.is_optional(&prefix) {
+                        return true;
+                    }
+                }
+                false
+            }));
 
     // String-context expression: append .orEmpty() for nullable string fields so
     // string operations (contains, trim) don't require a safe-call chain.
@@ -1926,6 +1992,150 @@ mod tests {
         assert!(
             out_merged.contains(".getValue()"),
             "merged per-call set must emit .getValue() for status: {out_merged}"
+        );
+    }
+
+    /// Auto-detection: fields whose Rust type is `Named(T)` where `T` is NOT a
+    /// known struct should be treated as enum-typed without any explicit per-call
+    /// `enum_fields` override. The `type_enum_fields` map (built in `generate()`)
+    /// pre-computes these sets so `render_test_method` can merge them.
+    #[test]
+    fn auto_detected_enum_fields_from_type_defs_route_through_get_value() {
+        use alef_core::ir::{CoreWrapper, FieldDef, TypeDef, TypeRef};
+
+        // Simulate a `BatchObject` type with `status: BatchStatus` (Named, not a struct).
+        let batch_object_def = TypeDef {
+            name: "BatchObject".to_string(),
+            rust_path: "liter_llm::BatchObject".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                FieldDef {
+                    name: "id".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    doc: String::new(),
+                    sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    typed_default: None,
+                    core_wrapper: CoreWrapper::None,
+                    vec_inner_core_wrapper: CoreWrapper::None,
+                    newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
+                },
+                FieldDef {
+                    name: "status".to_string(),
+                    ty: TypeRef::Named("BatchStatus".to_string()),
+                    optional: false,
+                    default: None,
+                    doc: String::new(),
+                    sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    typed_default: None,
+                    core_wrapper: CoreWrapper::None,
+                    vec_inner_core_wrapper: CoreWrapper::None,
+                    newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
+                },
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            doc: String::new(),
+            cfg: None,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: true,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+        };
+
+        // `BatchObject` is the only struct — `BatchStatus` is not in struct_names.
+        let type_defs = vec![batch_object_def];
+        let struct_names: HashSet<&str> = type_defs.iter().map(|td| td.name.as_str()).collect();
+
+        // Verify is_enum_typed correctly identifies `status` as enum-typed.
+        let status_ty = TypeRef::Named("BatchStatus".to_string());
+        assert!(
+            is_enum_typed(&status_ty, &struct_names),
+            "BatchStatus (not a known struct) should be detected as enum-typed"
+        );
+        let id_ty = TypeRef::String;
+        assert!(
+            !is_enum_typed(&id_ty, &struct_names),
+            "String field should NOT be detected as enum-typed"
+        );
+
+        // Verify the type_enum_fields map is built correctly.
+        let type_enum_fields: std::collections::HashMap<String, HashSet<String>> = type_defs
+            .iter()
+            .filter_map(|td| {
+                let enum_field_names: HashSet<String> = td
+                    .fields
+                    .iter()
+                    .filter(|field| is_enum_typed(&field.ty, &struct_names))
+                    .map(|field| field.name.clone())
+                    .collect();
+                if enum_field_names.is_empty() {
+                    None
+                } else {
+                    Some((td.name.clone(), enum_field_names))
+                }
+            })
+            .collect();
+
+        let batch_enum_fields = type_enum_fields.get("BatchObject").expect("BatchObject should have enum fields");
+        assert!(
+            batch_enum_fields.contains("status"),
+            "BatchObject.status should be auto-detected as enum-typed, got: {batch_enum_fields:?}"
+        );
+        assert!(
+            !batch_enum_fields.contains("id"),
+            "BatchObject.id (String) must not be in enum fields"
+        );
+
+        // Verify render_assertion produces `.getValue()` when `status` is in enum_fields.
+        let resolver = FieldResolver::new(
+            &HashMap::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+        );
+        let assertion = Assertion {
+            assertion_type: "equals".to_string(),
+            field: Some("status".to_string()),
+            value: Some(serde_json::Value::String("validating".to_string())),
+            values: None,
+            method: None,
+            check: None,
+            args: None,
+            return_type: None,
+        };
+        let mut out = String::new();
+        render_assertion(
+            &mut out,
+            &assertion,
+            "result",
+            "",
+            &resolver,
+            false,
+            false,
+            batch_enum_fields,
+            &HashMap::new(),
+        );
+        assert!(
+            out.contains(".getValue()"),
+            "auto-detected enum field must route through .getValue(), got: {out}"
         );
     }
 }
