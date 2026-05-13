@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(alef-backend-napi): allow delegation of `&mut self` methods on opaque types wrapped in `Arc<Mutex<T>>`. Previously the opaque_can_delegate check rejected all RefMut receivers (line 418) assuming Arc doesn't support `&mut T`. However, when a type has any RefMut methods (indicating Mutex-wrapping), those methods CAN be delegated by locking the mutex. This fix enables real implementations for methods like `Parser::set_language` instead of stubbed "Not implemented" bodies.
+
 - fix(alef-e2e/csharp): emit `<GenerateAssemblyInfo>false</GenerateAssemblyInfo>` in the e2e test project `.csproj` to prevent duplicate `AssemblyInfo` attributes when a hand-written `Properties/AssemblyInfo.cs` file provides assembly metadata manually. The .NET SDK auto-generates `obj/*/AssemblyInfo.cs` by default, leading to CS0579 errors when both files define the same attributes. Complements the assembly info file previously generated for e2e projects.
 
 - fix(alef-e2e/python): also include per-fixture streaming in the file-level `is_async` calculation used to gate `import pytest`. Previously a file containing fixtures whose `is_streaming` was triggered only by virtual-field assertions (not by call-level `async`) would emit `@pytest.mark.asyncio` decorators without the matching `import pytest`, producing `NameError`/F821 on test collection. Now `needs_pytest` correctly reflects every code path that emits an async test.

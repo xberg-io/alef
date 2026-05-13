@@ -413,9 +413,10 @@ pub(super) fn gen_opaque_instance_method(
     let call_args = napi_gen_call_args(&method.params, opaque_types);
 
     // Use the shared can_auto_delegate check for opaque instance methods.
-    // Skip delegation if the receiver is RefMut, since Arc<T> doesn't support &mut T.
+    // RefMut methods can be delegated if the type is Mutex-wrapped (has_mut_methods).
+    // Arc<T> doesn't support &mut T directly, but Arc<Mutex<T>> does via lock().
     let opaque_can_delegate = !method.sanitized
-        && !is_ref_mut_receiver
+        && (!is_ref_mut_receiver || has_mut_methods)
         && (!is_owned_receiver || typ.is_clone)
         && method
             .params
