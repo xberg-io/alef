@@ -279,6 +279,13 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
             // Generate to_json for types that support serialization. Skip Update types
             // (partial update structs typically derive Deserialize only) and skip when
             // the type already exposes a `to_json` method (would collide on FFI name).
+            //
+            // We used to skip "value-only" types (all primitive fields) under the assumption
+            // that FFI callers would reconstruct them from field accessors. That assumption
+            // breaks down for bindings (Java FFM, C# P/Invoke) that don't have per-binding
+            // value-only reconstruction codegen and rely on the JSON path uniformly. Emitting
+            // to_json for value-only types unblocks `get_embedding_preset` etc. across all
+            // bindings; the FFI surface gains a few extra `_to_json` exports.
             let has_to_json_method = typ.methods.iter().any(|m| m.name == "to_json");
             if !typ.name.ends_with("Update") && !has_to_json_method {
                 builder.add_item(&gen_type_to_json(typ, prefix, &core_import));
