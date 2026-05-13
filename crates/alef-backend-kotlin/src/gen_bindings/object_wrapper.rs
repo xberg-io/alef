@@ -230,6 +230,15 @@ pub(crate) fn emit_function(
     ));
     out.push('\n');
 
+    // The Java facade returns `Optional<T>` for Rust `Option<T>` returns; the
+    // Kotlin facade exposes the friendlier `T?`. Unwrap with `.orElse(null)` so
+    // the types line up.
+    let optional_suffix = if matches!(f.return_type, TypeRef::Optional(_)) && !returns_client_type {
+        ".orElse(null)"
+    } else {
+        ""
+    };
+
     if f.is_async {
         // The Java facade lowers async Rust functions to blocking calls (it
         // awaits the future internally and returns the resolved value, not a
@@ -242,14 +251,9 @@ pub(crate) fn emit_function(
                 "        return withContext(Dispatchers.IO) {{ {wrapper}(Bridge.{func_name_camel}({call_args})) }}\n"
             ));
         } else {
-            out.push_str(&crate::template_env::render(
-                "bridge_call_with_dispatch.jinja",
-                minijinja::context! {
-                    name => func_name_camel,
-                    args => call_args,
-                },
+            out.push_str(&format!(
+                "        return withContext(Dispatchers.IO) {{\n            Bridge.{func_name_camel}({call_args}){optional_suffix}\n        }}\n"
             ));
-            out.push('\n');
         }
     } else if matches!(f.return_type, TypeRef::Unit) {
         out.push_str(&crate::template_env::render(
@@ -266,14 +270,9 @@ pub(crate) fn emit_function(
             "        return {wrapper}(Bridge.{func_name_camel}({call_args}))\n"
         ));
     } else {
-        out.push_str(&crate::template_env::render(
-            "bridge_call_return.jinja",
-            minijinja::context! {
-                name => func_name_camel,
-                args => call_args,
-            },
+        out.push_str(&format!(
+            "        return Bridge.{func_name_camel}({call_args}){optional_suffix}\n"
         ));
-        out.push('\n');
     }
     out.push_str("    }\n");
 }
