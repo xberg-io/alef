@@ -540,7 +540,8 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
          generator chains FFI/JSON shims that don't reflow cleanly within 140
          chars. Each file carries a generated-code header and must not be
          hand-edited. -->
-    <suppress checks="LineLength" files="[/\\\\]dev[/\\\\].*\.java"/>
+    <suppress checks="LineLength" files=".*DefaultClient\.java"/>
+    <suppress checks="LineLength" files=".*LiterLlmRs\.java"/>
 
     <!-- Allow star imports and magic numbers in test files -->
     <suppress checks="AvoidStarImport" files=".*Test\.java"/>
