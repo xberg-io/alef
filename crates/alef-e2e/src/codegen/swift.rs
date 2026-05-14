@@ -95,20 +95,12 @@ impl E2eCodegen for SwiftE2eCodegen {
             generated_header: false,
         });
 
-        // Swift e2e tests are written into the *packages/swift* package rather
-        // than into the separate e2e/swift package.  SwiftPM 6.0 forbids local
-        // `.package(path:)` references between packages inside the same git
-        // repository, so a standalone e2e/swift package cannot depend on
-        // packages/swift.  Placing the test files directly inside
-        // packages/swift/Tests/<Module>Tests/ sidesteps the restriction: the
-        // tests are part of the same SwiftPM package that defines the library
-        // target, so no inter-package dependency is needed.
-        //
-        // `pkg_path` is expressed relative to the e2e/<lang> directory (e.g.
-        // "../../packages/swift").  Joining it onto `output_base` and
-        // normalising collapses the traversals to the actual project-root-
-        // relative path (e.g. "packages/swift").
-        let tests_base = normalize_path(&output_base.join(&pkg_path));
+        // Swift e2e tests live in the standalone e2e/swift package (same as
+        // every other language). The generated Package.swift uses an explicit
+        // `.package(name: "Kreuzberg", path: "../../packages/swift")` dep so
+        // SwiftPM resolves the binding library by its declared identity, not
+        // the path tail.
+        let tests_base = output_base.clone();
 
         let field_resolver = FieldResolver::new(
             &e2e_config.fields,
@@ -1947,31 +1939,6 @@ fn swift_array_count_expr(field: Option<&str>, result_var: &str, field_resolver:
     } else {
         format!("{accessor}.count")
     }
-}
-
-/// Normalise a path by resolving `..` components without hitting the filesystem.
-///
-/// This mirrors what `std::fs::canonicalize` does but works on paths that do
-/// not yet exist on disk (generated-file paths).  Only `..` traversals are
-/// collapsed; `.` components are dropped; nothing else is changed.
-fn normalize_path(path: &std::path::Path) -> std::path::PathBuf {
-    let mut components = std::path::PathBuf::new();
-    for component in path.components() {
-        match component {
-            std::path::Component::ParentDir => {
-                // Pop the last pushed component if there is one that isn't
-                // already a `..` (avoids over-collapsing `../../foo`).
-                if !components.as_os_str().is_empty() {
-                    components.pop();
-                } else {
-                    components.push(component);
-                }
-            }
-            std::path::Component::CurDir => {}
-            other => components.push(other),
-        }
-    }
-    components
 }
 
 /// Convert a `serde_json::Value` to a Swift literal string.

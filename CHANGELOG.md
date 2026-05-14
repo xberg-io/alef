@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.60] - 2026-05-14
+
+### Fixed
+
+- **alef-e2e/swift**: actually move generated tests to `<output>/swift/Tests/KreuzbergE2ETests/`.
+  The 0.15.59 release renamed the test target but left `tests_base` pointing at
+  `output_base.join(pkg_path)` (which normalises to `packages/swift`), so the
+  files still landed under `packages/swift/Tests/`. Use `output_base` directly
+  and drop the now-unused `normalize_path` helper. Same Package.swift output
+  as 0.15.59, just the test files now live where intended.
+
 ## [0.15.59] - 2026-05-14
 
 ### Fixed
