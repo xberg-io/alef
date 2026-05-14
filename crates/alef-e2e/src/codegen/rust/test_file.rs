@@ -579,11 +579,11 @@ pub fn render_test_function(
     // Non-error path: unwrap the result.
     let has_not_error = fixture.assertions.iter().any(|a| a.assertion_type == "not_error");
 
-    // Detect streaming fixtures: shared helper honors `streaming` opt-in/out and
-    // auto-detects from unambiguous streaming-only field names (chunks,
-    // stream_content, …) — but not from ambiguous fields like `usage` or
-    // `finish_reason` that also exist on non-streaming response shapes.
-    let is_streaming = crate::codegen::streaming_assertions::resolve_is_streaming(fixture, None);
+    // Streaming detection (call-level `streaming` opt-out is honored).
+    // Shared helper auto-detects from unambiguous streaming-only field names
+    // (chunks, stream_content, …) — but not from ambiguous fields like `usage`
+    // or `finish_reason` that also exist on non-streaming response shapes.
+    let is_streaming = crate::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming);
     // Name of the stream-level variable (the raw stream returned by the call).
     let stream_var = "stream";
     // Name of the collected-list variable produced by draining the stream.
