@@ -156,6 +156,7 @@ pub fn render_test_file(
     if file_needs_mock {
         let _ = writeln!(out, "mod common;");
         let _ = writeln!(out, "mod mock_server;");
+        let _ = writeln!(out, "#[allow(unused_imports)]");
         let _ = writeln!(out, "use mock_server::{{MockRoute, MockServer}};");
     }
 
