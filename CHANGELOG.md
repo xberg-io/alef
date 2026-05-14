@@ -44,6 +44,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   organization-specific assumptions from generated scaffold and workflow text,
   and centralize scaffold dependency and tool versions.
 
+## [0.15.71] - 2026-05-14
+
+### Fixed
+
+- **alef-e2e/rust (test_file.rs, mock_server.rs)**: error fixtures now emit
+  `let _mock_server = MockServer::start(...).await;` (underscore prefix)
+  when the test body never references `mock_server` again. Previously every
+  error test bound the server to `mock_server` purely to keep it alive for
+  the duration of the failed call, which tripped `-D warnings` →
+  `unused_variables` across `tests/error_test.rs` (12+ sites in kreuzcrawl).
+  `render_test_function` now scans the body for a `mock_server.` reference
+  and picks the bare or underscored name accordingly.
+- **alef-e2e/zig (zig.rs)**: every generated `addModule(...)` /
+  `createModule({...})` call now sets `.link_libc = true`. Required by
+  Zig 0.16+: any module that transitively references C stdlib (`c.getenv`,
+  `c.malloc`, etc.) must declare libc explicitly in its build graph,
+  otherwise `zig build test` fails with `error: dependency on libc must be
+  explicitly specified in the build command`.
+- **alef-e2e/wasm (wasm.rs)**: in `DependencyMode::Local`, the generated
+  `e2e/wasm/package.json` now declares
+  `"<crate>": "file:../../crates/<crate>-wasm/pkg/nodejs"` instead of just
+  `pkg`. `wasm-pack build --target nodejs --out-dir pkg/nodejs` writes the
+  npm-consumable package (with its own `package.json`) under `pkg/nodejs/`,
+  so pnpm resolution requires the `/nodejs` suffix.
+
+## [0.15.70] - 2026-05-14
+
+### Fixed
+
+- **alef-e2e/rust (mock_server.rs)**: emit `#![allow(dead_code)]` on the
+  generated `tests/common.rs` module. The mock_server helper exposes a
+  small set of test utilities (`MockRoute`, route builders) that not every
+  test binary uses; without the allow, `-D warnings` flagged `dead_code`
+  whenever a single test file imported only a subset of the module's
+  surface.
+- **alef-e2e/wasm**: emit a local `pnpm-workspace.yaml`
+  (`packages: ["."]`) alongside the generated `e2e/wasm/package.json`.
+  Without it, consumer repos whose root `pnpm-workspace.yaml` excludes
+  `e2e/wasm` (because `wasm-pack` outputs a different `package.json` shape)
+  leave `e2e/wasm` outside any workspace, and `pnpm install` cannot resolve
+  the `kreuzcrawl` file-protocol dependency.
+
 ## [0.15.69] - 2026-05-14
 
 ### Reverted
