@@ -642,7 +642,7 @@ pub unsafe extern "C" fn {prefix}_options_set_visitor_handle(
         visitor_ref_methods = visitor_ref_methods,
     ) + &format!(
         r#"
-/// Convert HTML to Markdown using a callback-based visitor.
+/// Run conversion using a callback-based visitor.
 ///
 /// Returns a heap-allocated `ConversionResult` on success, or null on failure.
 /// Check `{prefix}_last_error_code` / `{prefix}_last_error_context` for error details.
@@ -733,7 +733,7 @@ pub unsafe extern "C" fn {prefix}_convert_with_visitor(
 pub fn gen_convert_no_visitor(prefix: &str, core_import: &str) -> String {
     let fn_name = format!("{prefix}_convert");
     format!(
-        r#"/// Convert HTML to Markdown.
+        r#"/// Run conversion.
 ///
 /// Returns a heap-allocated [`ConversionResult`] on success, or null on failure.
 /// Check `{prefix}_last_error_code` / `{prefix}_last_error_context` for error details.

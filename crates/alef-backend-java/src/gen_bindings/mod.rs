@@ -106,7 +106,7 @@ impl Backend for JavaBackend {
             .scaffold
             .as_ref()
             .and_then(|s| s.description.as_deref())
-            .unwrap_or("High-performance HTML to Markdown converter.");
+            .unwrap_or("Generated Java bindings.");
         files.push(GeneratedFile {
             path: base_path.join("package-info.java"),
             content: format!(

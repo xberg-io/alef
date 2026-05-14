@@ -469,7 +469,7 @@ pub(super) fn gen_convert_with_visitor_wrapper(
     let mut out = String::with_capacity(2048);
 
     let func_go_name = to_go_name(&func.name);
-    emit_type_doc(&mut out, &func_go_name, &func.doc, "converts HTML to Markdown.");
+    emit_type_doc(&mut out, &func_go_name, &func.doc, "runs the generated conversion.");
 
     // Find the html and options parameters.
     let options_param = func.params.iter().find(|p| p.name == "options");

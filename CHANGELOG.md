@@ -9,7 +9,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **alef-backend-swift**: streaming adapters are now implemented end-to-end.
+- **alef-backend-kotlin-android**: new standalone backend crate for emitting
+  Android library (AAR) projects from alef. Carved out of
+  `alef-backend-kotlin/src/gen_android/` into a self-contained crate so the
+  emission pipeline owns every file the AAR needs — no scaffold dependency.
+  - **`Language::KotlinAndroid`** (slug `"kotlin_android"`, with
+    `"kotlin-android"` accepted as a deserialization alias) is a first-class
+    target distinct from `Language::Kotlin`. Workspaces can emit both JVM and
+    Android Kotlin sets in parallel.
+  - **Self-contained emission**: every file required for
+    `gradle assembleRelease` is produced by the backend — `build.gradle.kts`
+    (AGP plugin with version, `com.android.library`, kotlin("android"),
+    maven-publish, namespace, compileSdk/minSdk/jvmTarget),
+    `settings.gradle.kts` (pluginManagement with `google()`,
+    `mavenCentral()`, `gradlePluginPortal()` + `dependencyResolutionManagement`),
+    `src/main/AndroidManifest.xml`, `consumer-rules.pro`, `proguard-rules.pro`,
+    `.gitignore`, `src/main/jniLibs/{arm64-v8a,x86_64}/.gitkeep`.
+  - **Self-contained Java facade**: the backend re-emits the Java records
+    that the Kotlin Android binding depends on into the AAR's
+    `src/main/java/{java_pkg_path}/` directory, so the published AAR has no
+    runtime dependency on a co-published Java jar.
+  - **`KotlinAndroidConfig`** on `ResolvedCrateConfig` adds Android-specific
+    knobs (`namespace`, `artifact_id`, `group_id`, `compile_sdk`, `min_sdk`,
+    `jvm_target`, `abis`, `exclude_functions`, `exclude_types`). Defaults
+    pulled from `template_versions::toolchain` so renovate keeps them current.
+  - Snapshot tests cover every emitted file for a representative API
+    (struct, enum, error, sync fn, async fn). insta-based, `cargo test
+    -p alef-backend-kotlin-android`.
+
+### Fixed
+
+- **alef-backend-swift, alef-backend-dart**: emit correct `package = "..."` rename in bridge `Cargo.toml`. The rename target previously used `core_crate_dir` (the on-disk directory name), but cargo needs the actual `[package].name` from the umbrella crate's `Cargo.toml`. The two differ when `[[crates]] name` is suffixed for crates.io disambiguation (e.g. `html-to-markdown-rs` package at `crates/html-to-markdown/`). Without the fix, `cargo check` errors with `no matching package found, searched package name: "html-to-markdown"`. Use `crate_name` (the [[crates]] `name` field) for the rename target instead.
+
+### Changed
+
+- **BREAKING — alef-backend-kotlin**: the in-band `[crates.kotlin] mode =
+  "android"` dispatch path has been removed. Consumers that previously
+  emitted Android via the kotlin backend must migrate to
+  `Language::KotlinAndroid` and `[crates.kotlin_android]`. Setting
+  `mode = "android"` now raises a hard error pointing at the new slug.
+- **BREAKING — alef-scaffold**: `scaffold_kotlin_android` has been removed.
+  Android scaffolding lives in `alef-backend-kotlin-android` so the same
+  emitter owns the project tree on every regeneration. The
+  `"android"` branch in `scaffold_kotlin` dispatch is gone.
   `Capabilities::supports_streaming` flips from `false` to `true`. For every
   adapter with `pattern = streaming`:
   - **Rust shim** emits a per-adapter opaque `{Owner}{Adapter}StreamHandle`
@@ -70,11 +112,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   uses Dart SDK `>=3.11.0 <4.0.0`, removes generated `BUILDING.md`, derives
   generated analyzer excludes from the crate name, and centralizes pub.dev
   dependency pins for Renovate.
-- **alef-scaffold**: Kotlin remains one backend and now scaffolds JVM, Android,
-  Native, and Kotlin Multiplatform project layouts from existing Kotlin
-  mode/target configuration. Android and ktlint dependency/tool pins are
-  centralized for Renovate, and generated JVM text uses generic
-  `native.lib.path` instead of organization-specific properties.
+- **alef-scaffold**: Kotlin scaffolding still covers JVM, Native, and Kotlin
+  Multiplatform from Kotlin mode/target configuration. **Android scaffolding
+  moved into the new `alef-backend-kotlin-android` crate** (see Added). Kotlin
+  and ktlint dependency/tool pins are centralized for Renovate, and generated
+  JVM text uses generic `native.lib.path` instead of organization-specific
+  properties.
 - **alef-scaffold**: Zig scaffolding no longer uses organization-specific
   workflow setup actions and now uses the public Zig setup action.
 

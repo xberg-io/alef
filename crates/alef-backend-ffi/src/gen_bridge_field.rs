@@ -143,7 +143,7 @@ pub unsafe extern "C" fn {fn_name}(
 pub fn gen_convert_with_options_field_bridge(prefix: &str, core_import: &str) -> String {
     let fn_name = format!("{prefix}_convert");
     format!(
-        r#"/// Convert HTML to Markdown.
+        r#"/// Run conversion.
 ///
 /// Returns a heap-allocated [`ConversionResult`] on success, or null on failure.
 /// Check `{prefix}_last_error_code` / `{prefix}_last_error_context` for error details.

@@ -639,7 +639,7 @@ pub fn trait_bridge_imports(configs: &[TraitBridgeConfig]) -> Vec<&'static str> 
 /// ```rust,ignore
 /// let visitor = visitor.map(|v| {
 ///     let bridge = PyHtmlVisitorBridge::new(v);
-///     std::sync::Arc::new(std::sync::Mutex::new(bridge)) as html_to_markdown_rs::visitor::VisitorHandle
+///     std::sync::Arc::new(std::sync::Mutex::new(bridge)) as core_crate::visitor::VisitorHandle
 /// });
 /// ```
 #[allow(clippy::too_many_arguments)]

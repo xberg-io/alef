@@ -953,7 +953,7 @@ fn can_flat_data_enum_round_trip(e: &alef_core::ir::EnumDef) -> bool {
 /// JSON encoding) so the variant payload survives the FFI boundary.
 ///
 /// The core type must implement `Serialize`/`Deserialize` consistently with the wire
-/// format. Tagged enums in Kreuzberg derive both unconditionally, so this is safe.
+/// format. Tagged enums in supported source crates derive both unconditionally, so this is safe.
 fn is_json_passthrough_data_enum(e: &alef_core::ir::EnumDef) -> bool {
     if is_flat_data_enum(e) {
         return false;
