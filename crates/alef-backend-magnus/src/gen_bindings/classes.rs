@@ -151,6 +151,7 @@ fn build_method_preamble(
 }
 
 /// Generate an opaque sync instance method for Magnus (delegates to self.inner).
+#[allow(clippy::too_many_arguments)]
 fn gen_opaque_instance_method(
     typ: &TypeDef,
     method: &MethodDef,
@@ -251,6 +252,7 @@ fn gen_opaque_instance_method(
 }
 
 /// Generate an opaque async instance method for Magnus (block on runtime, delegates to self.inner).
+#[allow(clippy::too_many_arguments)]
 fn gen_opaque_async_instance_method(
     typ: &TypeDef,
     method: &MethodDef,

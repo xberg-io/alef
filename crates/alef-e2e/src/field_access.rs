@@ -806,15 +806,10 @@ fn render_java(segments: &[PathSegment], result_var: &str) -> String {
     out
 }
 
-/// Kotlin accessor: same camelCase method calls as Java but uses Kotlin idioms.
-///
-/// Differences from Java:
-/// - Array index-0: `.field().first()` instead of `.field().getFirst()`
-/// - Array index-N: `.field().get(N)` (explicit index)
-/// - Collection size: `.size` (property) instead of `.size()` (method)
 /// Wrap a Kotlin getter name in backticks when it collides with a Kotlin hard keyword.
+///
 /// Hard keywords cannot be used as identifiers without escaping, so `result.object()`
-/// is a syntax error; `result.`object`()` is the legal form.
+/// is a syntax error; `` result.`object`() `` is the legal form.
 fn kotlin_getter(name: &str) -> String {
     let camel = name.to_lower_camel_case();
     match camel.as_str() {
