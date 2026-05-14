@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-05-14
+
 ### Added
 
 - **alef-backend-kotlin-android**: new standalone backend crate for emitting
@@ -52,6 +54,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Android scaffolding lives in `alef-backend-kotlin-android` so the same
   emitter owns the project tree on every regeneration. The
   `"android"` branch in `scaffold_kotlin` dispatch is gone.
+
+- **alef-backend-swift**: streaming adapters are now implemented end-to-end.
   `Capabilities::supports_streaming` flips from `false` to `true`. For every
   adapter with `pattern = streaming`:
   - **Rust shim** emits a per-adapter opaque `{Owner}{Adapter}StreamHandle`
