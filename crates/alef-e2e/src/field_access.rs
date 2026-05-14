@@ -336,7 +336,27 @@ impl FieldResolver {
         }
         let segments = parse_path(resolved);
         let segments = self.inject_array_indexing(segments);
-        let local_var = resolved.replace(['.', '['], "_").replace(']', "");
+        // Sanitize the resolved path into a snake_case Rust identifier:
+        // 1. `.` and `[` become `_` separators, `]` is dropped.
+        // 2. Collapse runs of `_` so `foo[].bar` → `foo__bar` → `foo_bar`
+        //    and strip any leading/trailing underscores.
+        let local_var = {
+            let raw = resolved.replace(['.', '['], "_").replace(']', "");
+            let mut collapsed = String::with_capacity(raw.len());
+            let mut prev_underscore = false;
+            for ch in raw.chars() {
+                if ch == '_' {
+                    if !prev_underscore {
+                        collapsed.push('_');
+                    }
+                    prev_underscore = true;
+                } else {
+                    collapsed.push(ch);
+                    prev_underscore = false;
+                }
+            }
+            collapsed.trim_matches('_').to_string()
+        };
         let accessor = render_accessor(&segments, "rust", result_var);
         let has_map_access = segments.iter().any(|s| {
             if let PathSegment::MapAccess { key, .. } = s {
@@ -1732,6 +1752,25 @@ mod tests {
     fn test_rust_unwrap_binding_non_optional() {
         let r = make_resolver();
         assert!(r.rust_unwrap_binding("content", "result").is_none());
+    }
+
+    #[test]
+    fn test_rust_unwrap_binding_collapses_double_underscore() {
+        // When an alias resolves to a path with `[]` (e.g. `json_ld.name` →
+        // `json_ld[].name`), the naive replace previously yielded `json_ld__name`,
+        // which trips Rust's non_snake_case lint under -D warnings. The local
+        // binding name must collapse consecutive underscores into one.
+        let mut aliases = HashMap::new();
+        aliases.insert("json_ld.name".to_string(), "json_ld[].name".to_string());
+        let mut optional = HashSet::new();
+        optional.insert("json_ld[].name".to_string());
+        let mut array = HashSet::new();
+        array.insert("json_ld".to_string());
+        let result_fields = HashSet::new();
+        let method_calls = HashSet::new();
+        let r = FieldResolver::new(&aliases, &optional, &result_fields, &array, &method_calls);
+        let (_binding, var) = r.rust_unwrap_binding("json_ld.name", "result").unwrap();
+        assert_eq!(var, "json_ld_name");
     }
 
     #[test]
