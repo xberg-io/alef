@@ -577,3 +577,94 @@ unregister_fn = "unregister_ocr_backend"
         );
     }
 }
+
+/// Snapshot the full output of a streaming adapter: the generated swift-bridge
+/// Rust crate (which declares the opaque `StreamHandle` + `_start` + `next`)
+/// and the Swift host wrapper (which exposes an `AsyncThrowingStream<Item, Error>`).
+///
+/// This locks down the public shape of the streaming codepath. Changes to the
+/// emitted Rust shim or Swift wrapper require a deliberate snapshot review —
+/// not a blanket accept — because downstream consumers (kreuzcrawl, liter-llm)
+/// depend on the exact Swift surface for their hand-written facade layer.
+#[test]
+fn snapshot_streaming_adapter() {
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![TypeDef {
+            name: "DefaultClient".to_string(),
+            rust_path: "demo::DefaultClient".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![MethodDef {
+                name: "ping".to_string(),
+                params: vec![],
+                return_type: TypeRef::String,
+                is_async: false,
+                is_static: false,
+                error_type: None,
+                doc: String::new(),
+                sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                receiver: Some(ReceiverKind::Ref),
+                trait_source: None,
+                has_default_impl: false,
+            }],
+            is_opaque: true,
+            is_clone: false,
+            is_copy: false,
+            doc: "Streaming-capable demo client.".to_string(),
+            cfg: None,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let toml = r#"
+[workspace]
+languages = ["swift"]
+
+[[crates]]
+name = "demo"
+sources = ["src/lib.rs"]
+
+[[crates.adapters]]
+name = "chat_stream"
+pattern = "streaming"
+core_path = "demo::chat_stream"
+owner_type = "DefaultClient"
+item_type = "ChatChunk"
+error_type = "DemoError"
+
+[[crates.adapters.params]]
+name = "req"
+type = "demo::ChatRequest"
+
+[crates.swift]
+client_constructor_body.DefaultClient = "Self { inner: ::demo::DefaultClient::new(api_key, base_url) }"
+"#;
+    let cfg: NewAlefConfig = toml::from_str(toml).expect("test config must parse");
+    let config = cfg.resolve().expect("test config must resolve").remove(0);
+
+    let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
+    for file in &files {
+        insta::assert_snapshot!(
+            format!(
+                "snapshot_streaming__{}",
+                file.path.display().to_string().replace('/', "__")
+            ),
+            &file.content
+        );
+    }
+}

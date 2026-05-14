@@ -835,3 +835,150 @@ fn output_path_uses_pascal_case_module_name() {
     let path = swift_file.path.to_string_lossy();
     assert!(path.contains("DemoCrate.swift"), "unexpected output path: {path}");
 }
+
+// ── streaming-method emission tests ──────────────────────────────────────────
+
+/// Helper: build a `ResolvedCrateConfig` with one streaming adapter on
+/// `DefaultClient` plus a `client_constructor_body` override (required to make
+/// `emit_client_class` consider the owner type).
+fn make_streaming_config() -> ResolvedCrateConfig {
+    let toml = r#"
+[workspace]
+languages = ["swift"]
+
+[[crates]]
+name = "demo-crate"
+sources = ["src/lib.rs"]
+
+[[crates.adapters]]
+name = "chat_stream"
+pattern = "streaming"
+core_path = "demo_crate::chat_stream"
+owner_type = "DefaultClient"
+item_type = "ChatCompletionChunk"
+error_type = "DemoError"
+
+[[crates.adapters.params]]
+name = "req"
+type = "demo_crate::ChatCompletionRequest"
+
+[crates.swift]
+client_constructor_body.DefaultClient = "Self { inner: ::demo_crate::DefaultClient::new(api_key, base_url) }"
+"#;
+    let cfg: NewAlefConfig = toml::from_str(toml).expect("test config must parse");
+    cfg.resolve().expect("test config must resolve").remove(0)
+}
+
+/// Build an `ApiSurface` exposing `DefaultClient` as an opaque type so the
+/// gen_bindings pipeline emits a public Swift class wrapper for it.
+fn make_streaming_api() -> ApiSurface {
+    use alef_core::ir::{MethodDef, ReceiverKind};
+    ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![TypeDef {
+            name: "DefaultClient".to_string(),
+            rust_path: "demo_crate::DefaultClient".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![MethodDef {
+                name: "ping".to_string(),
+                params: vec![],
+                return_type: TypeRef::String,
+                is_async: false,
+                is_static: false,
+                error_type: None,
+                doc: String::new(),
+                sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                receiver: Some(ReceiverKind::Ref),
+                trait_source: None,
+                has_default_impl: false,
+            }],
+            is_opaque: true,
+            is_clone: false,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    }
+}
+
+/// The streaming wrapper must return an `AsyncThrowingStream<Item, Error>` so
+/// Swift consumers can drive it with `for try await chunk in stream`.
+#[test]
+fn streaming_adapter_emits_async_throwing_stream_wrapper() {
+    let api = make_streaming_api();
+    let config = make_streaming_config();
+    let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
+    let swift = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with(".swift"))
+        .unwrap();
+
+    assert!(
+        swift.content.contains(
+            "public func chatStream(_ req: ChatCompletionRequest) async throws -> AsyncThrowingStream<ChatCompletionChunk, Error>"
+        ),
+        "streaming wrapper must declare AsyncThrowingStream return type; got:\n{}",
+        swift.content
+    );
+    assert!(
+        swift.content.contains("RustBridge.defaultClientChatStreamStart(inner"),
+        "streaming wrapper must call defaultClientChatStreamStart with the owner handle; got:\n{}",
+        swift.content
+    );
+    // Must drain via handle.next() in a detached task.
+    assert!(
+        swift.content.contains("handle.next().toString()"),
+        "streaming wrapper must drain via handle.next(); got:\n{}",
+        swift.content
+    );
+    // Must terminate cleanly on the empty-string EOF sentinel.
+    assert!(
+        swift.content.contains("if json.isEmpty { break }"),
+        "streaming wrapper must break on empty-string EOF sentinel; got:\n{}",
+        swift.content
+    );
+    // Must JSON-decode each chunk into the configured item type.
+    assert!(
+        swift
+            .content
+            .contains("decoder.decode(ChatCompletionChunk.self, from: data)"),
+        "streaming wrapper must JSON-decode each chunk; got:\n{}",
+        swift.content
+    );
+    // Must cancel the drain task on stream termination so the Rust handle's deinit runs.
+    assert!(
+        swift
+            .content
+            .contains("continuation.onTermination = { _ in task.cancel() }"),
+        "streaming wrapper must cancel the drain task onTermination; got:\n{}",
+        swift.content
+    );
+}
+
+/// Capability flag must reflect the new streaming support so downstream tooling
+/// (alef CLI, e2e generators) emits Swift streaming fixtures.
+#[test]
+fn swift_backend_reports_supports_streaming_true() {
+    let backend = SwiftBackend;
+    let capabilities = alef_core::backend::Backend::capabilities(&backend);
+    assert!(
+        capabilities.supports_streaming,
+        "SwiftBackend must report supports_streaming = true now that AsyncThrowingStream is implemented"
+    );
+}

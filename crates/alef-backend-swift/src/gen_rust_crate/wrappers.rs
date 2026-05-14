@@ -967,7 +967,7 @@ pub(crate) fn emit_type_method_shims(
 /// (one runtime per chat session), so per-stream runtime overhead is acceptable.
 pub(crate) fn emit_streaming_adapter_shims(
     adapters: &[alef_core::config::AdapterConfig],
-    _source_crate: &str,
+    source_crate: &str,
 ) -> String {
     use alef_core::config::AdapterPattern;
     use heck::{ToPascalCase, ToSnakeCase};
@@ -980,13 +980,21 @@ pub(crate) fn emit_streaming_adapter_shims(
         .filter(|a| a.owner_type.is_some())
     {
         let owner_type = adapter.owner_type.as_deref().unwrap_or("");
+        let item_type = adapter
+            .item_type
+            .as_deref()
+            .expect("streaming adapter must declare item_type for Swift backend");
         let owner_snake = owner_type.to_snake_case();
         let adapter_pascal = adapter.name.to_pascal_case();
         let owner_pascal = owner_type.to_pascal_case();
         let handle_name = format!("{owner_pascal}{adapter_pascal}StreamHandle");
         let fn_start = format!("{owner_snake}_{}_start", adapter.name);
-        let fn_next = format!("{owner_snake}_{}_next", adapter.name);
-        let fn_free = format!("{owner_snake}_{}_free", adapter.name);
+
+        // The fully-qualified item type lives in the umbrella source crate.
+        // Consumers' item types are serde-bridged DTOs that already derive
+        // `Serialize`; we use `serde_json::to_string` on each chunk so the
+        // bridge boundary only sees `Result<String, String>`.
+        let core_item = format!("{source_crate}::{item_type}");
 
         // Build start-function param list: first param is the opaque client receiver,
         // then adapter params (passed by reference because their swift-bridge wrapper
@@ -995,18 +1003,19 @@ pub(crate) fn emit_streaming_adapter_shims(
         for p in &adapter.params {
             let simple_ty = p.ty.rsplit("::").next().unwrap_or(&p.ty);
             let param_name = swift_ident(&p.name.to_snake_case());
-            start_params_vec.push(format!("{param_name}: {simple_ty}"));
+            start_params_vec.push(format!("{param_name}: &{simple_ty}"));
         }
         let start_params_str = start_params_vec.join(", ");
 
         // Build call args (excluding the receiver). Named types bridged as
-        // newtypes must be unwrapped to `.0`.
+        // newtypes must be unwrapped to `.0` and cloned because the core API
+        // takes ownership of the request.
         let call_args: Vec<String> = adapter
             .params
             .iter()
             .map(|p| {
                 let name = p.name.to_snake_case();
-                format!("{name}.0")
+                format!("{name}.0.clone()")
             })
             .collect();
         let call_args_str = call_args.join(", ");
@@ -1021,38 +1030,48 @@ pub(crate) fn emit_streaming_adapter_shims(
         };
 
         // Emit the handle struct. It owns a Runtime and a Mutex<Option<BoxStream>>
-        // so `_next` can drive polling and so we can take the stream on drop.
+        // so `next()` can drive polling and so we can drop the stream on Drop.
         //
-        // The stream's concrete error type is erased to `Box<dyn Error + Send + Sync>`
-        // so the handle struct type is stable regardless of the core error type.
+        // Error type erased to `Box<dyn Error + Send + Sync>` so the struct type
+        // is stable across core error-type changes.
         //
-        // SAFETY: the handle is single-owner — Swift holds an OpaquePointer that
-        // is freed exactly once via `_free`. We never alias the inner stream
-        // across threads without the Mutex; the Mutex makes `_next` re-entrant
-        // safe even if Swift accidentally calls it from multiple tasks.
+        // SAFETY: the handle is single-owner — swift-bridge generates a Swift
+        // `class` shadow with `deinit { *_free(ptr) }` that runs Drop on this
+        // struct exactly once when the Swift handle goes out of scope. The Mutex
+        // guards `next()` so calls serialise even when Swift accidentally fans
+        // out across tasks.
         out.push_str(&format!(
-            "pub struct {handle_name} {{\n\
+            "/// Opaque handle owning a tokio runtime and a boxed `{item_type}` stream.\n\
+             ///\n\
+             /// Created by `{fn_start}`, advanced via `next()`. Drop runs when the\n\
+             /// Swift handle goes out of scope (swift-bridge generates the matching\n\
+             /// `deinit`), so explicit cleanup from Swift is unnecessary.\n\
+             ///\n\
+             /// Items are JSON-encoded at the bridge boundary because swift-bridge's\n\
+             /// `Option<OpaqueRust>` support varies across versions, while `Result<String,\n\
+             /// String>` is well-tested. An empty string `\"\"` is the EOF sentinel —\n\
+             /// no valid JSON value is the empty string.\n\
+             pub struct {handle_name} {{\n\
              \x20   rt: ::tokio::runtime::Runtime,\n\
              \x20   stream: ::std::sync::Mutex<\n\
              \x20       Option<\n\
              \x20           ::futures_util::stream::BoxStream<\n\
              \x20               'static,\n\
-             \x20               Result<\n\
-             \x20                   Box<dyn ::erased_serde::Serialize + Send + 'static>,\n\
-             \x20                   Box<dyn ::std::error::Error + Send + Sync + 'static>,\n\
-             \x20               >,\n\
+             \x20               Result<{core_item}, Box<dyn ::std::error::Error + Send + Sync + 'static>>,\n\
              \x20           >,\n\
              \x20       >,\n\
              \x20   >,\n\
              }}\n\n"
         ));
 
-        // _start: open the stream and box it. Errors from the core call become Err(String).
-        // We map each item to a boxed `dyn erased_serde::Serialize` so the handle type
-        // is independent of the concrete chunk type. JSON serialization happens at _next
-        // time (one allocation per chunk; acceptable for streaming).
+        // _start: open the stream. HTTP-level errors (e.g. 401) surface as
+        // Err(String) before any chunks arrive, so Swift `try` catches them.
         out.push_str(&format!(
-            "pub fn {fn_start}({start_params_str}) -> Result<*mut {handle_name}, String> {{\n\
+            "/// Start a streaming `{owner_type}::{adapter_name}` request.\n\
+             ///\n\
+             /// Returns a fresh `{handle_name}` whose ownership transfers to the\n\
+             /// Swift caller (swift-bridge boxes the handle internally).\n\
+             pub fn {fn_start}({start_params_str}) -> Result<{handle_name}, String> {{\n\
              \x20   use ::futures_util::StreamExt;\n\
              \x20   let rt = ::tokio::runtime::Builder::new_multi_thread()\n\
              \x20       .worker_threads(1)\n\
@@ -1066,65 +1085,45 @@ pub(crate) fn emit_streaming_adapter_shims(
              \x20   }})?;\n\
              \x20   let erased: ::futures_util::stream::BoxStream<\n\
              \x20       'static,\n\
-             \x20       Result<\n\
-             \x20           Box<dyn ::erased_serde::Serialize + Send + 'static>,\n\
-             \x20           Box<dyn ::std::error::Error + Send + Sync + 'static>,\n\
-             \x20       >,\n\
-             \x20   > = Box::pin(raw.map(|r| match r {{\n\
-             \x20       Ok(item) => Ok(Box::new(item) as Box<dyn ::erased_serde::Serialize + Send + 'static>),\n\
-             \x20       Err(e) => Err(Box::new(e) as Box<dyn ::std::error::Error + Send + Sync + 'static>),\n\
-             \x20   }}));\n\
-             \x20   let handle = Box::new({handle_name} {{\n\
+             \x20       Result<{core_item}, Box<dyn ::std::error::Error + Send + Sync + 'static>>,\n\
+             \x20   > = Box::pin(\n\
+             \x20       raw.map(|r| r.map_err(|e| Box::new(e) as Box<dyn ::std::error::Error + Send + Sync + 'static>)),\n\
+             \x20   );\n\
+             \x20   Ok({handle_name} {{\n\
              \x20       rt,\n\
              \x20       stream: ::std::sync::Mutex::new(Some(erased)),\n\
-             \x20   }});\n\
-             \x20   Ok(Box::into_raw(handle))\n\
-             }}\n\n"
+             \x20   }})\n\
+             }}\n\n",
+            adapter_name = adapter.name,
         ));
 
-        // _next: drive the stream. Returns Ok("") on clean EOF, Ok(json) on chunk,
-        // Err(msg) on stream error. SAFETY: caller (swift-bridge generated glue)
-        // guarantees `handle` is a valid pointer obtained from `_start` and not yet freed.
+        // The `next` method on the handle drives the stream forward.
         out.push_str(&format!(
-            "pub fn {fn_next}(handle: *mut {handle_name}) -> Result<String, String> {{\n\
-             \x20   if handle.is_null() {{\n\
-             \x20       return Err(\"{fn_next}: handle must not be null\".to_string());\n\
-             \x20   }}\n\
-             \x20   // SAFETY: handle is a valid `*mut {handle_name}` produced by `{fn_start}`.\n\
-             \x20   // We take an exclusive reference only for the duration of this call;\n\
-             \x20   // Swift must serialise calls to `_next` per stream (it does — one task per stream).\n\
-             \x20   let h: &mut {handle_name} = unsafe {{ &mut *handle }};\n\
-             \x20   let mut guard = h\n\
-             \x20       .stream\n\
-             \x20       .lock()\n\
-             \x20       .map_err(|_| \"{fn_next}: stream mutex poisoned\".to_string())?;\n\
-             \x20   let stream = match guard.as_mut() {{\n\
-             \x20       Some(s) => s,\n\
-             \x20       None => return Ok(String::new()),\n\
-             \x20   }};\n\
-             \x20   use ::futures_util::StreamExt;\n\
-             \x20   match h.rt.block_on(stream.next()) {{\n\
-             \x20       Some(Ok(item)) => ::serde_json::to_string(&item).map_err(|e| e.to_string()),\n\
-             \x20       Some(Err(e)) => Err(e.to_string()),\n\
-             \x20       None => {{\n\
-             \x20           *guard = None;\n\
-             \x20           Ok(String::new())\n\
+            "impl {handle_name} {{\n\
+             \x20   /// Advance the stream and return the next chunk JSON, or `\"\"` on clean\n\
+             \x20   /// end-of-stream. Returns `Err(message)` on a stream-level error.\n\
+             \x20   pub fn next(&mut self) -> Result<String, String> {{\n\
+             \x20       let mut guard = self\n\
+             \x20           .stream\n\
+             \x20           .lock()\n\
+             \x20           .map_err(|_| \"{handle_name}::next: stream mutex poisoned\".to_string())?;\n\
+             \x20       let stream = match guard.as_mut() {{\n\
+             \x20           Some(s) => s,\n\
+             \x20           None => return Ok(String::new()),\n\
+             \x20       }};\n\
+             \x20       use ::futures_util::StreamExt;\n\
+             \x20       match self.rt.block_on(stream.next()) {{\n\
+             \x20           Some(Ok(item)) => ::serde_json::to_string(&item).map_err(|e| e.to_string()),\n\
+             \x20           Some(Err(e)) => {{\n\
+             \x20               *guard = None;\n\
+             \x20               Err(e.to_string())\n\
+             \x20           }}\n\
+             \x20           None => {{\n\
+             \x20               *guard = None;\n\
+             \x20               Ok(String::new())\n\
+             \x20           }}\n\
              \x20       }}\n\
              \x20   }}\n\
-             }}\n\n"
-        ));
-
-        // _free: drop the handle. SAFETY: handle must have been produced by _start and
-        // not yet freed. Null is a no-op.
-        out.push_str(&format!(
-            "pub fn {fn_free}(handle: *mut {handle_name}) {{\n\
-             \x20   if handle.is_null() {{\n\
-             \x20       return;\n\
-             \x20   }}\n\
-             \x20   // SAFETY: `handle` was produced by `Box::into_raw` in `{fn_start}` and has\n\
-             \x20   // not been freed. Reconstructing the Box transfers ownership back to Rust,\n\
-             \x20   // which drops the runtime + stream at end of scope.\n\
-             \x20   unsafe {{ drop(Box::from_raw(handle)); }}\n\
              }}\n\n"
         ));
     }

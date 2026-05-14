@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-backend-swift, alef-backend-dart**: emit correct `package = "..."` rename in bridge `Cargo.toml`. The rename target previously used `core_crate_dir` (the on-disk directory name), but cargo needs the actual `[package].name` from the umbrella crate's `Cargo.toml`. The two differ when `[[crates]] name` is suffixed for crates.io disambiguation (e.g. `html-to-markdown-rs` package at `crates/html-to-markdown/`). Without the fix, `cargo check` errors with `no matching package found, searched package name: "html-to-markdown"`. Use `crate_name` (the [[crates]] `name` field) for the rename target instead.
+
 ### Changed
 
 - **alef-core/alef-scaffold/backends**: Alef is less organization-specific by

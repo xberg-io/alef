@@ -10,7 +10,7 @@ use crate::gen_rust_crate::wrappers::is_unbridgeable_getter;
 use alef_core::config::AdapterConfig;
 use alef_core::ir::{EnumDef, FunctionDef, TypeDef, TypeRef};
 use alef_core::keywords::swift_ident;
-use heck::{ToLowerCamelCase, ToSnakeCase};
+use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use std::collections::{HashMap, HashSet};
 
 pub(crate) fn emit_extern_block_for_type(
@@ -355,12 +355,21 @@ pub(crate) fn emit_extern_block_for_functions(
     block
 }
 
-/// Emit a single `extern "Rust"` block declaring all streaming adapter free functions.
+/// Emit a single `extern "Rust"` block declaring all streaming-adapter
+/// `StreamHandle` opaque types and their `_start` + `next` bridge functions.
 ///
-/// Each streaming adapter with an `owner_type` becomes a free function
-/// `{owner_snake}_{adapter_name}(client: &OwnerType, …params…) -> Result<(), String>`
-/// in the swift-bridge module. swift-bridge maps `Result<(), String>` to a throwing
-/// Swift call, so HTTP-level errors (e.g. 401) propagate before any chunks arrive.
+/// Each streaming adapter with an `owner_type` produces:
+///
+/// 1. An opaque `{Owner}{Adapter}StreamHandle` type declaration. swift-bridge
+///    auto-generates a Swift `class` shadow with `deinit { *_free(ptr) }` so
+///    Rust's `Drop` runs when the Swift handle goes out of scope — no manual
+///    `_free` function is required.
+/// 2. A free function `{owner_snake}_{adapter}_start(client, params...) ->
+///    Result<{HandleName}, String>` that opens the stream. HTTP-level errors
+///    (e.g. 401) surface here before any chunks arrive.
+/// 3. A method `next(&mut self) -> Result<String, String>` on the handle.
+///    Returns the JSON-encoded chunk or `""` on clean EOF; `Err(message)` on a
+///    stream-level error.
 ///
 /// Returns `None` when `adapters` contains no streaming entries.
 pub(crate) fn emit_extern_block_for_streaming_adapters(adapters: &[AdapterConfig]) -> Option<String> {
@@ -379,39 +388,65 @@ pub(crate) fn emit_extern_block_for_streaming_adapters(adapters: &[AdapterConfig
     let mut block = String::new();
     block.push_str("    extern \"Rust\" {\n");
 
+    // 1. Opaque handle type declarations. The methods that take `&mut self`
+    //    must appear in the same extern block as the type declaration.
+    for adapter in &streaming {
+        let owner_type = adapter.owner_type.as_deref().unwrap_or("");
+        let owner_pascal = owner_type.to_pascal_case();
+        let adapter_pascal = adapter.name.to_pascal_case();
+        let handle_name = format!("{owner_pascal}{adapter_pascal}StreamHandle");
+        block.push_str(&format!("        type {handle_name};\n"));
+    }
+    block.push('\n');
+
     for adapter in &streaming {
         let owner_type = adapter.owner_type.as_deref().unwrap_or("");
         let owner_snake = owner_type.to_snake_case();
-        let fn_name = format!("{owner_snake}_{}", adapter.name);
-        let swift_name = swift_ident(&fn_name.to_lower_camel_case());
+        let owner_pascal = owner_type.to_pascal_case();
+        let adapter_pascal = adapter.name.to_pascal_case();
+        let handle_name = format!("{owner_pascal}{adapter_pascal}StreamHandle");
 
-        // First param is always the opaque client receiver.
-        let mut params: Vec<String> = vec![format!("client: &{owner_type}")];
+        let fn_start = format!("{owner_snake}_{}_start", adapter.name);
+        let swift_start = swift_ident(&fn_start.to_lower_camel_case());
+
+        // _start params: client receiver + adapter params (by reference because
+        // swift-bridge wrapper newtypes are non-Copy). The Rust shim clones the
+        // unwrapped inner value when it needs ownership for the async call.
+        let mut start_params: Vec<String> = vec![format!("client: &{owner_type}")];
         for p in &adapter.params {
             // Adapter param types are stored as Rust path strings (e.g.
-            // `liter_llm::ChatCompletionRequest`). Strip any module prefix for the
-            // swift-bridge extern declaration — the bridge sees only the simple
-            // wrapper-newtype name (which mirrors what `wrappers.rs` declares).
+            // `liter_llm::ChatCompletionRequest`). Strip any module prefix —
+            // the swift-bridge extern sees only the simple wrapper-newtype name.
             let simple_ty = p.ty.rsplit("::").next().unwrap_or(&p.ty);
             let param_name = swift_ident(&p.name.to_snake_case());
-            params.push(format!("{param_name}: {simple_ty}"));
+            start_params.push(format!("{param_name}: &{simple_ty}"));
         }
-        let params_str = params.join(", ");
+        let start_params_str = start_params.join(", ");
 
-        if swift_name != fn_name {
+        if swift_start != fn_start {
             block.push_str(&crate::template_env::render(
                 "extern_swift_name_attr.jinja",
-                minijinja::context! {
-                    swift_name => &swift_name,
-                },
+                minijinja::context! { swift_name => &swift_start },
             ));
         }
         block.push_str(&crate::template_env::render(
             "extern_fn_decl.jinja",
             minijinja::context! {
-                fn_name => &fn_name,
-                params => &params_str,
-                return_type => "Result<(), String>",
+                fn_name => &fn_start,
+                params => &start_params_str,
+                return_type => format!("Result<{handle_name}, String>"),
+            },
+        ));
+
+        // `next` is a method on the handle. swift-bridge places it as a Swift
+        // instance method on the generated class. The Rust impl `next(&mut self)`
+        // lives in `wrappers.rs::emit_streaming_adapter_shims`.
+        block.push_str(&crate::template_env::render(
+            "extern_fn_decl.jinja",
+            minijinja::context! {
+                fn_name => "next",
+                params => format!("self: &mut {handle_name}"),
+                return_type => "Result<String, String>",
             },
         ));
     }

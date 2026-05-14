@@ -5,7 +5,7 @@
 pub(crate) fn emit_cargo_toml(
     crate_name: &str,
     core_dep_key: &str,
-    core_crate_dir: &str,
+    _core_crate_dir: &str,
     version: &str,
     swift_bridge_ver: &str,
     swift_bridge_build_ver: &str,
@@ -26,13 +26,16 @@ pub(crate) fn emit_cargo_toml(
         format!(", features = [{list}]")
     };
     // When the Rust ident form of the umbrella crate name (`core_dep_key`,
-    // e.g. `liter_llm`) differs from the actual cargo package name on disk
-    // (`core_crate_dir`, e.g. `liter-llm`), cargo will not resolve the path
-    // dependency unless we add an explicit `package = "..."` rename. Without
-    // this, `liter_llm = { path = "..." }` looks for a crate literally named
-    // `liter_llm` rather than the on-disk `liter-llm`.
-    let package_rename_block = if core_dep_key != core_crate_dir {
-        format!(", package = \"{core_crate_dir}\"")
+    // e.g. `liter_llm`) differs from the actual cargo package name in the
+    // umbrella Cargo.toml (`crate_name`, e.g. `liter-llm`), cargo will not
+    // resolve the path dependency unless we add an explicit `package = "..."`
+    // rename. Use `crate_name` (the [[crates]] `name` field, which is the
+    // cargo package name) rather than `core_crate_dir` (the directory name)
+    // because the two can differ — e.g. `[[crates]] name = "html-to-markdown-rs"`
+    // with sources under `crates/html-to-markdown/` where the package on disk
+    // is `html-to-markdown-rs` but the directory is `html-to-markdown`.
+    let package_rename_block = if core_dep_key != crate_name {
+        format!(", package = \"{crate_name}\"")
     } else {
         String::new()
     };

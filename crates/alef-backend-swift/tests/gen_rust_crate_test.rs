@@ -1129,13 +1129,15 @@ fn trait_bridge_no_unregister_or_clear_when_both_none() {
 /// When a `[[crates.adapters]]` entry has `pattern = "streaming"` and
 /// `owner_type` set to an opaque-handle type, the generated `lib.rs` must:
 ///
-/// 1. Declare the free function in an `extern "Rust"` block inside the
-///    `#[swift_bridge::bridge]` module, returning `Result<(), String>`.
-/// 2. Emit a concrete Rust free-function implementation that blocks on a Tokio
-///    runtime and drives the stream to completion, also returning `Result<(), String>`.
+/// 1. Declare the opaque `{Owner}{Adapter}StreamHandle` type plus its `_start`
+///    free function and `next` method inside the `#[swift_bridge::bridge]` module.
+/// 2. Emit a concrete Rust handle struct + `_start` free function (returning
+///    `Result<Handle, String>`) + `impl Handle { fn next(&mut self) -> Result<String, String> }`
+///    that drives the underlying stream and JSON-encodes each chunk.
 ///
-/// Without these two pieces swift-bridge cannot generate the Swift glue that
-/// the host wrapper's `try await RustBridge.defaultClientChatStream(…)` call requires.
+/// These three pieces back the host-side `AsyncThrowingStream<Item, Error>` wrapper
+/// emitted by `gen_bindings::emit_streaming_client_method`. swift-bridge generates the
+/// matching Swift `class` shadow with `deinit` so no explicit `_free` is needed.
 #[test]
 fn streaming_adapter_emits_extern_block_and_rust_shim() {
     use alef_core::ir::ReceiverKind;
@@ -1211,40 +1213,74 @@ type = "ChatCompletionRequest"
     let files = gen_rust_crate::emit(&api, &config).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
-    // 1. The extern "Rust" block must declare the free function so swift-bridge
-    //    generates the corresponding Swift glue.
+    // 1. The extern "Rust" block must declare the opaque handle type and the
+    //    `_start` free function that returns it.
     assert!(
-        lib.content.contains("fn default_client_chat_stream("),
-        "extern block must declare default_client_chat_stream; got:\n{}",
+        lib.content.contains("type DefaultClientChatStreamStreamHandle;"),
+        "extern block must declare DefaultClientChatStreamStreamHandle; got:\n{}",
         lib.content
     );
     assert!(
-        lib.content.contains("Result<(), String>"),
-        "streaming adapter bridge fn must return Result<(), String>; got:\n{}",
+        lib.content.contains("fn default_client_chat_stream_start("),
+        "extern block must declare default_client_chat_stream_start; got:\n{}",
         lib.content
     );
-    // The swift_name attribute must produce the camelCase name that the Swift
-    // host wrapper references as `RustBridge.defaultClientChatStream(…)`.
     assert!(
-        lib.content.contains("defaultClientChatStream"),
-        "extern block must set swift_name = \"defaultClientChatStream\"; got:\n{}",
+        lib.content
+            .contains("Result<DefaultClientChatStreamStreamHandle, String>"),
+        "_start must return Result<Handle, String>; got:\n{}",
+        lib.content
+    );
+    // _next must appear as a method on the handle in the extern "Rust" block.
+    assert!(
+        lib.content
+            .contains("fn next(self: &mut DefaultClientChatStreamStreamHandle) -> Result<String, String>"),
+        "extern block must declare `next(&mut self) -> Result<String, String>`; got:\n{}",
+        lib.content
+    );
+    // The Swift wrapper references `defaultClientChatStreamStart`, so the
+    // camelCased swift_name must be emitted.
+    assert!(
+        lib.content.contains("defaultClientChatStreamStart"),
+        "extern block must set swift_name = \"defaultClientChatStreamStart\"; got:\n{}",
         lib.content
     );
 
-    // 2. The concrete Rust shim must block on a Tokio runtime.
+    // 2. The concrete Rust struct + functions must be emitted.
     assert!(
-        lib.content.contains("pub fn default_client_chat_stream("),
-        "lib.rs must emit a concrete default_client_chat_stream fn; got:\n{}",
+        lib.content.contains("pub struct DefaultClientChatStreamStreamHandle"),
+        "lib.rs must emit a concrete DefaultClientChatStreamStreamHandle struct; got:\n{}",
+        lib.content
+    );
+    assert!(
+        lib.content.contains("pub fn default_client_chat_stream_start("),
+        "lib.rs must emit a concrete _start function; got:\n{}",
+        lib.content
+    );
+    assert!(
+        lib.content.contains("impl DefaultClientChatStreamStreamHandle"),
+        "lib.rs must emit an `impl` block defining `next` on the handle; got:\n{}",
+        lib.content
+    );
+    assert!(
+        lib.content.contains("pub fn next(&mut self)"),
+        "handle impl must define `next(&mut self)`; got:\n{}",
         lib.content
     );
     assert!(
         lib.content.contains("tokio::runtime::Builder"),
-        "streaming shim must construct a Tokio runtime; got:\n{}",
+        "stream shim must construct a Tokio runtime; got:\n{}",
         lib.content
     );
     assert!(
         lib.content.contains(".block_on("),
-        "streaming shim must call block_on; got:\n{}",
+        "stream shim must call block_on; got:\n{}",
+        lib.content
+    );
+    // EOF sentinel: empty-string return on clean stream end.
+    assert!(
+        lib.content.contains("Ok(String::new())"),
+        "next() must return Ok(String::new()) on clean EOF; got:\n{}",
         lib.content
     );
 }

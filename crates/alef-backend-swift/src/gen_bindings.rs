@@ -29,7 +29,7 @@ impl Backend for SwiftBackend {
             supports_option: true,
             supports_result: true,
             supports_callbacks: false,
-            supports_streaming: false,
+            supports_streaming: true,
         }
     }
 
@@ -469,28 +469,36 @@ fn emit_client_class(
     out.push_str("}\n");
 }
 
-/// Emit a thin `async throws` wrapper for a streaming adapter method on a Swift client class.
+/// Emit an `AsyncThrowingStream<Item, Error>` wrapper for a streaming adapter
+/// method on a Swift client class.
 ///
-/// Streaming adapters (e.g. `chatStream`) are generated as free functions in the Rust
-/// bridge crate (`{snake_type}_{adapter_name}`) that initiate the HTTP request and return
-/// `Result<(), String>` — they validate the server response before any chunks arrive,
-/// so HTTP errors (e.g. 401) propagate as Swift throws immediately.
+/// Streaming adapters (e.g. `chatStream`) are bridged via three pieces in the
+/// generated swift-bridge Rust crate (see
+/// `gen_rust_crate::wrappers::emit_streaming_adapter_shims`):
 ///
-/// Since swift-bridge cannot bridge `BoxStream<T>` directly, the adapter returns `Void`
-/// on success; the stream itself must be consumed via a separate mechanism (e.g.
-/// an `AsyncThrowingStream` surface added in a future iteration).  The generated stub
-/// is sufficient to resolve compile errors and to exercise error-path fixtures.
+/// 1. An opaque `{Owner}{Adapter}StreamHandle` Rust struct owning a tokio runtime +
+///    boxed stream. swift-bridge generates the matching Swift class with `deinit`.
+/// 2. A `{owner_snake}_{adapter}_start(client, params...) -> Result<Handle, String>`
+///    free function. HTTP-level errors surface here before any chunks arrive.
+/// 3. A `next(&mut self) -> Result<String, String>` method on the handle —
+///    returns the JSON-encoded chunk, `""` on clean end-of-stream, or `Err` on a
+///    stream-level error.
 ///
-/// Generated form:
-/// ```swift
-///     public func chatStream(_ req: ChatCompletionRequest) async throws {
-///         try await RustBridge.defaultClientChatStream(self.inner, req)
-///     }
-/// ```
+/// The Swift wrapper:
+///
+/// - Returns `AsyncThrowingStream<ItemType, Error>` for `for try await chunk in stream` use.
+/// - Runs `_start` on a detached high-priority Task to keep the calling executor unblocked.
+/// - Drives `handle.next()` from a second detached Task, decoding each JSON chunk via
+///   `JSONDecoder` against the configured `item_type` (which must conform to `Decodable`).
+/// - Empty-string response from `next()` finishes the stream cleanly.
+/// - `continuation.onTermination` cancels the drain task so the handle's `deinit`
+///   runs promptly when a Swift consumer early-breaks out of the for-await loop.
 fn emit_streaming_client_method(adapter: &alef_core::config::AdapterConfig, owner_snake: &str, out: &mut String) {
     let method_camel = swift_ident(&adapter.name.to_lower_camel_case());
-    let bridge_fn_snake = format!("{owner_snake}_{}", adapter.name);
-    let bridge_fn_camel = swift_ident(&bridge_fn_snake.to_lower_camel_case());
+    let start_fn_snake = format!("{owner_snake}_{}_start", adapter.name);
+    let start_fn_camel = swift_ident(&start_fn_snake.to_lower_camel_case());
+
+    let item_type = adapter.item_type.as_deref().unwrap_or("String");
 
     // Build the Swift parameter list from the adapter params.
     let params: Vec<String> = adapter
@@ -517,12 +525,47 @@ fn emit_streaming_client_method(adapter: &alef_core::config::AdapterConfig, owne
         format!(", {call_args}")
     };
 
+    // Open the streaming method.
     out.push_str(&format!(
-        "    public func {method_camel}({params_str}) async throws {{\n"
+        "    public func {method_camel}({params_str}) async throws -> AsyncThrowingStream<{item_type}, Error> {{\n"
     ));
+    // Kick the stream on a detached Task so the calling executor stays free
+    // while the request opens (which itself blocks on a tokio runtime inside Rust).
+    out.push_str("        let inner = self.inner\n");
+    out.push_str("        let handle = try await Task.detached(priority: .userInitiated) {\n");
     out.push_str(&format!(
-        "        try await RustBridge.{bridge_fn_camel}(self.inner{call_args_str})\n"
+        "            try RustBridge.{start_fn_camel}(inner{call_args_str})\n"
     ));
+    out.push_str("        }.value\n\n");
+
+    // Build the AsyncThrowingStream. The drain Task owns the handle and is
+    // cancelled by `onTermination` so the handle's deinit fires promptly.
+    out.push_str(&format!(
+        "        return AsyncThrowingStream<{item_type}, Error> {{ continuation in\n"
+    ));
+    out.push_str("            let task = Task.detached(priority: .userInitiated) {\n");
+    out.push_str("                let decoder = JSONDecoder()\n");
+    out.push_str("                do {\n");
+    out.push_str("                    while !Task.isCancelled {\n");
+    out.push_str("                        let json = try handle.next().toString()\n");
+    out.push_str("                        if json.isEmpty { break }\n");
+    out.push_str("                        guard let data = json.data(using: .utf8) else {\n");
+    out.push_str(&format!(
+        "                            throw NSError(domain: \"{method_camel}\", code: -1, userInfo: [NSLocalizedDescriptionKey: \"chunk JSON is not UTF-8\"])\n"
+    ));
+    out.push_str("                        }\n");
+    out.push_str(&format!(
+        "                        let chunk = try decoder.decode({item_type}.self, from: data)\n"
+    ));
+    out.push_str("                        continuation.yield(chunk)\n");
+    out.push_str("                    }\n");
+    out.push_str("                    continuation.finish()\n");
+    out.push_str("                } catch {\n");
+    out.push_str("                    continuation.finish(throwing: error)\n");
+    out.push_str("                }\n");
+    out.push_str("            }\n");
+    out.push_str("            continuation.onTermination = { _ in task.cancel() }\n");
+    out.push_str("        }\n");
     out.push_str("    }\n");
 }
 
