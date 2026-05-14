@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-e2e/c**: only emit the mock-server orchestration block in the generated
+  `Makefile` when at least one fixture actually `needs_mock_server()`. Previously
+  every C e2e suite hard-required `../rust/target/release/mock-server` regardless
+  of whether any fixture defined `mock_response`/`http` shapes, breaking C FFI
+  CI for repositories whose fixtures never exercise HTTP (e.g. html-to-markdown
+  where 0 fixtures need a mock backend). Suites with mock-needing fixtures get
+  the same behaviour as before.
+
 ## [0.15.58] - 2026-05-13
 
 ### Added

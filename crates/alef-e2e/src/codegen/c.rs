@@ -209,9 +209,13 @@ impl E2eCodegen for CCodegen {
             .iter()
             .map(|(g, _)| sanitize_filename(&g.category))
             .collect();
+        let needs_mock_server = active_groups
+            .iter()
+            .flat_map(|(_, fixtures)| fixtures.iter())
+            .any(|f| f.needs_mock_server());
         files.push(GeneratedFile {
             path: output_base.join("Makefile"),
-            content: render_makefile(&category_names, &header, &ffi_crate_path, &lib_name),
+            content: render_makefile(&category_names, &header, &ffi_crate_path, &lib_name, needs_mock_server),
             generated_header: true,
         });
 
@@ -382,7 +386,13 @@ fn resolve_fixture_call_info(fixture: &Fixture, e2e_config: &E2eConfig, lang: &s
     info
 }
 
-fn render_makefile(categories: &[String], header_name: &str, ffi_crate_path: &str, lib_name: &str) -> String {
+fn render_makefile(
+    categories: &[String],
+    header_name: &str,
+    ffi_crate_path: &str,
+    lib_name: &str,
+    needs_mock_server: bool,
+) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::Hash));
     let _ = writeln!(out, "CC = gcc");
@@ -430,6 +440,17 @@ fn render_makefile(categories: &[String], header_name: &str, ffi_crate_path: &st
     let _ = writeln!(out, "$(TARGET): $(SRCS)");
     let _ = writeln!(out, "\t$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)");
     let _ = writeln!(out);
+
+    if !needs_mock_server {
+        // No fixtures require an HTTP mock backend; run the test binary directly.
+        let _ = writeln!(out, "test: $(TARGET)");
+        let _ = writeln!(out, "\t./$(TARGET)");
+        let _ = writeln!(out);
+        let _ = writeln!(out, "clean:");
+        let _ = writeln!(out, "\trm -f $(TARGET)");
+        return out;
+    }
+
     // The `test:` target spawns the e2e mock-server binary, captures its
     // assigned MOCK_SERVER_URL line on stdout, exports it for the test process,
     // runs the suite, then tears the server down. This mirrors the per-language
