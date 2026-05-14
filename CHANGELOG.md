@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.66] - 2026-05-14
+
+### Fixed
+
+- **alef-readme (performance_context.jinja)**: emit a blank line between the
+  performance metadata line (`**Platform** · function · note`) and the
+  benchmark table that follows. Without the blank line, `rumdl fmt`
+  (Markdown formatter, used by downstream repos that lint the generated
+  READMEs) auto-fixes `MD058` (Missing blank line before table) and the
+  `git diff --exit-code` README freshness check in CI then fails. Reported
+  via kreuzberg-dev/html-to-markdown CI Lint.
+
 ## [0.15.64] - 2026-05-14
 
 ### Fixed
