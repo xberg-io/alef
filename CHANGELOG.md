@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **alef-e2e (rust)**: honor the call-level `streaming` opt-out when generating
+  rust e2e tests. The rust backend previously hard-coded `None` for the
+  `call_streaming` argument of `resolve_is_streaming`, so any fixture asserting
+  on a `chunks` field name was forced into streaming-virtual codegen even when
+  the call config explicitly declared `streaming = false`. That produced
+  sync `#[test]` functions containing `.await` (E0728) and assertions
+  referencing an undefined `result` variable (E0425) when the underlying API
+  returned a plain struct with a `chunks: Vec<_>` field. The other backends
+  (typescript, python, go, java, kotlin, php, elixir, swift, dart) already
+  threaded `call_config.streaming` through; rust now matches.
+
 ## [0.15.63] - 2026-05-14
 
 ### Fixed

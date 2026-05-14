@@ -427,3 +427,94 @@ fn rust_codegen_still_stubs_when_no_callable_function_configured() {
         "expected TODO stub when no function is configured, got:\n{content}"
     );
 }
+
+#[test]
+fn rust_codegen_honors_call_level_streaming_opt_out_for_chunks_field() {
+    // Regression: when a fixture asserts on a `chunks` field but the call config
+    // declares `streaming = false`, the rust backend used to ignore the opt-out
+    // (passed `None` to `resolve_is_streaming` instead of `call_config.streaming`)
+    // and emit stream-collection code: `let stream = ...; let chunks: Vec<_> =
+    // tokio_stream::StreamExt::collect(...).await ...` inside a non-async `#[test]`
+    // function, producing E0728 (`.await` outside async) and E0425 (`result` not
+    // found, because assertions still referenced `result.*`).
+    let toml_src = r#"
+[workspace]
+languages = ["rust"]
+
+[[crates]]
+name = "mylib"
+sources = ["src/lib.rs"]
+
+[crates.e2e]
+fixtures = "fixtures"
+output = "e2e"
+fields_array = ["chunks"]
+
+[crates.e2e.call]
+function = "process"
+module = "mylib"
+result_var = "result"
+returns_result = true
+streaming = false
+args = [
+  { name = "source", field = "source_code", type = "string" },
+]
+
+[crates.e2e.call.overrides.rust]
+crate_name = "mylib"
+function = "process"
+"#;
+    let cfg: NewAlefConfig = toml::from_str(toml_src).expect("config parses");
+    let e2e = cfg.crates[0].e2e.clone().unwrap();
+    let resolved = cfg.resolve().expect("resolves").remove(0);
+
+    let group = FixtureGroup {
+        category: "smoke".to_string(),
+        fixtures: vec![Fixture {
+            id: "chunking_non_streaming".to_string(),
+            category: Some("smoke".to_string()),
+            description: "non-streaming process() returning a struct with chunks: Vec<_>".to_string(),
+            tags: Vec::new(),
+            skip: None,
+            env: None,
+            call: None,
+            input: serde_json::json!({ "source_code": "fn x() {}" }),
+            mock_response: None,
+            visitor: None,
+            assertions: vec![Assertion {
+                assertion_type: "count_min".to_string(),
+                field: Some("chunks".to_string()),
+                value: Some(serde_json::json!(1)),
+                values: None,
+                method: None,
+                check: None,
+                args: None,
+                return_type: None,
+            }],
+            source: "test.json".to_string(),
+            http: None,
+        }],
+    };
+
+    let files = RustE2eCodegen
+        .generate(&[group], &e2e, &resolved, &[])
+        .expect("generation succeeds");
+    let test_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("smoke_test.rs"))
+        .expect("smoke_test.rs is emitted");
+    let content = &test_file.content;
+
+    assert!(
+        !content.contains("tokio_stream::StreamExt::collect"),
+        "streaming=false fixture must not emit stream-collection code:\n{content}"
+    );
+    assert!(
+        !content.contains(".await"),
+        "streaming=false sync test must not emit .await:\n{content}"
+    );
+    assert!(
+        content.contains("fn test_chunking_non_streaming"),
+        "expected sync `fn test_*`:\n{content}"
+    );
+}
