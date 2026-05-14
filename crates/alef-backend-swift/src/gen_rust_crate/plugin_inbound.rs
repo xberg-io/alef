@@ -167,7 +167,11 @@ pub(crate) fn emit_extern_block_for_inbound(trait_def: &TypeDef, bridge_config: 
 
         let mut params = vec!["&self".to_string()];
         for p in &method.params {
-            let bridge_ty = inbound_bridge_type(&p.ty);
+            let bridge_ty = if p.optional {
+                format!("Option<{}>", inbound_bridge_type(&p.ty))
+            } else {
+                inbound_bridge_type(&p.ty)
+            };
             let name = p.name.to_snake_case();
             params.push(format!("{name}: {bridge_ty}"));
         }
@@ -256,6 +260,18 @@ pub(crate) fn emit_inbound_wrapper(
              \x20   }}\n\
              }}\n"
         ));
+        // Emit `Debug` when the trait's supertrait list includes it. The opaque swift-bridge
+        // handle does not derive Debug, so we write a manual impl that identifies the wrapper
+        // by name only — sufficient for trait satisfaction.
+        if trait_def.super_traits.iter().any(|s| s == "Debug" || s.ends_with("::Debug")) {
+            out.push_str(&format!(
+                "impl ::std::fmt::Debug for {wrapper_name} {{\n\
+                 \x20   fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {{\n\
+                 \x20       f.debug_struct(\"{wrapper_name}\").finish_non_exhaustive()\n\
+                 \x20   }}\n\
+                 }}\n"
+            ));
+        }
     }
 
     // 2. Plugin super-trait impl — only when the trait declares Plugin as a super-trait.
@@ -423,7 +439,6 @@ fn emit_inbound_method_impl(
     };
     let mut sig_params = vec![receiver_token.to_string()];
     for p in &method.params {
-        let ty = inbound_native_ty(&p.ty, source_crate, type_paths);
         let mut prefix = String::new();
         if p.is_ref {
             prefix.push('&');
@@ -431,7 +446,30 @@ fn emit_inbound_method_impl(
         if p.is_mut {
             prefix.push_str("mut ");
         }
-        sig_params.push(format!("{}: {prefix}{ty}", p.name.to_snake_case()));
+        // When `is_ref: true` and the type is `Vec<T>`, the original Rust param was
+        // `&[T]` — Rust idiomatically uses slices not `&Vec<T>` as params. Emit `[elem]`
+        // so that prepending `&` gives `&[elem]`, matching the trait declaration.
+        //
+        // When `optional: true`, the original type was `Option<…>` — the wrapper is
+        // stripped during IR extraction. Reconstruct it here so the signature matches
+        // the trait (e.g. `Option<&str>` not `&str`).
+        let inner_ty = if p.is_ref {
+            match &p.ty {
+                TypeRef::Vec(inner) => {
+                    let elem = inbound_native_ty_owned(inner, source_crate, type_paths);
+                    format!("[{elem}]")
+                }
+                other => inbound_native_ty(other, source_crate, type_paths),
+            }
+        } else {
+            inbound_native_ty(&p.ty, source_crate, type_paths)
+        };
+        let full_ty = if p.optional {
+            format!("Option<{prefix}{inner_ty}>")
+        } else {
+            format!("{prefix}{inner_ty}")
+        };
+        sig_params.push(format!("{}: {full_ty}", p.name.to_snake_case()));
     }
 
     let return_ty = inbound_impl_return_type(method, source_crate, type_paths, error_type);
@@ -539,9 +577,27 @@ fn inbound_param_to_bridge(p: &ParamDef) -> Option<String> {
         // Named types may arrive as `&kreuzberg::OcrConfig` (is_ref) — serde::Serialize
         // is implemented for the type and `&T: Serialize when T: Serialize`, so a single
         // `to_string(&name)` call handles both owned and borrowed forms.
+        if p.optional {
+            return Some(format!(
+                "let {local} = {name}.map(|v| ::serde_json::to_string(&v).expect(\"serializable param {name}\"));"
+            ));
+        }
         return Some(format!(
             "let {local} = ::serde_json::to_string(&{name}).expect(\"serializable param {name}\");"
         ));
+    }
+
+    // For optional (Option<T>) params the FFI conversion must be mapped over the Option.
+    if p.optional {
+        return match &p.ty {
+            TypeRef::Path => Some(format!(
+                "let {local} = {name}.map(|v| v.to_string_lossy().into_owned());"
+            )),
+            TypeRef::Bytes if p.is_ref => Some(format!("let {local} = {name}.map(|v| v.to_vec());")),
+            TypeRef::String if p.is_ref => Some(format!("let {local} = {name}.map(|v| v.to_string());")),
+            TypeRef::Vec(_) if p.is_ref => Some(format!("let {local} = {name}.map(|v| v.to_vec());")),
+            _ => None,
+        };
     }
 
     match &p.ty {

@@ -292,7 +292,13 @@ pub fn build(b: *std.Build) void {
         content.push_str(&format!(
             "    {test_name}_module.addImport(\"{module_name}\", {module_name}_module);\n"
         ));
+        // Zig 0.16: addTest hashes its output binary path off the artifact `.name`.
+        // Without an explicit name, every addTest call defaults to "test", colliding
+        // in the cache — only one binary survives, every other addRunArtifact fails
+        // with FileNotFound at its computed path. Setting a unique name per test
+        // module produces a distinct .zig-cache/o/<hash>/<name> binary for each.
         content.push_str(&format!("    const {test_name}_tests = b.addTest(.{{\n"));
+        content.push_str(&format!("        .name = \"{test_name}_test\",\n"));
         content.push_str(&format!("        .root_module = {test_name}_module,\n"));
         content.push_str("    });\n");
         content.push_str(&format!(
