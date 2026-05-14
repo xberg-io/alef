@@ -254,7 +254,7 @@ pub mod maven {
     pub const KOTLIN_JVM_PLUGIN: &str = "2.3.21";
 
     // renovate: datasource=maven depName=com.android.tools.build:gradle
-    pub const ANDROID_GRADLE_PLUGIN: &str = "9.0.0";
+    pub const ANDROID_GRADLE_PLUGIN: &str = "8.7.3";
 
     // renovate: datasource=maven depName=org.jlleitschuh.gradle:ktlint-gradle
     pub const KTLINT_GRADLE_PLUGIN: &str = "13.1.0";
@@ -375,9 +375,9 @@ pub mod toolchain {
     pub const SWIFT_MIN_IOS: &str = "16.0";
 
     // Android scaffold defaults; manual bumps required.
-    pub const ANDROID_COMPILE_SDK: &str = "36";
+    pub const ANDROID_COMPILE_SDK: &str = "35";
     pub const ANDROID_MIN_SDK: &str = "21";
-    pub const ANDROID_JVM_TARGET: &str = "17";
+    pub const ANDROID_JVM_TARGET: &str = "11";
 }
 
 pub mod cran {

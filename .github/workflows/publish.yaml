@@ -321,6 +321,7 @@ jobs:
             alef-backend-dart
             alef-backend-gleam
             alef-backend-kotlin
+            alef-backend-kotlin-android
             alef-backend-swift
             alef-backend-zig
             alef-e2e

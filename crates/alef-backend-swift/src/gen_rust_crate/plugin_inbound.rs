@@ -118,14 +118,24 @@ pub(crate) fn emit_extern_block_for_inbound_registration(
     if has_any { block } else { String::new() }
 }
 
+/// Returns true when the trait bridge config declares a Plugin super-trait.
+fn has_plugin_super(bridge_config: &TraitBridgeConfig) -> bool {
+    bridge_config
+        .super_trait
+        .as_deref()
+        .map(|s| s == "Plugin" || s.ends_with("::Plugin"))
+        .unwrap_or(false)
+}
+
 /// Emit the `extern "Swift"` block declaring `Swift{Trait}Box` and per-method FFI shims.
 ///
 /// Each shim signature is the JSON-bridged form of the trait method: complex types become
 /// `String` (JSON), primitives and `String`/`Vec<u8>` pass through directly. Methods that
 /// can fail return `Result<RetBridge, String>` so the Swift side can surface errors.
-pub(crate) fn emit_extern_block_for_inbound(trait_def: &TypeDef) -> String {
+pub(crate) fn emit_extern_block_for_inbound(trait_def: &TypeDef, bridge_config: &TraitBridgeConfig) -> String {
     let trait_name = &trait_def.name;
     let box_name = format!("Swift{trait_name}Box");
+    let emit_plugin_shims = has_plugin_super(bridge_config);
 
     let mut block = String::new();
     block.push_str("    extern \"Swift\" {\n");
@@ -136,19 +146,21 @@ pub(crate) fn emit_extern_block_for_inbound(trait_def: &TypeDef) -> String {
         },
     ));
 
-    // Plugin super-trait shims (always emitted — every plugin trait extends Plugin).
-    // We declare these as `&self` methods so swift-bridge treats them as instance methods
-    // on `Swift{Trait}Box` and emits the proper `Unmanaged<T>.fromOpaque(this).takeUnretainedValue()`
-    // dispatch on the Swift side. Free-fn declarations (with `this: &Box` as a regular param)
-    // would force swift-bridge to FFI-encode the box as a value, which breaks for opaque
-    // Swift handle types.
-    block.push_str("        fn alef_name(&self) -> String;\n");
-    block.push_str("        fn alef_version(&self) -> String;\n");
-    // initialize/shutdown return a JSON envelope `{"ok":null}` / `{"err":"<msg>"}` —
-    // swift-bridge 0.1.59 cannot bridge `Result<(), String>` from `extern "Swift"` (broken
-    // codegen for `Result<RustString, RustString>` shape). The wrapper decodes the envelope.
-    block.push_str("        fn alef_initialize(&self) -> String;\n");
-    block.push_str("        fn alef_shutdown(&self) -> String;\n");
+    if emit_plugin_shims {
+        // Plugin super-trait shims — only emitted when the trait has a Plugin super-trait.
+        // We declare these as `&self` methods so swift-bridge treats them as instance methods
+        // on `Swift{Trait}Box` and emits the proper `Unmanaged<T>.fromOpaque(this).takeUnretainedValue()`
+        // dispatch on the Swift side. Free-fn declarations (with `this: &Box` as a regular param)
+        // would force swift-bridge to FFI-encode the box as a value, which breaks for opaque
+        // Swift handle types.
+        block.push_str("        fn alef_name(&self) -> String;\n");
+        block.push_str("        fn alef_version(&self) -> String;\n");
+        // initialize/shutdown return a JSON envelope `{"ok":null}` / `{"err":"<msg>"}` —
+        // swift-bridge 0.1.59 cannot bridge `Result<(), String>` from `extern "Swift"` (broken
+        // codegen for `Result<RustString, RustString>` shape). The wrapper decodes the envelope.
+        block.push_str("        fn alef_initialize(&self) -> String;\n");
+        block.push_str("        fn alef_shutdown(&self) -> String;\n");
+    }
 
     for method in &trait_def.methods {
         let method_snake = method.name.to_snake_case();
@@ -209,27 +221,54 @@ pub(crate) fn emit_inbound_wrapper(
         .map(|t| t.rust_path.replace('-', "_"))
         .unwrap_or_else(|| format!("{source_crate}::plugins::Plugin"));
 
+    let emit_plugin = has_plugin_super(bridge_config);
     let mut out = String::new();
 
     // 1. Wrapper struct with name cache + Send/Sync.
-    out.push_str(&crate::template_env::render(
-        "inbound_wrapper_struct.rs.jinja",
-        minijinja::context! {
-            trait_name => trait_name,
-            wrapper_name => &wrapper_name,
-            box_name => &box_name,
-        },
-    ));
+    // The name_cache field is only needed for Plugin super-trait (which returns &str from name()).
+    if emit_plugin {
+        out.push_str(&crate::template_env::render(
+            "inbound_wrapper_struct.rs.jinja",
+            minijinja::context! {
+                trait_name => trait_name,
+                wrapper_name => &wrapper_name,
+                box_name => &box_name,
+            },
+        ));
+    } else {
+        // Non-Plugin trait: emit a simpler wrapper struct without name_cache.
+        out.push_str(&format!(
+            "/// Rust-side wrapper around a Swift class implementing the `{trait_name}` protocol.\n\
+             ///\n\
+             /// The Swift instance is held via a `swift-bridge` opaque handle that retains\n\
+             /// the underlying ARC reference for the lifetime of this struct. Send + Sync are\n\
+             /// asserted unsafely: Swift classes used as trait bridges must be thread-safe.\n\
+             pub struct {wrapper_name} {{\n\
+             \x20   inner: ffi::{box_name},\n\
+             }}\n\
+             unsafe impl Send for {wrapper_name} {{}}\n\
+             unsafe impl Sync for {wrapper_name} {{}}\n\
+             \n\
+             impl {wrapper_name} {{\n\
+             \x20   /// Construct a new wrapper from a Swift `{box_name}` handle.\n\
+             \x20   pub fn new(inner: ffi::{box_name}) -> Self {{\n\
+             \x20       Self {{ inner }}\n\
+             \x20   }}\n\
+             }}\n"
+        ));
+    }
 
-    // 2. Plugin super-trait impl.
-    out.push_str(&crate::template_env::render(
-        "inbound_plugin_impl.rs.jinja",
-        minijinja::context! {
-            plugin_path => &plugin_path,
-            wrapper_name => &wrapper_name,
-            result_type => result_type(source_crate, error_type, "()"),
-        },
-    ));
+    // 2. Plugin super-trait impl — only when the trait declares Plugin as a super-trait.
+    if emit_plugin {
+        out.push_str(&crate::template_env::render(
+            "inbound_plugin_impl.rs.jinja",
+            minijinja::context! {
+                plugin_path => &plugin_path,
+                wrapper_name => &wrapper_name,
+                result_type => result_type(source_crate, error_type, "()"),
+            },
+        ));
+    }
     let _ = trait_snake;
 
     // 3. Trait impl.
@@ -243,7 +282,7 @@ pub(crate) fn emit_inbound_wrapper(
         },
     ));
     for method in &trait_def.methods {
-        emit_inbound_method_impl(&mut out, method, &trait_snake, source_crate, type_paths, error_type);
+        emit_inbound_method_impl(&mut out, method, &trait_snake, source_crate, type_paths, error_type, emit_plugin);
     }
     out.push_str("}\n\n");
 
@@ -348,12 +387,17 @@ fn emit_inbound_method_impl(
     source_crate: &str,
     type_paths: &std::collections::HashMap<String, String>,
     error_type: &str,
+    emit_plugin: bool,
 ) {
-    // Methods with a default impl should not be overridden in the inbound wrapper:
-    // the trait's own default is used. Methods like `as_sync_extractor` (returning
-    // `Option<&dyn SyncExtractor>`) cannot be expressed via the swift FFI and rely
-    // on the default `None` impl from the trait definition.
-    if method.has_default_impl {
+    // For Plugin super-trait bridges: methods with a default impl are left to the
+    // trait's own default (e.g. `as_sync_extractor` returning `Option<&dyn Sync…>`
+    // cannot round-trip via the swift FFI). Skip them.
+    //
+    // For non-Plugin trait bridges: we must emit method bodies for ALL non-lifecycle
+    // methods (including those with defaults) so Swift visitor callbacks actually fire.
+    // If we skip them, the trait's no-op default runs and Swift callbacks are never
+    // invoked — a silent bug.
+    if emit_plugin && method.has_default_impl {
         return;
     }
 

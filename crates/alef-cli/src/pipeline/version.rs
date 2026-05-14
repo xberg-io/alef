@@ -360,6 +360,15 @@ pub fn verify_versions(config: &ResolvedCrateConfig) -> anyhow::Result<Vec<Strin
         }
     }
 
+    // Dart pubspec.yaml — `version: X.Y.Z`
+    if let Some(found) = extract_version("packages/dart/pubspec.yaml", r"(?m)^version:\s*([^\s#\n]+)") {
+        if found != expected {
+            mismatches.push(format!(
+                "packages/dart/pubspec.yaml: found {found}, expected {expected}"
+            ));
+        }
+    }
+
     Ok(mismatches)
 }
 
@@ -459,6 +468,16 @@ pub fn sync_versions(
                             cargo_toml_paths.push(entry.to_string_lossy().to_string());
                         }
                     }
+                }
+            }
+
+            // Also include non-workspace Cargo crates under packages/*/rust/Cargo.toml
+            // (e.g. packages/swift/rust/Cargo.toml, packages/dart/rust/Cargo.toml).
+            // These live outside the [workspace] members list but still need version syncing.
+            for entry in glob::glob("packages/*/rust/Cargo.toml").into_iter().flatten().flatten() {
+                let path_str = entry.to_string_lossy().to_string();
+                if !cargo_toml_paths.contains(&path_str) {
+                    cargo_toml_paths.push(path_str);
                 }
             }
 
@@ -673,6 +692,19 @@ pub fn sync_versions(
         if let Some(new_content) = replace_version_pattern(&content, r"Version:\s*[^\n]*", &r_version) {
             std::fs::write("packages/r/DESCRIPTION", &new_content)?;
             updated.push("packages/r/DESCRIPTION".to_string());
+        }
+    }
+
+    // Dart: pubspec.yaml — uses `version: X.Y.Z` YAML syntax (unquoted, no quotes)
+    if let Ok(content) = std::fs::read_to_string("packages/dart/pubspec.yaml") {
+        static PUBSPEC_VERSION_RE: LazyLock<regex::Regex> =
+            LazyLock::new(|| regex::Regex::new(r"(?m)^version:\s*[^\s#\n]+").expect("valid regex"));
+        let new_content = PUBSPEC_VERSION_RE
+            .replace(&content, format!("version: {version}").as_str())
+            .into_owned();
+        if new_content != content {
+            std::fs::write("packages/dart/pubspec.yaml", &new_content)?;
+            updated.push("packages/dart/pubspec.yaml".to_string());
         }
     }
 

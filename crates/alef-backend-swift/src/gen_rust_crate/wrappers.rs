@@ -619,6 +619,22 @@ fn emit_string_like_getter(ty: &TypeDef, field: &alef_core::ir::FieldDef, ctx: &
     let name = &ctx.name;
     let getter_name = &ctx.getter_name;
     let bridge_ty_owned = &ctx.bridge_ty_owned;
+    // Char: bridge type is String; convert via .to_string() (not serde_json::to_string,
+    // which would add JSON quotes around the single character).
+    if matches!(field.ty, TypeRef::Char) {
+        if field.optional {
+            out.push_str(&format!(
+                "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{\n        \
+                 self.0.{name}.map(|c| c.to_string())\n    }}\n"
+            ));
+        } else {
+            out.push_str(&format!(
+                "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{\n        \
+                 self.0.{name}.to_string()\n    }}\n"
+            ));
+        }
+        return;
+    }
     // String-like fields might be JSON-bridged enums in the source struct;
     // serialize via serde_json so the result works for both `String` and
     // typed source fields.

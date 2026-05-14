@@ -1,4 +1,4 @@
-use alef_core::ir::{MethodDef, PrimitiveType, TypeDef, TypeRef};
+use alef_core::ir::{MethodDef, ParamDef, PrimitiveType, TypeDef, TypeRef};
 use heck::AsSnakeCase;
 use std::collections::HashMap;
 use std::fmt::Write as FmtWrite;
@@ -6,6 +6,21 @@ use std::fmt::Write as FmtWrite;
 use super::errors::resolve_zig_error_type;
 use super::functions::{optional_int_sentinel, zig_return_type};
 use super::helpers::emit_cleaned_zig_doc;
+
+/// Returns true if generating the param-conversion boilerplate for `p` will
+/// emit a `try` expression (heap allocation for string duplication).
+/// Builder setters that take string arguments call `dupeZ`, which is fallible,
+/// so the enclosing method must declare an error-union return type.
+fn method_param_needs_alloc(p: &ParamDef) -> bool {
+    let inner = match &p.ty {
+        TypeRef::Optional(t) => t.as_ref(),
+        other => other,
+    };
+    matches!(
+        inner,
+        TypeRef::String | TypeRef::Path | TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Named(_)
+    )
+}
 
 /// Emit a Zig struct wrapper for an opaque handle type (one with `is_opaque = true`
 /// or `has_serde = false`) that has instance methods.
@@ -222,13 +237,32 @@ fn emit_opaque_method(
 
     let method_snake = AsSnakeCase(&method.name).to_string();
 
+    // Z2 fix: Zig 0.16+ forbids a function parameter from having the same name
+    // as the enclosing function. Builder setters like `pub fn visitor(..., visitor: ...)` hit
+    // this. Rename the offending parameter to `value` so the declaration is unambiguous.
+    // The rename is applied to a local clone so the rest of the emit logic is unaffected.
+    let renamed_params: Vec<ParamDef> = method
+        .params
+        .iter()
+        .map(|p| {
+            if p.name == method.name {
+                let mut p2 = p.clone();
+                p2.name = "value".to_string();
+                p2
+            } else {
+                p.clone()
+            }
+        })
+        .collect();
+    let effective_params: &[ParamDef] = &renamed_params;
+
     // Build parameter list: `self: *{TypeName}` followed by method params.
     // All struct-typed (non-opaque) params become `[]const u8` (JSON).
     // String/Path params become `[]const u8`.
     // Optional variants add `?` prefix.
     let mut param_parts: Vec<String> = Vec::new();
     param_parts.push(format!("self: *{}", ty.name));
-    for p in &method.params {
+    for p in effective_params {
         let ty_str = param_zig_type(&p.ty, p.optional, struct_names);
         param_parts.push(format!("{}: {}", p.name, ty_str));
     }
@@ -239,9 +273,22 @@ fn emit_opaque_method(
         .as_ref()
         .map(|e| resolve_zig_error_type(e, declared_errors));
 
+    // Z4 fix: when any parameter requires a heap allocation (String/Path/Vec/Map/Named),
+    // the body will emit `try dupeZ(...)`. Zig requires the function to return an error
+    // union for `try` to be legal. Wrap the return type in `error{OutOfMemory}!T` when
+    // no explicit error type is set but the body uses allocation.
+    let body_needs_try = effective_params.iter().any(method_param_needs_alloc)
+        || matches!(
+            &method.return_type,
+            TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Bytes | TypeRef::Vec(_) | TypeRef::Map(_, _)
+        )
+        || matches!(&method.return_type, TypeRef::Named(name) if struct_names.contains(name));
+
     let ret_ty_inner = zig_return_type(&method.return_type, struct_names);
     let return_ty = if let Some(ref err_ty) = zig_error_type {
         format!("({}||error{{OutOfMemory}})!{}", err_ty, ret_ty_inner)
+    } else if body_needs_try {
+        format!("error{{OutOfMemory}}!{}", ret_ty_inner)
     } else {
         ret_ty_inner
     };
@@ -255,7 +302,7 @@ fn emit_opaque_method(
     );
 
     // Emit param conversions (string alloc, struct JSON handle creation).
-    for p in &method.params {
+    for p in effective_params {
         emit_method_param_conversion(p, prefix, struct_names, out);
     }
 
@@ -278,7 +325,7 @@ fn emit_opaque_method(
         type_name = ty.name,
     );
     let mut c_args: Vec<String> = vec![c_handle];
-    for p in &method.params {
+    for p in effective_params {
         c_args.extend(method_c_arg_names(p, struct_names));
     }
     if returns_bytes {
@@ -304,7 +351,7 @@ fn emit_opaque_method(
         let _ = writeln!(out, "        }}");
 
         // Free params after error check.
-        for p in &method.params {
+        for p in effective_params {
             emit_method_param_free(p, prefix, struct_names, out);
         }
 
@@ -322,8 +369,8 @@ fn emit_opaque_method(
             let _ = writeln!(out, "        return {ret_expr};");
         }
     } else {
-        // Infallible method.
-        for p in &method.params {
+        // Infallible method (or method using only error{OutOfMemory} from alloc).
+        for p in effective_params {
             emit_method_param_free(p, prefix, struct_names, out);
         }
         if returns_bytes {

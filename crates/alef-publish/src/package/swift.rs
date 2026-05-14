@@ -36,25 +36,6 @@ on Linux consumes them via the same `Package.swift` checked into this archive.\n
    swift test\n\
    ```\n\
 \n\
-## CI matrix suggestion\n\
-\n\
-Add a `swift-linux` job to your GitHub Actions matrix:\n\
-\n\
-```yaml\n\
-jobs:\n\
-  swift-linux:\n\
-    runs-on: ubuntu-latest\n\
-    steps:\n\
-      - uses: actions/checkout@v4\n\
-      - uses: swift-actions/setup-swift@v2\n\
-        with: { swift-version: '5.10' }\n\
-      - uses: dtolnay/rust-toolchain@stable\n\
-      - run: cd rust && cargo build --release\n\
-      - run: swift test\n\
-        env:\n\
-          LD_LIBRARY_PATH: ${{ github.workspace }}/rust/target/release\n\
-```\n\
-\n\
 Linux Swift consumers (e.g., Vapor servers) link the resulting `.so` directly\n\
 through SwiftPM — no XCFramework involvement. The `LD_LIBRARY_PATH` export is\n\
 required because SwiftPM does not auto-discover Cargo's `target/release/` output\n\

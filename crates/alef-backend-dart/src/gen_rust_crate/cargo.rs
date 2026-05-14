@@ -12,6 +12,51 @@ fn type_has_json(t: &TypeRef) -> bool {
     }
 }
 
+/// Returns true when the IR surface contains a TypeRef::Json field OR when any
+/// Named field resolves to an enum type. The dart bridge codegen emits
+/// `serde_json::to_string(&enum_value)` for enum-typed fields (they are not
+/// FRB-primitive but need serialisation for the JSON helper functions), so
+/// `serde_json` must appear in the bridge Cargo.toml whenever either condition holds.
+fn api_has_json_or_enum_field(api: &ApiSurface) -> bool {
+    if api
+        .types
+        .iter()
+        .flat_map(|t| t.fields.iter())
+        .any(|f| type_has_json(&f.ty))
+        || api
+            .functions
+            .iter()
+            .any(|f| f.params.iter().any(|p| type_has_json(&p.ty)) || type_has_json(&f.return_type))
+    {
+        return true;
+    }
+
+    // D6: also return true when any non-opaque, non-trait struct has a Named field
+    // whose resolved type is an enum. The bridge emits `serde_json::to_string` for
+    // those fields in the `From<CoreT>` impls and the `create_*_from_json` helpers.
+    let enum_names: std::collections::HashSet<&str> = api.enums.iter().map(|e| e.name.as_str()).collect();
+
+    fn type_ref_contains_enum(t: &TypeRef, enum_names: &std::collections::HashSet<&str>) -> bool {
+        match t {
+            TypeRef::Named(name) => enum_names.contains(name.as_str()),
+            TypeRef::Optional(inner) | TypeRef::Vec(inner) => type_ref_contains_enum(inner, enum_names),
+            TypeRef::Map(k, v) => type_ref_contains_enum(k, enum_names) || type_ref_contains_enum(v, enum_names),
+            _ => false,
+        }
+    }
+
+    api.types
+        .iter()
+        .filter(|t| !t.is_trait && !t.is_opaque)
+        .flat_map(|t| t.fields.iter())
+        .any(|f| type_ref_contains_enum(&f.ty, &enum_names))
+        || api.functions.iter().any(|f| {
+            f.params.iter().any(|p| type_ref_contains_enum(&p.ty, &enum_names))
+                || type_ref_contains_enum(&f.return_type, &enum_names)
+        })
+}
+
+#[allow(dead_code)]
 fn api_has_json_field(api: &ApiSurface) -> bool {
     api.types
         .iter()
@@ -109,11 +154,12 @@ pub(crate) fn emit_cargo_toml(
     } else {
         format!("{}\n", workspace_dep_lines.join("\n"))
     };
-    // serde_json is required only when the generated From<SourceT> impls use
+    // serde_json is required when the generated From<SourceT> impls use
     // serde_json::to_string() to convert Json-typed fields (serde_json::Value,
-    // ProcessResult, InternalDocument, etc.) to String for the FRB-friendly mirror.
-    // Detect by scanning the API surface for any TypeRef::Json (recursively).
-    let needs_serde_json = api_has_json_field(api);
+    // ProcessResult, InternalDocument, etc.) OR enum-typed fields to String for the
+    // FRB-friendly mirror. Detect by scanning the API surface for TypeRef::Json or
+    // any Named field that resolves to an enum (D6 fix).
+    let needs_serde_json = api_has_json_or_enum_field(api);
     let serde_json_dep = if needs_serde_json { "serde_json = \"1\"\n" } else { "" };
     // The dart streaming-adapter codegen emits `use futures_util::StreamExt;` and
     // calls `stream.next().await`, so add futures-util whenever the API has any

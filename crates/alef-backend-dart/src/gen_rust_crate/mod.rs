@@ -140,8 +140,23 @@ fn emit_lib_rs(
                 collect_named(&method.return_type, &mut referenced);
             }
         }
+        // D2: pre-compute the set of opaque type names that will be emitted as
+        // `#[frb(opaque)] pub struct {Name}` by `emit_mirror_struct`. A `pub use` re-export
+        // of the same short name would cause E0255 "defined multiple times".
+        let opaque_struct_names_in_scope: std::collections::HashSet<&str> = api
+            .types
+            .iter()
+            .filter(|t| t.is_opaque && !t.is_trait && !exclude_types.contains(&t.name))
+            .map(|t| t.name.as_str())
+            .collect();
+
         let mut emitted: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
         for name in &referenced {
+            // D2: skip names that are already emitted as an opaque wrapper struct; a `pub use`
+            // for the same short name would redefine the identifier and cause E0255.
+            if opaque_struct_names_in_scope.contains(name.as_str()) {
+                continue;
+            }
             if let Some(path) = api.excluded_type_paths.get(name) {
                 if path.is_empty() || emitted.contains(path) {
                     continue;
@@ -985,11 +1000,21 @@ fn enum_variant_field_conv_to_core(binding: &str, field: &FieldDef) -> String {
 fn field_from_expr_to_core(field: &FieldDef, _source_crate_name: &str) -> String {
     let name = &field.name;
     match &field.ty {
-        TypeRef::String | TypeRef::Char => {
+        TypeRef::String => {
             if field.optional {
                 format!("v.{name}.map(Into::into)")
             } else {
                 format!("v.{name}.into()")
+            }
+        }
+        TypeRef::Char => {
+            // D5: `char: From<String>` does not exist in std. Use explicit extraction.
+            // Mirror holds String; core holds char. Take the first character or the
+            // default char ('\0') when the string is empty.
+            if field.optional {
+                format!("v.{name}.as_deref().and_then(|s| s.chars().next())")
+            } else {
+                format!("v.{name}.chars().next().unwrap_or_default()")
             }
         }
         TypeRef::Path => {
@@ -1644,6 +1669,7 @@ fn emit_opaque_method(
     source_crate_name: &str,
     stub_methods: &[String],
     types_needing_from_conversion: &HashSet<String>,
+    opaque_type_names: &HashSet<String>,
 ) {
     use bridge_fn::frb_rust_type_mirror;
 

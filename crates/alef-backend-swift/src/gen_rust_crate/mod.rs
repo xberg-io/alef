@@ -331,8 +331,8 @@ fn emit_lib_rs(
             extern_blocks.push(reg_block);
         }
     }
-    for (_bridge_cfg, trait_def) in &active_bridges {
-        extern_blocks.push(plugin_inbound::emit_extern_block_for_inbound(trait_def));
+    for (bridge_cfg, trait_def) in &active_bridges {
+        extern_blocks.push(plugin_inbound::emit_extern_block_for_inbound(trait_def, bridge_cfg));
     }
 
     // Streaming adapters: emit an extern "Rust" block for each streaming adapter

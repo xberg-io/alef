@@ -47,6 +47,14 @@ impl Backend for DartBackend {
         }
 
         let module_name = dart_module_name(&config.name);
+        // D9: the barrel file should use `lib_name` when configured (e.g. `lib_name = "h2m"`
+        // produces `lib/h2m.dart`), falling back to the crate-name-derived module name.
+        let barrel_name = config
+            .dart
+            .as_ref()
+            .and_then(|c| c.lib_name.as_deref())
+            .map(|n| n.replace('-', "_"))
+            .unwrap_or_else(|| module_name.clone());
 
         let exclude_functions: std::collections::HashSet<&str> = config
             .dart
@@ -146,10 +154,11 @@ impl Backend for DartBackend {
         let dir = resolve_output_dir(None, &config.name, "packages/dart/lib/src");
         let path = PathBuf::from(dir).join(format!("{module_name}.dart"));
 
-        // Emit the top-level barrel file `lib/<module>.dart` so that consumers
+        // Emit the top-level barrel file `lib/<barrel>.dart` so that consumers
         // can import `package:<pkg>/<pkg>.dart` (the canonical Dart import path).
+        // Uses `lib_name` when configured (D9 fix), otherwise falls back to module_name.
         let barrel_dir = resolve_output_dir(None, &config.name, "packages/dart/lib");
-        let barrel_path = PathBuf::from(barrel_dir).join(format!("{module_name}.dart"));
+        let barrel_path = PathBuf::from(barrel_dir).join(format!("{barrel_name}.dart"));
         let barrel_content = crate::template_env::render(
             "dart_barrel_file.jinja",
             minijinja::context! {

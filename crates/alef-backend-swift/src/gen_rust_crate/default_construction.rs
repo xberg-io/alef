@@ -226,7 +226,25 @@ pub(crate) fn emit_default_construction_body(
                     },
                 ));
             }
-        } else if matches!(f.ty, TypeRef::String | TypeRef::Path | TypeRef::Char | TypeRef::Json) {
+        } else if matches!(f.ty, TypeRef::Char) {
+            // Char: bridge type is String; extract the first char at the shim boundary.
+            // The incoming String contains exactly the character (e.g. "*"); serde
+            // cannot round-trip String → char, so we use an explicit extraction instead.
+            if !ty.has_serde {
+                out.push_str(&crate::template_env::render(
+                    "default_field_string_like_non_serde_comment.jinja",
+                    minijinja::context! { name => &name },
+                ));
+            } else if f.optional {
+                out.push_str(&format!(
+                    "        __target.{name} = {param}.as_ref().and_then(|s| s.chars().next());\n"
+                ));
+            } else {
+                out.push_str(&format!(
+                    "        __target.{name} = {param}.chars().next().unwrap_or('\\0');\n"
+                ));
+            }
+        } else if matches!(f.ty, TypeRef::String | TypeRef::Path | TypeRef::Json) {
             // String-like fields may map to enum/Named types in the source struct
             // (alef's IR uses String as a fallback when the actual type can't be
             // resolved). When the struct lacks serde derives, the field type is
@@ -360,7 +378,17 @@ pub(crate) fn emit_direct_field_inits(
                 } else {
                     format!("            {name}")
                 }
-            } else if matches!(f.ty, TypeRef::String | TypeRef::Path | TypeRef::Char | TypeRef::Json) {
+            } else if matches!(f.ty, TypeRef::Char) {
+                // Char: bridge type is String; extract the first char directly.
+                // serde cannot round-trip String → char, so use explicit extraction.
+                if !ty.has_serde {
+                    format!("            {name}: ::std::default::Default::default()")
+                } else if f.optional {
+                    format!("            {name}: {name}.as_ref().and_then(|s| s.chars().next())")
+                } else {
+                    format!("            {name}: {name}.chars().next().unwrap_or('\\0')")
+                }
+            } else if matches!(f.ty, TypeRef::String | TypeRef::Path | TypeRef::Json) {
                 // String-like fields are serde-deserialized from the bridge String.
                 // Bytes (Vec<u8>) is excluded: it bridges as Vec<u8> directly, not as String.
                 // When the struct doesn't have serde derives, the source field

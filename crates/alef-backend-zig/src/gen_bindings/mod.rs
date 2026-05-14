@@ -1,6 +1,7 @@
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{AdapterPattern, Language, ResolvedCrateConfig, resolve_output_dir};
 use alef_core::ir::ApiSurface;
+use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
 
 use crate::trait_bridge::emit_trait_bridge;
@@ -75,6 +76,21 @@ impl Backend for ZigBackend {
         // Emit helper wrappers for FFI error introspection and string ownership.
         emit_helpers(&prefix, &mut content);
         content.push('\n');
+
+        // Z1 fix: emit opaque pointer type aliases for every configured trait bridge
+        // that declares a `type_alias`. These aliases are referenced in struct fields
+        // (e.g. `visitor: ?VisitorHandle`) but the Zig backend previously never declared
+        // them, causing "use of undeclared identifier" errors in Zig 0.16+.
+        for bridge in &config.trait_bridges {
+            if bridge.exclude_languages.iter().any(|lang| lang == "zig") {
+                continue;
+            }
+            if let Some(alias) = &bridge.type_alias {
+                let _ = writeln!(content, "/// Opaque handle for a `{alias}` trait-bridge instance.",);
+                let _ = writeln!(content, "pub const {alias} = *anyopaque;");
+                content.push('\n');
+            }
+        }
 
         for error in &api.errors {
             emit_error_set(error, &mut content);
