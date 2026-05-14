@@ -293,7 +293,12 @@ fn render_package_json(
 ) -> String {
     let dep_value = match dep_mode {
         crate::config::DependencyMode::Registry => pkg_version.to_string(),
-        crate::config::DependencyMode::Local => format!("file:{pkg_path}"),
+        // `wasm-pack build --target nodejs --out-dir pkg/nodejs` writes the actual
+        // npm-consumable package (its own package.json with `main`/`types` etc.) to
+        // `pkg/nodejs/`, not to `pkg/` directly. The e2e suite runs the nodejs target,
+        // so point the local file: dependency at the nodejs subdirectory. Older code
+        // pointed at `pkg/`, which has no package.json and breaks pnpm resolution.
+        crate::config::DependencyMode::Local => format!("file:{pkg_path}/nodejs"),
     };
     crate::template_env::render(
         "wasm/package.json.jinja",

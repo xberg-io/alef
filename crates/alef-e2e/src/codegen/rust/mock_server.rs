@@ -13,7 +13,13 @@ use crate::fixture::Fixture;
 /// Builds `MockRoute` objects from the fixture's `mock_response` (single-response schema)
 /// or `input.mock_responses` (array schema for multiple responses per fixture).
 /// The resulting `mock_server` variable is in scope for the rest of the test function.
-pub fn render_mock_server_setup(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig) {
+///
+/// `var_name` controls the local binding name (e.g. `"mock_server"` when the rest of
+/// the test body references `mock_server.url`, `"_mock_server"` when the server only
+/// needs to be kept alive via Drop — typical for error-path fixtures that intentionally
+/// never read the URL). The underscore prefix silences `-D unused_variables` without
+/// dropping the server early.
+pub fn render_mock_server_setup(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig, var_name: &str) {
     // Try array schema first: input.mock_responses
     let mut routes = Vec::new();
 
@@ -117,7 +123,7 @@ pub fn render_mock_server_setup(out: &mut String, fixture: &Fixture, e2e_config:
             let _ = writeln!(out, "        ],");
             let _ = writeln!(out, "        delay_ms: None,");
             let _ = writeln!(out, "    }};");
-            let _ = writeln!(out, "    let mock_server = MockServer::start(vec![mock_route]).await;");
+            let _ = writeln!(out, "    let {var_name} = MockServer::start(vec![mock_route]).await;");
             return;
         }
 
@@ -156,7 +162,7 @@ pub fn render_mock_server_setup(out: &mut String, fixture: &Fixture, e2e_config:
         let _ = writeln!(out, "        ],");
         let _ = writeln!(out, "        delay_ms: {delay_literal},");
         let _ = writeln!(out, "    }};");
-        let _ = writeln!(out, "    let mock_server = MockServer::start(vec![mock_route]).await;");
+        let _ = writeln!(out, "    let {var_name} = MockServer::start(vec![mock_route]).await;");
     } else {
         // Multiple routes from array schema.
         let _ = writeln!(out, "    let mut mock_routes = vec![];");
@@ -182,7 +188,7 @@ pub fn render_mock_server_setup(out: &mut String, fixture: &Fixture, e2e_config:
             let _ = writeln!(out, "        delay_ms: {delay_literal},");
             let _ = writeln!(out, "    }});");
         }
-        let _ = writeln!(out, "    let mock_server = MockServer::start(mock_routes).await;");
+        let _ = writeln!(out, "    let {var_name} = MockServer::start(mock_routes).await;");
     }
 }
 

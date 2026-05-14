@@ -339,11 +339,14 @@ pub fn render_test_function(
     }
     let _ = writeln!(out, "    // {description}");
 
-    // Emit mock server setup before building arguments so arg expressions can
-    // reference `mock_server.url` when needed.
-    if has_mock {
-        render_mock_server_setup(out, fixture, e2e_config);
-    }
+    // Render the rest of the function body into a side buffer so we can post-process
+    // the `mock_server` binding name: if the body never reads `mock_server.url` (typical
+    // for error-path fixtures that only need the server held alive via Drop), we rename
+    // the binding to `_mock_server` to silence `-D unused_variables`. The original `out`
+    // is renamed to `final_out`; the inner code below writes to `out` (the body buffer).
+    let final_out = out;
+    let mut body_buf = String::new();
+    let out = &mut body_buf;
 
     // Check if any assertion is an error assertion.
     let has_error_assertion = fixture.assertions.iter().any(|a| a.assertion_type == "error");
@@ -574,6 +577,7 @@ pub fn render_test_function(
             );
         }
         let _ = writeln!(out, "}}");
+        finalize_test_body(final_out, fixture, e2e_config, has_mock, &body_buf);
         return;
     }
 
@@ -744,6 +748,26 @@ pub fn render_test_function(
     }
 
     let _ = writeln!(out, "}}");
+    finalize_test_body(final_out, fixture, e2e_config, has_mock, &body_buf);
+}
+
+/// Emit mock-server setup (if needed) and the rendered body to the test file output.
+///
+/// The body buffer is scanned for references to `mock_server.` to decide the binding name:
+/// if any non-setup reference exists, the binding is `mock_server`; otherwise it is
+/// `_mock_server` to silence `-D unused_variables` while still keeping the server alive
+/// via Drop. Error-path fixtures typically fall into the latter case — they need the
+/// server bound to a name but never read `mock_server.url`.
+fn finalize_test_body(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig, has_mock: bool, body: &str) {
+    if has_mock {
+        let var_name = if body.contains("mock_server.") {
+            "mock_server"
+        } else {
+            "_mock_server"
+        };
+        render_mock_server_setup(out, fixture, e2e_config, var_name);
+    }
+    out.push_str(body);
 }
 
 /// Collect test file names for use in build.zig and similar build scripts.

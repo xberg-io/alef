@@ -256,6 +256,10 @@ pub fn build(b: *std.Build) void {
     );
     content.push_str("        .target = target,\n");
     content.push_str("        .optimize = optimize,\n");
+    // Zig 0.16 requires explicit libc linking for any module that transitively
+    // references stdlib C bindings (e.g. `c.getenv` via std.posix). The shared
+    // binding module pulls in the FFI header, so libc is always required.
+    content.push_str("        .link_libc = true,\n");
     content.push_str("    });\n");
     let _ = writeln!(
         content,
@@ -278,6 +282,10 @@ pub fn build(b: *std.Build) void {
         content.push_str(&format!("        .root_source_file = b.path(\"src/{filename}\"),\n"));
         content.push_str("        .target = target,\n");
         content.push_str("        .optimize = optimize,\n");
+        // Each test module also needs libc linking because it imports the binding
+        // module (which references C stdlib symbols) and may directly call helpers
+        // like `std.c.getenv` for env-var-driven mock-server URLs.
+        content.push_str("        .link_libc = true,\n");
         content.push_str("    });\n");
         content.push_str(&format!(
             "    {test_name}_module.addImport(\"{module_name}\", {module_name}_module);\n"
