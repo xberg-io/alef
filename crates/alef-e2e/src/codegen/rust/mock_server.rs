@@ -359,10 +359,19 @@ async fn handle_request(State(state): State<Arc<ServerState>>, req: Request<Body
 /// - Drains remaining stdout in a background thread to prevent blocking
 /// - Uses `OnceLock` to ensure the server is spawned exactly once
 pub fn render_common_module() -> String {
+    // The module is included via `mod common;` in every integration-test
+    // binary, but only fixtures that resolve `mock_url` arguments actually
+    // call `mock_server_url()` / touch `MOCK_SERVER_URL`. Each integration
+    // test compiles as a separate binary, so the unused-in-some symbols
+    // would otherwise trip `-D dead_code` under `cargo test`/`cargo clippy`.
+    // The crate-level `#![allow(dead_code)]` mirrors the pattern used in
+    // `tests/mock_server.rs`.
     hash::header(CommentStyle::DoubleSlash)
         + r#"//
 // Auto-spawned mock server setup for e2e tests.
 // This module is auto-generated and should not be edited manually.
+
+#![allow(dead_code)]
 
 use std::sync::OnceLock;
 
