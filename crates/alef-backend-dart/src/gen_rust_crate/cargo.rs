@@ -143,6 +143,61 @@ pub(crate) fn emit_cargo_toml(
         .collect::<Vec<_>>()
         .join(", ");
 
+    // Per-target dependency overrides: if configured, emit the base core dep
+    // gated on `cfg(not(<overrides>))` and an override block per cfg. The base
+    // `flutter_rust_bridge` + extras stay in `[dependencies]` since they don't
+    // change per target.
+    let target_overrides = config
+        .dart
+        .as_ref()
+        .map(|c| c.target_dep_overrides.as_slice())
+        .unwrap_or(&[]);
+    let (core_dep_line, target_override_blocks) = if target_overrides.is_empty() {
+        (
+            format!(
+                "{core_dep_key} = {{ path = \"{core_path}\"{package_rename_block}{features_block} }}\n"
+            ),
+            String::new(),
+        )
+    } else {
+        let neg_cfg = if target_overrides.len() == 1 {
+            target_overrides[0].cfg.clone()
+        } else {
+            let any = target_overrides
+                .iter()
+                .map(|o| o.cfg.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("any({any})")
+        };
+        let mut blocks = format!(
+            "[target.'cfg(not({neg_cfg}))'.dependencies]\n{core_dep_key} = {{ path = \"{core_path}\"{package_rename_block}{features_block} }}\n\n"
+        );
+        for override_entry in target_overrides {
+            let feat_list = override_entry
+                .features
+                .iter()
+                .map(|f| format!("\"{f}\""))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let feats_block = if feat_list.is_empty() {
+                String::new()
+            } else {
+                format!(", features = [{feat_list}]")
+            };
+            let default_block = if override_entry.default_features {
+                String::new()
+            } else {
+                ", default-features = false".to_string()
+            };
+            blocks.push_str(&format!(
+                "[target.'cfg({cfg})'.dependencies]\n{core_dep_key} = {{ path = \"{core_path}\"{package_rename_block}{default_block}{feats_block} }}\n\n",
+                cfg = override_entry.cfg,
+            ));
+        }
+        (String::new(), blocks)
+    };
+
     let content = format!(
         r#"[package]
 name = "{crate_name}-dart"
@@ -159,10 +214,8 @@ ignored = [{machete_ignored_list}]
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
-{core_dep_key} = {{ path = "{core_path}"{package_rename_block}{features_block} }}
-flutter_rust_bridge = "{frb_version}"
-{extra_deps}
-[lints.rust]
+{core_dep_line}flutter_rust_bridge = "{frb_version}"
+{extra_deps}{target_override_blocks}[lints.rust]
 # flutter_rust_bridge uses #[cfg(frb_expand)] internally during macro expansion.
 # Declare it as a known cfg so rustc does not emit unexpected_cfgs warnings.
 unexpected_cfgs = {{ level = "warn", check-cfg = ['cfg(frb_expand)'] }}"#

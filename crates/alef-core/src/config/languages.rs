@@ -821,6 +821,38 @@ pub struct DartConfig {
     /// ```
     #[serde(default)]
     pub stub_methods: Vec<String>,
+    /// Per-target Cargo dependency overrides for the binding crate.
+    ///
+    /// When set, the emitted `Cargo.toml` wraps the base core dependency in a
+    /// `[target.'cfg(not(<cfg>))'.dependencies]` section and adds a matching
+    /// `[target.'cfg(<cfg>)'.dependencies]` block using `override_features`
+    /// (and `default_features = false` when `override_default_features = false`).
+    /// Required when the binding has to swap the feature set on a specific
+    /// target triple, e.g. Android x86_64 dropping ORT-dependent features.
+    ///
+    /// Example (`alef.toml`):
+    /// ```toml
+    /// [[crates.dart.target_dep_overrides]]
+    /// cfg = "all(target_os = \"android\", target_arch = \"x86_64\")"
+    /// features = ["android-target"]
+    /// default_features = false
+    /// ```
+    #[serde(default)]
+    pub target_dep_overrides: Vec<DartTargetDepOverride>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DartTargetDepOverride {
+    /// Cargo `cfg(...)` predicate (without the `cfg(...)` wrapper). Example:
+    /// `all(target_os = "android", target_arch = "x86_64")`.
+    pub cfg: String,
+    /// Features to enable on the core dependency for this target.
+    #[serde(default)]
+    pub features: Vec<String>,
+    /// When false (default), emit `default-features = false` for this target.
+    /// When true, allow the core dep's default features through.
+    #[serde(default)]
+    pub default_features: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

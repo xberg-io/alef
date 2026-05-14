@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.62] - 2026-05-14
+
+### Added
+
+- **alef-backend-dart**: support per-target Cargo dependency overrides via
+  `[[crates.dart.target_dep_overrides]]` in `alef.toml`. Each entry specifies
+  a `cfg` predicate, the `features` to enable on the core dep for that
+  target, and optionally `default_features = false`. The emitted
+  `Cargo.toml` wraps the base core dependency in `[target.'cfg(not(...))'.dependencies]`
+  and emits a matching `[target.'cfg(...)'.dependencies]` block per override.
+  Required for projects like kreuzberg where the Android x86_64 emulator
+  triple cannot link ORT prebuilts and must fall back to a no-ORT feature
+  group, while arm64 Android phones and all other targets keep the full set.
+
 ## [0.15.61] - 2026-05-14
 
 ### Fixed
