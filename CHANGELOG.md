@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **alef config/build commands**: build command defaults now compose with
+  workspace and crate overrides field-by-field, so repositories can set global
+  defaults while overriding only the commands they need per backend.
+- **alef-scaffold**: Dart scaffolding now distinguishes FRB and raw FFI styles,
+  uses Dart SDK `>=3.11.0 <4.0.0`, removes generated `BUILDING.md`, derives
+  generated analyzer excludes from the crate name, and centralizes pub.dev
+  dependency pins for Renovate.
+- **alef-scaffold**: Kotlin remains one backend and now scaffolds JVM, Android,
+  Native, and Kotlin Multiplatform project layouts from existing Kotlin
+  mode/target configuration. Android and ktlint dependency/tool pins are
+  centralized for Renovate, and generated JVM text uses generic
+  `native.lib.path` instead of organization-specific properties.
+- **alef-scaffold**: Zig scaffolding no longer uses organization-specific
+  workflow setup actions and now uses the public Zig setup action.
+
 ### Planned
 
 - **alef-scaffold**: evolve the existing scaffold and backend implementations

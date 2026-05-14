@@ -307,7 +307,7 @@ dependencies {{
 
 tasks.test {{
     useJUnitPlatform()
-    val libPath = System.getProperty("kb.lib.path") ?: "${{rootDir}}/../../target/release"
+    val libPath = System.getProperty("native.lib.path") ?: "${{rootDir}}/../../target/release"
     systemProperty("java.library.path", libPath)
     systemProperty("jna.library.path", libPath)
     // Resolve fixture paths (e.g. "docx/fake.docx") against test_documents/.

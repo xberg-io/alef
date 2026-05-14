@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use super::extras::Language;
+use super::output::BuildCommandConfig;
 use super::raw_crate::RawCrateConfig;
 use super::resolve_helpers::{merge_map, resolve_output_paths};
 use super::resolved::ResolvedCrateConfig;
@@ -134,20 +135,19 @@ impl NewAlefConfig {
         // --- Output paths -------------------------------------------------------
         let output_paths = resolve_output_paths(krate, &ws.output_template, &languages, multi_crate);
 
-        // --- HashMap pipelines — per-key wholesale overlay ---------------------
-        // For each language code (the HashMap key), if the crate provides a value
-        // it replaces the workspace value entirely. There is no field-level merge
-        // inside the inner config struct — a per-crate `[crates.lint.python]
-        // check = "..."` replaces the whole `LintConfig`, not just the `check`
-        // field. `path_mappings` and `extra_dependencies` are intentionally NOT
-        // merged here: WorkspaceConfig has no fields for them, so they remain
-        // strictly per-crate (taken verbatim below).
+        // --- HashMap pipelines -------------------------------------------------
+        // Most per-language pipeline maps use per-key wholesale overlay. Build
+        // commands are intentionally field-wise so workspace defaults and crate
+        // overrides can compose without restating preconditions/release commands.
+        // `path_mappings` and `extra_dependencies` are intentionally NOT merged
+        // here: WorkspaceConfig has no fields for them, so they remain strictly
+        // per-crate (taken verbatim below).
         let lint = merge_map(&ws.lint, &krate.lint);
         let test = merge_map(&ws.test, &krate.test);
         let setup = merge_map(&ws.setup, &krate.setup);
         let update = merge_map(&ws.update, &krate.update);
         let clean = merge_map(&ws.clean, &krate.clean);
-        let build_commands = merge_map(&ws.build_commands, &krate.build_commands);
+        let build_commands = merge_build_command_maps(&ws.build_commands, &krate.build_commands);
         let format_overrides = merge_map(&ws.format_overrides, &krate.format_overrides);
         let generate_overrides = merge_map(&ws.generate_overrides, &krate.generate_overrides);
 
@@ -214,6 +214,21 @@ impl NewAlefConfig {
             custom_registrations: krate.custom_registrations.clone(),
         })
     }
+}
+
+fn merge_build_command_maps(
+    workspace: &HashMap<String, BuildCommandConfig>,
+    krate: &HashMap<String, BuildCommandConfig>,
+) -> HashMap<String, BuildCommandConfig> {
+    let mut merged = workspace.clone();
+    for (lang, override_cfg) in krate {
+        let next = merged
+            .remove(lang)
+            .map(|base| base.merge_overlay(override_cfg))
+            .unwrap_or_else(|| override_cfg.clone());
+        merged.insert(lang.clone(), next);
+    }
+    merged
 }
 
 #[cfg(test)]
@@ -285,6 +300,46 @@ languages = ["node"]
         let resolved = cfg.resolve().expect("resolve should succeed");
         let spikard = &resolved[0];
         assert_eq!(spikard.languages, vec![Language::Node]);
+    }
+
+    #[test]
+    fn resolve_build_commands_merges_workspace_and_crate_fields() {
+        let cfg: NewAlefConfig = toml::from_str(
+            r#"
+[workspace]
+languages = ["go"]
+
+[workspace.build_commands.go]
+precondition = "command -v go"
+before = "cargo build --release -p my-lib-ffi"
+build = "cd packages/go && go build ./..."
+build_release = "cd packages/go && go build -tags release ./..."
+
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
+
+[crates.build_commands.go]
+build = "cd packages/go && go build -tags dev ./..."
+"#,
+        )
+        .unwrap();
+
+        let resolved = cfg.resolve().expect("resolve should succeed").remove(0);
+        let build = resolved.build_commands.get("go").expect("go build config");
+        assert_eq!(build.precondition.as_deref(), Some("command -v go"));
+        assert_eq!(
+            build.before.as_ref().unwrap().commands(),
+            vec!["cargo build --release -p my-lib-ffi"]
+        );
+        assert_eq!(
+            build.build.as_ref().unwrap().commands(),
+            vec!["cd packages/go && go build -tags dev ./..."]
+        );
+        assert_eq!(
+            build.build_release.as_ref().unwrap().commands(),
+            vec!["cd packages/go && go build -tags release ./..."]
+        );
     }
 
     #[test]

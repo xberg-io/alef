@@ -40,16 +40,15 @@ pub(crate) fn scaffold_swift(_api: &ApiSurface, config: &ResolvedCrateConfig) ->
     //
     // `.unsafeFlags` prevents this package from being used as a `.package(url: ...)`
     // dependency by other packages. That is acceptable: the canonical distribution
-    // channel for Apple platforms is a pre-built XCFramework (see xcframework/BUILDING.md
-    // in the published archive). The linkerSettings here only support the in-tree
-    // `swift test` workflow.
+    // channel for Apple platforms is a pre-built XCFramework. The linkerSettings
+    // here only support the in-tree `swift test` workflow.
     let package_swift = format!(
         r#"// swift-tools-version: 6.0
 import PackageDescription
 
 // NOTE: Run `cargo build -p {binding_crate}` before `swift build`.
 // The build step generates Swift + C bridge sources; copy them into Sources/RustBridge
-// and Sources/RustBridgeC before building. See BUILDING.md for the full workflow.
+// and Sources/RustBridgeC before building. See README.md for the full workflow.
 let package = Package(
     name: "{module}",
     platforms: [
@@ -128,7 +127,7 @@ final class {module}Tests: XCTestCase {{
 
 // Placeholder header for the RustBridgeC SwiftPM target.
 // Run `cargo build -p {binding_crate}` and copy the generated headers here.
-// See BUILDING.md for the copy command.
+// See README.md for the copy command.
 
 #endif /* RUST_BRIDGE_C_H */
 "#,
@@ -141,7 +140,7 @@ final class {module}Tests: XCTestCase {{
     let rust_bridge_swift = format!(
         r#"// Placeholder Swift source for the RustBridge target.
 // Run `cargo build -p {binding_crate}` and copy the generated Swift files here
-// (with `import RustBridgeC` prepended). See BUILDING.md for instructions.
+// (with `import RustBridgeC` prepended). See README.md for instructions.
 //
 // This file is intentionally minimal so SwiftPM accepts the target before
 // the cargo build step has been run.
@@ -154,90 +153,6 @@ public enum RustBridgePlaceholder {{}}
     // infers the module from publicHeadersPath), but we keep it in RustBridge for
     // documentation purposes. It is not strictly required.
     let module_modulemap = "// This modulemap is unused — the RustBridgeC target provides the C types.\n// SwiftPM discovers RustBridgeC.h via the publicHeadersPath setting.\n";
-
-    let building_md = format!(
-        r#"# Building {module}
-
-The Swift package wraps a Rust library via [swift-bridge](https://github.com/chinedufn/swift-bridge).
-SwiftPM cannot invoke Cargo directly, so you must run the cargo build step first.
-
-## Workflow
-
-### 1. Build the Rust binding crate
-
-From the **repository root**:
-
-```sh
-cargo build -p {binding_crate}
-```
-
-This compiles `target/debug/lib{binding_crate_underscore}.a` and runs
-`swift-bridge-build` in `build.rs`, which writes generated Swift and C sources
-into `target/debug/build/{binding_crate}-*/out/`.
-
-### 2. Copy generated sources into the SwiftPM targets
-
-The package uses two internal targets:
-- `Sources/RustBridgeC/` — pure C target with the combined C header
-- `Sources/RustBridge/`  — Swift bridge files that `import RustBridgeC`
-
-```sh
-OUT=$(ls -dt target/debug/build/{binding_crate}-*/out 2>/dev/null | head -1)
-
-# Combine C headers into the RustBridgeC target
-cat "$OUT/SwiftBridgeCore.h" "$OUT/{binding_crate}/{binding_crate}.h" \
-    > packages/swift/Sources/RustBridgeC/RustBridgeC.h
-
-# Copy Swift bridge files, prepending "import RustBridgeC" so they see the C types.
-# Use `{{ echo ...; cat ...; }}` rather than `printf "...$(cat)..."` because printf
-# interprets `%` and `\` sequences in its format string, which would corrupt the
-# generated Swift sources.
-{{ echo "import RustBridgeC"; cat "$OUT/SwiftBridgeCore.swift"; }} \
-    > packages/swift/Sources/RustBridge/SwiftBridgeCore.swift
-{{ echo "import RustBridgeC"; cat "$OUT/{binding_crate}/{binding_crate}.swift"; }} \
-    > packages/swift/Sources/RustBridge/{binding_crate}.swift
-```
-
-If the glob `{binding_crate}-*/out` matches multiple directories, `ls -dt ... | head -1`
-picks the most recently modified one.
-
-### 3. Build and test the Swift package
-
-```sh
-swift build --package-path packages/swift
-swift test --package-path packages/swift
-```
-
-## Release builds
-
-Replace `target/debug` with `target/release` and pass
-`--configuration release` to `swift build`:
-
-```sh
-cargo build --release -p {binding_crate}
-OUT=$(ls -dt target/release/build/{binding_crate}-*/out 2>/dev/null | head -1)
-
-cat "$OUT/SwiftBridgeCore.h" "$OUT/{binding_crate}/{binding_crate}.h" \
-    > packages/swift/Sources/RustBridgeC/RustBridgeC.h
-{{ echo "import RustBridgeC"; cat "$OUT/SwiftBridgeCore.swift"; }} \
-    > packages/swift/Sources/RustBridge/SwiftBridgeCore.swift
-{{ echo "import RustBridgeC"; cat "$OUT/{binding_crate}/{binding_crate}.swift"; }} \
-    > packages/swift/Sources/RustBridge/{binding_crate}.swift
-
-swift build --package-path packages/swift --configuration release
-```
-
-## Notes
-
-- Files in `Sources/RustBridgeC/` and the generated Swift files in
-  `Sources/RustBridge/` are **generated artifacts** — overwritten by the copy step.
-- `Sources/RustBridge/RustBridge.swift` is a placeholder and is overwritten.
-- `target/` is in `.gitignore`; regenerate after every `cargo clean`.
-"#,
-        module = module,
-        binding_crate = binding_crate_name,
-        binding_crate_underscore = binding_crate_underscore,
-    );
 
     let editorconfig = "[*]\ncharset = utf-8\nend_of_line = lf\ninsert_final_newline = true\n\n[*.swift]\nindent_style = space\nindent_size = 4\n";
 
@@ -253,18 +168,26 @@ swift build --package-path packages/swift --configuration release
 Add to your `Package.swift`:
 
 ```swift
-.package(url = "https://github.com/example/{module}.git", branch: "main"),
+.package(path: "packages/swift"),
 ```
 
 ## Building
 
 ```sh
 cargo build -p {binding_crate}
-# Copy generated sources (see BUILDING.md for details)
+OUT=$(ls -dt target/debug/build/{binding_crate}-*/out 2>/dev/null | head -1)
+cat "$OUT/SwiftBridgeCore.h" "$OUT/{binding_crate}/{binding_crate}.h" \
+    > packages/swift/Sources/RustBridgeC/RustBridgeC.h
+{{ echo "import RustBridgeC"; cat "$OUT/SwiftBridgeCore.swift"; }} \
+    > packages/swift/Sources/RustBridge/SwiftBridgeCore.swift
+{{ echo "import RustBridgeC"; cat "$OUT/{binding_crate}/{binding_crate}.swift"; }} \
+    > packages/swift/Sources/RustBridge/{binding_crate}.swift
 swift build --package-path packages/swift
+swift test --package-path packages/swift
 ```
 
-For detailed build instructions, see [BUILDING.md](BUILDING.md).
+The generated `Sources/RustBridgeC` and `Sources/RustBridge` artifacts are
+rewritten after each Cargo clean or rebuild.
 
 ## License
 
@@ -358,11 +281,6 @@ jobs:
         GeneratedFile {
             path: PathBuf::from("packages/swift/Sources/RustBridge/RustBridge.swift"),
             content: rust_bridge_swift,
-            generated_header: false,
-        },
-        GeneratedFile {
-            path: PathBuf::from("packages/swift/BUILDING.md"),
-            content: building_md,
             generated_header: false,
         },
         GeneratedFile {
