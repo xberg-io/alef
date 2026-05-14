@@ -16,6 +16,8 @@ pub enum Language {
     R,
     Rust,
     Kotlin,
+    #[serde(rename = "kotlin_android", alias = "kotlin-android")]
+    KotlinAndroid,
     Swift,
     Dart,
     Gleam,
@@ -40,6 +42,7 @@ impl std::fmt::Display for Language {
             Self::R => write!(f, "r"),
             Self::Rust => write!(f, "rust"),
             Self::Kotlin => write!(f, "kotlin"),
+            Self::KotlinAndroid => write!(f, "kotlin_android"),
             Self::Swift => write!(f, "swift"),
             Self::Dart => write!(f, "dart"),
             Self::Gleam => write!(f, "gleam"),

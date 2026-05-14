@@ -177,6 +177,7 @@ impl NewAlefConfig {
             java: krate.java.clone(),
             dart: krate.dart.clone(),
             kotlin: krate.kotlin.clone(),
+            kotlin_android: krate.kotlin_android.clone(),
             swift: krate.swift.clone(),
             gleam: krate.gleam.clone(),
             csharp: krate.csharp.clone(),

@@ -566,11 +566,11 @@ pub fn gen_bridge_function(
     mapper: &dyn alef_codegen::type_mapper::TypeMapper,
     opaque_types: &ahash::AHashSet<String>,
     core_import: &str,
+    handle_path: &str,
 ) -> String {
     use alef_core::ir::TypeRef;
 
     let struct_name = format!("Php{}Bridge", bridge_cfg.trait_name);
-    let handle_path = format!("{core_import}::visitor::VisitorHandle");
     let param_name = &func.params[bridge_param_idx].name;
     let bridge_param = &func.params[bridge_param_idx];
     let is_optional = bridge_param.optional || matches!(&bridge_param.ty, TypeRef::Optional(_));

@@ -82,7 +82,7 @@ pub(crate) fn default_clean_config(lang: Language, output_dir: &str, _ctx: &Lang
             before: None,
             clean: None,
         },
-        Language::Kotlin => CleanConfig {
+        Language::Kotlin | Language::KotlinAndroid => CleanConfig {
             precondition: Some(require_tool("gradle")),
             before: None,
             clean: Some(StringOrVec::Single("gradle clean".to_string())),

@@ -344,7 +344,7 @@ fn emit_lib_rs(
         extern_blocks.push(streaming_block);
     }
 
-    // Detect kreuzberg-style e2e types: when the api surface exposes
+    // Detect legacy extraction e2e types: when the api surface exposes
     // `ExtractionConfig`, `BatchBytesItem`, and `BatchFileItem` (all serde-enabled),
     // emit JSON factory shims so the e2e test layer can deserialise fixture JSON
     // into the corresponding opaque swift-bridge types. This is structural — no
@@ -484,7 +484,7 @@ fn emit_lib_rs(
         out.push_str(&streaming_shims);
     }
 
-    // Emit JSON-factory shims for kreuzberg-style e2e types when present.
+    // Emit JSON-factory shims for legacy extraction e2e types when present.
     // The matching extern declarations are emitted in the ffi module above.
     if has_e2e_types {
         emit_json_factory_shims(&source_crate, &mut out);
@@ -510,7 +510,7 @@ fn emit_lib_rs(
     out
 }
 
-/// Returns `true` when the api surface exposes the kreuzberg-style e2e helper
+/// Returns `true` when the api surface exposes the legacy extraction e2e helper
 /// types (`ExtractionConfig`, `BatchBytesItem`, `BatchFileItem`), all serde-enabled.
 /// Used to gate emission of JSON-factory shims and Swift e2e wrapper helpers.
 fn api_has_e2e_types(api: &ApiSurface) -> bool {
@@ -520,7 +520,7 @@ fn api_has_e2e_types(api: &ApiSurface) -> bool {
         .all(|name| api.types.iter().any(|t| !t.is_trait && t.has_serde && t.name == *name))
 }
 
-/// Emits JSON factory functions for kreuzberg-style opaque swift-bridge types
+/// Emits JSON factory functions for legacy extraction opaque swift-bridge types
 /// (`extraction_config_from_json`, `batch_bytes_item_from_json`, `batch_file_item_from_json`).
 /// Wired into `emit_lib_rs` only when the api surface exposes all three serde-enabled
 /// types — see `api_has_e2e_types`. Crate-agnostic by structure.

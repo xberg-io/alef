@@ -156,7 +156,7 @@ pub fn default_update_config(lang: Language, output_dir: &str, ctx: &LangContext
             update: None,
             upgrade: None,
         },
-        Language::Kotlin => UpdateConfig {
+        Language::Kotlin | Language::KotlinAndroid => UpdateConfig {
             precondition: Some(require_tool("gradle")),
             before: None,
             update: Some(StringOrVec::Single(format!(

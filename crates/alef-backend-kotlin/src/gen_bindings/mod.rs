@@ -17,29 +17,30 @@ use alef_core::ir::{ApiSurface, EnumDef, ErrorDef, FunctionDef, MethodDef, Param
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-// Re-export shared utilities used by gen_native and gen_mpp.
-pub(crate) use shared::{kotlin_field_name, to_lower_camel, to_pascal_case, to_screaming_snake};
+// Re-export shared utilities used by gen_native, gen_mpp, and the sibling
+// alef-backend-kotlin-android crate.
+pub use shared::{kotlin_field_name, to_lower_camel, to_pascal_case, to_screaming_snake};
 
-// Re-export emitters used by gen_mpp.
-pub(crate) fn emit_type_pub(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<String>) {
+// Re-export emitters used by gen_mpp and alef-backend-kotlin-android.
+pub fn emit_type_pub(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<String>) {
     object_wrapper::emit_type_with_imports(ty, out, imports)
 }
 
-pub(crate) fn emit_enum_pub(en: &EnumDef, out: &mut String) {
+pub fn emit_enum_pub(en: &EnumDef, out: &mut String) {
     object_wrapper::emit_enum(en, out)
 }
 
-pub(crate) fn emit_error_type_pub(error: &ErrorDef, out: &mut String, imports: &mut BTreeSet<String>) {
+pub fn emit_error_type_pub(error: &ErrorDef, out: &mut String, imports: &mut BTreeSet<String>) {
     object_wrapper::emit_error_type_with_imports(error, out, imports)
 }
 
 /// Format a function parameter with its Kotlin type, collecting any needed imports.
-pub(crate) fn format_param_pub(p: &ParamDef, imports: &mut BTreeSet<String>) -> String {
+pub fn format_param_pub(p: &ParamDef, imports: &mut BTreeSet<String>) -> String {
     object_wrapper::format_param_with_imports(p, imports)
 }
 
 /// Render a Kotlin type reference, collecting any needed imports.
-pub(crate) fn kotlin_type_str_pub(ty: &TypeRef, optional: bool, imports: &mut BTreeSet<String>) -> String {
+pub fn kotlin_type_str_pub(ty: &TypeRef, optional: bool, imports: &mut BTreeSet<String>) -> String {
     object_wrapper::kotlin_type_with_string_imports(ty, optional, imports)
 }
 
@@ -49,7 +50,7 @@ pub(crate) fn kotlin_type_str_pub(ty: &TypeRef, optional: bool, imports: &mut BT
 /// (Android, MPP common-source) opt out of client-type wrapping. Returning a
 /// client type from a flat function in those targets requires a backend-
 /// specific surface that hasn't been wired up.
-pub(crate) fn emit_function_jvm(f: &FunctionDef, out: &mut String, imports: &mut BTreeSet<String>, java_package: &str) {
+pub fn emit_function_jvm(f: &FunctionDef, out: &mut String, imports: &mut BTreeSet<String>, java_package: &str) {
     object_wrapper::emit_function(f, out, imports, java_package, &std::collections::HashSet::new())
 }
 
@@ -66,7 +67,7 @@ pub(crate) fn emit_function_jvm(f: &FunctionDef, out: &mut String, imports: &mut
 /// are also emitted as plain (non-suspend) wrapper methods that return
 /// `Iterator<ItemType>` — iteration is lazy and blocking, so the caller
 /// controls the thread context.
-pub(crate) fn emit_jvm_client_class(api: &ApiSurface, config: &ResolvedCrateConfig) -> Option<GeneratedFile> {
+pub fn emit_jvm_client_class(api: &ApiSurface, config: &ResolvedCrateConfig) -> Option<GeneratedFile> {
     // A type qualifies for a coroutine-friendly wrapper class only when:
     //   * it is opaque-handle (constructed via a factory and freed via close),
     //   * AND it is not a trait (trait types are not emitted as concrete
@@ -306,11 +307,16 @@ impl Backend for KotlinBackend {
     }
 
     fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
-        // The `mode` field on KotlinConfig provides an alternative dispatch axis.
-        // When set to "android", emit an Android library project regardless of `target`.
+        // `mode = "android"` was the legacy in-band Android emission path. It has
+        // been removed in alef 0.16 in favour of the dedicated
+        // `alef-backend-kotlin-android` crate exposed as `Language::KotlinAndroid`.
         let mode = config.kotlin.as_ref().and_then(|k| k.mode.as_deref());
         if mode == Some("android") {
-            return crate::gen_android::emit(api, config);
+            anyhow::bail!(
+                "`[crates.kotlin] mode = \"android\"` was removed in alef 0.16. \
+                 Use `Language::KotlinAndroid` (slug `\"kotlin_android\"`) and the \
+                 `alef-backend-kotlin-android` crate instead."
+            );
         }
         // "kmp" mode forces Multiplatform emission.
         if mode == Some("kmp") {

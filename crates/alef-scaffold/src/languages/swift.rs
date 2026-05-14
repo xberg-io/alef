@@ -213,45 +213,6 @@ struct Demo {{
         module = module,
     );
 
-    let github_workflow = format!(
-        r#"name: Swift
-
-on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-
-jobs:
-  test:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-      - name: Show Swift version
-        run: swift --version
-      - name: Build {binding_crate} Rust crate
-        run: cargo build -p {binding_crate}
-      - name: Copy swift-bridge generated sources
-        run: |
-          OUT=$(ls -dt target/debug/build/{binding_crate}-*/out 2>/dev/null | head -1)
-          cat "$OUT/SwiftBridgeCore.h" "$OUT/{binding_crate}/{binding_crate}.h" \
-              > packages/swift/Sources/RustBridgeC/RustBridgeC.h
-          {{ echo "import RustBridgeC"; cat "$OUT/SwiftBridgeCore.swift"; }} \
-              > packages/swift/Sources/RustBridge/SwiftBridgeCore.swift
-          {{ echo "import RustBridgeC"; cat "$OUT/{binding_crate}/{binding_crate}.swift"; }} \
-              > packages/swift/Sources/RustBridge/{binding_crate}.swift
-      - name: Build Swift package
-        working-directory: packages/swift
-        run: swift build
-      - name: Run tests
-        working-directory: packages/swift
-        run: swift test
-"#,
-        binding_crate = binding_crate_name,
-    );
-
     Ok(vec![
         GeneratedFile {
             path: PathBuf::from("packages/swift/Package.swift"),
@@ -301,11 +262,6 @@ jobs:
         GeneratedFile {
             path: PathBuf::from("packages/swift/Examples/Demo/main.swift"),
             content: demo_swift,
-            generated_header: false,
-        },
-        GeneratedFile {
-            path: PathBuf::from(".github/workflows/swift.yml"),
-            content: github_workflow,
             generated_header: false,
         },
     ])

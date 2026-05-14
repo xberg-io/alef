@@ -2,7 +2,7 @@
 ///
 /// The Swift instance is held via a `swift-bridge` opaque handle that retains
 /// the underlying ARC reference for the lifetime of this struct. Send + Sync are
-/// asserted unsafely: Swift classes used as kreuzberg plugins must be thread-safe
+/// asserted unsafely: Swift classes used as generated plugins must be thread-safe
 /// (the `Plugin` super-trait requires it), and ARC handles themselves are safe to share.
 pub struct {{ wrapper_name }} {
     inner: ffi::{{ box_name }},

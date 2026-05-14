@@ -40,6 +40,7 @@ pub(crate) fn per_crate_explicit_output(output: &OutputConfig, lang: &Language) 
         Language::Go => output.go.as_ref(),
         Language::Java => output.java.as_ref(),
         Language::Kotlin => output.kotlin.as_ref(),
+        Language::KotlinAndroid => output.kotlin_android.as_ref(),
         Language::Dart => output.dart.as_ref(),
         Language::Swift => output.swift.as_ref(),
         Language::Gleam => output.gleam.as_ref(),

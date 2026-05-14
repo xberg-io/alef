@@ -214,12 +214,13 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
         .iter()
         .any(|a| matches!(a.pattern, AdapterPattern::Streaming));
     if has_streaming_adapters {
-        builder.add_item(
+        builder.add_item(&format!(
             "/// Callback invoked for each streamed chunk.\n\
              /// `chunk_json` is a JSON-encoded chunk; `user_data` is forwarded from the caller.\n\
-             pub type LiterLlmStreamCallback =\n    \
+             pub type {}StreamCallback =\n    \
              unsafe extern \"C\" fn(chunk_json: *const std::ffi::c_char, user_data: *mut std::ffi::c_void);",
-        );
+            prefix.to_pascal_case()
+        ));
 
         // Also emit iterator-handle functions for each streaming adapter.
         // These provide a pull-based alternative to the callback-based wrappers so that

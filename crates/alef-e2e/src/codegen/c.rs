@@ -93,7 +93,7 @@ fn infer_opaque_handle_type(
 /// `{prefix}_{enum_snake}_to_string` accessor.
 ///
 /// Without this, the C codegen would default-declare the accessor result as
-/// `char* status = literllm_batch_object_status(result);` and string-compare
+/// `char* status = {prefix}_batch_object_status(result);` and string-compare
 /// it — but the FFI returns `LITERLLMBatchStatus*` (an opaque enum struct
 /// pointer), not a C string. The mismatch causes immediate `Abort trap: 6` /
 /// `strcmp(NULL,...)` failures in every assertion that targets an enum field.

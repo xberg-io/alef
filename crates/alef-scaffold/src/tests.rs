@@ -909,8 +909,8 @@ fn test_scaffold_dart() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Dart]).unwrap();
     let files = language_files(&all_files);
-    // pubspec.yaml + analysis_options.yaml + .gitignore + test + .editorconfig + README.md + example + dart.yml
-    assert_eq!(files.len(), 8, "Expected 8 files for Dart scaffold");
+    // pubspec.yaml + analysis_options.yaml + .gitignore + test + .editorconfig + README.md + example
+    assert_eq!(files.len(), 7, "Expected 7 files for Dart scaffold");
     assert!(
         files.iter().all(|f| !f.path.ends_with("BUILDING.md")),
         "Dart scaffold must not emit BUILDING.md"
@@ -1021,9 +1021,10 @@ fn test_scaffold_dart() {
         PathBuf::from("packages/dart/example/my_lib_example.dart")
     );
     assert!(files[6].content.contains("void main"));
-
-    assert_eq!(files[7].path, PathBuf::from(".github/workflows/dart.yml"));
-    assert!(files[7].content.contains("dart-lang/setup-dart"));
+    assert!(
+        files.iter().all(|f| !f.path.starts_with(".github/workflows")),
+        "Dart scaffold must not emit GitHub workflows"
+    );
 }
 
 #[test]
@@ -1283,11 +1284,11 @@ fn test_scaffold_swift() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Swift]).unwrap();
     let files = language_files(&all_files);
-    // Original 7 + .editorconfig + .swiftformat + README.md + Examples/Demo/main.swift + swift.yml = 12
+    // Original 6 + .editorconfig + .swiftformat + README.md + Examples/Demo/main.swift = 10
     assert_eq!(
         files.len(),
-        12,
-        "Expected 12 files for Swift scaffold (original 7 + 5 new)"
+        10,
+        "Expected 10 files for Swift scaffold (original 6 + 4 new)"
     );
 
     let package_swift = &files[0];
@@ -1371,21 +1372,6 @@ fn test_scaffold_swift() {
         "RustBridge.swift must not be empty"
     );
 
-    // BUILDING.md documents the cargo-then-copy workflow
-    let building = files
-        .iter()
-        .find(|f| f.path == Path::new("packages/swift/BUILDING.md"))
-        .unwrap();
-    assert!(
-        building.content.contains("cargo build"),
-        "BUILDING.md must mention cargo build; got: {}",
-        building.content
-    );
-    assert!(
-        building.content.contains("Sources/RustBridgeC"),
-        "BUILDING.md must mention RustBridgeC copy destination; got: {}",
-        building.content
-    );
     // Check for new production files
     let readme = files.iter().find(|f| f.path == Path::new("packages/swift/README.md"));
     assert!(readme.is_some(), "README.md should be generated");
@@ -1405,37 +1391,9 @@ fn test_scaffold_swift() {
         .iter()
         .find(|f| f.path == Path::new("packages/swift/Examples/Demo/main.swift"));
     assert!(demo.is_some(), "Demo example should be generated");
-    let workflow = files
-        .iter()
-        .find(|f| f.path == Path::new(".github/workflows/swift.yml"));
-    assert!(workflow.is_some(), "GitHub workflow should be generated");
-    let workflow_content = &workflow.unwrap().content;
-    // Regression: the swift-bridge copy step must not use `printf "...$(cat ...)"`.
-    // printf interprets `%` and `\` sequences in its format string, which corrupts
-    // generated Swift sources whenever they contain those characters. Use the safer
-    // `{ echo ...; cat ...; }` concatenation form instead.
     assert!(
-        !workflow_content.contains("printf \"import RustBridgeC"),
-        "swift workflow must not use unsafe printf to prepend `import RustBridgeC`; got:\n{workflow_content}"
-    );
-    assert!(
-        workflow_content.contains(r#"{ echo "import RustBridgeC"; cat "$OUT/SwiftBridgeCore.swift"; }"#),
-        "swift workflow must prepend `import RustBridgeC` via echo+cat; got:\n{workflow_content}"
-    );
-    // BUILDING.md template must apply the same fix (debug + release sections).
-    assert!(
-        !building.content.contains("printf \"import RustBridgeC"),
-        "BUILDING.md must not use unsafe printf to prepend `import RustBridgeC`; got:\n{}",
-        building.content
-    );
-    assert!(
-        building
-            .content
-            .matches(r#"{ echo "import RustBridgeC"; cat "$OUT/SwiftBridgeCore.swift"; }"#)
-            .count()
-            >= 2,
-        "BUILDING.md must use echo+cat in both debug and release copy sections; got:\n{}",
-        building.content
+        files.iter().all(|f| !f.path.starts_with(".github/workflows")),
+        "Swift scaffold must not emit GitHub workflows"
     );
 }
 
@@ -1445,8 +1403,8 @@ fn test_scaffold_kotlin() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Kotlin]).unwrap();
     let files = language_files(&all_files);
-    // build.gradle.kts, settings.gradle.kts, .gitignore, .editorconfig, gradle.properties, README.md, Sample.kt, kotlin.yml
-    assert_eq!(files.len(), 8, "Expected 8 files for Kotlin scaffold");
+    // build.gradle.kts, settings.gradle.kts, .gitignore, .editorconfig, gradle.properties, README.md, Sample.kt
+    assert_eq!(files.len(), 7, "Expected 7 files for Kotlin scaffold");
     assert_eq!(files[0].path, PathBuf::from("packages/kotlin/build.gradle.kts"));
     assert!(files[0].content.contains("kotlin(\"jvm\")"));
     assert!(files[0].content.contains("org.jlleitschuh.gradle.ktlint"));
@@ -1499,12 +1457,9 @@ fn test_scaffold_kotlin() {
         PathBuf::from("packages/kotlin/src/main/kotlin/sample/Sample.kt")
     );
     assert!(files[6].content.contains("object"));
-    assert_eq!(files[7].path, PathBuf::from(".github/workflows/kotlin.yml"));
-    assert!(files[7].content.contains("gradle build"));
     assert!(
-        files[7].content.contains(r#"java-version: "25""#),
-        "kotlin.yml must pin java-version 25 for FFM; got:\n{}",
-        files[7].content
+        files.iter().all(|f| !f.path.starts_with(".github/workflows")),
+        "Kotlin scaffold must not emit GitHub workflows"
     );
     assert!(
         files[0].content.contains("native.lib.path") && !files[0].content.contains("kb.lib.path"),
@@ -1514,7 +1469,9 @@ fn test_scaffold_kotlin() {
 }
 
 #[test]
-fn test_scaffold_kotlin_android_mode() {
+fn test_scaffold_kotlin_android_mode_returns_helpful_error() {
+    // `mode = "android"` was removed in alef 0.16. Scaffolding must surface
+    // a clear migration message rather than silently fall back.
     let config = test_config_from_toml(
         r#"
 [crates.kotlin]
@@ -1522,36 +1479,12 @@ mode = "android"
 "#,
     );
     let api = test_api();
-    let all_files = scaffold(&api, &config, &[Language::Kotlin]).unwrap();
-    let files = language_files(&all_files);
-    assert_eq!(files.len(), 9, "Expected 9 files for Kotlin Android scaffold");
-
-    let build_gradle = files
-        .iter()
-        .find(|f| f.path == Path::new("packages/kotlin-android/build.gradle.kts"))
-        .unwrap();
-    assert!(build_gradle.content.contains(r#"id("com.android.library") version "#));
-    assert!(build_gradle.content.contains("compileSdk = 36"));
-    assert!(build_gradle.content.contains("minSdk = 21"));
-    assert!(build_gradle.content.contains(r#"jvmTarget = "17""#));
-    assert!(build_gradle.content.contains("androidx.test.ext:junit:1.3.0"));
+    let err =
+        scaffold(&api, &config, &[Language::Kotlin]).expect_err("scaffold must reject deprecated kotlin android mode");
+    let msg = format!("{err:#}");
     assert!(
-        build_gradle
-            .content
-            .contains("androidx.test.espresso:espresso-core:3.7.0")
-    );
-
-    assert!(
-        files
-            .iter()
-            .any(|f| f.path == Path::new("packages/kotlin-android/src/main/jniLibs/arm64-v8a/.gitkeep")),
-        "Android scaffold must include arm64-v8a jniLibs placeholder"
-    );
-    assert!(
-        files
-            .iter()
-            .any(|f| f.path.to_string_lossy().ends_with("android/MyLibAndroid.kt")),
-        "Android scaffold must include package-derived wrapper"
+        msg.contains("kotlin_android"),
+        "error must point at the new Language::KotlinAndroid slug; got: {msg}"
     );
 }
 
@@ -1619,8 +1552,8 @@ fn test_scaffold_gleam() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Gleam]).unwrap();
     let files = language_files(&all_files);
-    // gleam.toml + manifest.toml + .gitignore + test + .editorconfig + README.md + example + gleam.yml
-    assert_eq!(files.len(), 8, "Expected 8 files for Gleam scaffold");
+    // gleam.toml + manifest.toml + .gitignore + test + .editorconfig + README.md + example
+    assert_eq!(files.len(), 7, "Expected 7 files for Gleam scaffold");
 
     let gleam_toml = &files[0];
     assert_eq!(gleam_toml.path, PathBuf::from("packages/gleam/gleam.toml"));
@@ -1652,10 +1585,10 @@ fn test_scaffold_gleam() {
 
     assert!(files[6].path.to_string_lossy().ends_with("_example.gleam"));
     assert!(files[6].content.contains("Nil"));
-
-    let workflow = &files[7];
-    assert_eq!(workflow.path, PathBuf::from(".github/workflows/gleam.yml"));
-    assert!(workflow.content.contains("erlef/setup-beam"));
+    assert!(
+        files.iter().all(|f| !f.path.starts_with(".github/workflows")),
+        "Gleam scaffold must not emit GitHub workflows"
+    );
 }
 
 #[test]
@@ -1664,8 +1597,8 @@ fn test_scaffold_zig() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Zig]).unwrap();
     let files = language_files(&all_files);
-    // build.zig + build.zig.zon + .gitignore + .editorconfig + README.md + example.zig + main.zig + zig.yml
-    assert_eq!(files.len(), 8, "Expected 8 files for Zig scaffold");
+    // build.zig + build.zig.zon + .gitignore + .editorconfig + README.md + example.zig + main.zig
+    assert_eq!(files.len(), 7, "Expected 7 files for Zig scaffold");
 
     let build_zig = &files[0];
     assert_eq!(build_zig.path, PathBuf::from("packages/zig/build.zig"));
@@ -1695,12 +1628,10 @@ fn test_scaffold_zig() {
     assert_eq!(main.path, PathBuf::from("packages/zig/src/main.zig"));
     assert!(main.content.contains("test"));
     assert!(main.content.contains("pub fn add"));
-
-    let workflow = &files[7];
-    assert_eq!(workflow.path, PathBuf::from(".github/workflows/zig.yml"));
-    assert!(workflow.content.contains("mlugg/setup-zig"));
-    assert!(workflow.content.contains("cargo build -p my-lib-ffi"));
-    assert!(workflow.content.contains(r#"version: "0.16.0""#));
+    assert!(
+        files.iter().all(|f| !f.path.starts_with(".github/workflows")),
+        "Zig scaffold must not emit GitHub workflows"
+    );
 }
 
 // ---------------------------------------------------------------------------

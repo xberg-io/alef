@@ -195,7 +195,7 @@ pub fn render_mock_server_setup(out: &mut String, fixture: &Fixture, e2e_config:
 /// Generate the complete `mock_server.rs` module source.
 pub fn render_mock_server_module() -> String {
     // This is parameterized Axum mock server code identical in structure to
-    // liter-llm's mock_server.rs but without any project-specific imports.
+    // a generated mock_server.rs without any project-specific imports.
     //
     // The module is included via `mod mock_server;` in every integration-test
     // binary that needs MockRoute/MockServer, but only fixtures using

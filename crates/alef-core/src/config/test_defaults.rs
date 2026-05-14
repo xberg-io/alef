@@ -201,7 +201,7 @@ pub(crate) fn default_test_config(lang: Language, output_dir: &str, ctx: &LangCo
             e2e: None,
             coverage: None,
         },
-        Language::Kotlin => {
+        Language::Kotlin | Language::KotlinAndroid => {
             let cmd = wrap(format!("cd {output_dir} && gradle test"), ctx.run_wrapper);
             TestConfig {
                 precondition: Some(require_tool("gradle")),

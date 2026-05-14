@@ -107,34 +107,6 @@ pub fn main() {{
         gleam_app = gleam_app,
     );
 
-    let github_workflow = r#"name: Gleam
-
-on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: packages/gleam
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up BEAM (Erlang/Elixir)
-        uses: erlef/setup-beam@v1
-        with:
-          otp-version: "27"
-          gleam-version: "1.14"
-      - name: Build Gleam project
-        run: gleam build
-      - name: Run tests
-        run: gleam test
-"#
-    .to_string();
-
     Ok(vec![
         GeneratedFile {
             path: PathBuf::from("packages/gleam/gleam.toml"),
@@ -169,11 +141,6 @@ jobs:
         GeneratedFile {
             path: PathBuf::from(format!("packages/gleam/src/{gleam_app}_example.gleam")),
             content: example_gleam,
-            generated_header: false,
-        },
-        GeneratedFile {
-            path: PathBuf::from(".github/workflows/gleam.yml"),
-            content: github_workflow,
             generated_header: false,
         },
     ])

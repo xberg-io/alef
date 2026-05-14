@@ -65,7 +65,7 @@ pub fn gen_options_set_bridge(
         r#"/// Attach a vtable visitor bridge to a `{options_type_name}` options struct.
 ///
 /// The `{handle_type}` encapsulates a set of C function pointers that receive visit
-/// callbacks during HTML-to-Markdown conversion.  Call this setter before `{prefix}_convert`
+/// callbacks during generated conversion.  Call this setter before `{prefix}_convert`
 /// to activate visitor callbacks.  Pass `visitor = null` to clear a previously attached visitor.
 ///
 /// Neither pointer is consumed: the caller retains ownership of both `options` and `visitor`

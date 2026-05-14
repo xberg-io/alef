@@ -482,73 +482,95 @@ impl StreamingFieldResolver {
             "node" | "wasm" | "typescript" => Some(format!(
                 "const {chunks_var}: any[] = [];\n    for await (const _chunk of {stream_var}) {{ {chunks_var}.push(_chunk); }}"
             )),
-            "zig" => {
-                // Zig 0.16: ArrayList is unmanaged — no stored allocator.
-                // Use `.empty` to initialize, pass `std.heap.c_allocator` to each mutation.
-                // `stream_var` is the opaque stream handle obtained via `_start`.
-                // We collect every chunk's JSON string into `chunks_var: ArrayList([]u8)`
-                // and concatenate delta content into `{chunks_var}_content: ArrayList(u8)`.
-                // Accessors use `.items.len` and `{chunks_var}_content.items` on these lists.
+            "swift" => {
+                // Swift's chat-stream wrapper returns AsyncThrowingStream<ChunkType, Error>,
+                // so consumers drain it with `for try await chunk in stream { ... }`. The
+                // chunk type is decoded from the bridge-boundary JSON inside the wrapper —
+                // here we just collect the typed Swift values.
                 Some(format!(
-                    concat!(
-                        "var {chunks_var}: std.ArrayList([]u8) = .empty;
-",
-                        "    defer {{
-",
-                        "        for ({chunks_var}.items) |_cj| std.heap.c_allocator.free(_cj);
-",
-                        "        {chunks_var}.deinit(std.heap.c_allocator);
-",
-                        "    }}
-",
-                        "    var {chunks_var}_content: std.ArrayList(u8) = .empty;
-",
-                        "    defer {chunks_var}_content.deinit(std.heap.c_allocator);
-",
-                        "    while (true) {{
-",
-                        "        const _nc = liter_llm.c.literllm_default_client_chat_stream_next({stream_var});
-",
-                        "        if (_nc == null) break;
-",
-                        "        const _np = liter_llm.c.literllm_chat_completion_chunk_to_json(_nc);
-",
-                        "        liter_llm.c.literllm_chat_completion_chunk_free(_nc);
-",
-                        "        if (_np == null) continue;
-",
-                        "        const _ns = std.mem.span(_np);
-",
-                        "        const _nj = try std.heap.c_allocator.dupe(u8, _ns);
-",
-                        "        liter_llm.c.literllm_free_string(_np);
-",
-                        "        if (std.json.parseFromSlice(std.json.Value, std.heap.c_allocator, _nj, .{{}})) |_cp| {{
-",
-                        "            defer _cp.deinit();
-",
-                        "            if (_cp.value.object.get(\"choices\")) |_chs|
-",
-                        "                if (_chs.array.items.len > 0)
-",
-                        "                    if (_chs.array.items[0].object.get(\"delta\")) |_dl|
-",
-                        "                        if (_dl.object.get(\"content\")) |_ct|
-",
-                        "                            if (_ct == .string) try {chunks_var}_content.appendSlice(std.heap.c_allocator, _ct.string);
-",
-                        "        }} else |_| {{}}
-",
-                        "        try {chunks_var}.append(std.heap.c_allocator, _nj);
-",
-                        "    }}"
-                    ),
-                    chunks_var = chunks_var,
-                    stream_var = stream_var,
+                    "var {chunks_var}: [ChatCompletionChunk] = []\n        for try await _chunk in {stream_var} {{ {chunks_var}.append(_chunk) }}"
                 ))
             }
+            "zig" => Some(Self::collect_snippet_zig(stream_var, chunks_var, "module", "ffi")),
             _ => None,
         }
+    }
+
+    /// Render Zig's streaming collect snippet using the configured module and FFI prefix.
+    pub fn collect_snippet_zig(stream_var: &str, chunks_var: &str, module_name: &str, ffi_prefix: &str) -> String {
+        let stream_next = format!("{ffi_prefix}_default_client_chat_stream_next");
+        let chunk_to_json = format!("{ffi_prefix}_chat_completion_chunk_to_json");
+        let chunk_free = format!("{ffi_prefix}_chat_completion_chunk_free");
+        let free_string = format!("{ffi_prefix}_free_string");
+
+        // Zig 0.16: ArrayList is unmanaged — no stored allocator.
+        // Use `.empty` to initialize, pass `std.heap.c_allocator` to each mutation.
+        // `stream_var` is the opaque stream handle obtained via `_start`.
+        // We collect every chunk's JSON string into `chunks_var: ArrayList([]u8)`
+        // and concatenate delta content into `{chunks_var}_content: ArrayList(u8)`.
+        // Accessors use `.items.len` and `{chunks_var}_content.items` on these lists.
+        format!(
+            concat!(
+                "var {chunks_var}: std.ArrayList([]u8) = .empty;
+",
+                "    defer {{
+",
+                "        for ({chunks_var}.items) |_cj| std.heap.c_allocator.free(_cj);
+",
+                "        {chunks_var}.deinit(std.heap.c_allocator);
+",
+                "    }}
+",
+                "    var {chunks_var}_content: std.ArrayList(u8) = .empty;
+",
+                "    defer {chunks_var}_content.deinit(std.heap.c_allocator);
+",
+                "    while (true) {{
+",
+                "        const _nc = {module_name}.c.{stream_next}({stream_var});
+",
+                "        if (_nc == null) break;
+",
+                "        const _np = {module_name}.c.{chunk_to_json}(_nc);
+",
+                "        {module_name}.c.{chunk_free}(_nc);
+",
+                "        if (_np == null) continue;
+",
+                "        const _ns = std.mem.span(_np);
+",
+                "        const _nj = try std.heap.c_allocator.dupe(u8, _ns);
+",
+                "        {module_name}.c.{free_string}(_np);
+",
+                "        if (std.json.parseFromSlice(std.json.Value, std.heap.c_allocator, _nj, .{{}})) |_cp| {{
+",
+                "            defer _cp.deinit();
+",
+                "            if (_cp.value.object.get(\"choices\")) |_chs|
+",
+                "                if (_chs.array.items.len > 0)
+",
+                "                    if (_chs.array.items[0].object.get(\"delta\")) |_dl|
+",
+                "                        if (_dl.object.get(\"content\")) |_ct|
+",
+                "                            if (_ct == .string) try {chunks_var}_content.appendSlice(std.heap.c_allocator, _ct.string);
+",
+                "        }} else |_| {{}}
+",
+                "        try {chunks_var}.append(std.heap.c_allocator, _nj);
+",
+                "    }}"
+            ),
+            chunks_var = chunks_var,
+            stream_var = stream_var,
+            module_name = module_name,
+            stream_next = stream_next,
+            chunk_to_json = chunk_to_json,
+            chunk_free = chunk_free,
+            free_string = free_string,
+        )
     }
 }
 

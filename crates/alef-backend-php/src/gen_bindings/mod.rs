@@ -364,6 +364,7 @@ impl Backend for PhpBackend {
             for func in included_functions {
                 let bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges);
                 if let Some((param_idx, bridge_cfg)) = bridge_param {
+                    let bridge_handle_path = bridge_handle_path(api, bridge_cfg, &core_import);
                     method_items.push(crate::trait_bridge::gen_bridge_function(
                         func,
                         param_idx,
@@ -371,6 +372,7 @@ impl Backend for PhpBackend {
                         &mapper,
                         &opaque_types,
                         &core_import,
+                        &bridge_handle_path,
                     ));
                 } else if func.is_async {
                     method_items.push(gen_async_function_as_static_method(
@@ -639,6 +641,7 @@ impl Backend for PhpBackend {
                 let options_type = bridge.options_type.as_deref().unwrap_or("ConversionOptions");
                 let builder_type = format!("{}Builder", options_type);
                 let bridge_struct = format!("Php{}Bridge", bridge.trait_name);
+                let bridge_handle_path = bridge_handle_path(api, bridge, &core_import);
 
                 // Match the verbatim pre-rustfmt output from codegen.
                 // gen_instance_method produces 4-space-indented lines (signature + body),
@@ -649,7 +652,7 @@ impl Backend for PhpBackend {
                     "        pub fn {field_name}(&self, {param_name}: Option<&{type_alias}>) -> {builder_type} {{\n        Self {{ inner: Arc::new((*self.inner).clone().{field_name}({param_name}.as_ref().map(|v| &v.inner))) }}\n    }}"
                 );
                 let new_method = format!(
-                    "        pub fn {field_name}(&self, {param_name}: &mut ext_php_rs::types::ZendObject) -> {builder_type} {{\n        let bridge = {bridge_struct}::new({param_name});\n        let handle: html_to_markdown_rs::visitor::VisitorHandle = std::sync::Arc::new(std::sync::Mutex::new(bridge));\n        Self {{ inner: Arc::new((*self.inner).clone().{field_name}(Some(handle))) }}\n    }}"
+                    "        pub fn {field_name}(&self, {param_name}: &mut ext_php_rs::types::ZendObject) -> {builder_type} {{\n        let bridge = {bridge_struct}::new({param_name});\n        let handle: {bridge_handle_path} = std::sync::Arc::new(std::sync::Mutex::new(bridge));\n        Self {{ inner: Arc::new((*self.inner).clone().{field_name}(Some(handle))) }}\n    }}"
                 );
 
                 content = content.replace(&old_method, &new_method);
@@ -1279,6 +1282,16 @@ impl Backend for PhpBackend {
             post_build: vec![],
         })
     }
+}
+
+fn bridge_handle_path(api: &ApiSurface, bridge: &alef_core::config::TraitBridgeConfig, core_import: &str) -> String {
+    let alias = bridge.type_alias.as_deref().unwrap_or("VisitorHandle");
+    api.types
+        .iter()
+        .find(|t| t.name == alias && !t.rust_path.is_empty())
+        .map(|t| t.rust_path.replace('-', "_"))
+        .or_else(|| api.excluded_type_paths.get(alias).map(|path| path.replace('-', "_")))
+        .unwrap_or_else(|| format!("{core_import}::visitor::{alias}"))
 }
 
 /// Map an IR [`TypeRef`] to a PHPDoc type string with generic parameters (e.g., `array<string>`).

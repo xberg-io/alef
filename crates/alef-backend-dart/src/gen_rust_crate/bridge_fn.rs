@@ -19,8 +19,8 @@ pub(crate) fn emit_bridge_fn(
 
     // Bridge function parameters use the LOCAL mirror type names (no source-crate prefix).
     // FRB's generated wire code decodes arguments into local mirror types (`crate::T`)
-    // and passes them to bridge functions. Using `kreuzberg::T` in signatures would
-    // create a type mismatch: `crate::T` ≠ `kreuzberg::T` in Rust's type system even
+    // and passes them to bridge functions. Using source-crate `T` in signatures would
+    // create a type mismatch: `crate::T` != source-crate `T` in Rust's type system even
     // though they are layout-identical via `#[frb(mirror(T))]`.
     let params: Vec<String> = f
         .params
@@ -69,7 +69,7 @@ pub(crate) fn emit_bridge_fn(
 
     // Build call-site arguments. Named types (structs/enums declared with
     // `#[frb(mirror(T))]`) are received as the local mirror type but the core fn
-    // expects `kreuzberg::T`. For types without sanitized fields, transmute is sound
+    // expects source-crate `T`. For types without sanitized fields, transmute is sound
     // because the layouts are identical. For types with sanitized fields (e.g.
     // ExtractionConfig which has cancel_token and concurrency as sanitized Option<String>
     // fields that differ in size from the core types), we use From<MirrorT> for CoreT
@@ -137,13 +137,13 @@ fn frb_rust_type_mirror_inner(ty: &TypeRef) -> String {
 /// Build call-site expression for one parameter, transmuting Named mirror types to core types.
 ///
 /// For Named types without sanitized fields, the bridge fn receives the local mirror type
-/// (`crate::T`) but the core function expects `kreuzberg::T`. Since `#[frb(mirror(T))]`
+/// (`crate::T`) but the core function expects source-crate `T`. Since `#[frb(mirror(T))]`
 /// guarantees identical layout for non-sanitized structs, `unsafe { std::mem::transmute }`
 /// is sound and zero-cost for those.
 ///
 /// For Named types with sanitized fields (e.g. ExtractionConfig, which has cancel_token
 /// and concurrency as `Option<String>` in the mirror but different-sized types in core),
-/// we use `kreuzberg::T::from(name)` instead to avoid UB from layout mismatches.
+/// we use `SourceT::from(name)` instead to avoid UB from layout mismatches.
 fn dart_call_arg_with_mirror_transmute(
     p: &ParamDef,
     source_crate_name: &str,
@@ -340,7 +340,7 @@ fn build_named_in_transmute(name: &str, mirror_name: &str, core_ty: &str, is_ref
 /// Returns an empty string if no conversion is needed.
 /// Returns a closure/expression string that wraps the raw call value.
 ///
-/// Uses `From<kreuzberg::T> for T` rather than transmute, because mirror types may differ
+/// Uses `From<SourceT> for T` rather than transmute, because mirror types may differ
 /// in layout (e.g. `Cow<'static, str>` in core vs `String` in mirror).
 fn return_transmute_expr(
     ty: &TypeRef,

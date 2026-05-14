@@ -1,7 +1,7 @@
 //! Emits the swift-bridge wrapper newtype structs for IR struct types.
 //!
 //! `emit_type_wrapper` produces:
-//!   - `pub struct T(pub kreuzberg::T)` newtype
+//!   - `pub struct T(pub SourceT)` newtype
 //!   - `impl T { pub fn new(…) → T }` constructor
 //!   - `impl T { pub fn field(&self) → BridgeType }` getters
 //!
@@ -475,14 +475,14 @@ fn emit_named_getter(
         ));
     } else {
         let expr = if field.is_boxed {
-            // Deref the Box<kreuzberg::T> before wrapping.
+            // Deref the Box<SourceT> before wrapping.
             if is_enum {
                 format!("{wrapper}::from(*self.0.{name}.clone())")
             } else {
                 format!("{wrapper}(*self.0.{name}.clone())")
             }
         } else if matches!(field.core_wrapper, CoreWrapper::Arc) {
-            // Deref the Arc<kreuzberg::T> before wrapping.
+            // Deref the Arc<SourceT> before wrapping.
             if is_enum {
                 format!("{wrapper}::from((*self.0.{name}).clone())")
             } else {
@@ -518,7 +518,7 @@ fn emit_vec_getter(
     if let TypeRef::Named(wrapper) = inner {
         let is_enum = enum_names.contains(wrapper.as_str());
         // When the source field is Vec<Arc<T>>, cloning an element
-        // yields Arc<kreuzberg::T>; we must deref before wrapping.
+        // yields Arc<SourceT>; we must deref before wrapping.
         let elem_expr = match field.vec_inner_core_wrapper {
             // elem is &Arc<T>; (*elem) is Arc<T>; (**elem) is T — deref twice.
             CoreWrapper::Arc if !is_enum => format!("{wrapper}((**elem).clone())"),
@@ -714,7 +714,7 @@ fn emit_string_like_getter(ty: &TypeDef, field: &alef_core::ir::FieldDef, ctx: &
 /// The source crate must provide `<TypeName>::new(api_key, base_url)` or a compatible constructor.
 /// This mirrors the `liter_llm::DefaultClient::new` pattern.
 ///
-/// When the source crate's constructor signature differs (e.g. liter-llm's
+/// When the source crate's constructor signature differs
 /// `DefaultClient::new(ClientConfig, Option<&str>)`), the caller can supply a
 /// custom body via `[crates.<crate>.swift] client_constructor_body."TypeName" = "..."`
 /// in alef.toml. The custom body is interpolated verbatim, with `{type_name}` and

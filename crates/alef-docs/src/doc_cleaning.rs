@@ -117,7 +117,12 @@ pub(crate) fn replace_rust_terminology(doc: &str, lang: Language) -> String {
         Language::Java | Language::Node | Language::Wasm | Language::Csharp | Language::Php => "`null`",
         Language::Python | Language::Rust => "`None`", // keep as-is for Python and Rust
         Language::R | Language::Ffi | Language::C => "`NULL`",
-        Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => "`null`",
+        Language::Kotlin
+        | Language::KotlinAndroid
+        | Language::Swift
+        | Language::Dart
+        | Language::Gleam
+        | Language::Zig => "`null`",
     };
     let doc = doc.replace("`None`", none_replacement);
 

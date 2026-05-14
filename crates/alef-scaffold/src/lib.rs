@@ -430,6 +430,9 @@ fn scaffold_language(
         }
         Language::Rust | Language::C => Ok(vec![]), // Rust/C don't need scaffolded binding crates
         Language::Kotlin => scaffold_kotlin(api, config),
+        // KotlinAndroid emission is fully handled by the dedicated backend
+        // crate (`alef-backend-kotlin-android`); no scaffold step needed.
+        Language::KotlinAndroid => Ok(vec![]),
         Language::Gleam => scaffold_gleam(api, config),
         Language::Zig => scaffold_zig(api, config),
         Language::Dart => scaffold_dart(api, config),

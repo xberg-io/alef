@@ -144,6 +144,18 @@ pub(crate) fn default_build_config(
                 ctx.run_wrapper,
             ))),
         },
+        Language::KotlinAndroid => BuildCommandConfig {
+            precondition: Some(require_tool("gradle")),
+            before: None,
+            build: Some(StringOrVec::Single(wrap(
+                format!("cd {output_dir} && gradle assembleDebug"),
+                ctx.run_wrapper,
+            ))),
+            build_release: Some(StringOrVec::Single(wrap(
+                format!("cd {output_dir} && gradle assembleRelease"),
+                ctx.run_wrapper,
+            ))),
+        },
         Language::Swift => BuildCommandConfig {
             precondition: Some(require_tool("swift")),
             before: None,

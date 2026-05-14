@@ -181,35 +181,6 @@ void main() {{
         module_name = module_name,
     );
 
-    let github_workflow = r#"name: Dart
-
-on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: packages/dart
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up Dart
-        uses: dart-lang/setup-dart@v1
-        with:
-          sdk: stable
-      - name: Get Dart dependencies
-        run: dart pub get
-      - name: Analyze Dart code
-        run: dart analyze
-      - name: Run tests
-        run: dart test
-"#
-    .to_string();
-
     Ok(vec![
         GeneratedFile {
             path: PathBuf::from("packages/dart/pubspec.yaml"),
@@ -244,11 +215,6 @@ jobs:
         GeneratedFile {
             path: PathBuf::from(format!("packages/dart/example/{module_name}_example.dart")),
             content: example_dart,
-            generated_header: false,
-        },
-        GeneratedFile {
-            path: PathBuf::from(".github/workflows/dart.yml"),
-            content: github_workflow,
             generated_header: false,
         },
     ])

@@ -1,6 +1,6 @@
 {{ header }}package {{ package }};
 
-/** Visitor interface for the HTML-to-Markdown conversion pipeline. */
+/** Visitor interface for callbacks implemented by the host language. */
 public interface Visitor {
 {% for callback in callbacks %}
     /** {{ callback.doc }} */

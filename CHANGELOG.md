@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **alef-backend-swift**: streaming adapters are now implemented end-to-end.
+  `Capabilities::supports_streaming` flips from `false` to `true`. For every
+  adapter with `pattern = streaming`:
+  - **Rust shim** emits a per-adapter opaque `{Owner}{Adapter}StreamHandle`
+    that owns the `BoxStream<Result<T, E>>` and a per-stream
+    `tokio::runtime::Runtime` (single-worker, multi-thread). swift-bridge's
+    `extern "Rust"` block declares the handle plus a `_start` free function
+    returning `Result<Handle, String>` (HTTP head validation happens here, so
+    pre-stream errors throw before any chunk arrives) and a `fn next(self:
+    &mut Handle) -> Result<String, String>` method that drains one chunk via
+    `runtime.block_on(stream.next())` and `serde_json::to_string`s it.
+    Empty-string EOF sentinel.
+  - **Swift wrapper** emits a public method returning
+    `AsyncThrowingStream<ItemType, Error>` backed by a detached drain `Task`
+    that loops `try handle.next()`, decodes each JSON chunk via
+    `JSONDecoder().decode(ItemType.self, ...)`, and yields to the continuation.
+    `continuation.onTermination` cancels the drain Task on early-break;
+    swift-bridge's auto-generated `deinit` frees the handle.
+  - **alef-e2e/streaming_assertions.rs (swift)**: replaces the
+    `XCTSkipIf` stub with a real `for try await _chunk in result { … }` drain
+    so streaming fixtures actually assert against the chunked items.
+  - Items must be `Serialize` on the Rust side and `Decodable` on the Swift
+    side. swift-bridge 0.1.59 bridges `Result<String, String>` cleanly; the
+    JSON-string protocol avoids hitting the gaps in its `Option<OpaqueRust>`
+    codegen.
+  Trade-offs documented in the shim: one tokio runtime per stream (heavier
+  than a shared runtime, but isolates lifetimes); back-pressure is not yet
+  implemented (Swift consumer slower than chunk arrival → unbounded
+  `AsyncThrowingStream` buffer growth).
+
 ### Fixed
 
 - **alef-backend-swift, alef-backend-dart**: emit correct `package = "..."` rename in bridge `Cargo.toml`. The rename target previously used `core_crate_dir` (the on-disk directory name), but cargo needs the actual `[package].name` from the umbrella crate's `Cargo.toml`. The two differ when `[[crates]] name` is suffixed for crates.io disambiguation (e.g. `html-to-markdown-rs` package at `crates/html-to-markdown/`). Without the fix, `cargo check` errors with `no matching package found, searched package name: "html-to-markdown"`. Use `crate_name` (the [[crates]] `name` field) for the rename target instead.
@@ -25,6 +57,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and globals from Alef/project defaults, generated headers fall back to a
   vendor-neutral issues URL, and pre-commit scaffolding defaults Alef hooks to
   local `alef` commands unless a repository is configured.
+- **alef-scaffold/backends/e2e**: stop emitting GitHub Actions workflows and
+  remove generated package-name literals from FFI streaming callbacks, Zig/PHP
+  e2e streaming helpers, and visitor/plugin conversion comments.
+- **alef-backend-php**: derive trait-bridge handle paths from the API surface
+  instead of emitting a package-specific visitor handle path in generated bridge
+  setters and function wrappers.
 - **alef config/build commands**: build command defaults now compose with
   workspace and crate overrides field-by-field, so repositories can set global
   defaults while overriding only the commands they need per backend.

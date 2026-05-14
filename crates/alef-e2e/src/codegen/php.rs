@@ -848,7 +848,8 @@ fn render_test_method(
     if let Some(visitor_spec) = &fixture.visitor {
         build_php_visitor(&mut setup_lines, visitor_spec);
         if !options_already_created {
-            setup_lines.push("$builder = \\HtmlToMarkdown\\ConversionOptions::builder();".to_string());
+            let options_type = call_options_type.unwrap_or("ConversionOptions");
+            setup_lines.push(format!("$builder = \\{namespace}\\{options_type}::builder();"));
             setup_lines.push("$options = $builder->visitor($visitor)->build();".to_string());
             options_already_created = true;
         }

@@ -283,6 +283,7 @@ fn lang_dir_name(lang: Language) -> &'static str {
         Language::R => "r",
         Language::Rust => "rust",
         Language::Kotlin => "kotlin",
+        Language::KotlinAndroid => "kotlin-android",
         Language::Swift => "swift",
         Language::Dart => "dart",
         Language::Gleam => "gleam",
@@ -307,6 +308,7 @@ fn lang_code(lang: Language) -> &'static str {
         Language::R => "r",
         Language::Rust => "rust",
         Language::Kotlin => "kotlin",
+        Language::KotlinAndroid => "kotlin_android",
         Language::Swift => "swift",
         Language::Dart => "dart",
         Language::Gleam => "gleam",
@@ -663,6 +665,23 @@ fn generate_readme_hardcoded(
                     to_pascal_case(&config.name)
                 ),
                 "kotlin",
+            )
+        }
+        Language::KotlinAndroid => {
+            let module = config.name.replace('-', "_");
+            (
+                "Kotlin/Android",
+                format!(
+                    "Add the generated AAR to your Android module's `build.gradle.kts`:\n\n```kotlin\ndependencies {{\n    implementation(\"{}:{}-android:VERSION\")\n}}\n```",
+                    config.kotlin_package(),
+                    module
+                ),
+                format!(
+                    "```kotlin\nimport {}.{}\n\n// The bundled native library is loaded via System.loadLibrary().\n```",
+                    config.kotlin_package(),
+                    to_pascal_case(&config.name)
+                ),
+                "kotlin-android",
             )
         }
         Language::Swift => (

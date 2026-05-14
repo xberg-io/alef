@@ -31,6 +31,7 @@ alef-backend-gleam = { workspace = true }
 alef-backend-go = { workspace = true }
 alef-backend-java = { workspace = true }
 alef-backend-kotlin = { workspace = true }
+alef-backend-kotlin-android = { workspace = true }
 alef-backend-magnus = { workspace = true }
 alef-backend-napi = { workspace = true }
 alef-backend-php = { workspace = true }

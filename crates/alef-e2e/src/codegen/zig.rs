@@ -12,7 +12,7 @@ use alef_core::config::ResolvedCrateConfig;
 use alef_core::hash::{self, CommentStyle};
 use alef_core::template_versions::toolchain;
 use anyhow::Result;
-use heck::ToSnakeCase;
+use heck::{ToShoutySnakeCase, ToSnakeCase};
 use std::collections::HashSet;
 use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
@@ -72,6 +72,7 @@ impl E2eCodegen for ZigE2eCodegen {
 
         // Get the module name for imports.
         let module_name = config.zig_module_name();
+        let ffi_prefix = config.ffi_prefix();
 
         // Generate build.zig - collect test file names first.
         let field_resolver = FieldResolver::new(
@@ -107,6 +108,7 @@ impl E2eCodegen for ZigE2eCodegen {
                 &field_resolver,
                 &e2e_config.fields_enum,
                 &module_name,
+                &ffi_prefix,
             );
             files.push(GeneratedFile {
                 path: output_base.join("src").join(filename),
@@ -501,6 +503,7 @@ fn render_test_file(
     field_resolver: &FieldResolver,
     enum_fields: &HashSet<String>,
     module_name: &str,
+    ffi_prefix: &str,
 ) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
@@ -526,6 +529,7 @@ fn render_test_file(
                 field_resolver,
                 enum_fields,
                 module_name,
+                ffi_prefix,
             );
         }
         let _ = writeln!(out);
@@ -545,6 +549,7 @@ fn render_test_fn(
     field_resolver: &FieldResolver,
     enum_fields: &HashSet<String>,
     module_name: &str,
+    ffi_prefix: &str,
 ) {
     // Resolve per-fixture call config.
     let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
@@ -807,6 +812,12 @@ fn render_test_fn(
             // emit raw FFI code to collect all chunks instead of calling
             // `chat_stream` (which only returns the last chunk's JSON).
             if uses_streaming_virtual_path {
+                let request_from_json = format!("{ffi_prefix}_chat_completion_request_from_json");
+                let request_free = format!("{ffi_prefix}_chat_completion_request_free");
+                let stream_start = format!("{ffi_prefix}_default_client_chat_stream_start");
+                let stream_free = format!("{ffi_prefix}_default_client_chat_stream_free");
+                let client_c_type = format!("{}DefaultClient", ffi_prefix.to_shouty_snake_case());
+
                 // Streaming-virtual path: inline FFI collect.
                 // Build a sentinel-terminated request string.
                 let _ = writeln!(
@@ -816,27 +827,21 @@ fn render_test_fn(
                 let _ = writeln!(out, "    defer std.heap.c_allocator.free(_req_z);");
                 let _ = writeln!(
                     out,
-                    "    const _req_handle = {module_name}.c.literllm_chat_completion_request_from_json(_req_z.ptr);"
+                    "    const _req_handle = {module_name}.c.{request_from_json}(_req_z.ptr);"
                 );
+                let _ = writeln!(out, "    defer {module_name}.c.{request_free}(_req_handle);");
                 let _ = writeln!(
                     out,
-                    "    defer {module_name}.c.literllm_chat_completion_request_free(_req_handle);"
-                );
-                let _ = writeln!(
-                    out,
-                    "    const _stream_handle = {module_name}.c.literllm_default_client_chat_stream_start(@as(*{module_name}.c.LITERLLMDefaultClient, @ptrCast(_client._handle)), _req_handle);"
+                    "    const _stream_handle = {module_name}.c.{stream_start}(@as(*{module_name}.c.{client_c_type}, @ptrCast(_client._handle)), _req_handle);"
                 );
                 let _ = writeln!(out, "    if (_stream_handle == null) return error.StreamStartFailed;");
-                let _ = writeln!(
-                    out,
-                    "    defer {module_name}.c.literllm_default_client_chat_stream_free(_stream_handle);"
-                );
+                let _ = writeln!(out, "    defer {module_name}.c.{stream_free}(_stream_handle);");
                 // Emit the collect snippet (already has 4-space indentation baked in).
-                if let Some(snip) = StreamingFieldResolver::collect_snippet("zig", "_stream_handle", "chunks") {
-                    out.push_str("    ");
-                    out.push_str(&snip);
-                    out.push('\n');
-                }
+                let snip =
+                    StreamingFieldResolver::collect_snippet_zig("_stream_handle", "chunks", module_name, ffi_prefix);
+                out.push_str("    ");
+                out.push_str(&snip);
+                out.push('\n');
                 // For non-streaming assertions (e.g. usage), we also need _result_json.
                 // Re-serialize the last chunk in `chunks` to get the JSON.
                 if streaming_path_has_non_streaming {

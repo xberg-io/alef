@@ -109,7 +109,7 @@ pub(crate) fn emit_cargo_toml(
     } else {
         format!("{}\n", workspace_dep_lines.join("\n"))
     };
-    // serde_json is required only when the generated From<kreuzberg::T> impls use
+    // serde_json is required only when the generated From<SourceT> impls use
     // serde_json::to_string() to convert Json-typed fields (serde_json::Value,
     // ProcessResult, InternalDocument, etc.) to String for the FRB-friendly mirror.
     // Detect by scanning the API surface for any TypeRef::Json (recursively).

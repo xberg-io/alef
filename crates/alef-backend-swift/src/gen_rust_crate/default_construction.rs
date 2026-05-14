@@ -85,7 +85,7 @@ pub(crate) fn emit_default_construction_body(
                 },
             ));
         } else if let TypeRef::Named(n) = &f.ty {
-            // Enum wrappers only have From<kreuzberg::T> for BridgeT (not the reverse),
+            // Enum wrappers only have From<SourceT> for BridgeT (not the reverse),
             // so we cannot convert a bridge enum back to the source type via .into().
             // For struct newtypes, use .0; for enums, leave at Default.
             // The constructor param is still accepted (so the API is stable) but
@@ -322,7 +322,7 @@ pub(crate) fn emit_direct_field_inits(
                     "            {name}: serde_json::from_str::<{opt_ty}>(&{name}).expect(\"valid JSON for {name}\")"
                 )
             } else if let TypeRef::Named(n) = &f.ty {
-                // Enum wrappers only have From<kreuzberg::T> for BridgeT (not the reverse).
+                // Enum wrappers only have From<SourceT> for BridgeT (not the reverse).
                 // For struct newtypes use .0; for enum types leave at Default.
                 let is_enum = enum_names.contains(n.as_str());
                 if is_enum {

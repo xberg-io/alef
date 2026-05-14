@@ -18,6 +18,7 @@ pub fn get_backend(lang: Language) -> Box<dyn Backend> {
         Language::Rust => panic!("Rust is a docs-only language target; it does not have a binding backend"),
         Language::C => panic!("C is an e2e test consumer target; it does not have a binding backend"),
         Language::Kotlin => Box::new(alef_backend_kotlin::KotlinBackend),
+        Language::KotlinAndroid => Box::new(alef_backend_kotlin_android::KotlinAndroidBackend),
         Language::Swift => Box::new(alef_backend_swift::SwiftBackend),
         Language::Dart => Box::new(alef_backend_dart::DartBackend),
         Language::Gleam => Box::new(alef_backend_gleam::GleamBackend),

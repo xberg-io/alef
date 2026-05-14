@@ -1,7 +1,7 @@
 use ahash::{AHashMap, AHashSet};
 use alef_codegen::conversions::core_type_path;
 use alef_core::ir::{FunctionDef, MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef};
-use heck::ToSnakeCase;
+use heck::{ToPascalCase, ToSnakeCase};
 use minijinja::context;
 
 /// Returns true when a sanitized function/method can be auto-recovered via JSON-roundtrip:
@@ -57,7 +57,7 @@ use super::helpers::{gen_ffi_unimplemented_body, gen_owned_value_to_c, null_retu
 // ---------------------------------------------------------------------------
 
 /// Generate a callback-based streaming wrapper for a method decorated with the
-/// `Streaming` adapter pattern.  The caller supplies a `LiterLlmStreamCallback`
+/// `Streaming` adapter pattern.  The caller supplies a `{Prefix}StreamCallback`
 /// and an opaque `user_data` pointer; the body drives the async stream and
 /// invokes the callback once per chunk.
 pub(super) fn gen_streaming_method_wrapper(
@@ -71,6 +71,7 @@ pub(super) fn gen_streaming_method_wrapper(
     let method_name = &method.name;
     let fn_name = format!("{prefix}_{type_snake}_{method_name}");
     let qualified = core_type_path(typ, core_import);
+    let callback_type = format!("{}StreamCallback", prefix.to_pascal_case());
 
     let doc_comment = if !method.doc.is_empty() {
         let lines: Vec<&str> = method.doc.lines().collect();
@@ -87,6 +88,7 @@ pub(super) fn gen_streaming_method_wrapper(
             doc_comment => doc_comment.trim_end(),
             fn_name => fn_name,
             qualified => qualified,
+            callback_type => callback_type,
             body_indented => body_indented,
         },
     )

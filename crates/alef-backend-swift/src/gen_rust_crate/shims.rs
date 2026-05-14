@@ -77,8 +77,8 @@ pub(crate) fn is_bridgeable_fn(
 /// Build the call-site expression for a function parameter.
 ///
 /// Handles JSON-bridged types, Path conversion, primitive casts, and reference borrows
-/// based on `is_ref`/`optional`. Named types are wrapped as `pub struct T(pub kreuzberg::T)`,
-/// so accessing the inner kreuzberg type requires `.0` indirection.
+/// based on `is_ref`/`optional`. Named types are wrapped as `pub struct T(pub SourceT)`,
+/// so accessing the inner source type requires `.0` indirection.
 pub(crate) fn swift_call_arg(p: &alef_core::ir::ParamDef) -> String {
     let name = p.name.to_snake_case();
     let original = p.original_type.as_deref().unwrap_or("");
@@ -139,7 +139,7 @@ pub(crate) fn swift_call_arg(p: &alef_core::ir::ParamDef) -> String {
     // Named types: unwrap the swift-bridge wrapper newtype with `.0`.
     // Enum wrappers do not have a `.0` field — they are plain enums. When a
     // function parameter is a Named enum wrapper, we cannot reverse-convert
-    // it to the underlying kreuzberg enum (no From<BridgeEnum> for kreuzberg::Enum).
+    // it to the underlying source enum (no From<BridgeEnum> for SourceEnum).
     // The whole shim will be guarded at the emit_function_shim level; here we
     // still emit a `.0` access so the function body is structurally valid.
     if matches!(p.ty, TypeRef::Named(_)) {
@@ -253,8 +253,8 @@ pub(crate) fn emit_function_shim(
     };
     let source_call = format!("{resolved_path}({call_args_str})");
 
-    // If any parameter is a Named enum wrapper, we cannot pass it into kreuzberg
-    // because the bridge enum only generates From<kreuzberg::T> for BridgeT (not the
+    // If any parameter is a Named enum wrapper, we cannot pass it into the source crate
+    // because the bridge enum only generates From<SourceT> for BridgeT (not the
     // reverse). Emit an unimplemented!() body — the function will panic at runtime.
     if f.params
         .iter()
@@ -270,7 +270,7 @@ pub(crate) fn emit_function_shim(
         return format!(
             "// alef: skipped — parameter(s) `{problematic}` are enum bridge wrappers; reverse From not generated\n\
              pub fn {fn_name}({params_str}) -> {return_ty} {{\n    \
-             ::std::unimplemented!(\"{fn_name}: enum parameter(s) [{problematic}] cannot be converted back to kreuzberg types\")\n\
+             ::std::unimplemented!(\"{fn_name}: enum parameter(s) [{problematic}] cannot be converted back to source crate types\")\n\
              }}\n"
         );
     }
@@ -306,12 +306,12 @@ pub(crate) fn emit_function_shim(
 
     // Wrap return value with JSON serialization when the return type is not natively
     // supported by swift-bridge 0.1.59 (nested generics, HashMap). Named return
-    // types must be wrapped in their swift-bridge newtype (`pub struct T(pub kreuzberg::T)`).
+    // types must be wrapped in their swift-bridge newtype (`pub struct T(pub SourceT)`).
     // Async fns must `.await` before mapping; sync fns can chain directly.
     let json_wrap_ok = needs_json_bridge_with_handles(&f.return_type, handle_returned_types);
 
     // Build a wrapper expression for a Named type `t`.
-    // Enum wrappers implement From<kreuzberg::T> — use T::from(val) or val.map(T::from).
+    // Enum wrappers implement From<SourceT> — use T::from(val) or val.map(T::from).
     // Struct newtypes use T(val) constructor directly.
     let wrap_named = |t: &str| -> String {
         if enum_names.contains(t) {

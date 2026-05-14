@@ -7,7 +7,7 @@
 pub unsafe extern "C" fn {{ fn_name }}(
     client: *const {{ qualified }},
     request_json: *const std::ffi::c_char,
-    callback: LiterLlmStreamCallback,
+    callback: {{ callback_type }},
     user_data: *mut std::ffi::c_void,
 ) -> i32 {
 {{ body_indented }}

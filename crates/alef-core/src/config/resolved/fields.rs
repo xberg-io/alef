@@ -31,6 +31,10 @@ impl ResolvedCrateConfig {
             Language::Go => self.go.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
             Language::Java => self.java.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
             Language::Kotlin => self.kotlin.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
+            Language::KotlinAndroid => self
+                .kotlin_android
+                .as_ref()
+                .and_then(|c| c.rename_fields.get(&explicit_key)),
             Language::Csharp => self.csharp.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
             Language::R => self.r.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
             Language::Zig => self.zig.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
@@ -75,6 +79,7 @@ impl ResolvedCrateConfig {
             Language::Go => self.go.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
             Language::Java => self.java.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
             Language::Kotlin => self.kotlin.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
+            Language::KotlinAndroid => self.kotlin_android.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
             Language::Csharp => self.csharp.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
             Language::R => self.r.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
             Language::Zig => self.zig.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
@@ -95,6 +100,7 @@ impl ResolvedCrateConfig {
             | Language::Csharp
             | Language::Php
             | Language::Kotlin
+            | Language::KotlinAndroid
             | Language::Swift
             | Language::Dart => "camelCase".to_string(),
             Language::Python

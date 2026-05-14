@@ -655,7 +655,12 @@ fn output_path_for(lang: Language, config: &ResolvedCrateConfig) -> Option<&Path
         // Rust is the core language — no separate output path.
         // C is an e2e test consumer of the FFI layer — no generated binding output path.
         Language::Rust | Language::C => None,
-        Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => None,
+        Language::Kotlin
+        | Language::KotlinAndroid
+        | Language::Swift
+        | Language::Dart
+        | Language::Gleam
+        | Language::Zig => None,
     }
 }
 

@@ -126,44 +126,6 @@ Add to your `build.zig.zon`:
 
     let main_zig = "// Main module stub for the Zig bindings\n// Replace with your actual API calls after code generation\n\npub fn add(a: i32, b: i32) i32 {\n    return a + b;\n}\n\ntest \"example\" {\n    const a: i32 = 1;\n    const b: i32 = 1;\n    try @import(\"std\").testing.expectEqual(a + b, 2);\n}\n";
 
-    // Zig workflow: build the FFI crate first so `zig build test` can find
-    // `lib{ffi_lib}.{so,dylib,dll}`. `min_zig` mirrors `build.zig.zon`'s
-    // `minimum_zig_version`.
-    let github_workflow = format!(
-        r#"name: Zig
-
-on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: packages/zig
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-      - name: Build {ffi_crate_dir}
-        working-directory: ${{{{ github.workspace }}}}
-        run: cargo build -p {ffi_crate_dir}
-      - name: Set up Zig
-        uses: mlugg/setup-zig@v2
-        with:
-          version: "{min_zig}"
-      - name: Build Zig project
-        run: zig build
-      - name: Run tests
-        run: zig build test
-"#,
-        ffi_crate_dir = ffi_crate_dir,
-        min_zig = toolchain::MIN_ZIG_VERSION,
-    );
-
     Ok(vec![
         GeneratedFile {
             path: PathBuf::from("packages/zig/build.zig"),
@@ -198,11 +160,6 @@ jobs:
         GeneratedFile {
             path: PathBuf::from("packages/zig/src/main.zig"),
             content: main_zig.to_string(),
-            generated_header: false,
-        },
-        GeneratedFile {
-            path: PathBuf::from(".github/workflows/zig.yml"),
-            content: github_workflow,
             generated_header: false,
         },
     ])

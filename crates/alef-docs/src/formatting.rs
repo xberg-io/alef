@@ -26,9 +26,12 @@ pub(crate) fn format_field_default(field: &FieldDef, lang: Language, api: &ApiSu
             Language::R => "`NULL`".to_string(),
             Language::Rust => "`None`".to_string(),
             Language::Ffi | Language::C => "`NULL`".to_string(),
-            Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => {
-                "`null`".to_string()
-            }
+            Language::Kotlin
+            | Language::KotlinAndroid
+            | Language::Swift
+            | Language::Dart
+            | Language::Gleam
+            | Language::Zig => "`null`".to_string(),
         };
     }
     "—".to_string()
@@ -144,9 +147,12 @@ pub(crate) fn format_typed_default(
                     Language::Rust => "`vec![]`".to_string(),
                     Language::Ffi | Language::C => "`NULL`".to_string(),
                     Language::R => "`list()`".to_string(),
-                    Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => {
-                        "`[]`".to_string()
-                    }
+                    Language::Kotlin
+                    | Language::KotlinAndroid
+                    | Language::Swift
+                    | Language::Dart
+                    | Language::Gleam
+                    | Language::Zig => "`[]`".to_string(),
                 };
             }
             if matches!(inner_ty, TypeRef::Map(_, _)) {
@@ -168,9 +174,12 @@ pub(crate) fn format_typed_default(
                     Language::Rust => "`HashMap::new()`".to_string(),
                     Language::Ffi | Language::C => "`NULL`".to_string(),
                     Language::R => "`list()`".to_string(),
-                    Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => {
-                        "`{}`".to_string()
-                    }
+                    Language::Kotlin
+                    | Language::KotlinAndroid
+                    | Language::Swift
+                    | Language::Dart
+                    | Language::Gleam
+                    | Language::Zig => "`{}`".to_string(),
                 };
             }
             // Non-collection Empty: only show null for optional fields
@@ -189,9 +198,12 @@ pub(crate) fn format_typed_default(
                 Language::R => "`NULL`".to_string(),
                 Language::Rust => "`Default::default()`".to_string(),
                 Language::Ffi | Language::C => "`NULL`".to_string(),
-                Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => {
-                    "`null`".to_string()
-                }
+                Language::Kotlin
+                | Language::KotlinAndroid
+                | Language::Swift
+                | Language::Dart
+                | Language::Gleam
+                | Language::Zig => "`null`".to_string(),
             }
         }
         DefaultValue::None => {
@@ -210,9 +222,12 @@ pub(crate) fn format_typed_default(
                 Language::R => "`NULL`".to_string(),
                 Language::Rust => "`None`".to_string(),
                 Language::Ffi | Language::C => "`NULL`".to_string(),
-                Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => {
-                    "`null`".to_string()
-                }
+                Language::Kotlin
+                | Language::KotlinAndroid
+                | Language::Swift
+                | Language::Dart
+                | Language::Gleam
+                | Language::Zig => "`null`".to_string(),
             }
         }
     }
@@ -236,7 +251,12 @@ pub(crate) fn format_enum_variant_ref(enum_type: &str, variant: &str, lang: Lang
             ffi_prefix.to_shouty_snake_case(),
             variant.to_shouty_snake_case()
         ),
-        Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => {
+        Language::Kotlin
+        | Language::KotlinAndroid
+        | Language::Swift
+        | Language::Dart
+        | Language::Gleam
+        | Language::Zig => {
             format!("{enum_type}.{variant}")
         }
     }
@@ -280,7 +300,12 @@ pub(crate) fn format_error_phrase(error_type: &str, lang: Language) -> String {
             let ename = short.to_pascal_case();
             format!("Returns `Err({ename})`.")
         }
-        Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => {
+        Language::Kotlin
+        | Language::KotlinAndroid
+        | Language::Swift
+        | Language::Dart
+        | Language::Gleam
+        | Language::Zig => {
             let ename = short.to_pascal_case();
             format!("Throws `{ename}`.")
         }
@@ -304,7 +329,12 @@ pub(crate) fn doc_type_with_optional(ty: &TypeRef, lang: Language, optional: boo
             Language::R => format!("{inner} or NULL"),
             Language::Rust => format!("Option<{inner}>"),
             Language::Ffi | Language::C => format!("{inner}*"),
-            Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => {
+            Language::Kotlin
+            | Language::KotlinAndroid
+            | Language::Swift
+            | Language::Dart
+            | Language::Gleam
+            | Language::Zig => {
                 format!("{inner}?")
             }
         };

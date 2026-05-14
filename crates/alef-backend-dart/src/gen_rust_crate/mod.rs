@@ -174,7 +174,7 @@ fn emit_lib_rs(
     // with sanitized fields. These cannot be safely transmuted because the inner types
     // have different memory layouts (e.g. BatchBytesItem contains FileExtractionConfig
     // which has Option<String> where core has Option<HtmlOutputConfig>).
-    // Bridge functions use `From<MirrorT> for kreuzberg::T` for all of these.
+    // Bridge functions use `From<MirrorT> for SourceT` for all of these.
     let types_needing_from_conversion: HashSet<String> =
         compute_types_containing_sanitized(api, &types_with_direct_sanitized_fields, exclude_types);
 
@@ -245,12 +245,12 @@ fn emit_lib_rs(
         emit_mirror_enum(&mut content, en);
     }
 
-    // Emit From<kreuzberg::T> for T conversions for all struct and enum types.
+    // Emit From<SourceT> for T conversions for all struct and enum types.
     // These are required because the bridge functions use local mirror types but the core
-    // functions return kreuzberg::T types that may differ in layout (e.g. Cow vs String).
+    // functions return source-crate types that may differ in layout (e.g. Cow vs String).
     // transmute cannot be used when sizes differ, so explicit field-by-field From impls
     // are generated instead.
-    content.push_str("\n// From<kreuzberg::T> conversions for bridge return types.\n");
+    content.push_str("\n// From<SourceT> conversions for bridge return types.\n");
     for ty in api
         .types
         .iter()
@@ -294,17 +294,17 @@ fn emit_lib_rs(
     // parameter types that need From conversion, via non-sanitized field references.
     let types_needing_from_impl = compute_types_needing_from_impl(api, &param_types_needing_from, exclude_types);
 
-    // Emit From<T> for kreuzberg::T impls (mirror-to-core direction) for types in the
+    // Emit From<T> for SourceT impls (mirror-to-core direction) for types in the
     // transitive closure. Only those types (not all types) get this impl, avoiding
     // Default::default() issues for output-only types that don't implement Default.
-    content.push_str("\n// From<T> for kreuzberg::T conversions (mirror-to-core direction).\n");
+    content.push_str("\n// From<T> for SourceT conversions (mirror-to-core direction).\n");
     content.push_str("// Used in bridge functions for types with sanitized fields, and by\n");
     content.push_str("// nested conversions within those types.\n");
     for ty in api.types.iter().filter(|t| types_needing_from_impl.contains(&t.name)) {
         content.push('\n');
         emit_from_mirror_to_core_struct(&mut content, ty, source_crate_name);
     }
-    // Emit From<MirrorEnum> for kreuzberg::Enum so that enum-typed struct fields
+    // Emit From<MirrorEnum> for SourceEnum so that enum-typed struct fields
     // can use `.into()` in the mirror-to-core From impls above.
     for en in api.enums.iter().filter(|e| types_needing_from_impl.contains(&e.name)) {
         content.push('\n');
@@ -435,7 +435,7 @@ fn compute_types_containing_sanitized(
 /// Compute the transitive closure of all struct/enum types reachable from
 /// `seed_types` (types with sanitized fields) via non-sanitized field references.
 ///
-/// These are the types that need `From<MirrorT> for kreuzberg::T` impls so that
+/// These are the types that need `From<MirrorT> for SourceT` impls so that
 /// `.into()` calls in the generated From impls for sanitized-field types work.
 /// Output-only types (e.g. result structs with sanitized fields) are excluded
 /// from the seed set — they're never passed as function inputs.
@@ -533,7 +533,7 @@ fn emit_rust_struct_field(out: &mut String, cfg: Option<&str>, field_name: &str,
     ));
 }
 
-/// Emit a `From<kreuzberg::T> for T` implementation for a mirror struct.
+/// Emit a `From<SourceT> for T` implementation for a mirror struct.
 ///
 /// Each field is converted using the appropriate strategy:
 /// - `CoreWrapper::Cow` fields: `.into()` (Cow<'_, str> → String)
@@ -562,7 +562,7 @@ fn emit_from_impl_for_struct(out: &mut String, ty: &TypeDef, source_crate_name: 
             // Use a best-effort fallback.
             let fallback = sanitized_field_from_expr(field);
             // `cfg = None`: the dart bridge crate enables `features = ["full"]` on
-            // the kreuzberg dependency, so every core-side cfg-gated field is present
+            // the source dependency, so every core-side cfg-gated field is present
             // at compile time. Emitting `#[cfg(...)]` here would gate on the dart
             // crate's own (undefined) features, evaluating to false and leaving the
             // struct literal missing fields.
@@ -570,7 +570,7 @@ fn emit_from_impl_for_struct(out: &mut String, ty: &TypeDef, source_crate_name: 
         } else {
             let expr = field_from_expr(field, source_crate_name);
             // `cfg = None`: the dart bridge crate enables `features = ["full"]` on
-            // the kreuzberg dependency, so every core-side cfg-gated field is present
+            // the source dependency, so every core-side cfg-gated field is present
             // at compile time. Emitting `#[cfg(...)]` here would gate on the dart
             // crate's own (undefined) features, evaluating to false and leaving the
             // struct literal missing fields.
@@ -785,10 +785,10 @@ fn vec_inner_from_expr(
     }
 }
 
-/// Emit `From<MirrorT> for kreuzberg::T` for types with sanitized fields.
+/// Emit `From<MirrorT> for SourceT` for types with sanitized fields.
 ///
 /// This is the mirror-to-core direction, required by bridge functions that accept a
-/// `MirrorT` parameter and need to call the core function with `kreuzberg::T`.
+/// `MirrorT` parameter and need to call the core function with SourceT.
 /// Transmute is unsound for these types because sanitized fields (e.g. `Option<String>`
 /// substituted for `Option<CancellationToken>`) have different memory sizes than the
 /// corresponding core field, making the transmute layout assumption false.
@@ -819,7 +819,7 @@ fn emit_from_mirror_to_core_struct(out: &mut String, ty: &TypeDef, source_crate_
             // impl generated, and those core types implement Default (e.g. ExtractionConfig
             // has cancel_token: Option<CancellationToken> which implements Default).
             // `cfg = None`: the dart bridge crate enables `features = ["full"]` on
-            // the kreuzberg dependency, so every core-side cfg-gated field is present
+            // the source dependency, so every core-side cfg-gated field is present
             // at compile time. Emitting `#[cfg(...)]` here would gate on the dart
             // crate's own (undefined) features, evaluating to false and leaving the
             // struct literal missing fields.
@@ -827,7 +827,7 @@ fn emit_from_mirror_to_core_struct(out: &mut String, ty: &TypeDef, source_crate_
         } else {
             let expr = field_from_expr_to_core(field, source_crate_name);
             // `cfg = None`: the dart bridge crate enables `features = ["full"]` on
-            // the kreuzberg dependency, so every core-side cfg-gated field is present
+            // the source dependency, so every core-side cfg-gated field is present
             // at compile time. Emitting `#[cfg(...)]` here would gate on the dart
             // crate's own (undefined) features, evaluating to false and leaving the
             // struct literal missing fields.
@@ -847,7 +847,7 @@ fn emit_from_mirror_to_core_struct(out: &mut String, ty: &TypeDef, source_crate_
     ));
 }
 
-/// Emit a `From<MirrorEnum> for kreuzberg::Enum` implementation.
+/// Emit a `From<MirrorEnum> for SourceEnum` implementation.
 ///
 /// Unit-only enums: simple variant match. Data enums: reconstruct each variant.
 fn emit_from_mirror_to_core_enum(out: &mut String, en: &EnumDef, source_crate_name: &str) {
@@ -1217,7 +1217,7 @@ fn sanitized_field_from_expr(field: &FieldDef) -> String {
     }
 }
 
-/// Emit a `From<kreuzberg::E> for E` implementation for a mirror enum.
+/// Emit a `From<SourceE> for E` implementation for a mirror enum.
 ///
 /// Unit-only enums use a simple match. Data enums recursively convert variant fields.
 fn emit_from_impl_for_enum(out: &mut String, en: &EnumDef, source_crate_name: &str) {
@@ -1651,7 +1651,7 @@ fn emit_opaque_method(
 
     // Receiver: FRB opaque types require `&self` (interior-mutability via RustAutoOpaque).
     // `&mut self` and owned receivers are also supported by FRB but we use `&self`
-    // as it matches liter-llm's trait surface.
+    // as it matches the supported trait surface.
     let self_param = match &method.receiver {
         Some(ReceiverKind::RefMut) => "&mut self",
         _ => "&self",

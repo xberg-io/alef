@@ -660,7 +660,7 @@ fn emit_convenience_wrappers(api: &ApiSurface, out: &mut String) {
         emit_path_overload(func, &all_names, out);
     }
 
-    // Emit e2e-test wrappers when the api surface exposes the kreuzberg-style
+    // Emit e2e-test wrappers when the api surface exposes the legacy extraction
     // helper types (`ExtractionConfig`, `BatchBytesItem`, `BatchFileItem`). These
     // wrappers depend on the JSON-factory shims emitted by the Rust bridge crate
     // (`extractionConfigFromJson`, `batchBytesItemFromJson`, `batchFileItemFromJson`),
@@ -727,7 +727,7 @@ fn emit_from_json_forwarders(api: &ApiSurface, exclude_types: &std::collections:
     }
 }
 
-/// Returns `true` when the api surface exposes the kreuzberg-style e2e helper
+/// Returns `true` when the api surface exposes the legacy extraction e2e helper
 /// types (`ExtractionConfig`, `BatchBytesItem`, `BatchFileItem`), all serde-enabled.
 /// Mirrors `gen_rust_crate::api_has_e2e_types` so the Swift wrapper helpers and
 /// the Rust-side JSON-factory shims are emitted together.
@@ -740,7 +740,7 @@ fn api_has_e2e_helper_types(api: &ApiSurface) -> bool {
 
 /// Emits the e2e-test helper wrappers used by the generated Swift e2e test layer.
 ///
-/// Hardcoded for kreuzberg-style symbols (`extractBytes`, `extractFile`,
+/// Hardcoded for legacy extraction symbols (`extractBytes`, `extractFile`,
 /// `batchExtract*`, `extractionConfigFromJson`); emission is gated structurally
 /// by `api_has_e2e_helper_types`, so this is a no-op for binding crates that
 /// don't expose those types.

@@ -213,7 +213,7 @@ pub fn default_lint_config(lang: Language, output_dir: &str, ctx: &LangContext) 
             )),
             typecheck: None,
         },
-        Language::Kotlin => {
+        Language::Kotlin | Language::KotlinAndroid => {
             let format_cmd = wrap(format!("cd {output_dir} && gradle ktlintFormat"), ctx.run_wrapper);
             let check_cmd = wrap(format!("cd {output_dir} && gradle ktlintCheck"), ctx.run_wrapper);
             LintConfig {

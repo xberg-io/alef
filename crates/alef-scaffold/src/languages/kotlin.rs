@@ -10,7 +10,11 @@ use std::path::PathBuf;
 pub(crate) fn scaffold_kotlin(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     if let Some(mode) = config.kotlin.as_ref().and_then(|k| k.mode.as_deref()) {
         return match mode {
-            "android" => scaffold_kotlin_android(api, config),
+            "android" => anyhow::bail!(
+                "`[crates.kotlin] mode = \"android\"` was removed in alef 0.16. \
+                 Use `Language::KotlinAndroid` (slug `\"kotlin_android\"`) and the \
+                 `alef-backend-kotlin-android` crate instead."
+            ),
             "kmp" => scaffold_kotlin_multiplatform(api, config),
             _ => scaffold_kotlin_jvm(api, config),
         };
@@ -236,38 +240,6 @@ object Sample {{
         project_name = project_name,
     );
 
-    let github_workflow = format!(
-        r#"name: Kotlin
-
-on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: packages/kotlin
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up JDK
-        uses: actions/setup-java@v4
-        with:
-          java-version: "{jvm_target}"
-          distribution: temurin
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-      - name: Run Gradle build
-        run: gradle build
-      - name: Run Gradle tests
-        run: gradle test
-"#,
-        jvm_target = jvm_target,
-    );
-
     Ok(vec![
         GeneratedFile {
             path: PathBuf::from("packages/kotlin/build.gradle.kts"),
@@ -302,11 +274,6 @@ jobs:
         GeneratedFile {
             path: PathBuf::from("packages/kotlin/src/main/kotlin/sample/Sample.kt"),
             content: sample_kotlin,
-            generated_header: false,
-        },
-        GeneratedFile {
-            path: PathBuf::from(".github/workflows/kotlin.yml"),
-            content: github_workflow,
             generated_header: false,
         },
     ])
@@ -479,205 +446,6 @@ kotlin {{
         },
         GeneratedFile {
             path: PathBuf::from("packages/kotlin-mpp/README.md"),
-            content: readme,
-            generated_header: false,
-        },
-    ])
-}
-
-fn scaffold_kotlin_android(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
-    let meta = scaffold_meta(config);
-    let version = &api.version;
-    let package = config.kotlin_package();
-    let project_name = format!("{}-android", config.name);
-    let module_name = config.name.to_pascal_case();
-    let lib_name = config.ffi_lib_name();
-
-    let kotlin_plugin = maven::KOTLIN_JVM_PLUGIN;
-    let android_gradle_plugin = maven::ANDROID_GRADLE_PLUGIN;
-    let compile_sdk = toolchain::ANDROID_COMPILE_SDK;
-    let min_sdk = toolchain::ANDROID_MIN_SDK;
-    let android_jvm_target = toolchain::ANDROID_JVM_TARGET;
-    let junit_legacy = maven::JUNIT_LEGACY;
-    let androidx_junit = maven::ANDROIDX_TEST_EXT_JUNIT;
-    let espresso_core = maven::ANDROIDX_TEST_ESPRESSO_CORE;
-    let artifact_id = format!("{}-android", config.name);
-
-    let build_gradle = format!(
-        r#"plugins {{
-    id("com.android.library") version "{android_gradle_plugin}"
-    id("org.jetbrains.kotlin.android") version "{kotlin_plugin}"
-    id("maven-publish")
-}}
-
-android {{
-    namespace = "{package}.android"
-    compileSdk = {compile_sdk}
-
-    defaultConfig {{
-        minSdk = {min_sdk}
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        consumerProguardFiles("consumer-rules.pro")
-    }}
-
-    sourceSets {{
-        getByName("main") {{
-            jniLibs.srcDirs("src/main/jniLibs")
-        }}
-    }}
-
-    buildTypes {{
-        release {{
-            isMinifyEnabled = false
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-        }}
-    }}
-
-    compileOptions {{
-        sourceCompatibility = JavaVersion.VERSION_{android_jvm_target}
-        targetCompatibility = JavaVersion.VERSION_{android_jvm_target}
-    }}
-
-    kotlinOptions {{
-        jvmTarget = "{android_jvm_target}"
-    }}
-}}
-
-publishing {{
-    publications {{
-        register<MavenPublication>("release") {{
-            groupId = "{package}"
-            artifactId = "{artifact_id}"
-            version = project.findProperty("version")?.toString() ?: "{version}"
-
-            afterEvaluate {{
-                from(components["release"])
-            }}
-
-            pom {{
-                name.set("{artifact_id}")
-                description.set("{description} Android native bindings")
-                licenses {{
-                    license {{
-                        name.set("{license}")
-                    }}
-                }}
-            }}
-        }}
-    }}
-}}
-
-dependencies {{
-    testImplementation("junit:junit:{junit_legacy}")
-    androidTestImplementation("androidx.test.ext:junit:{androidx_junit}")
-    androidTestImplementation("androidx.test.espresso:espresso-core:{espresso_core}")
-}}
-"#,
-        description = meta.description,
-        license = meta.license,
-    );
-
-    let settings_gradle = format!(
-        r#"pluginManagement {{
-    repositories {{
-        google()
-        mavenCentral()
-        gradlePluginPortal()
-    }}
-}}
-
-dependencyResolutionManagement {{
-    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-    repositories {{
-        google()
-        mavenCentral()
-    }}
-}}
-
-rootProject.name = "{project_name}"
-"#
-    );
-
-    let package_path = package.replace('.', "/");
-    let wrapper = format!(
-        r#"package {package}.android
-
-object {module_name}Android {{
-    init {{
-        System.loadLibrary("{lib_name}")
-    }}
-}}
-"#
-    );
-
-    let readme = format!(
-        r#"# {project_name}
-
-{description}
-
-## Building
-
-```sh
-cd packages/kotlin-android
-gradle build
-```
-
-Place Android shared libraries under `src/main/jniLibs/<abi>/` before building
-the AAR.
-
-## License
-
-{license}
-"#,
-        description = meta.description,
-        license = meta.license,
-    );
-
-    Ok(vec![
-        GeneratedFile {
-            path: PathBuf::from("packages/kotlin-android/build.gradle.kts"),
-            content: build_gradle,
-            generated_header: false,
-        },
-        GeneratedFile {
-            path: PathBuf::from("packages/kotlin-android/settings.gradle.kts"),
-            content: settings_gradle,
-            generated_header: false,
-        },
-        GeneratedFile {
-            path: PathBuf::from("packages/kotlin-android/.gitignore"),
-            content: "build/\n.gradle/\n.idea/\n*.iml\n".to_string(),
-            generated_header: false,
-        },
-        GeneratedFile {
-            path: PathBuf::from("packages/kotlin-android/consumer-rules.pro"),
-            content: String::new(),
-            generated_header: false,
-        },
-        GeneratedFile {
-            path: PathBuf::from("packages/kotlin-android/proguard-rules.pro"),
-            content: String::new(),
-            generated_header: false,
-        },
-        GeneratedFile {
-            path: PathBuf::from("packages/kotlin-android/src/main/jniLibs/arm64-v8a/.gitkeep"),
-            content: String::new(),
-            generated_header: false,
-        },
-        GeneratedFile {
-            path: PathBuf::from("packages/kotlin-android/src/main/jniLibs/x86_64/.gitkeep"),
-            content: String::new(),
-            generated_header: false,
-        },
-        GeneratedFile {
-            path: PathBuf::from(format!(
-                "packages/kotlin-android/src/main/kotlin/{package_path}/android/{module_name}Android.kt"
-            )),
-            content: wrapper,
-            generated_header: false,
-        },
-        GeneratedFile {
-            path: PathBuf::from("packages/kotlin-android/README.md"),
             content: readme,
             generated_header: false,
         },

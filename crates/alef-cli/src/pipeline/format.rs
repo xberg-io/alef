@@ -187,6 +187,13 @@ fn get_default_formatter(config: &ResolvedCrateConfig, lang: Language) -> Option
             }],
             work_dir: "packages/kotlin/src/".to_owned(),
         }),
+        Language::KotlinAndroid => Some(FormatterSpec {
+            commands: vec![FormatterCommand {
+                command: "ktlint".to_owned(),
+                args: vec!["--format".to_owned()],
+            }],
+            work_dir: "packages/kotlin-android/src/".to_owned(),
+        }),
         Language::Swift => Some(FormatterSpec {
             commands: vec![FormatterCommand {
                 command: "swift".to_owned(),
