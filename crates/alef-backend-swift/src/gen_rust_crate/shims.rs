@@ -194,8 +194,13 @@ pub(crate) fn swift_call_arg(p: &alef_core::ir::ParamDef) -> String {
     }
     match (&p.ty, p.optional) {
         (TypeRef::Bytes, false) => format!("&{name}"),
-        (TypeRef::String | TypeRef::Char, false) => format!("&{name}"),
-        (TypeRef::String | TypeRef::Char, true) => format!("{name}.as_deref()"),
+        // Char: bridge type is String; convert back to char at the shim boundary.
+        // Owned non-optional: extract the first char from the String (default '\0' for empty).
+        // Optional ref: map Some(String) → Some(char).
+        (TypeRef::Char, false) => format!("{name}.chars().next().unwrap_or('\\0')"),
+        (TypeRef::Char, true) => format!("{name}.as_ref().and_then(|s| s.chars().next())"),
+        (TypeRef::String, false) => format!("&{name}"),
+        (TypeRef::String, true) => format!("{name}.as_deref()"),
         (TypeRef::Vec(_), true) => format!("{name}.as_deref()"),
         _ => format!("&{name}"),
     }

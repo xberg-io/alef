@@ -20,13 +20,16 @@ use alef_core::backend::GeneratedFile;
 use alef_core::config::ResolvedCrateConfig;
 use alef_core::ir::ApiSurface;
 
-use crate::naming::{java_package, kotlin_package, package_path};
+use crate::naming::{java_package, kotlin_package};
 
-/// Emit `<aar_root>/src/main/kotlin/<pkg_path>/<Module>.kt` and (when the API
-/// has methodful types) `<aar_root>/src/main/kotlin/<pkg_path>/DefaultClient.kt`.
-pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, aar_root: &std::path::Path) -> Vec<GeneratedFile> {
+/// Emit `<kotlin_source_dir>/<Module>.kt` and (when the API has methodful
+/// types) `<kotlin_source_dir>/DefaultClient.kt`.
+///
+/// `kotlin_source_dir` is the resolved Kotlin source destination —
+/// `<project_root>/src/main/kotlin/<dotted_package_as_path>/` in the Gradle
+/// Android source-set layout.
+pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, kotlin_source_dir: &std::path::Path) -> Vec<GeneratedFile> {
     let package = kotlin_package(config);
-    let pkg_path = package_path(config);
     let module_name = to_pascal_case(&config.name);
     let java_pkg = java_package(config);
     let lib_name = config.ffi_lib_name();
@@ -93,10 +96,7 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, aar_root: &std::path
     }
     content.push_str(&body);
 
-    let kt_path = aar_root
-        .join("src/main/kotlin")
-        .join(&pkg_path)
-        .join(format!("{module_name}.kt"));
+    let kt_path = kotlin_source_dir.join(format!("{module_name}.kt"));
 
     let mut files = vec![GeneratedFile {
         path: kt_path,
@@ -105,10 +105,7 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, aar_root: &std::path
     }];
 
     if let Some(client_file) = emit_jvm_client_class(api, config) {
-        let android_client_path = aar_root
-            .join("src/main/kotlin")
-            .join(&pkg_path)
-            .join("DefaultClient.kt");
+        let android_client_path = kotlin_source_dir.join("DefaultClient.kt");
         files.push(GeneratedFile {
             path: android_client_path,
             content: client_file.content,

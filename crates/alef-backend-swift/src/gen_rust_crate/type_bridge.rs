@@ -131,6 +131,9 @@ pub(crate) fn bridge_type(ty: &TypeRef) -> String {
         return "String".to_string();
     }
     match ty {
+        // swift-bridge 0.1.59 has no built-in `char` primitive; map to String at the
+        // bridge boundary and convert at the shim layer (.chars().next() / .to_string()).
+        TypeRef::Char => "String".to_string(),
         TypeRef::Optional(inner) => format!("Option<{}>", bridge_type(inner)),
         TypeRef::Vec(inner) => format!("Vec<{}>", bridge_type(inner)),
         _ => swift_bridge_rust_type(ty),

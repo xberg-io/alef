@@ -7,8 +7,15 @@ use alef_core::template_versions::{maven, toolchain};
 use crate::naming::{aar_artifact_id, aar_group_id, compile_sdk, jvm_target, min_sdk, namespace};
 
 /// Emit `build.gradle.kts` for the generated AAR module.
+///
+/// Android Gradle Plugin 9.0+ ships with built-in Kotlin support, so we
+/// intentionally do NOT apply `kotlin("android")` here (AGP rejects the
+/// double-application with "The 'org.jetbrains.kotlin.android' plugin is
+/// no longer required for Kotlin support since AGP 9.0"). The kotlin
+/// plugin version constant is still pulled in for future use (e.g. when
+/// callers need to override `kotlinOptions`); marked unused otherwise.
 pub fn emit(config: &ResolvedCrateConfig) -> String {
-    let kotlin_version = maven::KOTLIN_JVM_PLUGIN;
+    let _kotlin_version = maven::KOTLIN_JVM_PLUGIN;
     let android_gradle_plugin = maven::ANDROID_GRADLE_PLUGIN;
     let junit_legacy = maven::JUNIT_LEGACY;
     let androidx_junit = maven::ANDROIDX_TEST_EXT_JUNIT;
@@ -29,7 +36,6 @@ pub fn emit(config: &ResolvedCrateConfig) -> String {
 
 plugins {{
     id("com.android.library") version "{android_gradle_plugin}"
-    kotlin("android") version "{kotlin_version}"
     id("maven-publish")
 }}
 

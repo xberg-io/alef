@@ -113,10 +113,10 @@ pub fn ocr_backend_call_supports_language(this: &OcrBackendBox, lang: String) ->
     this.0.supports_language(&lang)
 }
 
-/// Convert a stringified Swift error into the source crate's `KreuzbergError::Plugin`.
+/// Convert a stringified Swift error into the configured source-crate error type.
 #[allow(dead_code)]
-fn plugin_error_from_string(message: String) -> demo::KreuzbergError {
-    demo::KreuzbergError::Plugin { message, plugin_name: "swift".to_string() }
+fn plugin_error_from_string(message: String) -> demo::Error {
+    demo::Error::from(message)
 }
 
 /// JSON envelope returned by every fallible Swift trait method. Carries `Ok(T)`
@@ -129,7 +129,7 @@ enum InboundEnvelope<T> { Ok(T), Err(String) }
 
 /// Deserialise a JSON envelope returned from a Swift FFI shim into a typed Result.
 #[allow(dead_code)]
-fn decode_inbound_envelope<T>(json: &str) -> demo::Result<T>
+fn decode_inbound_envelope<T>(json: &str) -> std::result::Result<T, demo::Error>
 where
     T: ::serde::de::DeserializeOwned,
 {
@@ -143,7 +143,7 @@ where
 ///
 /// The Swift instance is held via a `swift-bridge` opaque handle that retains
 /// the underlying ARC reference for the lifetime of this struct. Send + Sync are
-/// asserted unsafely: Swift classes used as kreuzberg plugins must be thread-safe
+/// asserted unsafely: Swift classes used as generated plugins must be thread-safe
 /// (the `Plugin` super-trait requires it), and ARC handles themselves are safe to share.
 pub struct SwiftOcrBackendWrapper {
     inner: ffi::SwiftOcrBackendBox,
@@ -169,17 +169,17 @@ impl demo::plugins::Plugin for SwiftOcrBackendWrapper {
         self.inner.alef_version()
     }
 
-    fn initialize(&self) -> demo::Result<()> {
+    fn initialize(&self) -> std::result::Result<(), demo::Error> {
         decode_inbound_envelope::<()>(&self.inner.alef_initialize()).map(|_| ())
     }
 
-    fn shutdown(&self) -> demo::Result<()> {
+    fn shutdown(&self) -> std::result::Result<(), demo::Error> {
         decode_inbound_envelope::<()>(&self.inner.alef_shutdown()).map(|_| ())
     }
 }
 #[async_trait::async_trait]
 impl demo::plugins::OcrBackend for SwiftOcrBackendWrapper {
-    async fn process_image(&self, image_bytes: &[u8], config: &demo::OcrConfig) -> demo::Result<demo::ExtractionResult> {
+    async fn process_image(&self, image_bytes: &[u8], config: &demo::OcrConfig) -> std::result::Result<demo::ExtractionResult, demo::Error> {
         let image_bytes = image_bytes.to_vec();
         let config = ::serde_json::to_string(&config).expect("serializable param config");
         let envelope = self.inner.alef_process_image(image_bytes, config);
