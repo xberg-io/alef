@@ -77,10 +77,37 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
                 method_name => name,
                 has_error => has_error,
                 has_error_check => if has_error { "true" } else { "false" },
-                core_import => &spec.core_import,
                 empty_args => empty_args,
                 args_pairs => args_pairs,
                 return_type => ret_ty,
+                missing_method_error => method_error_expr(
+                    &spec.error_constructor,
+                    name,
+                    "self.cached_name",
+                    "missing method",
+                ),
+                failed_method_error => method_error_expr(
+                    &spec.error_constructor,
+                    name,
+                    "self.cached_name",
+                    "failed",
+                ),
+                invalid_type_error => method_error_expr(
+                    &spec.error_constructor,
+                    name,
+                    "self.cached_name",
+                    "returned invalid type",
+                ),
+                deserialization_error => method_error_expr(
+                    &spec.error_constructor,
+                    name,
+                    "self.cached_name",
+                    "deserialization failed",
+                ),
+                parse_error => make_error_expr(
+                    &spec.error_constructor,
+                    r#"format!("Failed to parse return value: {}", e)"#,
+                ),
             },
         )
     }
@@ -150,11 +177,38 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
             template_name,
             minijinja::context! {
                 method_name => name,
-                core_import => &spec.core_import,
                 params_to_clone => params_to_clone,
                 empty_args => empty_args,
                 args_pairs => args_pairs,
                 return_type => ret_ty,
+                missing_method_error => method_error_expr(
+                    &spec.error_constructor,
+                    name,
+                    "cached_name_inner",
+                    "missing method",
+                ),
+                failed_method_error => method_error_expr(
+                    &spec.error_constructor,
+                    name,
+                    "cached_name_inner",
+                    "failed",
+                ),
+                invalid_type_error => method_error_expr(
+                    &spec.error_constructor,
+                    name,
+                    "cached_name_inner",
+                    "returned invalid type",
+                ),
+                deserialization_error => method_error_expr(
+                    &spec.error_constructor,
+                    name,
+                    "cached_name_inner",
+                    "deserialization failed",
+                ),
+                spawn_blocking_error => make_error_expr(
+                    &spec.error_constructor,
+                    r#"format!("spawn_blocking failed: {}", e)"#,
+                ),
             },
         )
     }
@@ -230,6 +284,19 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
             },
         )
     }
+}
+
+fn make_error_expr(error_constructor: &str, message_expr: &str) -> String {
+    error_constructor.replace("{msg}", message_expr)
+}
+
+fn method_error_expr(error_constructor: &str, method_name: &str, plugin_name_expr: &str, reason: &str) -> String {
+    let message_expr = if reason == "missing method" {
+        format!(r#"format!("Plugin '{{}}' missing method '{method_name}'", {plugin_name_expr})"#)
+    } else {
+        format!(r#"format!("Plugin '{{}}' method '{method_name}' {reason}", {plugin_name_expr})"#)
+    };
+    make_error_expr(error_constructor, &message_expr)
 }
 
 /// Generate all trait bridge code for a given trait type and bridge config.

@@ -356,8 +356,8 @@ fn render_file_setup(test_documents_dir: &str) -> String {
     out.push_str("    // Imports are wired before the WASM is instantiated; the bundle stashes\n");
     out.push_str("    // its instance on a runtime-known global once available. We try to grab\n");
     out.push_str("    // it lazily so writes to wasm memory go to the right place.\n");
-    out.push_str("    const g = globalThis as unknown as { __kreuzberg_wasm_memory__?: WebAssembly.Memory };\n");
-    out.push_str("    return g.__kreuzberg_wasm_memory__ ? new DataView(g.__kreuzberg_wasm_memory__.buffer) : null;\n");
+    out.push_str("    const g = globalThis as unknown as { __alef_wasm_memory__?: WebAssembly.Memory };\n");
+    out.push_str("    return g.__alef_wasm_memory__ ? new DataView(g.__alef_wasm_memory__.buffer) : null;\n");
     out.push_str("  };\n");
     out.push_str("  const _cryptoFill = (buf: Uint8Array) => {\n");
     out.push_str("    const c = globalThis.crypto;\n");
@@ -417,9 +417,9 @@ fn render_file_setup(test_documents_dir: &str) -> String {
     out.push_str("      return 0;\n");
     out.push_str("    },\n");
     out.push_str("    random_get: (bufPtr: number, bufLen: number) => {\n");
-    out.push_str("      const g = globalThis as unknown as { __kreuzberg_wasm_memory__?: WebAssembly.Memory };\n");
-    out.push_str("      if (!g.__kreuzberg_wasm_memory__) return 0;\n");
-    out.push_str("      _cryptoFill(new Uint8Array(g.__kreuzberg_wasm_memory__.buffer, bufPtr, bufLen));\n");
+    out.push_str("      const g = globalThis as unknown as { __alef_wasm_memory__?: WebAssembly.Memory };\n");
+    out.push_str("      if (!g.__alef_wasm_memory__) return 0;\n");
+    out.push_str("      _cryptoFill(new Uint8Array(g.__alef_wasm_memory__.buffer, bufPtr, bufLen));\n");
     out.push_str("      return 0;\n");
     out.push_str("    },\n");
     out.push_str("    args_get: () => 0,\n");
@@ -451,7 +451,7 @@ fn render_file_setup(test_documents_dir: &str) -> String {
     out.push_str("    const inst = new _OrigInstance(mod, imports);\n");
     out.push_str("    const exportsMem = (inst.exports as Record<string, unknown>).memory;\n");
     out.push_str("    if (exportsMem instanceof WebAssembly.Memory) {\n");
-    out.push_str("      (globalThis as unknown as { __kreuzberg_wasm_memory__?: WebAssembly.Memory }).__kreuzberg_wasm_memory__ = exportsMem;\n");
+    out.push_str("      (globalThis as unknown as { __alef_wasm_memory__?: WebAssembly.Memory }).__alef_wasm_memory__ = exportsMem;\n");
     out.push_str("    }\n");
     out.push_str("    return inst;\n");
     out.push_str("  } as unknown as typeof WebAssembly.Instance;\n");

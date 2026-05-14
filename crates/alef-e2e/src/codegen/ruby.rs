@@ -320,9 +320,8 @@ fn render_spec_file(
     }
 
     // Build the Ruby module/class qualifier for calls.
-    let call_receiver = class_name
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| ruby_module_name(module_path));
+    let ruby_module = ruby_module_name(module_path);
+    let call_receiver = class_name.map(|s| s.to_string()).unwrap_or_else(|| ruby_module.clone());
 
     // Check for array contains assertions
     let has_array_contains = fixtures.iter().any(|fixture| {
@@ -403,6 +402,7 @@ fn render_spec_file(
                         fixture,
                         &fixture_function_name,
                         &call_receiver,
+                        &ruby_module,
                         fixture_args,
                         fixture_options_type,
                         fixture_enum_fields,
@@ -415,6 +415,7 @@ fn render_spec_file(
                         fixture,
                         &fixture_function_name,
                         &call_receiver,
+                        &ruby_module,
                         fixture_result_var,
                         fixture_args,
                         field_resolver,
@@ -702,6 +703,7 @@ fn render_chat_stream_example(
     fixture: &Fixture,
     function_name: &str,
     call_receiver: &str,
+    module_name: &str,
     args: &[crate::config::ArgMapping],
     options_type: Option<&str>,
     enum_fields: &HashMap<String, String>,
@@ -718,6 +720,7 @@ fn render_chat_stream_example(
         &fixture.input,
         args,
         call_receiver,
+        module_name,
         options_type,
         enum_fields,
         false,
@@ -992,6 +995,7 @@ fn render_example(
     fixture: &Fixture,
     function_name: &str,
     call_receiver: &str,
+    module_name: &str,
     result_var: &str,
     args: &[crate::config::ArgMapping],
     field_resolver: &FieldResolver,
@@ -1011,6 +1015,7 @@ fn render_example(
         &fixture.input,
         args,
         call_receiver,
+        module_name,
         options_type,
         enum_fields,
         result_is_simple,
@@ -1093,7 +1098,7 @@ fn render_example(
 ///
 /// Returns `(setup_lines, args_string)`.
 /// Emit Ruby batch item constructors for BatchBytesItem or BatchFileItem arrays.
-fn emit_ruby_batch_item_array(arr: &serde_json::Value, elem_type: &str) -> String {
+fn emit_ruby_batch_item_array(arr: &serde_json::Value, elem_type: &str, module_name: &str) -> String {
     if let Some(items) = arr.as_array() {
         let item_strs: Vec<String> = items
             .iter()
@@ -1122,8 +1127,8 @@ fn emit_ruby_batch_item_array(arr: &serde_json::Value, elem_type: &str) -> Strin
                                 "nil".to_string()
                             };
                             Some(format!(
-                                "Kreuzberg::{}.new(content: {}, mime_type: \"{}\", config: {})",
-                                elem_type, content_code, mime_type, config_arg
+                                "{}::{}.new(content: {}, mime_type: \"{}\", config: {})",
+                                module_name, elem_type, content_code, mime_type, config_arg
                             ))
                         }
                         "BatchFileItem" => {
@@ -1139,8 +1144,8 @@ fn emit_ruby_batch_item_array(arr: &serde_json::Value, elem_type: &str) -> Strin
                                 "nil".to_string()
                             };
                             Some(format!(
-                                "Kreuzberg::{}.new(path: \"{}\", config: {})",
-                                elem_type, path, config_arg
+                                "{}::{}.new(path: \"{}\", config: {})",
+                                module_name, elem_type, path, config_arg
                             ))
                         }
                         _ => None,
@@ -1160,6 +1165,7 @@ fn build_args_and_setup(
     input: &serde_json::Value,
     args: &[crate::config::ArgMapping],
     call_receiver: &str,
+    module_name: &str,
     options_type: Option<&str>,
     enum_fields: &HashMap<String, String>,
     result_is_simple: bool,
@@ -1319,7 +1325,7 @@ fn build_args_and_setup(
                     // Check for batch item arrays (element_type set to BatchBytesItem/BatchFileItem)
                     if let Some(elem_type) = &arg.element_type {
                         if (elem_type == "BatchBytesItem" || elem_type == "BatchFileItem") && v.is_array() {
-                            parts.push(emit_ruby_batch_item_array(v, elem_type));
+                            parts.push(emit_ruby_batch_item_array(v, elem_type, module_name));
                             continue;
                         }
                     }

@@ -3,8 +3,8 @@ use alef_core::config::{Language, PrecommitConfig, ResolvedCrateConfig};
 use alef_core::template_versions as tv;
 use std::path::PathBuf;
 
-const DEFAULT_SHARED_HOOKS_REPO: &str = "https://github.com/kreuzberg-dev/pre-commit-hooks";
-const DEFAULT_ALEF_HOOKS_REPO: &str = "https://github.com/kreuzberg-dev/alef";
+const DEFAULT_SHARED_HOOKS_REPO: &str = "https://example.invalid/pre-commit-hooks";
+const DEFAULT_ALEF_HOOKS_REPO: &str = "local";
 
 pub(crate) fn scaffold_pre_commit_config(config: &ResolvedCrateConfig, languages: &[Language]) -> Vec<GeneratedFile> {
     if std::path::Path::new(".pre-commit-config.yaml").exists() {
@@ -57,7 +57,7 @@ pub(crate) fn generate_pre_commit_config(config: &ResolvedCrateConfig, languages
             cargo_machete => tv::precommit::CARGO_MACHETE_REV,
             cargo_deny => tv::precommit::CARGO_DENY_REV,
             rumdl => tv::precommit::RUMDL_REV,
-            include_shared_hooks => precommit_bool(precommit, |p| p.include_shared_hooks, true),
+            include_shared_hooks => precommit_bool(precommit, |p| p.include_shared_hooks, false),
             shared_hooks_repo => precommit_string(
                 precommit,
                 |p| p.shared_hooks_repo.as_deref(),
@@ -71,6 +71,9 @@ pub(crate) fn generate_pre_commit_config(config: &ResolvedCrateConfig, languages
             include_alef_hooks => precommit_bool(precommit, |p| p.include_alef_hooks, true),
             alef_hooks_repo => precommit_string(precommit, |p| p.alef_hooks_repo.as_deref(), DEFAULT_ALEF_HOOKS_REPO),
             alef_hooks_rev => precommit_string(precommit, |p| p.alef_hooks_rev.as_deref(), tv::precommit::ALEF_REV),
+            alef_hooks_are_local => precommit
+                .and_then(|p| p.alef_hooks_repo.as_deref())
+                .unwrap_or(DEFAULT_ALEF_HOOKS_REPO) == "local",
             typos => tv::precommit::TYPOS_REV,
         },
     );

@@ -2,10 +2,7 @@ let maybe_fn = self.inner.dollar("{{ method_name }}");
 let fn_robj = match maybe_fn {
     Ok(v) if !v.is_null() && !v.is_na() => v,
 {% if has_error %}
-    _ => return Err({{ core_import }}::KreuzbergError::Plugin {
-        message: format!("Plugin '{}' missing method '{{ method_name }}'", self.cached_name),
-        plugin_name: self.cached_name.clone(),
-    }),
+    _ => return Err({{ missing_method_error }}),
 {% else %}
     _ => return Default::default(),
 {% endif %}
@@ -20,10 +17,7 @@ let result = fn_robj.call(args);
 
 {% if has_error %}
 match result {
-    Err(_) => Err({{ core_import }}::KreuzbergError::Plugin {
-        message: format!("Plugin '{}' method '{{ method_name }}' failed", self.cached_name),
-        plugin_name: self.cached_name.clone(),
-    }),
+    Err(_) => Err({{ failed_method_error }}),
     Ok(val) => {
         let s = val.as_string().ok().and_then(|mut v| {
             if v.is_empty() { None } else { Some(v.remove(0)) }
@@ -31,10 +25,7 @@ match result {
 
         match s.as_str() {
             "" | "null" => Ok(Default::default()),
-            _ => serde_json::from_str::<_>(&s).map_err(|e| {{ core_import }}::KreuzbergError::Plugin {
-                message: format!("Failed to parse return value: {}", e),
-                plugin_name: self.cached_name.clone(),
-            })
+            _ => serde_json::from_str::<_>(&s).map_err(|e| {{ parse_error }})
         }
     }
 }

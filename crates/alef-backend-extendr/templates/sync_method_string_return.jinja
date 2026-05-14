@@ -2,10 +2,7 @@ let maybe_fn = self.inner.dollar("{{ method_name }}");
 let fn_robj = match maybe_fn {
     Ok(v) if !v.is_null() && !v.is_na() => v,
 {% if has_error %}
-    _ => return Err({{ core_import }}::KreuzbergError::Plugin {
-        message: format!("Plugin '{}' missing method '{{ method_name }}'", self.cached_name),
-        plugin_name: self.cached_name.clone(),
-    }),
+    _ => return Err({{ missing_method_error }}),
 {% else %}
     _ => return Default::default(),
 {% endif %}
@@ -21,10 +18,7 @@ let result = fn_robj.call(args);
 match result {
     Err(_) => {
 {% if has_error %}
-        Err({{ core_import }}::KreuzbergError::Plugin {
-            message: format!("Plugin '{}' method '{{ method_name }}' failed", self.cached_name),
-            plugin_name: self.cached_name.clone(),
-        })
+        Err({{ failed_method_error }})
 {% else %}
         Default::default()
 {% endif %}
@@ -34,10 +28,7 @@ match result {
             {% if has_error %}Ok(s.to_string()){% else %}s.to_string(){% endif %}
         } else {
 {% if has_error %}
-            Err({{ core_import }}::KreuzbergError::Plugin {
-                message: format!("Plugin '{}' method '{{ method_name }}' returned invalid type", self.cached_name),
-                plugin_name: self.cached_name.clone(),
-            })
+            Err({{ invalid_type_error }})
 {% else %}
             Default::default()
 {% endif %}

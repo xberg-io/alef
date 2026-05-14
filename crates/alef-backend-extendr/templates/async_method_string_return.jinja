@@ -15,10 +15,7 @@ tokio::task::spawn_blocking(move || {
     let maybe_fn = r_obj.dollar("{{ method_name }}");
     let fn_robj = match maybe_fn {
         Ok(v) if !v.is_null() && !v.is_na() => v,
-        _ => return Err({{ core_import }}::KreuzbergError::Plugin {
-            message: format!("Plugin '{}' missing method '{{ method_name }}'", cached_name_inner),
-            plugin_name: cached_name_inner.clone(),
-        }),
+        _ => return Err({{ missing_method_error }}),
     };
 
 {% if empty_args %}
@@ -30,25 +27,16 @@ tokio::task::spawn_blocking(move || {
 
     match result {
         Err(_) => {
-            Err({{ core_import }}::KreuzbergError::Plugin {
-                message: format!("Plugin '{}' method '{{ method_name }}' failed", cached_name_inner),
-                plugin_name: cached_name_inner.clone(),
-            })
+            Err({{ failed_method_error }})
         }
         Ok(val) => {
             if let Some(s) = val.as_str() {
                 Ok(s.to_string())
             } else {
-                Err({{ core_import }}::KreuzbergError::Plugin {
-                    message: format!("Plugin '{}' method '{{ method_name }}' returned invalid type", cached_name_inner),
-                    plugin_name: cached_name_inner.clone(),
-                })
+                Err({{ invalid_type_error }})
             }
         }
     }
 })
 .await
-.map_err(|e| {{ core_import }}::KreuzbergError::Plugin {
-    message: format!("spawn_blocking failed: {}", e),
-    plugin_name: cached_name.clone(),
-})?
+.map_err(|e| {{ spawn_blocking_error }})?

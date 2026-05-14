@@ -15,10 +15,7 @@ tokio::task::spawn_blocking(move || {
     let maybe_fn = r_obj.dollar("{{ method_name }}");
     let fn_robj = match maybe_fn {
         Ok(v) if !v.is_null() && !v.is_na() => v,
-        _ => return Err({{ core_import }}::KreuzbergError::Plugin {
-            message: format!("Plugin '{}' missing method '{{ method_name }}'", cached_name_inner),
-            plugin_name: cached_name_inner.clone(),
-        }),
+        _ => return Err({{ missing_method_error }}),
     };
 
 {% if empty_args %}
@@ -33,21 +30,12 @@ tokio::task::spawn_blocking(move || {
     // `serde::Serialize`, so we cannot serialize it directly — the caller must serialize on
     // the R side.
     match result {
-        Err(_) => Err({{ core_import }}::KreuzbergError::Plugin {
-            message: format!("Plugin '{}' method '{{ method_name }}' failed", cached_name_inner),
-            plugin_name: cached_name_inner.clone(),
-        }),
+        Err(_) => Err({{ failed_method_error }}),
         Ok(val) => {
             let payload = val.as_str().unwrap_or("");
-            serde_json::from_str::<{{ return_type }}>(payload).map_err(|_| {{ core_import }}::KreuzbergError::Plugin {
-                message: format!("Plugin '{}' method '{{ method_name }}' deserialization failed", cached_name_inner),
-                plugin_name: cached_name_inner.clone(),
-            })
+            serde_json::from_str::<{{ return_type }}>(payload).map_err(|_| {{ deserialization_error }})
         }
     }
 })
 .await
-.map_err(|e| {{ core_import }}::KreuzbergError::Plugin {
-    message: format!("spawn_blocking failed: {}", e),
-    plugin_name: cached_name.clone(),
-})?
+.map_err(|e| {{ spawn_blocking_error }})?

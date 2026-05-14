@@ -192,7 +192,7 @@ fn check_cratesio(package: &str, version: &str) -> Result<bool> {
     let response = agent
         .get(&url)
         // crates.io requires a descriptive User-Agent.
-        .header("User-Agent", "alef-publish/1.0 (https://github.com/kreuzberg-dev/alef)")
+        .header("User-Agent", "alef-publish/1.0")
         .call();
     match classify(response).with_context(|| format!("HTTP GET {url}"))? {
         HttpOutcome::Ok(_) => Ok(true),

@@ -556,7 +556,7 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
 
     let eclipse_formatter_xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <profiles version="21">
-    <profile kind="CodeFormatterProfile" name="Kreuzberg" version="21">
+    <profile kind="CodeFormatterProfile" name="Alef" version="21">
         <setting id="org.eclipse.jdt.core.formatter.lineSplit" value="140"/>
         <setting id="org.eclipse.jdt.core.formatter.tabulation.char" value="space"/>
         <setting id="org.eclipse.jdt.core.formatter.tabulation.size" value="4"/>

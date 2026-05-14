@@ -7,11 +7,11 @@ impl {{ plugin_path }} for {{ wrapper_name }} {
         self.inner.alef_version()
     }
 
-    fn initialize(&self) -> {{ source_crate }}::Result<()> {
+    fn initialize(&self) -> {{ result_type }} {
         decode_inbound_envelope::<()>(&self.inner.alef_initialize()).map(|_| ())
     }
 
-    fn shutdown(&self) -> {{ source_crate }}::Result<()> {
+    fn shutdown(&self) -> {{ result_type }} {
         decode_inbound_envelope::<()>(&self.inner.alef_shutdown()).map(|_| ())
     }
 }

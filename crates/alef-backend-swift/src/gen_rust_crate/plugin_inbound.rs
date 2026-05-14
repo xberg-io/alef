@@ -17,7 +17,7 @@
 //!    is justified by the kreuzberg `Plugin` super-trait's documented thread-safety
 //!    requirement and ARC's safe shareability.
 //! 3. `impl Plugin for Swift{Trait}Wrapper` forwarding `name`/`version`/`initialize`/
-//!    `shutdown` to the Swift box; errors translate to `KreuzbergError::Plugin`.
+//!    `shutdown` to the Swift box; errors use the configured error constructor.
 //! 4. `#[async_trait] impl {Trait} for Swift{Trait}Wrapper` forwarding each method,
 //!    JSON-marshalling complex types, mapping `Result<_, String>` to the source-crate
 //!    error type.
@@ -187,6 +187,8 @@ pub(crate) fn emit_inbound_wrapper(
     api: &ApiSurface,
     source_crate: &str,
     type_paths: &std::collections::HashMap<String, String>,
+    error_type: &str,
+    error_constructor: &str,
 ) -> String {
     let trait_name = &trait_def.name;
     let trait_snake = heck::AsSnakeCase(trait_name.as_str()).to_string();
@@ -225,7 +227,7 @@ pub(crate) fn emit_inbound_wrapper(
         minijinja::context! {
             plugin_path => &plugin_path,
             wrapper_name => &wrapper_name,
-            source_crate => source_crate,
+            result_type => result_type(source_crate, error_type, "()"),
         },
     ));
     let _ = trait_snake;
@@ -241,7 +243,7 @@ pub(crate) fn emit_inbound_wrapper(
         },
     ));
     for method in &trait_def.methods {
-        emit_inbound_method_impl(&mut out, method, &trait_snake, source_crate, type_paths);
+        emit_inbound_method_impl(&mut out, method, &trait_snake, source_crate, type_paths, error_type);
     }
     out.push_str("}\n\n");
 
@@ -268,7 +270,14 @@ pub(crate) fn emit_inbound_wrapper(
         }
     }
 
-    let spec = build_bridge_spec(bridge_config, trait_def, source_crate, type_paths);
+    let spec = build_bridge_spec(
+        bridge_config,
+        trait_def,
+        source_crate,
+        type_paths,
+        error_type,
+        error_constructor,
+    );
     let generator = SwiftBridgeGenerator;
 
     let unregister_code = generator.gen_unregistration_fn(&spec);
@@ -293,6 +302,8 @@ fn build_bridge_spec<'a>(
     trait_def: &'a TypeDef,
     source_crate: &'a str,
     type_paths: &std::collections::HashMap<String, String>,
+    error_type: &str,
+    error_constructor: &str,
 ) -> TraitBridgeSpec<'a> {
     TraitBridgeSpec {
         trait_def,
@@ -300,15 +311,15 @@ fn build_bridge_spec<'a>(
         core_import: source_crate,
         wrapper_prefix: "Swift",
         type_paths: type_paths.clone(),
-        error_type: "KreuzbergError".to_string(),
-        error_constructor: "{msg}".to_string(),
+        error_type: error_type.to_string(),
+        error_constructor: error_constructor.to_string(),
     }
 }
 
 /// Emit the shared helper functions used by every inbound wrapper:
 ///
 /// - `plugin_error_from_string` — converts a stringified Swift error into the source crate's
-///   `KreuzbergError::Plugin`.
+///   configured error type.
 /// - `decode_inbound_envelope` — deserialises a JSON envelope (`{"ok": <value>}` /
 ///   `{"err": "<message>"}`) returned from a fallible Swift trait method into a Rust `Result`.
 ///
@@ -317,11 +328,14 @@ fn build_bridge_spec<'a>(
 /// codegen has a bug (`error[E0609]: no field 'ok_or_err' on type '*mut RustString'`).
 /// JSON envelopes also gives us a uniform way to ferry typed Ok values without per-method
 /// FFI plumbing.
-pub(crate) fn emit_plugin_error_helper(source_crate: &str) -> String {
+pub(crate) fn emit_plugin_error_helper(source_crate: &str, error_type: &str, error_constructor: &str) -> String {
+    let error_type_path = error_type_path(source_crate, error_type);
+    let plugin_error_constructor = error_constructor.replace("{msg}", "message");
     crate::template_env::render(
         "plugin_error_helper.rs.jinja",
         minijinja::context! {
-            source_crate => source_crate,
+            error_type_path => &error_type_path,
+            plugin_error_constructor => &plugin_error_constructor,
         },
     )
 }
@@ -333,6 +347,7 @@ fn emit_inbound_method_impl(
     trait_snake: &str,
     source_crate: &str,
     type_paths: &std::collections::HashMap<String, String>,
+    error_type: &str,
 ) {
     // Methods with a default impl should not be overridden in the inbound wrapper:
     // the trait's own default is used. Methods like `as_sync_extractor` (returning
@@ -358,7 +373,7 @@ fn emit_inbound_method_impl(
         sig_params.push(format!("{}: {prefix}{ty}", p.name.to_snake_case()));
     }
 
-    let return_ty = inbound_impl_return_type(method, source_crate, type_paths);
+    let return_ty = inbound_impl_return_type(method, source_crate, type_paths, error_type);
 
     let async_kw = if method.is_async { "async " } else { "" };
     let params = sig_params.join(", ");
@@ -395,7 +410,7 @@ fn emit_inbound_method_impl(
 
     if method.error_type.is_some() {
         // Fallible methods receive a JSON envelope String; decode_inbound_envelope deserialises
-        // `{"ok": <value>}` or `{"err": "<message>"}` into a `Result<T, KreuzbergError::Plugin>`.
+        // `{"ok": <value>}` or `{"err": "<message>"}` into a configured `Result<T, E>`.
         if matches!(method.return_type, TypeRef::Unit) {
             out.push_str(&crate::template_env::render(
                 "inbound_method_result_unit.rs.jinja",
@@ -518,6 +533,7 @@ fn inbound_impl_return_type(
     method: &MethodDef,
     source_crate: &str,
     type_paths: &std::collections::HashMap<String, String>,
+    error_type: &str,
 ) -> String {
     // When the trait method returns &[&str] (returns_ref = true, Vec<String>),
     // emit the slice reference form so the generated impl signature matches the trait.
@@ -537,12 +553,27 @@ fn inbound_impl_return_type(
     let inner = inbound_native_ty_owned(&method.return_type, source_crate, type_paths);
     if method.error_type.is_some() {
         if matches!(method.return_type, TypeRef::Unit) {
-            format!("{source_crate}::Result<()>")
+            result_type(source_crate, error_type, "()")
         } else {
-            format!("{source_crate}::Result<{inner}>")
+            result_type(source_crate, error_type, &inner)
         }
     } else {
         inner
+    }
+}
+
+fn result_type(source_crate: &str, error_type: &str, ok_type: &str) -> String {
+    format!(
+        "std::result::Result<{ok_type}, {}>",
+        error_type_path(source_crate, error_type)
+    )
+}
+
+fn error_type_path(source_crate: &str, error_type: &str) -> String {
+    if error_type.contains("::") || error_type.contains('<') {
+        error_type.to_string()
+    } else {
+        format!("{source_crate}::{error_type}")
     }
 }
 

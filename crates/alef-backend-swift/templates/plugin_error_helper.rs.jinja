@@ -1,7 +1,7 @@
-/// Convert a stringified Swift error into the source crate's `KreuzbergError::Plugin`.
+/// Convert a stringified Swift error into the configured source-crate error type.
 #[allow(dead_code)]
-fn plugin_error_from_string(message: String) -> {{ source_crate }}::KreuzbergError {
-    {{ source_crate }}::KreuzbergError::Plugin { message, plugin_name: "swift".to_string() }
+fn plugin_error_from_string(message: String) -> {{ error_type_path }} {
+    {{ plugin_error_constructor }}
 }
 
 /// JSON envelope returned by every fallible Swift trait method. Carries `Ok(T)`
@@ -14,7 +14,7 @@ enum InboundEnvelope<T> { Ok(T), Err(String) }
 
 /// Deserialise a JSON envelope returned from a Swift FFI shim into a typed Result.
 #[allow(dead_code)]
-fn decode_inbound_envelope<T>(json: &str) -> {{ source_crate }}::Result<T>
+fn decode_inbound_envelope<T>(json: &str) -> std::result::Result<T, {{ error_type_path }}>
 where
     T: ::serde::de::DeserializeOwned,
 {

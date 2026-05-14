@@ -92,12 +92,32 @@ repos:
 {% endif %}
 {% if include_alef_hooks %}
   # Alef: generate READMEs, verify bindings, sync versions
+{% if alef_hooks_are_local %}
+  - repo: local
+    hooks:
+      - id: alef-readme
+        name: alef readme
+        entry: alef readme
+        language: system
+        pass_filenames: false
+      - id: alef-verify
+        name: alef verify
+        entry: alef verify --exit-code
+        language: system
+        pass_filenames: false
+      - id: alef-sync-versions
+        name: alef sync versions
+        entry: alef sync-versions
+        language: system
+        pass_filenames: false
+{% else %}
   - repo: {{ alef_hooks_repo }}
     rev: {{ alef_hooks_rev }}
     hooks:
       - id: alef-readme
       - id: alef-verify
       - id: alef-sync-versions
+{% endif %}
 
 {% endif %}
   # Spelling

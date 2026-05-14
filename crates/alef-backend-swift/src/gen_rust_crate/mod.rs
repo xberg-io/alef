@@ -456,7 +456,11 @@ fn emit_lib_rs(
     // Inbound plugin trait bridges (Swift implements the Rust trait): emit the shared
     // error helper once, then per-trait wrapper structs + Plugin/Trait impls + register fns.
     if !active_bridges.is_empty() {
-        out.push_str(&plugin_inbound::emit_plugin_error_helper(&source_crate));
+        out.push_str(&plugin_inbound::emit_plugin_error_helper(
+            &source_crate,
+            &config.error_type_name(),
+            &config.error_constructor_expr(),
+        ));
     }
     for (bridge_cfg, trait_def) in &active_bridges {
         out.push_str(&plugin_inbound::emit_inbound_wrapper(
@@ -465,6 +469,8 @@ fn emit_lib_rs(
             api,
             &source_crate,
             &type_paths,
+            &config.error_type_name(),
+            &config.error_constructor_expr(),
         ));
         out.push('\n');
     }

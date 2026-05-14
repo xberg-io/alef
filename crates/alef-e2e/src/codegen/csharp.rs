@@ -56,7 +56,7 @@ impl E2eCodegen for CSharpCodegen {
             .or_else(|| config.csharp.as_ref().and_then(|cs| cs.namespace.clone()))
             .unwrap_or_else(|| {
                 if call.module.is_empty() {
-                    "Kreuzberg".to_string()
+                    config.name.to_upper_camel_case()
                 } else {
                     call.module.to_upper_camel_case()
                 }
@@ -112,7 +112,7 @@ impl E2eCodegen for CSharpCodegen {
         // need it) spawns the mock-server binary.
         files.push(GeneratedFile {
             path: output_base.join("TestSetup.cs"),
-            content: render_test_setup(needs_mock_server, &e2e_config.test_documents_dir),
+            content: render_test_setup(needs_mock_server, &e2e_config.test_documents_dir, &namespace),
             generated_header: true,
         });
 
@@ -205,7 +205,7 @@ fn render_csproj(pkg_name: &str, pkg_path: &str, pkg_version: &str, dep_mode: cr
     )
 }
 
-fn render_test_setup(needs_mock_server: bool, test_documents_dir: &str) -> String {
+fn render_test_setup(needs_mock_server: bool, test_documents_dir: &str, namespace: &str) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
     out.push_str("using System;\n");
@@ -214,7 +214,7 @@ fn render_test_setup(needs_mock_server: bool, test_documents_dir: &str) -> Strin
         out.push_str("using System.Diagnostics;\n");
     }
     out.push_str("using System.Runtime.CompilerServices;\n\n");
-    out.push_str("namespace Kreuzberg.E2eTests;\n\n");
+    let _ = writeln!(out, "namespace {namespace};\n");
     out.push_str("internal static class TestSetup\n");
     out.push_str("{\n");
     if needs_mock_server {

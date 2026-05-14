@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shared/Alef hook repositories or omit those blocks, and PyO3/PHP/FFI trait
   bridge templates now use configured error constructors instead of hardcoded
   Kreuzberg error variants.
+- **alef-backends/e2e/scaffold**: remove remaining organization-specific
+  literals from emitted output. Extendr and Swift plugin bridges now use the
+  configured error constructor, C#/Ruby/Wasm e2e scaffolds derive namespaces
+  and globals from Alef/project defaults, generated headers fall back to a
+  vendor-neutral issues URL, and pre-commit scaffolding defaults Alef hooks to
+  local `alef` commands unless a repository is configured.
 - **alef config/build commands**: build command defaults now compose with
   workspace and crate overrides field-by-field, so repositories can set global
   defaults while overriding only the commands they need per backend.
