@@ -142,7 +142,10 @@ impl E2eCodegen for SwiftE2eCodegen {
                 client_factory,
             );
             files.push(GeneratedFile {
-                path: tests_base.join("Tests").join("KreuzbergE2ETests").join(filename),
+                path: tests_base
+                    .join("Tests")
+                    .join(format!("{module_name}E2ETests"))
+                    .join(filename),
                 content,
                 generated_header: true,
             });
@@ -213,7 +216,7 @@ let package = Package(
     ],
     targets: [
         .testTarget(
-            name: "KreuzbergE2ETests",
+            name: "{module_name}E2ETests",
             dependencies: [{product_dep}]
         ),
     ]

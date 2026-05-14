@@ -104,7 +104,7 @@ impl Backend for FfiBackend {
 
 fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> String {
     let mut builder = RustFileBuilder::new().with_generated_header();
-    builder.add_inner_attribute("allow(dead_code, unused_imports, unused_variables, unused_mut)");
+    builder.add_inner_attribute("allow(dead_code, unused_imports, unused_variables, unused_mut, noop_method_call)");
     // useless_conversion is suppressed because `From<X> for Y` impls (where X != Y) get
     // extracted as static methods on Y, then the FFI wrapper signature normalizes the param
     // to Self. The generated `Y::from(arg: Y)` resolves to the blanket `From<T> for T`

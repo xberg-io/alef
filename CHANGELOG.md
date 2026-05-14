@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-backend-ffi**: add `noop_method_call` to the crate-level
+  `#![allow(...)]` block in the generated `lib.rs`. The trait-bridge async
+  dispatch emits `let result = result.clone();` on `&[&str]` slices — a no-op
+  since slices don't implement `Clone`. Cargo's `[lints.rust]` table doesn't
+  override `RUSTFLAGS=-D warnings`, but a file-level inner attribute does.
+
 ## [0.15.60] - 2026-05-14
 
 ### Fixed
