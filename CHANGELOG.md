@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.58] - 2026-05-13
+
 ### Added
 
 - **alef-cli**: `alef readme` now includes Rust in the regeneration loop when
@@ -32,6 +34,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `(field_expr.len() ?? 0)` when the chain crosses an optional field. Surfaced
   in kreuzcrawl's swift test target where `result.markdown()?.content().len()`
   failed to compile across MarkdownTests.swift.
+- **alef-backend-swift**: emit `[package.metadata.cargo-machete] ignored =
+  ["async-trait", "serde"]` in the swift-bridge Cargo.toml. Those deps are
+  conditionally referenced (only when the umbrella crate declares trait
+  bridges or `Serialize`/`Deserialize`-derived response types); downstream
+  consumers without those features (kreuzcrawl) saw cargo-machete false-
+  positive flags. Ignoring at the manifest level keeps the manifest stable
+  across regens.
+- **alef-backend-swift**: allow `clippy::useless_conversion` and
+  `clippy::inherent_to_string` at the crate root of the emitted swift-bridge
+  Rust crate. The bytes-default `__target.x = x.into();` is a no-op when
+  source and target field types match (kreuzcrawl `Option<Vec<u8>>`), and the
+  emitted `RustString` wrappers ship inherent `to_string(&self)` that clash
+  with Display::to_string. Suppress at the generated-crate header instead of
+  requiring per-task clippy flags downstream.
+- **alef-backend-rustler**: emit `base_url:` inline in the generated
+  `native.ex` instead of wrapped across two lines. Under the kreuzberg-dev
+  `line_length: 120` convention, `mix format --check-formatted` collapses
+  the wrap, so each `alef e2e generate` drifted against pre-commit.
+- **alef-docs**: inject a trailing blank line after every heading at render
+  time. The shared `heading.jinja` / `version_heading.jinja` templates can't
+  carry a trailing blank line — the pre-commit `end-of-file-fixer` hook
+  strips it on every commit — so wrap `template_env::render` to add the
+  blank line for those two templates. Resolves the rumdl MD022 cycle that
+  added ~1100 fixes across 18 `docs/reference/api-*.md` files per regen.
 
 ## [0.15.57] - 2026-05-13
 
