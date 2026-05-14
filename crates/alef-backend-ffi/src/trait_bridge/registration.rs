@@ -157,6 +157,7 @@ impl FfiBridgeGenerator {
                 minijinja::context! {
                     full_clear_name => &full_clear_name,
                     registry_getter => registry_getter,
+                    free_string_fn => format!("{prefix}_free_string"),
                 },
             ));
         }
@@ -320,7 +321,6 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
             .replace("self.vtable.", "vtable.")
             .replace("self.user_data", "user_data");
         let has_error = method.error_type.is_some();
-        let core_import = &self.core_import;
         let method_name = &method.name;
         let _cached_name_clone = if has_error {
             "let _cached_name = self.cached_name.clone();\n"
@@ -414,11 +414,12 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
         );
         if has_error {
             let inner_error_constructor = spec.make_error("e.to_string()");
+            let spawn_error_constructor =
+                spec.make_error(&format!("format!(\"spawn_blocking failed in {method_name}: {{}}\", e)"));
             out.push_str(&crate::template_env::render(
                 "ffi_async_map_err_method.jinja",
                 minijinja::context! {
-                    core_import => &core_import,
-                    method_name => &method_name,
+                    spawn_error_constructor => &spawn_error_constructor,
                 },
             ));
             out.push_str(&crate::template_env::render(

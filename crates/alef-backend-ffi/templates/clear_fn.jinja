@@ -7,7 +7,7 @@
 /// # Safety
 ///
 /// `out_error` may be null. When non-null, the caller owns the resulting string
-/// and must free it with `kreuzberg_free_string`.
+/// and must free it with `{{ free_string_fn }}`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn {{ full_clear_name }}(
     out_error: *mut *mut std::ffi::c_char,

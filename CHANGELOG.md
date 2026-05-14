@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **alef-core/alef-scaffold/backends**: Alef is less organization-specific by
+  default. Workspace config can now provide scaffold metadata plus generated
+  header and pre-commit defaults, pre-commit scaffolding can point at custom
+  shared/Alef hook repositories or omit those blocks, and PyO3/PHP/FFI trait
+  bridge templates now use configured error constructors instead of hardcoded
+  Kreuzberg error variants.
 - **alef config/build commands**: build command defaults now compose with
   workspace and crate overrides field-by-field, so repositories can set global
   defaults while overriding only the commands they need per backend.

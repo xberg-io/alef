@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use super::extras::Language;
-use super::output::BuildCommandConfig;
+use super::output::{BuildCommandConfig, GeneratedHeaderConfig, PrecommitConfig, ScaffoldConfig};
 use super::raw_crate::RawCrateConfig;
 use super::resolve_helpers::{merge_map, resolve_output_paths};
 use super::resolved::ResolvedCrateConfig;
@@ -207,13 +207,114 @@ impl NewAlefConfig {
             e2e: krate.e2e.clone(),
             adapters: krate.adapters.clone(),
             trait_bridges: krate.trait_bridges.clone(),
-            scaffold: krate.scaffold.clone(),
+            scaffold: merge_scaffold(
+                ws.scaffold.as_ref(),
+                krate.scaffold.as_ref(),
+                ws.generated_header.as_ref(),
+                ws.precommit.as_ref(),
+            ),
             readme: krate.readme.clone(),
             custom_files: krate.custom_files.clone(),
             custom_modules: krate.custom_modules.clone(),
             custom_registrations: krate.custom_registrations.clone(),
         })
     }
+}
+
+fn merge_scaffold(
+    workspace: Option<&ScaffoldConfig>,
+    krate: Option<&ScaffoldConfig>,
+    workspace_header: Option<&GeneratedHeaderConfig>,
+    workspace_precommit: Option<&PrecommitConfig>,
+) -> Option<ScaffoldConfig> {
+    if workspace.is_none() && krate.is_none() && workspace_header.is_none() && workspace_precommit.is_none() {
+        return None;
+    }
+
+    let generated_header = merge_generated_header(
+        workspace.and_then(|s| s.generated_header.as_ref()).or(workspace_header),
+        krate.and_then(|s| s.generated_header.as_ref()),
+    );
+    let precommit = merge_precommit(
+        workspace.and_then(|s| s.precommit.as_ref()).or(workspace_precommit),
+        krate.and_then(|s| s.precommit.as_ref()),
+    );
+
+    Some(ScaffoldConfig {
+        description: krate
+            .and_then(|s| s.description.clone())
+            .or_else(|| workspace.and_then(|s| s.description.clone())),
+        license: krate
+            .and_then(|s| s.license.clone())
+            .or_else(|| workspace.and_then(|s| s.license.clone())),
+        repository: krate
+            .and_then(|s| s.repository.clone())
+            .or_else(|| workspace.and_then(|s| s.repository.clone())),
+        homepage: krate
+            .and_then(|s| s.homepage.clone())
+            .or_else(|| workspace.and_then(|s| s.homepage.clone())),
+        authors: krate
+            .filter(|s| !s.authors.is_empty())
+            .map(|s| s.authors.clone())
+            .or_else(|| workspace.map(|s| s.authors.clone()))
+            .unwrap_or_default(),
+        keywords: krate
+            .filter(|s| !s.keywords.is_empty())
+            .map(|s| s.keywords.clone())
+            .or_else(|| workspace.map(|s| s.keywords.clone()))
+            .unwrap_or_default(),
+        generated_header,
+        precommit,
+        cargo: krate
+            .and_then(|s| s.cargo.clone())
+            .or_else(|| workspace.and_then(|s| s.cargo.clone())),
+    })
+}
+
+fn merge_generated_header(
+    workspace: Option<&GeneratedHeaderConfig>,
+    krate: Option<&GeneratedHeaderConfig>,
+) -> Option<GeneratedHeaderConfig> {
+    if workspace.is_none() && krate.is_none() {
+        return None;
+    }
+    Some(GeneratedHeaderConfig {
+        issues_url: krate
+            .and_then(|h| h.issues_url.clone())
+            .or_else(|| workspace.and_then(|h| h.issues_url.clone())),
+        regenerate_command: krate
+            .and_then(|h| h.regenerate_command.clone())
+            .or_else(|| workspace.and_then(|h| h.regenerate_command.clone())),
+        verify_command: krate
+            .and_then(|h| h.verify_command.clone())
+            .or_else(|| workspace.and_then(|h| h.verify_command.clone())),
+    })
+}
+
+fn merge_precommit(workspace: Option<&PrecommitConfig>, krate: Option<&PrecommitConfig>) -> Option<PrecommitConfig> {
+    if workspace.is_none() && krate.is_none() {
+        return None;
+    }
+    Some(PrecommitConfig {
+        include_shared_hooks: krate
+            .and_then(|p| p.include_shared_hooks)
+            .or_else(|| workspace.and_then(|p| p.include_shared_hooks)),
+        shared_hooks_repo: krate
+            .and_then(|p| p.shared_hooks_repo.clone())
+            .or_else(|| workspace.and_then(|p| p.shared_hooks_repo.clone())),
+        shared_hooks_rev: krate
+            .and_then(|p| p.shared_hooks_rev.clone())
+            .or_else(|| workspace.and_then(|p| p.shared_hooks_rev.clone())),
+        include_alef_hooks: krate
+            .and_then(|p| p.include_alef_hooks)
+            .or_else(|| workspace.and_then(|p| p.include_alef_hooks)),
+        alef_hooks_repo: krate
+            .and_then(|p| p.alef_hooks_repo.clone())
+            .or_else(|| workspace.and_then(|p| p.alef_hooks_repo.clone())),
+        alef_hooks_rev: krate
+            .and_then(|p| p.alef_hooks_rev.clone())
+            .or_else(|| workspace.and_then(|p| p.alef_hooks_rev.clone())),
+    })
 }
 
 fn merge_build_command_maps(
@@ -300,6 +401,84 @@ languages = ["node"]
         let resolved = cfg.resolve().expect("resolve should succeed");
         let spikard = &resolved[0];
         assert_eq!(spikard.languages, vec![Language::Node]);
+    }
+
+    #[test]
+    fn resolve_merges_workspace_scaffold_field_by_field() {
+        let cfg: NewAlefConfig = toml::from_str(
+            r#"
+[workspace]
+languages = ["python"]
+
+[workspace.scaffold]
+description = "Workspace description"
+license = "MIT"
+repository = "https://github.com/acme/workspace"
+authors = ["Workspace Team"]
+
+[[crates]]
+name = "spikard"
+sources = ["src/lib.rs"]
+
+[crates.scaffold]
+description = "Crate description"
+keywords = ["bindings"]
+"#,
+        )
+        .unwrap();
+
+        let resolved = cfg.resolve().unwrap().remove(0);
+        let scaffold = resolved.scaffold.unwrap();
+        assert_eq!(scaffold.description.as_deref(), Some("Crate description"));
+        assert_eq!(scaffold.license.as_deref(), Some("MIT"));
+        assert_eq!(
+            scaffold.repository.as_deref(),
+            Some("https://github.com/acme/workspace")
+        );
+        assert_eq!(scaffold.authors, vec!["Workspace Team"]);
+        assert_eq!(scaffold.keywords, vec!["bindings"]);
+    }
+
+    #[test]
+    fn resolve_merges_workspace_header_and_precommit_defaults() {
+        let cfg: NewAlefConfig = toml::from_str(
+            r#"
+[workspace]
+languages = ["python"]
+
+[workspace.generated_header]
+issues_url = "https://docs.example.invalid/alef"
+
+[workspace.precommit]
+shared_hooks_repo = "https://github.com/acme/hooks"
+include_alef_hooks = false
+
+[[crates]]
+name = "spikard"
+sources = ["src/lib.rs"]
+
+[crates.scaffold.generated_header]
+verify_command = "spikard verify"
+
+[crates.scaffold.precommit]
+shared_hooks_rev = "v1.2.3"
+"#,
+        )
+        .unwrap();
+
+        let resolved = cfg.resolve().unwrap().remove(0);
+        let scaffold = resolved.scaffold.unwrap();
+        let header = scaffold.generated_header.unwrap();
+        let precommit = scaffold.precommit.unwrap();
+
+        assert_eq!(header.issues_url.as_deref(), Some("https://docs.example.invalid/alef"));
+        assert_eq!(header.verify_command.as_deref(), Some("spikard verify"));
+        assert_eq!(
+            precommit.shared_hooks_repo.as_deref(),
+            Some("https://github.com/acme/hooks")
+        );
+        assert_eq!(precommit.shared_hooks_rev.as_deref(), Some("v1.2.3"));
+        assert_eq!(precommit.include_alef_hooks, Some(false));
     }
 
     #[test]

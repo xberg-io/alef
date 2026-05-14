@@ -53,6 +53,9 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
         } else {
             format!("self.inner.bind(py).call_method1(\"{name}\", ({py_args}))")
         };
+        let error_expr = spec.make_error(&format!(
+            "format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", self.cached_name, e)"
+        ));
 
         if matches!(method.return_type, TypeRef::Unit) {
             crate::template_env::render(
@@ -61,7 +64,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
                     method_name => name,
                     call => call,
                     has_error => has_error,
-                    core_import => spec.core_import,
+                    error_expr => error_expr,
                 },
             )
         } else {
@@ -75,7 +78,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
                     is_named => is_named,
                     extract_ty => ext,
                     has_error => has_error,
-                    core_import => spec.core_import,
+                    error_expr => error_expr,
                 },
             )
         }
@@ -122,6 +125,14 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
         } else {
             format!("obj.call_method1(\"{name}\", ({py_args}))")
         };
+        let error_expr = spec.make_error(&format!(
+            "format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name, e)"
+        ));
+        let json_error_expr =
+            spec.make_error("format!(\"Plugin '{}': JSON serialization failed: {}\", cached_name, e)");
+        let deserialize_error_expr =
+            spec.make_error("format!(\"Plugin '{}': deserialization failed: {}\", cached_name, e)");
+        let spawn_error_expr = spec.make_error("format!(\"spawn_blocking failed: {}\", e)");
 
         if self.is_named(&method.return_type) {
             let return_type =
@@ -133,7 +144,10 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
                     call => call,
                     param_cloning => param_cloning,
                     return_type => return_type,
-                    core_import => spec.core_import,
+                    error_expr => error_expr,
+                    json_error_expr => json_error_expr,
+                    deserialize_error_expr => deserialize_error_expr,
+                    spawn_error_expr => spawn_error_expr,
                 },
             )
         } else if matches!(method.return_type, TypeRef::Unit) {
@@ -143,7 +157,8 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
                     method_name => name,
                     call => call,
                     param_cloning => param_cloning,
-                    core_import => spec.core_import,
+                    error_expr => error_expr,
+                    spawn_error_expr => spawn_error_expr,
                 },
             )
         } else {
@@ -155,7 +170,8 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
                     call => call,
                     extract_ty => ext,
                     param_cloning => param_cloning,
-                    core_import => spec.core_import,
+                    error_expr => error_expr,
+                    spawn_error_expr => spawn_error_expr,
                 },
             )
         }

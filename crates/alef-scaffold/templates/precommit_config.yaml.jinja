@@ -79,23 +79,27 @@ repos:
     hooks:
       - id: rumdl-fmt
 
-  # Shell, Dockerfile, and docs prose (shared kreuzberg-dev hooks)
-  - repo: https://github.com/kreuzberg-dev/pre-commit-hooks
-    rev: {{ kreuzberg_hooks }}
+{% if include_shared_hooks %}
+  # Shell, Dockerfile, and docs prose (shared hooks)
+  - repo: {{ shared_hooks_repo }}
+    rev: {{ shared_hooks_rev }}
     hooks:
       - id: shfmt
       - id: shellcheck
       - id: hadolint
       - id: textlint
 
+{% endif %}
+{% if include_alef_hooks %}
   # Alef: generate READMEs, verify bindings, sync versions
-  - repo: https://github.com/kreuzberg-dev/alef
-    rev: {{ alef }}
+  - repo: {{ alef_hooks_repo }}
+    rev: {{ alef_hooks_rev }}
     hooks:
       - id: alef-readme
       - id: alef-verify
       - id: alef-sync-versions
 
+{% endif %}
   # Spelling
   - repo: https://github.com/crate-ci/typos
     rev: {{ typos }}

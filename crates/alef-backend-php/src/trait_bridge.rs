@@ -39,7 +39,7 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
         vec!["std::sync::Arc".to_string()]
     }
 
-    fn gen_sync_method_body(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> String {
+    fn gen_sync_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
         let name = &method.name;
 
         let has_args = !method.params.is_empty();
@@ -83,6 +83,8 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
 
         let is_result_type = method.error_type.is_some();
         let is_unit_return = matches!(method.return_type, TypeRef::Unit);
+        let deserialize_error_expr = spec.make_error("format!(\"Deserialize error: {}\", e)");
+        let call_error_expr = spec.make_error("e.to_string()");
 
         crate::template_env::render(
             "sync_method_body.jinja",
@@ -91,7 +93,8 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
                 args_expr => args_expr,
                 is_result_type => is_result_type,
                 is_unit_return => is_unit_return,
-                core_import => &self.core_import,
+                deserialize_error_expr => deserialize_error_expr,
+                call_error_expr => call_error_expr,
             },
         )
     }
@@ -146,6 +149,10 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
         };
 
         let is_result_type = method.error_type.is_some();
+        let deserialize_error_expr = spec.make_error("format!(\"Deserialize error: {}\", e)");
+        let call_error_expr = spec.make_error(&format!(
+            "format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name, e)"
+        ));
 
         crate::template_env::render(
             "async_method_body.jinja",
@@ -154,7 +161,8 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
                 args_expr => args_expr,
                 string_params => string_params,
                 is_result_type => is_result_type,
-                core_import => &spec.core_import,
+                deserialize_error_expr => deserialize_error_expr,
+                call_error_expr => call_error_expr,
             },
         )
     }

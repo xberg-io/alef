@@ -1,7 +1,7 @@
 use super::*;
 use crate::languages::generate_pre_commit_config;
 use alef_core::config::{
-    Language, NewAlefConfig, PythonConfig, ResolvedCrateConfig, ScaffoldCargoTargets, ScaffoldConfig,
+    Language, NewAlefConfig, PrecommitConfig, PythonConfig, ResolvedCrateConfig, ScaffoldCargoTargets, ScaffoldConfig,
 };
 use std::path::{Path, PathBuf};
 
@@ -492,6 +492,27 @@ fn test_precommit_no_biome_with_node() {
     assert!(content.contains("alef-readme"));
     assert!(content.contains("alef-verify"));
     assert!(!content.contains("oxlint"));
+}
+
+#[test]
+fn test_precommit_uses_configured_hook_repositories() {
+    let mut config = test_config();
+    config.scaffold.as_mut().unwrap().precommit = Some(PrecommitConfig {
+        include_shared_hooks: Some(true),
+        shared_hooks_repo: Some("https://github.com/acme/hooks".to_string()),
+        shared_hooks_rev: Some("v9.8.7".to_string()),
+        include_alef_hooks: Some(false),
+        alef_hooks_repo: None,
+        alef_hooks_rev: None,
+    });
+
+    let files = generate_pre_commit_config(&config, &[Language::Node]);
+    let content = &files[0].content;
+
+    assert!(content.contains("https://github.com/acme/hooks"));
+    assert!(content.contains("rev: v9.8.7"));
+    assert!(!content.contains("https://github.com/kreuzberg-dev/alef"));
+    assert!(!content.contains("alef-readme"));
 }
 
 // --- Java checkstyle tests ---
@@ -1695,6 +1716,8 @@ fn cargo_only_config(cargo: ScaffoldCargo) -> ResolvedCrateConfig {
         homepage: None,
         authors: vec!["Alice".to_string()],
         keywords: vec!["test".to_string()],
+        generated_header: None,
+        precommit: None,
         cargo: Some(cargo),
     });
     cfg

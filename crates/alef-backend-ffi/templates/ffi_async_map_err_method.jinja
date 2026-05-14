@@ -1,1 +1,1 @@
-    .map_err(|e| {{ core_import }}::KreuzbergError::Plugin { message: format!("spawn_blocking failed in {{ method_name }}: {}", e), plugin_name: String::new() })?
+    .map_err(|e| {{ spawn_error_constructor }})?

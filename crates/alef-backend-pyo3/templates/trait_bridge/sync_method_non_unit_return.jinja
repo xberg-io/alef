@@ -7,10 +7,7 @@ Python::attach(|py| {
         .and_then(|v| v.extract::<{{ extract_ty }}>())
 {% endif %}
 {% if has_error %}
-        .map_err(|e| {{ core_import }}::KreuzbergError::Plugin {
-            message: format!("Plugin '{}' method '{{ method_name }}' failed: {}", self.cached_name, e),
-            plugin_name: self.cached_name.clone(),
-        })
+        .map_err(|e| {{ error_expr }})
 {% else %}
         .unwrap_or_default()
 {% endif %}

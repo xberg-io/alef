@@ -16,7 +16,8 @@ use std::collections::HashMap;
 use super::dto::DtoConfig;
 use super::extras::Language;
 use super::output::{
-    BuildCommandConfig, CleanConfig, LintConfig, OutputTemplate, SetupConfig, SyncConfig, TestConfig, UpdateConfig,
+    BuildCommandConfig, CleanConfig, GeneratedHeaderConfig, LintConfig, OutputTemplate, PrecommitConfig,
+    ScaffoldConfig, SetupConfig, SyncConfig, TestConfig, UpdateConfig,
 };
 use super::tools::ToolsConfig;
 use super::{FormatConfig, GenerateConfig};
@@ -83,6 +84,21 @@ pub struct WorkspaceConfig {
     /// A per-crate explicit `[crates.output]` path always wins over the template.
     #[serde(default)]
     pub output_template: OutputTemplate,
+
+    /// Default package metadata for generated manifests and README context.
+    /// Per-crate `[scaffold]` values override this field-by-field.
+    #[serde(default)]
+    pub scaffold: Option<ScaffoldConfig>,
+
+    /// Default generated-file header metadata.
+    /// Per-crate `[scaffold.generated_header]` values override this field-by-field.
+    #[serde(default)]
+    pub generated_header: Option<GeneratedHeaderConfig>,
+
+    /// Default pre-commit scaffold metadata.
+    /// Per-crate `[scaffold.precommit]` values override this field-by-field.
+    #[serde(default)]
+    pub precommit: Option<PrecommitConfig>,
 
     /// Default lint pipeline keyed by language code (`"python"`, `"node"`, …).
     /// Merged field-wise with per-crate `[crates.lint.<lang>]`.

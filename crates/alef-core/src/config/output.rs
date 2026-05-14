@@ -52,10 +52,51 @@ pub struct ScaffoldConfig {
     pub authors: Vec<String>,
     #[serde(default)]
     pub keywords: Vec<String>,
+    /// Generated-file header text overrides.
+    #[serde(default)]
+    pub generated_header: Option<GeneratedHeaderConfig>,
+    /// Pre-commit scaffold overrides.
+    #[serde(default)]
+    pub precommit: Option<PrecommitConfig>,
     /// Opt-in workspace `.cargo/config.toml` management. When present, alef writes
     /// the full file with hash-based drift detection. Absent = legacy behavior
     /// (wasm32 block only, create-if-missing, unmanaged).
     pub cargo: Option<ScaffoldCargo>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GeneratedHeaderConfig {
+    /// URL shown in generated-file headers for issue reporting and docs.
+    #[serde(default)]
+    pub issues_url: Option<String>,
+    /// Regeneration command shown in generated-file headers.
+    #[serde(default)]
+    pub regenerate_command: Option<String>,
+    /// Freshness verification command shown in generated-file headers.
+    #[serde(default)]
+    pub verify_command: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PrecommitConfig {
+    /// Whether to include the shared shell/Docker/docs hooks block.
+    #[serde(default)]
+    pub include_shared_hooks: Option<bool>,
+    /// Repository URL for the shared hooks block.
+    #[serde(default)]
+    pub shared_hooks_repo: Option<String>,
+    /// Revision for the shared hooks block.
+    #[serde(default)]
+    pub shared_hooks_rev: Option<String>,
+    /// Whether to include the alef hook block.
+    #[serde(default)]
+    pub include_alef_hooks: Option<bool>,
+    /// Repository URL for the alef hook block.
+    #[serde(default)]
+    pub alef_hooks_repo: Option<String>,
+    /// Revision for the alef hook block.
+    #[serde(default)]
+    pub alef_hooks_rev: Option<String>,
 }
 
 /// Opt-in management of workspace-level `.cargo/config.toml`.

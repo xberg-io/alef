@@ -9,15 +9,9 @@ tokio::task::spawn_blocking(move || {
 
         {{ call }}
             .map(|_| ())
-            .map_err(|e| {{ core_import }}::KreuzbergError::Plugin {
-                message: format!("Plugin '{}' method '{{ method_name }}' failed: {}", cached_name, e),
-                plugin_name: cached_name.clone(),
-            })
+            .map_err(|e| {{ error_expr }})
     })
 })
 .await
-.map_err(|e| {{ core_import }}::KreuzbergError::Plugin {
-    message: format!("spawn_blocking failed: {}", e),
-    plugin_name: self.cached_name.clone(),
-})
+.map_err(|e| {{ spawn_error_expr }})
 .flatten()

@@ -9,27 +9,15 @@ tokio::task::spawn_blocking(move || {
 
         {{ py_call }}
         let py_result = {{ call }}
-            .map_err(|e| {{ core_import }}::KreuzbergError::Plugin {
-                message: format!("Plugin '{}' method '{{ method_name }}' failed: {}", cached_name, e),
-                plugin_name: cached_name.clone(),
-            })?;
+            .map_err(|e| {{ error_expr }})?;
         let json_val: String = py
             .import("json")
             .and_then(|m| m.call_method1("dumps", (py_result,)))
             .and_then(|v| v.extract())
-            .map_err(|e| {{ core_import }}::KreuzbergError::Plugin {
-                message: format!("Plugin '{}': JSON serialization failed: {}", cached_name, e),
-                plugin_name: cached_name.clone(),
-            })?;
-        serde_json::from_str::<{{ return_type }}>(&json_val).map_err(|e| {{ core_import }}::KreuzbergError::Plugin {
-            message: format!("Plugin '{}': deserialization failed: {}", cached_name, e),
-            plugin_name: cached_name.clone(),
-        })
+            .map_err(|e| {{ json_error_expr }})?;
+        serde_json::from_str::<{{ return_type }}>(&json_val).map_err(|e| {{ deserialize_error_expr }})
     })
 })
 .await
-.map_err(|e| {{ core_import }}::KreuzbergError::Plugin {
-    message: format!("spawn_blocking failed: {}", e),
-    plugin_name: self.cached_name.clone(),
-})
+.map_err(|e| {{ spawn_error_expr }})
 .flatten()

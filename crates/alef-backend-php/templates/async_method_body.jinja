@@ -11,14 +11,11 @@ WORKER_RUNTIME.block_on(async {
 {% if is_result_type %}
         Ok(val) => {
             let json_str = val.string().unwrap_or_default();
-            serde_json::from_str(&json_str).map_err(|e| {{ core_import }}::KreuzbergError::Other(format!("Deserialize error: {}", e)))
+            serde_json::from_str(&json_str).map_err(|e| {{ deserialize_error_expr }})
         }
 {% else %}
         Ok(val) => val.string().unwrap_or_default().parse().unwrap_or_default(),
 {% endif %}
-        Err(e) => Err({{ core_import }}::KreuzbergError::Plugin {
-            message: format!("Plugin '{}' method '{{ method_name }}' failed: {}", cached_name, e),
-            plugin_name: cached_name.clone(),
-        }),
+        Err(e) => Err({{ call_error_expr }}),
     }
 })

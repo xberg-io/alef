@@ -853,6 +853,8 @@ fn cargo_toml_has_license_field() {
         homepage: None,
         authors: vec![],
         keywords: vec![],
+        generated_header: None,
+        precommit: None,
         cargo: None,
     });
 
