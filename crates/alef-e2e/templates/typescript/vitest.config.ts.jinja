@@ -3,6 +3,7 @@
 export default defineConfig({
   test: {
     include: ['tests/**/*.test.ts'],
+    testTimeout: 30000,
 {% if with_global_setup %}
     globalSetup: './globalSetup.ts',
 {% endif %}
