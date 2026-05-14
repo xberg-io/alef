@@ -193,6 +193,22 @@ impl E2eCodegen for WasmCodegen {
             generated_header: false,
         });
 
+        // Emit a local `pnpm-workspace.yaml` declaring `e2e/wasm/` as its own
+        // pnpm workspace root. Without this, `pnpm install` walks up to the
+        // repo-root `pnpm-workspace.yaml`, where polyglot repos commonly
+        // exclude `e2e/wasm` (it depends on a `wasm-pack build` artifact that
+        // is absent on fresh checkouts). Pnpm with an excluded package still
+        // refuses to install locally, leaving `vite-plugin-wasm` unresolved
+        // when vitest is launched here. The CLI flag `--ignore-workspace`
+        // would also work, but it forces every caller (Taskfile, CI step) to
+        // pass it; making `e2e/wasm/` self-rooted keeps the generated suite
+        // self-contained.
+        files.push(GeneratedFile {
+            path: output_base.join("pnpm-workspace.yaml"),
+            content: "packages:\n  - \".\"\n".to_string(),
+            generated_header: false,
+        });
+
         // Resolve options_type from override (e.g. `WasmExtractionConfig`).
         let options_type = overrides.and_then(|o| o.options_type.clone());
         let field_resolver = FieldResolver::new(
