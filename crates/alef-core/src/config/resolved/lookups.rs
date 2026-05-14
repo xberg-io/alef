@@ -199,9 +199,6 @@ impl ResolvedCrateConfig {
     /// Get the effective build command configuration for a language.
     pub fn build_command_config_for_language(&self, lang: Language) -> BuildCommandConfig {
         let lang_str = lang.to_string();
-        if let Some(explicit) = self.build_commands.get(&lang_str) {
-            return explicit.clone();
-        }
         let output_dir = self.package_dir(lang);
         let run_wrapper = self.run_wrapper_for_language(lang);
         let project_file = self.project_file_for_language(lang);
@@ -211,7 +208,12 @@ impl ResolvedCrateConfig {
             extra_lint_paths: &[],
             project_file,
         };
-        build_defaults::default_build_config(lang, &output_dir, &self.name, &ctx)
+        let default = build_defaults::default_build_config(lang, &output_dir, &self.name, &ctx);
+        if let Some(explicit) = self.build_commands.get(&lang_str) {
+            default.merge_overlay(explicit)
+        } else {
+            default
+        }
     }
 
     /// Get the features to use for a specific language's binding crate.

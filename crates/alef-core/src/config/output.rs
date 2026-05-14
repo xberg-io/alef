@@ -233,6 +233,29 @@ pub struct BuildCommandConfig {
     pub build_release: Option<StringOrVec>,
 }
 
+impl BuildCommandConfig {
+    /// Overlay `other` onto this config field-by-field.
+    ///
+    /// Used for build command defaults where built-ins, workspace defaults, and
+    /// crate overrides should compose without forcing callers to restate every
+    /// command field.
+    pub fn merge_overlay(mut self, other: &Self) -> Self {
+        if other.precondition.is_some() {
+            self.precondition = other.precondition.clone();
+        }
+        if other.before.is_some() {
+            self.before = other.before.clone();
+        }
+        if other.build.is_some() {
+            self.build = other.build.clone();
+        }
+        if other.build_release.is_some() {
+            self.build_release = other.build_release.clone();
+        }
+        self
+    }
+}
+
 fn default_setup_timeout() -> u64 {
     600
 }

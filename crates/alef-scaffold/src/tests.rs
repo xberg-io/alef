@@ -6,7 +6,11 @@ use alef_core::config::{
 use std::path::{Path, PathBuf};
 
 fn test_config() -> ResolvedCrateConfig {
-    let cfg: NewAlefConfig = toml::from_str(
+    test_config_from_toml("")
+}
+
+fn test_config_from_toml(extra_crate_config: &str) -> ResolvedCrateConfig {
+    let cfg: NewAlefConfig = toml::from_str(&format!(
         r#"
 [workspace]
 languages = ["python", "node"]
@@ -21,8 +25,9 @@ license = "MIT"
 repository = "https://github.com/test/my-lib"
 authors = ["Alice"]
 keywords = ["test"]
+{extra_crate_config}
 "#,
-    )
+    ))
     .expect("valid toml");
     cfg.resolve().expect("resolve ok").remove(0)
 }
@@ -883,8 +888,12 @@ fn test_scaffold_dart() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Dart]).unwrap();
     let files = language_files(&all_files);
-    // pubspec.yaml + analysis_options.yaml + .gitignore + test + BUILDING.md + .editorconfig + README.md + example + dart.yml
-    assert_eq!(files.len(), 9, "Expected 9 files for Dart scaffold");
+    // pubspec.yaml + analysis_options.yaml + .gitignore + test + .editorconfig + README.md + example + dart.yml
+    assert_eq!(files.len(), 8, "Expected 8 files for Dart scaffold");
+    assert!(
+        files.iter().all(|f| !f.path.ends_with("BUILDING.md")),
+        "Dart scaffold must not emit BUILDING.md"
+    );
 
     let pubspec = &files[0];
     assert_eq!(pubspec.path, PathBuf::from("packages/dart/pubspec.yaml"));
@@ -895,7 +904,21 @@ fn test_scaffold_dart() {
         "got: {}",
         pubspec.content
     );
-    assert!(pubspec.content.contains("sdk: '"), "got: {}", pubspec.content);
+    assert!(
+        pubspec.content.contains("sdk: '>=3.11.0 <4.0.0'"),
+        "got: {}",
+        pubspec.content
+    );
+    assert!(
+        pubspec.content.contains("freezed_annotation: '^3.1.0'"),
+        "got: {}",
+        pubspec.content
+    );
+    assert!(
+        pubspec.content.contains("build_runner: '^2.15.0'"),
+        "got: {}",
+        pubspec.content
+    );
     assert!(pubspec.content.contains("test:"), "got: {}", pubspec.content);
     assert!(pubspec.content.contains("lints:"), "got: {}", pubspec.content);
 
@@ -935,6 +958,11 @@ fn test_scaffold_dart() {
         "analysis_options.yaml must include analyzer.exclude block; got:\n{}",
         analysis_options.content
     );
+    assert!(
+        analysis_options.content.contains("lib/src/my_lib_bridge_generated/**"),
+        "analysis_options.yaml must use crate-derived generated paths; got:\n{}",
+        analysis_options.content
+    );
 
     let gitignore = &files[2];
     assert_eq!(gitignore.path, PathBuf::from("packages/dart/.gitignore"));
@@ -960,41 +988,56 @@ fn test_scaffold_dart() {
         test_file.content
     );
 
-    let building_md = &files[4];
-    assert_eq!(building_md.path, PathBuf::from("packages/dart/BUILDING.md"));
-    assert!(
-        building_md
-            .content
-            .contains("cargo install flutter_rust_bridge_codegen"),
-        "got: {}",
-        building_md.content
-    );
-    assert!(
-        building_md.content.contains("flutter_rust_bridge_codegen generate"),
-        "got: {}",
-        building_md.content
-    );
-    assert!(
-        building_md.content.contains("dart test"),
-        "got: {}",
-        building_md.content
-    );
+    assert_eq!(files[4].path, PathBuf::from("packages/dart/.editorconfig"));
+    assert!(files[4].content.contains("*.dart"));
 
-    // Check for new production files
-    assert_eq!(files[5].path, PathBuf::from("packages/dart/.editorconfig"));
-    assert!(files[5].content.contains("*.dart"));
-
-    assert_eq!(files[6].path, PathBuf::from("packages/dart/README.md"));
-    assert!(files[6].content.contains("dart pub get"));
+    assert_eq!(files[5].path, PathBuf::from("packages/dart/README.md"));
+    assert!(files[5].content.contains("dart pub get"));
+    assert!(files[5].content.contains("flutter_rust_bridge_codegen generate"));
 
     assert_eq!(
-        files[7].path,
+        files[6].path,
         PathBuf::from("packages/dart/example/my_lib_example.dart")
     );
-    assert!(files[7].content.contains("void main"));
+    assert!(files[6].content.contains("void main"));
 
-    assert_eq!(files[8].path, PathBuf::from(".github/workflows/dart.yml"));
-    assert!(files[8].content.contains("dart-lang/setup-dart"));
+    assert_eq!(files[7].path, PathBuf::from(".github/workflows/dart.yml"));
+    assert!(files[7].content.contains("dart-lang/setup-dart"));
+}
+
+#[test]
+fn test_scaffold_dart_ffi_style() {
+    let config = test_config_from_toml(
+        r#"
+[crates.dart]
+style = "ffi"
+"#,
+    );
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Dart]).unwrap();
+    let files = language_files(&all_files);
+    let pubspec = &files[0];
+    assert!(pubspec.content.contains("ffi: '^2.2.0'"), "got: {}", pubspec.content);
+    for frb_only_dep in [
+        "flutter_rust_bridge:",
+        "freezed_annotation:",
+        "json_annotation:",
+        "freezed:",
+        "build_runner:",
+        "json_serializable:",
+    ] {
+        assert!(
+            !pubspec.content.contains(frb_only_dep),
+            "FFI Dart scaffold must not include FRB-only dependency {frb_only_dep}; got:\n{}",
+            pubspec.content
+        );
+    }
+    let readme = files
+        .iter()
+        .find(|f| f.path == Path::new("packages/dart/README.md"))
+        .unwrap();
+    assert!(readme.content.contains("cargo build --release -p my-lib-ffi"));
+    assert!(!readme.content.contains("flutter_rust_bridge_codegen generate"));
 }
 
 #[test]
@@ -1428,6 +1471,7 @@ fn test_scaffold_kotlin() {
     assert!(files[4].content.contains("org.gradle.parallel=true"));
     assert_eq!(files[5].path, PathBuf::from("packages/kotlin/README.md"));
     assert!(files[5].content.contains("my_lib"));
+    assert!(files[5].content.contains(":my-lib-kotlin:0.1.0"));
     assert!(files[5].content.contains("gradle build"));
     assert_eq!(
         files[6].path,
@@ -1440,6 +1484,111 @@ fn test_scaffold_kotlin() {
         files[7].content.contains(r#"java-version: "25""#),
         "kotlin.yml must pin java-version 25 for FFM; got:\n{}",
         files[7].content
+    );
+    assert!(
+        files[0].content.contains("native.lib.path") && !files[0].content.contains("kb.lib.path"),
+        "Kotlin scaffold must use generic native.lib.path override; got:\n{}",
+        files[0].content
+    );
+}
+
+#[test]
+fn test_scaffold_kotlin_android_mode() {
+    let config = test_config_from_toml(
+        r#"
+[crates.kotlin]
+mode = "android"
+"#,
+    );
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Kotlin]).unwrap();
+    let files = language_files(&all_files);
+    assert_eq!(files.len(), 9, "Expected 9 files for Kotlin Android scaffold");
+
+    let build_gradle = files
+        .iter()
+        .find(|f| f.path == Path::new("packages/kotlin-android/build.gradle.kts"))
+        .unwrap();
+    assert!(build_gradle.content.contains(r#"id("com.android.library") version "#));
+    assert!(build_gradle.content.contains("compileSdk = 36"));
+    assert!(build_gradle.content.contains("minSdk = 21"));
+    assert!(build_gradle.content.contains(r#"jvmTarget = "17""#));
+    assert!(build_gradle.content.contains("androidx.test.ext:junit:1.3.0"));
+    assert!(
+        build_gradle
+            .content
+            .contains("androidx.test.espresso:espresso-core:3.7.0")
+    );
+
+    assert!(
+        files
+            .iter()
+            .any(|f| f.path == Path::new("packages/kotlin-android/src/main/jniLibs/arm64-v8a/.gitkeep")),
+        "Android scaffold must include arm64-v8a jniLibs placeholder"
+    );
+    assert!(
+        files
+            .iter()
+            .any(|f| f.path.to_string_lossy().ends_with("android/MyLibAndroid.kt")),
+        "Android scaffold must include package-derived wrapper"
+    );
+}
+
+#[test]
+fn test_scaffold_kotlin_native_target() {
+    let config = test_config_from_toml(
+        r#"
+[crates.kotlin]
+target = "native"
+"#,
+    );
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Kotlin]).unwrap();
+    let files = language_files(&all_files);
+    assert_eq!(files.len(), 5, "Expected 5 files for Kotlin Native scaffold");
+    let build_gradle = files
+        .iter()
+        .find(|f| f.path == Path::new("packages/kotlin-native/build.gradle.kts"))
+        .unwrap();
+    assert!(build_gradle.content.contains(r#"kotlin("multiplatform")"#));
+    assert!(build_gradle.content.contains("linuxX64"));
+    let def_file = files
+        .iter()
+        .find(|f| f.path == Path::new("packages/kotlin-native/my-lib.def"))
+        .unwrap();
+    assert!(def_file.content.contains("headers = my_lib.h"));
+    assert!(
+        def_file
+            .content
+            .contains("linkerOpts = -L../../../target/release -lmy_lib")
+    );
+}
+
+#[test]
+fn test_scaffold_kotlin_multiplatform_mode() {
+    let config = test_config_from_toml(
+        r#"
+[crates.kotlin]
+mode = "kmp"
+"#,
+    );
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Kotlin]).unwrap();
+    let files = language_files(&all_files);
+    assert_eq!(files.len(), 5, "Expected 5 files for Kotlin Multiplatform scaffold");
+    let build_gradle = files
+        .iter()
+        .find(|f| f.path == Path::new("packages/kotlin-mpp/build.gradle.kts"))
+        .unwrap();
+    assert!(build_gradle.content.contains(r#"kotlin("multiplatform")"#));
+    assert!(build_gradle.content.contains("jvm()"));
+    assert!(build_gradle.content.contains("linuxX64"));
+    assert!(build_gradle.content.contains("macosArm64"));
+    assert!(
+        files
+            .iter()
+            .any(|f| f.path == Path::new("packages/kotlin-mpp/my-lib.def")),
+        "KMP scaffold must include cinterop .def file"
     );
 }
 
@@ -1528,7 +1677,7 @@ fn test_scaffold_zig() {
 
     let workflow = &files[7];
     assert_eq!(workflow.path, PathBuf::from(".github/workflows/zig.yml"));
-    assert!(workflow.content.contains("kreuzberg-dev/actions/setup-zig"));
+    assert!(workflow.content.contains("mlugg/setup-zig"));
     assert!(workflow.content.contains("cargo build -p my-lib-ffi"));
     assert!(workflow.content.contains(r#"version: "0.16.0""#));
 }

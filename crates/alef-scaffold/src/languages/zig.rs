@@ -127,10 +127,8 @@ Add to your `build.zig.zon`:
     let main_zig = "// Main module stub for the Zig bindings\n// Replace with your actual API calls after code generation\n\npub fn add(a: i32, b: i32) i32 {\n    return a + b;\n}\n\ntest \"example\" {\n    const a: i32 = 1;\n    const b: i32 = 1;\n    try @import(\"std\").testing.expectEqual(a + b, 2);\n}\n";
 
     // Zig workflow: build the FFI crate first so `zig build test` can find
-    // `lib{ffi_lib}.{so,dylib,dll}`. We use the in-house `kreuzberg-dev/actions/setup-zig`
-    // action (rather than the third-party `mlugg/setup-zig`) so the Zig version pin
-    // stays in sync with the rest of the polyrepo. `min_zig` mirrors
-    // `build.zig.zon`'s `minimum_zig_version`.
+    // `lib{ffi_lib}.{so,dylib,dll}`. `min_zig` mirrors `build.zig.zon`'s
+    // `minimum_zig_version`.
     let github_workflow = format!(
         r#"name: Zig
 
@@ -154,7 +152,7 @@ jobs:
         working-directory: ${{{{ github.workspace }}}}
         run: cargo build -p {ffi_crate_dir}
       - name: Set up Zig
-        uses: kreuzberg-dev/actions/setup-zig@v1
+        uses: mlugg/setup-zig@v2
         with:
           version: "{min_zig}"
       - name: Build Zig project

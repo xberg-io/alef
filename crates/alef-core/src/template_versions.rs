@@ -253,6 +253,15 @@ pub mod maven {
     // renovate: datasource=maven depName=org.jetbrains.kotlin:kotlin-gradle-plugin
     pub const KOTLIN_JVM_PLUGIN: &str = "2.3.21";
 
+    // renovate: datasource=maven depName=com.android.tools.build:gradle
+    pub const ANDROID_GRADLE_PLUGIN: &str = "9.0.0";
+
+    // renovate: datasource=maven depName=org.jlleitschuh.gradle:ktlint-gradle
+    pub const KTLINT_GRADLE_PLUGIN: &str = "13.1.0";
+
+    // renovate: datasource=github-releases depName=pinterest/ktlint
+    pub const KTLINT: &str = "1.8.0";
+
     // renovate: datasource=maven depName=org.jetbrains.kotlinx:kotlinx-coroutines-core
     pub const KOTLINX_COROUTINES_CORE: &str = "1.11.0";
 
@@ -261,6 +270,12 @@ pub mod maven {
 
     // renovate: datasource=maven depName=junit:junit
     pub const JUNIT_LEGACY: &str = "4.13.2";
+
+    // renovate: datasource=maven depName=androidx.test.ext:junit
+    pub const ANDROIDX_TEST_EXT_JUNIT: &str = "1.3.0";
+
+    // renovate: datasource=maven depName=androidx.test.espresso:espresso-core
+    pub const ANDROIDX_TEST_ESPRESSO_CORE: &str = "3.7.0";
 }
 
 pub mod nuget {
@@ -315,13 +330,28 @@ pub mod pub_dev {
     pub const TEST_PACKAGE: &str = "^1.25.0";
 
     // renovate: datasource=pub depName=lints
-    pub const LINTS: &str = "^5.0.0";
+    pub const LINTS: &str = "^6.1.0";
 
     // renovate: datasource=pub depName=ffi
-    pub const FFI_PACKAGE: &str = "^2.1.0";
+    pub const FFI_PACKAGE: &str = "^2.2.0";
 
     // renovate: datasource=pub depName=http
     pub const HTTP_PACKAGE: &str = "^1.2.0";
+
+    // renovate: datasource=pub depName=freezed_annotation
+    pub const FREEZED_ANNOTATION: &str = "^3.1.0";
+
+    // renovate: datasource=pub depName=json_annotation
+    pub const JSON_ANNOTATION: &str = "^4.11.0";
+
+    // renovate: datasource=pub depName=freezed
+    pub const FREEZED: &str = "^3.2.5";
+
+    // renovate: datasource=pub depName=build_runner
+    pub const BUILD_RUNNER: &str = "^2.15.0";
+
+    // renovate: datasource=pub depName=json_serializable
+    pub const JSON_SERIALIZABLE: &str = "^6.13.2";
 }
 
 /// Platform / toolchain pins. None of these auto-bump; track manually.
@@ -330,11 +360,8 @@ pub mod toolchain {
     pub const MIN_ZIG_VERSION: &str = "0.16.0";
 
     // version range; manual bump required.
-    // 3.3.0 is the minimum that supports `extension type` declarations, which
-    // flutter_rust_bridge 2.x emits in `frb_generated.web.dart` for WASM-side
-    // module bindings. Lower SDKs analyze cleanly for native-only builds but
-    // fail when the .web.dart file is in scope.
-    pub const DART_SDK_CONSTRAINT: &str = ">=3.3.0 <4.0.0";
+    // Dart 3.11 is the scaffolded SDK floor for newly generated Dart packages.
+    pub const DART_SDK_CONSTRAINT: &str = ">=3.11.0 <4.0.0";
 
     // JVM bytecode target for Kotlin/Java scaffolds and e2e; manual bump required.
     // 25 is required because the Foreign Function & Memory API (used by the alef-emitted
@@ -346,6 +373,11 @@ pub mod toolchain {
 
     // minimum iOS deployment target for swift-bridge bindings; manual bump required
     pub const SWIFT_MIN_IOS: &str = "16.0";
+
+    // Android scaffold defaults; manual bumps required.
+    pub const ANDROID_COMPILE_SDK: &str = "36";
+    pub const ANDROID_MIN_SDK: &str = "21";
+    pub const ANDROID_JVM_TARGET: &str = "17";
 }
 
 pub mod cran {
