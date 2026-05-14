@@ -190,9 +190,20 @@ pub fn render_mock_server_setup(out: &mut String, fixture: &Fixture, e2e_config:
 pub fn render_mock_server_module() -> String {
     // This is parameterized Axum mock server code identical in structure to
     // liter-llm's mock_server.rs but without any project-specific imports.
+    //
+    // The module is included via `mod mock_server;` in every integration-test
+    // binary that needs MockRoute/MockServer, but only fixtures using
+    // `MockServer::start` actually invoke `start()` / `handle_request()`. Each
+    // integration test compiles as a separate binary, so the unused-in-some
+    // helpers would otherwise trip `-D dead_code` under
+    // `cargo test`/`cargo clippy`. The crate-level `#![allow(dead_code)]`
+    // mirrors the pattern used by other generated helper modules
+    // (e.g. `tests/common.rs`).
     hash::header(CommentStyle::DoubleSlash)
         + r#"//
 // Minimal axum-based mock HTTP server for e2e tests.
+
+#![allow(dead_code)]
 
 use std::net::SocketAddr;
 use std::sync::Arc;
