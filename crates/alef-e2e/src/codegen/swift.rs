@@ -188,11 +188,17 @@ fn render_package_swift(
             (dep, prod)
         }
         crate::config::DependencyMode::Local => {
-            // SwiftPM 6.0 infers package identity from the path's last component, but the
-            // packages/swift/Package.swift declares its name as "Kreuzberg". Use explicit
-            // identity specification.
-            let dep = format!(r#"        .package(name: "{module_name}", path: "{pkg_path}")"#);
-            let prod = format!(r#".product(name: "{module_name}", package: "{module_name}")"#);
+            // SwiftPM 6.0 ignores .package(name:) for path-based deps and infers the
+            // package identity from the path's last component (e.g. "../../packages/swift"
+            // → "swift"). The .product(package:) reference must use that inferred identity,
+            // not the module name.
+            let pkg_id = pkg_path
+                .trim_end_matches('/')
+                .split('/')
+                .next_back()
+                .unwrap_or(module_name);
+            let dep = format!(r#"        .package(path: "{pkg_path}")"#);
+            let prod = format!(r#".product(name: "{module_name}", package: "{pkg_id}")"#);
             (dep, prod)
         }
     };

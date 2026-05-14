@@ -7,18 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.64] - 2026-05-14
+
 ### Fixed
 
-- **alef-e2e (rust)**: honor the call-level `streaming` opt-out when generating
-  rust e2e tests. The rust backend previously hard-coded `None` for the
-  `call_streaming` argument of `resolve_is_streaming`, so any fixture asserting
-  on a `chunks` field name was forced into streaming-virtual codegen even when
-  the call config explicitly declared `streaming = false`. That produced
-  sync `#[test]` functions containing `.await` (E0728) and assertions
-  referencing an undefined `result` variable (E0425) when the underlying API
-  returned a plain struct with a `chunks: Vec<_>` field. The other backends
-  (typescript, python, go, java, kotlin, php, elixir, swift, dart) already
-  threaded `call_config.streaming` through; rust now matches.
+- **alef-codegen (magnus hash constructor)**: stop emitting `TypeName::default()`
+  for `TypeRef::Named` fields that lack an explicit `typed_default`. Magnus-
+  wrapped structs (`#[magnus::wrap]`) do not implement `Default`, so the
+  generated Ruby binding failed to compile with `E0599: no function or
+  associated item named 'default' found for struct 'FunctionDefinition'`
+  (likewise `FunctionCall`, etc.). The hash constructor now treats such fields
+  as required: when the caller does not provide the field, the constructor
+  returns `magnus::Error::new(ruby.exception_arg_error(), "missing required
+  field: ...")` instead of synthesising a fictional default.
+- **alef-e2e (swift)**: fix `Package.swift` for path-based local dependencies
+  under SwiftPM 6.0. Previously the codegen emitted
+  `.package(name: "<ModuleName>", path: ...)` paired with
+  `.product(name: "<ModuleName>", package: "<ModuleName>")`, but SwiftPM 6.0
+  ignores `.package(name:)` for path-based dependencies and infers the package
+  identity from the path's last component (e.g. `packages/swift` → `swift`).
+  The generated `Package.swift` therefore failed with
+  `error: 'swift': product 'LiterLlm' required by package 'swift' target
+  'LiterLlmE2ETests' not found in package 'LiterLlm'`. The codegen now drops
+  the redundant `name:` parameter and references the inferred identity in the
+  product dependency.
+- **alef-e2e (kotlin)**: emit `java` plugin alongside `kotlin("jvm")` in the
+  generated `build.gradle.kts`. Under Gradle 9.x, `kotlin("jvm")` no longer
+  implicitly applies the `java` base plugin, so the `test` task did not exist
+  and `gradle test` failed with `Task 'test' not found in root project
+  'kotlin'.` Applying `java` restores the standard test/check lifecycle.
 
 ## [0.15.63] - 2026-05-14
 

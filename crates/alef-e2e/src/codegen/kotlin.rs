@@ -274,6 +274,7 @@ fn render_build_gradle(
 
 plugins {{
     kotlin("jvm") version "{kotlin_plugin}"
+    java
 }}
 
 group = "{kotlin_pkg_id}"

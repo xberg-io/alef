@@ -539,6 +539,16 @@ fn gen_magnus_hash_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> 
                     "kwargs.get(ruby.to_symbol(\"{}\")).and_then(|v| {}::try_convert(v).ok()).unwrap_or_default(),",
                     field.name, type_prefix
                 )
+            } else if matches!(effective_inner_ty, TypeRef::Named(_))
+                && field.typed_default.is_none()
+            {
+                // Named types without an explicit default — Magnus-wrapped structs
+                // (#[magnus::wrap]) don't implement Default, so we can't emit
+                // `TypeName::default()`. Require the caller to provide the field.
+                format!(
+                    "kwargs.get(ruby.to_symbol(\"{}\")).and_then(|v| {}::try_convert(v).ok()).ok_or_else(|| magnus::Error::new(unsafe {{ magnus::Ruby::get_unchecked() }}.exception_arg_error(), \"missing required field: {}\"))?,",
+                    field.name, type_prefix, field.name
+                )
             } else {
                 // When the binding maps the field type to String (e.g. an excluded enum), but the
                 // original default is an EnumVariant, `default_value_for_field` would emit
