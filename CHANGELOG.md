@@ -14,6 +14,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dispatch emits `let result = result.clone();` on `&[&str]` slices — a no-op
   since slices don't implement `Clone`. Cargo's `[lints.rust]` table doesn't
   override `RUSTFLAGS=-D warnings`, but a file-level inner attribute does.
+- **alef-codegen/doc_emission**: take the exception class name as a parameter
+  in `emit_phpdoc` and `emit_csharp_doc` instead of hard-coding
+  `"KreuzbergException"`. PHP and C# backends now thread the project-specific
+  exception type through `<exception>` / `@throws` doc emission so
+  kreuzcrawl-style projects no longer see `<exception cref="KreuzbergException">`
+  on their generated bindings.
+- **alef-e2e/swift**: derive the test target name from the configured module
+  (`{module_name}E2ETests`) in both the rendered `Package.swift` and the
+  emitted test file directory. Previously hard-coded to `KreuzbergE2ETests`
+  regardless of project, which broke kreuzcrawl's swift e2e build.
+- **alef-backend-php**: unmask `core_import` parameter on `gen_static_method`
+  (renamed from `_core_import` in 0.15.61 WIP) so `Exception` class derivation
+  compiles. Fixes a clippy/cargo-check break introduced alongside the
+  exception-name refactor.
+- **alef-cli**: `alef all --format` now accepts the flag without an explicit
+  value (matches the `alef generate --format` UX). Defaults to `true`; pass
+  `--format=false` to opt out.
+
+### Internal
+
+- Refresh insta snapshots in `alef-backend-swift` for the cargo-machete
+  metadata block and crate-root clippy allows added in 0.15.58.
+- Sync `tests/integration_test.rs` and `tests/field_path_array.rs` with the
+  current `wrap_return_with_mutex` and swift optional-chain accessor
+  behaviour (`&&str` → `to_string()`, `()?[N]` without trailing `?`).
+- Drop the outdated `texts:` named-arg assertion in
+  `dart_scalar_array_arg.rs` — the dart codegen forces positional args for
+  scalar-element json_object types.
 
 ## [0.15.60] - 2026-05-14
 
