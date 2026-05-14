@@ -35,7 +35,7 @@ repos:
 
   # Markdown linting
   - repo: https://github.com/kreuzberg-dev/pre-commit-hooks
-    rev: v1.0.3
+    rev: v1.0.5
     hooks:
       - id: cargo-sort
         args: [-w]

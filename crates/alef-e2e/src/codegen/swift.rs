@@ -150,10 +150,7 @@ impl E2eCodegen for SwiftE2eCodegen {
                 client_factory,
             );
             files.push(GeneratedFile {
-                path: tests_base
-                    .join("Tests")
-                    .join(format!("{module_name}Tests"))
-                    .join(filename),
+                path: tests_base.join("Tests").join("KreuzbergE2ETests").join(filename),
                 content,
                 generated_header: true,
             });
@@ -196,13 +193,11 @@ fn render_package_swift(
             (dep, prod)
         }
         crate::config::DependencyMode::Local => {
-            let dep = format!(r#"        .package(path: "{pkg_path}")"#);
-            let pkg_id = pkg_path
-                .trim_end_matches('/')
-                .split('/')
-                .next_back()
-                .unwrap_or(module_name);
-            let prod = format!(r#".product(name: "{module_name}", package: "{pkg_id}")"#);
+            // SwiftPM 6.0 infers package identity from the path's last component, but the
+            // packages/swift/Package.swift declares its name as "Kreuzberg". Use explicit
+            // identity specification.
+            let dep = format!(r#"        .package(name: "{module_name}", path: "{pkg_path}")"#);
+            let prod = format!(r#".product(name: "{module_name}", package: "{module_name}")"#);
             (dep, prod)
         }
     };
@@ -226,7 +221,7 @@ let package = Package(
     ],
     targets: [
         .testTarget(
-            name: "{module_name}Tests",
+            name: "KreuzbergE2ETests",
             dependencies: [{product_dep}]
         ),
     ]
