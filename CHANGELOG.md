@@ -126,8 +126,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **alef-scaffold**: evolve the existing scaffold and backend implementations
   instead of adding new Alef crates. Planned follow-up work should align Dart
   scaffolding with FRB versus FFI and pure Dart versus Flutter plugin modes,
-  align Kotlin scaffolding with the existing JVM, Android, Native, and KMP
-  backend modes, include Swift Rust subpackage scaffold expectations, remove
+  align Kotlin scaffolding with the existing JVM, Native, and KMP
+  backend modes (Android now ships as its own `alef-backend-kotlin-android`
+  crate — see Added), include Swift Rust subpackage scaffold expectations, remove
   organization-specific assumptions from generated scaffold and workflow text,
   and centralize scaffold dependency and tool versions.
 
