@@ -1,5 +1,5 @@
 use alef_core::config::TraitBridgeConfig;
-use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
+use alef_core::ir::{ApiSurface, MethodDef, ReceiverKind, TypeDef, TypeRef};
 use heck::ToSnakeCase;
 
 use super::conversions::frb_rust_type_excluded_aware;
@@ -368,7 +368,16 @@ fn emit_trait_bridge_method(
     // Build the method signature matching the actual trait.
     // - Reference params use `&` / `&mut` prefix.
     // - Primitive params use their original width (not FRB-widened).
-    let params_sig: Vec<String> = std::iter::once("&self".to_string())
+    // Emit the self receiver matching the trait definition so rustc's E0053
+    // ("method has an incompatible type for trait") is not triggered for
+    // traits that use `&mut self` (e.g. `HtmlVisitor`).
+    let self_receiver = match method.receiver {
+        Some(ReceiverKind::RefMut) => "&mut self",
+        Some(ReceiverKind::Owned) => "self",
+        // Default: `&self` (covers `Some(ReceiverKind::Ref)` and `None`).
+        _ => "&self",
+    };
+    let params_sig: Vec<String> = std::iter::once(self_receiver.to_string())
         .chain(method.params.iter().map(|p| {
             let orig_ty = trait_impl_param_type(p, source_crate_name, type_paths);
             format!("{}: {orig_ty}", p.name)

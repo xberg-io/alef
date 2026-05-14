@@ -193,13 +193,20 @@ pub(crate) fn emit_default_construction_body(
                         ));
                     }
                 }
-            } else if ty.has_serde {
+            } else if ty.has_serde && !f.sanitized {
                 // Vec<non-Named> field in a serde struct. The IR may have mapped
                 // Vec<Paragraph> to Vec<String>, Vec<T> to Option<Vec<T>>, etc.
                 // Use serde JSON round-trip WITHOUT a type annotation so that the
                 // target field type is inferred from __target.{name}. This handles
                 // Vec→Option<Vec>, Vec<String>→Vec<OtherType>, etc. gracefully:
                 // the deserialized JSON is coerced to whatever type kreuzberg uses.
+                //
+                // Exception: sanitized fields (e.g. `Vec<InlineImage>` mapped to
+                // `Vec<String>` by the IR) must NOT use the serde round-trip because
+                // the actual source field type (`Vec<InlineImage>`) may not implement
+                // `serde::Deserialize` (e.g. when the `serde` feature is conditional).
+                // Attempting `from_value::<Vec<InlineImage>>(to_value(Vec<String>))`
+                // would fail to compile. Leave such fields at their Default value instead.
                 out.push_str(&crate::template_env::render(
                     "default_field_vec_serde_round_trip.jinja",
                     minijinja::context! {

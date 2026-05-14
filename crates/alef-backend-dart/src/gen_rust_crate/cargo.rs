@@ -277,7 +277,25 @@ unexpected_cfgs = {{ level = "warn", check-cfg = ['cfg(frb_expand)'] }}"#
 }
 
 pub(crate) fn emit_build_rs(rust_dir: &str) -> GeneratedFile {
-    let content = "fn main() {\n    // FRB codegen runs as a separate command (`flutter_rust_bridge_codegen generate`).\n    // This build.rs is a placeholder for any pre-build steps.\n}\n".to_string();
+    // Invoke `flutter_rust_bridge_codegen generate` at `cargo build` time so that
+    // `src/frb_generated.rs` is always present before rustc tries to compile
+    // `mod frb_generated;` in lib.rs. The codegen binary must be on PATH (alef's
+    // `[crates.test.dart] before` step installs it via `dart pub global activate`).
+    let content = r#"fn main() {
+    // Re-run whenever any Rust source changes.
+    println!("cargo:rerun-if-changed=src");
+
+    let status = std::process::Command::new("flutter_rust_bridge_codegen")
+        .args(["generate", "--config-file", "flutter_rust_bridge.yaml"])
+        .status()
+        .expect("flutter_rust_bridge_codegen not found on PATH; install via `dart pub global activate flutter_rust_bridge_codegen`");
+
+    if !status.success() {
+        panic!("flutter_rust_bridge_codegen generate failed (exit code: {status})");
+    }
+}
+"#
+    .to_string();
     GeneratedFile {
         path: PathBuf::from(rust_dir).join("build.rs"),
         content,
@@ -292,7 +310,10 @@ pub(crate) fn emit_frb_yaml(rust_dir: &str, module_name: &str) -> GeneratedFile 
     // directory. `rust_input` is required by the FRB CLI even in v2 — omitting it
     // causes `flutter_rust_bridge_codegen generate` to panic with
     // "Please provide `rust_input`".
-    let content = format!("rust_root: .\nrust_input: crate\ndart_output: ../lib/src/{module_name}_bridge_generated\n");
+    // `add_mod_to_lib: false` prevents FRB codegen from prepending its own
+    // `mod frb_generated;` at line 1 of lib.rs — alef already emits it in the
+    // correct position (after crate-level #![allow] attrs) to avoid E0753.
+    let content = format!("rust_root: .\nrust_input: crate\ndart_output: ../lib/src/{module_name}_bridge_generated\nadd_mod_to_lib: false\n");
     GeneratedFile {
         path: PathBuf::from(rust_dir).join("flutter_rust_bridge.yaml"),
         content,

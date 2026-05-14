@@ -12,7 +12,7 @@ use crate::gen_rust_crate::type_bridge::{
     bridge_type, bridge_type_enum_aware_ref, is_enum_named, is_vec_of_enum, needs_json_bridge, swift_bridge_rust_type,
 };
 use alef_codegen::generators::type_paths::resolve_type_path;
-use alef_core::ir::{CoreWrapper, FieldDef, TypeDef, TypeRef};
+use alef_core::ir::{CoreWrapper, FieldDef, ReceiverKind, TypeDef, TypeRef};
 use alef_core::keywords::swift_ident;
 use heck::ToSnakeCase;
 use std::collections::{HashMap, HashSet};
@@ -65,6 +65,15 @@ pub(crate) fn is_unbridgeable_getter(
         // sanitized the inner type away from its real Rust source counterpart.
         // This covers Vec<String>, Vec<Path>, Vec<Named>, Vec<Vec<…>>, etc.
         if !ty.has_serde && !matches!(inner.as_ref(), TypeRef::Primitive(_) | TypeRef::Bytes) {
+            return true;
+        }
+        // A sanitized Vec field (e.g. `Vec<InlineImage>` mapped to `Vec<String>` in the IR)
+        // on a serde struct cannot be round-tripped: the serde bridge would attempt
+        // `from_value::<Vec<InlineImage>>(to_value(Vec<String>))`, which fails if the
+        // inner type does not implement `serde::Deserialize` (e.g. when the `serde`
+        // feature is not unconditionally enabled in the source crate). Treat any
+        // sanitized Vec field as unbridgeable regardless of `ty.has_serde`.
+        if field.sanitized && !matches!(inner.as_ref(), TypeRef::Primitive(_) | TypeRef::Bytes) {
             return true;
         }
     }
@@ -872,7 +881,12 @@ pub(crate) fn emit_type_method_shims(
         let call_args_str = call_args.join(", ");
 
         // Resolve the method call on the inner type.
-        let inner_access = "client.0";
+        // S5: when the inner method takes owned `self` (e.g. builder `build(self)`),
+        // we must clone because `client` is `&TypeName` — swift-bridge opaque types
+        // cannot be owned in the extern "Rust" declaration. Clone is cheap for builders
+        // (they hold plain config fields, no heap-heavy state).
+        let is_owned_receiver = matches!(method.receiver.as_ref(), Some(ReceiverKind::Owned));
+        let inner_access = if is_owned_receiver { "client.0.clone()" } else { "client.0" };
         let method_call = format!("{inner_access}.{method_snake}({call_args_str})");
 
         // Determine return wrapping: Named return types get wrapped in their newtype.
