@@ -196,7 +196,7 @@ fn gen_wrapper_function(
         .collect();
 
     // XML doc comment using shared doc emission
-    doc_emission::emit_csharp_doc(&mut out, &func.doc, "    ");
+    doc_emission::emit_csharp_doc(&mut out, &func.doc, "    ", exception_name);
     for param in &visible_params {
         if !func.doc.is_empty() {
             let param_name = param.name.to_lower_camel_case();
@@ -535,7 +535,7 @@ fn gen_wrapper_function(
 fn gen_bridge_field_wrapper_function(
     func: &FunctionDef,
     bridge_match: &alef_codegen::generators::trait_bridge::BridgeFieldMatch<'_>,
-    _exception_name: &str,
+    exception_name: &str,
     _enum_names: &HashSet<String>,
     _true_opaque_types: &HashSet<String>,
     _handle_returned_types: &HashSet<String>,
@@ -546,7 +546,7 @@ fn gen_bridge_field_wrapper_function(
     let visible_params: Vec<alef_core::ir::ParamDef> = func.params.to_vec();
 
     // XML doc comment
-    doc_emission::emit_csharp_doc(&mut out, &func.doc, "    ");
+    doc_emission::emit_csharp_doc(&mut out, &func.doc, "    ", exception_name);
     for param in &visible_params {
         if !func.doc.is_empty() {
             let param_name = param.name.to_lower_camel_case();
@@ -752,7 +752,7 @@ fn gen_wrapper_method(
         .collect();
 
     // XML doc comment using shared doc emission
-    doc_emission::emit_csharp_doc(&mut out, &method.doc, "    ");
+    doc_emission::emit_csharp_doc(&mut out, &method.doc, "    ", exception_name);
     for param in &visible_params {
         if !method.doc.is_empty() {
             let param_name = param.name.to_lower_camel_case();

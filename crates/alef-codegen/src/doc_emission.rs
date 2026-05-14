@@ -7,7 +7,9 @@
 /// Translates rustdoc sections (`# Arguments` → `@param`,
 /// `# Returns` → `@return`, `# Errors` → `@throws`,
 /// `# Example` → ` ```php ` fence) via [`render_phpdoc_sections`].
-pub fn emit_phpdoc(out: &mut String, doc: &str, indent: &str) {
+///
+/// `exception_class` is the PHP exception class name to use in `@throws` tags.
+pub fn emit_phpdoc(out: &mut String, doc: &str, indent: &str, exception_class: &str) {
     if doc.is_empty() {
         return;
     }
@@ -17,7 +19,7 @@ pub fn emit_phpdoc(out: &mut String, doc: &str, indent: &str) {
         || sections.errors.is_some()
         || sections.example.is_some();
     let body = if any_section {
-        render_phpdoc_sections(&sections, "KreuzbergException")
+        render_phpdoc_sections(&sections, exception_class)
     } else {
         doc.to_string()
     };
@@ -44,7 +46,9 @@ fn escape_phpdoc_line(s: &str) -> String {
 /// Translates rustdoc sections (`# Arguments` → `<param>`,
 /// `# Returns` → `<returns>`, `# Errors` → `<exception>`,
 /// `# Example` → `<example><code>`) via [`render_csharp_xml_sections`].
-pub fn emit_csharp_doc(out: &mut String, doc: &str, indent: &str) {
+///
+/// `exception_class` is the C# exception class name to use in `<exception cref="...">` tags.
+pub fn emit_csharp_doc(out: &mut String, doc: &str, indent: &str, exception_class: &str) {
     if doc.is_empty() {
         return;
     }
@@ -67,7 +71,7 @@ pub fn emit_csharp_doc(out: &mut String, doc: &str, indent: &str) {
         out.push_str("/// </summary>\n");
         return;
     }
-    let rendered = render_csharp_xml_sections(&sections, "KreuzbergException");
+    let rendered = render_csharp_xml_sections(&sections, exception_class);
     for line in rendered.lines() {
         out.push_str(indent);
         out.push_str("/// ");
@@ -841,7 +845,7 @@ mod tests {
     #[test]
     fn test_emit_phpdoc() {
         let mut out = String::new();
-        emit_phpdoc(&mut out, "Simple documentation", "    ");
+        emit_phpdoc(&mut out, "Simple documentation", "    ", "TestException");
         assert!(out.contains("/**"));
         assert!(out.contains("Simple documentation"));
         assert!(out.contains("*/"));
@@ -850,14 +854,14 @@ mod tests {
     #[test]
     fn test_phpdoc_escaping() {
         let mut out = String::new();
-        emit_phpdoc(&mut out, "Handle */ sequences", "");
+        emit_phpdoc(&mut out, "Handle */ sequences", "", "TestException");
         assert!(out.contains("Handle * / sequences"));
     }
 
     #[test]
     fn test_emit_csharp_doc() {
         let mut out = String::new();
-        emit_csharp_doc(&mut out, "C# documentation", "    ");
+        emit_csharp_doc(&mut out, "C# documentation", "    ", "TestException");
         assert!(out.contains("<summary>"));
         assert!(out.contains("C# documentation"));
         assert!(out.contains("</summary>"));
@@ -866,7 +870,7 @@ mod tests {
     #[test]
     fn test_csharp_xml_escaping() {
         let mut out = String::new();
-        emit_csharp_doc(&mut out, "foo < bar & baz > qux", "");
+        emit_csharp_doc(&mut out, "foo < bar & baz > qux", "", "TestException");
         assert!(out.contains("foo &lt; bar &amp; baz &gt; qux"));
     }
 
@@ -942,8 +946,8 @@ mod tests {
     #[test]
     fn test_empty_doc_skipped() {
         let mut out = String::new();
-        emit_phpdoc(&mut out, "", "");
-        emit_csharp_doc(&mut out, "", "");
+        emit_phpdoc(&mut out, "", "", "TestException");
+        emit_csharp_doc(&mut out, "", "", "TestException");
         emit_elixir_doc(&mut out, "");
         emit_roxygen(&mut out, "");
         emit_kdoc(&mut out, "", "");

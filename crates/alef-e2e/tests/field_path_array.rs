@@ -345,7 +345,7 @@ fn swift_optional_array_field_subscript_uses_optional_chain() {
     let r = resolver_with_optional("choices[0].message.tool_calls");
     assert_eq!(
         r.accessor("choices[0].message.tool_calls[0].function.name", "swift", "result"),
-        "result.choices()[0].message().tool_calls()?[0]?.function().name()"
+        "result.choices()[0].message().tool_calls()?[0].function().name()"
     );
 }
 

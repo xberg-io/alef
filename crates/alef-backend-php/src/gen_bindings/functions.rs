@@ -7,6 +7,7 @@ use alef_codegen::shared;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{EnumDef, FunctionDef, MethodDef, TypeDef, TypeRef};
+use heck::ToPascalCase;
 use minijinja::context;
 
 use super::helpers::{
@@ -329,7 +330,8 @@ pub(crate) fn gen_instance_method(
     };
 
     let mut out = String::new();
-    doc_emission::emit_phpdoc(&mut out, &method.doc, "    ");
+    let exception_class = format!("{}Exception", core_import.to_pascal_case());
+    doc_emission::emit_phpdoc(&mut out, &method.doc, "    ", &exception_class);
     let trait_allow = if generators::is_trait_method_name(&method.name) {
         "#[allow(clippy::should_implement_trait)]\n"
     } else {
@@ -511,7 +513,7 @@ pub(crate) fn gen_static_method(
     mapper: &PhpMapper,
     opaque_types: &AHashSet<String>,
     typ: &TypeDef,
-    _core_import: &str,
+    core_import: &str,
     mutex_types: &AHashSet<String>,
 ) -> String {
     let empty_bridges = AHashSet::new();
@@ -586,7 +588,8 @@ pub(crate) fn gen_static_method(
     };
 
     let mut out = String::new();
-    doc_emission::emit_phpdoc(&mut out, &method.doc, "    ");
+    let exception_class = format!("{}Exception", core_import.to_pascal_case());
+    doc_emission::emit_phpdoc(&mut out, &method.doc, "    ", &exception_class);
     let trait_allow = if generators::is_trait_method_name(&method.name) {
         "#[allow(clippy::should_implement_trait)]\n"
     } else {
@@ -650,7 +653,8 @@ pub(crate) fn gen_function_as_static_method(
     let return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
 
     let mut out = String::new();
-    doc_emission::emit_phpdoc(&mut out, &func.doc, "    ");
+    let exception_class = format!("{}Exception", core_import.to_pascal_case());
+    doc_emission::emit_phpdoc(&mut out, &func.doc, "    ", &exception_class);
     let ret_sig = return_type_sig(&return_annotation);
     if params.is_empty() {
         out.push_str(&crate::template_env::render(
@@ -857,7 +861,8 @@ pub(crate) fn gen_async_function_as_static_method(
     let return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
 
     let mut out = String::new();
-    doc_emission::emit_phpdoc(&mut out, &func.doc, "    ");
+    let exception_class = format!("{}Exception", core_import.to_pascal_case());
+    doc_emission::emit_phpdoc(&mut out, &func.doc, "    ", &exception_class);
     let ret_sig = return_type_sig(&return_annotation);
     if params.is_empty() {
         out.push_str(&crate::template_env::render(
@@ -959,6 +964,7 @@ pub(crate) fn gen_async_instance_method(
     is_opaque: bool,
     type_name: &str,
     opaque_types: &AHashSet<String>,
+    core_import: &str,
     adapter_bodies: &AdapterBodies,
     _mutex_types: &AHashSet<String>,
 ) -> String {
@@ -1011,7 +1017,8 @@ pub(crate) fn gen_async_instance_method(
     };
 
     let mut out = String::new();
-    doc_emission::emit_phpdoc(&mut out, &method.doc, "    ");
+    let exception_class = format!("{}Exception", core_import.to_pascal_case());
+    doc_emission::emit_phpdoc(&mut out, &method.doc, "    ", &exception_class);
     let ret_sig = return_type_sig(&return_annotation);
     out.push_str("    ");
     if params.is_empty() {

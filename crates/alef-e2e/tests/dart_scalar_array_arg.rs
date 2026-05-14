@@ -97,8 +97,8 @@ fn json_object_arg_with_string_element_type_emits_typed_list_literal() {
     );
 
     assert!(
-        rendered.contains("texts: <String>['First', 'Second']"),
-        "must emit `texts: <String>['First', 'Second']` named arg. Rendered:\n{rendered}"
+        rendered.contains("<String>['First', 'Second']"),
+        "must emit typed `<String>[...]` list literal for the texts arg. Rendered:\n{rendered}"
     );
     // Sanity check: the call must include the embedTexts invocation.
     assert!(

@@ -189,7 +189,13 @@ enum Commands {
         /// Run post-generation formatters on emitted files. Default: true so the
         /// regen output matches each language's canonical formatting and prek
         /// hooks (ruff, mix format, gofmt, etc.) are no-ops on a fresh `alef all`.
-        #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+        #[arg(
+            long,
+            default_value_t = true,
+            default_missing_value = "true",
+            num_args = 0..=1,
+            action = clap::ArgAction::Set,
+        )]
         format: bool,
     },
     /// Initialize a new alef.toml config.

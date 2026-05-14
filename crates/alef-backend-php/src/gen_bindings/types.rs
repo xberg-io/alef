@@ -66,6 +66,7 @@ pub(crate) fn gen_opaque_struct_methods(
                 true,
                 &typ.name,
                 opaque_types,
+                core_import,
                 adapter_bodies,
                 mutex_types,
             ));
@@ -692,6 +693,7 @@ fn gen_struct_methods_impl(
                 false,
                 &typ.name,
                 opaque_types,
+                core_import,
                 &empty_adapter_bodies,
                 &AHashSet::new(),
             ));

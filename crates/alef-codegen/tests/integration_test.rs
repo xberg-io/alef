@@ -5071,8 +5071,8 @@ fn test_wrap_return_with_mutex_vec_string_returns_ref() {
     );
 
     assert_eq!(
-        result, "result.into_iter().map(Into::into).collect()",
-        "Vec String returns_ref should map Into::into"
+        result, "result.iter().map(|s| s.to_string()).collect()",
+        "Vec<String> returns_ref must hop through ToString (&&str doesn't impl From)"
     );
 }
 
