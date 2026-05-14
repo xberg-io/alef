@@ -9,6 +9,7 @@ use alef_core::ir::{MethodDef, TypeDef, TypeRef};
 use super::functions::{emit_rustdoc, format_param_unused, wasm_wrap_return};
 
 /// Generate a method binding for a struct method.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn gen_method(
     method: &MethodDef,
     mapper: &WasmMapper,

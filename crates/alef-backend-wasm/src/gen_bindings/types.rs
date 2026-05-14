@@ -420,6 +420,7 @@ pub(super) fn gen_struct(typ: &TypeDef, mapper: &WasmMapper, exclude_types: &[St
 }
 
 /// Generate wasm-bindgen methods for a struct.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn gen_struct_methods(
     typ: &TypeDef,
     mapper: &WasmMapper,

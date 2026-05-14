@@ -958,6 +958,7 @@ fn gen_async_function_body(
 }
 
 /// Generate an async instance method binding for PHP (block on runtime).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn gen_async_instance_method(
     method: &MethodDef,
     mapper: &PhpMapper,
