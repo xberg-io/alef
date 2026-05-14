@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.69] - 2026-05-14
+
+### Reverted
+
+- **alef-scaffold (swift.rs)**: roll back the `Sources/{module}/{module}.swift`
+  stub introduced in 0.15.68 — it overwrote the alef-backend-swift authoritative
+  output for the same path (the 500-line typealias module), breaking the public
+  Swift API surface in downstream regens. The original SwiftPM "product not found"
+  needs a different fix (likely in the codegen path, not the scaffold).
+
 ## [0.15.68] - 2026-05-14
 
 ### Fixed
@@ -16,7 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   default is 5 s).
 - **alef-scaffold (swift.rs)**: write `Sources/{module}/{module}.swift` stub so SwiftPM
   can register the `.library` product; without a source file in the target directory
-  `swift test` fails with "product not found in package".
+  `swift test` fails with "product not found in package". (Reverted in 0.15.69.)
 
 ## [0.15.67] - 2026-05-14
 

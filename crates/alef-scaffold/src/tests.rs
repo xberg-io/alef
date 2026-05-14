@@ -1219,12 +1219,11 @@ fn test_scaffold_swift() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Swift]).unwrap();
     let files = language_files(&all_files);
-    // Original 7 + .editorconfig + .swiftformat + README.md + Examples/Demo/main.swift + swift.yml
-    // + Sources/{module}/{module}.swift stub = 13
+    // Original 7 + .editorconfig + .swiftformat + README.md + Examples/Demo/main.swift + swift.yml = 12
     assert_eq!(
         files.len(),
-        13,
-        "Expected 13 files for Swift scaffold (original 7 + 5 new + 1 module stub)"
+        12,
+        "Expected 12 files for Swift scaffold (original 7 + 5 new)"
     );
 
     let package_swift = &files[0];
@@ -1373,19 +1372,6 @@ fn test_scaffold_swift() {
             >= 2,
         "BUILDING.md must use echo+cat in both debug and release copy sections; got:\n{}",
         building.content
-    );
-    // Sources/{module}/{module}.swift stub — required so SwiftPM registers the product
-    let module_stub = files
-        .iter()
-        .find(|f| f.path == Path::new("packages/swift/Sources/MyLib/MyLib.swift"));
-    assert!(
-        module_stub.is_some(),
-        "Sources/MyLib/MyLib.swift stub must be generated so SwiftPM can register the product"
-    );
-    assert!(
-        module_stub.unwrap().content.contains("@_exported import RustBridge"),
-        "module stub must re-export RustBridge; got: {}",
-        module_stub.unwrap().content
     );
 }
 
