@@ -207,7 +207,7 @@ fn gen_enum_stub(enum_def: &EnumDef) -> String {
             .iter()
             .map(|v| format!(":{}", to_snake_case(&v.name)))
             .collect();
-        lines.push(format!("    type instance = {}", symbol_variants.join(" | ")));
+        lines.push(format!("    type value = {}", symbol_variants.join(" | ")));
     }
 
     lines.push("  end".to_string());

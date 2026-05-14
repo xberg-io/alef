@@ -229,7 +229,7 @@ fn test_basic_rbs_stubs() {
     // Check for enum stub — unit-variant enums emit a symbol literal union
     assert!(content.contains("class Backend"), "Should contain Backend enum class");
     assert!(
-        content.contains("type instance = :tesseract | :paddle_ocr"),
+        content.contains("type value = :tesseract | :paddle_ocr"),
         "Should have symbol union for Backend variants"
     );
 
@@ -410,7 +410,7 @@ fn test_enum_stubs() {
 
     // Unit-variant enums emit a symbol literal union in order
     assert!(
-        content.contains("type instance = :pending | :processing | :complete | :failed"),
+        content.contains("type value = :pending | :processing | :complete | :failed"),
         "Should have symbol union for Status variants in order"
     );
 }

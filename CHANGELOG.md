@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.63] - 2026-05-14
+
+### Fixed
+
+- **alef-backend-magnus**: rename generated RBS type alias from
+  `instance` to `value` in unit-variant enum stubs. `instance` is a
+  reserved keyword in RBS (it refers to the "instance of self" type),
+  so `rbs >= 4.0` rejected the generated `sig/types.rbs` with a hard
+  parse error that aborted the entire RBS environment load. Downstream
+  projects running `steep check` or `rbs validate` saw every unrelated
+  RBS — `ActiveRecord::Base::ClassMethods`, `ActiveSupport::Concern`,
+  `SimpleDelegator`, etc. — become "Cannot find type". Reported in
+  kreuzberg-dev/html-to-markdown#360.
+
 ## [0.15.62] - 2026-05-14
 
 ### Added
