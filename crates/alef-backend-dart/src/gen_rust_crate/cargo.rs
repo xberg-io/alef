@@ -154,9 +154,7 @@ pub(crate) fn emit_cargo_toml(
         .unwrap_or(&[]);
     let (core_dep_line, target_override_blocks) = if target_overrides.is_empty() {
         (
-            format!(
-                "{core_dep_key} = {{ path = \"{core_path}\"{package_rename_block}{features_block} }}\n"
-            ),
+            format!("{core_dep_key} = {{ path = \"{core_path}\"{package_rename_block}{features_block} }}\n"),
             String::new(),
         )
     } else {
@@ -215,7 +213,8 @@ crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
 {core_dep_line}flutter_rust_bridge = "{frb_version}"
-{extra_deps}{target_override_blocks}[lints.rust]
+{extra_deps}
+{target_override_blocks}[lints.rust]
 # flutter_rust_bridge uses #[cfg(frb_expand)] internally during macro expansion.
 # Declare it as a known cfg so rustc does not emit unexpected_cfgs warnings.
 unexpected_cfgs = {{ level = "warn", check-cfg = ['cfg(frb_expand)'] }}"#
