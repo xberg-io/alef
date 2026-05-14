@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-e2e (rust)**: omit `use {crate}::CrawlConfig;` (and other handle-arg
+  helper imports) from generated `tests/<category>_test.rs` files when the
+  rendered body never references the symbol. Test bodies are now buffered and
+  scanned for word-boundary references before optional `use` statements are
+  emitted, eliminating `unused_imports` errors under `-D warnings` for handle
+  fixtures whose `input.config` is null/empty.
 - **alef-backend-kotlin-android**: emit Android build-metadata files
   (`build.gradle.kts`, `settings.gradle.kts`, `consumer-rules.pro`,
   `proguard-rules.pro`, `.gitignore`, `src/main/AndroidManifest.xml`,
