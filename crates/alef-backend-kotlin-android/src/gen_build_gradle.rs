@@ -8,18 +8,20 @@ use crate::naming::{aar_artifact_id, aar_group_id, compile_sdk, jvm_target, min_
 
 /// Emit `build.gradle.kts` for the generated AAR module.
 ///
-/// Android Gradle Plugin 9.0+ ships with built-in Kotlin support, so we
-/// intentionally do NOT apply `kotlin("android")` here (AGP rejects the
-/// double-application with "The 'org.jetbrains.kotlin.android' plugin is
-/// no longer required for Kotlin support since AGP 9.0"). The kotlin
-/// plugin version constant is still pulled in for future use (e.g. when
-/// callers need to override `kotlinOptions`); marked unused otherwise.
+/// Note on plugin compatibility: AGP 8.x requires an explicit
+/// `kotlin("android")` plugin application, while AGP 9.0+ ships with
+/// built-in Kotlin support and rejects re-application of
+/// `org.jetbrains.kotlin.android`. The emitted file targets AGP 8.x
+/// (the currently-pinned template version); if the AGP pin is moved
+/// to 9.0+, this emitter must drop the `kotlin("android")` line.
 pub fn emit(config: &ResolvedCrateConfig) -> String {
-    let _kotlin_version = maven::KOTLIN_JVM_PLUGIN;
+    let kotlin_version = maven::KOTLIN_JVM_PLUGIN;
     let android_gradle_plugin = maven::ANDROID_GRADLE_PLUGIN;
     let junit_legacy = maven::JUNIT_LEGACY;
     let androidx_junit = maven::ANDROIDX_TEST_EXT_JUNIT;
     let espresso_core = maven::ANDROIDX_TEST_ESPRESSO_CORE;
+    let ktlint_gradle_plugin = maven::KTLINT_GRADLE_PLUGIN;
+    let ktlint_version = maven::KTLINT;
     let _kotlinx_coroutines = maven::KOTLINX_COROUTINES_CORE;
     let _ = toolchain::ANDROID_JVM_TARGET;
 
@@ -36,7 +38,9 @@ pub fn emit(config: &ResolvedCrateConfig) -> String {
 
 plugins {{
     id("com.android.library") version "{android_gradle_plugin}"
+    kotlin("android") version "{kotlin_version}"
     id("maven-publish")
+    id("org.jlleitschuh.gradle.ktlint") version "{ktlint_gradle_plugin}"
 }}
 
 android {{
@@ -53,16 +57,24 @@ android {{
         targetCompatibility = JavaVersion.VERSION_{android_jvm_target}
     }}
 
-    kotlinOptions {{
-        jvmTarget = "{android_jvm_target}"
-    }}
-
     sourceSets {{
         getByName("main") {{
             java.srcDirs("src/main/java")
             jniLibs.srcDirs("src/main/jniLibs")
         }}
     }}
+
+    publishing {{
+        singleVariant("release") {{
+            withSourcesJar()
+        }}
+    }}
+}}
+
+ktlint {{
+    version.set("{ktlint_version}")
+    android.set(true)
+    ignoreFailures.set(false)
 }}
 
 dependencies {{

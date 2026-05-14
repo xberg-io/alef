@@ -193,3 +193,84 @@ fn snapshot_basic() {
         );
     }
 }
+
+/// Regression: when `[crates.output].kotlin_android` points at the Kotlin
+/// source destination (`src/main/kotlin/<pkg>/`), build metadata files
+/// (build.gradle.kts, settings.gradle.kts, AndroidManifest.xml,
+/// consumer/proguard rules, .gitignore, jniLibs/, src/main/java/) MUST
+/// be emitted at the derived project root — not nested inside the
+/// source destination.
+#[test]
+fn build_metadata_goes_to_project_root_when_output_points_at_kotlin_source() {
+    let api = make_basic_api();
+    let config = resolved_one(
+        r#"
+[workspace]
+languages = ["kotlin_android", "java", "ffi"]
+
+[[crates]]
+name = "demo"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "demo"
+
+[crates.java]
+package = "dev.kreuzberg"
+
+[crates.kotlin_android]
+package = "dev.kreuzberg.demo.android"
+namespace = "dev.kreuzberg.demo.android"
+artifact_id = "demo-android"
+group_id = "dev.kreuzberg"
+
+[crates.output]
+kotlin_android = "packages/kotlin-android/src/main/kotlin/dev/kreuzberg/demo/android/"
+"#,
+    );
+
+    let files = KotlinAndroidBackend.generate_bindings(&api, &config).unwrap();
+    let paths: Vec<String> = files.iter().map(|f| f.path.display().to_string()).collect();
+
+    let expect_at = |needle: &str| {
+        assert!(
+            paths.iter().any(|p| p == needle),
+            "expected an emitted file at {needle:?}; got:\n{paths:#?}"
+        );
+    };
+    let expect_none_at_prefix = |bad_prefix: &str, file_suffix: &str| {
+        let nested = format!("{bad_prefix}/{file_suffix}");
+        assert!(
+            !paths.iter().any(|p| p == &nested),
+            "did not expect {nested:?} (build metadata nested inside Kotlin source dir);\
+             \nall paths:\n{paths:#?}"
+        );
+    };
+
+    // Project root: packages/kotlin-android
+    expect_at("packages/kotlin-android/build.gradle.kts");
+    expect_at("packages/kotlin-android/settings.gradle.kts");
+    expect_at("packages/kotlin-android/consumer-rules.pro");
+    expect_at("packages/kotlin-android/proguard-rules.pro");
+    expect_at("packages/kotlin-android/.gitignore");
+    expect_at("packages/kotlin-android/src/main/AndroidManifest.xml");
+    expect_at("packages/kotlin-android/src/main/jniLibs/arm64-v8a/.gitkeep");
+    expect_at("packages/kotlin-android/src/main/jniLibs/x86_64/.gitkeep");
+
+    // Java facade re-rooted under project root
+    expect_at("packages/kotlin-android/src/main/java/dev/kreuzberg/DemoRs.java");
+    expect_at("packages/kotlin-android/src/main/java/dev/kreuzberg/NativeLib.java");
+
+    // Kotlin source at the configured path (no extra src/main/kotlin/<pkg>/ nesting)
+    expect_at("packages/kotlin-android/src/main/kotlin/dev/kreuzberg/demo/android/Demo.kt");
+
+    // Negative assertions: nothing should be emitted under the source
+    // destination as if it were the project root.
+    let kotlin_src = "packages/kotlin-android/src/main/kotlin/dev/kreuzberg/demo/android";
+    expect_none_at_prefix(kotlin_src, "build.gradle.kts");
+    expect_none_at_prefix(kotlin_src, "settings.gradle.kts");
+    expect_none_at_prefix(kotlin_src, ".gitignore");
+    expect_none_at_prefix(kotlin_src, "consumer-rules.pro");
+    expect_none_at_prefix(kotlin_src, "proguard-rules.pro");
+    expect_none_at_prefix(kotlin_src, "src/main/AndroidManifest.xml");
+}

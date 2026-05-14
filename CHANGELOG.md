@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-backend-kotlin-android**: emit Android build-metadata files
+  (`build.gradle.kts`, `settings.gradle.kts`, `consumer-rules.pro`,
+  `proguard-rules.pro`, `.gitignore`, `src/main/AndroidManifest.xml`,
+  `src/main/jniLibs/<abi>/.gitkeep`, `src/main/java/<java-pkg>/*.java`)
+  at the AAR **project root**, not nested inside the Kotlin source
+  destination. `[crates.output].kotlin_android` semantically names the
+  Kotlin source destination (`src/main/kotlin/<dotted_package>/`); the
+  project root is now derived by stripping that suffix. Kotlin source
+  (`<Module>.kt`, `DefaultClient.kt`) is emitted directly at the
+  configured path with no extra `src/main/kotlin/<pkg>/` nesting.
+  Workspaces that pointed `kotlin_android` at the project root continue
+  to work — the legacy semantics are preserved when the configured path
+  does not end with the Gradle Android source-set suffix.
+
 ## [0.16.0] - 2026-05-14
 
 ### Added

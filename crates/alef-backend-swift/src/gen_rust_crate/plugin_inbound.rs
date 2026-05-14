@@ -282,7 +282,15 @@ pub(crate) fn emit_inbound_wrapper(
         },
     ));
     for method in &trait_def.methods {
-        emit_inbound_method_impl(&mut out, method, &trait_snake, source_crate, type_paths, error_type, emit_plugin);
+        emit_inbound_method_impl(
+            &mut out,
+            method,
+            &trait_snake,
+            source_crate,
+            type_paths,
+            error_type,
+            emit_plugin,
+        );
     }
     out.push_str("}\n\n");
 

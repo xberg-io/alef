@@ -43,15 +43,10 @@ pub(crate) fn emit_trait_bridge(
     // Filter to own methods that the foreign object must provide.
     // - `trait_source.is_none()` excludes methods inherited from super-traits (handled
     //   separately: `Plugin` via the dedicated impl below, other super-traits via stubs).
-    // - `!has_default_impl` excludes methods that have a Rust default impl. Letting the
-    //   trait's own default fire is correct for any method we'd otherwise misemit
-    //   (e.g. `Option<&dyn SyncExtractor>` cannot round-trip through `DartFnFuture`).
-    //   Mirrors the required-only subset NAPI/PyO3 use via `TraitBridgeSpec::required_methods`.
-    let own_methods: Vec<&MethodDef> = trait_def
-        .methods
-        .iter()
-        .filter(|m| m.trait_source.is_none() && !m.has_default_impl)
-        .collect();
+    // - Methods with `has_default_impl = true` are intentionally included: the bridge exists
+    //   precisely to dispatch to Dart-side implementations. Relying on the Rust default impl
+    //   would silently no-op every visitor/plugin callback (D8 fix).
+    let own_methods: Vec<&MethodDef> = trait_def.methods.iter().filter(|m| m.trait_source.is_none()).collect();
 
     // Check if Plugin is a direct super-trait.
     let has_plugin_super = trait_def
@@ -90,6 +85,12 @@ pub(crate) fn emit_trait_bridge(
     out.push_str(&crate::template_env::render(
         "rust_mirror_struct_close.jinja",
         minijinja::context! {},
+    ));
+    // D4: emit a manual Debug impl so the struct satisfies `Debug` supertrait bounds
+    // (e.g. `pub trait HtmlVisitor: Debug + Send`). Closure fields are not Debug;
+    // we use `finish_non_exhaustive()` to produce a valid but opaque representation.
+    out.push_str(&format!(
+        "impl ::std::fmt::Debug for {struct_name} {{\n    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {{\n        f.debug_struct(\"{struct_name}\").finish_non_exhaustive()\n    }}\n}}\n"
     ));
     out.push('\n');
 

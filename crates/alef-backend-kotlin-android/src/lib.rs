@@ -153,66 +153,77 @@ impl ProjectLayout {
         let pkg_path = package_path(config);
         match config.output_for("kotlin_android") {
             Some(configured) => Self::from_configured(configured, &pkg_path),
-            None => Self::default_for(&pkg_path),
+            None => Self::rooted_at(&PathBuf::from(DEFAULT_AAR_ROOT), &pkg_path),
         }
     }
 
+    /// Interpret a configured `[crates.output].kotlin_android` path.
+    ///
+    /// When the path ends with the Gradle Android source-set suffix
+    /// `src/main/kotlin/<dotted_package_as_path>/`, the configured path
+    /// is the Kotlin source destination and the project root is the
+    /// prefix before that suffix.
+    ///
+    /// Otherwise, fall back to treating the configured path as the
+    /// project root (legacy semantics — preserves behaviour for
+    /// workspaces and the workspace template default that point
+    /// `kotlin_android` at the project root directly).
     fn from_configured(configured: &Path, pkg_path: &str) -> Self {
-        let kotlin_source_dir = configured.to_path_buf();
-        let package_root = derive_package_root(configured, pkg_path);
-        Self {
-            package_root,
-            kotlin_source_dir,
+        if let Some(package_root) = strip_kotlin_source_suffix(configured, pkg_path) {
+            Self {
+                package_root,
+                kotlin_source_dir: configured.to_path_buf(),
+            }
+        } else {
+            Self::rooted_at(configured, pkg_path)
         }
     }
 
-    fn default_for(pkg_path: &str) -> Self {
-        let package_root = PathBuf::from(DEFAULT_AAR_ROOT);
-        let kotlin_source_dir = package_root.join(KOTLIN_SOURCE_INFIX).join(pkg_path);
+    /// Compose a layout rooted at `package_root` with the Kotlin source
+    /// destination derived from the Gradle Android source-set layout.
+    fn rooted_at(package_root: &Path, pkg_path: &str) -> Self {
         Self {
-            package_root,
-            kotlin_source_dir,
+            package_root: package_root.to_path_buf(),
+            kotlin_source_dir: package_root.join(KOTLIN_SOURCE_INFIX).join(pkg_path),
         }
     }
 }
 
 /// Walk `configured` backwards to strip the `src/main/kotlin/<pkg_path>`
-/// suffix. Falls back to treating the configured path as the project root
-/// when the suffix cannot be matched — preserving the legacy semantics for
-/// workspaces that point `kotlin_android` at the project root directly.
-fn derive_package_root(configured: &Path, pkg_path: &str) -> PathBuf {
+/// suffix. Returns the project-root prefix on a match, or `None` when the
+/// suffix is absent.
+fn strip_kotlin_source_suffix(configured: &Path, pkg_path: &str) -> Option<PathBuf> {
     let pkg_segment = PathBuf::from(pkg_path);
     let pkg_components: Vec<_> = pkg_segment.components().collect();
     let kotlin_components: Vec<_> = Path::new(KOTLIN_SOURCE_INFIX).components().collect();
     let configured_components: Vec<_> = configured.components().collect();
 
     let suffix_len = kotlin_components.len() + pkg_components.len();
-    if configured_components.len() >= suffix_len {
-        let tail_start = configured_components.len() - suffix_len;
-        let tail = &configured_components[tail_start..];
-        let kotlin_matches = tail[..kotlin_components.len()]
-            .iter()
-            .zip(kotlin_components.iter())
-            .all(|(a, b)| a == b);
-        let pkg_matches = tail[kotlin_components.len()..]
-            .iter()
-            .zip(pkg_components.iter())
-            .all(|(a, b)| a == b);
-        if kotlin_matches && pkg_matches {
-            let head = &configured_components[..tail_start];
-            if head.is_empty() {
-                return PathBuf::from(".");
-            }
-            let mut root = PathBuf::new();
-            for comp in head {
-                root.push(comp);
-            }
-            return root;
-        }
+    if configured_components.len() < suffix_len {
+        return None;
     }
-
-    // Suffix did not match — treat configured path as the project root.
-    configured.to_path_buf()
+    let tail_start = configured_components.len() - suffix_len;
+    let tail = &configured_components[tail_start..];
+    let kotlin_matches = tail[..kotlin_components.len()]
+        .iter()
+        .zip(kotlin_components.iter())
+        .all(|(a, b)| a == b);
+    let pkg_matches = tail[kotlin_components.len()..]
+        .iter()
+        .zip(pkg_components.iter())
+        .all(|(a, b)| a == b);
+    if !(kotlin_matches && pkg_matches) {
+        return None;
+    }
+    let head = &configured_components[..tail_start];
+    if head.is_empty() {
+        return Some(PathBuf::from("."));
+    }
+    let mut root = PathBuf::new();
+    for comp in head {
+        root.push(comp);
+    }
+    Some(root)
 }
 
 #[cfg(test)]
@@ -220,16 +231,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn derive_package_root_strips_kotlin_source_suffix() {
+    fn strip_kotlin_source_suffix_extracts_project_root() {
         let configured = Path::new("packages/kotlin-android/src/main/kotlin/dev/kreuzberg/kreuzcrawl/android");
-        let root = derive_package_root(configured, "dev/kreuzberg/kreuzcrawl/android");
-        assert_eq!(root, PathBuf::from("packages/kotlin-android"));
+        let root = strip_kotlin_source_suffix(configured, "dev/kreuzberg/kreuzcrawl/android");
+        assert_eq!(root, Some(PathBuf::from("packages/kotlin-android")));
     }
 
     #[test]
-    fn derive_package_root_falls_back_when_suffix_missing() {
+    fn strip_kotlin_source_suffix_returns_none_when_suffix_missing() {
         let configured = Path::new("packages/kotlin-android");
-        let root = derive_package_root(configured, "dev/kreuzberg");
-        assert_eq!(root, PathBuf::from("packages/kotlin-android"));
+        assert_eq!(strip_kotlin_source_suffix(configured, "dev/kreuzberg"), None);
+    }
+
+    #[test]
+    fn from_configured_derives_package_root_when_path_targets_kotlin_source() {
+        let configured = Path::new("packages/kotlin-android/src/main/kotlin/dev/kreuzberg/kreuzcrawl/android");
+        let layout = ProjectLayout::from_configured(configured, "dev/kreuzberg/kreuzcrawl/android");
+        assert_eq!(layout.package_root, PathBuf::from("packages/kotlin-android"));
+        assert_eq!(layout.kotlin_source_dir, PathBuf::from(configured));
+    }
+
+    #[test]
+    fn from_configured_falls_back_to_legacy_when_path_is_project_root() {
+        let configured = Path::new("packages/kotlin-android");
+        let layout = ProjectLayout::from_configured(configured, "dev/kreuzberg");
+        assert_eq!(layout.package_root, PathBuf::from("packages/kotlin-android"));
+        assert_eq!(
+            layout.kotlin_source_dir,
+            PathBuf::from("packages/kotlin-android/src/main/kotlin/dev/kreuzberg")
+        );
     }
 }

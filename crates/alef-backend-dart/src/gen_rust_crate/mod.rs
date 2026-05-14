@@ -231,6 +231,16 @@ fn emit_lib_rs(
         .map(|t| t.name.clone())
         .collect();
 
+    // Collect opaque type names (is_opaque = true, not traits) — these use a wrapper struct
+    // in the generated bridge crate and must be accessed via .inner, not transmuted.
+    // Computed here (before emit_opaque_impl_block) so the impl bodies can use it for D3.
+    let opaque_type_names: HashSet<String> = api
+        .types
+        .iter()
+        .filter(|t| t.is_opaque && !t.is_trait && !exclude_types.contains(&t.name))
+        .map(|t| t.name.clone())
+        .collect();
+
     // Emit impl blocks for opaque types that expose methods.
     // FRB generates Dart-side methods on opaque handles only when the bridge crate
     // contains `impl TypeName { #[frb] pub fn method(...) }` blocks. Without these
@@ -248,6 +258,7 @@ fn emit_lib_rs(
             source_crate_name,
             stub_methods,
             &types_needing_from_conversion,
+            &opaque_type_names,
             &streaming_adapters,
             config,
             &type_paths_for_impls,
@@ -327,15 +338,7 @@ fn emit_lib_rs(
     }
 
     let type_paths = build_type_path_lookup_for_source(api, source_crate_name);
-
-    // Collect opaque type names (is_opaque = true, not traits) — these use a wrapper struct
-    // in the generated bridge crate and must be accessed via .inner, not transmuted.
-    let opaque_type_names: HashSet<String> = api
-        .types
-        .iter()
-        .filter(|t| t.is_opaque && !t.is_trait && !exclude_types.contains(&t.name))
-        .map(|t| t.name.clone())
-        .collect();
+    // opaque_type_names already computed above (before emit_opaque_impl_block).
 
     for f in api
         .functions
@@ -1511,6 +1514,7 @@ fn emit_opaque_impl_block(
     source_crate_name: &str,
     stub_methods: &[String],
     types_needing_from_conversion: &HashSet<String>,
+    opaque_type_names: &HashSet<String>,
     streaming_adapters: &std::collections::HashMap<String, &AdapterConfig>,
     config: &ResolvedCrateConfig,
     type_paths: &std::collections::HashMap<String, String>,
@@ -1615,6 +1619,7 @@ fn emit_opaque_impl_block(
             source_crate_name,
             stub_methods,
             types_needing_from_conversion,
+            opaque_type_names,
         );
     }
 
@@ -1675,11 +1680,13 @@ fn emit_opaque_method(
 
     let method_name = &method.name;
 
-    // Receiver: FRB opaque types require `&self` (interior-mutability via RustAutoOpaque).
-    // `&mut self` and owned receivers are also supported by FRB but we use `&self`
-    // as it matches the supported trait surface.
+    // Receiver: FRB opaque types support `&self`, `&mut self`, and owned `self`.
+    // D7: when the inner method takes owned `self` (e.g. builder `build(self)`),
+    // emit owned `self` here so Rust can move out of `self.inner` rather than trying
+    // to move out of a shared reference (`error[E0507]`).
     let self_param = match &method.receiver {
         Some(ReceiverKind::RefMut) => "&mut self",
+        Some(ReceiverKind::Owned) => "self",
         _ => "&self",
     };
 
@@ -1719,7 +1726,13 @@ fn emit_opaque_method(
             "        ::std::unimplemented!(\"method `{method_name}` is listed in dart.stub_methods\")\n"
         ));
     } else {
-        emit_opaque_method_body(out, method, source_crate_name, types_needing_from_conversion);
+        emit_opaque_method_body(
+            out,
+            method,
+            source_crate_name,
+            types_needing_from_conversion,
+            opaque_type_names,
+        );
     }
 
     out.push_str("    }\n");
@@ -1734,6 +1747,7 @@ fn emit_opaque_method_body(
     method: &MethodDef,
     source_crate_name: &str,
     types_needing_from_conversion: &HashSet<String>,
+    opaque_type_names: &HashSet<String>,
 ) {
     use conversions::frb_rust_type_inner;
 
@@ -1747,6 +1761,8 @@ fn emit_opaque_method_body(
     // substituted for Option<CancellationToken>) causing size mismatches — use From
     // conversion for those. Transmute is zero-cost unlike From, so we prefer it for
     // types with identical layouts.
+    // D3: opaque wrapper types use `.inner` access — transmute across crate boundaries
+    // for opaque types is unsound (the inner type may not be pub in the source crate).
     let call_args: Vec<String> = method
         .params
         .iter()
@@ -1754,6 +1770,13 @@ fn emit_opaque_method_body(
             let param_name = &p.name;
             match &p.ty {
                 TypeRef::Named(mirror_name) => {
+                    // D3: opaque wrapper types (e.g. VisitorHandle) expose .inner directly.
+                    if opaque_type_names.contains(mirror_name.as_str()) {
+                        if p.optional {
+                            return format!("{param_name}.map(|h| h.inner)");
+                        }
+                        return format!("{param_name}.inner");
+                    }
                     let core_ty = format!("{source_crate_name}::{mirror_name}");
                     if types_needing_from_conversion.contains(mirror_name.as_str()) {
                         // Layout differs — use the generated From<MirrorT> for CoreT impl.
