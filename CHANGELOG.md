@@ -7,8 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.59] - 2026-05-14
+
 ### Fixed
 
+- **alef-e2e/swift**: generate Swift e2e tests into `<output>/swift/Tests/KreuzbergE2ETests/`
+  (mirroring every other language) instead of `packages/swift/Tests/`. The previous
+  layout claimed SwiftPM 6.0 forbade inter-package `.package(path:)` references —
+  not actually true; the real constraint was implicit package identity. The generated
+  `e2e/swift/Package.swift` now declares an explicit
+  `.package(name: "Kreuzberg", path: "../../packages/swift")` so SwiftPM resolves the
+  binding library correctly. Downstream `alef.toml` `[crates.test.swift]` blocks can
+  now point `e2e` at `cd e2e/swift && swift test`.
 - **alef-e2e/c**: only emit the mock-server orchestration block in the generated
   `Makefile` when at least one fixture actually `needs_mock_server()`. Previously
   every C e2e suite hard-required `../rust/target/release/mock-server` regardless
