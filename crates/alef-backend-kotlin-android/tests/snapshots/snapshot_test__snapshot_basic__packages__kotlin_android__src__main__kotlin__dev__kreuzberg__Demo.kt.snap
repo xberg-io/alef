@@ -8,31 +8,6 @@ package dev.kreuzberg
 
 import dev.kreuzberg.Demo as Bridge
 
-/**
- * A demo configuration struct.
- */
-data class Config(
-    val value: Int,
-    val label: String,
-    val tag: String??
-)
-
-/**
- * Processing status.
- */
-enum class Status {
-    ACTIVE,
-    INACTIVE;
-}
-
-/**
- * Errors emitted by demo operations.
- */
-sealed class DemoError(message: String) : Exception(message) {
-    object InvalidInput : DemoError("invalid input provided")
-    object ProcessingFailed : DemoError("processing failed")
-}
-
 object Demo {
     init { System.loadLibrary("demo_ffi") }
 

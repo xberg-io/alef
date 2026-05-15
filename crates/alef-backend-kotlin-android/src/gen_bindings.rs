@@ -9,13 +9,20 @@
 //! 2. A top-of-object `init { System.loadLibrary(...) }` block loads the
 //!    bundled native cdylib so consumers do not need to call
 //!    `System.loadLibrary` themselves.
+//!
+//! Kotlin-side type declarations (data classes, enums, sealed errors) are
+//! intentionally NOT re-emitted. The bundled Java facade at
+//! `src/main/java/<java_pkg>/*.java` already declares every value type as a
+//! Java record, every enum as a Java enum, and every error as a Java
+//! checked exception. Kotlin and Java share the same FQN package layout in
+//! the AAR — re-emitting Kotlin twins would trigger duplicate-declaration
+//! errors at `compileKotlin` time. Kotlin code references those Java types
+//! directly thanks to Kotlin/Java interop.
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use alef_backend_kotlin::{
-    emit_enum_pub, emit_error_type_pub, emit_function_jvm, emit_jvm_client_class, emit_type_pub, to_pascal_case,
-};
+use alef_backend_kotlin::{emit_function_jvm, emit_jvm_client_class_with_package, to_pascal_case};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::ResolvedCrateConfig;
 use alef_core::ir::ApiSurface;
@@ -39,29 +46,9 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, kotlin_source_dir: &
         .as_ref()
         .map(|c| c.exclude_functions.iter().map(String::as_str).collect())
         .unwrap_or_default();
-    let exclude_types: std::collections::HashSet<&str> = config
-        .kotlin_android
-        .as_ref()
-        .map(|c| c.exclude_types.iter().map(String::as_str).collect())
-        .unwrap_or_default();
 
     let mut imports: BTreeSet<String> = BTreeSet::new();
     let mut body = String::new();
-
-    for ty in api.types.iter().filter(|t| !exclude_types.contains(t.name.as_str())) {
-        emit_type_pub(ty, &mut body, &mut imports);
-        body.push('\n');
-    }
-
-    for en in api.enums.iter().filter(|e| !exclude_types.contains(e.name.as_str())) {
-        emit_enum_pub(en, &mut body);
-        body.push('\n');
-    }
-
-    for error in &api.errors {
-        emit_error_type_pub(error, &mut body, &mut imports);
-        body.push('\n');
-    }
 
     let visible_functions: Vec<_> = api
         .functions
@@ -104,7 +91,13 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, kotlin_source_dir: &
         generated_header: false,
     }];
 
-    if let Some(client_file) = emit_jvm_client_class(api, config) {
+    // Emit the coroutine-friendly DefaultClient.kt with the kotlin_android
+    // package override so it lands at `<kotlin_source_dir>/DefaultClient.kt`
+    // with `package <kotlin_android.package>` instead of falling back to the
+    // generic `config.kotlin_package()` accessor (which derives a
+    // `com.github.<org>` placeholder when no `[crates.kotlin] package` is
+    // configured).
+    if let Some(client_file) = emit_jvm_client_class_with_package(api, config, Some(&package)) {
         let android_client_path = kotlin_source_dir.join("DefaultClient.kt");
         files.push(GeneratedFile {
             path: android_client_path,
