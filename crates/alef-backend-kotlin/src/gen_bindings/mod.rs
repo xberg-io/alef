@@ -68,6 +68,20 @@ pub fn emit_function_jvm(f: &FunctionDef, out: &mut String, imports: &mut BTreeS
 /// `Iterator<ItemType>` — iteration is lazy and blocking, so the caller
 /// controls the thread context.
 pub fn emit_jvm_client_class(api: &ApiSurface, config: &ResolvedCrateConfig) -> Option<GeneratedFile> {
+    emit_jvm_client_class_with_package(api, config, None)
+}
+
+/// Variant of [`emit_jvm_client_class`] that lets callers override the
+/// emitted Kotlin package. The kotlin/android backend uses this to thread
+/// `[crates.kotlin_android] package` through instead of falling back to the
+/// generic `[crates.kotlin] package` accessor (which would derive a
+/// `com.github.<org>` fallback from the GitHub URL when the JVM-only Kotlin
+/// crate config is absent).
+pub fn emit_jvm_client_class_with_package(
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+    kotlin_package_override: Option<&str>,
+) -> Option<GeneratedFile> {
     // A type qualifies for a coroutine-friendly wrapper class only when:
     //   * it is opaque-handle (constructed via a factory and freed via close),
     //   * AND it is not a trait (trait types are not emitted as concrete
@@ -83,7 +97,9 @@ pub fn emit_jvm_client_class(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
     }
 
     let java_package = config.java_package();
-    let configured_kotlin_package = config.kotlin_package();
+    let configured_kotlin_package = kotlin_package_override
+        .map(str::to_string)
+        .unwrap_or_else(|| config.kotlin_package());
     let package = if configured_kotlin_package == java_package {
         format!("{configured_kotlin_package}.kt")
     } else {

@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-backend-kotlin-android**: stop re-declaring enum types in the
+  Kotlin wrapper (`Kreuzberg.kt`) when the bundled Java facade already
+  declares them. Previously every enum surfaced from the Rust IR was
+  emitted as both a Java `enum` (in `src/main/java/`) and a Kotlin
+  `enum class` (in `src/main/kotlin/Kreuzberg.kt`) at the same FQN,
+  triggering 268+ `Redeclaration` errors when both source sets were
+  compiled together. Kotlin/Java interop is seamless — the Java enum is
+  canonical and the Kotlin wrapper now references it directly.
+- **alef-e2e (kotlin_android)**: resolve the test package from the
+  `[crates.kotlin_android] package` config (the AAR's actual JVM
+  package) rather than the generic `config.kotlin_package()` accessor,
+  which falls back to a `com.github.<org>` derivation from the GitHub
+  URL when only `[crates.kotlin_android]` is configured. The mismatch
+  generated tests at `com.github.<org>.e2e` while the AAR shipped types
+  at `dev.kreuzberg` (or whatever package the user configured),
+  producing ~150 `Unresolved reference 'Kreuzberg'` /
+  `'ExtractionConfig'` errors. Precedence:
+  `[crates.e2e.packages.kotlin_android].module` (explicit override) >
+  `[crates.kotlin_android].package` > derived fallback.
+- **alef-backend-kotlin**: extract a
+  `emit_jvm_client_class_with_package` variant of
+  `emit_jvm_client_class` so the kotlin_android backend can thread the
+  AAR's own `[crates.kotlin_android] package` through the client-class
+  emitter. The existing `emit_jvm_client_class` keeps the JVM-Kotlin
+  semantics and is preserved as a thin wrapper.
 - **alef-e2e (dart)**: `equals` / `field_equals` / `not_equals` assertions
   on String-valued expected values now trim both actual and expected,
   matching the rust e2e codegen pattern. h2m's `convert()` emits a

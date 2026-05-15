@@ -75,7 +75,23 @@ impl E2eCodegen for KotlinAndroidE2eCodegen {
             .cloned()
             .or_else(|| config.resolved_version())
             .unwrap_or_else(|| "0.1.0".to_string());
-        let kotlin_pkg_id = config.kotlin_package();
+        // Use the kotlin_android crate's `package` config — not the generic
+        // `config.kotlin_package()` accessor — so the generated tests live in
+        // the same JVM package as the AAR's emitted types and can reference
+        // them by simple name. `kotlin_package()` falls back to a
+        // `com.github.<org>` derivation from the GitHub URL when
+        // `[crates.kotlin] package` is absent, which produces a package
+        // mismatch for AAR consumers that only configure
+        // `[crates.kotlin_android] package`.
+        //
+        // Precedence: `[crates.e2e.packages.kotlin_android].module` (explicit
+        // override) > `[crates.kotlin_android].package` > derived fallback
+        // via `config.kotlin_package()`.
+        let kotlin_pkg_id = kotlin_android_pkg
+            .as_ref()
+            .and_then(|p| p.module.clone())
+            .or_else(|| config.kotlin_android.as_ref().and_then(|c| c.package.clone()))
+            .unwrap_or_else(|| config.kotlin_package());
 
         // Detect whether any fixture needs the mock-server (HTTP fixtures or
         // fixtures with a mock_response/mock_responses). When present, emit a

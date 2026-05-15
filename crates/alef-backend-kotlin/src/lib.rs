@@ -19,5 +19,6 @@ pub use gen_bindings::trait_bridge::KotlinJvmBridgeGenerator;
 // emit the same Kotlin/JVM-flavoured glue code for AAR consumers without
 // duplicating the helpers.
 pub use gen_bindings::{
-    emit_enum_pub, emit_error_type_pub, emit_function_jvm, emit_jvm_client_class, emit_type_pub, to_pascal_case,
+    emit_enum_pub, emit_error_type_pub, emit_function_jvm, emit_jvm_client_class, emit_jvm_client_class_with_package,
+    emit_type_pub, to_pascal_case,
 };
