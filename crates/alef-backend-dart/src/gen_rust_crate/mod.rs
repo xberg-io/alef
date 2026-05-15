@@ -322,13 +322,16 @@ fn emit_lib_rs(
                 .filter(|p| !p.sanitized)
                 .flat_map(|p| collect_named_types_from_type_ref(&p.ty)),
         )
+        .filter(|name| types_needing_from_conversion.contains(name))
+        // Trait-bridge method return types: when a trait is bridged (e.g. HtmlVisitor),
+        // each Dart callback returns a mirror value, and the bridge impl converts it back
+        // to the core type via `.into()`. Include those return types so a
+        // `From<Mirror> for Core` impl is emitted. Chained AFTER the
+        // `types_needing_from_conversion` filter because these return types are not
+        // necessarily reachable via the sanitized-field transitive closure (e.g.
+        // `VisitResult` is a simple enum with no sanitized fields, but the trait bridge
+        // still needs a `From<Mirror> for Core` impl for it).
         .chain(
-            // Trait-bridge method return types: when a trait is bridged (e.g. HtmlVisitor),
-            // each Dart callback returns a mirror value, and the bridge impl needs to convert
-            // it back to the core type. Include those return types so a `From<Mirror> for
-            // Core` impl is emitted. Without this, the bridge silently drops the result and
-            // returns Default::default(), making visitors no-op (see
-            // `trait_impl_return_conversion`'s `__NAMED_RETURN_DEFAULT__` fallback).
             config
                 .trait_bridges
                 .iter()
@@ -338,7 +341,6 @@ fn emit_lib_rs(
                 .filter(|m| m.trait_source.is_none())
                 .flat_map(|m| collect_named_types_from_type_ref(&m.return_type)),
         )
-        .filter(|name| types_needing_from_conversion.contains(name))
         .collect();
 
     // Compute the transitive closure of all struct/enum types reachable from function-
