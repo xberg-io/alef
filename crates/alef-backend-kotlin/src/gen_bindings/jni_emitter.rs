@@ -355,10 +355,14 @@ fn emit_jni_client_method(
     let params_with_types: Vec<String> = m.params.iter().map(|p| format_param_with_imports(p, imports)).collect();
 
     // Determine the public Kotlin return type for the wrapper signature.
-    // For methods that return a Named type, Vec<non-u8>, or Map via JSON,
-    // the wrapper exposes the rich Kotlin type (deserialized from the JSON string
-    // returned by the bridge).
-    let wrapper_return_ty = kotlin_type_with_string_imports(&m.return_type, false, imports);
+    // Vec<u8> maps to ByteArray at the JNI boundary (no base64 overhead); the
+    // generic Kotlin mapper would produce List<Byte> which is incompatible.
+    // All other types use the standard Kotlin type mapper.
+    let wrapper_return_ty = if is_vec_u8(&m.return_type) {
+        "ByteArray".to_string()
+    } else {
+        kotlin_type_with_string_imports(&m.return_type, false, imports)
+    };
 
     out.push_str(&format!(
         "    {async_kw}fun {method_name}({}): {wrapper_return_ty} {{\n",
@@ -446,6 +450,14 @@ fn emit_method_body(m: &alef_core::ir::MethodDef, out: &mut String, bridge_call:
             }
         }
     }
+}
+
+/// Returns true when the IR type is `Vec<u8>` (binary data → `ByteArray`).
+fn is_vec_u8(ty: &TypeRef) -> bool {
+    matches!(
+        ty,
+        TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(alef_core::ir::PrimitiveType::U8))
+    )
 }
 
 /// Returns true when the bridge return type is a JSON String that must be
