@@ -20,6 +20,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   at the function's top-level 4-space indent.
   (`crates/alef-backend-jni/src/gen_shims.rs`)
 
+- **JNI: `Vec<u8>` / `Bytes` params receive `jbyteArray`, `PathBuf` params skip
+  JSON decode**: `emit_single_param_unmarshal` fell through to `serde_json::from_str`
+  for any type other than `String`, producing invalid Rust for `&[u8]` / `PathBuf`
+  params. Added explicit branches: `Vec<u8>` and `Bytes` now receive
+  `<name>: jbyteArray` and call `env.convert_byte_array(name)` (the JNI function
+  signature is patched to use `jbyteArray` for these types); `TypeRef::Path` receives
+  `request_json: JString` and constructs `std::path::PathBuf::from(req_str)`
+  without any JSON deserialization.
+  (`crates/alef-backend-jni/src/gen_shims.rs`)
+
 - **JNI: `&mut self` methods use `*mut T` handle cast**: `emit_method_shim`
   always emitted `&*(handle as *const T)` for the client dereference, causing
   E0596 ("cannot borrow as mutable behind `&` reference") for any method whose

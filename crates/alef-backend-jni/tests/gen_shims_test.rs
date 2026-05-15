@@ -972,6 +972,173 @@ fn method_ref_receiver_emits_const_cast() {
 }
 
 // ---------------------------------------------------------------------------
+// R2: &[u8] / Vec<u8> / PathBuf params marshalled correctly (not as JSON)
+// ---------------------------------------------------------------------------
+
+/// Verifies that a method taking `source: Vec<u8>` (is_ref=true, so `&[u8]`)
+/// receives a `jbyteArray` and uses `env.convert_byte_array`, not JSON.
+#[test]
+fn method_slice_u8_param_receives_jbytearray() {
+    let parse_method = MethodDef {
+        name: "parse_bytes".to_string(),
+        params: vec![ParamDef {
+            name: "source".to_string(),
+            ty: TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::U8))),
+            optional: false,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: true,
+            is_mut: false,
+            newtype_wrapper: None,
+            original_type: None,
+        }],
+        return_type: TypeRef::Optional(Box::new(TypeRef::Named("Tree".to_string()))),
+        is_async: false,
+        is_static: false,
+        receiver: Some(ReceiverKind::RefMut),
+        error_type: None,
+        doc: String::new(),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    };
+
+    let client_type = TypeDef {
+        name: "Parser".to_string(),
+        rust_path: "demo::Parser".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![parse_method],
+        is_opaque: true,
+        is_clone: false,
+        is_copy: false,
+        doc: String::new(),
+        cfg: None,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+    };
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![client_type],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: std::collections::HashMap::new(),
+    };
+
+    let config = make_demo_config();
+    let files = JniBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    let section = extract_fn_section(content, "nativeParserParseBytes");
+    assert!(
+        section.contains("source: jbyteArray"),
+        "Vec<u8> param must be jbyteArray, not JString; section:\n{section}"
+    );
+    assert!(
+        section.contains("env.convert_byte_array(source)"),
+        "Vec<u8> param must use env.convert_byte_array; section:\n{section}"
+    );
+    assert!(
+        !section.contains("serde_json::from_str"),
+        "Vec<u8> param must NOT use serde_json::from_str; section:\n{section}"
+    );
+}
+
+/// Verifies that a method taking `dir: PathBuf` receives a JString and
+/// constructs `std::path::PathBuf::from(...)` without JSON decoding.
+#[test]
+fn method_pathbuf_param_receives_raw_string() {
+    let add_dir_method = MethodDef {
+        name: "add_extra_libs_dir".to_string(),
+        params: vec![ParamDef {
+            name: "dir".to_string(),
+            ty: TypeRef::Path,
+            optional: false,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: false,
+            is_mut: false,
+            newtype_wrapper: None,
+            original_type: None,
+        }],
+        return_type: TypeRef::Unit,
+        is_async: false,
+        is_static: false,
+        receiver: Some(ReceiverKind::RefMut),
+        error_type: Some("RegistryError".to_string()),
+        doc: String::new(),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    };
+
+    let client_type = TypeDef {
+        name: "LanguageRegistry".to_string(),
+        rust_path: "demo::LanguageRegistry".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![add_dir_method],
+        is_opaque: true,
+        is_clone: false,
+        is_copy: false,
+        doc: String::new(),
+        cfg: None,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+    };
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![client_type],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: std::collections::HashMap::new(),
+    };
+
+    let config = make_demo_config();
+    let files = JniBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    let section = extract_fn_section(content, "nativeLanguageRegistryAddExtraLibsDir");
+    // PathBuf single-param still uses request_json: JString (raw string, not bytes).
+    assert!(
+        section.contains("request_json: JString"),
+        "PathBuf param method must have request_json: JString; section:\n{section}"
+    );
+    assert!(
+        section.contains("std::path::PathBuf::from("),
+        "PathBuf param must use std::path::PathBuf::from(string); section:\n{section}"
+    );
+    assert!(
+        !section.contains("serde_json::from_str"),
+        "PathBuf param must NOT use serde_json::from_str; section:\n{section}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Helper: extract the function body section for a named symbol
 // ---------------------------------------------------------------------------
 

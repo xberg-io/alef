@@ -265,14 +265,8 @@ fn emit_client_shims(
         }
         let method_name = bridge_method_name(&ty.name, &method.name);
         let symbol = jni_symbol(package, bridge, &method_name);
-        let receiver_is_mut = matches!(
-            method.receiver.as_ref(),
-            Some(alef_core::ir::ReceiverKind::RefMut)
-        );
-        let receiver_owned = matches!(
-            method.receiver.as_ref(),
-            Some(alef_core::ir::ReceiverKind::Owned)
-        );
+        let receiver_is_mut = matches!(method.receiver.as_ref(), Some(alef_core::ir::ReceiverKind::RefMut));
+        let receiver_owned = matches!(method.receiver.as_ref(), Some(alef_core::ir::ReceiverKind::Owned));
         emit_method_shim(
             out,
             &symbol,
@@ -515,8 +509,7 @@ fn emit_method_shim(
     let rust_method = method_name.replace('-', "_");
     let has_params = !params.is_empty();
 
-    let is_opaque_return =
-        matches!(return_type, TypeRef::Named(n) if opaque_type_names.contains(n.as_str()));
+    let is_opaque_return = matches!(return_type, TypeRef::Named(n) if opaque_type_names.contains(n.as_str()));
 
     let ret_decl = if is_opaque_return {
         " -> jlong".to_string()
@@ -529,10 +522,27 @@ fn emit_method_shim(
         method_return_null(return_type)
     };
 
-    let request_param = if has_params {
-        "    request_json: JString,\n".to_string()
-    } else {
+    // For single-param methods with Vec<u8>/Bytes params: use jbyteArray as the
+    // JNI parameter type (param name matches the rust param name, not request_json).
+    // All other single-param and all multi-param methods use request_json: JString.
+    let request_param = if !has_params {
         String::new()
+    } else if params.len() == 1 {
+        let p = &params[0];
+        let rust_name = p.name.replace('-', "_");
+        let base_ty = match &p.ty {
+            TypeRef::Optional(inner) => inner.as_ref(),
+            other => other,
+        };
+        match base_ty {
+            TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8)) => {
+                format!("    {rust_name}: jbyteArray,\n")
+            }
+            TypeRef::Bytes => format!("    {rust_name}: jbyteArray,\n"),
+            _ => "    request_json: JString,\n".to_string(),
+        }
+    } else {
+        "    request_json: JString,\n".to_string()
     };
 
     out.push_str(&format!(
@@ -639,7 +649,11 @@ fn emit_method_shim(
         out.push_str(&format!("            {ret_null}\n"));
         out.push_str("        }\n");
         out.push_str("        Ok(v) => {\n");
-        emit_return_marshal(out, return_type);
+        if is_opaque_return {
+            out.push_str("            Box::into_raw(Box::new(v)) as jlong\n");
+        } else {
+            emit_return_marshal(out, return_type);
+        }
         out.push_str("        }\n");
         out.push_str("    }\n");
     } else {
@@ -649,15 +663,59 @@ fn emit_method_shim(
         } else {
             out.push_str(&format!("    let v = {call_expr};\n"));
         }
-        emit_return_marshal_with_indent(out, return_type, "    ");
+        if is_opaque_return {
+            out.push_str("    Box::into_raw(Box::new(v)) as jlong\n");
+        } else {
+            emit_return_marshal_with_indent(out, return_type, "    ");
+        }
     }
 
     out.push_str("}\n\n");
 }
 
-/// Emit unmarshal code for a single param, returning the rust variable name to use in the call.
+/// Emit unmarshal code for a single param.
+///
+/// Special cases:
+/// - `Vec<u8>` / `Bytes`: the JNI param is `<rust_name>: jbyteArray`; use
+///   `env.convert_byte_array` — no JSON round-trip.
+/// - `Path` (`PathBuf`): the JNI param is `request_json: JString`; construct
+///   `std::path::PathBuf::from(string)` instead of JSON-deserializing.
+/// - Everything else: JSON-deserialize from `request_json: JString`.
 fn emit_single_param_unmarshal(out: &mut String, rust_name: &str, ty: &TypeRef, ret_null: &str) {
     match ty {
+        TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8)) => {
+            // jbyteArray → Vec<u8> via env.convert_byte_array.
+            out.push_str(&format!(
+                "    let {rust_name}: Vec<u8> = match env.convert_byte_array({rust_name}) {{\n"
+            ));
+            out.push_str("        Ok(v) => v,\n");
+            out.push_str(&format!(
+                "        Err(e) => {{ throw_jni_error(&mut env, &format!(\"{{e}}\")); return {ret_null}; }}\n"
+            ));
+            out.push_str("    };\n");
+        }
+        TypeRef::Bytes => {
+            // jbyteArray → bytes::Bytes via env.convert_byte_array.
+            out.push_str(&format!(
+                "    let {rust_name}_vec: Vec<u8> = match env.convert_byte_array({rust_name}) {{\n"
+            ));
+            out.push_str("        Ok(v) => v,\n");
+            out.push_str(&format!(
+                "        Err(e) => {{ throw_jni_error(&mut env, &format!(\"{{e}}\")); return {ret_null}; }}\n"
+            ));
+            out.push_str("    };\n");
+            out.push_str(&format!("    let {rust_name} = bytes::Bytes::from({rust_name}_vec);\n"));
+        }
+        TypeRef::Path => {
+            // JString → PathBuf via raw string (no JSON decode).
+            out.push_str("    let req_str = match jstring_to_string(&mut env, request_json) {\n");
+            out.push_str("        Ok(s) => s,\n");
+            out.push_str(&format!(
+                "        Err(e) => {{ throw_jni_error(&mut env, &format!(\"{{e}}\")); return {ret_null}; }}\n"
+            ));
+            out.push_str("    };\n");
+            out.push_str(&format!("    let {rust_name} = std::path::PathBuf::from(req_str);\n"));
+        }
         TypeRef::String => {
             out.push_str("    let req_str = match jstring_to_string(&mut env, request_json) {\n");
             out.push_str("        Ok(s) => s,\n");
