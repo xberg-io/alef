@@ -645,28 +645,25 @@ fn render_test_fn(
 
     // Whether the Zig wrapper returns an error union (`try` is required).
     //
-    // The Zig backend emits an error union for a function when ANY of:
-    //   1. The Rust function is fallible (`returns_result = true`).
-    //   2. Any argument is a string/path/json_object/bytes type — the backend
-    //      must allocate a null-terminated copy, so the wrapper declares
-    //      `error{OutOfMemory}!T`.
-    //   3. A `client_factory` is in play (the factory call can fail).
+    // The Zig backend nearly always returns an error union: any function with
+    // string/path/json_object/bytes parameters must allocate a null-terminated
+    // copy (→ `error{OutOfMemory}!T`), any fallible function (`returns_result`)
+    // wraps a `DomainError||error{OutOfMemory}!T`, and any function whose return
+    // type is a string/JSON/collection blob also needs heap allocation.
     //
-    // The per-language override `returns_result = false` opts out explicitly
-    // (e.g. for `language_count()` which is genuinely infallible with no
-    // alloc-requiring parameters).
-    let zig_override_returns_result = call_overrides.and_then(|o| o.returns_result);
-    let args_need_alloc = args.iter().any(|a| {
-        matches!(
-            a.arg_type.as_str(),
-            "string" | "path" | "bytes" | "json_object"
-        )
-    });
-    let call_returns_error_union = match zig_override_returns_result {
-        Some(false) => false, // explicit opt-out: infallible function
-        Some(true) => true,   // explicit opt-in
-        None => call_config.returns_result || args_need_alloc || client_factory.is_some(),
-    };
+    // The ONLY case where `try` is incorrect is a function that is:
+    //   - genuinely infallible (no Rust Result<T,E>)
+    //   - takes no allocating parameters (no string/path/bytes/json_object args)
+    //   - returns a primitive directly (u64, bool, etc.)
+    //
+    // Rather than attempting to infer this from incomplete config information,
+    // we default to emitting `try` and require an explicit opt-out:
+    //
+    //   [crates.e2e.calls.language_count.overrides.zig]
+    //   returns_result = false
+    //
+    // This is safer than guessing wrong and producing un-compilable Zig.
+    let call_returns_error_union = call_overrides.and_then(|o| o.returns_result) != Some(false);
 
     let test_name = fixture.id.to_snake_case();
     let description = &fixture.description;
@@ -826,7 +823,7 @@ fn render_test_fn(
             let _ = writeln!(out, "    // Perform success assertions if any");
             for assertion in &fixture.assertions {
                 if assertion.assertion_type != "error" {
-                    render_json_assertion(out, assertion, result_var, field_resolver);
+                    render_json_assertion(out, assertion, result_var, field_resolver, false);
                 }
             }
         } else if result_is_json_struct {
@@ -951,7 +948,7 @@ fn render_test_fn(
                     let _ = writeln!(out, "    const {result_var} = &_parsed.value;");
                 }
                 for assertion in &fixture.assertions {
-                    render_json_assertion(out, assertion, result_var, field_resolver);
+                    render_json_assertion(out, assertion, result_var, field_resolver, true);
                 }
             } else {
                 // JSON struct path: parse result JSON and access fields dynamically.
@@ -968,7 +965,7 @@ fn render_test_fn(
                     let _ = writeln!(out, "    defer _parsed.deinit();");
                     let _ = writeln!(out, "    const {result_var} = &_parsed.value;");
                     for assertion in &fixture.assertions {
-                        render_json_assertion(out, assertion, result_var, field_resolver);
+                        render_json_assertion(out, assertion, result_var, field_resolver, false);
                     }
                 }
             }
@@ -1098,7 +1095,7 @@ fn emit_visitor_test_body(
 
     for assertion in assertions {
         if assertion.assertion_type != "error" {
-            render_json_assertion(out, assertion, "result", field_resolver);
+            render_json_assertion(out, assertion, "result", field_resolver, false);
         }
     }
 }
@@ -1194,10 +1191,21 @@ fn json_path_expr(result_var: &str, field_path: &str) -> String {
 ///
 /// The `result_var` variable is `*std.json.Value` (pointer to the parsed root object).
 /// Field paths are traversed via `.object.get("key").?` chains.
-fn render_json_assertion(out: &mut String, assertion: &Assertion, result_var: &str, field_resolver: &FieldResolver) {
-    // Intercept streaming-virtual fields before the result-type validity check.
+fn render_json_assertion(
+    out: &mut String,
+    assertion: &Assertion,
+    result_var: &str,
+    field_resolver: &FieldResolver,
+    uses_streaming: bool,
+) {
+    // Intercept streaming-virtual fields before the result-type validity check,
+    // but ONLY when the test is actually using the streaming-virtual path.
+    // When `uses_streaming = false` the `chunks` local is never declared, so
+    // generating `chunks.items.len` would produce a compile error. Fields like
+    // "chunks" that happen to share a streaming-virtual name are regular JSON
+    // fields in non-streaming results and must fall through to the JSON path.
     if let Some(f) = &assertion.field {
-        if !f.is_empty() && is_streaming_virtual_field(f) {
+        if uses_streaming && !f.is_empty() && is_streaming_virtual_field(f) {
             if let Some(expr) = StreamingFieldResolver::accessor(f, "zig", "chunks") {
                 match assertion.assertion_type.as_str() {
                     "count_min" => {

@@ -166,6 +166,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `pub const T = struct { _handle: *anyopaque, ... };` declaration regardless of
   whether it has methods. (`crates/alef-backend-zig/src/gen_bindings/mod.rs`)
 
+- **alef-backend-zig (bool return coercion)**: functions returning `bool` through
+  the C ABI (`extern "C" fn(...) -> i32`) generated `return _result;` where the
+  Zig wrapper declared return type `bool`. Zig's strict type system rejects the
+  implicit `i32 → bool` coercion with a compile error. The `unwrap_return_expr`
+  function now emits `_result != 0` for `TypeRef::Primitive(PrimitiveType::Bool)`
+  returns, producing a valid Zig boolean. Two new tests cover the infallible and
+  fallible (error-union) cases.
+  (`crates/alef-backend-zig/src/gen_bindings/functions.rs`,
+   `crates/alef-backend-zig/tests/gen_bindings_test.rs`)
+
+- **alef-e2e/zig (infallible function try emission)**: the Zig e2e codegen
+  unconditionally emitted `try` before every call, but functions that are
+  genuinely infallible and take no allocating parameters (e.g. `language_count()`
+  which returns a plain `u64`) do not declare an error union — `try` on a
+  non-error-union expression is a compile error in Zig. The fix defaults
+  `call_returns_error_union` to `true` (safer: almost all wrapper functions
+  allocate and/or can fail) and requires an explicit per-language opt-out:
+  `[crates.e2e.calls.<name>.overrides.zig] returns_result = false`.
+  (`crates/alef-e2e/src/codegen/zig.rs`,
+   `crates/alef-e2e/tests/zig_infallible_no_try.rs`)
+
+- **alef-e2e/zig (streaming-virtual field intercept in non-streaming path)**:
+  `render_json_assertion` intercepted field names matching `is_streaming_virtual_field`
+  (e.g. `"chunks"`) unconditionally, emitting `chunks.items.len` even when the test
+  was not streaming and no `chunks` local was ever declared. Any non-streaming fixture
+  whose result type happened to have a field named `chunks` produced an "undeclared
+  identifier 'chunks'" compile error. Added `uses_streaming: bool` parameter to
+  `render_json_assertion`; the streaming-virtual intercept path now fires only when
+  `uses_streaming = true`. The four existing call sites pass the correct flag: the
+  streaming path passes `true`, all others pass `false`.
+  (`crates/alef-e2e/src/codegen/zig.rs`)
+
 ## [0.16.5] - 2026-05-15
 
 ### Added
