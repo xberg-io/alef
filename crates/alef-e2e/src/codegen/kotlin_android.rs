@@ -261,7 +261,7 @@ fn render_build_gradle_kotlin_android(
     let kotlin_plugin = maven::KOTLIN_JVM_PLUGIN;
     let junit = maven::JUNIT;
     let jackson = maven::JACKSON_E2E;
-    let jvm_target = toolchain::JVM_TARGET;
+    let jvm_target = toolchain::ANDROID_JVM_TARGET;
     let jna = maven::JNA;
     let jspecify = maven::JSPECIFY;
     let coroutines = maven::KOTLINX_COROUTINES_CORE;

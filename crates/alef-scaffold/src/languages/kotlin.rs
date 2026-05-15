@@ -47,7 +47,7 @@ fn scaffold_kotlin_jvm(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow
     let jspecify = maven::JSPECIFY;
     let ktlint_gradle_plugin = maven::KTLINT_GRADLE_PLUGIN;
     let ktlint = maven::KTLINT;
-    let jvm_target = toolchain::JVM_TARGET;
+    let jvm_target = toolchain::KOTLIN_JVM_TARGET;
     let kotlin_artifact_id = format!("{}-kotlin", config.name);
     // Pascal-cased binding-class filename emitted by alef-backend-kotlin
     // (e.g. crate `kreuzberg` -> `Kreuzberg.kt`). The alef-emitted file is not

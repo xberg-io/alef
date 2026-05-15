@@ -366,9 +366,13 @@ pub mod toolchain {
     // Dart 3.11 is the scaffolded SDK floor for newly generated Dart packages.
     pub const DART_SDK_CONSTRAINT: &str = ">=3.11.0 <4.0.0";
 
-    // JVM bytecode target for Kotlin/Java scaffolds and e2e; manual bump required.
-    // 25 is required because the Foreign Function & Memory API (used by the alef-emitted
-    // Java facade) was finalized in JDK 22 and is no longer available as a preview.
+    /// JVM bytecode target for the Java backend (Panama FFM, JDK 22+ required).
+    pub const JAVA_JVM_TARGET: &str = "25";
+
+    /// JVM bytecode target for the Kotlin/JVM backend.
+    pub const KOTLIN_JVM_TARGET: &str = "21";
+
+    #[deprecated(since = "0.16.4", note = "use JAVA_JVM_TARGET or KOTLIN_JVM_TARGET")]
     pub const JVM_TARGET: &str = "25";
 
     // minimum macOS deployment target for swift-bridge bindings; manual bump required

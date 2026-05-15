@@ -263,7 +263,7 @@ pub(crate) fn render_build_gradle(
     let kotlin_plugin = maven::KOTLIN_JVM_PLUGIN;
     let junit = maven::JUNIT;
     let jackson = maven::JACKSON_E2E;
-    let jvm_target = toolchain::JVM_TARGET;
+    let jvm_target = toolchain::KOTLIN_JVM_TARGET;
     let launcher_dep = if needs_mock_server {
         format!(r#"    testImplementation("org.junit.platform:junit-platform-launcher:{junit}")"#)
     } else {
