@@ -1272,10 +1272,11 @@ fn map_from_expr(name: &str, _k: &TypeRef, v_ty: &TypeRef, optional: bool) -> St
     // while remaining a no-op for plain `String → String` under the crate-level
     // `#[allow(clippy::useless_conversion)]`.
     let value_conv = match v_ty {
-        TypeRef::Json | TypeRef::Named(_) => {
+        TypeRef::Json => {
             // serde_json serialize to String.
             "serde_json::to_string(&v).unwrap_or_default()"
         }
+        TypeRef::Named(mirror_name) => return map_named_from_expr(name, mirror_name, optional),
         TypeRef::Primitive(_) => {
             // Cast to target primitive (i64 for integers, f64 for floats).
             "v as _"
@@ -1297,6 +1298,15 @@ fn map_from_expr(name: &str, _k: &TypeRef, v_ty: &TypeRef, optional: bool) -> St
         format!("v.{name}.map(|m| m.{iter_expr})")
     } else {
         format!("v.{name}.{iter_expr}")
+    }
+}
+
+fn map_named_from_expr(field_name: &str, mirror_name: &str, optional: bool) -> String {
+    let iter_expr = format!("into_iter().map(|(k, v)| (k.into(), {mirror_name}::from(v))).collect()");
+    if optional {
+        format!("v.{field_name}.map(|m| m.{iter_expr})")
+    } else {
+        format!("v.{field_name}.{iter_expr}")
     }
 }
 
@@ -1939,10 +1949,19 @@ fn emit_opaque_method_body(
                 }
                 TypeRef::String => {
                     // Core may take `&str` — pass by reference when is_ref is set.
-                    if p.is_ref {
+                    if p.is_ref && p.optional {
+                        format!("{param_name}.as_deref()")
+                    } else if p.is_ref {
                         format!("&{param_name}")
                     } else {
                         param_name.clone()
+                    }
+                }
+                TypeRef::Json => {
+                    if p.optional {
+                        format!("{param_name}.as_deref().and_then(|s| serde_json::from_str(s).ok())")
+                    } else {
+                        format!("serde_json::from_str(&{param_name}).unwrap_or(serde_json::Value::Null)")
                     }
                 }
                 _ => param_name.clone(),
@@ -2029,13 +2048,13 @@ fn build_opaque_return_wrap(ty: &TypeRef, returns_ref: bool) -> String {
             }
             _ => String::new(),
         },
-        TypeRef::Optional(inner) => {
-            if let TypeRef::Named(mirror_name) = inner.as_ref() {
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(mirror_name) => {
                 format!("|v: Option<_>| v.map({mirror_name}::from)")
-            } else {
-                String::new()
             }
-        }
+            TypeRef::String if returns_ref => "|v: Option<&str>| v.map(|s| s.to_string())".to_string(),
+            _ => String::new(),
+        },
         TypeRef::Primitive(prim) => {
             // FRB widens integers to i64 and floats to f64. Cast the core value.
             match prim {

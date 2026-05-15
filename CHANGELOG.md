@@ -75,6 +75,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   generating the package-local Rust bridge `Cargo.toml`, allowing projects
   to override sibling crate paths that differ from the workspace binding
   crates.
+- **alef-backend-dart**: generate compiling Rust bridge conversions for
+  optional borrowed string returns, optional JSON string params, optional
+  borrowed string params, and named map values.
 - **alef-e2e (zig)**: `field[key]` bracket notation in fixture aliases now
   resolves to a HashMap-style nested object lookup
   (`.object.get("field").?.object.get("key").?`). Previously the bracketed

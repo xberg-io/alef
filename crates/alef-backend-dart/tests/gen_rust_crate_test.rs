@@ -65,6 +65,28 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
     }
 }
 
+fn make_opaque_type(name: &str, methods: Vec<MethodDef>) -> TypeDef {
+    TypeDef {
+        name: name.to_string(),
+        rust_path: format!("demo_crate::{name}"),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods,
+        is_opaque: true,
+        is_clone: true,
+        is_copy: false,
+        doc: String::new(),
+        cfg: None,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+    }
+}
+
 fn make_config() -> ResolvedCrateConfig {
     let toml = r#"
 [workspace]
@@ -133,6 +155,94 @@ shared-crate = { path = "../../../crates/shared-crate" }
     assert!(
         !cargo.contains(r#"shared-crate = { path = "../shared-crate" }"#),
         "got: {cargo}"
+    );
+}
+
+#[test]
+fn lib_rs_converts_named_map_values_from_core_to_mirror() {
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![
+            make_type("SecuritySchemeInfo", vec![]),
+            make_type(
+                "OpenApiConfig",
+                vec![make_field(
+                    "security_schemes",
+                    TypeRef::Map(
+                        Box::new(TypeRef::String),
+                        Box::new(TypeRef::Named("SecuritySchemeInfo".to_string())),
+                    ),
+                    false,
+                )],
+            ),
+        ],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
+    let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
+
+    assert!(
+        lib.contains(".map(|(k, v)| (k.into(), SecuritySchemeInfo::from(v)))"),
+        "named map values must convert to mirror structs, not JSON strings: {lib}"
+    );
+    assert!(
+        !lib.contains(".map(|(k, v)| (k.into(), serde_json::to_string(&v).unwrap_or_default()))"),
+        "named map values must not serialize to String: {lib}"
+    );
+}
+
+#[test]
+fn opaque_methods_convert_optional_ref_string_json_params_and_returns() {
+    let mut description = make_method(
+        "get_description",
+        vec![],
+        TypeRef::Optional(Box::new(TypeRef::String)),
+        false,
+    );
+    description.returns_ref = true;
+
+    let mut operation_name = make_param("operation_name", TypeRef::String);
+    operation_name.optional = true;
+    operation_name.is_ref = true;
+    let mut variables = make_param("variables", TypeRef::Json);
+    variables.optional = true;
+    let mut graphql = make_method(
+        "graphql",
+        vec![make_param("query", TypeRef::String), variables, operation_name],
+        TypeRef::Named("ResponseSnapshot".to_string()),
+        true,
+    );
+    graphql.error_type = Some("SnapshotError".to_string());
+
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![make_opaque_type("TestClient", vec![description, graphql])],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
+    let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
+
+    assert!(
+        lib.contains("(|v: Option<&str>| v.map(|s| s.to_string()))(self.inner.get_description())"),
+        "optional borrowed string returns must be owned for FRB: {lib}"
+    );
+    assert!(
+        lib.contains("variables.as_deref().and_then(|s| serde_json::from_str(s).ok())"),
+        "optional JSON string params must deserialize before core calls: {lib}"
+    );
+    assert!(
+        lib.contains("operation_name.as_deref()"),
+        "optional borrowed string params must use as_deref: {lib}"
     );
 }
 
