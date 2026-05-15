@@ -225,6 +225,9 @@ impl FieldResolver {
         match language {
             "java" => render_java_with_optionals(&segments, result_var, &self.optional_fields),
             "kotlin" => render_kotlin_with_optionals(&segments, result_var, &self.optional_fields),
+            // kotlin_android data classes expose fields as Kotlin properties (no parens),
+            // not as Java-style getter methods. Use the dedicated renderer.
+            "kotlin_android" => render_kotlin_android_with_optionals(&segments, result_var, &self.optional_fields),
             "rust" => render_rust_with_optionals(&segments, result_var, &self.optional_fields, &self.method_calls),
             "csharp" => render_csharp_with_optionals(&segments, result_var, &self.optional_fields),
             "zig" => render_zig_with_optionals(&segments, result_var, &self.optional_fields, &self.method_calls),
@@ -483,6 +486,7 @@ fn render_accessor(segments: &[PathSegment], language: &str, result_var: &str) -
         "go" => render_go(segments, result_var),
         "java" => render_java(segments, result_var),
         "kotlin" => render_kotlin(segments, result_var),
+        "kotlin_android" => render_kotlin_android(segments, result_var),
         "csharp" => render_pascal_dot(segments, result_var),
         "ruby" => render_dot_access(segments, result_var, "ruby"),
         "php" => render_php(segments, result_var),
@@ -1020,6 +1024,128 @@ fn render_kotlin_with_optionals(
                 let size_nav = if prev_was_nullable { "?" } else { "" };
                 out.push_str(&format!("{size_nav}.size"));
                 prev_was_nullable = false;
+            }
+        }
+    }
+    out
+}
+
+/// kotlin_android variant of `render_kotlin_with_optionals`.
+///
+/// kotlin_android generates Kotlin data classes whose fields are Kotlin
+/// **properties** (not Java-style getter methods). Every field segment must
+/// therefore be accessed without parentheses: `result.choices.first().message.content`
+/// rather than `result.choices().first().message().content()`.
+///
+/// The nullable-chain rules are identical to `render_kotlin_with_optionals`:
+/// once a segment in the path is optional (`T?`) the remainder of the chain
+/// uses `?.` safe-call syntax.
+fn render_kotlin_android_with_optionals(
+    segments: &[PathSegment],
+    result_var: &str,
+    optional_fields: &HashSet<String>,
+) -> String {
+    let mut out = result_var.to_string();
+    let mut path_so_far = String::new();
+    let mut prev_was_nullable = false;
+    for seg in segments {
+        let nav = if prev_was_nullable { "?." } else { "." };
+        match seg {
+            PathSegment::Field(f) => {
+                if !path_so_far.is_empty() {
+                    path_so_far.push('.');
+                }
+                path_so_far.push_str(f);
+                let is_optional = optional_fields.contains(&path_so_far);
+                out.push_str(nav);
+                // Property access — no () suffix.
+                out.push_str(&kotlin_getter(f));
+                prev_was_nullable = prev_was_nullable || is_optional;
+            }
+            PathSegment::ArrayField { name, index } => {
+                if !path_so_far.is_empty() {
+                    path_so_far.push('.');
+                }
+                path_so_far.push_str(name);
+                let is_optional = optional_fields.contains(&path_so_far);
+                out.push_str(nav);
+                // Property access — no () suffix on the collection itself.
+                out.push_str(&kotlin_getter(name));
+                let safe = if prev_was_nullable || is_optional { "?" } else { "" };
+                if *index == 0 {
+                    out.push_str(&format!("{safe}.first()"));
+                } else {
+                    out.push_str(&format!("{safe}.get({index})"));
+                }
+                path_so_far.push_str("[0]");
+                prev_was_nullable = prev_was_nullable || is_optional;
+            }
+            PathSegment::MapAccess { field, key } => {
+                if !path_so_far.is_empty() {
+                    path_so_far.push('.');
+                }
+                path_so_far.push_str(field);
+                let is_optional = optional_fields.contains(&path_so_far);
+                out.push_str(nav);
+                // Property access — no () suffix on the map field.
+                out.push_str(&kotlin_getter(field));
+                let is_numeric = !key.is_empty() && key.chars().all(|c| c.is_ascii_digit());
+                if is_numeric {
+                    if prev_was_nullable || is_optional {
+                        out.push_str(&format!("?.get({key})"));
+                    } else {
+                        out.push_str(&format!(".get({key})"));
+                    }
+                } else if prev_was_nullable || is_optional {
+                    out.push_str(&format!("?.get(\"{key}\")"));
+                } else {
+                    out.push_str(&format!(".get(\"{key}\")"));
+                }
+                prev_was_nullable = prev_was_nullable || is_optional;
+            }
+            PathSegment::Length => {
+                let size_nav = if prev_was_nullable { "?" } else { "" };
+                out.push_str(&format!("{size_nav}.size"));
+                prev_was_nullable = false;
+            }
+        }
+    }
+    out
+}
+
+/// Non-optional variant of `render_kotlin_android_with_optionals`.
+///
+/// Used by `render_accessor` (the path without per-field optionality tracking).
+fn render_kotlin_android(segments: &[PathSegment], result_var: &str) -> String {
+    let mut out = result_var.to_string();
+    for seg in segments {
+        match seg {
+            PathSegment::Field(f) => {
+                out.push('.');
+                out.push_str(&kotlin_getter(f));
+                // No () — property access.
+            }
+            PathSegment::ArrayField { name, index } => {
+                out.push('.');
+                out.push_str(&kotlin_getter(name));
+                if *index == 0 {
+                    out.push_str(".first()");
+                } else {
+                    out.push_str(&format!(".get({index})"));
+                }
+            }
+            PathSegment::MapAccess { field, key } => {
+                out.push('.');
+                out.push_str(&kotlin_getter(field));
+                let is_numeric = !key.is_empty() && key.chars().all(|c| c.is_ascii_digit());
+                if is_numeric {
+                    out.push_str(&format!(".get({key})"));
+                } else {
+                    out.push_str(&format!(".get(\"{key}\")"));
+                }
+            }
+            PathSegment::Length => {
+                out.push_str(".size");
             }
         }
     }
