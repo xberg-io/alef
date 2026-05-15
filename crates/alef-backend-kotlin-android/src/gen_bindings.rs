@@ -40,6 +40,19 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, kotlin_source_dir: &
     let module_name = to_pascal_case(&config.name);
     let java_pkg = java_package(config);
     let lib_name = config.ffi_lib_name();
+    // The Java backend names its raw FFI class `<Module>Rs` (see
+    // `alef-backend-java::JavaBackend::resolve_main_class`). When the Kotlin
+    // `object` wrapper happens to share its simple name with the Java facade
+    // (both `Kreuzberg`), aliasing `Bridge` to the Java class via its short
+    // name would resolve back to the Kotlin object itself (Kotlin/Java co-
+    // located in the same package), producing infinite recursion or
+    // unresolved members. Alias `Bridge` to the `Rs`-suffixed Java class so
+    // the Kotlin wrapper delegates to the JNI layer, never to itself.
+    let java_facade_class = if module_name.ends_with("Rs") {
+        module_name.clone()
+    } else {
+        format!("{module_name}Rs")
+    };
 
     let exclude_functions: std::collections::HashSet<&str> = config
         .kotlin_android
@@ -58,7 +71,7 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, kotlin_source_dir: &
 
     // Always emit a {Module} object — even when the API has zero free
     // functions — so the System.loadLibrary call happens on first class load.
-    imports.insert(format!("import {java_pkg}.{module_name} as Bridge"));
+    imports.insert(format!("import {java_pkg}.{java_facade_class} as Bridge"));
     if visible_functions.iter().any(|f| f.is_async) {
         imports.insert("import kotlinx.coroutines.Dispatchers".to_string());
         imports.insert("import kotlinx.coroutines.withContext".to_string());

@@ -486,6 +486,88 @@ pub(crate) fn render_test_file(
     e2e_config: &E2eConfig,
     type_enum_fields: &std::collections::HashMap<String, HashSet<String>>,
 ) -> String {
+    render_test_file_inner(
+        category,
+        fixtures,
+        class_name,
+        function_name,
+        kotlin_pkg_id,
+        result_var,
+        args,
+        options_type,
+        field_resolver,
+        result_is_simple,
+        enum_fields,
+        e2e_config,
+        type_enum_fields,
+        false,
+    )
+}
+
+/// Variant of [`render_test_file`] used by the kotlin_android backend.
+///
+/// `kotlin_android_style = true` shifts two emission decisions:
+///
+/// 1. Every emitted `@Test` body is wrapped in `runBlocking { ... }` so the
+///    suspend-only public API (the kotlin_android AAR exposes most
+///    extraction entry points as `suspend fun`) can be invoked from
+///    JUnit's non-suspend `@Test` methods. JVM Kotlin tests keep the
+///    previous behaviour and only wrap when a `client_factory` is in play.
+/// 2. Option-returning APIs are treated as Kotlin nullable `T?` (the
+///    kotlin-android wrapper unwraps Java `Optional<T>` to `T?` at the
+///    boundary), so `is_empty` / `not_empty` assertions on a bare option
+///    result emit `== null` / `!= null` instead of `.isEmpty` /
+///    `.isPresent`.
+pub(crate) fn render_test_file_android(
+    category: &str,
+    fixtures: &[&Fixture],
+    class_name: &str,
+    function_name: &str,
+    kotlin_pkg_id: &str,
+    result_var: &str,
+    args: &[crate::config::ArgMapping],
+    options_type: Option<&str>,
+    field_resolver: &FieldResolver,
+    result_is_simple: bool,
+    enum_fields: &HashSet<String>,
+    e2e_config: &E2eConfig,
+    type_enum_fields: &std::collections::HashMap<String, HashSet<String>>,
+) -> String {
+    render_test_file_inner(
+        category,
+        fixtures,
+        class_name,
+        function_name,
+        kotlin_pkg_id,
+        result_var,
+        args,
+        options_type,
+        field_resolver,
+        result_is_simple,
+        enum_fields,
+        e2e_config,
+        type_enum_fields,
+        true,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_test_file_inner(
+    category: &str,
+    fixtures: &[&Fixture],
+    class_name: &str,
+    function_name: &str,
+    kotlin_pkg_id: &str,
+    result_var: &str,
+    args: &[crate::config::ArgMapping],
+    options_type: Option<&str>,
+    field_resolver: &FieldResolver,
+    result_is_simple: bool,
+    enum_fields: &HashSet<String>,
+    e2e_config: &E2eConfig,
+    type_enum_fields: &std::collections::HashMap<String, HashSet<String>>,
+    kotlin_android_style: bool,
+) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
     let test_class_name = format!("{}Test", sanitize_filename(category).to_upper_camel_case());
@@ -577,7 +659,7 @@ pub(crate) fn render_test_file(
     let _ = writeln!(out, "import kotlin.test.assertTrue");
     let _ = writeln!(out, "import kotlin.test.assertFalse");
     let _ = writeln!(out, "import kotlin.test.assertFailsWith");
-    if has_client_factory_fixtures {
+    if has_client_factory_fixtures || kotlin_android_style {
         let _ = writeln!(out, "import kotlinx.coroutines.runBlocking");
     }
     // Effective binding package for FQN imports. When the binding `class_name` is
@@ -673,6 +755,7 @@ pub(crate) fn render_test_file(
             enum_fields,
             e2e_config,
             type_enum_fields,
+            kotlin_android_style,
         );
         let _ = writeln!(out);
     }
@@ -921,6 +1004,7 @@ fn render_http_test_method(out: &mut String, fixture: &Fixture, http: &HttpFixtu
 }
 
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 fn render_test_method(
     out: &mut String,
     fixture: &Fixture,
@@ -934,6 +1018,7 @@ fn render_test_method(
     enum_fields: &HashSet<String>,
     e2e_config: &E2eConfig,
     type_enum_fields: &std::collections::HashMap<String, HashSet<String>>,
+    kotlin_android_style: bool,
 ) {
     // Delegate HTTP fixtures to the HTTP-specific renderer.
     if let Some(http) = &fixture.http {
@@ -1059,7 +1144,7 @@ fn render_test_method(
     let enum_fields: &HashSet<String> = &effective_enum_fields;
 
     let _ = writeln!(out, "    @Test");
-    if client_factory.is_some() {
+    if client_factory.is_some() || kotlin_android_style {
         let _ = writeln!(out, "    fun test{method_name}() = runBlocking {{");
     } else {
         let _ = writeln!(out, "    fun test{method_name}() {{");
@@ -1144,6 +1229,7 @@ fn render_test_method(
                 enum_fields,
                 &e2e_config.fields_c_types,
                 is_streaming,
+                kotlin_android_style,
             );
         }
         let _ = writeln!(out, "        client.close()");
@@ -1190,6 +1276,7 @@ fn render_test_method(
             enum_fields,
             &e2e_config.fields_c_types,
             is_streaming,
+            kotlin_android_style,
         );
     }
 
@@ -1388,6 +1475,7 @@ fn render_assertion(
     enum_fields: &HashSet<String>,
     fields_c_types: &std::collections::HashMap<String, String>,
     is_streaming: bool,
+    kotlin_android_style: bool,
 ) {
     // In streaming context, `usage` and `usage.*` fields must be read from the
     // last collected chunk, not from the stream iterator (which has no `usage()` method).
@@ -1671,15 +1759,23 @@ fn render_assertion(
             // and matches the Java codegen's `Optional.ofNullable(...).isEmpty()`.
             // When the bare result is `T?` (result_is_option) the same null-check
             // applies, because `.isEmpty()` is undefined on arbitrary nullable types.
-            // The Kotlin e2e tests call the Java facade class which returns
+            // The JVM Kotlin e2e tests call the Java facade class which returns
             // `java.util.Optional<T>` for option results — use `.isPresent` rather
             // than `!= null` so the assertion semantics match the JVM return type.
+            // The kotlin-android wrapper unwraps `Optional<T>` to Kotlin's `T?`
+            // at the boundary, so its bare-option result is a nullable reference
+            // and must use `!= null` instead.
             let bare_result_is_option =
                 result_is_option && assertion.field.as_deref().filter(|f| !f.is_empty()).is_none();
-            if bare_result_is_option {
+            if bare_result_is_option && !kotlin_android_style {
                 let _ = writeln!(
                     out,
                     "        assertTrue({field_expr}.isPresent, \"expected non-empty value\")"
+                );
+            } else if bare_result_is_option {
+                let _ = writeln!(
+                    out,
+                    "        assertTrue({field_expr} != null, \"expected non-empty value\")"
                 );
             } else if field_is_optional {
                 let _ = writeln!(
@@ -1696,10 +1792,15 @@ fn render_assertion(
         "is_empty" => {
             let bare_result_is_option =
                 result_is_option && assertion.field.as_deref().filter(|f| !f.is_empty()).is_none();
-            if bare_result_is_option {
+            if bare_result_is_option && !kotlin_android_style {
                 let _ = writeln!(
                     out,
                     "        assertTrue({field_expr}.isEmpty, \"expected empty value\")"
+                );
+            } else if bare_result_is_option {
+                let _ = writeln!(
+                    out,
+                    "        assertTrue({field_expr} == null, \"expected empty value\")"
                 );
             } else if field_is_optional {
                 let _ = writeln!(
@@ -1934,6 +2035,7 @@ mod tests {
             &enum_fields,
             &HashMap::new(),
             false,
+            false,
         );
         assert!(
             out.contains("result.choices().first().finishReason()?.getValue().orEmpty().trim()"),
@@ -1981,6 +2083,7 @@ mod tests {
             false,
             &enum_fields,
             &HashMap::new(),
+            false,
             false,
         );
         assert!(
@@ -2034,6 +2137,7 @@ mod tests {
             &global_enum_fields,
             &HashMap::new(),
             false,
+            false,
         );
         assert!(
             !out_no_merge.contains(".getValue()"),
@@ -2052,6 +2156,7 @@ mod tests {
             false,
             &per_call_enum_fields,
             &HashMap::new(),
+            false,
             false,
         );
         assert!(
@@ -2199,6 +2304,7 @@ mod tests {
             false,
             batch_enum_fields,
             &HashMap::new(),
+            false,
             false,
         );
         assert!(

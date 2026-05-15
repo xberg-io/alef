@@ -189,7 +189,7 @@ impl E2eCodegen for KotlinAndroidE2eCodegen {
             }
 
             let class_file_name = format!("{}Test.kt", sanitize_filename(&group.category).to_upper_camel_case());
-            let content = kotlin::render_test_file(
+            let content = kotlin::render_test_file_android(
                 &group.category,
                 &active,
                 &class_name,

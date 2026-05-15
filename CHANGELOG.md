@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-backend-kotlin-android**: alias the Kotlin wrapper's `Bridge`
+  import to the `Rs`-suffixed Java facade class (e.g.
+  `dev.kreuzberg.KreuzbergRs`) instead of the unsuffixed module name. When
+  the Kotlin `object` wrapper shares its simple name with the Java facade
+  (both `Kreuzberg`, same package), aliasing `Bridge` to the short name
+  resolves back to the Kotlin object itself, producing infinite recursion
+  or unresolved members (`Bridge.getEmbeddingPreset(name).orElse(null)`
+  failed because the Kotlin wrapper's `getEmbeddingPreset` returns the
+  unwrapped `EmbeddingPreset?` and does not have `.orElse`). The
+  `Rs`-suffixed alias matches the Java backend's `resolve_main_class`
+  convention and guarantees `Bridge.*` calls hit the JNI layer.
+- **alef-e2e (kotlin_android)**: wrap every emitted `@Test` body in
+  `runBlocking { ... }` and emit nullable `T?` (`== null` / `!= null`)
+  rather than `Optional<T>` (`.isEmpty` / `.isPresent`) for bare
+  option-returning calls. The kotlin-android AAR exposes most extraction
+  entry points as `suspend fun` and unwraps Java `Optional<T>` to Kotlin
+  `T?` at the boundary, so the JVM-Kotlin emission style produced 26
+  `Suspend function ... can only be called from a coroutine` errors and
+  one `Unresolved reference 'isEmpty'` error on every regeneration.
 - **alef-e2e (zig)**: pin `.use_llvm = true` on every emitted
   `b.addTest(.{...})` block and add a matching `b.installArtifact(...)`
   call before the run step. Zig 0.16 defaults the self-hosted aarch64

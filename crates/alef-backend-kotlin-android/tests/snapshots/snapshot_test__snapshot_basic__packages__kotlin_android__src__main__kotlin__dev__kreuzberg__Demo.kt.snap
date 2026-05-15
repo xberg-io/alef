@@ -6,7 +6,7 @@ expression: "&file.content"
 
 package dev.kreuzberg
 
-import dev.kreuzberg.Demo as Bridge
+import dev.kreuzberg.DemoRs as Bridge
 
 object Demo {
     init { System.loadLibrary("demo_ffi") }
