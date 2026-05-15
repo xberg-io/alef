@@ -973,7 +973,7 @@ fn emit_visitor_test_body(
     let _ = writeln!(out);
 
     // 1. Per-fixture visitor struct + callbacks table.
-    let visitor_block = super::zig_visitors::build_zig_visitor(fixture_id, visitor_spec);
+    let visitor_block = super::zig_visitors::build_zig_visitor(fixture_id, module_name, visitor_spec);
     out.push_str(&visitor_block);
 
     // 2. Materialise the visitor handle (HtmVisitor opaque, attached via

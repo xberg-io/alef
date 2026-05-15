@@ -1,7 +1,7 @@
 //! Zig visitor vtable emission for e2e test callbacks.
 //!
 //! Each visitor-bearing fixture emits a small `TestVisitor_<id>` struct
-//! exposing one `callconv(.C)` thunk per fixture-configured callback. The
+//! exposing one `callconv(.c)` thunk per fixture-configured callback. The
 //! thunks return an `i32` discriminator (`0=Continue`, `1=Skip`,
 //! `2=PreserveHtml`, `3=Custom`) and, for the `Custom` path, allocate a
 //! heap-owned UTF-8 buffer that is written back through the
@@ -25,76 +25,76 @@ use std::fmt::Write as FmtWrite;
 fn callback_params(method: &str) -> &'static str {
     match method {
         "visit_text" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _text: [*c]const u8, out_custom: [*c]?[*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _text: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_element_start" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, out_custom: [*c]?[*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_element_end" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _output: [*c]const u8, out_custom: [*c]?[*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _output: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_link" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _href: [*c]const u8, _text: [*c]const u8, _title: [*c]const u8, out_custom: [*c]?[*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _href: [*c]const u8, _text: [*c]const u8, _title: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_image" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _src: [*c]const u8, _alt: [*c]const u8, _title: [*c]const u8, out_custom: [*c]?[*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _src: [*c]const u8, _alt: [*c]const u8, _title: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_heading" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _level: u32, _text: [*c]const u8, _id: [*c]const u8, out_custom: [*c]?[*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _level: u32, _text: [*c]const u8, _id: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_code_block" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _lang: [*c]const u8, _code: [*c]const u8, out_custom: [*c]?[*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _lang: [*c]const u8, _code: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_code_inline" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _code: [*c]const u8, out_custom: [*c]?[*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _code: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_list_item" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _ordered: i32, _marker: [*c]const u8, _text: [*c]const u8, out_custom: [*c]?[*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _ordered: i32, _marker: [*c]const u8, _text: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_list_start" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _ordered: i32, out_custom: [*c]?[*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _ordered: i32, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_list_end" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _ordered: i32, _output: [*c]const u8, out_custom: [*c]?[*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _ordered: i32, _output: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_table_start" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, out_custom: [*c]?[*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_table_row" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _cells: [*c]const [*c]const u8, _cell_count: usize, _is_header: i32, out_custom: [*c]?[*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _cells: [*c]const [*c]const u8, _cell_count: usize, _is_header: i32, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_table_end" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _output: [*c]const u8, out_custom: [*c]?[*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _output: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_blockquote" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _content: [*c]const u8, _depth: usize, out_custom: [*c]?[*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _content: [*c]const u8, _depth: usize, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_line_break" | "visit_horizontal_rule" | "visit_definition_list_start" | "visit_figure_start" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, out_custom: [*c]?[*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_custom_element" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _tag_name: [*c]const u8, _html: [*c]const u8, out_custom: [*c]?[*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _tag_name: [*c]const u8, _html: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_form" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _action: [*c]const u8, _method: [*c]const u8, out_custom: [*c]?[*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _action: [*c]const u8, _method: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_input" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _input_type: [*c]const u8, _name: [*c]const u8, _value: [*c]const u8, out_custom: [*c]?[*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _input_type: [*c]const u8, _name: [*c]const u8, _value: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_audio" | "visit_video" | "visit_iframe" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _src: [*c]const u8, out_custom: [*c]?[*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _src: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_details" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _open: i32, out_custom: [*c]?[*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _open: i32, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_figure_end" | "visit_definition_list_end" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _output: [*c]const u8, out_custom: [*c]?[*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _output: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         // Default: single text payload (covers visit_strong/emphasis/strikethrough/
         // underline/subscript/superscript/mark/button/summary/figcaption/
         // definition_term/definition_description).
         _ => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _text: [*c]const u8, out_custom: [*c]?[*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _text: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
     }
 }
@@ -106,8 +106,19 @@ fn callback_body(method: &str, action: &CallbackAction) -> String {
     let _ = writeln!(out, "        _ = _ctx;");
     let _ = writeln!(out, "        _ = _user_data;");
     // Silence each typed parameter that the action body does not use.
+    // For `CustomTemplate` we skip placeholders that appear in the template
+    // (those will be referenced inside the format-args tuple).
+    let used_by_action: std::collections::HashSet<String> = match action {
+        CallbackAction::CustomTemplate { template, .. } => template_to_zig_fmt(template).1.into_iter().collect(),
+        _ => std::collections::HashSet::new(),
+    };
     let unused = unused_params_for(method);
     for name in &unused {
+        // `name` is e.g. "_text"; the placeholder key is "text".
+        let stripped = name.trim_start_matches('_');
+        if used_by_action.contains(stripped) {
+            continue;
+        }
         let _ = writeln!(out, "        _ = {name};");
     }
 
@@ -133,8 +144,8 @@ fn callback_body(method: &str, action: &CallbackAction) -> String {
                 out,
                 "        const _buf = std.heap.c_allocator.dupeZ(u8, \"{escaped}\") catch return 0;"
             );
-            let _ = writeln!(out, "        if (out_custom) |p| p.* = _buf.ptr;");
-            let _ = writeln!(out, "        if (out_len) |p| p.* = _buf.len;");
+            let _ = writeln!(out, "        if (out_custom != null) out_custom.* = _buf.ptr;");
+            let _ = writeln!(out, "        if (out_len != null) out_len.* = _buf.len;");
             let _ = writeln!(out, "        return 3;");
         }
         CallbackAction::CustomTemplate { template, .. } => {
@@ -157,8 +168,8 @@ fn callback_body(method: &str, action: &CallbackAction) -> String {
                 out,
                 "        const _buf = std.fmt.allocPrintSentinel(std.heap.c_allocator, \"{escaped_fmt}\", {placeholder_args}, 0) catch return 0;"
             );
-            let _ = writeln!(out, "        if (out_custom) |p| p.* = _buf.ptr;");
-            let _ = writeln!(out, "        if (out_len) |p| p.* = _buf.len;");
+            let _ = writeln!(out, "        if (out_custom != null) out_custom.* = _buf.ptr;");
+            let _ = writeln!(out, "        if (out_len != null) out_len.* = _buf.len;");
             let _ = writeln!(out, "        return 3;");
         }
     }
@@ -298,9 +309,13 @@ fn escape_zig_string(s: &str) -> String {
 /// source as a single multi-line string ready to splice into the test
 /// body. The caller is expected to bracket the test with
 /// `defer c.htm_visitor_free(_visitor);`.
-pub(super) fn build_zig_visitor(fixture_id: &str, spec: &VisitorSpec) -> String {
+pub(super) fn build_zig_visitor(fixture_id: &str, module_name: &str, spec: &VisitorSpec) -> String {
     let struct_id = fixture_id.to_snake_case();
     let mut out = String::new();
+    // Local `c` alias so the per-fixture thunk signatures can name C struct
+    // types (`c.HTMHtmNodeContext`, `c.HTMHtmVisitorCallbacks`) without
+    // re-importing the cbindgen header at file scope.
+    let _ = writeln!(out, "    const c = {module_name}.c;");
     // Per-fixture container struct with one pub thunk per fixture-configured method.
     let _ = writeln!(out, "    const TestVisitor_{struct_id} = struct {{");
     // Stable iteration order: sort callback names alphabetically.
@@ -309,7 +324,7 @@ pub(super) fn build_zig_visitor(fixture_id: &str, spec: &VisitorSpec) -> String 
     for (method, action) in &callbacks {
         let params = callback_params(method);
         let body = callback_body(method, action);
-        let _ = writeln!(out, "        pub fn {method}({params}) callconv(.C) i32 {{");
+        let _ = writeln!(out, "        pub fn {method}({params}) callconv(.c) i32 {{");
         out.push_str(&body);
         let _ = writeln!(out, "        }}");
     }

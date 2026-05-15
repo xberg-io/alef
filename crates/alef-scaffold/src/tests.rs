@@ -1485,10 +1485,11 @@ fn test_scaffold_kotlin() {
         "publication artifactId override missing; got:\n{}",
         files[0].content
     );
-    // JDK 25 is the minimum (FFM finalized).
+    // Kotlin/JVM targets JDK 21 (KOTLIN_JVM_TARGET); JDK 25 is reserved for
+    // the Java/Panama backend via JAVA_JVM_TARGET.
     assert!(
-        files[0].content.contains("JavaVersion.VERSION_25") && files[0].content.contains("JvmTarget.JVM_25"),
-        "build.gradle.kts must target JDK 25; got:\n{}",
+        files[0].content.contains("JavaVersion.VERSION_21") && files[0].content.contains("JvmTarget.JVM_21"),
+        "build.gradle.kts must target JDK 21; got:\n{}",
         files[0].content
     );
     assert_eq!(files[1].path, PathBuf::from("packages/kotlin/settings.gradle.kts"));

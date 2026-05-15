@@ -1874,8 +1874,8 @@ fn test_gen_sync_method_body_with_error_uses_map_err() {
         "fallible method should have map_err for error conversion"
     );
     assert!(
-        body.contains("KreuzbergError::Plugin"),
-        "error should map to KreuzbergError::Plugin"
+        body.contains("Error::from("),
+        "error path should call the configured error_constructor"
     );
 }
 
@@ -1970,8 +1970,8 @@ fn test_gen_async_method_body_unit_return() {
         "async unit return should map result to ()"
     );
     assert!(
-        body.contains("KreuzbergError::Plugin"),
-        "async unit return with error should produce KreuzbergError::Plugin"
+        body.contains("Error::from("),
+        "async unit return error path should call the configured error_constructor"
     );
 }
 
