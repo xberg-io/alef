@@ -319,6 +319,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `newtype_wrapper` is set, matching the scalar-primitive branch.
   (`crates/alef-backend-dart/src/gen_rust_crate/mod.rs`)
 
+- **kotlin-android e2e: emit `import kotlinx.coroutines.flow.toList` for
+  streaming test files**: `render_test_file_inner` with `kotlin_android_style=true`
+  now detects whether any fixture in the generated file is a streaming call and, if
+  so, emits the `import kotlinx.coroutines.flow.toList` statement. Without it,
+  `Flow<T>.toList()` is an unresolved reference in Kotlin 1.x/2.x — the
+  extension is not part of the Flow API surface without the explicit import.
+  Regression test `kotlin_android_streaming_fixture_emits_flow_to_list_import` in
+  `crates/alef-e2e/src/codegen/kotlin.rs`.
+  (`crates/alef-e2e/src/codegen/kotlin.rs`)
+
+- **kotlin-android e2e: emit `registerKotlinModule()` on ObjectMapper and add
+  `jackson-module-kotlin` dependency**: `render_test_file_inner` with
+  `kotlin_android_style=true` now imports
+  `com.fasterxml.jackson.module.kotlin.registerKotlinModule` and appends
+  `.registerKotlinModule()` to the companion-object `MAPPER` initialiser.
+  `render_build_gradle_kotlin_android` now includes
+  `testImplementation("com.fasterxml.jackson.module:jackson-module-kotlin:{jackson}")`.
+  Plain Jackson cannot deserialise Kotlin data classes (which have no no-arg
+  constructor) without this module, producing `InvalidDefinitionException` at
+  runtime. Regression tests `kotlin_android_object_mapper_emits_register_kotlin_module`
+  in `crates/alef-e2e/src/codegen/kotlin.rs` and
+  `build_gradle_kotlin_android_includes_jackson_module_kotlin` in
+  `crates/alef-e2e/src/codegen/kotlin_android.rs`.
+  (`crates/alef-e2e/src/codegen/kotlin.rs`,
+  `crates/alef-e2e/src/codegen/kotlin_android.rs`)
+
+- **kotlin-android bindings: emit `@JsonDeserialize` + custom deserializer for
+  serde-tagged and serde-untagged sealed classes**: `emit_enum` in
+  `alef-backend-kotlin` now detects enums with `serde_tag` (internally-tagged,
+  e.g. `Message` with `#[serde(tag = "role")]`) or `serde_untagged` (e.g.
+  `EmbeddingInput`, `RerankDocument`) and emits a `@JsonDeserialize(using =
+  XxxDeserializer::class)` annotation on the sealed class plus a private
+  `StdDeserializer<T>` subclass. The tagged deserializer reads the discriminant
+  field from an `ObjectNode` and delegates to `ctx.readTreeAsValue(node,
+  VariantPayload::class.java)`; the untagged deserializer branches on
+  `node.isTextual` / `node.isArray` / `node.isObject`. Without this, Jackson
+  throws `InvalidDefinitionException: Cannot construct instance of sealed class`
+  when tests call `MAPPER.readValue(...)` against any of these types.
+  Regression tests `emit_enum_tagged_sealed_class_emits_json_deserialize_annotation`,
+  `emit_enum_untagged_sealed_class_emits_json_deserialize_annotation`, and
+  `emit_enum_unit_only_does_not_emit_json_deserialize` in
+  `crates/alef-backend-kotlin/src/gen_bindings/object_wrapper.rs`.
+  (`crates/alef-backend-kotlin/src/gen_bindings/object_wrapper.rs`,
+  `crates/alef-backend-kotlin/Cargo.toml`)
+
 ## [0.16.6] - 2026-05-15
 
 ### Added
