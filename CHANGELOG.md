@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef e2e generate (rust)**: replace `cargo sort .` with `taplo fmt Cargo.toml`
+  in the default rust e2e formatter, and unconditionally run taplo as a post-pass
+  on the e2e crate's `Cargo.toml` regardless of user override. `cargo sort` was
+  silently corrupting the e2e crate manifest by relocating the leading alef
+  header comments to the bottom of the file (cargo-sort treats the empty
+  `[workspace]` table at the file top as the first section and detaches
+  preceding free comments). The relocation pushed the embedded `# alef:hash:`
+  line past the 10-line detection window used by
+  `alef_core::hash::{extract_hash, inject_hash_line}`, so `alef verify` could
+  no longer find the hash and silently treated the file as fresh. Worse, when
+  downstream `prek` ran taplo on the manifest, the file got reformatted after
+  `finalize_hashes` had captured the pre-prek content, leaving
+  `e2e/rust/Cargo.toml` flagged as stale by `alef-verify`. Taplo preserves the
+  alef header at the top of the file and only normalises array wrapping and
+  whitespace, which keeps verification working and makes prek's taplo hook a
+  no-op.
+- **alef generate --format (wasm/ffi rust binding crates)**: extend the TOML
+  format pipeline to run `taplo fmt` after `cargo sort` so downstream `prek`
+  setups that include a taplo hook reformat nothing after generation.
+  Previously only `cargo sort` ran for these crates' `Cargo.toml`, leaving
+  array wrapping/indentation at the cargo-sort default; a subsequent
+  `taplo fmt` (run by prek or by the consumer's own CI) would rewrite the
+  manifest and invalidate the embedded `# alef:hash:` line. Wasm/FFI Cargo.toml
+  files are safe to cargo-sort because their alef header is followed
+  immediately by `[package]` (no leading `[workspace]` sentinel to trigger
+  cargo-sort's section reordering).
 - **alef-codegen / all backends**: restore canonical `https://github.com/kreuzberg-dev/alef`
   URL in generated file headers; 0.16.0 introduced a `https://example.invalid/alef`
   placeholder by mistake. Affects every emitted artifact's `Issues & docs:` line.
