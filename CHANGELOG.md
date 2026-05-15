@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.16.0] - [Unreleased]
+## [0.16.1] - 2026-05-14
 
 ### Added
 
@@ -18,6 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-docs (kotlin_android)**: emit `api-kotlin-android.md` with title
+  "Kotlin (Android) API Reference" for the `kotlin_android` workspace language
+  slug. Previously both `kotlin` and `kotlin_android` shared the same
+  `api-kotlin.md` filename and "Kotlin API Reference" title, which collided
+  when a workspace targets the Android variant only — the JVM-Kotlin doc
+  would still appear alongside the Android one. Slug and display name now
+  diverge while the code-fence language stays `kotlin` (what syntax
+  highlighters expect).
 - **alef e2e generate (python)**: preserve newlines in generated HTTP fixture
   tests. Whitespace-trimming Jinja blocks in `python/http_test.jinja` could
   concatenate adjacent statements such as `_headers = {}` and `_req = ...`,

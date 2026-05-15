@@ -83,6 +83,11 @@ impl E2eCodegen for DartE2eCodegen {
         // One test file per fixture group.
         let bridge_class = config.dart_bridge_class_name();
 
+        // FRB places its generated dart code under `lib/src/{module_name}_bridge_generated/`,
+        // where `module_name` is the snake_cased crate name (e.g. `html_to_markdown_rs`).
+        // This is independent of the pubspec `name` (which may be a short alias like `h2m`).
+        let frb_module_name = config.name.replace('-', "_");
+
         // Methods declared as `stub_methods` in `[crates.dart]` cannot be bridged through
         // FRB and have `unimplemented!()` bodies on the Rust side. Emitting e2e tests for
         // these fixtures would result in `PanicException` at run-time. Filter them out
@@ -115,7 +120,15 @@ impl E2eCodegen for DartE2eCodegen {
             }
 
             let filename = format!("{}_test.dart", sanitize_filename(&group.category));
-            let content = render_test_file(&group.category, &active, e2e_config, lang, &pkg_name, &bridge_class);
+            let content = render_test_file(
+                &group.category,
+                &active,
+                e2e_config,
+                lang,
+                &pkg_name,
+                &frb_module_name,
+                &bridge_class,
+            );
             files.push(GeneratedFile {
                 path: test_base.join(filename),
                 content,
@@ -178,6 +191,7 @@ fn render_test_file(
     e2e_config: &E2eConfig,
     lang: &str,
     pkg_name: &str,
+    frb_module_name: &str,
     bridge_class: &str,
 ) -> String {
     let mut out = String::new();
@@ -237,16 +251,24 @@ fn render_test_file(
     });
 
     let _ = writeln!(out, "import 'package:test/test.dart';");
-    let _ = writeln!(out, "import 'dart:io';");
+    // `dart:io` provides HttpClient/SocketException (HTTP fixtures) and Platform/Directory
+    // (file-path/bytes fixtures requiring chdir). Skip the import when neither set is in
+    // play — unconditional emission triggers `unused_import` warnings.
+    if has_http_fixtures || needs_chdir {
+        let _ = writeln!(out, "import 'dart:io';");
+    }
     if has_batch_byte_items {
         let _ = writeln!(out, "import 'dart:typed_data';");
     }
     let _ = writeln!(out, "import 'package:{pkg_name}/{pkg_name}.dart';");
     // RustLib is the flutter_rust_bridge entrypoint; must be initialized before any FRB call.
-    // It lives in the FRB-generated frb_generated.dart inside `{pkg_name}_bridge_generated/`.
+    // FRB places its generated dart sources under `lib/src/{module_name}_bridge_generated/`,
+    // where `module_name` is the snake_cased crate name (independent of the pubspec `name`,
+    // which may be a short alias like `h2m`). `lib.dart` re-exports `RustLib` so we can
+    // import the package-public barrel rather than the internal `frb_generated.dart`.
     let _ = writeln!(
         out,
-        "import 'package:{pkg_name}/src/{pkg_name}_bridge_generated/frb_generated.dart' show RustLib;"
+        "import 'package:{pkg_name}/src/{frb_module_name}_bridge_generated/lib.dart' show RustLib;"
     );
     if has_http_fixtures {
         let _ = writeln!(out, "import 'dart:async';");
@@ -808,6 +830,27 @@ fn render_test_case(
     let _ = writeln!(out);
 }
 
+/// Render `.length` / `?.length ?? 0` against a Dart field accessor.
+///
+/// Count-style assertions (`count_equals`, `count_min`, `min_length`, `max_length`)
+/// operate on collection-typed fields. FRB v2 maps `Option<Vec<T>>` to `List<T>?`
+/// (nullable) but `Vec<T>` to `List<T>` (non-null). Emitting `?.length ?? 0`
+/// against a non-null receiver triggers `invalid_null_aware_operator`. Inspect
+/// the IR via `FieldResolver::is_optional` and choose the safe form per field.
+fn dart_length_expr(field_accessor: &str, field: Option<&str>, field_resolver: &FieldResolver) -> String {
+    let is_optional = field
+        .map(|f| {
+            let resolved = field_resolver.resolve(f);
+            field_resolver.is_optional(f) || field_resolver.is_optional(resolved)
+        })
+        .unwrap_or(false);
+    if is_optional {
+        format!("{field_accessor}?.length ?? 0")
+    } else {
+        format!("{field_accessor}.length")
+    }
+}
+
 fn dart_format_value(val: &serde_json::Value) -> String {
     match val {
         serde_json::Value::String(s) => format!("'{}'", escape_dart(s)),
@@ -1053,40 +1096,32 @@ fn render_assertion_dart(
         "min_length" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    // Use `?.length ?? 0` so a null receiver (FRB v2 maps
-                    // Rust `Option<Vec<T>>` to dart `List<T>?`) still yields
-                    // an int for the matcher.
-                    let _ = writeln!(
-                        out,
-                        "    expect({field_accessor}?.length ?? 0, greaterThanOrEqualTo({n}));"
-                    );
+                    let length_expr = dart_length_expr(&field_accessor, assertion.field.as_deref(), field_resolver);
+                    let _ = writeln!(out, "    expect({length_expr}, greaterThanOrEqualTo({n}));");
                 }
             }
         }
         "max_length" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(
-                        out,
-                        "    expect({field_accessor}?.length ?? 0, lessThanOrEqualTo({n}));"
-                    );
+                    let length_expr = dart_length_expr(&field_accessor, assertion.field.as_deref(), field_resolver);
+                    let _ = writeln!(out, "    expect({length_expr}, lessThanOrEqualTo({n}));");
                 }
             }
         }
         "count_equals" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(out, "    expect({field_accessor}?.length ?? 0, equals({n}));");
+                    let length_expr = dart_length_expr(&field_accessor, assertion.field.as_deref(), field_resolver);
+                    let _ = writeln!(out, "    expect({length_expr}, equals({n}));");
                 }
             }
         }
         "count_min" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(
-                        out,
-                        "    expect({field_accessor}?.length ?? 0, greaterThanOrEqualTo({n}));"
-                    );
+                    let length_expr = dart_length_expr(&field_accessor, assertion.field.as_deref(), field_resolver);
+                    let _ = writeln!(out, "    expect({length_expr}, greaterThanOrEqualTo({n}));");
                 }
             }
         }

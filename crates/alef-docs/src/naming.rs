@@ -15,7 +15,8 @@ pub(crate) fn lang_display_name(lang: Language) -> &'static str {
         Language::Wasm => "WebAssembly",
         Language::R => "R",
         Language::Rust => "Rust",
-        Language::Kotlin | Language::KotlinAndroid => "Kotlin",
+        Language::Kotlin => "Kotlin",
+        Language::KotlinAndroid => "Kotlin (Android)",
         Language::Swift => "Swift",
         Language::Dart => "Dart",
         Language::Gleam => "Gleam",
@@ -38,7 +39,8 @@ pub(crate) fn lang_slug(lang: Language) -> &'static str {
         Language::Wasm => "wasm",
         Language::R => "r",
         Language::Rust => "rust",
-        Language::Kotlin | Language::KotlinAndroid => "kotlin",
+        Language::Kotlin => "kotlin",
+        Language::KotlinAndroid => "kotlin-android",
         Language::Swift => "swift",
         Language::Dart => "dart",
         Language::Gleam => "gleam",
@@ -265,6 +267,28 @@ mod tests {
             type_name("ConversionResult", Language::Ffi, TEST_PREFIX),
             "HtmConversionResult"
         );
+    }
+
+    #[test]
+    fn test_lang_slug_kotlin_vs_kotlin_android() {
+        // JVM Kotlin keeps the bare `kotlin` slug; the Android target gets its own slug so
+        // both can coexist as sibling api-*.md docs in the same workspace.
+        assert_eq!(lang_slug(Language::Kotlin), "kotlin");
+        assert_eq!(lang_slug(Language::KotlinAndroid), "kotlin-android");
+    }
+
+    #[test]
+    fn test_lang_display_name_kotlin_vs_kotlin_android() {
+        assert_eq!(lang_display_name(Language::Kotlin), "Kotlin");
+        assert_eq!(lang_display_name(Language::KotlinAndroid), "Kotlin (Android)");
+    }
+
+    #[test]
+    fn test_lang_code_fence_kotlin_android_uses_kotlin() {
+        // The code-fence language stays `kotlin` because that's what syntax highlighters expect —
+        // only the doc filename and human-readable title need to differ.
+        assert_eq!(lang_code_fence(Language::Kotlin), "kotlin");
+        assert_eq!(lang_code_fence(Language::KotlinAndroid), "kotlin");
     }
 }
 

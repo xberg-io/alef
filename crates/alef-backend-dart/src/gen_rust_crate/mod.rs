@@ -1003,8 +1003,6 @@ fn enum_variant_field_conv_to_core(binding: &str, field: &FieldDef) -> String {
                 } else {
                     format!("{binding}.into()")
                 }
-            } else if field.optional {
-                binding.to_string()
             } else {
                 binding.to_string()
             }
@@ -1185,11 +1183,7 @@ fn field_from_expr_to_core(field: &FieldDef, _source_crate_name: &str) -> String
                 }
                 TypeRef::String if !matches!(field.vec_inner_core_wrapper, CoreWrapper::Cow) => {
                     // Vec<String> → Vec<String>: identity move (clippy::useless_conversion).
-                    if field.optional {
-                        format!("v.{name}")
-                    } else {
-                        format!("v.{name}")
-                    }
+                    format!("v.{name}")
                 }
                 _ => {
                     if field.optional {
