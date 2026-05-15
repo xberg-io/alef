@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **alef-backend-go**: honor FFI and Go `exclude_types` settings when
   generating bindings, including functions and methods whose signatures
   reference excluded types.
+- **alef-backend-java**: honor FFI and Java `exclude_types` settings when
+  generating Panama bindings, including record fields, functions, and methods
+  whose signatures reference excluded types.
 
 ## [0.16.3] - 2026-05-15
 

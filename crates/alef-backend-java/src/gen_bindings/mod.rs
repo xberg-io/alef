@@ -39,6 +39,59 @@ impl JavaBackend {
     }
 }
 
+fn effective_exclude_types(config: &ResolvedCrateConfig) -> HashSet<String> {
+    let mut exclude_types: HashSet<String> = config
+        .ffi
+        .as_ref()
+        .map(|ffi| ffi.exclude_types.iter().cloned().collect())
+        .unwrap_or_default();
+    if let Some(java) = &config.java {
+        exclude_types.extend(java.exclude_types.iter().cloned());
+    }
+    exclude_types
+}
+
+fn references_excluded_type(ty: &TypeRef, exclude_types: &HashSet<String>) -> bool {
+    exclude_types.iter().any(|name| ty.references_named(name))
+}
+
+fn signature_references_excluded_type(
+    params: &[alef_core::ir::ParamDef],
+    return_type: &TypeRef,
+    exclude_types: &HashSet<String>,
+) -> bool {
+    references_excluded_type(return_type, exclude_types)
+        || params
+            .iter()
+            .any(|param| references_excluded_type(&param.ty, exclude_types))
+}
+
+fn api_without_excluded_types(api: &ApiSurface, exclude_types: &HashSet<String>) -> ApiSurface {
+    let mut filtered = api.clone();
+    filtered.types.retain(|typ| !exclude_types.contains(&typ.name));
+    for typ in &mut filtered.types {
+        typ.fields
+            .retain(|field| !references_excluded_type(&field.ty, exclude_types));
+        typ.methods
+            .retain(|method| !signature_references_excluded_type(&method.params, &method.return_type, exclude_types));
+    }
+    filtered
+        .enums
+        .retain(|enum_def| !exclude_types.contains(&enum_def.name));
+    for enum_def in &mut filtered.enums {
+        for variant in &mut enum_def.variants {
+            variant
+                .fields
+                .retain(|field| !references_excluded_type(&field.ty, exclude_types));
+        }
+    }
+    filtered
+        .functions
+        .retain(|func| !signature_references_excluded_type(&func.params, &func.return_type, exclude_types));
+    filtered.errors.retain(|error| !exclude_types.contains(&error.name));
+    filtered
+}
+
 impl Backend for JavaBackend {
     fn name(&self) -> &str {
         "java"
@@ -60,6 +113,14 @@ impl Backend for JavaBackend {
     }
 
     fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+        let exclude_types = effective_exclude_types(config);
+        let filtered_api;
+        let api = if exclude_types.is_empty() {
+            api
+        } else {
+            filtered_api = api_without_excluded_types(api, &exclude_types);
+            &filtered_api
+        };
         let package = config.java_package();
         let prefix = config.ffi_prefix();
         let main_class = Self::resolve_main_class(api);

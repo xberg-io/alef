@@ -2,7 +2,8 @@ use alef_backend_java::JavaBackend;
 use alef_core::backend::Backend;
 use alef_core::config::{NewAlefConfig, ResolvedCrateConfig};
 use alef_core::ir::{
-    ApiSurface, EnumDef, EnumVariant, ErrorDef, FieldDef, FunctionDef, ParamDef, PrimitiveType, TypeDef, TypeRef,
+    ApiSurface, EnumDef, EnumVariant, ErrorDef, FieldDef, FunctionDef, MethodDef, ParamDef, PrimitiveType,
+    ReceiverKind, TypeDef, TypeRef,
 };
 
 fn resolved_one(toml: &str) -> ResolvedCrateConfig {
@@ -222,6 +223,114 @@ package = "com.example"
     assert!(enum_file.content.contains("public enum Mode"));
     assert!(enum_file.content.contains("Fast"));
     assert!(enum_file.content.contains("Accurate"));
+}
+
+#[test]
+fn test_ffi_excluded_types_are_not_generated_for_panama() {
+    let backend = JavaBackend;
+    let config = resolved_one(
+        r#"
+[workspace]
+languages = ["java", "ffi"]
+
+[[crates]]
+name = "test_lib"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "test"
+exclude_types = ["HiddenHandle"]
+
+[crates.java]
+package = "dev.example"
+"#,
+    );
+    let hidden_type = TypeDef {
+        name: "HiddenHandle".to_string(),
+        rust_path: "test_lib::HiddenHandle".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![],
+        is_opaque: true,
+        is_clone: false,
+        is_copy: false,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: "Hidden FFI handle.".to_string(),
+        cfg: None,
+    };
+    let visible_type = TypeDef {
+        name: "VisibleHandle".to_string(),
+        rust_path: "test_lib::VisibleHandle".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![MethodDef {
+            name: "hidden".to_string(),
+            params: vec![],
+            return_type: TypeRef::Named("HiddenHandle".to_string()),
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: "Returns the hidden handle.".to_string(),
+            receiver: Some(ReceiverKind::Ref),
+            sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            trait_source: None,
+        }],
+        is_opaque: true,
+        is_clone: false,
+        is_copy: false,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: "Visible FFI handle.".to_string(),
+        cfg: None,
+    };
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![hidden_type, visible_type],
+        functions: vec![FunctionDef {
+            name: "hidden_handle".to_string(),
+            rust_path: "test_lib::hidden_handle".to_string(),
+            original_rust_path: String::new(),
+            params: vec![],
+            return_type: TypeRef::Named("HiddenHandle".to_string()),
+            is_async: false,
+            error_type: None,
+            doc: "Returns the hidden handle.".to_string(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+
+    assert!(!files.iter().any(|file| file.path.ends_with("HiddenHandle.java")));
+    assert!(files.iter().any(|file| file.path.ends_with("VisibleHandle.java")));
+    for file in &files {
+        assert!(!file.content.contains("TEST_HIDDEN_HANDLE"));
+        assert!(!file.content.contains("TEST_VISIBLE_HANDLE_HIDDEN"));
+    }
 }
 
 #[test]
