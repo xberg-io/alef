@@ -132,12 +132,15 @@ fn emit_lib_rs(
             if !ty.is_trait {
                 continue;
             }
-            // Match the filter applied by `emit_trait_bridge`: only required methods
-            // (no `trait_source`, no `has_default_impl`) participate in the bridge.
-            // Skipping default-impl methods avoids re-exporting types referenced only
-            // there — e.g. `Option<&dyn SyncExtractor>` from `as_sync_extractor`.
+            // Match the filter applied by `emit_trait_bridge`: skip methods inherited
+            // from super-traits, AND skip methods whose return type references another
+            // trait (these are emitted as `Option<&dyn Trait>` in the source IR and the
+            // bridge cannot dispatch them — see `return_type_references_trait`).
+            // Default-impl methods that DO participate in the bridge still need their
+            // referenced types re-exported.
             for method in &ty.methods {
-                if method.trait_source.is_some() || method.has_default_impl {
+                if method.trait_source.is_some() || trait_bridge::return_type_references_trait(&method.return_type, api)
+                {
                     continue;
                 }
                 for p in &method.params {

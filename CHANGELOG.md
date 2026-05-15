@@ -27,6 +27,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-backend-dart**: skip trait methods whose return type references another
+  trait (e.g. `Option<&dyn SyncExtractor>` on `DocumentExtractor::as_sync_extractor`)
+  from the generated trait bridge. The IR flattens `&dyn Trait` /
+  `Option<&dyn Trait>` / `Box<dyn Trait>` to `TypeRef::Named(name)` — the
+  bridge cannot dispatch these methods (the foreign side can't construct a
+  Rust trait object across FFI) and the emitted `Option<TraitName>` is not
+  even valid Rust (rustc E0782 "expected a type, found a trait"). The
+  skipped method must have `has_default_impl = true` so the trait's
+  default impl handles the receiver. Surfaced by kreuzberg's
+  `DocumentExtractor::as_sync_extractor` breaking `cargo check -p kreuzberg-dart`
+  on Android/iOS targets.
 - **alef-backend-dart**: emit `.into()` on `String` / `Vec<String>` / `HashMap<String, _>`
   field conversions in generated `From` impls (both `core → mirror` and
   `mirror → core`). The IR collapses wrapped string types (`Box<str>`,

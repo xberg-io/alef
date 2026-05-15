@@ -46,7 +46,17 @@ pub(crate) fn emit_trait_bridge(
     // - Methods with `has_default_impl = true` are intentionally included: the bridge exists
     //   precisely to dispatch to Dart-side implementations. Relying on the Rust default impl
     //   would silently no-op every visitor/plugin callback (D8 fix).
-    let own_methods: Vec<&MethodDef> = trait_def.methods.iter().filter(|m| m.trait_source.is_none()).collect();
+    // - Methods whose return type references another trait (e.g. `Option<&dyn SyncExtractor>`)
+    //   are NOT bridgeable to Dart — the foreign side cannot construct or return a Rust
+    //   trait object across FFI. Skip them and let the Rust trait's default impl handle
+    //   the receiver. The skipped methods must have `has_default_impl = true`; otherwise
+    //   the emitted `impl Trait for Struct` will fail to compile because the required
+    //   method is missing.
+    let own_methods: Vec<&MethodDef> = trait_def
+        .methods
+        .iter()
+        .filter(|m| m.trait_source.is_none() && !return_type_references_trait(&m.return_type, api))
+        .collect();
 
     // Check if Plugin is a direct super-trait.
     let has_plugin_super = trait_def
@@ -563,4 +573,19 @@ fn emit_trait_bridge_method(
         }
     }
     out.push_str("    }\n");
+}
+
+/// Returns true if `ty` references a `Named(name)` at any depth where `name` resolves
+/// to a trait in `api.types`. Such methods return references to trait objects
+/// (`&dyn Trait`, `Option<&dyn Trait>`, `Box<dyn Trait>`) which the Rust IR flattens
+/// to `Named(name)`. They cannot be bridged to Dart — the foreign side has no way to
+/// construct or return a Rust trait object across FFI — so the trait-bridge generator
+/// skips them and falls back to the trait's default impl.
+pub(crate) fn return_type_references_trait(ty: &TypeRef, api: &ApiSurface) -> bool {
+    match ty {
+        TypeRef::Named(name) => api.types.iter().any(|t| t.is_trait && &t.name == name),
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => return_type_references_trait(inner, api),
+        TypeRef::Map(k, v) => return_type_references_trait(k, api) || return_type_references_trait(v, api),
+        _ => false,
+    }
 }
