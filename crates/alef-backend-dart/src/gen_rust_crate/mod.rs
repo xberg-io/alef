@@ -1031,20 +1031,46 @@ fn enum_variant_field_conv_to_core(binding: &str, field: &FieldDef) -> String {
     }
     match &field.ty {
         TypeRef::Named(_) => {
-            if field.optional {
-                format!("{binding}.map(Into::into)")
-            } else {
-                format!("{binding}.into()")
+            // Handle core wrappers: mirror has bare T but core may have Arc<T>, Box<T>.
+            // `From<T> for Arc<T>` / `From<T> for Box<T>` are not provided by std, so we
+            // must wrap explicitly. Mirrors the struct-field logic in
+            // `field_from_expr_to_core`.
+            match field.core_wrapper {
+                CoreWrapper::Arc | CoreWrapper::ArcMutex => {
+                    if field.optional {
+                        format!("{binding}.map(|x| std::sync::Arc::new(x.into()))")
+                    } else {
+                        format!("std::sync::Arc::new({binding}.into())")
+                    }
+                }
+                _ if field.is_boxed => {
+                    if field.optional {
+                        format!("{binding}.map(|x| Box::new(x.into()))")
+                    } else {
+                        format!("Box::new({binding}.into())")
+                    }
+                }
+                _ => {
+                    if field.optional {
+                        format!("{binding}.map(Into::into)")
+                    } else {
+                        format!("{binding}.into()")
+                    }
+                }
             }
         }
         TypeRef::String => {
-            // String → String is identity unless the core side is Cow<str>.
-            if matches!(field.core_wrapper, CoreWrapper::Cow) {
-                if field.optional {
-                    format!("{binding}.map(Into::into)")
+            // Mirror flattens enum-variant `Option<String>` to bare `String` (via
+            // `unwrap_or_default()` on the forward direction). Reverse: empty → None,
+            // non-empty → Some(_), matching the `TypeRef::Path` pattern below.
+            if field.optional {
+                if matches!(field.core_wrapper, CoreWrapper::Cow) {
+                    format!("if {binding}.is_empty() {{ None }} else {{ Some({binding}.into()) }}")
                 } else {
-                    format!("{binding}.into()")
+                    format!("if {binding}.is_empty() {{ None }} else {{ Some({binding}) }}")
                 }
+            } else if matches!(field.core_wrapper, CoreWrapper::Cow) {
+                format!("{binding}.into()")
             } else {
                 binding.to_string()
             }
@@ -1072,10 +1098,16 @@ fn enum_variant_field_conv_to_core(binding: &str, field: &FieldDef) -> String {
             _ => format!("{binding}.into_iter().map(|x| x as _).collect()"),
         },
         TypeRef::Primitive(_) => {
-            if field.optional {
-                format!("{binding}.map(|x| x as _)")
-            } else {
-                format!("{binding} as _")
+            // Mirror the struct-field handling: newtype_wrapper means the core type
+            // is a tuple newtype around a primitive (e.g. NodeIndex(usize)). Enum
+            // variants flatten `Option<T>` to bare `T` in the mirror with
+            // `unwrap_or_default()`, so reverse: 0 → None, non-zero → Some(_),
+            // matching the `TypeRef::String` and `TypeRef::Path` conventions.
+            match (&field.newtype_wrapper, field.optional) {
+                (Some(nw), true) => format!("if {binding} == 0 {{ None }} else {{ Some({nw}({binding} as _)) }}"),
+                (Some(nw), false) => format!("{nw}({binding} as _)"),
+                (None, true) => format!("if {binding} == 0 {{ None }} else {{ Some({binding} as _) }}"),
+                (None, false) => format!("{binding} as _"),
             }
         }
         _ => {
@@ -1216,10 +1248,18 @@ fn field_from_expr_to_core(field: &FieldDef, _source_crate_name: &str) -> String
                     }
                 }
                 TypeRef::Primitive(_) => {
-                    if field.optional {
-                        format!("v.{name}.map(|vec| vec.into_iter().map(|x| x as _).collect())")
+                    // When the field has a newtype_wrapper, the Vec elements are newtypes
+                    // (e.g. NodeIndex(usize)) on the core side. The mirror flattens to
+                    // the raw primitive, so reverse wraps with the tuple constructor.
+                    let elem_conv = if let Some(nw) = &field.newtype_wrapper {
+                        format!("|x| {nw}(x as _)")
                     } else {
-                        format!("v.{name}.into_iter().map(|x| x as _).collect()")
+                        "|x| x as _".to_string()
+                    };
+                    if field.optional {
+                        format!("v.{name}.map(|vec| vec.into_iter().map({elem_conv}).collect())")
+                    } else {
+                        format!("v.{name}.into_iter().map({elem_conv}).collect()")
                     }
                 }
                 _ => {
