@@ -655,6 +655,18 @@ fn render_test_file_inner(
     // HTTP fixtures always need ObjectMapper for JSON body comparison.
     let needs_object_mapper = needs_object_mapper_for_options || needs_object_mapper_for_handle || has_http_fixtures;
 
+    // Detect if any non-error fixture in this group is a streaming call.  The
+    // kotlin_android target collects a Flow<T> into a List via `.toList()`, which
+    // requires `import kotlinx.coroutines.flow.toList`.
+    let has_streaming_fixtures = kotlin_android_style
+        && fixtures.iter().any(|f| {
+            if f.is_http_test() {
+                return false;
+            }
+            let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
+            crate::codegen::streaming_assertions::resolve_is_streaming(f, cc.streaming)
+        });
+
     let _ = writeln!(out, "import org.junit.jupiter.api.Test");
     let _ = writeln!(out, "import kotlin.test.assertEquals");
     let _ = writeln!(out, "import kotlin.test.assertTrue");
@@ -662,6 +674,11 @@ fn render_test_file_inner(
     let _ = writeln!(out, "import kotlin.test.assertFailsWith");
     if has_client_factory_fixtures || kotlin_android_style {
         let _ = writeln!(out, "import kotlinx.coroutines.runBlocking");
+    }
+    // `Flow<T>.toList()` is only available via this import — it is not part of the
+    // standard Flow API in Kotlin 1.x/2.x without the explicit import.
+    if has_streaming_fixtures {
+        let _ = writeln!(out, "import kotlinx.coroutines.flow.toList");
     }
     // Effective binding package for FQN imports. When the binding `class_name` is
     // not fully-qualified, fall back to `kotlin_pkg_id` — the kotlin binding emits
@@ -688,6 +705,12 @@ fn render_test_file_inner(
     if needs_object_mapper {
         let _ = writeln!(out, "import com.fasterxml.jackson.databind.ObjectMapper");
         let _ = writeln!(out, "import com.fasterxml.jackson.datatype.jdk8.Jdk8Module");
+        // `registerKotlinModule()` is required on the kotlin_android target so that
+        // Jackson can deserialise Kotlin data classes (which have no default
+        // constructor). The extension function lives in jackson-module-kotlin.
+        if kotlin_android_style {
+            let _ = writeln!(out, "import com.fasterxml.jackson.module.kotlin.registerKotlinModule");
+        }
     }
     // Import every options type referenced by per-call kotlin overrides in this file.
     // Options-type imports are needed for both ObjectMapper deserialisation and for
@@ -735,9 +758,18 @@ fn render_test_file_inner(
     if needs_object_mapper {
         let _ = writeln!(out);
         let _ = writeln!(out, "    companion object {{");
+        // `kotlin_android_style` tests include Kotlin data classes (e.g. ChatCompletionRequest)
+        // that have no default constructor. Jackson needs `registerKotlinModule()` to use the
+        // primary constructor for deserialization. Non-android (JVM) targets use Java records
+        // and builders, which Jackson handles without the extra module.
+        let kotlin_module_call = if kotlin_android_style {
+            ".registerKotlinModule()"
+        } else {
+            ""
+        };
         let _ = writeln!(
             out,
-            "        private val MAPPER = ObjectMapper().registerModule(Jdk8Module()).setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE)"
+            "        private val MAPPER = ObjectMapper().registerModule(Jdk8Module()){kotlin_module_call}.setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE)"
         );
         let _ = writeln!(out, "    }}");
     }
@@ -2422,6 +2454,204 @@ mod tests {
         assert!(
             out.contains(".getValue()"),
             "auto-detected enum field must route through .getValue(), got: {out}"
+        );
+    }
+
+    /// Regression: kotlin_android test files that contain streaming fixtures must
+    /// emit `import kotlinx.coroutines.flow.toList`.  Non-android style files must
+    /// NOT emit it, because `Flow<T>.toList()` is not in scope on JVM targets.
+    #[test]
+    fn kotlin_android_streaming_fixture_emits_flow_to_list_import() {
+        use crate::fixture::MockResponse;
+        use alef_core::config::e2e::CallConfig;
+
+        // A fixture with a streaming mock response triggers is_streaming_mock().
+        let streaming_fixture = Fixture {
+            id: "smoke_stream".to_string(),
+            category: None,
+            description: "streaming test".to_string(),
+            tags: vec![],
+            skip: None,
+            env: None,
+            call: None,
+            input: serde_json::json!({}),
+            mock_response: Some(MockResponse {
+                status: 200,
+                body: None,
+                stream_chunks: Some(vec![serde_json::json!({"delta": "hi"})]),
+                headers: HashMap::new(),
+            }),
+            visitor: None,
+            assertions: vec![],
+            source: String::new(),
+            http: None,
+        };
+
+        let e2e_config = E2eConfig {
+            call: CallConfig::default(),
+            ..E2eConfig::default()
+        };
+        let resolver = FieldResolver::new(
+            &HashMap::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+        );
+
+        // kotlin_android_style=true must emit the import.
+        let out_android = render_test_file_inner(
+            "streaming",
+            &[&streaming_fixture],
+            "LlmClient",
+            "chatStream",
+            "dev.kreuzberg.literllm.android",
+            "result",
+            &[],
+            None,
+            &resolver,
+            false,
+            &HashSet::new(),
+            &e2e_config,
+            &HashMap::new(),
+            true,
+        );
+        assert!(
+            out_android.contains("import kotlinx.coroutines.flow.toList"),
+            "kotlin_android streaming file must import flow.toList, got:\n{out_android}"
+        );
+
+        // kotlin_android_style=false must NOT emit the import.
+        let out_jvm = render_test_file_inner(
+            "streaming",
+            &[&streaming_fixture],
+            "LlmClient",
+            "chatStream",
+            "dev.kreuzberg.literllm.android",
+            "result",
+            &[],
+            None,
+            &resolver,
+            false,
+            &HashSet::new(),
+            &e2e_config,
+            &HashMap::new(),
+            false,
+        );
+        assert!(
+            !out_jvm.contains("import kotlinx.coroutines.flow.toList"),
+            "non-android streaming file must NOT import flow.toList, got:\n{out_jvm}"
+        );
+    }
+
+    /// Regression: kotlin_android test files that instantiate an ObjectMapper must
+    /// emit `import com.fasterxml.jackson.module.kotlin.registerKotlinModule` and
+    /// call `.registerKotlinModule()` on the mapper.  Non-android files use plain
+    /// Java records/builders and must NOT emit either.
+    #[test]
+    fn kotlin_android_object_mapper_emits_register_kotlin_module() {
+        use crate::fixture::{HttpExpectedResponse, HttpFixture, HttpHandler, HttpRequest};
+        use alef_core::config::e2e::CallConfig;
+
+        // An HTTP fixture forces `needs_object_mapper = true` regardless of args.
+        let http_fixture = Fixture {
+            id: "http_test".to_string(),
+            category: None,
+            description: "http test".to_string(),
+            tags: vec![],
+            skip: None,
+            env: None,
+            call: None,
+            input: serde_json::json!({}),
+            mock_response: None,
+            visitor: None,
+            assertions: vec![],
+            source: String::new(),
+            http: Some(HttpFixture {
+                handler: HttpHandler {
+                    route: "/v1/test".to_string(),
+                    method: "POST".to_string(),
+                    body_schema: None,
+                    parameters: HashMap::new(),
+                    middleware: None,
+                },
+                request: HttpRequest {
+                    method: "POST".to_string(),
+                    path: "/v1/test".to_string(),
+                    headers: HashMap::new(),
+                    query_params: HashMap::new(),
+                    cookies: HashMap::new(),
+                    body: None,
+                    content_type: None,
+                },
+                expected_response: HttpExpectedResponse {
+                    status_code: 200,
+                    body: None,
+                    body_partial: None,
+                    headers: HashMap::new(),
+                    validation_errors: None,
+                },
+            }),
+        };
+
+        let e2e_config = E2eConfig {
+            call: CallConfig::default(),
+            ..E2eConfig::default()
+        };
+        let resolver = FieldResolver::new(
+            &HashMap::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+        );
+
+        // kotlin_android_style=true must emit registerKotlinModule import and call.
+        let out_android = render_test_file_inner(
+            "configuration",
+            &[&http_fixture],
+            "",
+            "",
+            "dev.kreuzberg.literllm.android",
+            "result",
+            &[],
+            None,
+            &resolver,
+            false,
+            &HashSet::new(),
+            &e2e_config,
+            &HashMap::new(),
+            true,
+        );
+        assert!(
+            out_android.contains("import com.fasterxml.jackson.module.kotlin.registerKotlinModule"),
+            "kotlin_android with ObjectMapper must import registerKotlinModule, got:\n{out_android}"
+        );
+        assert!(
+            out_android.contains(".registerKotlinModule()"),
+            "kotlin_android MAPPER must call .registerKotlinModule(), got:\n{out_android}"
+        );
+
+        // kotlin_android_style=false must NOT emit registerKotlinModule.
+        let out_jvm = render_test_file_inner(
+            "configuration",
+            &[&http_fixture],
+            "",
+            "",
+            "dev.kreuzberg.literllm.android",
+            "result",
+            &[],
+            None,
+            &resolver,
+            false,
+            &HashSet::new(),
+            &e2e_config,
+            &HashMap::new(),
+            false,
+        );
+        assert!(
+            !out_jvm.contains("registerKotlinModule"),
+            "non-android MAPPER must NOT reference registerKotlinModule, got:\n{out_jvm}"
         );
     }
 }

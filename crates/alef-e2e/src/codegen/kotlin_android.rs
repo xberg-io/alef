@@ -323,6 +323,11 @@ dependencies {{
     testImplementation("com.fasterxml.jackson.core:jackson-databind:{jackson}")
     testImplementation("com.fasterxml.jackson.datatype:jackson-datatype-jdk8:{jackson}")
 
+    // jackson-module-kotlin registers constructors/properties for Kotlin data
+    // classes, which have no default constructor and cannot be deserialized by
+    // plain Jackson without this module.
+    testImplementation("com.fasterxml.jackson.module:jackson-module-kotlin:{jackson}")
+
     // jspecify for null-safety annotations on wrapped types
     testImplementation("org.jspecify:jspecify:{jspecify}")
 
@@ -351,4 +356,29 @@ tasks.test {{
 }}
 "#
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression: the kotlin-android build.gradle.kts must declare
+    /// `jackson-module-kotlin` so that Jackson can deserialize Kotlin data
+    /// classes (which have no default constructor).  Without it, any test that
+    /// calls `MAPPER.readValue(...)` against a Kotlin data class throws
+    /// `InvalidDefinitionException: No suitable constructor found`.
+    #[test]
+    fn build_gradle_kotlin_android_includes_jackson_module_kotlin() {
+        let output = render_build_gradle_kotlin_android(
+            "liter-llm",
+            "dev.kreuzberg.literllm.android",
+            "1.0.0",
+            crate::config::DependencyMode::Local,
+            false,
+        );
+        assert!(
+            output.contains("jackson-module-kotlin"),
+            "build.gradle.kts must depend on jackson-module-kotlin, got:\n{output}"
+        );
+    }
 }
