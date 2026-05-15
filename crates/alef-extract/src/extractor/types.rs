@@ -1,7 +1,7 @@
 use alef_core::ir::{CoreWrapper, DefaultValue, EnumDef, ErrorDef, ErrorVariant, FieldDef, TypeDef};
 use syn;
 
-use super::helpers::{detect_core_wrapper, detect_vec_inner_core_wrapper};
+use super::helpers::{detect_core_wrapper, detect_vec_inner_core_wrapper, extract_binding_exclusion_reason};
 use crate::type_resolver;
 
 use super::helpers::{
@@ -75,6 +75,8 @@ pub(crate) fn extract_struct(item: &syn::ItemStruct, crate_name: &str, module_pa
     if !item.generics.params.is_empty() {
         return None;
     }
+    let binding_exclusion_reason = extract_binding_exclusion_reason(&item.attrs);
+    let binding_excluded = binding_exclusion_reason.is_some();
     let cfg = extract_cfg_condition(&item.attrs);
     let name = item.ident.to_string();
 
@@ -154,6 +156,8 @@ pub(crate) fn extract_struct(item: &syn::ItemStruct, crate_name: &str, module_pa
         serde_rename_all,
         has_serde,
         super_traits: vec![],
+        binding_excluded,
+        binding_exclusion_reason,
     })
 }
 
@@ -163,6 +167,8 @@ pub(crate) fn extract_enum(item: &syn::ItemEnum, crate_name: &str, module_path: 
     if !item.generics.params.is_empty() {
         return None;
     }
+    let binding_exclusion_reason = extract_binding_exclusion_reason(&item.attrs);
+    let binding_excluded = binding_exclusion_reason.is_some();
     let cfg = extract_cfg_condition(&item.attrs);
     let name = item.ident.to_string();
     let doc = extract_doc_comments(&item.attrs);
@@ -188,6 +194,8 @@ pub(crate) fn extract_enum(item: &syn::ItemEnum, crate_name: &str, module_path: 
         serde_rename_all,
         is_copy,
         has_serde,
+        binding_excluded,
+        binding_exclusion_reason,
     })
 }
 
@@ -197,6 +205,8 @@ pub(crate) fn extract_error_enum(item: &syn::ItemEnum, crate_name: &str, module_
     if !item.generics.params.is_empty() {
         return None;
     }
+    let binding_exclusion_reason = extract_binding_exclusion_reason(&item.attrs);
+    let binding_excluded = binding_exclusion_reason.is_some();
     let name = item.ident.to_string();
     let doc = extract_doc_comments(&item.attrs);
 
@@ -291,5 +301,7 @@ pub(crate) fn extract_error_enum(item: &syn::ItemEnum, crate_name: &str, module_
         original_rust_path: String::new(),
         variants,
         doc,
+        binding_excluded,
+        binding_exclusion_reason,
     })
 }

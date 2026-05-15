@@ -685,6 +685,8 @@ mod tests {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }
     }
 
@@ -715,6 +717,8 @@ mod tests {
             returns_cow: false,
             return_newtype_wrapper: None,
             has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }
     }
 
@@ -748,6 +752,8 @@ mod tests {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         };
         assert!(!is_bytes_result_func(&func));
     }

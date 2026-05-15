@@ -1146,6 +1146,8 @@ gem_name = "test_lib"
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }
     }
 

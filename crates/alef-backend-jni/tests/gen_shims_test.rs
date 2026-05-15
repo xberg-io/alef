@@ -64,6 +64,8 @@ fn make_method(name: &str, params: Vec<ParamDef>, return_type: TypeRef, is_async
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -110,6 +112,8 @@ fn make_demo_api() -> ApiSurface {
         serde_rename_all: None,
         has_serde: false,
         super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
 
     let config_type = TypeDef {
@@ -136,6 +140,8 @@ fn make_demo_api() -> ApiSurface {
         serde_rename_all: None,
         has_serde: false,
         super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
 
     ApiSurface {
@@ -157,6 +163,8 @@ fn make_demo_api() -> ApiSurface {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         enums: vec![EnumDef {
             name: "DemoModel".to_string(),
@@ -177,6 +185,8 @@ fn make_demo_api() -> ApiSurface {
             serde_tag: None,
             serde_untagged: false,
             serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         errors: vec![ErrorDef {
             name: "DemoError".to_string(),
@@ -192,6 +202,8 @@ fn make_demo_api() -> ApiSurface {
                 doc: String::new(),
             }],
             doc: "Errors from demo operations.".to_string(),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         excluded_type_paths: std::collections::HashMap::new(),
     }
@@ -672,6 +684,8 @@ fn real_ir_shape_optional_ref_result_async() {
         serde_rename_all: None,
         has_serde: false,
         super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
 
     // create_client(api_key: Option<String>, base_url: Option<String>, timeout_secs: Option<u64>,
@@ -728,6 +742,8 @@ fn real_ir_shape_optional_ref_result_async() {
         returns_ref: false,
         returns_cow: false,
         return_newtype_wrapper: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
 
     // unregister_custom_provider(name: &str) -> bool
@@ -757,6 +773,8 @@ fn real_ir_shape_optional_ref_result_async() {
         returns_ref: false,
         returns_cow: false,
         return_newtype_wrapper: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
 
     let api = ApiSurface {
@@ -779,6 +797,8 @@ fn real_ir_shape_optional_ref_result_async() {
                 doc: String::new(),
             }],
             doc: String::new(),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         excluded_type_paths: std::collections::HashMap::new(),
     };
@@ -863,6 +883,8 @@ fn method_ref_mut_receiver_emits_mut_cast() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
 
     let client_type = TypeDef {
@@ -883,6 +905,8 @@ fn method_ref_mut_receiver_emits_mut_cast() {
         serde_rename_all: None,
         has_serde: false,
         super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
 
     let api = ApiSurface {
@@ -930,6 +954,8 @@ fn method_ref_receiver_emits_const_cast() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
 
     let client_type = TypeDef {
@@ -950,6 +976,8 @@ fn method_ref_receiver_emits_const_cast() {
         serde_rename_all: None,
         has_serde: false,
         super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
 
     let api = ApiSurface {
@@ -1007,6 +1035,8 @@ fn method_slice_u8_param_receives_jbytearray() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
 
     let client_type = TypeDef {
@@ -1027,6 +1057,8 @@ fn method_slice_u8_param_receives_jbytearray() {
         serde_rename_all: None,
         has_serde: false,
         super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
 
     let api = ApiSurface {
@@ -1088,6 +1120,8 @@ fn method_pathbuf_param_receives_raw_string() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
 
     let client_type = TypeDef {
@@ -1108,6 +1142,8 @@ fn method_pathbuf_param_receives_raw_string() {
         serde_rename_all: None,
         has_serde: false,
         super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
 
     let api = ApiSurface {
@@ -1175,6 +1211,8 @@ fn method_slice_str_param_coerces_to_str_refs() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
 
     let client_type = TypeDef {
@@ -1195,6 +1233,8 @@ fn method_slice_str_param_coerces_to_str_refs() {
         serde_rename_all: None,
         has_serde: false,
         super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
 
     let api = ApiSurface {

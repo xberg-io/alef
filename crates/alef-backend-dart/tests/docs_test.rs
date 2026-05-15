@@ -39,6 +39,8 @@ fn test_dartdoc_emitted_for_bridge_function() {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         enums: vec![],
         errors: vec![],

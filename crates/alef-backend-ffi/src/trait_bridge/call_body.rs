@@ -583,6 +583,8 @@ mod tests {
             super_traits: vec![],
             doc: String::new(),
             cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }
     }
 
@@ -606,6 +608,8 @@ mod tests {
             returns_cow: false,
             return_newtype_wrapper: None,
             has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }
     }
 
@@ -668,6 +672,8 @@ mod tests {
             returns_cow: false,
             return_newtype_wrapper: None,
             has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         };
         let trait_def = make_trait_def("TestTrait", vec![method.clone()]);
         let spec = make_simple_trait_spec(&trait_def, &bridge_cfg);
@@ -728,6 +734,8 @@ mod tests {
             returns_cow: false,
             return_newtype_wrapper: None,
             has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         };
         let trait_def = make_trait_def("TestTrait", vec![method.clone()]);
         let spec = make_simple_trait_spec(&trait_def, &bridge_cfg);

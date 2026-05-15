@@ -63,6 +63,8 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         serde_rename_all: None,
         has_serde: true,
         super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -132,6 +134,8 @@ fn string_param_allocates_z_string_and_frees() {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         enums: vec![],
         errors: vec![],
@@ -186,6 +190,8 @@ fn bytes_param_passes_ptr_and_len() {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         enums: vec![],
         errors: vec![],
@@ -233,6 +239,8 @@ fn vec_param_takes_json_slice() {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         enums: vec![],
         errors: vec![],
@@ -278,6 +286,8 @@ fn result_function_checks_last_error_code() {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         enums: vec![],
         errors: vec![ErrorDef {
@@ -294,6 +304,8 @@ fn result_function_checks_last_error_code() {
                 doc: String::new(),
             }],
             doc: String::new(),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
     };
@@ -343,6 +355,8 @@ fn async_function_is_emitted_as_sync() {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         enums: vec![],
         errors: vec![],
@@ -435,6 +449,8 @@ fn enum_emits_zig_enum_or_union() {
 
             is_copy: false,
             has_serde: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -500,6 +516,8 @@ fn error_set_emits_zig_error_with_pascal_case_tags() {
                 },
             ],
             doc: String::new(),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
     };
@@ -544,6 +562,8 @@ fn opaque_handle_with_no_methods_is_emitted() {
         serde_rename_all: None,
         has_serde: false,
         super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let get_language_fn = FunctionDef {
         name: "get_language".to_string(),
@@ -560,6 +580,8 @@ fn opaque_handle_with_no_methods_is_emitted() {
         returns_ref: false,
         returns_cow: false,
         return_newtype_wrapper: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let api = ApiSurface {
         crate_name: "demo".into(),
@@ -581,6 +603,8 @@ fn opaque_handle_with_no_methods_is_emitted() {
                 doc: String::new(),
             }],
             doc: String::new(),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
     };
@@ -637,6 +661,8 @@ fn bool_return_emits_not_zero_conversion() {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         enums: vec![],
         errors: vec![],
@@ -687,6 +713,8 @@ fn bool_return_in_error_union_emits_not_zero_conversion() {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         enums: vec![],
         errors: vec![ErrorDef {
@@ -703,6 +731,8 @@ fn bool_return_in_error_union_emits_not_zero_conversion() {
                 doc: String::new(),
             }],
             doc: String::new(),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
     };
@@ -749,6 +779,8 @@ fn string_param_infallible_defers_free_after_c_call() {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         enums: vec![],
         errors: vec![],
@@ -812,6 +844,8 @@ fn string_param_fallible_defers_free_after_c_call() {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         enums: vec![],
         errors: vec![ErrorDef {
@@ -828,6 +862,8 @@ fn string_param_fallible_defers_free_after_c_call() {
                 doc: String::new(),
             }],
             doc: String::new(),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
     };

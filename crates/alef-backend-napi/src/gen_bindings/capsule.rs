@@ -323,6 +323,8 @@ mod tests {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }
     }
 
@@ -352,6 +354,8 @@ mod tests {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         };
         let capsules = capsule_map(&[("Language", make_capsule_config("Language", "tree-sitter"))]);
         assert!(!function_involves_capsule(&func, &capsules));

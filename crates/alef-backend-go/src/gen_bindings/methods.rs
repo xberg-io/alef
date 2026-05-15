@@ -819,6 +819,8 @@ mod tests {
             has_serde: false,
             super_traits: vec![],
             methods: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }
     }
 
@@ -838,6 +840,8 @@ mod tests {
             returns_cow: false,
             return_newtype_wrapper: None,
             has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }
     }
 
@@ -953,6 +957,8 @@ mod tests {
             returns_cow: false,
             return_newtype_wrapper: None,
             has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         };
         let opaque: std::collections::HashSet<&str> = ["Renderer"].into();
         let value_only_types: std::collections::HashSet<String> = std::collections::HashSet::new();

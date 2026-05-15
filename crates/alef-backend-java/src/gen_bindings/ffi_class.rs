@@ -769,6 +769,8 @@ mod tests {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }
     }
 
@@ -869,6 +871,8 @@ mod tests {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         };
 
         let mut out = String::new();
@@ -913,6 +917,8 @@ mod tests {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         };
 
         let mut out = String::new();

@@ -122,6 +122,8 @@ fn simple_type_def() -> TypeDef {
         super_traits: vec![],
         doc: "A minimal config type.".to_string(),
         cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -152,6 +154,8 @@ fn simple_function_def() -> FunctionDef {
         returns_ref: false,
         returns_cow: false,
         return_newtype_wrapper: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -193,6 +197,8 @@ fn simple_enum_def() -> EnumDef {
         serde_tag: None,
         serde_untagged: false,
         serde_rename_all: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -291,6 +297,8 @@ fn test_gen_struct_with_empty_fields() {
         super_traits: vec![],
         doc: String::new(),
         cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -338,6 +346,8 @@ fn test_gen_instance_method_with_ref_receiver() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -389,6 +399,8 @@ fn test_gen_static_method_without_receiver() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -430,6 +442,8 @@ fn test_gen_async_method_generates_async_signature() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -514,6 +528,8 @@ fn test_gen_method_with_multiple_params() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -556,6 +572,8 @@ fn test_gen_method_with_error_type() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -603,6 +621,8 @@ fn test_gen_impl_block_with_constructor_and_methods() {
             returns_cow: false,
             return_newtype_wrapper: None,
             has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         },
         MethodDef {
             name: "create".to_string(),
@@ -619,6 +639,8 @@ fn test_gen_impl_block_with_constructor_and_methods() {
             returns_cow: false,
             return_newtype_wrapper: None,
             has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         },
     ];
 
@@ -666,6 +688,8 @@ fn test_gen_method_with_optional_param() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -1683,6 +1707,8 @@ fn test_gen_method_builder_pattern_opaque() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -1749,6 +1775,8 @@ fn test_gen_method_builder_pattern_non_opaque() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -1811,6 +1839,8 @@ fn test_gen_method_functional_ref_mut_unit_return() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -1879,6 +1909,8 @@ fn test_gen_method_functional_ref_mut_with_named_param() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -1942,6 +1974,8 @@ fn test_gen_method_functional_ref_mut_with_error_type() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -2004,6 +2038,8 @@ fn test_type_needs_mutex_true_when_ref_mut_method_present() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }];
     assert!(type_needs_mutex(&typ), "type with RefMut method should need mutex");
 }
@@ -2028,6 +2064,8 @@ fn test_gen_opaque_struct_arc_inner() {
         super_traits: vec![],
         doc: String::new(),
         cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let cfg = default_cfg();
 
@@ -2066,6 +2104,8 @@ fn test_gen_opaque_struct_mutex_when_ref_mut_method() {
             returns_cow: false,
             return_newtype_wrapper: None,
             has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         is_opaque: true,
         is_clone: false,
@@ -2079,6 +2119,8 @@ fn test_gen_opaque_struct_mutex_when_ref_mut_method() {
         super_traits: vec![],
         doc: String::new(),
         cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     typ.is_opaque = true;
     let cfg = default_cfg();
@@ -2115,6 +2157,8 @@ fn test_gen_opaque_struct_trait_uses_dyn() {
         super_traits: vec![],
         doc: String::new(),
         cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let cfg = default_cfg();
 
@@ -2200,6 +2244,8 @@ fn test_gen_struct_default_impl_optional_field_uses_none() {
         super_traits: vec![],
         doc: String::new(),
         cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
 
     let result = gen_struct_default_impl(&typ, "");
@@ -2258,6 +2304,8 @@ fn test_can_generate_default_impl_named_not_in_known_set() {
         super_traits: vec![],
         doc: String::new(),
         cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let known: std::collections::HashSet<&str> = std::collections::HashSet::new();
     assert!(
@@ -2304,6 +2352,8 @@ fn test_can_generate_default_impl_named_in_known_set() {
         super_traits: vec![],
         doc: String::new(),
         cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let mut known: std::collections::HashSet<&str> = std::collections::HashSet::new();
     known.insert("KnownType");
@@ -2355,6 +2405,8 @@ fn test_gen_struct_with_opaque_field_skips_serde_derives() {
         super_traits: vec![],
         doc: String::new(),
         cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let mapper = RustMapper;
 
@@ -2412,6 +2464,8 @@ fn test_gen_opaque_impl_block_generates_impl_with_method() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }];
 
     let mapper = RustMapper;
@@ -2478,6 +2532,8 @@ fn test_enum_has_data_variants_true_when_fields_present() {
         serde_tag: None,
         serde_untagged: false,
         serde_rename_all: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     assert!(
         enum_has_data_variants(&enum_def),
@@ -2506,6 +2562,8 @@ fn test_gen_enum_with_single_variant_uses_discriminant_zero() {
         serde_tag: None,
         serde_untagged: false,
         serde_rename_all: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let cfg = default_cfg();
 
@@ -2589,6 +2647,8 @@ fn test_gen_enum_discriminant_increments_correctly() {
         serde_tag: None,
         serde_untagged: false,
         serde_rename_all: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let cfg = default_cfg();
 
@@ -2641,6 +2701,8 @@ fn test_gen_enum_with_pyo3_pyclass_attr_renames_python_keywords() {
         serde_tag: None,
         serde_untagged: false,
         serde_rename_all: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let mut cfg = default_cfg();
     let attrs = ["pyclass(eq, eq_int)"];
@@ -2683,6 +2745,8 @@ fn test_gen_enum_without_pyclass_does_not_rename_python_keywords() {
         serde_tag: None,
         serde_untagged: false,
         serde_rename_all: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let cfg = default_cfg(); // no pyclass attr
 
@@ -2781,6 +2845,8 @@ fn test_gen_function_named_ref_param_uses_from_conversion() {
         returns_ref: false,
         returns_cow: false,
         return_newtype_wrapper: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let mapper = RustMapper;
     let mut cfg = default_cfg();
@@ -2813,6 +2879,8 @@ fn test_gen_function_with_no_params_generates_empty_param_list() {
         returns_ref: false,
         returns_cow: false,
         return_newtype_wrapper: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
 
     let mapper = RustMapper;
@@ -2871,6 +2939,8 @@ fn test_gen_function_with_optional_param_wraps_in_option() {
         returns_ref: false,
         returns_cow: false,
         return_newtype_wrapper: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
 
     let mapper = RustMapper;
@@ -2935,6 +3005,8 @@ fn test_collect_trait_imports_deduplicates_by_trait_name() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }];
 
     let mut typ2 = simple_type_def();
@@ -2954,6 +3026,8 @@ fn test_collect_trait_imports_deduplicates_by_trait_name() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }];
 
     let api = ApiSurface {
@@ -3087,6 +3161,8 @@ fn simple_trait_def() -> TypeDef {
                 returns_cow: false,
                 return_newtype_wrapper: None,
                 has_default_impl: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
             MethodDef {
                 name: "optional_method".to_string(),
@@ -3103,6 +3179,8 @@ fn simple_trait_def() -> TypeDef {
                 returns_cow: false,
                 return_newtype_wrapper: None,
                 has_default_impl: true,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
         ],
         is_opaque: false,
@@ -3117,6 +3195,8 @@ fn simple_trait_def() -> TypeDef {
         super_traits: vec![],
         doc: "A test trait.".to_string(),
         cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -3848,6 +3928,8 @@ fn test_gen_method_trait_method_name_suppresses_clippy_lint() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -3891,6 +3973,8 @@ fn test_gen_method_error_type_with_opaque_unit_return() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -3938,6 +4022,8 @@ fn test_gen_method_opaque_delegation_string_return() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -3992,6 +4078,8 @@ fn test_gen_method_opaque_delegation_returns_opaque_self() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -4037,6 +4125,8 @@ fn test_gen_method_with_mutex_opaque_type() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -4084,6 +4174,8 @@ fn test_gen_method_trait_source_not_delegated() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -4140,6 +4232,8 @@ fn test_gen_static_method_with_error_type_generates_result() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -4185,6 +4279,8 @@ fn test_gen_static_method_with_primitive_return() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -4226,6 +4322,8 @@ fn test_gen_opaque_impl_block_generates_delegation() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }];
 
     let mapper = RustMapper;
@@ -4262,6 +4360,8 @@ fn test_gen_opaque_impl_block_empty_when_all_sanitized() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }];
 
     let mapper = RustMapper;
@@ -4393,6 +4493,8 @@ fn test_gen_method_too_many_arguments_gets_clippy_allow() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -4435,6 +4537,8 @@ fn test_gen_method_error_type_napi_async_pattern() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let mapper = RustMapper;
     let mut cfg = default_cfg();
@@ -4479,6 +4583,8 @@ fn test_gen_method_error_type_pyo3_async_pattern() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let mapper = RustMapper;
     let mut cfg = default_cfg();
@@ -4524,6 +4630,8 @@ fn test_gen_static_method_adapter_body_used() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -4570,6 +4678,8 @@ fn test_gen_method_adapter_body_used() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -4626,6 +4736,8 @@ fn test_gen_impl_block_with_method_block_attr() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }];
     let mapper = RustMapper;
     let mut cfg = default_cfg();
@@ -4693,6 +4805,8 @@ fn test_gen_static_method_async_napi_pattern() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let mapper = RustMapper;
     let mut cfg = default_cfg();
@@ -4735,6 +4849,8 @@ fn test_gen_method_opaque_with_error_non_unit_return() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();

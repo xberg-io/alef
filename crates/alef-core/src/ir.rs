@@ -98,6 +98,13 @@ pub struct TypeDef {
     /// to determine which super-trait impls to generate.
     #[serde(default)]
     pub super_traits: Vec<String>,
+    /// True when source metadata explicitly excludes this type/trait from generated
+    /// polyglot binding surfaces (via `#[cfg_attr(alef, alef(skip))]` or `#[doc(hidden)]`).
+    #[serde(default)]
+    pub binding_excluded: bool,
+    /// Human-readable reason for `binding_excluded`, used in diagnostics.
+    #[serde(default)]
+    pub binding_exclusion_reason: Option<String>,
 }
 
 /// A field on a public struct.
@@ -197,6 +204,13 @@ pub struct MethodDef {
     /// in trait bridge codegen.
     #[serde(default)]
     pub has_default_impl: bool,
+    /// True when source metadata explicitly excludes this method from generated
+    /// polyglot binding surfaces (via `#[cfg_attr(alef, alef(skip))]` or `#[doc(hidden)]`).
+    #[serde(default)]
+    pub binding_excluded: bool,
+    /// Human-readable reason for `binding_excluded`, used in diagnostics.
+    #[serde(default)]
+    pub binding_exclusion_reason: Option<String>,
 }
 
 /// How `self` is received.
@@ -241,6 +255,13 @@ pub struct FunctionDef {
     /// When set, codegen must unwrap the returned newtype value (e.g. `result.0`).
     #[serde(default)]
     pub return_newtype_wrapper: Option<String>,
+    /// True when source metadata explicitly excludes this function from generated
+    /// polyglot binding surfaces (via `#[cfg_attr(alef, alef(skip))]` or `#[doc(hidden)]`).
+    #[serde(default)]
+    pub binding_excluded: bool,
+    /// Human-readable reason for `binding_excluded`, used in diagnostics.
+    #[serde(default)]
+    pub binding_exclusion_reason: Option<String>,
 }
 
 /// A function/method parameter.
@@ -307,6 +328,13 @@ pub struct EnumDef {
     /// Serde rename strategy for enum variants (from `#[serde(rename_all = "...")]`)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub serde_rename_all: Option<String>,
+    /// True when source metadata explicitly excludes this enum from generated
+    /// polyglot binding surfaces (via `#[cfg_attr(alef, alef(skip))]` or `#[doc(hidden)]`).
+    #[serde(default)]
+    pub binding_excluded: bool,
+    /// Human-readable reason for `binding_excluded`, used in diagnostics.
+    #[serde(default)]
+    pub binding_exclusion_reason: Option<String>,
 }
 
 /// An enum variant.
@@ -336,6 +364,13 @@ pub struct ErrorDef {
     pub original_rust_path: String,
     pub variants: Vec<ErrorVariant>,
     pub doc: String,
+    /// True when source metadata explicitly excludes this error type from generated
+    /// polyglot binding surfaces (via `#[cfg_attr(alef, alef(skip))]` or `#[doc(hidden)]`).
+    #[serde(default)]
+    pub binding_excluded: bool,
+    /// Human-readable reason for `binding_excluded`, used in diagnostics.
+    #[serde(default)]
+    pub binding_exclusion_reason: Option<String>,
 }
 
 /// An error variant.

@@ -40,6 +40,8 @@ pub(crate) fn make_method(
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -65,6 +67,8 @@ pub(crate) fn make_function(
         returns_ref: false,
         returns_cow: false,
         return_newtype_wrapper: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 

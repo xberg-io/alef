@@ -2123,6 +2123,8 @@ package_name = "testlib"
                 super_traits: vec![],
                 doc: String::new(),
                 cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             }],
             functions: vec![FunctionDef {
                 name: "process".to_string(),
@@ -2139,6 +2141,8 @@ package_name = "testlib"
                 returns_ref: false,
                 returns_cow: false,
                 return_newtype_wrapper: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             }],
             enums: vec![],
             errors: vec![],

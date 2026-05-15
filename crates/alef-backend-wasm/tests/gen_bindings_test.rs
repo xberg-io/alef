@@ -74,6 +74,8 @@ fn test_basic_generation() {
             super_traits: vec![],
             doc: "Test configuration".to_string(),
             cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         functions: vec![FunctionDef {
             name: "process".to_string(),
@@ -101,6 +103,8 @@ fn test_basic_generation() {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         enums: vec![EnumDef {
             name: "Mode".to_string(),
@@ -131,6 +135,8 @@ fn test_basic_generation() {
             serde_tag: None,
             serde_untagged: false,
             serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -212,6 +218,8 @@ fn test_type_mapping() {
             super_traits: vec![],
             doc: "Type mapping test".to_string(),
             cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         functions: vec![],
         enums: vec![],
@@ -289,6 +297,8 @@ fn test_enum_generation() {
             serde_tag: None,
             serde_untagged: false,
             serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -341,6 +351,8 @@ fn test_generated_header() {
             super_traits: vec![],
             doc: String::new(),
             cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         functions: vec![],
         enums: vec![],
@@ -418,6 +430,8 @@ fn test_async_function() {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         enums: vec![],
         errors: vec![],
@@ -472,6 +486,8 @@ fn test_async_function_with_error() {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         enums: vec![],
         errors: vec![],
@@ -520,6 +536,8 @@ fn test_methods_generation() {
                     return_newtype_wrapper: None,
                     has_default_impl: false,
                     trait_source: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
                 MethodDef {
                     name: "get_value".to_string(),
@@ -536,6 +554,8 @@ fn test_methods_generation() {
                     return_newtype_wrapper: None,
                     has_default_impl: false,
                     trait_source: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
             ],
             is_opaque: false,
@@ -550,6 +570,8 @@ fn test_methods_generation() {
             super_traits: vec![],
             doc: "A simple counter".to_string(),
             cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         functions: vec![],
         enums: vec![],
@@ -614,6 +636,8 @@ fn test_async_methods() {
                 return_newtype_wrapper: None,
                 has_default_impl: false,
                 trait_source: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             }],
             is_opaque: false,
             is_clone: true,
@@ -627,6 +651,8 @@ fn test_async_methods() {
             super_traits: vec![],
             doc: "Async worker".to_string(),
             cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         functions: vec![],
         enums: vec![],
@@ -683,6 +709,8 @@ fn test_error_types() {
                 },
             ],
             doc: "Validation errors".to_string(),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
     };
@@ -727,6 +755,8 @@ fn test_opaque_type() {
             super_traits: vec![],
             doc: "An opaque handle".to_string(),
             cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         functions: vec![],
         enums: vec![],
@@ -772,6 +802,8 @@ fn test_exclude_functions() {
                 returns_ref: false,
                 returns_cow: false,
                 return_newtype_wrapper: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
             FunctionDef {
                 name: "hidden_func".to_string(),
@@ -788,6 +820,8 @@ fn test_exclude_functions() {
                 returns_ref: false,
                 returns_cow: false,
                 return_newtype_wrapper: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
         ],
         enums: vec![],
@@ -844,6 +878,8 @@ fn test_exclude_types() {
                 super_traits: vec![],
                 doc: "Public type".to_string(),
                 cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
             TypeDef {
                 name: "HiddenType".to_string(),
@@ -863,6 +899,8 @@ fn test_exclude_types() {
                 super_traits: vec![],
                 doc: "Hidden type".to_string(),
                 cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
         ],
         functions: vec![],
@@ -920,6 +958,8 @@ fn test_exclude_fields_removes_wasm_struct_field() {
             super_traits: vec![],
             doc: String::new(),
             cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         functions: vec![],
         enums: vec![],
@@ -968,6 +1008,8 @@ fn make_trait_def_wasm(name: &str, methods: Vec<MethodDef>) -> TypeDef {
         super_traits: vec![],
         doc: String::new(),
         cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -991,6 +1033,8 @@ fn make_method_wasm(name: &str, return_type: TypeRef, has_error: bool, has_defau
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: has_default,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -1010,6 +1054,8 @@ fn make_async_method_wasm(name: &str, return_type: TypeRef) -> MethodDef {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -1386,6 +1432,8 @@ fn test_generate_bindings_cargo_toml_js_sys_with_trait_bridge() {
                 returns_cow: false,
                 return_newtype_wrapper: None,
                 has_default_impl: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             }],
             is_opaque: false,
             is_clone: false,
@@ -1399,6 +1447,8 @@ fn test_generate_bindings_cargo_toml_js_sys_with_trait_bridge() {
             super_traits: vec![],
             doc: String::new(),
             cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         functions: vec![],
         enums: vec![],
@@ -1481,6 +1531,8 @@ fn test_vec_string_is_ref_serde_path_emits_refs_binding() {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         enums: vec![],
         errors: vec![],
@@ -1544,6 +1596,8 @@ fn test_static_default_returns_binding_wrapper_not_core_type() {
                 return_newtype_wrapper: None,
                 has_default_impl: false,
                 trait_source: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             }],
             is_opaque: false,
             is_clone: true,
@@ -1557,6 +1611,8 @@ fn test_static_default_returns_binding_wrapper_not_core_type() {
             super_traits: vec![],
             doc: String::new(),
             cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         functions: vec![],
         enums: vec![],
@@ -1629,6 +1685,8 @@ fn test_static_from_update_returns_binding_wrapper_not_core_type() {
                     return_newtype_wrapper: None,
                     has_default_impl: false,
                     trait_source: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 }],
                 is_opaque: false,
                 is_clone: true,
@@ -1642,6 +1700,8 @@ fn test_static_from_update_returns_binding_wrapper_not_core_type() {
                 super_traits: vec![],
                 doc: String::new(),
                 cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
             TypeDef {
                 name: "ConversionOptionsUpdate".to_string(),
@@ -1665,6 +1725,8 @@ fn test_static_from_update_returns_binding_wrapper_not_core_type() {
                 super_traits: vec![],
                 doc: String::new(),
                 cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
         ],
         functions: vec![],
@@ -1792,6 +1854,8 @@ fn test_map_named_value_uses_serde_wasm_bindgen_not_into() {
         super_traits: vec![],
         doc: "A named child type used as map values.".to_string(),
         cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
 
     // ParentStruct: has Map<String, ChildStruct> and Option<Map<String, ChildStruct>> fields.
@@ -1830,6 +1894,8 @@ fn test_map_named_value_uses_serde_wasm_bindgen_not_into() {
         super_traits: vec![],
         doc: "A struct with Map<String, NamedStruct> fields.".to_string(),
         cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
 
     // A function that accepts ParentStruct as a parameter forces the codegen to emit a
@@ -1860,6 +1926,8 @@ fn test_map_named_value_uses_serde_wasm_bindgen_not_into() {
         returns_ref: false,
         returns_cow: false,
         return_newtype_wrapper: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
 
     let api = ApiSurface {
@@ -2006,6 +2074,8 @@ fn test_wasm_bridge_bytes_param_generates_uint8array() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
 
     let trait_def = make_trait_def_wasm("Processor", vec![method]);
@@ -2105,6 +2175,8 @@ fn test_default_factory_emitted_for_required_args_struct() {
             super_traits: vec![],
             doc: String::new(),
             cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         functions: vec![],
         enums: vec![EnumDef {
@@ -2126,6 +2198,8 @@ fn test_default_factory_emitted_for_required_args_struct() {
             serde_tag: None,
             serde_untagged: false,
             serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -2196,6 +2270,8 @@ fn test_default_factory_skipped_when_explicit_default_method_present() {
                 return_newtype_wrapper: None,
                 has_default_impl: false,
                 trait_source: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             }],
             is_opaque: false,
             is_clone: true,
@@ -2209,6 +2285,8 @@ fn test_default_factory_skipped_when_explicit_default_method_present() {
             super_traits: vec![],
             doc: String::new(),
             cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         functions: vec![],
         enums: vec![],
@@ -2259,6 +2337,8 @@ fn make_enum_def(name: &str, variants: &[&str], serde_rename_all: Option<&str>) 
         serde_tag: None,
         serde_untagged: false,
         serde_rename_all: serde_rename_all.map(str::to_string),
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -2281,6 +2361,8 @@ fn make_type_def(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         super_traits: vec![],
         doc: String::new(),
         cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 

@@ -1034,13 +1034,51 @@ fn render_test_method(
     // Check for client_factory — when set, use instance-method call style.
     // Falls back to the global `[e2e.call.overrides.kotlin]` `client_factory` when
     // a per-call override is absent, matching the dart/swift renderers.
-    let client_factory = call_overrides.and_then(|o| o.client_factory.as_deref()).or_else(|| {
-        e2e_config
-            .call
-            .overrides
-            .get(lang)
-            .and_then(|o| o.client_factory.as_deref())
-    });
+    //
+    // For `kotlin_android_style`, also check `kotlin_android` and then `java`
+    // overrides when neither a `kotlin` per-call nor a `kotlin` global override
+    // is present. kotlin_android shares the same JNI bridge entry-points as the
+    // Java facade, so a `java` `client_factory` applies equally.
+    let client_factory = call_overrides
+        .and_then(|o| o.client_factory.as_deref())
+        .or_else(|| {
+            e2e_config
+                .call
+                .overrides
+                .get(lang)
+                .and_then(|o| o.client_factory.as_deref())
+        })
+        .or_else(|| {
+            if !kotlin_android_style {
+                return None;
+            }
+            // kotlin_android fallback: check per-call kotlin_android → java, then
+            // global kotlin_android → java overrides.
+            call_config
+                .overrides
+                .get("kotlin_android")
+                .and_then(|o| o.client_factory.as_deref())
+                .or_else(|| {
+                    call_config
+                        .overrides
+                        .get("java")
+                        .and_then(|o| o.client_factory.as_deref())
+                })
+                .or_else(|| {
+                    e2e_config
+                        .call
+                        .overrides
+                        .get("kotlin_android")
+                        .and_then(|o| o.client_factory.as_deref())
+                })
+                .or_else(|| {
+                    e2e_config
+                        .call
+                        .overrides
+                        .get("java")
+                        .and_then(|o| o.client_factory.as_deref())
+                })
+        });
 
     let effective_function_name = call_overrides
         .and_then(|o| o.function.as_ref())
@@ -1055,14 +1093,26 @@ fn render_test_method(
     // to class-level, then to any other language's options_type for the same call.
     // The Kotlin module re-exports Java facade types unchanged, so a type name declared
     // by csharp/c/go/php/python applies equally to Kotlin without an explicit override.
+    // For kotlin_android, also try kotlin_android and java overrides.
     let effective_options_type: Option<String> = call_overrides
         .and_then(|o| o.options_type.clone())
         .or_else(|| options_type.map(|s| s.to_string()))
         .or_else(|| {
-            for cand in ["csharp", "c", "go", "php", "python"] {
-                if let Some(o) = call_config.overrides.get(cand) {
-                    if let Some(t) = &o.options_type {
-                        return Some(t.clone());
+            // For kotlin_android, check kotlin_android and java first.
+            if kotlin_android_style {
+                for cand in ["kotlin_android", "java", "csharp", "c", "go", "php", "python"] {
+                    if let Some(o) = call_config.overrides.get(cand) {
+                        if let Some(t) = &o.options_type {
+                            return Some(t.clone());
+                        }
+                    }
+                }
+            } else {
+                for cand in ["csharp", "c", "go", "php", "python"] {
+                    if let Some(o) = call_config.overrides.get(cand) {
+                        if let Some(t) = &o.options_type {
+                            return Some(t.clone());
+                        }
                     }
                 }
             }
@@ -1126,11 +1176,26 @@ fn render_test_method(
             .or_else(|| call_config.overrides.get("java").and_then(|o| o.result_type.as_deref()))
             .or_else(|| call_config.overrides.get("c").and_then(|o| o.result_type.as_deref()));
         let auto_enum_fields: Option<&HashSet<String>> = result_type_name.and_then(|name| type_enum_fields.get(name));
-        let has_per_call = call_overrides.is_some_and(|co| !co.enum_fields.is_empty());
+        // For kotlin_android, also pull enum_fields from the `java` and
+        // `kotlin_android` per-call overrides, since those binding layers share
+        // the same JNI bridge and response types.
+        let java_call_overrides = if kotlin_android_style {
+            call_config
+                .overrides
+                .get("java")
+                .or_else(|| call_config.overrides.get("kotlin_android"))
+        } else {
+            None
+        };
+        let has_per_call = call_overrides.is_some_and(|co| !co.enum_fields.is_empty())
+            || java_call_overrides.is_some_and(|co| !co.enum_fields.is_empty());
         let has_auto = auto_enum_fields.is_some_and(|f| !f.is_empty());
         if has_per_call || has_auto {
             let mut merged = enum_fields.clone();
             if let Some(co) = call_overrides {
+                merged.extend(co.enum_fields.keys().cloned());
+            }
+            if let Some(co) = java_call_overrides {
                 merged.extend(co.enum_fields.keys().cloned());
             }
             if let Some(auto_fields) = auto_enum_fields {
@@ -1618,11 +1683,18 @@ fn render_assertion(
         .is_some_and(|f| enum_fields.contains(f) || enum_fields.contains(field_resolver.resolve(f)));
 
     // Raw field accessor — may end with nullable type if field is optional.
+    // kotlin_android data classes expose properties (no parens), so use the
+    // dedicated "kotlin_android" language key for the accessor renderer.
+    let accessor_lang = if kotlin_android_style {
+        "kotlin_android"
+    } else {
+        "kotlin"
+    };
     let field_expr = if result_is_simple {
         result_var.to_string()
     } else {
         match &assertion.field {
-            Some(f) if !f.is_empty() => field_resolver.accessor(f, "kotlin", result_var),
+            Some(f) if !f.is_empty() => field_resolver.accessor(f, accessor_lang, result_var),
             _ => result_var.to_string(),
         }
     };
@@ -1683,15 +1755,29 @@ fn render_assertion(
         field_expr.clone()
     };
 
-    // For enum fields, use .getValue() to get the string value. When the enum
-    // field (or any intermediate segment in its path) is optional, use a safe
-    // call before `.getValue()` and then `.orEmpty()` to coerce `String?` back
-    // to `String` — this matches the Java codegen's
-    // `Optional.ofNullable(...).map(v -> v.getValue()).orElse("")` pattern.
-    let string_expr = match (field_is_enum, field_is_optional) {
-        (true, true) => format!("{field_expr}?.getValue().orEmpty()"),
-        (true, false) => format!("{field_expr}.getValue()"),
-        (false, _) => string_field_expr.clone(),
+    // For enum fields, convert to string for comparison.
+    //
+    // - JVM (kotlin) mode: The Java facade wraps enums in a Java enum type that
+    //   exposes a `.getValue()` accessor. Use `.getValue()` (with optional-safe
+    //   variant when the field is nullable), mirroring the Java codegen pattern
+    //   `Optional.ofNullable(...).map(v -> v.getValue()).orElse("")`.
+    //
+    // - kotlin_android mode: Enums are plain Kotlin `enum class` values with no
+    //   `.getValue()` method. Serialize to the lowercase wire string via
+    //   `.name.lowercase()`, which maps `FinishReason.STOP` → `"stop"` and
+    //   `FinishReason.TOOL_CALLS` → `"tool_calls"`, matching the JSON wire values.
+    let string_expr = if kotlin_android_style {
+        match (field_is_enum, field_is_optional) {
+            (true, true) => format!("{field_expr}?.name?.lowercase().orEmpty()"),
+            (true, false) => format!("{field_expr}.name.lowercase()"),
+            (false, _) => string_field_expr.clone(),
+        }
+    } else {
+        match (field_is_enum, field_is_optional) {
+            (true, true) => format!("{field_expr}?.getValue().orEmpty()"),
+            (true, false) => format!("{field_expr}.getValue()"),
+            (false, _) => string_field_expr.clone(),
+        }
     };
 
     // Determine if this assertion field maps to a 64-bit C type (uint64_t / int64_t),
@@ -2221,6 +2307,8 @@ mod tests {
             serde_rename_all: None,
             has_serde: true,
             super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         };
 
         // `BatchObject` is the only struct — `BatchStatus` is not in struct_names.

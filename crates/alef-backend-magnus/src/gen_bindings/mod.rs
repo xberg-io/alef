@@ -748,6 +748,8 @@ gem_name = "test_lib"
                 super_traits: vec![],
                 doc: String::new(),
                 cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             }],
             functions: vec![FunctionDef {
                 name: "process".to_string(),
@@ -764,6 +766,8 @@ gem_name = "test_lib"
                 returns_ref: false,
                 returns_cow: false,
                 return_newtype_wrapper: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             }],
             enums: vec![],
             errors: vec![],

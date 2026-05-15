@@ -1900,6 +1900,8 @@ mod tests {
             serde_rename_all: None,
             has_serde: true,
             super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }
     }
 
@@ -1980,6 +1982,8 @@ mod tests {
             serde_rename_all: None,
             has_serde: true,
             super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }
     }
 

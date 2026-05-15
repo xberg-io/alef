@@ -86,6 +86,8 @@ fn test_generated_code_example() {
             super_traits: vec![],
             doc: "Configuration for text extraction".to_string(),
             cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         functions: vec![FunctionDef {
             name: "extract_file_sync".to_string(),
@@ -127,6 +129,8 @@ fn test_generated_code_example() {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         enums: vec![EnumDef {
             name: "OcrBackend".to_string(),
@@ -157,6 +161,8 @@ fn test_generated_code_example() {
             serde_tag: None,
             serde_untagged: false,
             serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),

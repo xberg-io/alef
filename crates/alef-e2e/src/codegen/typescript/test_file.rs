@@ -1433,6 +1433,8 @@ mod tests {
             serde_rename_all: None,
             has_serde: true,
             super_traits: Vec::new(),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }
     }
 

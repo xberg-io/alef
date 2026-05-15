@@ -64,6 +64,8 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         serde_rename_all: None,
         has_serde: false,
         super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -86,6 +88,8 @@ fn make_opaque_type(name: &str, methods: Vec<MethodDef>) -> TypeDef {
         serde_rename_all: None,
         has_serde: false,
         super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -333,6 +337,8 @@ fn lib_rs_emits_bridge_fn_per_ir_function() {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         enums: vec![],
         errors: vec![],
@@ -377,6 +383,8 @@ fn lib_rs_async_fn_uses_async_fn_keyword() {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         enums: vec![],
         errors: vec![],
@@ -413,6 +421,8 @@ fn lib_rs_result_fn_uses_map_err_to_string() {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         enums: vec![],
         errors: vec![],
@@ -469,6 +479,8 @@ fn lib_rs_emits_mirror_enum_per_ir_enum() {
 
             is_copy: false,
             has_serde: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -575,6 +587,8 @@ fn make_method(name: &str, params: Vec<ParamDef>, return_type: TypeRef, is_async
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -598,6 +612,8 @@ fn make_trait(name: &str, rust_path: &str, methods: Vec<MethodDef>) -> TypeDef {
         serde_rename_all: None,
         has_serde: false,
         super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -1187,6 +1203,8 @@ stub_methods = ["process_bytes_batch"]
                 returns_ref: false,
                 returns_cow: false,
                 return_newtype_wrapper: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
             FunctionDef {
                 name: "greet".into(),
@@ -1203,6 +1221,8 @@ stub_methods = ["process_bytes_batch"]
                 returns_ref: false,
                 returns_cow: false,
                 return_newtype_wrapper: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
         ],
         enums: vec![],
@@ -1312,6 +1332,8 @@ fn sanitized_string_cow_field_roundtrips_in_from_mirror_to_core_impl() {
         serde_rename_all: None,
         has_serde: true,
         super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
 
     // A free function that takes ProcessConfig as input forces a From<Mirror> for Core impl.
@@ -1330,6 +1352,8 @@ fn sanitized_string_cow_field_roundtrips_in_from_mirror_to_core_impl() {
         returns_cow: false,
         return_newtype_wrapper: None,
         cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
 
     let api = ApiSurface {
@@ -1457,6 +1481,8 @@ fn sanitized_string_non_cow_field_falls_back_to_default_in_from_mirror_to_core_i
         serde_rename_all: None,
         has_serde: true,
         super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
 
     let process_fn = FunctionDef {
@@ -1474,6 +1500,8 @@ fn sanitized_string_non_cow_field_falls_back_to_default_in_from_mirror_to_core_i
         returns_cow: false,
         return_newtype_wrapper: None,
         cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
 
     let api = ApiSurface {

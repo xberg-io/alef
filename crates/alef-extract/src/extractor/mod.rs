@@ -13,7 +13,10 @@ use anyhow::{Context, Result};
 use crate::type_resolver;
 
 use self::functions::{detect_receiver, extract_function, extract_impl_block, extract_params, resolve_return_type};
-use self::helpers::{build_rust_path, collect_reexport_map, extract_doc_comments, is_pub, is_thiserror_enum};
+use self::helpers::{
+    build_rust_path, collect_reexport_map, extract_binding_exclusion_reason, extract_doc_comments, is_pub,
+    is_thiserror_enum,
+};
 use self::reexports::{extract_module, resolve_use_tree};
 use self::types::{extract_enum, extract_error_enum, extract_struct};
 
@@ -633,12 +636,16 @@ fn extract_items(
                     serde_rename_all: None,
                     has_serde: false,
                     super_traits: vec![],
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 });
             }
             syn::Item::Trait(item_trait) if is_pub(&item_trait.vis) && item_trait.generics.params.is_empty() => {
                 let name = item_trait.ident.to_string();
                 let rust_path = build_rust_path(crate_name, module_path, &name);
                 let doc = extract_doc_comments(&item_trait.attrs);
+                let trait_binding_exclusion_reason = extract_binding_exclusion_reason(&item_trait.attrs);
+                let trait_binding_excluded = trait_binding_exclusion_reason.is_some();
 
                 // Extract trait methods
                 let methods: Vec<MethodDef> = item_trait
@@ -648,6 +655,8 @@ fn extract_items(
                         if let syn::TraitItem::Fn(method) = item {
                             let method_name = method.sig.ident.to_string();
                             let method_doc = extract_doc_comments(&method.attrs);
+                            let method_binding_exclusion_reason = extract_binding_exclusion_reason(&method.attrs);
+                            let method_binding_excluded = method_binding_exclusion_reason.is_some();
                             let mut is_async = method.sig.asyncness.is_some();
                             let (mut return_type, mut error_type, returns_ref) =
                                 resolve_return_type(&method.sig.output);
@@ -689,6 +698,8 @@ fn extract_items(
                                 returns_cow: false,
                                 return_newtype_wrapper: None,
                                 has_default_impl: method.default.is_some(),
+                                binding_excluded: method_binding_excluded,
+                                binding_exclusion_reason: method_binding_exclusion_reason,
                             })
                         } else {
                             None
@@ -734,6 +745,8 @@ fn extract_items(
                     serde_rename_all: None,
                     has_serde: false,
                     super_traits,
+                    binding_excluded: trait_binding_excluded,
+                    binding_exclusion_reason: trait_binding_exclusion_reason,
                 });
             }
             syn::Item::Mod(item_mod) => {

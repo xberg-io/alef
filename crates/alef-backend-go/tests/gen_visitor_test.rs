@@ -36,6 +36,8 @@ fn test_visitor_file_emits_prefixed_struct() {
             returns_cow: false,
             return_newtype_wrapper: None,
             has_default_impl: true,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         is_opaque: false,
         is_clone: false,
@@ -49,6 +51,8 @@ fn test_visitor_file_emits_prefixed_struct() {
         serde_rename_all: None,
         has_serde: false,
         super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
 
     let output = gen_visitor_file(

@@ -1132,6 +1132,8 @@ fn test_scaffold_elixir_cargo_tokio_when_async_function() {
         returns_ref: false,
         returns_cow: false,
         return_newtype_wrapper: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     });
     let all_files = scaffold(&api, &config, &[Language::Elixir]).unwrap();
     let files = language_files(&all_files);
@@ -1298,6 +1300,8 @@ fn test_scaffold_elixir_cargo_tokio_when_async_method() {
             returns_cow: false,
             return_newtype_wrapper: None,
             has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         is_opaque: false,
         is_clone: true,
@@ -1311,6 +1315,8 @@ fn test_scaffold_elixir_cargo_tokio_when_async_method() {
         serde_rename_all: None,
         has_serde: false,
         super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     });
     let all_files = scaffold(&api, &config, &[Language::Elixir]).unwrap();
     let files = language_files(&all_files);

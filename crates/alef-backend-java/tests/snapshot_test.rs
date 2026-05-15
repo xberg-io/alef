@@ -79,6 +79,8 @@ fn print_generated_java_code() {
                 super_traits: vec![],
                 doc: "Configuration for extraction".to_string(),
                 cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
             TypeDef {
                 name: "ExtractionResult".to_string(),
@@ -137,6 +139,8 @@ fn print_generated_java_code() {
                 super_traits: vec![],
                 doc: "Result of extraction".to_string(),
                 cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
         ],
         functions: vec![
@@ -180,6 +184,8 @@ fn print_generated_java_code() {
                 returns_ref: false,
                 returns_cow: false,
                 return_newtype_wrapper: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
             FunctionDef {
                 name: "extractFileAsync".to_string(),
@@ -221,6 +227,8 @@ fn print_generated_java_code() {
                 returns_ref: false,
                 returns_cow: false,
                 return_newtype_wrapper: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
         ],
         enums: vec![EnumDef {
@@ -260,6 +268,8 @@ fn print_generated_java_code() {
             serde_tag: None,
             serde_untagged: false,
             serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         errors: vec![ErrorDef {
             name: "Error".to_string(),
@@ -286,6 +296,8 @@ fn print_generated_java_code() {
                 },
             ],
             doc: "Error types".to_string(),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
     };

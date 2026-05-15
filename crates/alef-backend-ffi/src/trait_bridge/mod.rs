@@ -377,6 +377,8 @@ mod tests {
             super_traits: vec![],
             doc: String::new(),
             cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }
     }
 
@@ -400,6 +402,8 @@ mod tests {
             returns_cow: false,
             return_newtype_wrapper: None,
             has_default_impl: has_default,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }
     }
 
@@ -888,6 +892,8 @@ mod tests {
                 returns_cow: false,
                 return_newtype_wrapper: None,
                 has_default_impl: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             }],
         );
         let bridge_cfg = sample_bridge_cfg("Greeter");
@@ -984,6 +990,8 @@ mod tests {
             returns_cow: false,
             return_newtype_wrapper: None,
             has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         };
         let trait_def = make_trait_def("Renderer", vec![internal_doc_method]);
         let bridge_cfg = sample_bridge_cfg("Renderer");
@@ -1055,6 +1063,8 @@ mod tests {
             returns_cow: false,
             return_newtype_wrapper: None,
             has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         };
         let trait_def = make_trait_def("Backend", vec![method.clone()]);
         let bridge_cfg = sample_bridge_cfg("Backend");
@@ -1119,6 +1129,8 @@ mod tests {
             returns_cow: false,
             return_newtype_wrapper: None,
             has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         };
         let trait_def = make_trait_def("DocumentExtractor", vec![method]);
         let bridge_cfg = sample_bridge_cfg("DocumentExtractor");
@@ -1240,6 +1252,8 @@ mod tests {
             returns_cow: false,
             return_newtype_wrapper: None,
             has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         };
         let trait_def = make_trait_def("Backend", vec![method]);
         let bridge_cfg = sample_bridge_cfg("Backend");
@@ -1303,6 +1317,8 @@ mod tests {
             returns_cow: false,
             return_newtype_wrapper: None,
             has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         };
         let trait_def = make_trait_def("Extractor", vec![method]);
         let bridge_cfg = sample_bridge_cfg("Extractor");
@@ -1418,6 +1434,8 @@ mod tests {
             returns_cow: false,
             return_newtype_wrapper: None,
             has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         };
         let trait_def = make_trait_def("Extractor", vec![method]);
         let bridge_cfg = sample_bridge_cfg("Extractor");

@@ -7,7 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.16.7 - Unreleased]
 
+### Added
+
+- **Source-level `#[cfg_attr(alef, alef(skip))]` on types, enums, errors, functions, methods, and traits**:
+  Alef now honors `alef(skip)` (and `#[doc(hidden)]`) at every item level, not just on
+  fields. Excluded items are stripped from the binding API surface before downstream
+  codegen; trait-bridge codegen can still resolve their fully qualified Rust paths via
+  `ApiSurface.excluded_type_paths`. This lets the source declare what stays internal to
+  Rust without per-language `exclude_types`/`exclude_functions` lists in `alef.toml`.
+  (`crates/alef-extract`, `crates/alef-cli`, `crates/alef-core`)
+
 ### Fixed
+
+- **kotlin-android: `createClient` wrapper returns `DefaultClient` not `String`**:
+  `emit_module_kt` in `alef-backend-kotlin-android` previously passed every
+  `TypeRef::Named` return through `jni_return_type_str`, which maps named types
+  to `"String"`. When a top-level function returns an opaque handle type (e.g.
+  `create_client() -> DefaultClient`), the wrapper facade now detects the opaque
+  type name, emits `: DefaultClient` as the return type, and wraps the bridge call
+  in the `DefaultClient(handle: Long)` constructor instead of propagating the raw
+  `Long`. Regression test added in
+  `crates/alef-backend-kotlin-android/tests/gen_bindings_test.rs`.
+  (`crates/alef-backend-kotlin-android/src/gen_bindings.rs`)
+
+- **alef-e2e/kotlin_android: construct `DefaultClient` via `client_factory` before
+  calling methods**: when `[crates.e2e.calls.<call>.overrides.java]` (or
+  `.kotlin_android`) declares a `client_factory`, `render_test_method` in
+  kotlin_android style now picks it up and emits the instance-method call pattern
+  (`val client = LiterLlm.createClient(...); client.chat(...); client.close()`)
+  instead of the flat function call style (`LiterLlm.chat(...)`).
+  Previously the fallback chain only checked a `"kotlin"` override key, so the
+  java override was silently ignored. Regression test added in
+  `crates/alef-e2e/tests/kotlin_android_codegen.rs`.
+  (`crates/alef-e2e/src/codegen/kotlin.rs`)
+
+- **alef-e2e/kotlin_android: emit Kotlin property access instead of Java getter
+  calls**: `render_test_method` now passes `"kotlin_android"` as the language key
+  to `FieldAccessResolver::accessor()`. New `render_kotlin_android_with_optionals`
+  and `render_kotlin_android` helpers produce `result.choices.first().message.content`
+  (no `()`) rather than `result.choices().first().message().content()`.
+  Regression test added in `crates/alef-e2e/tests/kotlin_android_codegen.rs`.
+  (`crates/alef-e2e/src/field_access.rs`, `crates/alef-e2e/src/codegen/kotlin.rs`)
+
+- **alef-e2e/kotlin_android: serialize enum fields via `.name.lowercase()` not
+  `.getValue()`**: assertion codegen now branches on `kotlin_android_style` to emit
+  `.name.lowercase()` (or `?.name?.lowercase()` for optional enums) instead of
+  `.getValue()`, which does not exist on plain Kotlin `enum class` values. Enum
+  fields from `[overrides.java]` call configs are now also merged correctly when
+  generating kotlin_android tests. Regression test added in
+  `crates/alef-e2e/tests/kotlin_android_codegen.rs`.
+  (`crates/alef-e2e/src/codegen/kotlin.rs`)
 
 - **Binding surface: exclude source-declared internal fields before codegen**:
   Alef now records field-level exclusion metadata from `#[doc(hidden)]` and

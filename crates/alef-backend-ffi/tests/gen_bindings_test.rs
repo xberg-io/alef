@@ -45,6 +45,8 @@ fn make_trait_def(name: &str, methods: Vec<MethodDef>) -> TypeDef {
         super_traits: vec![],
         doc: String::new(),
         cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -68,6 +70,8 @@ fn make_method(name: &str, return_type: TypeRef, has_error: bool, has_default: b
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: has_default,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -91,6 +95,8 @@ fn make_method_with_params(name: &str, params: Vec<ParamDef>, return_type: TypeR
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 

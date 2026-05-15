@@ -69,6 +69,8 @@ fn make_basic_api() -> ApiSurface {
             serde_rename_all: None,
             has_serde: false,
             super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         functions: vec![FunctionDef {
             name: "process".into(),
@@ -88,6 +90,8 @@ fn make_basic_api() -> ApiSurface {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         enums: vec![EnumDef {
             name: "Status".to_string(),
@@ -118,6 +122,8 @@ fn make_basic_api() -> ApiSurface {
             serde_tag: None,
             serde_untagged: false,
             serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         errors: vec![ErrorDef {
             name: "DemoError".to_string(),
@@ -144,6 +150,8 @@ fn make_basic_api() -> ApiSurface {
                 },
             ],
             doc: "Errors emitted by demo operations.".to_string(),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
     }
@@ -200,6 +208,8 @@ fn snapshot_conversion_struct_with_named_types() {
                 serde_rename_all: None,
                 has_serde: false,
                 super_traits: vec![],
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
             TypeDef {
                 name: "Wrapper".to_string(),
@@ -219,6 +229,8 @@ fn snapshot_conversion_struct_with_named_types() {
                 serde_rename_all: None,
                 has_serde: false,
                 super_traits: vec![],
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
         ],
         functions: vec![FunctionDef {
@@ -236,6 +248,8 @@ fn snapshot_conversion_struct_with_named_types() {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         enums: vec![],
         errors: vec![],
@@ -279,6 +293,8 @@ fn snapshot_conversion_enum_with_data() {
             serde_rename_all: None,
             has_serde: false,
             super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         functions: vec![],
         enums: vec![EnumDef {
@@ -310,6 +326,8 @@ fn snapshot_conversion_enum_with_data() {
             serde_tag: None,
             serde_untagged: false,
             serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -352,6 +370,8 @@ fn snapshot_conversion_vec_of_named() {
             serde_rename_all: None,
             has_serde: false,
             super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         functions: vec![FunctionDef {
             name: "getItems".into(),
@@ -368,6 +388,8 @@ fn snapshot_conversion_vec_of_named() {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         enums: vec![],
         errors: vec![],
@@ -403,6 +425,8 @@ fn make_method(name: &str, params: Vec<ParamDef>, return_type: TypeRef, is_async
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -434,6 +458,8 @@ fn snapshot_trait_bridge_inbound() {
                 serde_rename_all: None,
                 has_serde: false,
                 super_traits: vec![],
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
             TypeDef {
                 name: "OcrConfig".to_string(),
@@ -453,6 +479,8 @@ fn snapshot_trait_bridge_inbound() {
                 serde_rename_all: None,
                 has_serde: true,
                 super_traits: vec![],
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
             TypeDef {
                 name: "ExtractionResult".to_string(),
@@ -472,6 +500,8 @@ fn snapshot_trait_bridge_inbound() {
                 serde_rename_all: None,
                 has_serde: true,
                 super_traits: vec![],
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
             TypeDef {
                 name: "OcrBackend".to_string(),
@@ -542,6 +572,8 @@ fn snapshot_trait_bridge_inbound() {
                 serde_rename_all: None,
                 has_serde: false,
                 super_traits: vec!["Plugin".to_string()],
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
         ],
         functions: vec![],
@@ -631,6 +663,8 @@ fn snapshot_tuple_field_as_vec() {
             serde_rename_all: None,
             has_serde: true,
             super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         functions: vec![FunctionDef {
             name: "extract_keywords".into(),
@@ -650,6 +684,8 @@ fn snapshot_tuple_field_as_vec() {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         enums: vec![],
         errors: vec![ErrorDef {
@@ -666,6 +702,8 @@ fn snapshot_tuple_field_as_vec() {
                 doc: "Extraction encountered an error.".to_string(),
             }],
             doc: "Errors emitted by keyword extraction.".to_string(),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
     };
@@ -716,6 +754,8 @@ fn snapshot_streaming_adapter() {
                 receiver: Some(ReceiverKind::Ref),
                 trait_source: None,
                 has_default_impl: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             }],
             is_opaque: true,
             is_clone: false,
@@ -729,6 +769,8 @@ fn snapshot_streaming_adapter() {
             serde_rename_all: None,
             has_serde: false,
             super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         functions: vec![],
         enums: vec![],

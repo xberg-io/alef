@@ -63,6 +63,8 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         serde_rename_all: None,
         has_serde: false,
         super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -145,6 +147,8 @@ fn function_emits_external_binding() {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         enums: vec![],
         errors: vec![],
@@ -197,6 +201,8 @@ fn enum_emits_custom_type() {
 
             is_copy: false,
             has_serde: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -263,6 +269,8 @@ fn error_emits_custom_type() {
                 },
             ],
             doc: String::new(),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
     };
@@ -311,6 +319,8 @@ fn enum_tuple_variant_emits_unlabeled_field() {
 
             is_copy: false,
             has_serde: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -349,6 +359,8 @@ fn nif_module_override_uses_custom_name() {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         enums: vec![],
         errors: vec![],
@@ -384,6 +396,8 @@ fn make_method(name: &str) -> MethodDef {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -403,6 +417,8 @@ fn make_method_with_types(name: &str, return_type: TypeRef, error_type: Option<&
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -426,6 +442,8 @@ fn make_trait_type(name: &str, methods: Vec<MethodDef>) -> TypeDef {
         serde_rename_all: None,
         has_serde: false,
         super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -637,6 +655,8 @@ fn trait_bridge_response_shim_uses_typed_return_and_error() {
         original_rust_path: String::new(),
         variants: vec![],
         doc: String::new(),
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
 
     let api = ApiSurface {
@@ -673,6 +693,8 @@ fn trait_bridge_response_shim_unit_return_emits_nil() {
         original_rust_path: String::new(),
         variants: vec![],
         doc: String::new(),
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
 
     let api = ApiSurface {

@@ -596,6 +596,8 @@ mod tests {
             super_traits: vec![],
             doc: String::new(),
             cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }
     }
 

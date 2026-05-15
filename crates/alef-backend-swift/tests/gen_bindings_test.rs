@@ -65,6 +65,8 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         serde_rename_all: None,
         has_serde: false,
         super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -248,6 +250,8 @@ fn unit_only_enum_emits_lower_camel_cases() {
 
             is_copy: false,
             has_serde: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -300,6 +304,8 @@ fn data_bearing_enum_emits_associated_values() {
 
             is_copy: false,
             has_serde: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -337,6 +343,8 @@ fn sync_function_emits_public_static_func() {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         enums: vec![],
         errors: vec![],
@@ -378,6 +386,8 @@ fn async_function_emits_async_keyword() {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         enums: vec![],
         errors: vec![],
@@ -415,6 +425,8 @@ fn error_throwing_function_emits_throws() {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         enums: vec![],
         errors: vec![],
@@ -452,6 +464,8 @@ fn async_throws_function_emits_both_qualifiers() {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         enums: vec![],
         errors: vec![],
@@ -503,6 +517,8 @@ fn error_enum_conforms_to_error_protocol() {
                 },
             ],
             doc: String::new(),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
     };
@@ -545,6 +561,8 @@ fn error_enum_named_error_is_renamed_to_module_error() {
                 doc: String::new(),
             }],
             doc: String::new(),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
     };
@@ -584,6 +602,8 @@ fn make_sync_fn(name: &str, params: Vec<ParamDef>, return_type: TypeRef) -> Func
         returns_ref: false,
         returns_cow: false,
         return_newtype_wrapper: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -835,6 +855,8 @@ fn async_bytes_function_is_not_a_candidate() {
         returns_ref: false,
         returns_cow: false,
         return_newtype_wrapper: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
 
     let api = ApiSurface {
@@ -945,6 +967,8 @@ fn make_streaming_api() -> ApiSurface {
                 receiver: Some(ReceiverKind::Ref),
                 trait_source: None,
                 has_default_impl: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             }],
             is_opaque: true,
             is_clone: false,
@@ -958,6 +982,8 @@ fn make_streaming_api() -> ApiSurface {
             super_traits: vec![],
             doc: String::new(),
             cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         functions: vec![],
         enums: vec![],
@@ -1102,6 +1128,8 @@ fn streaming_chunk_type_with_serde_and_fields_emits_codable_struct() {
                     receiver: Some(ReceiverKind::Ref),
                     trait_source: None,
                     has_default_impl: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 }],
                 is_opaque: true,
                 is_clone: false,
@@ -1115,6 +1143,8 @@ fn streaming_chunk_type_with_serde_and_fields_emits_codable_struct() {
                 super_traits: vec![],
                 doc: String::new(),
                 cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
             TypeDef {
                 name: "ChatCompletionChunk".to_string(),
@@ -1138,6 +1168,8 @@ fn streaming_chunk_type_with_serde_and_fields_emits_codable_struct() {
                 super_traits: vec![],
                 doc: String::new(),
                 cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
         ],
         functions: vec![],

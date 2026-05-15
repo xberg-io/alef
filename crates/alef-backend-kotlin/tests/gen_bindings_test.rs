@@ -91,6 +91,8 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         serde_rename_all: None,
         has_serde: false,
         super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -146,6 +148,8 @@ fn function_emits_object_member() {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         enums: vec![],
         errors: vec![],
@@ -202,6 +206,8 @@ fn unit_enum_emits_enum_class() {
 
             is_copy: false,
             has_serde: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -260,6 +266,8 @@ fn async_function_emits_suspend() {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         enums: vec![],
         errors: vec![],
@@ -312,6 +320,8 @@ fn unit_error_variant_emits_sealed_class() {
                 },
             ],
             doc: String::new(),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
     };
@@ -348,6 +358,8 @@ fn error_variant_with_fields_emits_data_class() {
                 doc: String::new(),
             }],
             doc: String::new(),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
     };
@@ -381,6 +393,8 @@ fn function_imports_native_facade() {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         enums: vec![],
         errors: vec![],
@@ -453,6 +467,8 @@ type = "ChatCompletionRequest"
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let client_type = TypeDef {
         name: "DefaultClient".into(),
@@ -472,6 +488,8 @@ type = "ChatCompletionRequest"
         serde_rename_all: None,
         has_serde: false,
         super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let api = ApiSurface {
         crate_name: "demo-crate".into(),
@@ -599,6 +617,8 @@ type = "ChatCompletionRequest"
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let client_type = TypeDef {
         name: "DefaultClient".into(),
@@ -618,6 +638,8 @@ type = "ChatCompletionRequest"
         serde_rename_all: None,
         has_serde: false,
         super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let api = ApiSurface {
         crate_name: "demo-crate".into(),
@@ -683,6 +705,8 @@ target = "jvm"
             returns_cow: false,
             return_newtype_wrapper: None,
             has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         is_opaque: true,
         is_clone: false,
@@ -696,6 +720,8 @@ target = "jvm"
         serde_rename_all: None,
         has_serde: false,
         super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let api = ApiSurface {
         crate_name: "demo-crate".into(),

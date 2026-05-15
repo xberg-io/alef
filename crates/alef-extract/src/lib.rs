@@ -151,6 +151,8 @@ mod tests {
             returns_cow: false,
             return_newtype_wrapper: None,
             has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }
     }
 
@@ -170,6 +172,8 @@ mod tests {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }
     }
 
@@ -192,6 +196,8 @@ mod tests {
             serde_rename_all: None,
             has_serde: false,
             super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }
     }
 

@@ -1400,6 +1400,8 @@ mod tests {
                 serde_rename: None,
                 is_tuple: false,
             }],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         };
         let out = gen_unit_enum_type(&enum_def);
         assert!(out.contains("type Status string"));
@@ -1427,6 +1429,8 @@ mod tests {
             has_serde: false,
             super_traits: vec![],
             methods: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         };
         let out = gen_struct_type(&typ, &std::collections::HashSet::new());
         assert!(out.contains("type MyConfig struct"));

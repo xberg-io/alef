@@ -805,6 +805,8 @@ visitor_callbacks = true
                 super_traits: vec![],
                 doc: "Configuration struct.".to_string(),
                 cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             }],
             functions: vec![FunctionDef {
                 name: "extract".to_string(),
@@ -832,6 +834,8 @@ visitor_callbacks = true
                 returns_ref: false,
                 returns_cow: false,
                 return_newtype_wrapper: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             }],
             enums: vec![EnumDef {
                 name: "OutputFormat".to_string(),
@@ -862,6 +866,8 @@ visitor_callbacks = true
                 serde_tag: None,
                 serde_untagged: false,
                 serde_rename_all: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             }],
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
@@ -920,6 +926,8 @@ visitor_callbacks = true
                     returns_cow: false,
                     return_newtype_wrapper: None,
                     has_default_impl: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
                 MethodDef {
                     name: "visit_element_start".to_string(),
@@ -947,6 +955,8 @@ visitor_callbacks = true
                     returns_cow: false,
                     return_newtype_wrapper: None,
                     has_default_impl: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
                 MethodDef {
                     name: "visit_link".to_string(),
@@ -1000,6 +1010,8 @@ visitor_callbacks = true
                     returns_cow: false,
                     return_newtype_wrapper: None,
                     has_default_impl: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
                 MethodDef {
                     name: "visit_heading".to_string(),
@@ -1053,6 +1065,8 @@ visitor_callbacks = true
                     returns_cow: false,
                     return_newtype_wrapper: None,
                     has_default_impl: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
                 MethodDef {
                     name: "visit_blockquote".to_string(),
@@ -1106,6 +1120,8 @@ visitor_callbacks = true
                     returns_cow: false,
                     return_newtype_wrapper: None,
                     has_default_impl: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
                 MethodDef {
                     name: "visit_list_item".to_string(),
@@ -1159,6 +1175,8 @@ visitor_callbacks = true
                     returns_cow: false,
                     return_newtype_wrapper: None,
                     has_default_impl: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
                 MethodDef {
                     name: "visit_table_row".to_string(),
@@ -1212,6 +1230,8 @@ visitor_callbacks = true
                     returns_cow: false,
                     return_newtype_wrapper: None,
                     has_default_impl: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
             ],
             is_opaque: false,
@@ -1226,6 +1246,8 @@ visitor_callbacks = true
             super_traits: vec![],
             doc: "HTML visitor trait.".to_string(),
             cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         });
         api
     }
@@ -1289,6 +1311,8 @@ sources = ["src/lib.rs"]
                 returns_ref: false,
                 returns_cow: false,
                 return_newtype_wrapper: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             }],
             enums: vec![EnumDef {
                 name: "Color".to_string(),
@@ -1319,6 +1343,8 @@ sources = ["src/lib.rs"]
                 serde_tag: None,
                 serde_untagged: false,
                 serde_rename_all: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             }],
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
@@ -1731,6 +1757,8 @@ header_name = "mylib.h"
                 super_traits: vec![],
                 doc: String::new(),
                 cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             }],
             functions: vec![],
             enums: vec![],
@@ -1807,6 +1835,8 @@ header_name = "mylib.h"
             super_traits: vec![],
             doc: String::new(),
             cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         };
         // The type referenced by the Named field
         let named_type = TypeDef {
@@ -1827,6 +1857,8 @@ header_name = "mylib.h"
             doc: String::new(),
             cfg: None,
             is_copy: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         };
         ApiSurface {
             crate_name: "my-lib".to_string(),
@@ -2027,6 +2059,8 @@ core_import = "my_custom_lib"
                 returns_ref: false,
                 returns_cow: false,
                 return_newtype_wrapper: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             }],
             enums: vec![],
             errors: vec![],
@@ -2125,6 +2159,8 @@ type = "ChatRequest"
                     receiver: Some(ReceiverKind::Ref),
                     trait_source: None,
                     has_default_impl: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 }],
                 is_opaque: true,
                 is_clone: false,
@@ -2138,6 +2174,8 @@ type = "ChatRequest"
                 super_traits: vec![],
                 doc: String::new(),
                 cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             }],
             functions: vec![],
             enums: vec![],

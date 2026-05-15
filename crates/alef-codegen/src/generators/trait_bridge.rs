@@ -223,6 +223,8 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let version_body = generator.gen_sync_method_body(&version_method, spec);
 
@@ -242,6 +244,8 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: true,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let init_body = generator.gen_sync_method_body(&init_method, spec);
 
@@ -261,6 +265,8 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: true,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let shutdown_body = generator.gen_sync_method_body(&shutdown_method, spec);
 
@@ -967,6 +973,8 @@ mod tests {
             serde_rename_all: None,
             has_serde: false,
             super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }
     }
 
@@ -994,6 +1002,8 @@ mod tests {
             returns_cow: false,
             return_newtype_wrapper: None,
             has_default_impl,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }
     }
 
@@ -1013,6 +1023,8 @@ mod tests {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }
     }
 
@@ -2009,6 +2021,8 @@ mod tests {
             serde_rename_all: None,
             has_serde: false,
             super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         };
         let func = make_func(
             "convert",
@@ -2061,6 +2075,8 @@ mod tests {
             serde_rename_all: None,
             has_serde: false,
             super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         };
         let func = make_func(
             "convert",

@@ -74,6 +74,8 @@ fn make_basic_api() -> ApiSurface {
             serde_rename_all: None,
             has_serde: false,
             super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         functions: vec![FunctionDef {
             name: "process".into(),
@@ -93,6 +95,8 @@ fn make_basic_api() -> ApiSurface {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         enums: vec![EnumDef {
             name: "Status".to_string(),
@@ -123,6 +127,8 @@ fn make_basic_api() -> ApiSurface {
             serde_tag: None,
             serde_untagged: false,
             serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         errors: vec![ErrorDef {
             name: "DemoError".to_string(),
@@ -149,6 +155,8 @@ fn make_basic_api() -> ApiSurface {
                 },
             ],
             doc: "Errors emitted by demo operations.".to_string(),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
     }

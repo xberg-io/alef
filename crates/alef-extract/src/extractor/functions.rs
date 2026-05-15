@@ -6,7 +6,9 @@ use syn;
 use crate::type_resolver;
 
 use super::defaults::extract_default_values;
-use super::helpers::{build_rust_path, extract_cfg_condition, extract_doc_comments, unwrap_optional};
+use super::helpers::{
+    build_rust_path, extract_binding_exclusion_reason, extract_cfg_condition, extract_doc_comments, unwrap_optional,
+};
 
 /// Returns true when every type parameter in `generics` is bounded only by traits that
 /// allow monomorphization to `String` (e.g. `AsRef<str>`, `Into<String>`, `ToString`,
@@ -78,6 +80,8 @@ pub(crate) fn extract_function(item: &syn::ItemFn, crate_name: &str, module_path
         })
         .collect();
 
+    let binding_exclusion_reason = extract_binding_exclusion_reason(&item.attrs);
+    let binding_excluded = binding_exclusion_reason.is_some();
     let cfg = extract_cfg_condition(&item.attrs);
     let name = item.sig.ident.to_string();
     let doc = extract_doc_comments(&item.attrs);
@@ -126,6 +130,8 @@ pub(crate) fn extract_function(item: &syn::ItemFn, crate_name: &str, module_path
         returns_ref,
         returns_cow,
         return_newtype_wrapper: None,
+        binding_excluded,
+        binding_exclusion_reason,
     })
 }
 
@@ -220,6 +226,8 @@ pub(crate) fn extract_impl_block(
             serde_rename_all: None,
             has_serde: false,
             super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         });
     }
 }
@@ -335,6 +343,8 @@ pub(crate) fn extract_method(
 ) -> MethodDef {
     let name = method.sig.ident.to_string();
     let doc = extract_doc_comments(&method.attrs);
+    let binding_exclusion_reason = extract_binding_exclusion_reason(&method.attrs);
+    let binding_excluded = binding_exclusion_reason.is_some();
     let mut is_async = method.sig.asyncness.is_some();
 
     let (mut return_type, mut error_type, returns_ref) = resolve_return_type(&method.sig.output);
@@ -380,6 +390,8 @@ pub(crate) fn extract_method(
         returns_cow,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded,
+        binding_exclusion_reason,
     }
 }
 

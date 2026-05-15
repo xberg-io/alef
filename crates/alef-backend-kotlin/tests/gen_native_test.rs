@@ -72,6 +72,8 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         serde_rename_all: None,
         has_serde: false,
         super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -91,6 +93,8 @@ fn make_function(name: &str, params: Vec<ParamDef>, return_type: TypeRef, is_asy
         returns_ref: false,
         returns_cow: false,
         return_newtype_wrapper: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -110,6 +114,8 @@ fn make_fallible_function(name: &str, params: Vec<ParamDef>, return_type: TypeRe
         returns_ref: false,
         returns_cow: false,
         return_newtype_wrapper: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -244,6 +250,8 @@ fn native_unit_enum_emits_enum_class() {
 
             is_copy: false,
             has_serde: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -323,6 +331,8 @@ fn native_fallible_function_checks_error_code() {
                 has_from: false,
                 doc: String::new(),
             }],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
     };

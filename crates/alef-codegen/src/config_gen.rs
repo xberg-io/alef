@@ -980,6 +980,8 @@ mod tests {
             serde_rename_all: None,
             has_serde: false,
             super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }
     }
 
@@ -1955,6 +1957,8 @@ mod tests {
             serde_rename_all: None,
             has_serde: false,
             super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         };
         let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
 
@@ -2340,6 +2344,8 @@ mod tests {
             serde_rename_all: None,
             has_serde: false,
             super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         };
         let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
         // Vec<String> is a generic type; must use <Vec<String>>::try_convert
@@ -2420,6 +2426,8 @@ mod tests {
             serde_rename_all: None,
             has_serde: false,
             super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         };
         let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
         // The try_convert call must be for the inner type (i64, as mapped by simple_type_mapper),
@@ -2475,6 +2483,8 @@ mod tests {
             serde_rename_all: None,
             has_serde: false,
             super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         };
         let output = gen_magnus_positional_constructor(&typ, &simple_type_mapper);
         // simple_type_mapper maps Usize → "i64", so Optional(Usize) → "Option<i64>"

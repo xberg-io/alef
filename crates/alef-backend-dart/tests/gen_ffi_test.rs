@@ -34,6 +34,8 @@ fn make_function(name: &str, params: Vec<ParamDef>, return_type: TypeRef, error_
         returns_ref: false,
         returns_cow: false,
         return_newtype_wrapper: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -246,6 +248,8 @@ fn unit_enum_emits_dart_enum() {
         cfg: None,
         is_copy: false,
         has_serde: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let api = ApiSurface {
         enums: vec![en],

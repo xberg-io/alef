@@ -290,6 +290,8 @@ impl Backend for CsharpBackend {
                     super_traits: vec![],
                     doc: String::new(),
                     cfg: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 };
                 for (filename, content) in crate::gen_visitor::gen_visitor_files(&namespace, &placeholder) {
                     files.push(GeneratedFile {

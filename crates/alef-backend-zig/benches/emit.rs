@@ -65,6 +65,8 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         serde_rename_all: None,
         has_serde: false,
         super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -93,6 +95,8 @@ fn make_enum(name: &str, variant_count: usize) -> EnumDef {
 
         is_copy: false,
         has_serde: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -178,6 +182,8 @@ fn make_synthetic_api() -> ApiSurface {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         });
     }
 

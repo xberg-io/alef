@@ -888,6 +888,8 @@ mod tests {
                 },
             ],
             doc: "Error type for conversion operations.".to_string(),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }
     }
 
@@ -937,6 +939,8 @@ mod tests {
                 doc: String::new(),
             }],
             doc: String::new(),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         };
         let output = gen_pyo3_error_converter(&error, "my_crate");
         assert!(output.contains("my_crate::MyError::NotFound => NotFoundError::new_err(msg),"));
@@ -960,6 +964,8 @@ mod tests {
                 doc: String::new(),
             }],
             doc: String::new(),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         };
         let output = gen_pyo3_error_converter(&error, "my_crate");
         assert!(
@@ -1013,6 +1019,8 @@ mod tests {
                 doc: String::new(),
             }],
             doc: String::new(),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         };
         let output = gen_napi_error_converter(&error, "my_crate");
         assert!(output.contains("my_crate::MyError::NotFound =>"));
@@ -1234,6 +1242,8 @@ mod tests {
                 },
             ],
             doc: String::new(),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         };
         let output = gen_go_sentinel_errors(std::slice::from_ref(&error));
         assert!(

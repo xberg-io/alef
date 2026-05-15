@@ -92,6 +92,8 @@ fn make_jni_api_with_client_and_function() -> ApiSurface {
         returns_ref: false,
         returns_cow: false,
         return_newtype_wrapper: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let client_method = MethodDef {
         name: "do_thing".into(),
@@ -108,6 +110,8 @@ fn make_jni_api_with_client_and_function() -> ApiSurface {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let client_type = TypeDef {
         name: "DefaultClient".into(),
@@ -127,6 +131,8 @@ fn make_jni_api_with_client_and_function() -> ApiSurface {
         serde_rename_all: None,
         has_serde: false,
         super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     ApiSurface {
         crate_name: "demo".into(),
@@ -155,6 +161,8 @@ fn make_simple_api() -> ApiSurface {
         returns_ref: false,
         returns_cow: false,
         return_newtype_wrapper: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     ApiSurface {
         crate_name: "demo".into(),
@@ -334,6 +342,8 @@ target = "jvm"
         returns_ref: false,
         returns_cow: false,
         return_newtype_wrapper: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let api = ApiSurface {
         crate_name: "demo".into(),
@@ -400,6 +410,8 @@ fn make_api_with_chat_and_embeddings() -> ApiSurface {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let embeddings_method = MethodDef {
         name: "embeddings".into(),
@@ -416,6 +428,8 @@ fn make_api_with_chat_and_embeddings() -> ApiSurface {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let client_type = TypeDef {
         name: "DefaultClient".into(),
@@ -435,6 +449,8 @@ fn make_api_with_chat_and_embeddings() -> ApiSurface {
         serde_rename_all: None,
         has_serde: false,
         super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     ApiSurface {
         crate_name: "demo".into(),
@@ -539,6 +555,8 @@ fn make_api_with_speech_method() -> ApiSurface {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let client_type = TypeDef {
         name: "DefaultClient".into(),
@@ -558,6 +576,8 @@ fn make_api_with_speech_method() -> ApiSurface {
         serde_rename_all: None,
         has_serde: false,
         super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     ApiSurface {
         crate_name: "demo".into(),
@@ -635,6 +655,8 @@ fn make_api_with_unit_return_method() -> ApiSurface {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     let client_type = TypeDef {
         name: "DefaultClient".into(),
@@ -654,6 +676,8 @@ fn make_api_with_unit_return_method() -> ApiSurface {
         serde_rename_all: None,
         has_serde: false,
         super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
     ApiSurface {
         crate_name: "demo".into(),

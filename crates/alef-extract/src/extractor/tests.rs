@@ -474,6 +474,8 @@ fn test_merge_surface_no_duplicates() {
             super_traits: vec![],
             doc: String::new(),
             cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         functions: vec![],
         enums: vec![],
@@ -503,6 +505,8 @@ fn test_merge_surface_no_duplicates() {
                 super_traits: vec![],
                 doc: String::new(),
                 cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
             TypeDef {
                 name: "NewType".into(),
@@ -522,6 +526,8 @@ fn test_merge_surface_no_duplicates() {
                 super_traits: vec![],
                 doc: String::new(),
                 cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
         ],
         functions: vec![],
@@ -570,6 +576,8 @@ fn test_merge_surface_filtered() {
                 super_traits: vec![],
                 doc: String::new(),
                 cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
             TypeDef {
                 name: "NotWanted".into(),
@@ -589,6 +597,8 @@ fn test_merge_surface_filtered() {
                 super_traits: vec![],
                 doc: String::new(),
                 cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
         ],
         functions: vec![],
@@ -2721,6 +2731,8 @@ fn test_merge_surface_includes_functions_and_enums() {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         enums: vec![alef_core::ir::EnumDef {
             name: "MyEnum".into(),
@@ -2734,6 +2746,8 @@ fn test_merge_surface_includes_functions_and_enums() {
             serde_tag: None,
             serde_untagged: false,
             serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -2779,6 +2793,8 @@ fn test_merge_surface_filtered_includes_functions_and_enums() {
                 returns_ref: false,
                 returns_cow: false,
                 return_newtype_wrapper: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
             alef_core::ir::FunctionDef {
                 name: "unwanted_fn".into(),
@@ -2795,6 +2811,8 @@ fn test_merge_surface_filtered_includes_functions_and_enums() {
                 returns_ref: false,
                 returns_cow: false,
                 return_newtype_wrapper: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
         ],
         enums: vec![
@@ -2810,6 +2828,8 @@ fn test_merge_surface_filtered_includes_functions_and_enums() {
                 serde_tag: None,
                 serde_untagged: false,
                 serde_rename_all: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
             alef_core::ir::EnumDef {
                 name: "UnwantedEnum".into(),
@@ -2823,6 +2843,8 @@ fn test_merge_surface_filtered_includes_functions_and_enums() {
                 serde_tag: None,
                 serde_untagged: false,
                 serde_rename_all: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
         ],
         errors: vec![],
@@ -3105,4 +3127,155 @@ fn test_thiserror_enum_with_inherent_impl_does_not_create_opaque_type() {
     let err = &surface.errors[0];
     assert_eq!(err.name, "ApiError");
     assert_eq!(err.variants.len(), 2);
+}
+
+#[test]
+fn test_extract_binding_excluded_struct() {
+    let source = r#"
+        #[cfg_attr(alef, alef(skip))]
+        pub struct InternalConfig {
+            pub secret: String,
+        }
+        pub struct PublicConfig {
+            pub name: String,
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    assert_eq!(surface.types.len(), 2);
+
+    let internal = surface.types.iter().find(|t| t.name == "InternalConfig").unwrap();
+    assert!(
+        internal.binding_excluded,
+        "InternalConfig should have binding_excluded=true"
+    );
+    assert_eq!(
+        internal.binding_exclusion_reason.as_deref(),
+        Some("alef(skip)"),
+        "exclusion reason should be alef(skip)"
+    );
+
+    let public = surface.types.iter().find(|t| t.name == "PublicConfig").unwrap();
+    assert!(!public.binding_excluded, "PublicConfig should not be excluded");
+    assert!(public.binding_exclusion_reason.is_none());
+}
+
+#[test]
+fn test_extract_binding_excluded_struct_doc_hidden() {
+    let source = r#"
+        #[doc(hidden)]
+        pub struct HiddenType {
+            pub value: u32,
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    let hidden = &surface.types[0];
+    assert!(hidden.binding_excluded);
+    assert_eq!(hidden.binding_exclusion_reason.as_deref(), Some("doc(hidden)"));
+}
+
+#[test]
+fn test_extract_binding_excluded_enum() {
+    let source = r#"
+        #[cfg_attr(alef, alef(skip))]
+        pub enum InternalState {
+            Active,
+            Inactive,
+        }
+        pub enum PublicState {
+            On,
+            Off,
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    assert_eq!(surface.enums.len(), 2);
+
+    let internal = surface.enums.iter().find(|e| e.name == "InternalState").unwrap();
+    assert!(internal.binding_excluded);
+    assert_eq!(internal.binding_exclusion_reason.as_deref(), Some("alef(skip)"));
+
+    let public = surface.enums.iter().find(|e| e.name == "PublicState").unwrap();
+    assert!(!public.binding_excluded);
+}
+
+#[test]
+fn test_extract_binding_excluded_function() {
+    let source = r#"
+        #[cfg_attr(alef, alef(skip))]
+        pub fn internal_helper(x: u32) -> u32 {
+            x
+        }
+        pub fn public_api(x: u32) -> u32 {
+            x
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    assert_eq!(surface.functions.len(), 2);
+
+    let internal = surface.functions.iter().find(|f| f.name == "internal_helper").unwrap();
+    assert!(internal.binding_excluded);
+    assert_eq!(internal.binding_exclusion_reason.as_deref(), Some("alef(skip)"));
+
+    let public = surface.functions.iter().find(|f| f.name == "public_api").unwrap();
+    assert!(!public.binding_excluded);
+}
+
+#[test]
+fn test_extract_binding_excluded_trait() {
+    let source = r#"
+        #[alef(skip)]
+        pub trait InternalTrait {
+            fn do_thing(&self);
+        }
+        pub trait PublicTrait {
+            fn work(&self);
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    assert_eq!(surface.types.len(), 2, "both traits should be extracted");
+
+    let internal = surface.types.iter().find(|t| t.name == "InternalTrait").unwrap();
+    assert!(internal.is_trait, "InternalTrait must have is_trait=true");
+    assert!(
+        internal.binding_excluded,
+        "InternalTrait should have binding_excluded=true"
+    );
+    assert_eq!(internal.binding_exclusion_reason.as_deref(), Some("alef(skip)"));
+
+    let public = surface.types.iter().find(|t| t.name == "PublicTrait").unwrap();
+    assert!(public.is_trait);
+    assert!(!public.binding_excluded);
+}
+
+#[test]
+fn test_extract_binding_excluded_method() {
+    let source = r#"
+        pub struct Foo {
+            pub value: u32,
+        }
+        impl Foo {
+            #[alef(skip)]
+            pub fn bar(&self) -> u32 {
+                self.value
+            }
+            pub fn baz(&self) -> u32 {
+                self.value
+            }
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    let foo = surface.types.iter().find(|t| t.name == "Foo").unwrap();
+    assert_eq!(foo.methods.len(), 2, "both methods should be extracted");
+
+    let bar = foo.methods.iter().find(|m| m.name == "bar").unwrap();
+    assert!(bar.binding_excluded, "bar should have binding_excluded=true");
+    assert_eq!(bar.binding_exclusion_reason.as_deref(), Some("alef(skip)"));
+
+    let baz = foo.methods.iter().find(|m| m.name == "baz").unwrap();
+    assert!(!baz.binding_excluded, "baz should not be excluded");
 }

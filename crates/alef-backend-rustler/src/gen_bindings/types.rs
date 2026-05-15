@@ -675,6 +675,8 @@ mod tests {
             serde_tag: None,
             serde_untagged: false,
             serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }
     }
 
@@ -786,6 +788,8 @@ mod tests {
             serde_tag: None,
             serde_untagged: false,
             serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }
     }
 
@@ -906,6 +910,8 @@ mod tests {
             serde_tag: Some("format_type".into()),
             serde_untagged: false,
             serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         };
 
         let result = gen_enum(&format_enum, "Kreuzberg");

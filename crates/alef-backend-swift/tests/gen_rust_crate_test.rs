@@ -65,6 +65,8 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         serde_rename_all: None,
         has_serde: false,
         super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -92,6 +94,8 @@ fn make_enum(name: &str, variants: Vec<&str>) -> EnumDef {
 
         is_copy: false,
         has_serde: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -377,6 +381,8 @@ fn lib_rs_has_free_function_shim() {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         enums: vec![],
         errors: vec![],
@@ -424,6 +430,8 @@ fn lib_rs_async_function_blocks_on_tokio_runtime() {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         enums: vec![],
         errors: vec![],
@@ -477,6 +485,8 @@ fn lib_rs_result_function_has_map_err_chain() {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         enums: vec![],
         errors: vec![],
@@ -724,6 +734,8 @@ fn make_method(
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -747,6 +759,8 @@ fn make_trait_type(name: &str, rust_path: &str, methods: Vec<MethodDef>) -> Type
         serde_rename_all: None,
         has_serde: false,
         super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -1028,6 +1042,8 @@ fn cargo_toml_serde_json_dep_present_when_has_serde_type_with_vec_field() {
         serde_rename_all: None,
         has_serde: true, // triggers ::serde_json::to_value path in wrappers.rs
         super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
 
     let api = ApiSurface {
@@ -1241,6 +1257,8 @@ type = "ChatCompletionRequest"
                 receiver: Some(ReceiverKind::Ref),
                 trait_source: None,
                 has_default_impl: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             }],
             is_opaque: true,
             is_clone: false,
@@ -1254,6 +1272,8 @@ type = "ChatCompletionRequest"
             super_traits: vec![],
             doc: String::new(),
             cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         functions: vec![],
         enums: vec![],
@@ -1369,6 +1389,8 @@ fn opaque_type_refmut_method_emits_mut_receiver_in_extern_and_shim() {
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
 
     let api = ApiSurface {
@@ -1392,6 +1414,8 @@ fn opaque_type_refmut_method_emits_mut_receiver_in_extern_and_shim() {
             super_traits: vec![],
             doc: String::new(),
             cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         functions: vec![],
         enums: vec![],
@@ -1462,6 +1486,8 @@ fn make_simple_method(name: &str, params: Vec<ParamDef>, return_type: TypeRef) -
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -1484,6 +1510,8 @@ fn make_opaque_type(name: &str, methods: Vec<MethodDef>) -> TypeDef {
         serde_rename_all: None,
         has_serde: false,
         super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 

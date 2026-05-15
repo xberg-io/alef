@@ -93,10 +93,10 @@ pub fn extract(config: &ResolvedCrateConfig, config_path: &Path, clean: bool) ->
     // so cfg-gated fields are only included when explicitly listed.
     strip_cfg_fields(&mut api, &config.features);
 
-    // Remove source-declared internal/runtime fields from the polyglot binding
-    // surface before unknown-type sanitization can collapse them into fake
-    // String fields.
-    strip_binding_excluded_fields(&mut api)?;
+    // Remove source-declared internal/runtime items (types, enums, errors,
+    // functions, methods) and fields from the polyglot binding surface before
+    // unknown-type sanitization can collapse them into fake String fields.
+    strip_binding_excluded(&mut api)?;
 
     // Replace references to types not in the API surface with String
     sanitize_unknown_types(&mut api);
@@ -217,6 +217,8 @@ fn inject_declared_opaque_types(api: &mut ApiSurface, config: &ResolvedCrateConf
                 serde_rename_all: None,
                 has_serde: false,
                 super_traits: vec![],
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             });
             debug!("Injected declared opaque type: {name} -> {rust_path}");
         }
@@ -356,7 +358,81 @@ fn sanitize_unknown_types(api: &mut ApiSurface) {
     }
 }
 
-fn strip_binding_excluded_fields(api: &mut ApiSurface) -> anyhow::Result<()> {
+fn strip_binding_excluded(api: &mut ApiSurface) -> anyhow::Result<()> {
+    // --- Item-level exclusions: types, enums, errors, functions ---
+
+    // Capture rust_paths of excluded types/enums/errors before removal so that
+    // trait-bridge codegen can still reference them by qualified path.
+    for typ in &api.types {
+        if typ.binding_excluded {
+            let reason = typ
+                .binding_exclusion_reason
+                .as_deref()
+                .unwrap_or("source binding exclusion");
+            info!("Stripping excluded type: {} ({})", typ.name, reason);
+            api.excluded_type_paths
+                .insert(typ.name.clone(), typ.rust_path.replace('-', "_"));
+        }
+    }
+    for enm in &api.enums {
+        if enm.binding_excluded {
+            let reason = enm
+                .binding_exclusion_reason
+                .as_deref()
+                .unwrap_or("source binding exclusion");
+            info!("Stripping excluded enum: {} ({})", enm.name, reason);
+            api.excluded_type_paths
+                .insert(enm.name.clone(), enm.rust_path.replace('-', "_"));
+        }
+    }
+    for err in &api.errors {
+        if err.binding_excluded {
+            let reason = err
+                .binding_exclusion_reason
+                .as_deref()
+                .unwrap_or("source binding exclusion");
+            info!("Stripping excluded error: {} ({})", err.name, reason);
+            api.excluded_type_paths
+                .insert(err.name.clone(), err.rust_path.replace('-', "_"));
+        }
+    }
+
+    api.types.retain(|t| !t.binding_excluded);
+    api.enums.retain(|e| !e.binding_excluded);
+    api.errors.retain(|e| !e.binding_excluded);
+
+    for func in &api.functions {
+        if func.binding_excluded {
+            let reason = func
+                .binding_exclusion_reason
+                .as_deref()
+                .unwrap_or("source binding exclusion");
+            info!("Stripping excluded function: {} ({})", func.name, reason);
+        }
+    }
+    api.functions.retain(|f| !f.binding_excluded);
+
+    // --- Method-level exclusions on retained types ---
+    for typ in &mut api.types {
+        let excluded_methods: Vec<String> = typ
+            .methods
+            .iter()
+            .filter(|m| m.binding_excluded)
+            .map(|m| {
+                let reason = m
+                    .binding_exclusion_reason
+                    .as_deref()
+                    .unwrap_or("source binding exclusion");
+                format!("{}.{} ({})", typ.name, m.name, reason)
+            })
+            .collect();
+        if !excluded_methods.is_empty() {
+            info!("Stripping excluded methods: {}", excluded_methods.join(", "));
+        }
+        typ.methods.retain(|m| !m.binding_excluded);
+    }
+
+    // --- Field-level exclusions ---
     for typ in &mut api.types {
         let before = typ.fields.len();
         let excluded: Vec<_> = typ
