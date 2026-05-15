@@ -1010,6 +1010,14 @@ fn json_path_expr(result_var: &str, field_path: &str) -> String {
                         prev_seg = Some(seg);
                         continue;
                     }
+                    // Non-numeric bracket: HashMap<String, _> key access. FRB / serde
+                    // serialize maps as JSON objects, so `field[key]` resolves to
+                    // `.object.get("field").?.object.get("key").?`. Used by h2m's
+                    // `metadata.document.open_graph[title]` alias pattern where
+                    // `open_graph` is a `HashMap<String, String>`.
+                    expr = format!("{expr}.object.get(\"{key}\").?.object.get(\"{idx}\").?");
+                    prev_seg = Some(seg);
+                    continue;
                 }
             }
             expr = format!("{expr}.object.get(\"{seg}\").?");
