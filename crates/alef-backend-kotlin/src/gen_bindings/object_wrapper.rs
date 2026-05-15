@@ -267,6 +267,10 @@ fn emit_kotlin_tagged_serializer(out: &mut String, en: &EnumDef, tag_field: &str
     out.push_str(">(");
     out.push_str(name);
     out.push_str("::class.java) {\n");
+    // Suppress detekt LongMethod: the number of branches scales with the number of
+    // variants; for enums with many variants the function body will exceed detekt's
+    // 60-line default threshold.  The generated code is correct and intentionally long.
+    out.push_str("    @Suppress(\"LongMethod\")\n");
     out.push_str("    override fun serialize(\n");
     out.push_str("        value: ");
     out.push_str(name);
@@ -353,6 +357,10 @@ fn emit_kotlin_tagged_deserializer(out: &mut String, en: &EnumDef, tag_field: &s
     out.push_str(">(");
     out.push_str(name);
     out.push_str("::class.java) {\n");
+    // Suppress detekt LongMethod: the number of when-branches scales with the number
+    // of variants; for enums with many variants the function body will exceed detekt's
+    // 60-line default threshold.  The generated code is correct and intentionally long.
+    out.push_str("    @Suppress(\"LongMethod\")\n");
     out.push_str("    override fun deserialize(\n");
     out.push_str("        parser: com.fasterxml.jackson.core.JsonParser,\n");
     out.push_str("        ctx: com.fasterxml.jackson.databind.DeserializationContext,\n");
@@ -445,6 +453,10 @@ fn emit_kotlin_untagged_deserializer(out: &mut String, en: &EnumDef) {
     out.push_str(">(");
     out.push_str(name);
     out.push_str("::class.java) {\n");
+    // Suppress detekt LongMethod: the number of if-branches scales with the number
+    // of variants; for enums with many variants the function body will exceed detekt's
+    // 60-line default threshold.  The generated code is correct and intentionally long.
+    out.push_str("    @Suppress(\"LongMethod\")\n");
     out.push_str("    override fun deserialize(\n");
     out.push_str("        parser: com.fasterxml.jackson.core.JsonParser,\n");
     out.push_str("        ctx: com.fasterxml.jackson.databind.DeserializationContext,\n");
@@ -545,6 +557,10 @@ fn emit_kotlin_untagged_serializer(out: &mut String, en: &EnumDef) {
     out.push_str(">(");
     out.push_str(name);
     out.push_str("::class.java) {\n");
+    // Suppress detekt LongMethod: the number of branches scales with the number of
+    // variants; for enums with many variants the function body will exceed detekt's
+    // 60-line default threshold.  The generated code is correct and intentionally long.
+    out.push_str("    @Suppress(\"LongMethod\")\n");
     out.push_str("    override fun serialize(\n");
     out.push_str("        value: ");
     out.push_str(name);
