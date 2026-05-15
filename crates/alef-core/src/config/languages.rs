@@ -839,6 +839,9 @@ pub struct DartConfig {
     /// Cargo features to enable on the binding crate.
     #[serde(default)]
     pub features: Option<Vec<String>>,
+    /// Additional Cargo dependencies for the generated Dart Rust bridge crate.
+    #[serde(default)]
+    pub extra_dependencies: HashMap<String, toml::Value>,
     /// Override the serde rename_all strategy for JSON field names (e.g. "camelCase", "snake_case").
     #[serde(default)]
     pub serde_rename_all: Option<String>,

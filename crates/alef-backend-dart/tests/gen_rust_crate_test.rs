@@ -78,12 +78,62 @@ sources = ["src/lib.rs"]
     cfg.resolve().expect("test config must resolve").remove(0)
 }
 
+fn make_config_from_toml(extra: &str) -> ResolvedCrateConfig {
+    let toml = format!(
+        r#"
+[workspace]
+languages = ["dart"]
+
+[[crates]]
+name = "demo-crate"
+sources = ["src/lib.rs"]
+{extra}
+"#
+    );
+    let cfg: NewAlefConfig = toml::from_str(&toml).expect("test config must parse");
+    cfg.resolve().expect("test config must resolve").remove(0)
+}
+
 /// Helper: generate all files and find the one at the given suffix.
 fn find_file<'a>(files: &'a [alef_core::backend::GeneratedFile], suffix: &str) -> Option<&'a str> {
     files
         .iter()
         .find(|f| f.path.to_string_lossy().ends_with(suffix))
         .map(|f| f.content.as_str())
+}
+
+#[test]
+fn cargo_toml_uses_dart_specific_extra_dependencies() {
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+    let config = make_config_from_toml(
+        r#"
+[crates.extra_dependencies]
+shared-crate = { path = "../shared-crate" }
+
+[crates.dart.extra_dependencies]
+shared-crate = { path = "../../../crates/shared-crate" }
+"#,
+    );
+
+    let files = DartBackend.generate_bindings(&api, &config).unwrap();
+    let cargo = find_file(&files, "packages/dart/rust/Cargo.toml").expect("Cargo.toml not found");
+
+    assert!(
+        cargo.contains(r#"shared-crate = { path = "../../../crates/shared-crate" }"#),
+        "Cargo.toml must use Dart-specific dependency override: {cargo}"
+    );
+    assert!(
+        !cargo.contains(r#"shared-crate = { path = "../shared-crate" }"#),
+        "got: {cargo}"
+    );
 }
 
 #[test]
