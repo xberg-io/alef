@@ -312,16 +312,35 @@ pub fn build(b: *std.Build) void {
         content.push_str(&format!("        .root_module = {test_name}_module,\n"));
         content.push_str("        .use_llvm = true,\n");
         content.push_str("    });\n");
-        // Install the test artifact so its emitted binary is materialised at a
-        // stable, on-disk location (`zig-out/bin/<name>`) in addition to the
-        // cache. RunStep still resolves to the cache path via `getEmittedBin`,
-        // but the install-step dependency forces the build system to actually
-        // place the binary on disk before the run step executes — defensive
-        // against any future backend that elides cache-path materialisation
-        // when no install step references the artifact.
-        content.push_str(&format!("    b.installArtifact({test_name}_tests);\n"));
+        // Install the test artifact and make the run step depend on the
+        // install step so that `Compile.installed_path` is populated by the
+        // time `Run.make` runs. `Run.make` reads
+        // `artifact.installed_path orelse artifact.generated_bin.?.path.?`
+        // — the installed path is the *absolute* `zig-out/bin/<name>` location
+        // (built from `b.build_root` + `zig-out`), which bypasses the cwd
+        // -relative path recomputation in `convertPathArg`.
+        //
+        // Without this dependency the run step falls back to `generated_bin`,
+        // a cache-relative path like `.zig-cache/o/<hash>/<name>`. When
+        // `setCwd` points the child at a different directory (e.g.
+        // `../../test_documents`), `convertPathArg` re-resolves that cache
+        // path relative to the new cwd. On Zig 0.16's self-hosted backend
+        // (default on aarch64-linux Debug builds) the hashed cache path the
+        // build system computes ahead of time disagrees with the path the
+        // backend actually emits to, producing `FileNotFound` at spawn time.
+        // Using the installed (absolute) path avoids the recomputation
+        // entirely.
+        content.push_str(&format!(
+            "    const {test_name}_install = b.addInstallArtifact({test_name}_tests, .{{}});\n"
+        ));
+        content.push_str(&format!(
+            "    b.getInstallStep().dependOn(&{test_name}_install.step);\n"
+        ));
         content.push_str(&format!(
             "    const {test_name}_run = b.addRunArtifact({test_name}_tests);\n"
+        ));
+        content.push_str(&format!(
+            "    {test_name}_run.step.dependOn(&{test_name}_install.step);\n"
         ));
         content.push_str(&format!(
             "    {test_name}_run.setCwd(b.path(\"{test_documents_path}\"));\n"

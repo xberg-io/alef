@@ -16,9 +16,14 @@
 //! The emitted `build.zig` must additionally:
 //!   1. Pin every `addTest` to `.use_llvm = true` so the LLVM backend is used
 //!      regardless of host arch (LLVM is already the default on x86_64).
-//!   2. Call `b.installArtifact(<test>)` for every test artifact so the build
-//!      system has a hard install dependency forcing the binary to materialise
-//!      on disk before the run step executes.
+//!   2. Use `b.addInstallArtifact(<test>, .{})` to obtain the install step,
+//!      register it under the top-level install step via
+//!      `b.getInstallStep().dependOn(...)`, AND have the per-test run step
+//!      depend on the install step. The run-step dependency is the load-bearing
+//!      bit: it forces `Compile.installed_path` (an *absolute* `zig-out/bin/...`
+//!      path) to be populated before `Run.make` reads it, so the spawn argv
+//!      uses the absolute install path instead of the cwd-relative cache path
+//!      that breaks when `setCwd` is applied.
 
 use alef_core::config::NewAlefConfig;
 use alef_e2e::codegen::E2eCodegen;
@@ -140,31 +145,53 @@ fn every_test_artifact_is_installed() {
     ];
     let content = render_build_zig(groups);
 
-    // Each test artifact must be installed by name so the build system
-    // materialises the binary on disk before the run step executes.
+    // Each test artifact must be installed via a named install step so the
+    // build system materialises the binary at an absolute `zig-out/bin/<name>`
+    // path before the run step executes.
     assert!(
-        content.contains("b.installArtifact(redirect_tests);"),
-        "redirect test artifact must be installed:\n{content}"
+        content.contains("const redirect_install = b.addInstallArtifact(redirect_tests, .{});"),
+        "redirect test artifact must be installed via addInstallArtifact:\n{content}"
     );
     assert!(
-        content.contains("b.installArtifact(cookies_tests);"),
-        "cookies test artifact must be installed:\n{content}"
+        content.contains("const cookies_install = b.addInstallArtifact(cookies_tests, .{});"),
+        "cookies test artifact must be installed via addInstallArtifact:\n{content}"
     );
 
-    // installArtifact must be wired between addTest and addRunArtifact so the
-    // install dependency is registered before the run step references the
-    // emitted binary.
-    let install_pos = content
-        .find("b.installArtifact(redirect_tests);")
-        .expect("redirect install present");
-    let run_pos = content
-        .find("b.addRunArtifact(redirect_tests)")
-        .expect("redirect run present");
+    // The install step must be registered under the top-level install step so
+    // `zig build install` materialises every test binary on disk.
+    assert!(
+        content.contains("b.getInstallStep().dependOn(&redirect_install.step);"),
+        "redirect install step must be wired into the top-level install step:\n{content}"
+    );
+
+    // The per-test run step MUST depend on the install step. Without this
+    // dependency `Compile.installed_path` is null at `Run.make` time and the
+    // spawn falls back to the cwd-relative cache path that breaks under
+    // `setCwd` on Zig 0.16's self-hosted aarch64-linux backend.
+    assert!(
+        content.contains("redirect_run.step.dependOn(&redirect_install.step);"),
+        "redirect run step must depend on its install step:\n{content}"
+    );
+    assert!(
+        content.contains("cookies_run.step.dependOn(&cookies_install.step);"),
+        "cookies run step must depend on its install step:\n{content}"
+    );
+
+    // Order: addTest -> addInstallArtifact -> addRunArtifact -> run.dependOn(install).
     let add_test_pos = content
         .find("const redirect_tests = b.addTest(")
         .expect("redirect addTest present");
+    let install_pos = content
+        .find("const redirect_install = b.addInstallArtifact(redirect_tests, .{});")
+        .expect("redirect install present");
+    let run_pos = content
+        .find("const redirect_run = b.addRunArtifact(redirect_tests)")
+        .expect("redirect run present");
+    let depend_pos = content
+        .find("redirect_run.step.dependOn(&redirect_install.step);")
+        .expect("redirect run->install dependency present");
     assert!(
-        add_test_pos < install_pos && install_pos < run_pos,
-        "expected addTest -> installArtifact -> addRunArtifact order in emitted build.zig:\n{content}"
+        add_test_pos < install_pos && install_pos < run_pos && run_pos < depend_pos,
+        "expected addTest -> addInstallArtifact -> addRunArtifact -> run.dependOn(install) order:\n{content}"
     );
 }

@@ -14,6 +14,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Platform.environment` but were not covered by the prior import condition, causing
   generated Dart tests (e.g., `cookies_test.dart`, `error_test.dart`) to fail to compile
   with `Error: Undefined name 'Platform'`.
+- **alef-e2e/zig**: resolve `FileNotFound` at test-binary spawn on Zig 0.16's self-hosted
+  aarch64-linux backend. The generated `build.zig` now captures the install step via
+  `b.addInstallArtifact(<test>, .{})` and makes each per-test `addRunArtifact` run step
+  depend on it. This forces `Compile.installed_path` to be populated before `Run.make`
+  reads it, so the spawn argv uses the absolute `zig-out/bin/<name>` install path instead
+  of the cwd-relative `.zig-cache/o/<hash>/<name>` path that `convertPathArg` re-resolves
+  when `setCwd` is applied. The cache-relative path broke on the self-hosted backend
+  because its emitted cache hash disagreed with the path the build system computed
+  ahead of time, even though the compile step reported success.
 
 ## [0.16.4] - 2026-05-15
 
