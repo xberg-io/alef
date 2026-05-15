@@ -1005,7 +1005,17 @@ fn render_assertion_dart(
         "equals" | "field_equals" => {
             if let Some(expected) = &assertion.value {
                 let dart_val = format_value(expected);
-                let _ = writeln!(out, "    expect({field_accessor}, equals({dart_val}));");
+                // Match the rust codegen's behaviour: trim both sides for string equality
+                // so trailing-newline differences between h2m's emitted markdown and the
+                // fixture's expected value don't produce false positives.
+                if expected.is_string() {
+                    let _ = writeln!(
+                        out,
+                        "    expect({field_accessor}.toString().trim(), equals({dart_val}.toString().trim()));"
+                    );
+                } else {
+                    let _ = writeln!(out, "    expect({field_accessor}, equals({dart_val}));");
+                }
             } else {
                 let _ = writeln!(
                     out,
@@ -1017,7 +1027,14 @@ fn render_assertion_dart(
         "not_equals" => {
             if let Some(expected) = &assertion.value {
                 let dart_val = format_value(expected);
-                let _ = writeln!(out, "    expect({field_accessor}, isNot(equals({dart_val})));");
+                if expected.is_string() {
+                    let _ = writeln!(
+                        out,
+                        "    expect({field_accessor}.toString().trim(), isNot(equals({dart_val}.toString().trim())));"
+                    );
+                } else {
+                    let _ = writeln!(out, "    expect({field_accessor}, isNot(equals({dart_val})));");
+                }
             }
         }
         "contains" => {

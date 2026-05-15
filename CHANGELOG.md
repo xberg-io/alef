@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-e2e (dart)**: `equals` / `field_equals` / `not_equals` assertions
+  on String-valued expected values now trim both actual and expected,
+  matching the rust e2e codegen pattern. h2m's `convert()` emits a
+  trailing `\n` on rendered markdown; rust trims via
+  `.to_string().as_str().trim()`, but dart was comparing raw, producing
+  false-positive failures on tests like "Simple paragraph converts
+  correctly" (`Hello World\n` vs `Hello World`).
 - **alef-backend-kotlin-android**: emitted `.editorconfig` now disables the
   ktlint rules that conflict with ktfmt formatting (`class-signature`,
   `function-signature`, `function-expression-body`, `no-empty-class-body`,
