@@ -39,6 +39,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no-op `String → String` case. Surfaced by kreuzcrawl's
   `DownloadedDocument.headers: HashMap<Box<str>, Box<str>>` field
   breaking `cargo clippy -p kreuzcrawl-dart`.
+- **alef-e2e (zig)**: visitor fixtures now emit `return error.SkipZigTest`
+  with a "pending zig-binding visitor wiring" comment, matching the dart
+  codegen's pending-skip behaviour. The zig binding exposes a C-vtable
+  `Visitor` struct via the FFI bridge but alef-e2e/zig doesn't yet emit
+  the per-fixture vtable population + register call, so every visitor
+  fixture's `convert(html, null)` call ran without the visitor and the
+  assertions checking for custom outputs (e.g. `[AUDIO: podcast.mp3]`)
+  failed.
 - **alef-e2e (zig)**: `not_contains` assertions with a plural `values: [...]`
   list now emit one `std.mem.indexOf` check per needle. Previously only
   `value` (singular) was emitted; fixtures using `values` (e.g. XSS edge

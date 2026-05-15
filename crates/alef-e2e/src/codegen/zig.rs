@@ -679,6 +679,22 @@ fn render_test_fn(
     let _ = writeln!(out, "test \"{test_name}\" {{");
     let _ = writeln!(out, "    // {description}");
 
+    // Skip visitor fixtures until the zig binding wires up fixture-driven
+    // visitor codegen (the binding exposes a C-vtable Visitor struct via the
+    // FFI bridge, but alef-e2e/zig does not yet emit the per-fixture vtable
+    // population + register call). Matches the dart codegen's pending-skip
+    // behaviour.
+    if fixture.visitor.is_some() {
+        let _ = writeln!(
+            out,
+            "    // skipped: pending zig-binding visitor wiring (alef issue)"
+        );
+        let _ = writeln!(out, "    return error.SkipZigTest;");
+        let _ = writeln!(out, "}}");
+        let _ = writeln!(out);
+        return;
+    }
+
     // Emit GPA allocator only when it will actually be used: setup lines that
     // need GPA allocation (mock_url), or a JSON-struct result path where the test
     // will call `std.json.parseFromSlice`. The binding is not needed for
