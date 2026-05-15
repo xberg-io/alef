@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.16.6 - Unreleased]
 
+### Added
+
+- **alef-backend-jni**: new first-class backend crate that emits the Rust JNI
+  shim source (`crates/<crate>-jni/src/lib.rs`) consumed by the Android AAR
+  build. Exports `pub unsafe extern "system" fn Java_*` symbols for every
+  top-level function, every instance method on opaque client types (with
+  `handle: jlong` + optional `request_json: JString`), destructor shims
+  (`nativeFree<Type>`), and streaming Start/Next/Free triple shims — one
+  symbol per `external fun native*` declaration emitted by
+  `alef-backend-kotlin-android`. Symbol names are derived via
+  `alef_core::jni::*` so Kotlin bridge names and Rust `Java_*` symbols can
+  never drift independently.
+  (`crates/alef-backend-jni/`, `crates/alef-core/src/jni.rs`)
+
+- **alef-core/jni module**: shared symbol-naming utilities
+  (`bridge_class_name`, `bridge_method_name`, `streaming_method_names`,
+  `destructor_method_name`, `jni_symbol`) extracted into `alef_core::jni` so
+  every backend that touches JNI uses one canonical encoder.
+  (`crates/alef-core/src/jni.rs`)
+
+- **Language::Jni**: new language variant that activates `alef-backend-jni`
+  emission. Requires `kotlin_android` to be listed in `languages` (validated
+  at config resolution time). All existing match arms updated; `alef-scaffold`
+  and `alef-cli` dispatch wired accordingly.
+  (`crates/alef-core/src/config/extras.rs`, `crates/alef-cli/src/registry.rs`)
+
 ### Fixed
 
 - **alef-backend-swift (Error enum name clash)**: when the Rust error type is
@@ -18,6 +44,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   future clashes with same-named types in scope.
   (`crates/alef-backend-swift/templates/error_enum_header.jinja`,
   `crates/alef-backend-swift/src/gen_bindings.rs`)
+
+- **alef-e2e (swift)**: three follow-on fixes that make the generated swift
+  e2e suite compile and report meaningful results:
+  - **Map-field assertion subscript**: `materialise_vec_temporaries` now
+    detects string-key subscripts (e.g. `["title"]`) and, for those cases,
+    wraps the parent accessor in `JSONSerialization.jsonObject(...) as? [String: String]`
+    so subscripting works on JSON-bridged Map fields (e.g. `metadata.document.open_graph[title]`).
+    swift-bridge serialises `HashMap<String, String>` as JSON-encoded RustString;
+    the previous emission tried to subscript RustString directly and produced
+    `value of type 'RustString' has no subscripts`. The rewritten expression
+    also signals back that no `.toString()` chain should follow.
+  - **Trim character set**: `CharacterSet.whitespaces` does NOT include `\n`
+    in Swift. Switched the `equals` and `contains` trim chains to
+    `CharacterSet.whitespacesAndNewlines` so assertions like
+    `XCTAssertEqual(trimmed, "# Heading 1")` against `# Heading 1\n\n` succeed.
+  - **Visitor-fixture skip**: when a fixture has a `visitor` spec and the
+    swift binding has no visitor wiring (the matching alef-backend-swift
+    inbound emission is also gated below), emit `XCTSkipIf(true, ...)` so
+    the test compiles and is recorded as pending rather than asserting
+    against transformations the binding cannot perform.
+  (`crates/alef-e2e/src/codegen/swift.rs`)
 
 - **alef-backend-swift (inbound plugin emission)**: gate the inbound
   `extern "Swift"` block (`Swift<Trait>Box` declaration + per-method FFI shims),
