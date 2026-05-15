@@ -509,11 +509,58 @@ fn error_enum_conforms_to_error_protocol() {
     let content = &files[0].content;
 
     assert!(
-        content.contains("public enum ApiError: Error {"),
-        "missing Error conformance: {content}"
+        content.contains("public enum ApiError: Swift.Error {"),
+        "missing Swift.Error conformance: {content}"
     );
     assert!(content.contains("case notFound\n"), "missing notFound case: {content}");
     assert!(content.contains("case timeout\n"), "missing timeout case: {content}");
+}
+
+#[test]
+fn error_enum_named_error_is_renamed_to_module_error() {
+    // When the Rust error type is literally named `Error`, Swift parses
+    // `public enum Error: Error` as a circular raw-type binding rather than
+    // protocol conformance, causing compile errors. The codegen must rename it
+    // to `{ModuleName}Error` (here `DemoCrateError`) and qualify the protocol
+    // as `Swift.Error`.
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![ErrorDef {
+            name: "Error".into(),
+            rust_path: "demo_crate::Error".into(),
+            original_rust_path: String::new(),
+            variants: vec![ErrorVariant {
+                name: "NotFound".into(),
+                message_template: Some("not found".into()),
+                fields: vec![],
+                has_source: false,
+                has_from: false,
+                is_unit: true,
+                doc: String::new(),
+            }],
+            doc: String::new(),
+        }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+
+    // Must NOT emit `public enum Error: Error` — that is a Swift compile error.
+    assert!(
+        !content.contains("public enum Error: Error"),
+        "bare `Error: Error` must not be emitted: {content}"
+    );
+    // Must rename to `{ModuleName}Error` and qualify with `Swift.Error`.
+    assert!(
+        content.contains("public enum DemoCrateError: Swift.Error {"),
+        "renamed enum must be emitted as `DemoCrateError: Swift.Error`: {content}"
+    );
+    assert!(content.contains("case notFound\n"), "missing notFound case: {content}");
 }
 
 // ── convenience wrapper tests ─────────────────────────────────────────────────

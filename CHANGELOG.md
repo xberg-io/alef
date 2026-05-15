@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-backend-swift (Error enum name clash)**: when the Rust error type is
+  literally named `Error`, Swift parses `public enum Error: Error` as a circular
+  raw-type binding instead of protocol conformance, causing compile errors. The
+  codegen now renames such types to `{ModuleName}Error` (e.g.
+  `TreeSitterLanguagePackError` for tslp). All error enums now use
+  `Swift.Error` (fully-qualified) as the protocol conformance to avoid any
+  future clashes with same-named types in scope.
+  (`crates/alef-backend-swift/templates/error_enum_header.jinja`,
+  `crates/alef-backend-swift/src/gen_bindings.rs`)
+
 - **alef-backend-swift (inbound plugin emission)**: gate the inbound
   `extern "Swift"` block (`Swift<Trait>Box` declaration + per-method FFI shims),
   the corresponding `extern "Rust"` register/unregister entry points, and the

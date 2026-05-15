@@ -14,7 +14,7 @@ public typealias Config = RustBridge.Config
 public typealias Status = RustBridge.Status
 
 /// Errors emitted by demo operations.
-public enum DemoError: Error {
+public enum DemoError: Swift.Error {
     /// Input validation failed.
     case invalidInput
     /// Processing encountered an error.
