@@ -27,6 +27,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-backend-kotlin-android**: the generated `<Module>.kt` Kotlin facade
+  lives in a sub-package of the bundled Java DTOs (e.g.
+  `dev.kreuzberg.kreuzcrawl.android` vs `dev.kreuzberg.kreuzcrawl`). Kotlin
+  does not inherit symbols from parent packages, so every bare DTO
+  reference (`CrawlConfig`, `ScrapeResult`, …) was unresolved at
+  `compileDebugKotlin` time. Emit explicit `import <java_pkg>.<Type>` lines
+  for every `Named` type referenced by visible free functions. Also add
+  `org.jetbrains.kotlinx:kotlinx-coroutines-android` as an `implementation`
+  dependency in the generated `build.gradle.kts` so the `withContext` /
+  `Dispatchers.IO` / `callbackFlow` calls compile.
+- **alef-backend-kotlin**: apply the same explicit-import fix to the JVM
+  `DefaultClient.kt` emitter — when the Kotlin and Java packages differ
+  (including the `<pkg>.kt` sub-package fallback path), emit explicit
+  per-type imports for every `Named` type touched by client method
+  signatures and streaming adapter `item_type` / `params`.
 - **alef-backend-go**: honor FFI and Go `exclude_types` settings when
   generating bindings, including functions and methods whose signatures
   reference excluded types.
