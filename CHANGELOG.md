@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **alef-backend-dart / alef-e2e (dart)**: generate Dart visitor bridge
+  factories that take typed `DartFnFuture` callback closures and return the
+  configured opaque `type_alias` handle. Visitor fixtures now emit active
+  `createHtmlVisitor(...)` setup and attach the handle through generated
+  `create<OptionsType>FromJsonWithVisitor(...)` helpers instead of skipping
+  visitor tests as pending.
+- **alef-backend-kotlin-android**: add the Ben Manes Gradle Versions plugin
+  to generated Android `build.gradle.kts` files.
+
+### Fixed
+
+- **alef-backend-go**: honor FFI and Go `exclude_types` settings when
+  generating bindings, including functions and methods whose signatures
+  reference excluded types.
+
 ## [0.16.3] - 2026-05-15
 
 ### Added

@@ -130,6 +130,14 @@ impl Backend for GoBackend {
             .as_ref()
             .map(|f| f.exclude_functions.iter().cloned().collect())
             .unwrap_or_default();
+        let mut exclude_types: HashSet<String> = config
+            .ffi
+            .as_ref()
+            .map(|f| f.exclude_types.iter().cloned().collect())
+            .unwrap_or_default();
+        if let Some(go_config) = &config.go {
+            exclude_types.extend(go_config.exclude_types.iter().cloned());
+        }
 
         // Collect value-only types (all fields are primitives). These don't have _to_json
         // functions emitted by the FFI backend, so Go codegen must construct them from
@@ -157,6 +165,7 @@ impl Backend for GoBackend {
             &bridge_type_aliases,
             &streaming_methods,
             &ffi_exclude_functions,
+            &exclude_types,
             &value_only_types,
             has_options_field_bridge,
         )));
@@ -343,6 +352,23 @@ fn uses_ffi_enum_type(
     })
 }
 
+/// Returns true if a type reference mentions any excluded type.
+fn references_excluded_type(ty: &TypeRef, exclude_types: &HashSet<String>) -> bool {
+    exclude_types.iter().any(|name| ty.references_named(name))
+}
+
+/// Returns true if any parameter or return type mentions an excluded type.
+fn signature_references_excluded_type(
+    params: &[alef_core::ir::ParamDef],
+    return_type: &TypeRef,
+    exclude_types: &HashSet<String>,
+) -> bool {
+    references_excluded_type(return_type, exclude_types)
+        || params
+            .iter()
+            .any(|param| references_excluded_type(&param.ty, exclude_types))
+}
+
 /// Generate the complete Go binding file wrapping the C FFI layer.
 #[allow(clippy::too_many_arguments)]
 fn gen_go_file(
@@ -358,6 +384,7 @@ fn gen_go_file(
     bridge_type_aliases: &HashSet<String>,
     streaming_methods: &std::collections::HashMap<(String, String), String>,
     ffi_exclude_functions: &HashSet<String>,
+    exclude_types: &HashSet<String>,
     value_only_types: &HashSet<String>,
     has_options_field_bridge: bool,
 ) -> String {
@@ -494,6 +521,8 @@ fn gen_go_file(
         .enums
         .iter()
         .filter(|e| {
+            !exclude_types.contains(&e.name)
+                &&
             e.variants
                 .iter()
                 .all(|v| v.fields.is_empty() || v.fields.iter().all(is_tuple_field))
@@ -505,9 +534,14 @@ fn gen_go_file(
         .enums
         .iter()
         .filter(|e| is_passthrough_raw_message_enum(e))
+        .filter(|e| !exclude_types.contains(&e.name))
         .map(|e| e.name.as_str())
         .collect();
-    for enum_def in api.enums.iter().filter(|e| !visitor_types.contains(e.name.as_str())) {
+    for enum_def in api
+        .enums
+        .iter()
+        .filter(|e| !visitor_types.contains(e.name.as_str()) && !exclude_types.contains(&e.name))
+    {
         out.push_str(&gen_enum_type(enum_def));
         out.push_str("\n\n");
     }
@@ -523,6 +557,7 @@ fn gen_go_file(
         .types
         .iter()
         .filter(|t| t.is_opaque)
+        .filter(|t| !exclude_types.contains(&t.name))
         .map(|t| t.name.as_str())
         .collect();
 
@@ -537,7 +572,9 @@ fn gen_go_file(
     for typ in api
         .types
         .iter()
-        .filter(|typ| !typ.is_trait && !visitor_types.contains(typ.name.as_str()))
+        .filter(|typ| {
+            !typ.is_trait && !visitor_types.contains(typ.name.as_str()) && !exclude_types.contains(&typ.name)
+        })
     {
         if typ.is_opaque {
             // If an error type has the same name as this opaque type, the structured error
@@ -570,6 +607,7 @@ fn gen_go_file(
     // and functions whose parameter or return types are enum types without FFI JSON helpers.
     for func in api.functions.iter().filter(|f| {
         !ffi_exclude_functions.contains(&f.name)
+            && !signature_references_excluded_type(&f.params, &f.return_type, exclude_types)
             && !uses_ffi_enum_type(&f.params, &f.return_type, &ffi_enum_names, &opaque_names)
     }) {
         // For the convert function with visitor support, wrap it with visitor-awareness logic
@@ -602,7 +640,11 @@ fn gen_go_file(
     // Streaming adapter methods use a callback-based C signature that CGO can't call directly —
     // they are skipped here and must be implemented via a separate Go-native streaming API.
     // Also skip methods excluded from FFI or using enum types without FFI JSON helpers.
-    for typ in api.types.iter().filter(|typ| !typ.is_trait) {
+    for typ in api
+        .types
+        .iter()
+        .filter(|typ| !typ.is_trait && !exclude_types.contains(&typ.name))
+    {
         // Types that are both opaque and error types are emitted as Go value
         // structs (Code/Message fields) by `gen_go_error_struct` — they have
         // no `ptr` field to dispatch through. Skip method emission here so we
@@ -630,6 +672,9 @@ fn gen_go_file(
                 continue;
             }
             if ffi_exclude_functions.contains(&method.name) {
+                continue;
+            }
+            if signature_references_excluded_type(&method.params, &method.return_type, exclude_types) {
                 continue;
             }
             if uses_ffi_enum_type(&method.params, &method.return_type, &ffi_enum_names, &opaque_names) {

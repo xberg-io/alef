@@ -259,6 +259,9 @@ pub mod maven {
     // renovate: datasource=maven depName=org.jlleitschuh.gradle:ktlint-gradle
     pub const KTLINT_GRADLE_PLUGIN: &str = "13.1.0";
 
+    // renovate: datasource=maven depName=com.github.ben-manes:gradle-versions-plugin
+    pub const GRADLE_VERSIONS_PLUGIN: &str = "0.52.0";
+
     // renovate: datasource=github-releases depName=pinterest/ktlint
     pub const KTLINT: &str = "1.8.0";
 

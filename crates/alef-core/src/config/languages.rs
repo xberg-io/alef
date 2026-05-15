@@ -499,6 +499,12 @@ pub struct GoConfig {
     pub package_name: Option<String>,
     #[serde(default)]
     pub features: Option<Vec<String>>,
+    /// Types to exclude from Go binding generation.
+    ///
+    /// Go bindings call the generated C FFI directly through cgo, so types excluded from
+    /// `[crates.ffi].exclude_types` are also excluded automatically by the Go backend.
+    #[serde(default)]
+    pub exclude_types: Vec<String>,
     /// Override the serde rename_all strategy for JSON field names (e.g. "camelCase", "snake_case").
     /// When set, this takes priority over the IR type-level serde_rename_all.
     #[serde(default)]

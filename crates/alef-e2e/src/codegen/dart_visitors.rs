@@ -2,7 +2,7 @@
 //!
 //! The dart `HtmlVisitor` trait is bridged through `flutter_rust_bridge`'s
 //! `DartFnFuture` machinery. Every method of the trait must be supplied as a
-//! closure to `createHtmlVisitorDartImpl(...)` — the FRB generator requires
+//! closure to `createHtmlVisitor(...)` — the FRB generator requires
 //! all callbacks to be passed positionally. Fixtures only configure a subset
 //! of callbacks; for the rest we emit default closures that return
 //! `VisitResult.continue_()`.
@@ -19,7 +19,7 @@ use heck::ToLowerCamelCase;
 use std::fmt::Write as FmtWrite;
 
 /// All HtmlVisitor callback methods (Rust snake_case names) that
-/// `createHtmlVisitorDartImpl` requires. Order is not important — they are
+/// `createHtmlVisitor` requires. Order is not important — they are
 /// passed as named arguments — but we keep a stable list to keep emitted code
 /// deterministic and snapshot-friendly.
 const ALL_VISITOR_METHODS: &[&str] = &[
@@ -85,10 +85,10 @@ pub(super) fn build_dart_visitor(setup_lines: &mut Vec<String>, visitor_spec: &V
         named_args.push(format!("{camel}: ({params}) async => {body}"));
     }
 
-    // Render as a multi-line `createHtmlVisitorDartImpl(...)` call. The
+    // Render as a multi-line `createHtmlVisitor(...)` call. The
     // indentation matches the standard test-body indent (4 spaces inside the
     // test closure) so the emitted file reads cleanly.
-    let mut block = String::from("final _visitor = await createHtmlVisitorDartImpl(\n");
+    let mut block = String::from("final _visitor = await createHtmlVisitor(\n");
     for (i, arg) in named_args.iter().enumerate() {
         let sep = if i + 1 == named_args.len() { "" } else { "," };
         let _ = writeln!(block, "      {arg}{sep}");
@@ -204,7 +204,7 @@ mod tests {
         assert_eq!(name, "_visitor");
         assert_eq!(lines.len(), 1);
         let block = &lines[0];
-        assert!(block.contains("createHtmlVisitorDartImpl("), "got: {block}");
+        assert!(block.contains("createHtmlVisitor("), "got: {block}");
         assert!(block.contains("visitAudio:"), "got: {block}");
         assert!(block.contains("VisitResult.custom(field0: '[AUDIO]')"), "got: {block}");
         // Methods without fixture callbacks default to `continue_()`.
