@@ -387,7 +387,10 @@ pub mod toolchain {
     // Android scaffold defaults; manual bumps required.
     pub const ANDROID_COMPILE_SDK: &str = "35";
     pub const ANDROID_MIN_SDK: &str = "21";
-    pub const ANDROID_JVM_TARGET: &str = "11";
+    // Java/JVM target for the AAR module. AGP 8.x desugars Java 17 records and
+    // sealed classes down to Dalvik bytecode for minSdk 21+, so Java 17 is the
+    // baseline that mirrors the canonical Java backend's source level.
+    pub const ANDROID_JVM_TARGET: &str = "17";
 }
 
 pub mod cran {
@@ -427,5 +430,5 @@ pub mod precommit {
     pub const KREUZBERG_PRECOMMIT_HOOKS_REV: &str = "v1.0.10";
 
     // alef rev: managed by sync-versions hook, no renovate marker
-    pub const ALEF_REV: &str = "v0.16.8";
+    pub const ALEF_REV: &str = "v0.16.10";
 }

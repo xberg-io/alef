@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.10] - 2026-05-15
+
+### Fixed
+
+- **kotlin-android: bump Java/JVM target from 11 to 17**: the kotlin-android
+  backend emitted `JavaVersion.VERSION_11` and `JvmTarget.JVM_11` in the AAR
+  `build.gradle.kts`, which is incompatible with Java 16+ records, Java 17+
+  sealed classes, and Java 14+ switch expressions that the canonical Java
+  backend's DTOs use. AGP 8.x desugars Java 17 down to Dalvik for minSdk 21+
+  so 17 is safe across every supported Android target. Bumped via
+  `toolchain::ANDROID_JVM_TARGET` so every emitted Android library now
+  defaults to Java 17 / JVM 17. (`crates/alef-core/src/template_versions.rs`)
+
+- **cleanup: sweep orphan alef-generated files in sibling subtrees of
+  touched directories**: `cleanup_orphaned_files` previously only descended
+  into subdirectories that were either themselves touched or contained a
+  touched path. Subtrees that a backend used to write to but no longer does
+  (e.g. the kotlin-android backend dropped its `src/main/java/` Java DTO emit
+  in v0.16.0, leaving stale alef-marked Java files behind in every
+  consumer repo) were never visited, so their orphans survived every
+  subsequent regen and broke downstream builds (e.g. kreuzcrawl's
+  `gradle assembleDebug` failed compiling FFM-tagged Java files with
+  `import java.lang.foreign.*` against the Android JDK 17 toolchain).
+  The descend logic now also walks any subtree that is a descendant of a
+  touched directory; the alef-header gate in `has_alef_header` remains the
+  safety net that keeps user-customised files untouched. Touched-dir paths
+  are now canonicalized up-front so the new descendant check is portable
+  across macOS `/tmp` vs `/private/tmp` symlinks. Regression test
+  `cleanup_removes_orphan_in_sibling_subtree_of_touched_dir`.
+  (`crates/alef-cli/src/pipeline/cleanup.rs`)
+
 ## [0.16.8] - 2026-05-15
 
 ### Added
