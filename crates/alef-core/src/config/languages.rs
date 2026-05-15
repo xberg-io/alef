@@ -1012,6 +1012,9 @@ pub struct SwiftConfig {
     /// Defaults to unset.
     #[serde(default)]
     pub core_crate_override: Option<String>,
+    /// Extra Cargo dependencies merged into the generated Swift Rust bridge crate.
+    #[serde(default)]
+    pub extra_dependencies: HashMap<String, toml::Value>,
     /// Keys to subtract from the merged `extra_dependencies` set for this
     /// language only.
     #[serde(default)]

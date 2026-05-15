@@ -194,6 +194,53 @@ fn cargo_toml_has_cdylib_and_staticlib() {
     );
 }
 
+#[test]
+fn cargo_toml_contains_swift_extra_dependencies() {
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+    let toml = r#"
+[workspace]
+languages = ["swift"]
+
+[[crates]]
+name = "demo"
+sources = ["src/lib.rs"]
+
+[crates.extra_dependencies]
+demo-core = { path = "../../../crates/demo-core" }
+
+[crates.swift.extra_dependencies]
+demo-http = { path = "../../../crates/demo-http", features = ["server"] }
+"#;
+    let cfg: NewAlefConfig = toml::from_str(toml).expect("test config must parse");
+    let config = cfg.resolve().expect("test config must resolve").remove(0);
+
+    let files = gen_rust_crate::emit(&api, &config).unwrap();
+    let cargo = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
+
+    assert!(
+        cargo
+            .content
+            .contains("demo-core = { path = \"../../../crates/demo-core\" }"),
+        "Cargo.toml missing crate-level extra dependency: {}",
+        cargo.content
+    );
+    assert!(
+        cargo
+            .content
+            .contains("demo-http = { features = [\"server\"], path = \"../../../crates/demo-http\" }"),
+        "Cargo.toml missing Swift extra dependency: {}",
+        cargo.content
+    );
+}
+
 // ── lib.rs tests ──────────────────────────────────────────────────────────────
 
 #[test]

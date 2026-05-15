@@ -258,6 +258,7 @@ impl ResolvedCrateConfig {
             Language::Elixir => self.elixir.as_ref().map(|c| &c.extra_dependencies),
             Language::Wasm => self.wasm.as_ref().map(|c| &c.extra_dependencies),
             Language::Dart => self.dart.as_ref().map(|c| &c.extra_dependencies),
+            Language::Swift => self.swift.as_ref().map(|c| &c.extra_dependencies),
             _ => None,
         };
         if let Some(lang_deps) = lang_deps {
@@ -417,6 +418,29 @@ exclude_extra_dependencies = ["tokio"]
         let deps = r.extra_deps_for_language(Language::Wasm);
         assert!(!deps.contains_key("tokio"), "excluded dep should be absent");
         assert!(deps.contains_key("serde"), "non-excluded dep should be present");
+    }
+
+    #[test]
+    fn resolved_extra_deps_includes_swift_overrides() {
+        let r = resolved_one(
+            r#"
+[workspace]
+languages = ["swift"]
+
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[crates.extra_dependencies]
+serde = "1"
+
+[crates.swift.extra_dependencies]
+tokio = "1"
+"#,
+        );
+        let deps = r.extra_deps_for_language(Language::Swift);
+        assert!(deps.contains_key("serde"), "crate-level dep should be present");
+        assert!(deps.contains_key("tokio"), "Swift dep should be present");
     }
 
     #[test]
