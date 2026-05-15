@@ -399,6 +399,14 @@ impl StreamingFieldResolver {
                         "(blk: {{ if ({chunks_var}.items.len == 0) break :blk \"\"; var _lcp = std.json.parseFromSlice(std.json.Value, std.heap.c_allocator, {chunks_var}.items[{chunks_var}.items.len - 1], .{{}}) catch break :blk \"\"; defer _lcp.deinit(); if (_lcp.value.object.get(\"choices\")) |_lchs| if (_lchs.array.items.len > 0) if (_lchs.array.items[0].object.get(\"finish_reason\")) |_fr| if (_fr == .string) break :blk _fr.string; break :blk \"\"; }})"
                     )
                 }
+                // Swift: FinishReason is a swift-bridge opaque class with .to_string() → RustString.
+                // finish_reason() on StreamChoiceRef returns RustString? (the raw wire string).
+                // Return nil when chunks is empty or the last choice has no finish_reason.
+                "swift" => {
+                    format!(
+                        "({chunks_var}.isEmpty ? nil : {chunks_var}.last!.choices().first?.finish_reason()?.toString())"
+                    )
+                }
                 _ => {
                     format!(
                         "{chunks_var}.length > 0 ? {chunks_var}[{chunks_var}.length - 1].choices?.[0]?.finishReason : undefined"
