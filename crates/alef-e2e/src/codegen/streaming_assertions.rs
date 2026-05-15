@@ -158,6 +158,8 @@ impl StreamingFieldResolver {
                 "kotlin" => format!("{chunks_var}.size"),
                 // zig: chunks_var is ArrayList([]u8); use .items.len
                 "zig" => format!("{chunks_var}.items.len"),
+                // Swift Array uses .count (Collection protocol)
+                "swift" => format!("{chunks_var}.count"),
                 // node/wasm/typescript use .length
                 _ => format!("{chunks_var}.length"),
             }),
@@ -205,6 +207,14 @@ impl StreamingFieldResolver {
                     // the collect snippet. `.items` gives a `[]u8` slice of the content.
                     format!("{chunks_var}_content.items")
                 }
+                // Swift: chunks is [ChatCompletionChunk] (swift-bridge class objects).
+                // choices() → RustVec<StreamChoice> (Collection, so .first is available).
+                // delta() → StreamDelta (non-optional). content() → RustString? → .toString().
+                "swift" => {
+                    format!(
+                        "{chunks_var}.map {{ c in c.choices().first.flatMap {{ ch in ch.delta().content()?.toString() }} ?? \"\" }}.joined()"
+                    )
+                }
                 // node/wasm/typescript
                 _ => {
                     format!("{chunks_var}.map((c: any) => c.choices?.[0]?.delta?.content ?? '').join('')")
@@ -249,6 +259,14 @@ impl StreamingFieldResolver {
                 // was collected (chunks.items is non-empty) as a proxy for completion.
                 "zig" => {
                     format!("{chunks_var}.items.len > 0")
+                }
+                // Swift: chunks is [ChatCompletionChunk] (swift-bridge class objects).
+                // choices() → RustVec<StreamChoice> (Collection), .first is Optional.
+                // finish_reason() → RustString? (non-nil when the stream completed).
+                "swift" => {
+                    format!(
+                        "!{chunks_var}.isEmpty && {chunks_var}.last!.choices().first?.finish_reason() != nil"
+                    )
                 }
                 // node/wasm/typescript
                 _ => {
@@ -314,6 +332,14 @@ impl StreamingFieldResolver {
                 // Zig: tool_calls count from all chunk deltas
                 "zig" => {
                     format!("{chunks_var}.items")
+                }
+                // Swift: chunks is [ChatCompletionChunk] (swift-bridge class objects).
+                // choices() → RustVec<StreamChoice> (Collection). delta() → StreamDelta.
+                // tool_calls() → RustVec<StreamToolCall>? — flatMap via Array($0) coercion.
+                "swift" => {
+                    format!(
+                        "{chunks_var}.flatMap {{ c in c.choices().first.map {{ ch in ch.delta().tool_calls().map {{ Array($0) }} ?? [] }} ?? [] }}"
+                    )
                 }
                 _ => {
                     format!("{chunks_var}.flatMap((c: any) => c.choices?.[0]?.delta?.toolCalls ?? [])")
