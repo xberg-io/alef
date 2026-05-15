@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-scaffold/jni: `[lib] name` uses `config.jni_lib_name()`**: the JNI
+  cdylib scaffold derived `[lib] name` from the crate directory (`<crate>` with
+  hyphens replaced by underscores), ignoring any `[ffi] prefix` override. The
+  Kotlin Bridge emitter, however, uses `config.jni_lib_name()` (which honors
+  `ffi_prefix`), so any consumer with a prefix override produced a `.so` whose
+  basename disagreed with what `System.loadLibrary(...)` looks up at runtime,
+  triggering `UnsatisfiedLinkError` on the first JNI call. The scaffold now
+  also calls `config.jni_lib_name()`. Regression test in
+  `crates/alef-scaffold/src/languages/jni.rs` asserts both the prefix-set and
+  default cases.
+  (`crates/alef-scaffold/src/languages/jni.rs`)
+
 - **JNI: method-shim Result match gated on `error_type`**: `emit_method_shim`
   previously wrapped every method call in `match result { Ok / Err }` even when
   the method returned `T` directly. Builder methods returning `Self`
@@ -37,6 +49,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Parser::parse`, all `TreeCursor::goto_*`). `emit_client_shims` now inspects
   `method.receiver` and passes `receiver_is_mut` to `emit_method_shim`, which
   emits `&mut *(handle as *mut T)` when the flag is set.
+  (`crates/alef-backend-jni/src/gen_shims.rs`)
+
+- **JNI: `&[&str]` params coerce from `Vec<String>` JSON**: when a method param
+  is `Vec<String>` with `is_ref=true` (representing `&[&str]` in core),
+  `emit_single_param_unmarshal` now deserializes into `<name>_vec: Vec<String>`
+  and `emit_method_shim` emits `let <name>_refs: Vec<&str>` before passing
+  `&<name>_refs` to the core method. Previously `&Vec<String>` was passed
+  directly, causing a type mismatch.
   (`crates/alef-backend-jni/src/gen_shims.rs`)
 
 

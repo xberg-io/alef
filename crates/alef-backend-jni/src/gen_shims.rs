@@ -582,7 +582,17 @@ fn emit_method_shim(
         };
         emit_single_param_unmarshal(out, &rust_name, base_ty, ret_null);
         // Apply optional/is_ref at the call site.
-        if p.optional {
+        // Special case: Vec<String> with is_ref means the core expects `&[&str]`.
+        // emit_single_param_unmarshal already bound `<name>_vec: Vec<String>`.
+        // We need to collect `Vec<&str>` refs and pass `&<name>_refs`.
+        let is_vec_string_ref = p.is_ref && matches!(base_ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String));
+        if is_vec_string_ref {
+            let refs_name = format!("{rust_name}_refs");
+            out.push_str(&format!(
+                "    let {refs_name}: Vec<&str> = {rust_name}_vec.iter().map(String::as_str).collect();\n"
+            ));
+            format!("&{refs_name}")
+        } else if p.optional {
             format!("Some({rust_name})")
         } else if p.is_ref {
             format!("&{rust_name}")
@@ -715,6 +725,24 @@ fn emit_single_param_unmarshal(out: &mut String, rust_name: &str, ty: &TypeRef, 
             ));
             out.push_str("    };\n");
             out.push_str(&format!("    let {rust_name} = std::path::PathBuf::from(req_str);\n"));
+        }
+        TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String) => {
+            // Vec<String> — deserialize into `<name>_vec` so the caller can optionally
+            // produce `<name>_refs: Vec<&str>` for `&[&str]` call sites.
+            out.push_str("    let req_str = match jstring_to_string(&mut env, request_json) {\n");
+            out.push_str("        Ok(s) => s,\n");
+            out.push_str(&format!(
+                "        Err(e) => {{ throw_jni_error(&mut env, &format!(\"{{e}}\")); return {ret_null}; }}\n"
+            ));
+            out.push_str("    };\n");
+            out.push_str(&format!(
+                "    let {rust_name}_vec: Vec<String> = match serde_json::from_str(&req_str) {{\n"
+            ));
+            out.push_str("        Ok(v) => v,\n");
+            out.push_str(&format!("        Err(e) => {{ throw_jni_error(&mut env, &format!(\"request deserialize: {{e}}\")); return {ret_null}; }}\n"));
+            out.push_str("    };\n");
+            // Bind the non-ref call site alias so it's usable when is_ref=false.
+            out.push_str(&format!("    let {rust_name} = {rust_name}_vec.clone();\n"));
         }
         TypeRef::String => {
             out.push_str("    let req_str = match jstring_to_string(&mut env, request_json) {\n");
