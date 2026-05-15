@@ -50,6 +50,8 @@ fn test_generated_code_example() {
                     newtype_wrapper: None,
                     serde_rename: None,
                     serde_flatten: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
                 FieldDef {
                     name: "timeout".to_string(),
@@ -67,6 +69,8 @@ fn test_generated_code_example() {
                     newtype_wrapper: None,
                     serde_rename: None,
                     serde_flatten: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
             ],
             methods: vec![],

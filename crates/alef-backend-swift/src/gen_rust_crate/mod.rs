@@ -350,14 +350,10 @@ fn emit_lib_rs(
     // First the register/unregister entry points (extern "Rust"), then the Swift-side
     // type and method declarations (extern "Swift").
     //
-    // Only emit for `bind_via = "function_param"` bridges. For `bind_via = "options_field"`
-    // bridges (e.g. h2m's HtmlVisitor), the user wires the trait via an options field
-    // and there is no scaffolded Swift class for users to subclass. Emitting
-    // `extern "Swift" type Swift<Trait>Box` for options_field bridges produces
-    // unresolvable Swift symbols (`cannot find type 'Swift<Trait>Box'`) because
-    // the binding facade does not define such a class. Until alef-backend-swift
-    // grows a proper Swift class scaffold + handle-builder shim for options_field
-    // bridges, skip the inbound emission for them.
+    // FunctionParam bridges: register/unregister entry points are needed for the
+    // global registry pattern. OptionsField bridges: no registry, the visitor is
+    // wired via a make_<trait>_handle factory that returns the local opaque
+    // type_alias wrapper (see `emit_inbound_wrapper` below).
     for (bridge_cfg, trait_def) in &active_bridges {
         if bridge_cfg.bind_via != BridgeBinding::FunctionParam {
             continue;
@@ -368,9 +364,11 @@ fn emit_lib_rs(
         }
     }
     for (bridge_cfg, trait_def) in &active_bridges {
-        if bridge_cfg.bind_via != BridgeBinding::FunctionParam {
-            continue;
-        }
+        // Emit the extern "Swift" block for ALL active trait bridges regardless of
+        // bind_via. The Swift{Trait}Box type + method shims are needed both for
+        // FunctionParam (via register_fn) and OptionsField (via make_handle)
+        // wiring patterns. Without this block, the Rust SwiftHtmlVisitorWrapper
+        // can't call back into Swift.
         extern_blocks.push(plugin_inbound::emit_extern_block_for_inbound(trait_def, bridge_cfg));
     }
 
@@ -507,13 +505,10 @@ fn emit_lib_rs(
         ));
     }
     for (bridge_cfg, trait_def) in &active_bridges {
-        // Match the inbound-extern gate above: only emit Rust-side wrappers +
-        // register fns for `function_param` bridges. `options_field` bridges
-        // are handled via options-builder methods, not via the inbound plugin
-        // registry pattern.
-        if bridge_cfg.bind_via != BridgeBinding::FunctionParam {
-            continue;
-        }
+        // Emit Rust-side wrappers (SwiftHtmlVisitorWrapper + impl HtmlVisitor)
+        // for ALL active trait bridges. Register/unregister/clear fns are gated
+        // inside emit_inbound_wrapper itself based on whether register_fn etc.
+        // are configured in the bridge config.
         out.push_str(&plugin_inbound::emit_inbound_wrapper(
             trait_def,
             bridge_cfg,

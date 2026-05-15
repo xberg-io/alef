@@ -72,6 +72,51 @@ fn test_extract_simple_struct() {
 }
 
 #[test]
+fn test_extract_binding_excluded_fields() {
+    let source = r#"
+        pub struct Config {
+            pub visible: String,
+            #[serde(skip)]
+            pub serde_skipped_visible: String,
+            #[doc(hidden)]
+            pub doc_hidden: String,
+            #[cfg_attr(alef, alef(skip))]
+            pub alef_skipped: String,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub still_visible: Option<String>,
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    let config = &surface.types[0];
+
+    let visible = config.fields.iter().find(|field| field.name == "visible").unwrap();
+    assert!(!visible.binding_excluded);
+
+    let serde_skipped_visible = config
+        .fields
+        .iter()
+        .find(|field| field.name == "serde_skipped_visible")
+        .unwrap();
+    assert!(!serde_skipped_visible.binding_excluded);
+
+    let doc_hidden = config.fields.iter().find(|field| field.name == "doc_hidden").unwrap();
+    assert!(doc_hidden.binding_excluded);
+    assert_eq!(doc_hidden.binding_exclusion_reason.as_deref(), Some("doc(hidden)"));
+
+    let alef_skipped = config.fields.iter().find(|field| field.name == "alef_skipped").unwrap();
+    assert!(alef_skipped.binding_excluded);
+    assert_eq!(alef_skipped.binding_exclusion_reason.as_deref(), Some("alef(skip)"));
+
+    let still_visible = config
+        .fields
+        .iter()
+        .find(|field| field.name == "still_visible")
+        .unwrap();
+    assert!(!still_visible.binding_excluded);
+}
+
+#[test]
 fn test_extract_enum() {
     let source = r#"
         /// Output format.

@@ -559,6 +559,8 @@ pub(crate) fn extract_field(field: &syn::Field, crate_name: Option<&str>) -> Fie
     let name = field.ident.as_ref().map(|i| i.to_string()).unwrap_or_default();
     let doc = extract_doc_comments(&field.attrs);
     let cfg = extract_cfg_condition(&field.attrs);
+    let binding_exclusion_reason = extract_binding_exclusion_reason(&field.attrs);
+    let binding_excluded = binding_exclusion_reason.is_some();
 
     let is_boxed = syn_type_is_boxed(&field.ty);
     let type_rust_path = extract_field_type_rust_path(&field.ty, crate_name);
@@ -587,7 +589,40 @@ pub(crate) fn extract_field(field: &syn::Field, crate_name: Option<&str>) -> Fie
         newtype_wrapper: None,
         serde_rename,
         serde_flatten,
+        binding_excluded,
+        binding_exclusion_reason,
     }
+}
+
+/// Extract the source annotation that excludes a field from generated binding APIs.
+pub(crate) fn extract_binding_exclusion_reason(attrs: &[syn::Attribute]) -> Option<String> {
+    if has_doc_hidden(attrs) {
+        return Some("doc(hidden)".to_string());
+    }
+    if has_alef_skip(attrs) {
+        return Some("alef(skip)".to_string());
+    }
+    None
+}
+
+fn has_doc_hidden(attrs: &[syn::Attribute]) -> bool {
+    attrs.iter().any(|attr| {
+        if !attr.path().is_ident("doc") {
+            return false;
+        }
+        let attr_str = quote::quote!(#attr).to_string();
+        attr_str.contains("hidden")
+    })
+}
+
+fn has_alef_skip(attrs: &[syn::Attribute]) -> bool {
+    attrs.iter().any(|attr| {
+        let attr_str = quote::quote!(#attr).to_string();
+        let is_direct_alef = attr.path().is_ident("alef") && attr_str.contains("skip");
+        let is_cfg_attr_alef =
+            attr.path().is_ident("cfg_attr") && attr_str.contains("alef") && attr_str.contains("skip");
+        is_direct_alef || is_cfg_attr_alef
+    })
 }
 
 /// True when any of the given attributes is `#[serde(flatten)]` (also matching
@@ -668,6 +703,8 @@ pub(crate) fn extract_enum_variant(v: &syn::Variant) -> EnumVariant {
                     newtype_wrapper: None,
                     serde_rename: None,
                     serde_flatten: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 }
             })
             .collect(),

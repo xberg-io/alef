@@ -703,6 +703,8 @@ mod tests {
                             newtype_wrapper: None,
                             serde_rename: None,
                             serde_flatten: false,
+                            binding_excluded: false,
+                            binding_exclusion_reason: None,
                         },
                         FieldDef {
                             name: "bearer_format".into(),
@@ -720,6 +722,8 @@ mod tests {
                             newtype_wrapper: None,
                             serde_rename: None,
                             serde_flatten: false,
+                            binding_excluded: false,
+                            binding_exclusion_reason: None,
                         },
                     ],
                     is_tuple: false,
@@ -746,6 +750,8 @@ mod tests {
                             newtype_wrapper: None,
                             serde_rename: None,
                             serde_flatten: false,
+                            binding_excluded: false,
+                            binding_exclusion_reason: None,
                         },
                         FieldDef {
                             name: "name".into(),
@@ -763,6 +769,8 @@ mod tests {
                             newtype_wrapper: None,
                             serde_rename: None,
                             serde_flatten: false,
+                            binding_excluded: false,
+                            binding_exclusion_reason: None,
                         },
                     ],
                     is_tuple: false,
@@ -856,6 +864,8 @@ mod tests {
                         newtype_wrapper: None,
                         serde_rename: None,
                         serde_flatten: false,
+                        binding_excluded: false,
+                        binding_exclusion_reason: None,
                     }],
                     is_tuple: true,
                     doc: String::new(),
@@ -880,6 +890,8 @@ mod tests {
                         newtype_wrapper: None,
                         serde_rename: None,
                         serde_flatten: false,
+                        binding_excluded: false,
+                        binding_exclusion_reason: None,
                     }],
                     is_tuple: true,
                     doc: String::new(),
@@ -975,6 +987,8 @@ mod tests {
             newtype_wrapper: None,
             serde_rename: None,
             serde_flatten: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         };
         assert_eq!(field_type_for_rustler(&bool_field), "bool");
         let str_field = FieldDef {

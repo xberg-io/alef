@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Binding surface: exclude source-declared internal fields before codegen**:
+  Alef now records field-level exclusion metadata from `#[doc(hidden)]` and
+  explicit `#[cfg_attr(alef, alef(skip))]`, then removes those fields from
+  generated binding APIs before unknown-type sanitization. Internal caches and
+  runtime-only state no longer appear as fake `String` fields in language
+  bindings.
+  (`crates/alef-extract`, `crates/alef-cli`, `crates/alef-core`)
+
 - **Swift: render `extra_dependencies` into the generated Rust crate**: Swift
   bindings now merge crate-level and `[crates.swift.extra_dependencies]` entries
   into `packages/swift/rust/Cargo.toml`. Multi-crate consumers can reference

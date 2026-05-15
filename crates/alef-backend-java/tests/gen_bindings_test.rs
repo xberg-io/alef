@@ -47,6 +47,8 @@ fn make_newtype_field(ty: TypeRef) -> FieldDef {
         newtype_wrapper: None,
         serde_rename: None,
         serde_flatten: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -77,6 +79,8 @@ fn test_basic_generation() {
                 newtype_wrapper: None,
                 serde_rename: None,
                 serde_flatten: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             }],
             methods: vec![],
             is_opaque: false,
@@ -463,6 +467,8 @@ fn test_optional_field_defaults_in_builder() {
                     newtype_wrapper: None,
                     serde_rename: None,
                     serde_flatten: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
                 FieldDef {
                     name: "bullets".to_string(),
@@ -480,6 +486,8 @@ fn test_optional_field_defaults_in_builder() {
                     newtype_wrapper: None,
                     serde_rename: None,
                     serde_flatten: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
                 FieldDef {
                     name: "escape_asterisks".to_string(),
@@ -497,6 +505,8 @@ fn test_optional_field_defaults_in_builder() {
                     newtype_wrapper: None,
                     serde_rename: None,
                     serde_flatten: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
                 FieldDef {
                     name: "timeout_ms".to_string(),
@@ -514,6 +524,8 @@ fn test_optional_field_defaults_in_builder() {
                     newtype_wrapper: None,
                     serde_rename: None,
                     serde_flatten: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
             ],
             methods: vec![],

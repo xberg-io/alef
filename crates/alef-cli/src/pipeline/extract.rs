@@ -1,7 +1,7 @@
 use ahash::{AHashMap, AHashSet};
 use alef_core::config::ResolvedCrateConfig;
 use alef_core::ir::{ApiSurface, TypeDef, TypeRef};
-use anyhow::Context as _;
+use anyhow::{Context as _, bail};
 use std::collections::HashMap;
 use std::path::Path;
 use tracing::{debug, info};
@@ -92,6 +92,11 @@ pub fn extract(config: &ResolvedCrateConfig, config_path: &Path, clean: bool) ->
     // Binding crates may have different features enabled than the core crate,
     // so cfg-gated fields are only included when explicitly listed.
     strip_cfg_fields(&mut api, &config.features);
+
+    // Remove source-declared internal/runtime fields from the polyglot binding
+    // surface before unknown-type sanitization can collapse them into fake
+    // String fields.
+    strip_binding_excluded_fields(&mut api)?;
 
     // Replace references to types not in the API surface with String
     sanitize_unknown_types(&mut api);
@@ -349,6 +354,49 @@ fn sanitize_unknown_types(api: &mut ApiSurface) {
             }
         }
     }
+}
+
+fn strip_binding_excluded_fields(api: &mut ApiSurface) -> anyhow::Result<()> {
+    for typ in &mut api.types {
+        let before = typ.fields.len();
+        let excluded: Vec<_> = typ
+            .fields
+            .iter()
+            .filter(|field| field.binding_excluded)
+            .map(|field| {
+                let reason = field
+                    .binding_exclusion_reason
+                    .as_deref()
+                    .unwrap_or("source binding exclusion");
+                format!("{}.{} ({reason})", typ.name, field.name)
+            })
+            .collect();
+        if !excluded.is_empty() && !typ.has_default {
+            bail!(
+                "cannot exclude binding fields from non-Default type {}: {}",
+                typ.name,
+                excluded.join(", ")
+            );
+        }
+        typ.fields.retain(|field| !field.binding_excluded);
+        if typ.fields.len() != before {
+            typ.has_stripped_cfg_fields = true;
+        }
+    }
+
+    for enum_def in &mut api.enums {
+        for variant in &mut enum_def.variants {
+            variant.fields.retain(|field| !field.binding_excluded);
+        }
+    }
+
+    for error_def in &mut api.errors {
+        for variant in &mut error_def.variants {
+            variant.fields.retain(|field| !field.binding_excluded);
+        }
+    }
+
+    Ok(())
 }
 
 /// Returns true if the type was sanitized (changed from original).

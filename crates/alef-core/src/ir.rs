@@ -151,6 +151,13 @@ pub struct FieldDef {
     /// flattened bag instead of being rejected.
     #[serde(default)]
     pub serde_flatten: bool,
+    /// True when source metadata explicitly excludes this field from generated
+    /// polyglot binding surfaces.
+    #[serde(default)]
+    pub binding_excluded: bool,
+    /// Human-readable reason for `binding_excluded`, used in diagnostics.
+    #[serde(default)]
+    pub binding_exclusion_reason: Option<String>,
 }
 
 /// A method on a public struct.

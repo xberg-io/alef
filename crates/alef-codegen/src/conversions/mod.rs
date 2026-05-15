@@ -211,6 +211,8 @@ mod tests {
                     newtype_wrapper: None,
                     serde_rename: None,
                     serde_flatten: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
                 FieldDef {
                     name: "timeout".into(),
@@ -228,6 +230,8 @@ mod tests {
                     newtype_wrapper: None,
                     serde_rename: None,
                     serde_flatten: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
                 FieldDef {
                     name: "backend".into(),
@@ -245,6 +249,8 @@ mod tests {
                     newtype_wrapper: None,
                     serde_rename: None,
                     serde_flatten: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
             ],
             methods: vec![],
@@ -352,6 +358,8 @@ mod tests {
             newtype_wrapper: None,
             serde_rename: None,
             serde_flatten: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         });
 
         let result = gen_from_binding_to_core(&typ, "my_crate");
@@ -386,6 +394,8 @@ mod tests {
             newtype_wrapper: None,
             serde_rename: None,
             serde_flatten: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         });
 
         let result = gen_from_core_to_binding(&typ, "my_crate", &AHashSet::new());
@@ -530,6 +540,8 @@ mod tests {
                 newtype_wrapper: None,
                 serde_rename: None,
                 serde_flatten: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
             FieldDef {
                 name: "structure".into(),
@@ -547,6 +559,8 @@ mod tests {
                 newtype_wrapper: None,
                 serde_rename: None,
                 serde_flatten: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
         ];
         let config = ConversionConfig {
@@ -602,6 +616,8 @@ mod tests {
             newtype_wrapper: None,
             serde_rename: None,
             serde_flatten: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }
     }
 

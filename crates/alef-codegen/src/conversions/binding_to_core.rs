@@ -1144,6 +1144,8 @@ mod tests {
             newtype_wrapper: None,
             serde_rename: None,
             serde_flatten: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         };
 
         let out = gen_from_binding_to_core(&type_with_field(field), "crate");
@@ -1177,6 +1179,8 @@ mod tests {
             newtype_wrapper: None,
             serde_rename: None,
             serde_flatten: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         };
 
         let never_skip = vec!["visitor".to_string()];
@@ -1225,6 +1229,8 @@ mod tests {
             newtype_wrapper: None,
             serde_rename: None,
             serde_flatten: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         };
 
         let config = ConversionConfig {

@@ -85,6 +85,8 @@ pub(crate) fn make_field(name: &str, ty: TypeRef, optional: bool, typed_default:
         newtype_wrapper: None,
         serde_rename: None,
         serde_flatten: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
