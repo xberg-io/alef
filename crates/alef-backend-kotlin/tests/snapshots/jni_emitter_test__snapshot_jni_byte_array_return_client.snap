@@ -18,7 +18,7 @@ class DefaultClient internal constructor(internal val handle: Long) : AutoClosea
             .setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE)
     }
 
-    suspend fun speech(request: SpeechRequest): List<Byte> {
+    suspend fun speech(request: SpeechRequest): ByteArray {
         return withContext(Dispatchers.IO) { DemoBridge.nativeDefaultClientSpeech(handle, MAPPER.writeValueAsString(request)) }
     }
 
