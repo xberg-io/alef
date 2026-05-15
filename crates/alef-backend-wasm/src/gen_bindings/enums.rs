@@ -50,6 +50,29 @@ fn variant_serde_name(variant_name: &str, serde_rename: Option<&str>, serde_rena
     }
 }
 
+/// Compute the set of field names that appear in multiple variants with different Named types.
+///
+/// When the same positional or named field (e.g. `_0`) carries a different inner type per
+/// variant (e.g. `SystemMessage` vs `UserMessage`), the binding struct cannot represent it
+/// as a single concrete WASM type. Instead the field is stored as `JsValue` and converted
+/// via `serde_wasm_bindgen` per-variant in the From impls.
+fn mixed_type_fields(enum_def: &EnumDef) -> std::collections::BTreeSet<String> {
+    let mut field_types: std::collections::HashMap<String, std::collections::BTreeSet<String>> =
+        std::collections::HashMap::new();
+    for variant in &enum_def.variants {
+        for field in &variant.fields {
+            if let TypeRef::Named(n) = &field.ty {
+                field_types.entry(field.name.clone()).or_default().insert(n.clone());
+            }
+        }
+    }
+    field_types
+        .into_iter()
+        .filter(|(_, types)| types.len() > 1)
+        .map(|(name, _)| name)
+        .collect()
+}
+
 /// Compute the serde wire tag value for a variant — what JS supplies in the `type` field.
 pub(super) fn variant_tag_value(
     variant_name: &str,
@@ -92,9 +115,10 @@ pub(super) fn gen_tagged_enum_as_struct(enum_def: &EnumDef, prefix: &str) -> Str
     lines.push(format!("    pub(crate) {tag_field_ident}: String,"));
 
     // Union of all variant fields. De-duplicate by name; if a name appears in multiple variants
-    // with different types we fall back to `String` (callers serialize to JSON) — matches the
-    // NAPI `mixed_named_fields` handling. For kreuzcrawl's only tagged enum (AuthConfig) every
-    // field is String, so we hit the simple path.
+    // with different Named types (e.g. `_0: SystemMessage` vs `_0: UserMessage`) we fall back
+    // to `JsValue` (callers convert via serde_wasm_bindgen per-variant in the From impls).
+    // This mirrors the NAPI `mixed_named_fields` / `serde_json` path.
+    let mixed = mixed_type_fields(enum_def);
     let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     let mut field_entries: Vec<(String, String)> = Vec::new();
     for variant in &enum_def.variants {
@@ -102,11 +126,16 @@ pub(super) fn gen_tagged_enum_as_struct(enum_def: &EnumDef, prefix: &str) -> Str
             if !seen.insert(field.name.clone()) {
                 continue;
             }
-            let mapped = mapper.map_type(&field.ty);
-            let field_ty = if matches!(&field.ty, TypeRef::Optional(_)) {
-                mapped
+            let field_ty = if mixed.contains(&field.name) {
+                // Mixed-type Named field: store as JsValue, convert via serde_wasm_bindgen.
+                "Option<JsValue>".to_string()
             } else {
-                format!("Option<{mapped}>")
+                let mapped = mapper.map_type(&field.ty);
+                if matches!(&field.ty, TypeRef::Optional(_)) {
+                    mapped
+                } else {
+                    format!("Option<{mapped}>")
+                }
             };
             field_entries.push((field.name.clone(), field_ty.clone()));
             let escaped = escape_rust_keyword(&field.name);
@@ -180,6 +209,7 @@ pub(super) fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &
     let binding_name = format!("{prefix}{}", enum_def.name);
     let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
     let tag_field_ident = escape_rust_keyword(tag_field);
+    let mixed = mixed_type_fields(enum_def);
 
     let mut lines = vec![];
     lines.push(format!("impl From<{binding_name}> for {core_path} {{"));
@@ -193,13 +223,57 @@ pub(super) fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &
         );
         if variant.fields.is_empty() {
             lines.push(format!("            \"{tag_value}\" => Self::{},", variant.name));
+        } else if variant.is_tuple {
+            // Tuple/newtype variant: construct positionally.
+            // For mixed-type Named fields the binding struct stores `JsValue`; deserialize
+            // via serde_wasm_bindgen to the variant-specific core type. For single-type
+            // Named fields the binding struct stores the binding wrapper; call `.into()`.
+            let args: Vec<String> = variant
+                .fields
+                .iter()
+                .map(|f| {
+                    let f_ident = escape_rust_keyword(&f.name);
+                    if mixed.contains(&f.name) {
+                        // Field is stored as JsValue in the binding struct.
+                        let core_inner = match &f.ty {
+                            TypeRef::Named(n) => format!("{core_import}::{n}"),
+                            _ => "serde_json::Value".to_string(),
+                        };
+                        format!(
+                            "val.{f_ident}.as_ref().and_then(|v| serde_wasm_bindgen::from_value::<{core_inner}>(v.clone()).ok()).unwrap_or_default()"
+                        )
+                    } else {
+                        // Single-type Named or primitive field.
+                        match &f.ty {
+                            TypeRef::Named(_) => {
+                                format!("val.{f_ident}.clone().map(Into::into).unwrap_or_default()")
+                            }
+                            _ => format!("val.{f_ident}.clone().unwrap_or_default()"),
+                        }
+                    }
+                })
+                .collect();
+            lines.push(format!(
+                "            \"{tag_value}\" => Self::{}({}),",
+                variant.name,
+                args.join(", ")
+            ));
         } else {
+            // Struct variant: construct with named fields.
+            // For Named-type fields the binding struct stores the binding wrapper type
+            // (e.g. `Option<WasmImageUrl>`), so we must call `.into()` to convert to
+            // the core type (e.g. `ImageUrl`).
             let inits: Vec<String> = variant
                 .fields
                 .iter()
                 .map(|f| {
                     let f_ident = escape_rust_keyword(&f.name);
-                    format!("{}: val.{}.clone().unwrap_or_default()", f.name, f_ident)
+                    match &f.ty {
+                        TypeRef::Named(_) => {
+                            format!("{}: val.{f_ident}.clone().map(Into::into).unwrap_or_default()", f.name)
+                        }
+                        _ => format!("{}: val.{f_ident}.clone().unwrap_or_default()", f.name),
+                    }
                 })
                 .collect();
             lines.push(format!(
@@ -213,6 +287,9 @@ pub(super) fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &
     if let Some(first) = enum_def.variants.first() {
         if first.fields.is_empty() {
             lines.push(format!("            _ => Self::{},", first.name));
+        } else if first.is_tuple {
+            let args: Vec<String> = first.fields.iter().map(|_| "Default::default()".to_string()).collect();
+            lines.push(format!("            _ => Self::{}({}),", first.name, args.join(", ")));
         } else {
             let defaults: Vec<String> = first
                 .fields
@@ -238,6 +315,7 @@ pub(super) fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &
     let binding_name = format!("{prefix}{}", enum_def.name);
     let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
     let tag_field_ident = escape_rust_keyword(tag_field);
+    let mixed = mixed_type_fields(enum_def);
 
     // Collect every field name across all variants (for the struct literal).
     let mut all_field_names: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
@@ -259,6 +337,9 @@ pub(super) fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &
         );
         let variant_field_names: std::collections::BTreeSet<String> =
             variant.fields.iter().map(|f| f.name.clone()).collect();
+        // Build a lookup: field name → TypeRef for this variant's fields.
+        let field_type_map: std::collections::HashMap<&str, &TypeRef> =
+            variant.fields.iter().map(|f| (f.name.as_str(), &f.ty)).collect();
 
         if variant.fields.is_empty() {
             let mut inits = vec![format!(
@@ -271,8 +352,52 @@ pub(super) fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &
             lines.push(format!("            {core_path}::{} => Self {{", variant.name));
             lines.push(format!("{},", inits.join(",\n")));
             lines.push("            },".to_string());
+        } else if variant.is_tuple {
+            // Tuple/newtype variant: destructure positionally.
+            // Use synthetic local names `field0`, `field1`, … to avoid conflicts with
+            // Rust keywords and to keep the binding struct field names separate.
+            let local_names: Vec<String> = variant
+                .fields
+                .iter()
+                .enumerate()
+                .map(|(i, _)| format!("field{i}"))
+                .collect();
+            let destructure = local_names.join(", ");
+            let mut inits = vec![format!(
+                "                {tag_field_ident}: \"{tag_value}\".to_string()"
+            )];
+            for name in &all_field_names {
+                let n_ident = escape_rust_keyword(name);
+                if variant_field_names.contains(name) {
+                    // Map the positional field (e.g. `_0`) to the local binding name.
+                    let pos = variant.fields.iter().position(|f| &f.name == name).unwrap();
+                    let local = &local_names[pos];
+                    let field_ty = field_type_map.get(name.as_str());
+                    let init = if mixed.contains(name) {
+                        // Mixed-type Named field: stored as JsValue in the binding struct.
+                        format!("                {n_ident}: serde_wasm_bindgen::to_value(&{local}).ok()")
+                    } else if matches!(field_ty, Some(TypeRef::Named(_))) {
+                        // Single-type Named: wrap with binding-type conversion.
+                        format!("                {n_ident}: Some({local}.into())")
+                    } else {
+                        format!("                {n_ident}: Some({local})")
+                    };
+                    inits.push(init);
+                } else {
+                    inits.push(format!("                {n_ident}: None"));
+                }
+            }
+            lines.push(format!(
+                "            {core_path}::{}({}) => Self {{",
+                variant.name, destructure
+            ));
+            lines.push(format!("{},", inits.join(",\n")));
+            lines.push("            },".to_string());
         } else {
-            // Destructure variant's fields by name (using raw identifiers where needed).
+            // Struct variant: destructure by field name.
+            // For Named-type fields the binding struct expects the binding wrapper type
+            // (e.g. `Option<WasmImageUrl>`), so wrap with `.into()` to convert the core
+            // value (e.g. `ImageUrl`) to the binding type.
             let destructure_names: Vec<String> = variant.fields.iter().map(|f| escape_rust_keyword(&f.name)).collect();
             let mut inits = vec![format!(
                 "                {tag_field_ident}: \"{tag_value}\".to_string()"
@@ -280,7 +405,13 @@ pub(super) fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &
             for name in &all_field_names {
                 let n_ident = escape_rust_keyword(name);
                 if variant_field_names.contains(name) {
-                    inits.push(format!("                {n_ident}: Some({n_ident})"));
+                    let field_ty = field_type_map.get(name.as_str());
+                    let init = if matches!(field_ty, Some(TypeRef::Named(_))) {
+                        format!("                {n_ident}: Some({n_ident}.into())")
+                    } else {
+                        format!("                {n_ident}: Some({n_ident})")
+                    };
+                    inits.push(init);
                 } else {
                     inits.push(format!("                {n_ident}: None"));
                 }
@@ -366,8 +497,8 @@ pub(super) fn gen_enum(enum_def: &EnumDef, prefix: &str) -> String {
 }
 #[cfg(test)]
 mod tests {
-    use super::gen_enum;
-    use alef_core::ir::{EnumDef, EnumVariant};
+    use super::{gen_enum, gen_tagged_enum_binding_to_core, gen_tagged_enum_core_to_binding};
+    use alef_core::ir::{EnumDef, EnumVariant, FieldDef, TypeRef};
 
     fn make_enum(name: &str, variants: &[&str]) -> EnumDef {
         EnumDef {
@@ -446,5 +577,238 @@ mod tests {
         let result = gen_enum(&e, "");
         assert!(result.contains("Self::Active => \"Active\""));
         assert!(result.contains("Self::Inactive => \"Inactive\""));
+    }
+
+    /// Build a tagged enum where every non-empty variant is a newtype/tuple variant
+    /// (single positional field named `_0`), as emitted by the alef extractor for
+    /// `pub enum Message { System(SystemMessage), User(UserMessage) }`.
+    fn make_tagged_tuple_enum() -> EnumDef {
+        let make_tuple_variant = |variant_name: &str, tag: &str| EnumVariant {
+            name: variant_name.to_string(),
+            fields: vec![FieldDef {
+                name: "_0".to_string(),
+                ty: TypeRef::Named(format!("{variant_name}Message")),
+                optional: false,
+                default: None,
+                doc: String::new(),
+                sanitized: false,
+                is_boxed: false,
+                type_rust_path: None,
+                cfg: None,
+                typed_default: None,
+                core_wrapper: alef_core::ir::CoreWrapper::None,
+                vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                newtype_wrapper: None,
+                serde_rename: Some(tag.to_string()),
+                serde_flatten: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            is_tuple: true,
+            doc: String::new(),
+            is_default: false,
+            serde_rename: Some(tag.to_string()),
+        };
+
+        EnumDef {
+            name: "Message".to_string(),
+            rust_path: "test_lib::types::Message".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                make_tuple_variant("System", "system"),
+                make_tuple_variant("User", "user"),
+            ],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: true,
+            serde_tag: Some("role".to_string()),
+            serde_untagged: false,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }
+    }
+
+    /// Regression test: `gen_tagged_enum_core_to_binding` must emit tuple-pattern destructuring
+    /// (`EnumName::Variant(field0)`) for tuple/newtype variants, not struct-pattern
+    /// (`EnumName::Variant { _0 }`).
+    #[test]
+    fn gen_tagged_enum_core_to_binding_uses_tuple_pattern_for_tuple_variants() {
+        let e = make_tagged_tuple_enum();
+        let result = gen_tagged_enum_core_to_binding(&e, "test_lib", "Wasm");
+
+        // Must NOT use struct-pattern destructure for tuple variants.
+        assert!(
+            !result.contains("Message::System { _0 }"),
+            "must not emit struct destructure for tuple variant;\nactual:\n{result}"
+        );
+        assert!(
+            !result.contains("Message::User { _0 }"),
+            "must not emit struct destructure for tuple variant;\nactual:\n{result}"
+        );
+
+        // Must use tuple-pattern destructure.
+        assert!(
+            result.contains("Message::System(field0)"),
+            "must emit tuple destructure for tuple variant;\nactual:\n{result}"
+        );
+        assert!(
+            result.contains("Message::User(field0)"),
+            "must emit tuple destructure for tuple variant;\nactual:\n{result}"
+        );
+
+        // The positional value must be converted and stored in the `_0` binding struct field.
+        // Since the variants have different Named types, the struct stores JsValue and the
+        // conversion uses serde_wasm_bindgen.
+        assert!(
+            result.contains("_0: serde_wasm_bindgen::to_value(&field0).ok()"),
+            "positional value must be serialized via serde_wasm_bindgen into _0 field;\nactual:\n{result}"
+        );
+    }
+
+    /// Regression test: `gen_tagged_enum_binding_to_core` must emit tuple construction
+    /// (`Self::Variant(val)`) for tuple/newtype variants, not struct construction
+    /// (`Self::Variant { _0: val }`).
+    #[test]
+    fn gen_tagged_enum_binding_to_core_uses_tuple_construction_for_tuple_variants() {
+        let e = make_tagged_tuple_enum();
+        let result = gen_tagged_enum_binding_to_core(&e, "test_lib", "Wasm");
+
+        // Must NOT use struct-construction syntax for tuple variants.
+        assert!(
+            !result.contains("Self::System { _0:"),
+            "must not emit struct construction for tuple variant;\nactual:\n{result}"
+        );
+        assert!(
+            !result.contains("Self::User { _0:"),
+            "must not emit struct construction for tuple variant;\nactual:\n{result}"
+        );
+
+        // Must use tuple construction.
+        assert!(
+            result.contains("Self::System("),
+            "must emit tuple construction for tuple variant;\nactual:\n{result}"
+        );
+        assert!(
+            result.contains("Self::User("),
+            "must emit tuple construction for tuple variant;\nactual:\n{result}"
+        );
+
+        // Mixed-type Named fields must use serde_wasm_bindgen::from_value to deserialize
+        // the JsValue binding struct field to the variant-specific core type.
+        assert!(
+            result.contains("serde_wasm_bindgen::from_value::<test_lib::SystemMessage>"),
+            "binding→core must deserialize mixed-type field via serde_wasm_bindgen;\nactual:\n{result}"
+        );
+        assert!(
+            result.contains("serde_wasm_bindgen::from_value::<test_lib::UserMessage>"),
+            "binding→core must deserialize mixed-type field via serde_wasm_bindgen;\nactual:\n{result}"
+        );
+    }
+
+    /// Smoke test: a tagged enum with plain unit variants (no fields) is unaffected by the
+    /// tuple-variant fix and still emits valid unit-variant arms.
+    #[test]
+    fn gen_tagged_enum_core_to_binding_unit_variants_unchanged() {
+        let e = EnumDef {
+            name: "Status".to_string(),
+            rust_path: "test_lib::Status".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Active".to_string(),
+                    fields: vec![],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: Some("active".to_string()),
+                },
+                EnumVariant {
+                    name: "Inactive".to_string(),
+                    fields: vec![],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: Some("inactive".to_string()),
+                },
+            ],
+            doc: String::new(),
+            cfg: None,
+            is_copy: true,
+            has_serde: true,
+            serde_tag: Some("state".to_string()),
+            serde_untagged: false,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+
+        let core_to_binding = gen_tagged_enum_core_to_binding(&e, "test_lib", "Wasm");
+        // Unit variants must still emit simple `CorePath::Variant => Self { ... }` arms.
+        assert!(
+            core_to_binding.contains("test_lib::Status::Active => Self {"),
+            "unit variant arm must use simple path;\nactual:\n{core_to_binding}"
+        );
+
+        let binding_to_core = gen_tagged_enum_binding_to_core(&e, "test_lib", "Wasm");
+        // Unit variants in binding→core direction: `"active" => Self::Active`
+        assert!(
+            binding_to_core.contains("\"active\" => Self::Active"),
+            "unit variant arm must match tag string;\nactual:\n{binding_to_core}"
+        );
+    }
+
+    /// Smoke test: a tagged enum with struct variants (named fields) is unaffected and still
+    /// emits struct-pattern destructuring.
+    #[test]
+    fn gen_tagged_enum_core_to_binding_struct_variants_unchanged() {
+        let e = EnumDef {
+            name: "Auth".to_string(),
+            rust_path: "test_lib::Auth".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![EnumVariant {
+                name: "Basic".to_string(),
+                fields: vec![FieldDef {
+                    name: "username".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    doc: String::new(),
+                    sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    typed_default: None,
+                    core_wrapper: alef_core::ir::CoreWrapper::None,
+                    vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                    newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                }],
+                is_tuple: false, // struct variant
+                doc: String::new(),
+                is_default: false,
+                serde_rename: Some("basic".to_string()),
+            }],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: true,
+            serde_tag: Some("type".to_string()),
+            serde_untagged: false,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+
+        let result = gen_tagged_enum_core_to_binding(&e, "test_lib", "Wasm");
+        // Struct variant must still use `{ username }` destructure.
+        assert!(
+            result.contains("Auth::Basic { username }"),
+            "struct variant must keep struct destructure;\nactual:\n{result}"
+        );
     }
 }
