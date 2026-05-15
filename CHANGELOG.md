@@ -67,6 +67,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Panama-only now.
 
 ### Fixed
+
 - **alef-backend-kotlin**: emit a single JVM client wrapper class into a
   matching Kotlin source file (for example `GraphQLRouteConfig.kt`) instead of
   always writing `DefaultClient.kt`, avoiding ktlint filename violations for
