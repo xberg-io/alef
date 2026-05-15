@@ -95,8 +95,11 @@ dependencies {{
     // Generated sealed-class DTOs use Jackson @JsonDeserialize for polymorphic
     // serde-tagged unions; jackson-module-kotlin is required for Kotlin
     // data-class deserialization (handles nullable, default values, etc.).
+    // jackson-datatype-jdk8 is required because the generated DefaultClient.kt
+    // registers Jdk8Module for Optional<T> / java.util.Optional support.
     implementation("com.fasterxml.jackson.core:jackson-databind:{jackson}")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:{jackson}")
+    implementation("com.fasterxml.jackson.datatype:jackson-datatype-jdk8:{jackson}")
     testImplementation("junit:junit:{junit_legacy}")
     androidTestImplementation("androidx.test.ext:junit:{androidx_junit}")
     androidTestImplementation("androidx.test.espresso:espresso-core:{espresso_core}")
