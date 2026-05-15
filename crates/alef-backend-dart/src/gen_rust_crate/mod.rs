@@ -617,7 +617,7 @@ fn field_from_expr(field: &FieldDef, source_crate_name: &str) -> String {
                 format!("serde_json::to_string(&v.{name}).unwrap_or_default()")
             }
         }
-        TypeRef::String | TypeRef::Char => {
+        TypeRef::String => {
             // Core may have Cow<'_, str>; mirror has String. `.into()` handles both.
             match field.core_wrapper {
                 CoreWrapper::Cow => {
@@ -635,6 +635,14 @@ fn field_from_expr(field: &FieldDef, source_crate_name: &str) -> String {
                         format!("v.{name}")
                     }
                 }
+            }
+        }
+        TypeRef::Char => {
+            // Core has char; mirror has String. Convert via to_string().
+            if field.optional {
+                format!("v.{name}.map(|c| c.to_string())")
+            } else {
+                format!("v.{name}.to_string()")
             }
         }
         TypeRef::Path => {

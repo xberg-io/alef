@@ -34,6 +34,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   consistently. The "no change" vs "explicit clear" distinction is
   collapsed to `None` on the dart side; callers needing both states must
   model them via a dedicated enum.
+- **alef-backend-dart**: opaque wrappers now emit `From` impls in both
+  directions between the wrapper and its inner core type, so builder
+  methods and field conversions referencing `{Wrapper}::from(core_val)` or
+  `core_val.map(Into::into)` compile (E0308, E0631, E0277).
+- **alef-backend-dart**: non-optional `char` fields convert with
+  `.to_string()` in `field_from_expr` (mirror struct is `String`, core is
+  `char`). Optional `char` keeps its existing `.map(...)` pattern but is
+  now generated via `.to_string()` for parity (E0308).
 - **alef-e2e (swift)**: emit Swift-native syntax for streaming-virtual accessors (`stream_content`, `stream_complete`, `tool_calls`, `finish_reason`, `usage`, `chunks.length`). Previously fell through to a TypeScript default that produced uncompilable Swift (`(c: any) =>`, `.length`, `?.[0]?.`, `!= null`, `undefined`). The new arms use swift-bridge method-call chains (`.choices()`, `.delta()`, `.content()?.toString()`, `.finish_reason()`) and Swift collection idioms (`.isEmpty`, `.last!`, `.count`, `.joined()`).
 
 ## [0.16.0] - 2026-05-14

@@ -2,3 +2,15 @@
 pub struct {{ name }} {
     pub(crate) inner: {{ inner_path }},
 }
+
+impl From<{{ inner_path }}> for {{ name }} {
+    fn from(inner: {{ inner_path }}) -> Self {
+        Self { inner }
+    }
+}
+
+impl From<{{ name }}> for {{ inner_path }} {
+    fn from(value: {{ name }}) -> Self {
+        value.inner
+    }
+}
