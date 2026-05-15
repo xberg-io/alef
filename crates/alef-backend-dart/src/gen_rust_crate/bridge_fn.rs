@@ -354,8 +354,10 @@ fn return_transmute_expr(
                 // Opaque wrapper: construct the wrapper struct from the core value.
                 format!("|inner| {mirror_name} {{ inner }}")
             } else {
-                // Use From conversion: core type implements Into<MirrorType> via the generated From impl.
-                format!("|v| {mirror_name}::from(v)")
+                // Use From conversion: core type implements Into<MirrorType> via the
+                // generated From impl. Emit the bare path so clippy::redundant_closure
+                // is satisfied at the call site (`.map(MirrorName::from)`).
+                format!("{mirror_name}::from")
             }
         }
         TypeRef::Vec(inner) => {

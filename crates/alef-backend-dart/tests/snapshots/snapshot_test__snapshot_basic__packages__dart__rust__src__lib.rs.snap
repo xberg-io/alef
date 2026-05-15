@@ -37,7 +37,7 @@ impl From<demo::Config> for Config {
         Config {
             value: v.value as _,
             label: v.label,
-            tag: v.tag.flatten().map(|s| s.into()),
+            tag: v.tag.flatten(),
         }
     }
 }

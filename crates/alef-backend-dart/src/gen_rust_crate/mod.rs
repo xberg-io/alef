@@ -628,12 +628,9 @@ fn field_from_expr(field: &FieldDef, source_crate_name: &str) -> String {
                     }
                 }
                 _ => {
-                    if field.optional {
-                        format!("v.{name}.map(|s| s.into())")
-                    } else {
-                        // String → String: direct move (into() is identity for String)
-                        format!("v.{name}")
-                    }
+                    // String → String: direct move (into() is identity for String,
+                    // clippy::useless_conversion flags `.map(|s| s.into())`).
+                    format!("v.{name}")
                 }
             }
         }
@@ -715,7 +712,11 @@ fn field_from_expr(field: &FieldDef, source_crate_name: &str) -> String {
                 TypeRef::Named(inner_name) => {
                     format!("v.{name}{flatten}.map({inner_name}::from)")
                 }
-                TypeRef::String | TypeRef::Char => {
+                TypeRef::String => {
+                    // String → String: identity (clippy::useless_conversion).
+                    format!("v.{name}{flatten}")
+                }
+                TypeRef::Char => {
                     format!("v.{name}{flatten}.map(|s| s.into())")
                 }
                 TypeRef::Path => {
@@ -776,7 +777,14 @@ fn vec_inner_from_expr(
         (TypeRef::Named(inner_name), _) => {
             format!("{inner_name}::from")
         }
-        (TypeRef::String | TypeRef::Char, _) => "|s| s.into()".to_string(),
+        (TypeRef::String, CoreWrapper::Cow) => "|s| s.into()".to_string(),
+        (TypeRef::String, _) => {
+            // Vec<String> → Vec<String>: identity move (clippy::useless_conversion
+            // flags `.map(|s| s.into())` on String elements). Same shape on both
+            // sides — no collect/map needed.
+            return format!("v.{name}");
+        }
+        (TypeRef::Char, _) => "|s| s.into()".to_string(),
         (TypeRef::Json, _) => "|j| serde_json::to_string(&j).unwrap_or_default()".to_string(),
         (TypeRef::Path, _) => "|p: std::path::PathBuf| p.to_string_lossy().into_owned()".to_string(),
         (TypeRef::Bytes, CoreWrapper::Arc | CoreWrapper::ArcMutex) => "|a| (*a).clone().into()".to_string(),
@@ -841,6 +849,13 @@ fn emit_from_mirror_to_core_struct(out: &mut String, ty: &TypeDef, source_crate_
         ty.rust_path.replace('-', "_")
     };
 
+    // When the core struct has cfg-gated fields stripped from the IR, the generated
+    // body ends with `..Default::default()` to fill them in. clippy flags this as
+    // `needless_update` even though the field list is otherwise complete from the
+    // mirror's perspective — silence it with an allow.
+    if ty.has_stripped_cfg_fields {
+        out.push_str("#[allow(clippy::needless_update)]\n");
+    }
     out.push_str(&crate::template_env::render(
         "rust_from_mirror_struct_open.jinja",
         minijinja::context! {
@@ -980,11 +995,26 @@ fn enum_variant_field_conv_to_core(binding: &str, field: &FieldDef) -> String {
                 format!("{binding}.into()")
             }
         }
-        TypeRef::String | TypeRef::Char => {
-            if field.optional {
-                format!("{binding}.map(Into::into)")
+        TypeRef::String => {
+            // String → String is identity unless the core side is Cow<str>.
+            if matches!(field.core_wrapper, CoreWrapper::Cow) {
+                if field.optional {
+                    format!("{binding}.map(Into::into)")
+                } else {
+                    format!("{binding}.into()")
+                }
+            } else if field.optional {
+                binding.to_string()
             } else {
-                format!("{binding}.into()")
+                binding.to_string()
+            }
+        }
+        TypeRef::Char => {
+            // Mirror has String; core has char.
+            if field.optional {
+                format!("{binding}.as_deref().and_then(|s| s.chars().next())")
+            } else {
+                format!("{binding}.chars().next().unwrap_or_default()")
             }
         }
         TypeRef::Path => {
@@ -998,6 +1028,7 @@ fn enum_variant_field_conv_to_core(binding: &str, field: &FieldDef) -> String {
         }
         TypeRef::Vec(inner) => match inner.as_ref() {
             TypeRef::Named(_) => format!("{binding}.into_iter().map(Into::into).collect()"),
+            TypeRef::String => binding.to_string(),
             _ => format!("{binding}.into_iter().map(|x| x as _).collect()"),
         },
         TypeRef::Primitive(_) => {
@@ -1023,10 +1054,17 @@ fn field_from_expr_to_core(field: &FieldDef, _source_crate_name: &str) -> String
     let name = &field.name;
     match &field.ty {
         TypeRef::String => {
-            if field.optional {
-                format!("v.{name}.map(Into::into)")
-            } else {
-                format!("v.{name}.into()")
+            // String → String is identity (clippy::useless_conversion). Only emit
+            // `.into()` when the core side is `Cow<'_, str>` (real conversion).
+            match field.core_wrapper {
+                CoreWrapper::Cow => {
+                    if field.optional {
+                        format!("v.{name}.map(Into::into)")
+                    } else {
+                        format!("v.{name}.into()")
+                    }
+                }
+                _ => format!("v.{name}"),
             }
         }
         TypeRef::Char => {
@@ -1145,6 +1183,14 @@ fn field_from_expr_to_core(field: &FieldDef, _source_crate_name: &str) -> String
                         format!("v.{name}.into_iter().map(|x| x as _).collect()")
                     }
                 }
+                TypeRef::String if !matches!(field.vec_inner_core_wrapper, CoreWrapper::Cow) => {
+                    // Vec<String> → Vec<String>: identity move (clippy::useless_conversion).
+                    if field.optional {
+                        format!("v.{name}")
+                    } else {
+                        format!("v.{name}")
+                    }
+                }
                 _ => {
                     if field.optional {
                         format!("v.{name}.map(|vec| vec.into_iter().map(Into::into).collect())")
@@ -1191,17 +1237,18 @@ fn field_from_expr_to_core(field: &FieldDef, _source_crate_name: &str) -> String
             }
         }
         TypeRef::Map(_, v_ty) => {
-            // HashMap: convert via iterator. Keys are always String→String.
+            // HashMap: convert via iterator. Keys are always String→String (identity).
             // Values may be primitives (use `as _` cast) or Named types (use Into).
             let val_conv = match v_ty.as_ref() {
                 TypeRef::Primitive(_) => "v as _",
+                TypeRef::String => "v",
                 TypeRef::Named(_) => "v.into()",
                 _ => "v.into()",
             };
             if field.optional {
-                format!("v.{name}.map(|m| m.into_iter().map(|(k, v)| (k.into(), {val_conv})).collect())")
+                format!("v.{name}.map(|m| m.into_iter().map(|(k, v)| (k, {val_conv})).collect())")
             } else {
-                format!("v.{name}.into_iter().map(|(k, v)| (k.into(), {val_conv})).collect()")
+                format!("v.{name}.into_iter().map(|(k, v)| (k, {val_conv})).collect()")
             }
         }
         TypeRef::Unit => "()".to_string(),
@@ -1222,11 +1269,19 @@ fn map_from_expr(name: &str, _k: &TypeRef, v_ty: &TypeRef, optional: bool) -> St
             // Cast to target primitive (i64 for integers, f64 for floats).
             "v as _"
         }
-        // String, Path, etc.: use Into.
+        TypeRef::String => {
+            // String → String is identity; emit the bare binding so
+            // clippy::useless_conversion doesn't fire on `v.into()`.
+            "v"
+        }
+        // Path, etc.: use Into.
         _ => "v.into()",
     };
 
-    let iter_expr = format!("into_iter().map(|(k, v)| (k.into(), {value_conv})).collect()");
+    // Key is always String→String; the `.into_iter().collect()` still does work
+    // (map type may change, e.g. BTreeMap → HashMap), but `k.into()` itself is
+    // identity. Emit `k` directly.
+    let iter_expr = format!("into_iter().map(|(k, v)| (k, {value_conv})).collect()");
 
     if optional {
         format!("v.{name}.map(|m| m.{iter_expr})")
@@ -1415,23 +1470,39 @@ fn enum_variant_field_conv(binding: &str, field: &FieldDef, source_crate_name: &
         }
         TypeRef::Vec(inner) => {
             let item_conv = match inner.as_ref() {
-                TypeRef::Named(inner_name) => format!("{inner_name}::from"),
-                TypeRef::Primitive(_) => "|x| x as _".to_string(),
-                _ => "|s| s.into()".to_string(),
+                TypeRef::Named(inner_name) => Some(format!("{inner_name}::from")),
+                TypeRef::Primitive(_) => Some("|x| x as _".to_string()),
+                // Vec<String> → Vec<String> is identity — emit no per-item map.
+                TypeRef::String => None,
+                _ => Some("|s| s.into()".to_string()),
             };
-            if field.optional {
-                format!("{binding}.map(|v| v.into_iter().map({item_conv}).collect()).unwrap_or_default()")
-            } else {
-                format!("{binding}.into_iter().map({item_conv}).collect()")
+            match (item_conv, field.optional) {
+                (None, true) => format!("{binding}.unwrap_or_default()"),
+                (None, false) => binding.to_string(),
+                (Some(conv), true) => {
+                    format!("{binding}.map(|v| v.into_iter().map({conv}).collect()).unwrap_or_default()")
+                }
+                (Some(conv), false) => format!("{binding}.into_iter().map({conv}).collect()"),
             }
         }
-        TypeRef::String | TypeRef::Char => {
+        TypeRef::String => {
             if field.optional {
                 // Core has Option<String>, mirror has String.
                 format!("{binding}.unwrap_or_default()")
-            } else {
-                // Core has String or Cow<str> → mirror String.
+            } else if matches!(field.core_wrapper, CoreWrapper::Cow) {
+                // Core has Cow<str> → mirror String (real conversion).
                 format!("{binding}.into()")
+            } else {
+                // Core has String → mirror String: identity move
+                // (clippy::useless_conversion flags `.into()` here).
+                binding.to_string()
+            }
+        }
+        TypeRef::Char => {
+            if field.optional {
+                format!("{binding}.map(|c| c.to_string()).unwrap_or_default()")
+            } else {
+                format!("{binding}.to_string()")
             }
         }
         TypeRef::Path => {

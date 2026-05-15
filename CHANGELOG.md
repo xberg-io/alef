@@ -43,6 +43,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `char`). Optional `char` keeps its existing `.map(...)` pattern but is
   now generated via `.to_string()` for parity (E0308).
 - **alef-e2e (swift)**: emit Swift-native syntax for streaming-virtual accessors (`stream_content`, `stream_complete`, `tool_calls`, `finish_reason`, `usage`, `chunks.length`). Previously fell through to a TypeScript default that produced uncompilable Swift (`(c: any) =>`, `.length`, `?.[0]?.`, `!= null`, `undefined`). The new arms use swift-bridge method-call chains (`.choices()`, `.delta()`, `.content()?.toString()`, `.finish_reason()`) and Swift collection idioms (`.isEmpty`, `.last!`, `.count`, `.joined()`).
+- **alef-backend-dart**: dropped redundant `.into()` on String/Vec<String>
+  field, enum-variant, and HashMap key/value conversions
+  (clippy::useless_conversion), gated `..Default::default()` struct-literal
+  fillers behind `#[allow(clippy::needless_update)]` when the core struct
+  has cfg-stripped fields, and replaced
+  `.map(|v| T::from(v))` with `.map(T::from)` on bridge-function return
+  wrappers (clippy::redundant_closure). The dart bridge crate now passes
+  `clippy -D warnings`.
 
 ## [0.16.0] - 2026-05-14
 
