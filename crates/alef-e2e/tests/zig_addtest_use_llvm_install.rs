@@ -13,17 +13,20 @@
 //! a unique `.name = "<test>_test"` per test (see `zig_addtest_name.rs`) was
 //! necessary to avoid cache collisions but not sufficient on aarch64-linux.
 //!
-//! The emitted `build.zig` must additionally:
+//! Zig 0.16+ also stopped copying test binaries into `zig-out/bin/` even when
+//! `addInstallArtifact` is invoked, so the earlier "install + run.dependOn
+//! (install)" workaround that materialised an absolute spawn path is no longer
+//! viable — every test now fails with `FileNotFound` against the would-be
+//! `zig-out/bin/<name>` path. The current fix is to:
+//!
 //!   1. Pin every `addTest` to `.use_llvm = true` so the LLVM backend is used
 //!      regardless of host arch (LLVM is already the default on x86_64).
-//!   2. Use `b.addInstallArtifact(<test>, .{})` to obtain the install step,
-//!      register it under the top-level install step via
-//!      `b.getInstallStep().dependOn(...)`, AND have the per-test run step
-//!      depend on the install step. The run-step dependency is the load-bearing
-//!      bit: it forces `Compile.installed_path` (an *absolute* `zig-out/bin/...`
-//!      path) to be populated before `Run.make` reads it, so the spawn argv
-//!      uses the absolute install path instead of the cwd-relative cache path
-//!      that breaks when `setCwd` is applied.
+//!   2. Run the binary directly via `addRunArtifact` against the cache path,
+//!      WITHOUT `addInstallArtifact` and WITHOUT `setCwd`. The generated
+//!      Zig tests reach the mock server purely through `MOCK_SERVER_*` env
+//!      vars and never read anything cwd-relative, so leaving cwd alone keeps
+//!      `convertPathArg` from re-resolving the cache-relative spawn path
+//!      against a different directory.
 
 use alef_core::config::NewAlefConfig;
 use alef_e2e::codegen::E2eCodegen;
@@ -132,7 +135,7 @@ fn every_add_test_block_sets_use_llvm_true() {
 }
 
 #[test]
-fn every_test_artifact_is_installed() {
+fn every_test_artifact_runs_via_addrunartifact_directly() {
     let groups = vec![
         FixtureGroup {
             category: "redirect".to_string(),
@@ -145,53 +148,50 @@ fn every_test_artifact_is_installed() {
     ];
     let content = render_build_zig(groups);
 
-    // Each test artifact must be installed via a named install step so the
-    // build system materialises the binary at an absolute `zig-out/bin/<name>`
-    // path before the run step executes.
+    // Zig 0.16+ no longer installs test binaries to `zig-out/bin/`, so the
+    // emitted build.zig must NOT use `addInstallArtifact` for test artifacts.
     assert!(
-        content.contains("const redirect_install = b.addInstallArtifact(redirect_tests, .{});"),
-        "redirect test artifact must be installed via addInstallArtifact:\n{content}"
+        !content.contains("addInstallArtifact"),
+        "build.zig must not call addInstallArtifact for test artifacts \
+         (Zig 0.16+ does not copy test binaries to zig-out/bin/):\n{content}"
     );
     assert!(
-        content.contains("const cookies_install = b.addInstallArtifact(cookies_tests, .{});"),
-        "cookies test artifact must be installed via addInstallArtifact:\n{content}"
-    );
-
-    // The install step must be registered under the top-level install step so
-    // `zig build install` materialises every test binary on disk.
-    assert!(
-        content.contains("b.getInstallStep().dependOn(&redirect_install.step);"),
-        "redirect install step must be wired into the top-level install step:\n{content}"
+        !content.contains("getInstallStep"),
+        "build.zig must not register test artifacts under getInstallStep:\n{content}"
     );
 
-    // The per-test run step MUST depend on the install step. Without this
-    // dependency `Compile.installed_path` is null at `Run.make` time and the
-    // spawn falls back to the cwd-relative cache path that breaks under
-    // `setCwd` on Zig 0.16's self-hosted aarch64-linux backend.
+    // Tests reach the mock server via MOCK_SERVER_* env vars and never read
+    // workspace-relative files, so `setCwd` is unnecessary and re-introduces
+    // the `convertPathArg` re-resolution that triggers FileNotFound on
+    // Zig 0.16+ Linux backends.
     assert!(
-        content.contains("redirect_run.step.dependOn(&redirect_install.step);"),
-        "redirect run step must depend on its install step:\n{content}"
-    );
-    assert!(
-        content.contains("cookies_run.step.dependOn(&cookies_install.step);"),
-        "cookies run step must depend on its install step:\n{content}"
+        !content.contains("setCwd"),
+        "build.zig must not call setCwd on test run steps:\n{content}"
     );
 
-    // Order: addTest -> addInstallArtifact -> addRunArtifact -> run.dependOn(install).
+    // Each test must still be wired up: addTest -> addRunArtifact ->
+    // test_step.dependOn(<run>.step).
+    assert!(
+        content.contains("const redirect_run = b.addRunArtifact(redirect_tests);"),
+        "redirect run step must be created via addRunArtifact:\n{content}"
+    );
+    assert!(
+        content.contains("test_step.dependOn(&redirect_run.step);"),
+        "redirect run step must be wired into the test_step:\n{content}"
+    );
+
+    // Order: addTest -> addRunArtifact -> test_step.dependOn(run).
     let add_test_pos = content
         .find("const redirect_tests = b.addTest(")
         .expect("redirect addTest present");
-    let install_pos = content
-        .find("const redirect_install = b.addInstallArtifact(redirect_tests, .{});")
-        .expect("redirect install present");
     let run_pos = content
-        .find("const redirect_run = b.addRunArtifact(redirect_tests)")
+        .find("const redirect_run = b.addRunArtifact(redirect_tests);")
         .expect("redirect run present");
     let depend_pos = content
-        .find("redirect_run.step.dependOn(&redirect_install.step);")
-        .expect("redirect run->install dependency present");
+        .find("test_step.dependOn(&redirect_run.step);")
+        .expect("redirect test_step dependency present");
     assert!(
-        add_test_pos < install_pos && install_pos < run_pos && run_pos < depend_pos,
-        "expected addTest -> addInstallArtifact -> addRunArtifact -> run.dependOn(install) order:\n{content}"
+        add_test_pos < run_pos && run_pos < depend_pos,
+        "expected addTest -> addRunArtifact -> test_step.dependOn(run) order:\n{content}"
     );
 }

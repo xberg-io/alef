@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.16.6 - Unreleased]
 
+### Fixed
+
+- **zig e2e codegen**: emit `build.zig` that runs tests via `addRunArtifact`
+  directly (Zig 0.16+ no longer installs test binaries to `zig-out/bin/`).
+  The previous `addInstallArtifact` + `run.dependOn(install)` workaround
+  produced `FileNotFound` at spawn time against the would-be install path on
+  Zig 0.16+ Linux backends. `setCwd("../../test_documents")` is also dropped
+  — the generated tests reach the mock server purely through `MOCK_SERVER_*`
+  env vars and never read anything cwd-relative, so leaving cwd alone keeps
+  `convertPathArg` from re-resolving the cache spawn path.
+  (`crates/alef-e2e/src/codegen/zig.rs`)
+
 ### Added
 
 - **alef-backend-jni**: new first-class backend crate that emits the Rust JNI

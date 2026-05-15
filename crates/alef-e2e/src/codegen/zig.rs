@@ -131,7 +131,6 @@ impl E2eCodegen for ZigE2eCodegen {
                     &module_name,
                     &config.ffi_lib_name(),
                     &config.ffi_crate_path(),
-                    &e2e_config.test_documents_relative_from(0),
                 ),
                 generated_header: false,
             },
@@ -211,7 +210,6 @@ fn render_build_zig(
     module_name: &str,
     ffi_lib_name: &str,
     ffi_crate_path: &str,
-    test_documents_path: &str,
 ) -> String {
     if test_filenames.is_empty() {
         return r#"const std = @import("std");
@@ -312,38 +310,18 @@ pub fn build(b: *std.Build) void {
         content.push_str(&format!("        .root_module = {test_name}_module,\n"));
         content.push_str("        .use_llvm = true,\n");
         content.push_str("    });\n");
-        // Install the test artifact and make the run step depend on the
-        // install step so that `Compile.installed_path` is populated by the
-        // time `Run.make` runs. `Run.make` reads
-        // `artifact.installed_path orelse artifact.generated_bin.?.path.?`
-        // — the installed path is the *absolute* `zig-out/bin/<name>` location
-        // (built from `b.build_root` + `zig-out`), which bypasses the cwd
-        // -relative path recomputation in `convertPathArg`.
-        //
-        // Without this dependency the run step falls back to `generated_bin`,
-        // a cache-relative path like `.zig-cache/o/<hash>/<name>`. When
-        // `setCwd` points the child at a different directory (e.g.
-        // `../../test_documents`), `convertPathArg` re-resolves that cache
-        // path relative to the new cwd. On Zig 0.16's self-hosted backend
-        // (default on aarch64-linux Debug builds) the hashed cache path the
-        // build system computes ahead of time disagrees with the path the
-        // backend actually emits to, producing `FileNotFound` at spawn time.
-        // Using the installed (absolute) path avoids the recomputation
-        // entirely.
-        content.push_str(&format!(
-            "    const {test_name}_install = b.addInstallArtifact({test_name}_tests, .{{}});\n"
-        ));
-        content.push_str(&format!(
-            "    b.getInstallStep().dependOn(&{test_name}_install.step);\n"
-        ));
+        // Run the test binary directly via `addRunArtifact`. Zig 0.16+ stopped
+        // copying test binaries into `zig-out/bin/` even when `addInstallArtifact`
+        // is invoked, so the prior workaround (install + run.dependOn(install)
+        // to get an absolute `zig-out/bin/<name>` spawn path) now produces
+        // `FileNotFound` at spawn time. `addRunArtifact` uses the cache-relative
+        // emitted-binary path, which Zig 0.16 resolves correctly as long as the
+        // run step does not change cwd. The generated tests reach the mock
+        // server purely through `MOCK_SERVER_URL` env vars and do not read
+        // anything from the workspace `test_documents/` directory, so dropping
+        // `setCwd` is safe and avoids the `convertPathArg` re-resolution bug.
         content.push_str(&format!(
             "    const {test_name}_run = b.addRunArtifact({test_name}_tests);\n"
-        ));
-        content.push_str(&format!(
-            "    {test_name}_run.step.dependOn(&{test_name}_install.step);\n"
-        ));
-        content.push_str(&format!(
-            "    {test_name}_run.setCwd(b.path(\"{test_documents_path}\"));\n"
         ));
         content.push_str(&format!("    test_step.dependOn(&{test_name}_run.step);\n\n"));
     }
