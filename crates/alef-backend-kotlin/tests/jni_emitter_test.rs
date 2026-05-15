@@ -455,7 +455,13 @@ fn snapshot_jni_bridge_object_full_surface() {
 
     let bridge_file = files
         .iter()
-        .find(|f| f.path.file_name().and_then(|n| n.to_str()).map(|n| n.ends_with("Bridge.kt")).unwrap_or(false))
+        .find(|f| {
+            f.path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| n.ends_with("Bridge.kt"))
+                .unwrap_or(false)
+        })
         .expect("DemoBridge.kt must be emitted");
 
     let content = &bridge_file.content;
@@ -481,7 +487,13 @@ fn snapshot_jni_default_client_chat_complete() {
 
     let client_file = files
         .iter()
-        .find(|f| f.path.file_name().and_then(|n| n.to_str()).map(|n| n == "DefaultClient.kt").unwrap_or(false))
+        .find(|f| {
+            f.path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| n == "DefaultClient.kt")
+                .unwrap_or(false)
+        })
         .expect("DefaultClient.kt must be emitted");
 
     let content = &client_file.content;
@@ -567,7 +579,13 @@ fn snapshot_jni_byte_array_return() {
 
     let bridge_file = files
         .iter()
-        .find(|f| f.path.file_name().and_then(|n| n.to_str()).map(|n| n.ends_with("Bridge.kt")).unwrap_or(false))
+        .find(|f| {
+            f.path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| n.ends_with("Bridge.kt"))
+                .unwrap_or(false)
+        })
         .expect("DemoBridge.kt must be emitted");
     let bridge_content = &bridge_file.content;
     assert!(
@@ -577,7 +595,13 @@ fn snapshot_jni_byte_array_return() {
 
     let client_file = files
         .iter()
-        .find(|f| f.path.file_name().and_then(|n| n.to_str()).map(|n| n == "DefaultClient.kt").unwrap_or(false))
+        .find(|f| {
+            f.path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| n == "DefaultClient.kt")
+                .unwrap_or(false)
+        })
         .expect("DefaultClient.kt must be emitted");
     let client_content = &client_file.content;
     assert!(
@@ -651,7 +675,13 @@ fn snapshot_jni_unit_return() {
 
     let bridge_file = files
         .iter()
-        .find(|f| f.path.file_name().and_then(|n| n.to_str()).map(|n| n.ends_with("Bridge.kt")).unwrap_or(false))
+        .find(|f| {
+            f.path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| n.ends_with("Bridge.kt"))
+                .unwrap_or(false)
+        })
         .expect("DemoBridge.kt must be emitted");
     let bridge_content = &bridge_file.content;
     // Unit return: no `: Unit` or `: <Type>` after the param list.
@@ -666,7 +696,13 @@ fn snapshot_jni_unit_return() {
 
     let client_file = files
         .iter()
-        .find(|f| f.path.file_name().and_then(|n| n.to_str()).map(|n| n == "DefaultClient.kt").unwrap_or(false))
+        .find(|f| {
+            f.path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| n == "DefaultClient.kt")
+                .unwrap_or(false)
+        })
         .expect("DefaultClient.kt must be emitted");
     let client_content = &client_file.content;
     assert!(

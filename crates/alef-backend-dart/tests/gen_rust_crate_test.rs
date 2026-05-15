@@ -1230,3 +1230,84 @@ stub_methods = ["process_bytes_batch"]
     assert!(lib.contains("pub fn greet"), "non-stub fn must still be emitted: {lib}");
     assert!(lib.contains("demo::greet("), "non-stub fn must call core fn: {lib}");
 }
+
+/// Opaque method param: `Named` with `is_ref = true` must borrow the converted value
+/// so the core method signature `fn process(&self, config: &ProcessConfig)` is satisfied.
+#[test]
+fn opaque_method_named_param_with_is_ref_passes_by_reference() {
+    let mut config_param = make_param("config", TypeRef::Named("ProcessConfig".to_string()));
+    config_param.is_ref = true;
+
+    let mut process = make_method(
+        "process",
+        vec![config_param],
+        TypeRef::Named("ProcessResult".to_string()),
+        false,
+    );
+    process.error_type = Some("Error".to_string());
+
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![
+            make_type("ProcessConfig", vec![make_field("language", TypeRef::String, false)]),
+            make_type("ProcessResult", vec![make_field("output", TypeRef::String, false)]),
+            make_opaque_type("LanguageRegistry", vec![process]),
+        ],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
+    let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
+
+    // The generated call must borrow the converted config (transmute via &ref, not by value).
+    // ProcessConfig has no sanitized fields, so the transmute path is taken.
+    assert!(
+        lib.contains("transmute::<&ProcessConfig, &demo_crate::ProcessConfig>(&config)"),
+        "is_ref Named param must be passed by reference (transmute &ref) to the core call: {lib}"
+    );
+    // Must not pass the owned value directly when is_ref is set.
+    assert!(
+        !lib.contains("transmute::<ProcessConfig, demo_crate::ProcessConfig>(config)"),
+        "is_ref Named param must NOT be passed by owned transmute: {lib}"
+    );
+}
+
+/// Opaque method param: `Vec<String>` with `is_ref = true` must be bridged to `&[&str]`
+/// (collect to `Vec<&str>` then auto-coerce at the call site).
+#[test]
+fn opaque_method_vec_string_param_with_is_ref_bridges_to_str_slice() {
+    let mut names_param = make_param("names", TypeRef::Vec(Box::new(TypeRef::String)));
+    names_param.is_ref = true;
+
+    let ensure = make_method("ensure_languages", vec![names_param], TypeRef::Unit, false);
+    let mut ensure_with_error = ensure;
+    ensure_with_error.error_type = Some("Error".to_string());
+
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![make_opaque_type("DownloadManager", vec![ensure_with_error])],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
+    let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
+
+    // Vec<String> must be converted to an iterator of &str slices for the core call.
+    assert!(
+        lib.contains("names.iter().map(|s| s.as_str()).collect::<Vec<_>>()"),
+        "is_ref Vec<String> param must be bridged to &[&str] via iter().map(as_str).collect: {lib}"
+    );
+    // Must not pass the raw Vec<String> directly.
+    assert!(
+        !lib.contains("ensure_languages(names)"),
+        "is_ref Vec<String> param must not be passed as raw Vec<String>: {lib}"
+    );
+}

@@ -1287,6 +1287,90 @@ type = "ChatCompletionRequest"
 
 /// When no adapters are configured (or none with pattern = streaming), no
 /// extra extern blocks or shims must be emitted.
+/// Methods with `ReceiverKind::RefMut` on an opaque type must emit `client: &mut TypeName`
+/// in both the `extern "Rust"` block declaration and the Rust free-function shim,
+/// so that `client.0.method()` can borrow the inner value mutably.
+#[test]
+fn opaque_type_refmut_method_emits_mut_receiver_in_extern_and_shim() {
+    let set_language_method = MethodDef {
+        name: "set_language".to_string(),
+        params: vec![ParamDef {
+            name: "name".to_string(),
+            ty: TypeRef::String,
+            optional: false,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: true,
+            is_mut: false,
+            newtype_wrapper: None,
+            original_type: None,
+        }],
+        return_type: TypeRef::Unit,
+        is_async: false,
+        is_static: false,
+        error_type: Some("Error".to_string()),
+        doc: String::new(),
+        receiver: Some(ReceiverKind::RefMut),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    };
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![TypeDef {
+            name: "Parser".to_string(),
+            rust_path: "demo::Parser".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![set_language_method],
+            is_opaque: true,
+            is_clone: false,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
+    let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+    // The extern "Rust" block must declare the method with &mut receiver.
+    assert!(
+        lib.content.contains("client: &mut Parser"),
+        "extern block and shim must use &mut Parser for RefMut method; got:\n{}",
+        lib.content
+    );
+    // The pub fn shim must also take &mut.
+    assert!(
+        lib.content.contains("pub fn parser_set_language(client: &mut Parser"),
+        "shim must declare `client: &mut Parser` for RefMut receiver; got:\n{}",
+        lib.content
+    );
+    // Must NOT use an immutable reference for the RefMut method.
+    assert!(
+        !lib.content.contains("pub fn parser_set_language(client: &Parser"),
+        "shim must not use immutable &Parser for a RefMut receiver; got:\n{}",
+        lib.content
+    );
+}
+
 #[test]
 fn no_streaming_adapters_emits_no_extra_blocks() {
     let api = ApiSurface {

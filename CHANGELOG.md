@@ -35,7 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the parent struct's `impl Default` already specified a concrete variant —
   e.g. kreuzberg's `ExtractionConfig.new` (Ruby) required `output_format:` on
   every construction despite `#[serde(default)] pub output_format: OutputFormat`
-  on the Rust side. Magnus-wrapped *struct* fields (which never implement
+  on the Rust side. Magnus-wrapped _struct_ fields (which never implement
   `Default`) keep their required-kwarg behaviour. (`crates/alef-codegen/src/config_gen.rs`)
 
 

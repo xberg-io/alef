@@ -2,7 +2,7 @@
 //! `CallOverride.client_factory` is set, and falls back to free-function calls
 //! when it is absent (kreuzberg flat-function style unchanged).
 //!
-//! Also verifies that `render_package_swift` always emits `.iOS(.v14)` alongside
+//! Also verifies that `render_package_swift` always emits `.iOS(...)` alongside
 //! `.macOS(...)`, regardless of `client_factory` presence.
 
 use alef_core::config::NewAlefConfig;
@@ -162,8 +162,10 @@ options_via = "from_json"
     );
 }
 
-/// Package.swift must always include both `.macOS(...)` and `.iOS(.v14)` platforms,
-/// regardless of whether `client_factory` is configured.
+/// Package.swift must always include both `.macOS(...)` and `.iOS(...)` platforms,
+/// regardless of whether `client_factory` is configured. The iOS minimum tracks
+/// `toolchain::SWIFT_MIN_IOS` so the e2e consumer's deployment target is >= the
+/// dep's deployment target (SwiftPM hides products otherwise).
 #[test]
 fn package_swift_always_includes_ios_platform() {
     // Without client_factory (but with options_via so the test body isn't a skip stub)
@@ -180,8 +182,8 @@ options_via = "from_json"
         "Package.swift must include macOS platform. Content:\n{pkg_no_cf}"
     );
     assert!(
-        pkg_no_cf.contains(".iOS(.v14)"),
-        "Package.swift must include .iOS(.v14). Content:\n{pkg_no_cf}"
+        pkg_no_cf.contains(".iOS(.v"),
+        "Package.swift must include .iOS platform. Content:\n{pkg_no_cf}"
     );
 
     // With client_factory
@@ -195,7 +197,7 @@ options_via = "from_json"
     let files_cf = render_swift(&toml_cf, "smoke_basic");
     let pkg_cf = package_swift_content(&files_cf);
     assert!(
-        pkg_cf.contains(".iOS(.v14)"),
-        "Package.swift must include .iOS(.v14) also when client_factory is set. Content:\n{pkg_cf}"
+        pkg_cf.contains(".iOS(.v"),
+        "Package.swift must include .iOS platform also when client_factory is set. Content:\n{pkg_cf}"
     );
 }
