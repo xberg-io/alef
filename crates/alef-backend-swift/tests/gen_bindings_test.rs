@@ -982,3 +982,175 @@ fn swift_backend_reports_supports_streaming_true() {
         "SwiftBackend must report supports_streaming = true now that AsyncThrowingStream is implemented"
     );
 }
+
+// ── Defect 1: StreamHandle @unchecked Sendable ───────────────────────────────
+
+/// Each streaming adapter's `{Owner}{Adapter}StreamHandle` must have an
+/// `extension RustBridge.XStreamHandle: @unchecked Sendable {}` emitted in the
+/// generated Swift file.
+///
+/// Swift 6 strict-concurrency rejects passing non-Sendable types across
+/// `Task.detached` boundaries.  The Rust side wraps `Mutex<stream>` and a
+/// `tokio::runtime::Runtime` — both thread-safe — so `@unchecked Sendable` is
+/// the correct annotation.
+#[test]
+fn streaming_handle_emits_unchecked_sendable_extension() {
+    let api = make_streaming_api();
+    let config = make_streaming_config();
+    let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
+    let swift = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with(".swift"))
+        .unwrap();
+
+    assert!(
+        swift
+            .content
+            .contains("extension RustBridge.DefaultClientChatStreamStreamHandle: @unchecked Sendable {}"),
+        "generated Swift must declare @unchecked Sendable for the StreamHandle so Swift 6 \
+         strict-concurrency allows passing it across Task.detached boundaries; got:\n{}",
+        swift.content
+    );
+}
+
+// ── Defect 2: streaming chunk type emits as Codable struct ───────────────────
+
+/// When the streaming adapter's `item_type` appears in `api.types` with
+/// `has_serde: true` and populated fields, the Swift backend must emit a native
+/// `public struct X: Codable { … }` instead of an opaque typealias.
+///
+/// The streaming wrapper calls `JSONDecoder().decode(X.self, from: data)`, which
+/// requires `X: Decodable`.  An `RustBridge.X` typealias (swift-bridge opaque
+/// class) does not satisfy that requirement.
+#[test]
+fn streaming_chunk_type_with_serde_and_fields_emits_codable_struct() {
+    use alef_core::ir::{MethodDef, ReceiverKind};
+
+    // Build an API surface with:
+    // - DefaultClient (opaque, has_serde: false) — the streaming owner
+    // - ChatCompletionChunk (non-opaque, has_serde: true, with fields) — the item type
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![
+            TypeDef {
+                name: "DefaultClient".to_string(),
+                rust_path: "demo_crate::DefaultClient".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![MethodDef {
+                    name: "ping".to_string(),
+                    params: vec![],
+                    return_type: TypeRef::String,
+                    is_async: false,
+                    is_static: false,
+                    error_type: None,
+                    doc: String::new(),
+                    sanitized: false,
+                    returns_ref: false,
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    receiver: Some(ReceiverKind::Ref),
+                    trait_source: None,
+                    has_default_impl: false,
+                }],
+                is_opaque: true,
+                is_clone: false,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+            },
+            TypeDef {
+                name: "ChatCompletionChunk".to_string(),
+                rust_path: "demo_crate::ChatCompletionChunk".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![
+                    make_field("id", TypeRef::String, false),
+                    make_field("content", TypeRef::Optional(Box::new(TypeRef::String)), true),
+                ],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: true,
+                serde_rename_all: None,
+                // has_serde: true — the type derives Serialize + Deserialize
+                has_serde: true,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+            },
+        ],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let toml = r#"
+[workspace]
+languages = ["swift"]
+
+[[crates]]
+name = "demo-crate"
+sources = ["src/lib.rs"]
+
+[[crates.adapters]]
+name = "chat_stream"
+pattern = "streaming"
+core_path = "demo_crate::chat_stream"
+owner_type = "DefaultClient"
+item_type = "ChatCompletionChunk"
+error_type = "DemoError"
+
+[[crates.adapters.params]]
+name = "req"
+type = "demo_crate::ChatCompletionRequest"
+
+[crates.swift]
+client_constructor_body.DefaultClient = "Self { inner: ::demo_crate::DefaultClient::new(api_key, base_url) }"
+"#;
+    let cfg: NewAlefConfig = toml::from_str(toml).expect("test config must parse");
+    let config = cfg.resolve().expect("test config must resolve").remove(0);
+    let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
+    let swift = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with(".swift"))
+        .unwrap();
+
+    // Must emit a native Codable struct — NOT a typealias to RustBridge.ChatCompletionChunk.
+    assert!(
+        swift.content.contains("public struct ChatCompletionChunk: Codable"),
+        "streaming item type with has_serde: true + fields must emit as Codable struct; got:\n{}",
+        swift.content
+    );
+    // The typealias must NOT be emitted — it would shadow the Codable struct and break decoding.
+    assert!(
+        !swift
+            .content
+            .contains("typealias ChatCompletionChunk = RustBridge.ChatCompletionChunk"),
+        "streaming item type with has_serde: true + fields must NOT emit as typealias; got:\n{}",
+        swift.content
+    );
+    // Fields must be present.
+    assert!(
+        swift.content.contains("public var id: String"),
+        "Codable struct must include non-optional fields; got:\n{}",
+        swift.content
+    );
+    assert!(
+        swift.content.contains("public var content: String?"),
+        "Codable struct must include optional fields with ? suffix; got:\n{}",
+        swift.content
+    );
+}

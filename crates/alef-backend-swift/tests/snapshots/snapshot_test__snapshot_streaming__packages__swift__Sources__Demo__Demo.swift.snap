@@ -43,3 +43,9 @@ public final class DefaultClient {
         }
     }
 }
+
+// MARK: - Sendable conformance for DefaultClientChatStreamStreamHandle
+// swift-bridge opaque types are not automatically Sendable.  The Rust
+// side uses Mutex<stream> + tokio Runtime — both Send + Sync — so
+// @unchecked is correct: thread-safety is enforced by Rust.
+extension RustBridge.DefaultClientChatStreamStreamHandle: @unchecked Sendable {}

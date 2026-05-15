@@ -1,8 +1,8 @@
 use alef_codegen::keywords::swift_ident;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile, PostBuildStep};
-use alef_core::config::{AdapterPattern, Language, ResolvedCrateConfig, resolve_output_dir};
-use alef_core::ir::{ApiSurface, EnumDef, EnumVariant, ErrorDef, FunctionDef, MethodDef, ParamDef, TypeRef};
+use alef_core::config::{AdapterConfig, AdapterPattern, Language, ResolvedCrateConfig, resolve_output_dir};
+use alef_core::ir::{ApiSurface, EnumDef, EnumVariant, ErrorDef, FunctionDef, MethodDef, ParamDef, TypeDef, TypeRef};
 use heck::ToLowerCamelCase;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -57,17 +57,35 @@ impl Backend for SwiftBackend {
 
         let mut body = String::new();
 
+        // Collect the set of type names that are `item_type` for streaming adapters.
+        // These types are used with `JSONDecoder().decode(X.self, …)` in the generated
+        // Swift streaming wrapper, so they must conform to `Decodable`.  When such a
+        // type appears in `api.types` with `has_serde: true` (serde derives present),
+        // we emit a native Codable Swift struct instead of an opaque typealias.
+        let streaming_item_types: std::collections::HashSet<&str> = config
+            .adapters
+            .iter()
+            .filter(|a| matches!(a.pattern, AdapterPattern::Streaming))
+            .filter_map(|a| a.item_type.as_deref())
+            .collect();
+
         // Emit typealiases for all struct types exposed by swift-bridge.
         // swift-bridge exposes types that are declared in the extern "Rust" block,
         // so we generate typealiases for all non-excluded types to provide a
         // stable Swift API that references RustBridge types.
         // Skip opaque handle types with methods — those get a full class wrapper below
         // instead of a typealias.
+        // Skip streaming item types that have `has_serde: true` with fields — those are
+        // emitted as native Codable structs below so `JSONDecoder` can decode them.
         for ty in api
             .types
             .iter()
             .filter(|t| !t.is_trait && !exclude_types.contains(t.name.as_str()))
             .filter(|t| t.methods.is_empty() || !t.is_opaque && t.has_serde)
+            .filter(|t| {
+                // Streaming item types with serde + fields are emitted as Codable structs.
+                !(streaming_item_types.contains(t.name.as_str()) && t.has_serde && !t.fields.is_empty())
+            })
         {
             emit_doc_comment(&ty.doc, "", &mut body);
             body.push_str(&crate::template_env::render(
@@ -76,6 +94,21 @@ impl Backend for SwiftBackend {
                     name => &ty.name,
                 },
             ));
+            body.push('\n');
+        }
+
+        // Emit native Codable Swift structs for streaming item types that carry serde
+        // derives and have their fields populated in the IR.  The streaming wrapper calls
+        // `JSONDecoder().decode(X.self, …)`, which requires `X: Decodable`; an opaque
+        // `RustBridge.X` typealias does not satisfy that requirement.
+        for ty in api
+            .types
+            .iter()
+            .filter(|t| !t.is_trait && !exclude_types.contains(t.name.as_str()))
+            .filter(|t| streaming_item_types.contains(t.name.as_str()) && t.has_serde && !t.fields.is_empty())
+        {
+            emit_doc_comment(&ty.doc, "", &mut body);
+            emit_codable_struct(ty, &mapper, &mut body);
             body.push('\n');
         }
 
@@ -115,6 +148,19 @@ impl Backend for SwiftBackend {
         }) {
             emit_client_class(ty.name.as_str(), &ty.methods, &mapper, config, &mut body);
             body.push('\n');
+            // Emit `@unchecked Sendable` conformance for every StreamHandle owned by this
+            // client type.  swift-bridge emits opaque types as plain Swift classes without
+            // `Sendable`; Swift 6 strict-concurrency rejects passing them across
+            // `Task.detached` boundaries.  The Rust side wraps a Mutex<stream> and a
+            // tokio Runtime — both thread-safe — so `@unchecked` is correct.
+            for adapter in config
+                .adapters
+                .iter()
+                .filter(|a| matches!(a.pattern, AdapterPattern::Streaming))
+                .filter(|a| a.owner_type.as_deref() == Some(ty.name.as_str()))
+            {
+                emit_stream_handle_sendable(adapter, ty.name.as_str(), &mut body);
+            }
         }
 
         // Emit lightweight convenience overloads for functions whose first parameter
@@ -493,7 +539,7 @@ fn emit_client_class(
 /// - Empty-string response from `next()` finishes the stream cleanly.
 /// - `continuation.onTermination` cancels the drain task so the handle's `deinit`
 ///   runs promptly when a Swift consumer early-breaks out of the for-await loop.
-fn emit_streaming_client_method(adapter: &alef_core::config::AdapterConfig, owner_snake: &str, out: &mut String) {
+fn emit_streaming_client_method(adapter: &AdapterConfig, owner_snake: &str, out: &mut String) {
     let method_camel = swift_ident(&adapter.name.to_lower_camel_case());
     let start_fn_snake = format!("{owner_snake}_{}_start", adapter.name);
     let start_fn_camel = swift_ident(&start_fn_snake.to_lower_camel_case());
@@ -567,6 +613,58 @@ fn emit_streaming_client_method(adapter: &alef_core::config::AdapterConfig, owne
     out.push_str("            continuation.onTermination = { _ in task.cancel() }\n");
     out.push_str("        }\n");
     out.push_str("    }\n");
+}
+
+/// Emit an `extension RustBridge.{Owner}{Adapter}StreamHandle: @unchecked Sendable {}`
+/// declaration for the given streaming adapter.
+///
+/// swift-bridge generates opaque Swift classes without `Sendable` conformance.
+/// The generated streaming wrapper passes the handle across `Task.detached` boundaries,
+/// which Swift 6 strict-concurrency rejects unless the type is `Sendable`.  The Rust
+/// implementation wraps a `Mutex<stream>` and a `tokio::runtime::Runtime` — both
+/// thread-safe — so `@unchecked Sendable` is the correct annotation: Rust enforces the
+/// invariant, Swift just cannot see it.
+///
+/// The extension must reference the `RustBridge.` prefix because the handle type lives
+/// in the swift-bridge–generated `RustBridge` module, not in this module.
+fn emit_stream_handle_sendable(adapter: &AdapterConfig, owner_type: &str, out: &mut String) {
+    use heck::ToPascalCase;
+    let owner_pascal = owner_type.to_pascal_case();
+    let adapter_pascal = adapter.name.to_pascal_case();
+    let handle_name = format!("{owner_pascal}{adapter_pascal}StreamHandle");
+    out.push_str(&format!("// MARK: - Sendable conformance for {handle_name}\n"));
+    out.push_str("// swift-bridge opaque types are not automatically Sendable.  The Rust\n");
+    out.push_str("// side uses Mutex<stream> + tokio Runtime — both Send + Sync — so\n");
+    out.push_str("// @unchecked is correct: thread-safety is enforced by Rust.\n");
+    out.push_str(&format!(
+        "extension RustBridge.{handle_name}: @unchecked Sendable {{}}\n"
+    ));
+}
+
+/// Emit a native `public struct X: Codable { … }` for a streaming item type.
+///
+/// Streaming adapter wrappers call `JSONDecoder().decode(X.self, from: data)`.
+/// When `X` is only a `typealias` to an opaque swift-bridge class, `Decodable`
+/// is not satisfied and the generated code fails to compile.  Types that carry
+/// serde derives (`has_serde: true`) and have their fields populated in the IR
+/// can be emitted as native Swift `Codable` structs instead of typealiases.
+///
+/// Field names are converted to camelCase (Swift convention).  Optional fields
+/// use the Swift `?` suffix.  The struct's `CodingKeys` are elided — Swift's
+/// synthesised `Codable` conformance uses property names by default.
+fn emit_codable_struct(ty: &TypeDef, mapper: &SwiftMapper, out: &mut String) {
+    use heck::ToLowerCamelCase;
+    out.push_str(&format!("public struct {}: Codable {{\n", ty.name));
+    for field in &ty.fields {
+        if field.sanitized {
+            continue;
+        }
+        let swift_name = swift_ident(&field.name.to_lower_camel_case());
+        let base_ty = mapper.map_type(&field.ty);
+        let ty_str = if field.optional { format!("{base_ty}?") } else { base_ty };
+        out.push_str(&format!("    public var {swift_name}: {ty_str}\n"));
+    }
+    out.push_str("}\n");
 }
 
 /// Emits `/// <line>` doc-comment lines with the given indent prefix.
