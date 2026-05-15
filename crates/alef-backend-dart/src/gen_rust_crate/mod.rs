@@ -93,6 +93,12 @@ fn emit_lib_rs(
     content.push_str("    clippy::too_many_arguments,\n");
     content.push_str("    clippy::unit_arg,\n");
     content.push_str("    clippy::type_complexity,\n");
+    // `From<Box<str>> for String` and `From<String> for Box<str>` are needed when
+    // core uses `HashMap<Box<str>, _>` and the mirror uses `HashMap<String, _>` (or
+    // vice versa). When both sides are plain `String`, the emitted `(k.into(),
+    // v.into())` collapses to identity — silenced here so the same codegen path
+    // works for both wrapped and unwrapped string keys/values.
+    content.push_str("    clippy::useless_conversion,\n");
     content.push_str(")]\n");
     // Declare frb_generated after the crate-level attrs so FRB doesn't inject it at line 1.
     content.push_str("mod frb_generated;\n");
@@ -618,20 +624,16 @@ fn field_from_expr(field: &FieldDef, source_crate_name: &str) -> String {
             }
         }
         TypeRef::String => {
-            // Core may have Cow<'_, str>; mirror has String. `.into()` handles both.
-            match field.core_wrapper {
-                CoreWrapper::Cow => {
-                    if field.optional {
-                        format!("v.{name}.map(|s| s.into())")
-                    } else {
-                        format!("v.{name}.into()")
-                    }
-                }
-                _ => {
-                    // String → String: direct move (into() is identity for String,
-                    // clippy::useless_conversion flags `.map(|s| s.into())`).
-                    format!("v.{name}")
-                }
+            // The IR collapses `Cow<'_, str>` / `Box<str>` / `Arc<str>` into
+            // `TypeRef::String` and only `Cow` is tracked on `core_wrapper`. Emit
+            // `.into()` unconditionally so wrapped-string core fields convert
+            // correctly (e.g. `Box<str> → String`); the crate-level
+            // `#[allow(clippy::useless_conversion)]` absorbs the `String → String`
+            // no-op case.
+            if field.optional {
+                format!("v.{name}.map(|s| s.into())")
+            } else {
+                format!("v.{name}.into()")
             }
         }
         TypeRef::Char => {
@@ -713,8 +715,10 @@ fn field_from_expr(field: &FieldDef, source_crate_name: &str) -> String {
                     format!("v.{name}{flatten}.map({inner_name}::from)")
                 }
                 TypeRef::String => {
-                    // String → String: identity (clippy::useless_conversion).
-                    format!("v.{name}{flatten}")
+                    // The IR loses `Box<str>` / `Cow<'_, str>` / `Arc<str>` wrappers,
+                    // so emit `.into()` to bridge them; absorbed by the crate-level
+                    // `#[allow(clippy::useless_conversion)]` for plain `String`.
+                    format!("v.{name}{flatten}.map(|s| s.into())")
                 }
                 TypeRef::Char => {
                     format!("v.{name}{flatten}.map(|s| s.into())")
@@ -777,12 +781,13 @@ fn vec_inner_from_expr(
         (TypeRef::Named(inner_name), _) => {
             format!("{inner_name}::from")
         }
-        (TypeRef::String, CoreWrapper::Cow) => "|s| s.into()".to_string(),
         (TypeRef::String, _) => {
-            // Vec<String> → Vec<String>: identity move (clippy::useless_conversion
-            // flags `.map(|s| s.into())` on String elements). Same shape on both
-            // sides — no collect/map needed.
-            return format!("v.{name}");
+            // The IR collapses wrapped string types (`Box<str>`, `Cow<'_, str>`,
+            // `Arc<str>`) into `TypeRef::String`, and `CoreWrapper` only tracks `Cow`.
+            // Emit `.into()` unconditionally so `Vec<Box<str>>` → `Vec<String>` (and
+            // friends) compile — the crate-level `#[allow(clippy::useless_conversion)]`
+            // absorbs the `Vec<String> → Vec<String>` no-op case.
+            "|s| s.into()".to_string()
         }
         (TypeRef::Char, _) => "|s| s.into()".to_string(),
         (TypeRef::Json, _) => "|j| serde_json::to_string(&j).unwrap_or_default()".to_string(),
@@ -1052,17 +1057,16 @@ fn field_from_expr_to_core(field: &FieldDef, _source_crate_name: &str) -> String
     let name = &field.name;
     match &field.ty {
         TypeRef::String => {
-            // String → String is identity (clippy::useless_conversion). Only emit
-            // `.into()` when the core side is `Cow<'_, str>` (real conversion).
-            match field.core_wrapper {
-                CoreWrapper::Cow => {
-                    if field.optional {
-                        format!("v.{name}.map(Into::into)")
-                    } else {
-                        format!("v.{name}.into()")
-                    }
-                }
-                _ => format!("v.{name}"),
+            // The IR collapses `Cow<'_, str>` / `Box<str>` / `Arc<str>` into
+            // `TypeRef::String` and only `Cow` is tracked on `core_wrapper`. Emit
+            // `.into()` unconditionally so wrapped-string core fields receive the
+            // right type (e.g. `String → Box<str>`); the crate-level
+            // `#[allow(clippy::useless_conversion)]` absorbs the `String → String`
+            // no-op case.
+            if field.optional {
+                format!("v.{name}.map(Into::into)")
+            } else {
+                format!("v.{name}.into()")
             }
         }
         TypeRef::Char => {
@@ -1181,11 +1185,13 @@ fn field_from_expr_to_core(field: &FieldDef, _source_crate_name: &str) -> String
                         format!("v.{name}.into_iter().map(|x| x as _).collect()")
                     }
                 }
-                TypeRef::String if !matches!(field.vec_inner_core_wrapper, CoreWrapper::Cow) => {
-                    // Vec<String> → Vec<String>: identity move (clippy::useless_conversion).
-                    format!("v.{name}")
-                }
                 _ => {
+                    // Vec<String> too: the IR collapses `Box<str>` / `Cow<'_, str>` /
+                    // `Arc<str>` to `TypeRef::String` and only the `Cow` shape is
+                    // tracked on `vec_inner_core_wrapper`. Emit `Into::into`
+                    // unconditionally so `Vec<String>` → `Vec<Box<str>>` (etc.)
+                    // compiles; the crate-level `#[allow(clippy::useless_conversion)]`
+                    // absorbs the `Vec<String> → Vec<String>` no-op case.
                     if field.optional {
                         format!("v.{name}.map(|vec| vec.into_iter().map(Into::into).collect())")
                     } else {
@@ -1231,18 +1237,21 @@ fn field_from_expr_to_core(field: &FieldDef, _source_crate_name: &str) -> String
             }
         }
         TypeRef::Map(_, v_ty) => {
-            // HashMap: convert via iterator. Keys are always String→String (identity).
-            // Values may be primitives (use `as _` cast) or Named types (use Into).
+            // HashMap: convert via iterator. The IR collapses wrapped string types
+            // (`Box<str>`, `Cow<'_, str>`, `Arc<str>`) into `TypeRef::String`, so emit
+            // `.into()` on both keys and values — bridges `String → Box<str>` etc. at
+            // the type level. Crate-level `#[allow(clippy::useless_conversion)]` absorbs
+            // the `String → String` identity case.
             let val_conv = match v_ty.as_ref() {
                 TypeRef::Primitive(_) => "v as _",
-                TypeRef::String => "v",
                 TypeRef::Named(_) => "v.into()",
+                // String / Path / etc.: `.into()` covers `String → Box<str>` and identity.
                 _ => "v.into()",
             };
             if field.optional {
-                format!("v.{name}.map(|m| m.into_iter().map(|(k, v)| (k, {val_conv})).collect())")
+                format!("v.{name}.map(|m| m.into_iter().map(|(k, v)| (k.into(), {val_conv})).collect())")
             } else {
-                format!("v.{name}.into_iter().map(|(k, v)| (k, {val_conv})).collect()")
+                format!("v.{name}.into_iter().map(|(k, v)| (k.into(), {val_conv})).collect()")
             }
         }
         TypeRef::Unit => "()".to_string(),
@@ -1253,7 +1262,12 @@ fn field_from_expr_to_core(field: &FieldDef, _source_crate_name: &str) -> String
 /// Mirror always uses HashMap<String, String> or HashMap<String, T>.
 /// Core may use BTreeMap, AHashMap, HashMap with Value values, etc.
 fn map_from_expr(name: &str, _k: &TypeRef, v_ty: &TypeRef, optional: bool) -> String {
-    // Determine value conversion strategy.
+    // Determine value conversion strategy. The IR collapses wrapped string types
+    // (`Box<str>`, `Cow<'_, str>`, `Arc<str>`) to `TypeRef::String`, so emit `.into()`
+    // for the String case as well — it bridges `Box<str> → String` (which `(k, v)`
+    // identity does NOT, and which trips `FromIterator` resolution at compile time)
+    // while remaining a no-op for plain `String → String` under the crate-level
+    // `#[allow(clippy::useless_conversion)]`.
     let value_conv = match v_ty {
         TypeRef::Json | TypeRef::Named(_) => {
             // serde_json serialize to String.
@@ -1263,19 +1277,18 @@ fn map_from_expr(name: &str, _k: &TypeRef, v_ty: &TypeRef, optional: bool) -> St
             // Cast to target primitive (i64 for integers, f64 for floats).
             "v as _"
         }
-        TypeRef::String => {
-            // String → String is identity; emit the bare binding so
-            // clippy::useless_conversion doesn't fire on `v.into()`.
-            "v"
-        }
-        // Path, etc.: use Into.
+        // String / Path / Bytes / etc.: rely on the appropriate `From` impl. For
+        // String this is `From<Box<str>> for String` (or identity). For other types
+        // `.into()` covers `Bytes → Vec<u8>`, `PathBuf → String` is NOT auto so the
+        // explicit branches above must be kept exhaustive when new shapes appear.
         _ => "v.into()",
     };
 
-    // Key is always String→String; the `.into_iter().collect()` still does work
-    // (map type may change, e.g. BTreeMap → HashMap), but `k.into()` itself is
-    // identity. Emit `k` directly.
-    let iter_expr = format!("into_iter().map(|(k, v)| (k, {value_conv})).collect()");
+    // Keys: same reasoning as values — the IR loses `Box<str>` / `Cow<'_, str>`
+    // wrappers, so always emit `.into()` rather than the identity `k`. This bridges
+    // `HashMap<Box<str>, _>` → `HashMap<String, _>` at the type level; the
+    // crate-level `clippy::useless_conversion` allow absorbs the no-op String case.
+    let iter_expr = format!("into_iter().map(|(k, v)| (k.into(), {value_conv})).collect()");
 
     if optional {
         format!("v.{name}.map(|m| m.{iter_expr})")
