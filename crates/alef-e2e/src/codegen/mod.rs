@@ -22,6 +22,7 @@ pub mod c;
 pub mod client;
 pub mod csharp;
 pub mod dart;
+mod dart_visitors;
 pub mod elixir;
 pub mod gleam;
 pub mod go;

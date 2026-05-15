@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **alef-e2e (dart)**: fixture-driven visitor codegen scaffolding —
+  `dart_visitors::build_dart_visitor` emits a `createHtmlVisitorDartImpl(...)`
+  setup block from `fixture.visitor.callbacks`, mapping each
+  `CallbackAction` to a `VisitResult.skip()` / `VisitResult.continue_()` /
+  `VisitResult.preserveHtml()` / `VisitResult.custom(field0: '...')` body
+  (with `${placeholder}` interpolation for `custom_template` actions).
+  Visitor fixtures currently emit a `test(...,  skip: 'pending dart-binding
+  visitor wiring (alef issue)')` stub at the call site because the dart
+  binding does not yet expose typed callback parameters for the
+  `BoxFn...` opaque types, does not emit `VisitResult` factory variants
+  (the enum is `#[frb-ignore]`d), and lacks a `HtmlVisitorDartImpl` →
+  `VisitorHandle` conversion plus a `visitor:` argument on
+  `H2mBridge.convert`. The codegen pattern is now in place so once the
+  dart binding catches up, the visitor block can be appended directly to
+  `setup_lines`.
+
 ### Fixed
 
 - **alef-backend-magnus**: generate compiling Ruby bindings for optional
