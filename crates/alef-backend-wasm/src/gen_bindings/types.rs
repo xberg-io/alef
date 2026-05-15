@@ -450,13 +450,27 @@ pub(super) fn gen_struct_methods(
     // Collect enum names for Copy detection in getters.
     // Use unprefixed names since TypeRef::Named stores the original name without Js prefix.
     let enum_names: AHashSet<String> = api_enums.iter().map(|e| e.name.clone()).collect();
+    // Tagged data enums are emitted as wasm-bindgen structs, not C-enums — they do NOT have
+    // a `to_api_str()` method and they are not Copy. Track them separately so the getter
+    // path treats `Option<WasmAuthConfig>` like any other Optional<Struct> (clone-and-return).
+    let tagged_data_enum_names: AHashSet<String> = api_enums
+        .iter()
+        .filter(|e| super::enums::is_tagged_data_enum(e))
+        .map(|e| e.name.clone())
+        .collect();
 
     for field in &typ.fields {
         // Skip fields whose type references an excluded type (the Js* wrapper won't exist)
         if field_references_excluded_type(&field.ty, exclude_types) {
             continue;
         }
-        impl_builder.add_method(&gen_getter(field, mapper, &enum_names, typ.has_default));
+        impl_builder.add_method(&gen_getter(
+            field,
+            mapper,
+            &enum_names,
+            &tagged_data_enum_names,
+            typ.has_default,
+        ));
         impl_builder.add_method(&gen_setter(field, mapper, typ.has_default));
     }
 
@@ -559,7 +573,13 @@ fn optional_inner(ty: &TypeRef) -> &TypeRef {
 }
 
 /// Generate a getter method for a field.
-fn gen_getter(field: &FieldDef, mapper: &WasmMapper, enum_names: &AHashSet<String>, has_default: bool) -> String {
+fn gen_getter(
+    field: &FieldDef,
+    mapper: &WasmMapper,
+    enum_names: &AHashSet<String>,
+    tagged_data_enum_names: &AHashSet<String>,
+    has_default: bool,
+) -> String {
     // On has_default types, non-optional Duration fields are stored as Option<u64>.
     let force_optional = has_default && !field.optional && matches!(field.ty, TypeRef::Duration);
     let field_type = if force_optional {
@@ -585,8 +605,12 @@ fn gen_getter(field: &FieldDef, mapper: &WasmMapper, enum_names: &AHashSet<Strin
     // Fix B: optional Vec-of-struct fields must return Option<js_sys::Array> so JS can
     // access prototype methods on each element (e.g. [0].function.name).
     let inner_ty = optional_inner(&field.ty);
-    let is_optional_enum = field.optional && matches!(inner_ty, TypeRef::Named(n) if enum_names.contains(n));
-    let is_required_enum = !field.optional && matches!(field.ty, TypeRef::Named(ref n) if enum_names.contains(n));
+    // Tagged data enums are emitted as wasm-bindgen structs (no `to_api_str()`); treat them
+    // like any other Named struct field — clone and return the binding wrapper directly.
+    let is_optional_enum = field.optional
+        && matches!(inner_ty, TypeRef::Named(n) if enum_names.contains(n) && !tagged_data_enum_names.contains(n));
+    let is_required_enum = !field.optional
+        && matches!(field.ty, TypeRef::Named(ref n) if enum_names.contains(n) && !tagged_data_enum_names.contains(n));
     let is_optional_vec_of_struct = field.optional
         && matches!(
             inner_ty,
@@ -615,7 +639,14 @@ fn gen_getter(field: &FieldDef, mapper: &WasmMapper, enum_names: &AHashSet<Strin
         ("Option<js_sys::Array>".to_string(), expr)
     } else {
         // Default: only clone non-Copy types; Copy types are returned directly.
-        let expr = if is_copy_type(&field.ty, enum_names) {
+        // Tagged data enums are emitted as Clone (non-Copy) structs, so exclude them from the
+        // Copy set we pass to `is_copy_type`.
+        let copy_enum_names: AHashSet<String> = enum_names
+            .iter()
+            .filter(|n| !tagged_data_enum_names.contains(*n))
+            .cloned()
+            .collect();
+        let expr = if is_copy_type(&field.ty, &copy_enum_names) {
             format!("self.{}", field.name)
         } else {
             format!("self.{}.clone()", field.name)

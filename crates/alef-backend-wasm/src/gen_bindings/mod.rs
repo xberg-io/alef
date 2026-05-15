@@ -533,19 +533,30 @@ impl Backend for WasmBackend {
         }
         for e in &api.enums {
             if !exclude_types.contains(&e.name) {
-                if input_types.contains(&e.name) && alef_codegen::conversions::can_generate_enum_conversion(e) {
-                    builder.add_item(&alef_codegen::conversions::gen_enum_from_binding_to_core_cfg(
-                        e,
-                        &core_import,
-                        &wasm_conv_config,
-                    ));
-                }
-                if alef_codegen::conversions::can_generate_enum_conversion_from_core(e) {
-                    builder.add_item(&alef_codegen::conversions::gen_enum_from_core_to_binding_cfg(
-                        e,
-                        &core_import,
-                        &wasm_conv_config,
-                    ));
+                if enums::is_tagged_data_enum(e) {
+                    // Tagged data enums emit as a flat wasm-bindgen struct (see
+                    // `gen_tagged_enum_as_struct`); their From/Into impls match on the
+                    // string discriminator field instead of the destination enum variants
+                    // produced by the generic enum-conversion templates.
+                    if input_types.contains(&e.name) {
+                        builder.add_item(&enums::gen_tagged_enum_binding_to_core(e, &core_import, &prefix));
+                    }
+                    builder.add_item(&enums::gen_tagged_enum_core_to_binding(e, &core_import, &prefix));
+                } else {
+                    if input_types.contains(&e.name) && alef_codegen::conversions::can_generate_enum_conversion(e) {
+                        builder.add_item(&alef_codegen::conversions::gen_enum_from_binding_to_core_cfg(
+                            e,
+                            &core_import,
+                            &wasm_conv_config,
+                        ));
+                    }
+                    if alef_codegen::conversions::can_generate_enum_conversion_from_core(e) {
+                        builder.add_item(&alef_codegen::conversions::gen_enum_from_core_to_binding_cfg(
+                            e,
+                            &core_import,
+                            &wasm_conv_config,
+                        ));
+                    }
                 }
             }
         }

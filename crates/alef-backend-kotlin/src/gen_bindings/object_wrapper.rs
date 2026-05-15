@@ -232,24 +232,21 @@ fn emit_kotlin_tagged_deserializer(out: &mut String, en: &EnumDef, tag_field: &s
             out.push_str(&variant.name);
             out.push('\n');
         } else if variant.fields.len() == 1 && is_tuple_field_name(&variant.fields[0].name) {
-            // Newtype/tuple variant: inner type wraps the whole object (minus the tag field).
+            // Newtype/tuple variant: `readTreeAsValue` already returns the correct
+            // variant subtype — return it directly without wrapping in the variant
+            // constructor again.
             let inner_class = kotlin_class_name_for_type(&variant.fields[0].ty);
-            out.push_str(name);
-            out.push('.');
-            out.push_str(&variant.name);
-            out.push_str("(ctx.readTreeAsValue(node, ");
+            out.push_str("ctx.readTreeAsValue(node, ");
             out.push_str(&inner_class);
-            out.push_str("::class.java))\n");
+            out.push_str("::class.java)\n");
         } else {
-            // Named-field variant: the whole node is the data class.
+            // Named-field variant: `readTreeAsValue` returns the correct data class
+            // subtype — return it directly.
+            out.push_str("ctx.readTreeAsValue(node, ");
             out.push_str(name);
             out.push('.');
             out.push_str(&variant.name);
-            out.push_str("(ctx.readTreeAsValue(node, ");
-            out.push_str(name);
-            out.push('.');
-            out.push_str(&variant.name);
-            out.push_str("::class.java))\n");
+            out.push_str("::class.java)\n");
         }
     }
 
@@ -297,22 +294,40 @@ fn emit_kotlin_untagged_deserializer(out: &mut String, en: &EnumDef) {
         let (condition, inner_expr) = if variant.fields.len() == 1 && is_tuple_field_name(&variant.fields[0].name) {
             // Tuple/newtype variant — the JSON IS the inner value.
             let ty = &variant.fields[0].ty;
-            let (cond, class_name) = match ty {
-                TypeRef::String => ("node.isTextual", "String".to_string()),
-                TypeRef::Vec(_) => ("node.isArray", kotlin_class_name_for_type(ty)),
-                TypeRef::Primitive(_) => ("node.isNumber", kotlin_class_name_for_type(ty)),
-                TypeRef::Named(n) => ("node.isObject", n.clone()),
-                _ => ("node.isObject", kotlin_class_name_for_type(ty)),
-            };
-            let expr = if matches!(ty, TypeRef::String) {
-                format!("{name}.{}(node.asText())", variant.name)
-            } else {
-                format!(
-                    "{name}.{}(ctx.readTreeAsValue(node, {class_name}::class.java))",
-                    variant.name
-                )
-            };
-            (cond, expr)
+            match ty {
+                TypeRef::String => (
+                    "node.isTextual",
+                    format!("{name}.{}(node.asText())", variant.name),
+                ),
+                TypeRef::Vec(elem_ty) => {
+                    // Use JavaType to carry the generic element type so Jackson can
+                    // construct a properly-typed List<T> rather than a raw List<*>.
+                    let elem_class = kotlin_class_name_for_type(elem_ty);
+                    let expr = format!(
+                        "run {{\n                val javaType = ctx.typeFactory.constructCollectionType(List::class.java, {elem_class}::class.java)\n                @Suppress(\"UNCHECKED_CAST\")\n                {name}.{}(ctx.readTreeAsValue<List<{elem_class}>>(node, javaType) as List<{elem_class}>)\n            }}",
+                        variant.name,
+                    );
+                    ("node.isArray", expr)
+                }
+                TypeRef::Primitive(_) => {
+                    let class_name = kotlin_class_name_for_type(ty);
+                    (
+                        "node.isNumber",
+                        format!("{name}.{}(ctx.readTreeAsValue(node, {class_name}::class.java))", variant.name),
+                    )
+                }
+                TypeRef::Named(n) => (
+                    "node.isObject",
+                    format!("{name}.{}(ctx.readTreeAsValue(node, {n}::class.java))", variant.name),
+                ),
+                _ => {
+                    let class_name = kotlin_class_name_for_type(ty);
+                    (
+                        "node.isObject",
+                        format!("{name}.{}(ctx.readTreeAsValue(node, {class_name}::class.java))", variant.name),
+                    )
+                }
+            }
         } else {
             // Struct variant with named fields — JSON must be an object.
             let struct_class = format!("{name}.{}", variant.name);
@@ -690,9 +705,16 @@ mod tests {
             out.contains("\"system\" ->"),
             "deserializer must dispatch on variant 'system'; got:\n{out}",
         );
+        // Fix: the variant value is returned directly from readTreeAsValue — the
+        // variant constructor must NOT be emitted around readTreeAsValue because
+        // readTreeAsValue already returns the correct variant subtype.
         assert!(
-            out.contains("Message.System(ctx.readTreeAsValue(node, SystemMessage::class.java))"),
-            "deserializer must construct Message.System via readTreeAsValue; got:\n{out}",
+            out.contains("\"system\" -> ctx.readTreeAsValue(node, SystemMessage::class.java)"),
+            "tagged deserializer must return readTreeAsValue result directly (no variant-constructor wrap); got:\n{out}",
+        );
+        assert!(
+            !out.contains("Message.System(ctx.readTreeAsValue"),
+            "tagged deserializer must NOT double-wrap via variant constructor; got:\n{out}",
         );
     }
 
@@ -734,6 +756,117 @@ mod tests {
         assert!(
             out.contains("node.isArray"),
             "untagged deserializer must check isArray for List variant; got:\n{out}",
+        );
+        // Fix: List<T> variants must use JavaType (constructCollectionType) rather
+        // than raw List::class.java so Jackson knows the element type.
+        assert!(
+            out.contains("ctx.typeFactory.constructCollectionType(List::class.java, String::class.java)"),
+            "untagged deserializer must use constructCollectionType for List<String> variant; got:\n{out}",
+        );
+        assert!(
+            !out.contains("ctx.readTreeAsValue(node, List::class.java)"),
+            "untagged deserializer must NOT use raw List::class.java; got:\n{out}",
+        );
+    }
+
+    /// Regression (Bug A): tagged sealed class with a multi-field named-field variant
+    /// (e.g. `Base64 { data: String, mediaType: String }`) must return
+    /// `ctx.readTreeAsValue(node, <Variant>::class.java)` directly — not wrap the
+    /// result in a second variant constructor call.
+    #[test]
+    fn tagged_deserializer_named_field_variant_no_double_wrap() {
+        let en = make_enum(
+            "OcrDocument",
+            Some("type"),
+            false,
+            Some("snake_case"),
+            vec![
+                make_variant("Url", Some("url"), vec![make_field("url", TypeRef::String)]),
+                make_variant(
+                    "Base64",
+                    Some("base64"),
+                    vec![
+                        make_field("data", TypeRef::String),
+                        make_field(
+                            "media_type",
+                            TypeRef::Named("MediaType".to_string()),
+                        ),
+                    ],
+                ),
+            ],
+        );
+        let mut out = String::new();
+        emit_enum(&en, &mut out);
+
+        // Must return readTreeAsValue directly — no `OcrDocument.Base64(...)` wrap.
+        assert!(
+            out.contains("\"base64\" -> ctx.readTreeAsValue(node, OcrDocument.Base64::class.java)"),
+            "tagged deserializer must return readTreeAsValue directly for named-field variant; got:\n{out}",
+        );
+        assert!(
+            !out.contains("OcrDocument.Base64(ctx.readTreeAsValue"),
+            "tagged deserializer must NOT wrap readTreeAsValue result in variant constructor; got:\n{out}",
+        );
+    }
+
+    /// Regression (Bug A): tagged sealed class with a single-field newtype variant
+    /// (e.g. `Text(field0: String)` for `ContentPart`) must also return
+    /// `ctx.readTreeAsValue` directly without a variant constructor wrap.
+    #[test]
+    fn tagged_deserializer_newtype_variant_no_double_wrap() {
+        let en = make_enum(
+            "ContentPart",
+            Some("type"),
+            false,
+            Some("snake_case"),
+            vec![make_variant(
+                "Text",
+                Some("text"),
+                vec![make_field("_0", TypeRef::Named("TextContent".to_string()))],
+            )],
+        );
+        let mut out = String::new();
+        emit_enum(&en, &mut out);
+
+        assert!(
+            out.contains("\"text\" -> ctx.readTreeAsValue(node, TextContent::class.java)"),
+            "tagged deserializer must return readTreeAsValue directly for newtype variant; got:\n{out}",
+        );
+        assert!(
+            !out.contains("ContentPart.Text(ctx.readTreeAsValue"),
+            "tagged deserializer must NOT wrap readTreeAsValue result in variant constructor; got:\n{out}",
+        );
+    }
+
+    /// Regression (Bug C): untagged sealed class with a `List<T>` variant where T
+    /// is a complex/named type must emit `constructCollectionType` with the correct
+    /// element class, not raw `List::class.java`.
+    #[test]
+    fn untagged_deserializer_list_of_named_type_uses_java_type() {
+        let en = make_enum(
+            "UserContent",
+            None,
+            true,
+            None,
+            vec![
+                make_variant("Text", None, vec![make_field("_0", TypeRef::String)]),
+                make_variant(
+                    "Parts",
+                    None,
+                    vec![make_field("_0", TypeRef::Vec(Box::new(TypeRef::Named("ContentPart".to_string()))))],
+                ),
+            ],
+        );
+        let mut out = String::new();
+        emit_enum(&en, &mut out);
+
+        assert!(
+            out.contains("ctx.typeFactory.constructCollectionType(List::class.java, ContentPart::class.java)"),
+            "untagged deserializer must use constructCollectionType for List<ContentPart>; got:\n{out}",
+        );
+        assert!(
+            !out.contains("ctx.readTreeAsValue(node, List::class.java)"),
+            "untagged deserializer must NOT use raw List::class.java for List<ContentPart>; got:\n{out}",
         );
     }
 

@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **wasm: serde-tagged data enums emit as a flat `#[wasm_bindgen]` struct with a `default()`
+  factory**: tagged data enums (e.g. `#[serde(tag = "type")] enum AuthConfig { Basic {...}, Bearer {...} }`)
+  were previously emitted as wasm-bindgen C-style enums (`#[wasm_bindgen] pub enum`), which
+  silently dropped every variant's field data and exposed no JS-callable constructor — JS test
+  codegen calling `WasmAuthConfig.default()` crashed with `TypeError: WasmAuthConfig.default is
+  not a function`. The wasm backend now detects serde-tagged data enums and emits them as a
+  flat struct with a `String` discriminator (named after `serde_tag`), the union of every
+  variant's fields as `Option<T>` properties, a `#[wasm_bindgen(constructor)]` `new()`, a
+  static `default()` factory, and per-field getter/setter pairs — mirroring the NAPI
+  `gen_tagged_enum_as_object` path. Custom `From<Wasm{Enum}> for core::{Enum}` (and reverse)
+  impls match on the discriminator field instead of variant identity. Rust reserved keywords
+  used as tag/field names (e.g. `type`) are escaped via raw-identifier syntax. Struct getters
+  for `Option<WasmTaggedEnum>` fields now clone the binding wrapper directly instead of
+  calling the unit-enum-only `to_api_str()` helper.
+  (`crates/alef-backend-wasm/src/gen_bindings/enums.rs`,
+  `crates/alef-backend-wasm/src/gen_bindings/types.rs`,
+  `crates/alef-backend-wasm/src/gen_bindings/mod.rs`)
+
 - **kotlin-android e2e codegen: emit `Flow.toList()` and Kotlin property access
   in streaming assertions**: the `kotlin_android` streaming codegen path in
   `StreamingFieldResolver` was already correct (`result.toList()` via the
