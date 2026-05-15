@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Swift: render `extra_dependencies` into the generated Rust crate**: Swift
+  bindings now merge crate-level and `[crates.swift.extra_dependencies]` entries
+  into `packages/swift/rust/Cargo.toml`. Multi-crate consumers can reference
+  shared core/runtime crates from generated Swift bridge code without manually
+  editing the generated manifest.
+  (`crates/alef-backend-swift/src/gen_rust_crate`)
+
 - **alef-scaffold/jni: `[lib] name` uses `config.jni_lib_name()`**: the JNI
   cdylib scaffold derived `[lib] name` from the crate directory (`<crate>` with
   hyphens replaced by underscores), ignoring any `[ffi] prefix` override. The

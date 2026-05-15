@@ -242,6 +242,21 @@ pub fn emit_jni_client_class(
         return None;
     }
 
+    // Honour `[crates.kotlin_android].exclude_functions` / `[crates.kotlin].exclude_functions`
+    // for instance methods, mirroring the top-level function filter at the start
+    // of the bridge-object emitter (line 40-55 above).
+    let exclude_functions: std::collections::HashSet<&str> = config
+        .kotlin_android
+        .as_ref()
+        .map(|c| c.exclude_functions.iter().map(String::as_str).collect())
+        .or_else(|| {
+            config
+                .kotlin
+                .as_ref()
+                .map(|k| k.exclude_functions.iter().map(String::as_str).collect())
+        })
+        .unwrap_or_default();
+
     let module_name = to_pascal_case(&config.name);
     let bridge_name = format!("{module_name}Bridge");
     let pkg = package
@@ -324,7 +339,11 @@ pub fn emit_jni_client_class(
             body.push_str("    }\n\n");
         }
 
-        for method in ty.methods.iter().filter(|m| !m.sanitized && !m.is_static) {
+        for method in ty
+            .methods
+            .iter()
+            .filter(|m| !m.sanitized && !m.is_static && !exclude_functions.contains(m.name.as_str()))
+        {
             emit_jni_client_method(method, class_name, &bridge_name, &mut body, &mut imports);
         }
 
@@ -670,7 +689,7 @@ fn jni_params_for_function(
 /// JNI param type for top-level function params.
 ///
 /// Opaque named types → `Long`; everything else falls through to `jni_param_type`.
-fn jni_param_type_for_function<'a>(ty: &TypeRef, opaque_type_names: &std::collections::HashSet<&str>) -> &'static str {
+fn jni_param_type_for_function(ty: &TypeRef, opaque_type_names: &std::collections::HashSet<&str>) -> &'static str {
     // Unwrap Optional to check the inner type.
     let base = match ty {
         TypeRef::Optional(inner) => inner.as_ref(),

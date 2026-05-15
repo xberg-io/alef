@@ -261,7 +261,15 @@ fn render_build_gradle_kotlin_android(
     let kotlin_plugin = maven::KOTLIN_JVM_PLUGIN;
     let junit = maven::JUNIT;
     let jackson = maven::JACKSON_E2E;
-    let jvm_target = toolchain::ANDROID_JVM_TARGET;
+    // E2E tests run on the host JVM (not Android), so pick a target that
+    // matches the JUnit Jupiter baseline (5.x → JVM 11, 6.x → JVM 17). The
+    // Android library itself still ships at ANDROID_JVM_TARGET for runtime
+    // compat; this only affects the host-side gradle test project.
+    let jvm_target = if junit.starts_with("6.") {
+        "17"
+    } else {
+        toolchain::ANDROID_JVM_TARGET
+    };
     let jna = maven::JNA;
     let jspecify = maven::JSPECIFY;
     let coroutines = maven::KOTLINX_COROUTINES_CORE;
