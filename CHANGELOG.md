@@ -83,7 +83,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **alef-scaffold (elixir)**: normalize generated external `elixirc_paths`
   entries so leading slashes in explicit output paths do not produce
   `../..//crates/...` paths, and emit them via `Path.expand(..., __DIR__)`
-  so Mix sees an absolute source root during compilation.
+  so Mix sees an absolute source root during compilation. The generated
+  Rustler `Cargo.toml` now also points `[lib].path` at external Rustler
+  output directories, so packages with `elixir = "crates/.../src/"`
+  compile via Mix.
 
 ## [0.16.2] - 2026-05-15
 

@@ -19,6 +19,7 @@ pub(crate) fn scaffold_elixir_cargo(
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
     let pkg_dir = config.package_dir(Language::Elixir);
+    let native_crate_dir = format!("{pkg_dir}/native/{nif_name}");
     let ws = detect_workspace_inheritance(config.workspace_root.as_deref());
     let pkg_header = cargo_package_header(
         &nif_name,
@@ -55,11 +56,30 @@ pub(crate) fn scaffold_elixir_cargo(
     } else {
         ""
     };
+    let lib_path_line = if let Some(elixir_out) = config.explicit_output.elixir.as_ref() {
+        let output_dir = elixir_out.to_string_lossy();
+        if output_dir.contains("/native/") {
+            String::new()
+        } else {
+            let native_depth = std::path::Path::new(&native_crate_dir).components().count();
+            let output_path = output_dir.trim_end_matches('/');
+            let lib_path = format!(
+                "{}{}{}",
+                "../".repeat(native_depth),
+                output_path.trim_start_matches('/'),
+                "/lib.rs"
+            );
+            format!("path = \"{lib_path}\"\n")
+        }
+    } else {
+        String::new()
+    };
     let content = format!(
         r#"{pkg_header}
 
 [lib]
 name = "{nif_name}"
+{lib_path_line}
 crate-type = ["cdylib"]
 
 [dependencies]
@@ -72,6 +92,7 @@ serde_json = "1"{async_trait_dep}{tokio_dep}{extra_deps_section}
 "#,
         pkg_header = pkg_header,
         nif_name = nif_name,
+        lib_path_line = lib_path_line,
         crate_name = &config.name,
         core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::Elixir),
@@ -82,7 +103,7 @@ serde_json = "1"{async_trait_dep}{tokio_dep}{extra_deps_section}
     );
 
     Ok(vec![GeneratedFile {
-        path: PathBuf::from(format!("{pkg_dir}/native/{nif_name}/Cargo.toml")),
+        path: PathBuf::from(format!("{native_crate_dir}/Cargo.toml")),
         content,
         generated_header: true,
     }])

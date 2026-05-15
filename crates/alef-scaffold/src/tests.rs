@@ -786,6 +786,28 @@ fn test_scaffold_elixir_cargo_lib_name_no_path() {
 }
 
 #[test]
+fn test_scaffold_elixir_cargo_lib_path_for_external_output() {
+    let config = test_config_from_toml(
+        r#"
+[crates.output]
+elixir = "crates/my-lib-elixir/src/"
+"#,
+    );
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Elixir]).unwrap();
+    let files = language_files(&all_files);
+    let cargo_toml = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
+
+    assert!(
+        cargo_toml
+            .content
+            .contains(r#"path = "../../../../crates/my-lib-elixir/src/lib.rs""#),
+        "content: {}",
+        cargo_toml.content
+    );
+}
+
+#[test]
 fn test_scaffold_elixir_elixirc_paths_normalizes_leading_slash() {
     let config = test_config_from_toml(
         r#"
