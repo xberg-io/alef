@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **alef-backend-wasm: emit tuple-variant pattern for newtype enum variants in From impls**:
+  tagged-data enums with tuple/newtype variants (e.g. `enum Message { System(SystemMessage),
+  User(UserMessage), ... }`) were emitting invalid struct-pattern destructuring
+  (`Message::System { _0 }`) in the `From<core::Enum> for WasmEnum` match arm and invalid
+  struct-construction syntax (`Self::System { _0: val }`) in the `From<WasmEnum> for
+  core::Enum` arm. Both now use the correct tuple syntax (`Message::System(field0)` and
+  `Self::System(val)` respectively). When all tuple variants share the same positional field
+  name (e.g. `_0`) but carry different `Named` inner types across variants, the binding
+  struct stores the field as `JsValue` and per-variant conversion uses
+  `serde_wasm_bindgen::from_value`/`to_value` to avoid impossible `WasmA → B` coercions.
+  Named-field struct variants in tagged enums now also correctly apply `.into()` when
+  constructing or destructuring core Named types at the WASM boundary.
+  (`crates/alef-backend-wasm/src/gen_bindings/enums.rs`)
+
 ## [0.16.12] - 2026-05-15
 
 ### Fixed
