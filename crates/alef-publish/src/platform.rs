@@ -133,7 +133,8 @@ impl RustTarget {
             | Language::Dart
             | Language::Gleam
             | Language::Zig
-            | Language::C => self.triple.clone(),
+            | Language::C
+            | Language::Jni => self.triple.clone(),
         }
     }
 
