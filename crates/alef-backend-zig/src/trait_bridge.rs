@@ -20,9 +20,10 @@
 //! [`emit_trait_bridge`] free function, not the shared driver.
 
 use alef_codegen::generators::trait_bridge::{TraitBridgeGenerator, TraitBridgeSpec};
-use alef_core::config::TraitBridgeConfig;
+use alef_core::config::{BridgeBinding, TraitBridgeConfig};
 use alef_core::ir::{MethodDef, TypeDef, TypeRef};
 use heck::ToSnakeCase;
+use std::fmt::Write as _;
 
 /// Zig type string to use for a vtable slot parameter or return type.
 ///
@@ -432,57 +433,97 @@ pub fn emit_trait_bridge(prefix: &str, bridge_cfg: &TraitBridgeConfig, trait_def
     out.push('\n');
 
     // -------------------------------------------------------------------------
-    // Registration shim: register_{trait_snake}
+    // Registration / unregistration shims (function-param binding only).
+    //
+    // When `bind_via = "options_field"` the bridge is wired to a field on a
+    // configured options struct (e.g. `ConversionOptions.visitor`); there is
+    // no `{prefix}_register_{trait}` / `{prefix}_unregister_{trait}` C
+    // symbol to call. Emitting the shims unconditionally would produce code
+    // that fails to link. Options-field bridges instead consume the C
+    // vtable directly via a small `..._handle_from_vtable` helper (see
+    // below).
     // -------------------------------------------------------------------------
-    let c_register = format!("c.{prefix}_register_{snake}");
-    let c_unregister = format!("c.{prefix}_unregister_{snake}");
+    if matches!(bridge_cfg.bind_via, BridgeBinding::FunctionParam) {
+        let c_register = format!("c.{prefix}_register_{snake}");
+        let c_unregister = format!("c.{prefix}_unregister_{snake}");
 
-    out.push_str(&crate::template_env::render(
-        "register_fn_doc1.jinja",
-        minijinja::context! {
-            trait_name => trait_name,
-            snake => &snake,
-        },
-    ));
-    out.push_str(&crate::template_env::render(
-        "register_fn_signature.jinja",
-        minijinja::context! {
-            snake => &snake,
-            trait_name => trait_name,
-        },
-    ));
-    out.push_str(&crate::template_env::render(
-        "register_fn_body.jinja",
-        minijinja::context! {
-            c_register => &c_register,
-        },
-    ));
-    out.push_str("}\n");
-    out.push('\n');
+        out.push_str(&crate::template_env::render(
+            "register_fn_doc1.jinja",
+            minijinja::context! {
+                trait_name => trait_name,
+                snake => &snake,
+            },
+        ));
+        out.push_str(&crate::template_env::render(
+            "register_fn_signature.jinja",
+            minijinja::context! {
+                snake => &snake,
+                trait_name => trait_name,
+            },
+        ));
+        out.push_str(&crate::template_env::render(
+            "register_fn_body.jinja",
+            minijinja::context! {
+                c_register => &c_register,
+            },
+        ));
+        out.push_str("}\n");
+        out.push('\n');
 
-    // -------------------------------------------------------------------------
-    // Unregistration shim: unregister_{trait_snake}
-    // -------------------------------------------------------------------------
-    out.push_str(&crate::template_env::render(
-        "unregister_fn_doc.jinja",
-        minijinja::context! {
-            trait_name => trait_name,
-        },
-    ));
-    out.push_str(&crate::template_env::render(
-        "unregister_fn_signature.jinja",
-        minijinja::context! {
-            snake => &snake,
-        },
-    ));
-    out.push_str(&crate::template_env::render(
-        "unregister_fn_body.jinja",
-        minijinja::context! {
-            c_unregister => &c_unregister,
-        },
-    ));
-    out.push_str("}\n");
-    out.push('\n');
+        out.push_str(&crate::template_env::render(
+            "unregister_fn_doc.jinja",
+            minijinja::context! {
+                trait_name => trait_name,
+            },
+        ));
+        out.push_str(&crate::template_env::render(
+            "unregister_fn_signature.jinja",
+            minijinja::context! {
+                snake => &snake,
+            },
+        ));
+        out.push_str(&crate::template_env::render(
+            "unregister_fn_body.jinja",
+            minijinja::context! {
+                c_unregister => &c_unregister,
+            },
+        ));
+        out.push_str("}\n");
+        out.push('\n');
+    } else {
+        // Options-field binding: emit a vtable -> handle helper that wraps the
+        // C callbacks struct into the trait-object handle expected by the
+        // generated `ConversionOptionsBuilder.{field}` setter. The upstream
+        // FFI must export `{prefix}_{trait_snake}_handle_from_callbacks` with
+        // the standard `extern "C" fn(*const T) -> *mut Handle` shape.
+        let ctor_fn = format!("c.{prefix}_{snake}_handle_from_callbacks");
+        let handle_type = bridge_cfg.type_alias.as_deref().unwrap_or("VisitorHandle").to_string();
+        let _ = writeln!(
+            out,
+            "/// Wrap a `I{trait_name}` vtable into a `{handle_type}` suitable for the"
+        );
+        let _ = writeln!(
+            out,
+            "/// generated options-field setter (e.g. `ConversionOptionsBuilder.visitor`)."
+        );
+        let _ = writeln!(
+            out,
+            "/// The returned handle owns the vtable's function pointers and must be"
+        );
+        let _ = writeln!(
+            out,
+            "/// released with the matching `{prefix}_visitor_handle_free` once the"
+        );
+        let _ = writeln!(out, "/// containing options object is no longer needed.");
+        let _ = writeln!(
+            out,
+            "pub fn {snake}_handle_from_vtable(callbacks: c.HTMHtmVisitorCallbacks) ?{handle_type} {{"
+        );
+        let _ = writeln!(out, "    var _cb = callbacks;");
+        let _ = writeln!(out, "    return @ptrCast({ctor_fn}(&_cb));");
+        let _ = writeln!(out, "}}");
+        let _ = writeln!(out);
+    }
 
     // -------------------------------------------------------------------------
     // Comptime vtable builder: make_{trait_snake}_vtable

@@ -679,14 +679,24 @@ fn render_test_fn(
     let _ = writeln!(out, "test \"{test_name}\" {{");
     let _ = writeln!(out, "    // {description}");
 
-    // Skip visitor fixtures until the zig binding wires up fixture-driven
-    // visitor codegen (the binding exposes a C-vtable Visitor struct via the
-    // FFI bridge, but alef-e2e/zig does not yet emit the per-fixture vtable
-    // population + register call). Matches the dart codegen's pending-skip
-    // behaviour.
-    if fixture.visitor.is_some() {
-        let _ = writeln!(out, "    // skipped: pending zig-binding visitor wiring (alef issue)");
-        let _ = writeln!(out, "    return error.SkipZigTest;");
+    // Visitor fixtures bypass the high-level `convert(html, options)` wrapper
+    // and inline the FFI sequence so we can attach a `HTMHtmVisitorCallbacks`
+    // vtable to the options handle. The vtable is populated by per-fixture
+    // C-callable thunks emitted by `zig_visitors::build_zig_visitor`.
+    if let Some(visitor_spec) = &fixture.visitor {
+        let html = fixture.input.get("html").and_then(|v| v.as_str()).unwrap_or_default();
+        let options_value = fixture.input.get("options").cloned();
+        emit_visitor_test_body(
+            out,
+            &fixture.id,
+            html,
+            options_value.as_ref(),
+            visitor_spec,
+            module_name,
+            &fixture.assertions,
+            expects_error,
+            field_resolver,
+        );
         let _ = writeln!(out, "}}");
         let _ = writeln!(out);
         return;
@@ -937,6 +947,111 @@ fn render_test_fn(
     }
 
     let _ = writeln!(out, "}}");
+}
+
+/// Emit the body of a visitor-bearing test. Drives the FFI directly so we
+/// can attach a `HTMHtmVisitorCallbacks` vtable to the `ConversionOptions`
+/// handle before calling `htm_convert`. The high-level `convert(html,
+/// options)` wrapper cannot carry a visitor because the visitor is a Rust
+/// trait object, not a JSON-encodable field.
+#[allow(clippy::too_many_arguments)]
+fn emit_visitor_test_body(
+    out: &mut String,
+    fixture_id: &str,
+    html: &str,
+    options_value: Option<&serde_json::Value>,
+    visitor_spec: &crate::fixture::VisitorSpec,
+    module_name: &str,
+    assertions: &[Assertion],
+    expects_error: bool,
+    field_resolver: &FieldResolver,
+) {
+    // Allocator for the JSON-parse of the result blob (and any helper allocs).
+    let _ = writeln!(out, "    var gpa: std.heap.DebugAllocator(.{{}}) = .init;");
+    let _ = writeln!(out, "    defer _ = gpa.deinit();");
+    let _ = writeln!(out, "    const allocator = gpa.allocator();");
+    let _ = writeln!(out);
+
+    // 1. Per-fixture visitor struct + callbacks table.
+    let visitor_block = super::zig_visitors::build_zig_visitor(fixture_id, visitor_spec);
+    out.push_str(&visitor_block);
+
+    // 2. Materialise the visitor handle (HtmVisitor opaque, attached via
+    //    htm_options_set_visitor_handle).
+    let _ = writeln!(
+        out,
+        "    const _visitor = {module_name}.c.htm_visitor_create(&_callbacks);"
+    );
+    let _ = writeln!(out, "    defer {module_name}.c.htm_visitor_free(_visitor);");
+
+    // 3. Options handle: always allocate one (even when the fixture supplies
+    //    no `options`) so we have somewhere to attach the visitor. The FFI
+    //    accepts `"{}"` as an empty options JSON.
+    let options_json = match options_value {
+        Some(v) => serde_json::to_string(v).unwrap_or_else(|_| "{}".to_string()),
+        None => "{}".to_string(),
+    };
+    let escaped_options = escape_zig(&options_json);
+    let _ = writeln!(
+        out,
+        "    const _options_z = try std.heap.c_allocator.dupeZ(u8, \"{escaped_options}\");"
+    );
+    let _ = writeln!(out, "    defer std.heap.c_allocator.free(_options_z);");
+    let _ = writeln!(
+        out,
+        "    const _options = {module_name}.c.htm_conversion_options_from_json(_options_z.ptr);"
+    );
+    let _ = writeln!(out, "    defer {module_name}.c.htm_conversion_options_free(_options);");
+    let _ = writeln!(
+        out,
+        "    {module_name}.c.htm_options_set_visitor_handle(_options, _visitor);"
+    );
+
+    // 4. HTML buffer + convert call.
+    let escaped_html = escape_zig(html);
+    let _ = writeln!(
+        out,
+        "    const _html_z = try std.heap.c_allocator.dupeZ(u8, \"{escaped_html}\");"
+    );
+    let _ = writeln!(out, "    defer std.heap.c_allocator.free(_html_z);");
+    let _ = writeln!(
+        out,
+        "    const _result = {module_name}.c.htm_convert(_html_z.ptr, _options);"
+    );
+
+    if expects_error {
+        // Error-path: _result null OR last error code non-zero.
+        let _ = writeln!(
+            out,
+            "    try testing.expect(_result == null or {module_name}.c.htm_last_error_code() != 0);"
+        );
+        let _ = writeln!(
+            out,
+            "    if (_result) |r| {module_name}.c.htm_conversion_result_free(r);"
+        );
+        return;
+    }
+
+    let _ = writeln!(out, "    try testing.expect(_result != null);");
+    let _ = writeln!(out, "    defer {module_name}.c.htm_conversion_result_free(_result.?);");
+    let _ = writeln!(
+        out,
+        "    const _json_ptr = {module_name}.c.htm_conversion_result_to_json(_result.?);"
+    );
+    let _ = writeln!(out, "    defer {module_name}.c.htm_free_string(_json_ptr);");
+    let _ = writeln!(out, "    const _result_json = std.mem.sliceTo(_json_ptr, 0);");
+    let _ = writeln!(
+        out,
+        "    var _parsed = try std.json.parseFromSlice(std.json.Value, allocator, _result_json, .{{}});"
+    );
+    let _ = writeln!(out, "    defer _parsed.deinit();");
+    let _ = writeln!(out, "    const result = &_parsed.value;");
+
+    for assertion in assertions {
+        if assertion.assertion_type != "error" {
+            render_json_assertion(out, assertion, "result", field_resolver);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

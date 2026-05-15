@@ -13,11 +13,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **alef-backend-kotlin**: emit a single JVM client wrapper class into a
-  matching Kotlin source file (for example `GraphQLRouteConfig.kt`) instead of
-  always writing `DefaultClient.kt`, avoiding ktlint filename violations for
-  non-`DefaultClient` opaque client types.
-
 ## [0.16.4] - 2026-05-15
 
 ### Added
@@ -54,6 +49,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of dropping it. Without this, trait methods returning a named mirror type
   previously fell back to `Default::default()`, making every Dart visitor
   callback a silent no-op even though the closures executed.
+- **alef-e2e (zig)**: generate active fixture-driven visitor tests. Visitor
+  fixtures now emit per-fixture C-callable callback thunks, populate
+  `HTMHtmVisitorCallbacks`, attach the visitor to conversion options, and call
+  the C FFI directly instead of skipping every Zig visitor fixture.
 - **alef-backend-kotlin-android**: add the Ben Manes Gradle Versions plugin
   to generated Android `build.gradle.kts` files.
 
@@ -108,6 +107,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   generated code does not reference C symbols or RustBridge types excluded from
   the FFI layer. Kotlin scaffold now pins `jackson-annotations` to its published
   `2.21` line while keeping `jackson-databind` on `2.21.3`.
+- **alef-backend-zig**: emit register/unregister shims only for
+  `bind_via = "function_param"` trait bridges. Options-field bridges now emit a
+  vtable-to-handle helper instead of referencing missing
+  `{prefix}_register_{trait}` / `{prefix}_unregister_{trait}` C symbols.
+- **alef-backend-kotlin**: emit a single JVM client wrapper class into a
+  matching Kotlin source file (for example `GraphQLRouteConfig.kt`) instead of
+  always writing `DefaultClient.kt`, avoiding ktlint filename violations for
+  non-`DefaultClient` opaque client types.
 
 ## [0.16.3] - 2026-05-15
 
