@@ -445,6 +445,10 @@ impl StreamingFieldResolver {
                 "elixir" => {
                     format!("(if length({chunks_var}) > 0, do: List.last({chunks_var}).usage, else: nil)")
                 }
+                // Swift: usage() on ChatCompletionChunkRef returns Usage? (swift-bridge class).
+                "swift" => {
+                    format!("({chunks_var}.isEmpty ? nil : {chunks_var}.last!.usage())")
+                }
                 _ => {
                     format!("({chunks_var}.length > 0 ? {chunks_var}[{chunks_var}.length - 1].usage : undefined)")
                 }
@@ -1230,5 +1234,171 @@ mod tests {
         assert_eq!(segs[0], TailSeg::Index(2));
         assert_eq!(segs[1], TailSeg::Field("function".to_string()));
         assert_eq!(segs[2], TailSeg::Field("arguments".to_string()));
+    }
+
+    // -----------------------------------------------------------------------
+    // Swift-specific accessor tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn accessor_chunks_length_swift_uses_count() {
+        let swift = StreamingFieldResolver::accessor("chunks.length", "swift", "chunks").unwrap();
+        assert_eq!(swift, "chunks.count", "swift chunks.length: {swift}");
+    }
+
+    #[test]
+    fn accessor_stream_content_swift_uses_swift_closures() {
+        let expr = StreamingFieldResolver::accessor("stream_content", "swift", "chunks").unwrap();
+        // Must use Swift closure syntax (`{ ... }`) not JS arrow (`=>`)
+        assert!(
+            expr.contains("{ c in"),
+            "swift stream_content must use Swift closure syntax, got: {expr}"
+        );
+        assert!(
+            !expr.contains("=>"),
+            "swift stream_content must not contain JS arrow `=>`, got: {expr}"
+        );
+        // Content is accessed via method call chains
+        assert!(
+            expr.contains("choices()"),
+            "swift stream_content must use .choices() method call, got: {expr}"
+        );
+        assert!(
+            expr.contains("delta()"),
+            "swift stream_content must use .delta() method call, got: {expr}"
+        );
+        assert!(
+            expr.contains("content()"),
+            "swift stream_content must use .content() method call, got: {expr}"
+        );
+        assert!(
+            expr.contains(".toString()"),
+            "swift stream_content must convert RustString via .toString(), got: {expr}"
+        );
+        assert!(
+            expr.contains(".joined()"),
+            "swift stream_content must join with .joined(), got: {expr}"
+        );
+        // Must not use JS .length or .join('')
+        assert!(
+            !expr.contains(".length"),
+            "swift stream_content must not use JS .length, got: {expr}"
+        );
+        assert!(
+            !expr.contains(".join("),
+            "swift stream_content must not use JS .join(, got: {expr}"
+        );
+    }
+
+    #[test]
+    fn accessor_stream_complete_swift_uses_swift_syntax() {
+        let expr = StreamingFieldResolver::accessor("stream_complete", "swift", "chunks").unwrap();
+        // Must use Swift isEmpty / last! syntax, not JS .length
+        assert!(
+            expr.contains("isEmpty"),
+            "swift stream_complete must use .isEmpty, got: {expr}"
+        );
+        assert!(
+            expr.contains(".last!"),
+            "swift stream_complete must use .last!, got: {expr}"
+        );
+        assert!(
+            expr.contains("choices()"),
+            "swift stream_complete must use .choices() method call, got: {expr}"
+        );
+        assert!(
+            expr.contains("finish_reason()"),
+            "swift stream_complete must use .finish_reason(), got: {expr}"
+        );
+        assert!(
+            !expr.contains(".length"),
+            "swift stream_complete must not use JS .length, got: {expr}"
+        );
+        assert!(
+            !expr.contains("!= null"),
+            "swift stream_complete must not use JS `!= null`, got: {expr}"
+        );
+    }
+
+    #[test]
+    fn accessor_tool_calls_swift_uses_swift_flatmap() {
+        let expr = StreamingFieldResolver::accessor("tool_calls", "swift", "chunks").unwrap();
+        // Must use Swift closure syntax, not JS arrow
+        assert!(
+            !expr.contains("=>"),
+            "swift tool_calls must not contain JS arrow `=>`, got: {expr}"
+        );
+        assert!(
+            expr.contains("flatMap"),
+            "swift tool_calls must use flatMap, got: {expr}"
+        );
+        assert!(
+            expr.contains("choices()"),
+            "swift tool_calls must use .choices() method call, got: {expr}"
+        );
+        assert!(
+            expr.contains("delta()"),
+            "swift tool_calls must use .delta() method call, got: {expr}"
+        );
+        assert!(
+            expr.contains("tool_calls()"),
+            "swift tool_calls must use .tool_calls() method call, got: {expr}"
+        );
+    }
+
+    #[test]
+    fn accessor_finish_reason_swift_uses_swift_syntax() {
+        let expr = StreamingFieldResolver::accessor("finish_reason", "swift", "chunks").unwrap();
+        // Must use Swift isEmpty / last! syntax, not JS .length / undefined
+        assert!(
+            expr.contains("isEmpty"),
+            "swift finish_reason must use .isEmpty, got: {expr}"
+        );
+        assert!(
+            expr.contains(".last!"),
+            "swift finish_reason must use .last!, got: {expr}"
+        );
+        assert!(
+            expr.contains("finish_reason()"),
+            "swift finish_reason must use .finish_reason() method call, got: {expr}"
+        );
+        assert!(
+            expr.contains(".toString()"),
+            "swift finish_reason must convert RustString via .toString(), got: {expr}"
+        );
+        assert!(
+            !expr.contains("undefined"),
+            "swift finish_reason must not use JS `undefined`, got: {expr}"
+        );
+        assert!(
+            !expr.contains(".length"),
+            "swift finish_reason must not use JS .length, got: {expr}"
+        );
+    }
+
+    #[test]
+    fn accessor_usage_swift_uses_swift_syntax() {
+        let expr = StreamingFieldResolver::accessor("usage", "swift", "chunks").unwrap();
+        // Must use Swift isEmpty / last! syntax, not JS .length / undefined
+        assert!(
+            expr.contains("isEmpty"),
+            "swift usage must use .isEmpty, got: {expr}"
+        );
+        assert!(
+            expr.contains(".last!"),
+            "swift usage must use .last!, got: {expr}"
+        );
+        assert!(
+            expr.contains("usage()"),
+            "swift usage must use .usage() method call, got: {expr}"
+        );
+        assert!(
+            !expr.contains("undefined"),
+            "swift usage must not use JS `undefined`, got: {expr}"
+        );
+        assert!(
+            !expr.contains(".length"),
+            "swift usage must not use JS .length, got: {expr}"
+        );
     }
 }

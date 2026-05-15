@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   consistently. The "no change" vs "explicit clear" distinction is
   collapsed to `None` on the dart side; callers needing both states must
   model them via a dedicated enum.
+- **alef-e2e (swift)**: emit Swift-native syntax for streaming-virtual accessors (`stream_content`, `stream_complete`, `tool_calls`, `finish_reason`, `usage`, `chunks.length`). Previously fell through to a TypeScript default that produced uncompilable Swift (`(c: any) =>`, `.length`, `?.[0]?.`, `!= null`, `undefined`). The new arms use swift-bridge method-call chains (`.choices()`, `.delta()`, `.content()?.toString()`, `.finish_reason()`) and Swift collection idioms (`.isEmpty`, `.last!`, `.count`, `.joined()`).
 
 ## [0.16.0] - 2026-05-14
 
