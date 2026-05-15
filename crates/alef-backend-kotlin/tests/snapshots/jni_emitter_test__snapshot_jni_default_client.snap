@@ -14,8 +14,15 @@ import kotlinx.coroutines.withContext
 
 /** JNI-backed wrapper holding a native `DefaultClient` handle. */
 class DefaultClient internal constructor(internal val handle: Long) : AutoCloseable {
+    companion object {
+        private val MAPPER = com.fasterxml.jackson.databind.ObjectMapper()
+            .registerModule(com.fasterxml.jackson.datatype.jdk8.Jdk8Module())
+            .findAndRegisterModules()
+            .setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE)
+    }
+
     suspend fun doThing(input: String): String {
-        return withContext(Dispatchers.IO) { DemoBridge.nativeDefaultClientDoThing(handle, input) }
+        return withContext(Dispatchers.IO) { DemoBridge.nativeDefaultClientDoThing(handle, MAPPER.writeValueAsString(input)) }
     }
 
     fun streamData(req: StreamRequest): kotlinx.coroutines.flow.Flow<DataChunk> = kotlinx.coroutines.flow.callbackFlow {

@@ -69,6 +69,9 @@ pub fn emit_jni_bridge_object(api: &ApiSurface, config: &ResolvedCrateConfig) ->
         ));
     }
 
+    // Emit external funs for instance methods on opaque client types.
+    emit_method_jni_external_funs(&mut body, api, &exclude_functions);
+
     // Emit streaming external funs.
     emit_streaming_jni_external_funs(&mut body, config);
 
@@ -119,6 +122,51 @@ pub fn emit_streaming_jni_external_funs(out: &mut String, config: &ResolvedCrate
         ));
         out.push_str(&format!("    external fun {jni_next}(streamHandle: Long): String?\n"));
         out.push_str(&format!("    external fun {jni_free}(streamHandle: Long)\n"));
+    }
+}
+
+/// Emit `external fun native{Owner}{Method}(handle: Long, requestJson: String): <ReturnType>`
+/// declarations for every visible, non-sanitized, non-static instance method on every
+/// opaque client type in the API surface.
+///
+/// Methods with no params beyond `&self` produce `(handle: Long)` with no `requestJson`.
+/// `Vec<u8>` return types produce `ByteArray`; `Unit` stays `Unit`; everything else
+/// serialises via JSON → `String` (or `String?` for optionals).
+fn emit_method_jni_external_funs(
+    out: &mut String,
+    api: &ApiSurface,
+    exclude_functions: &std::collections::HashSet<&str>,
+) {
+    let client_types: Vec<_> = api
+        .types
+        .iter()
+        .filter(|t| t.is_opaque && !t.is_trait && t.methods.iter().any(|m| !m.sanitized && !m.is_static))
+        .collect();
+    if client_types.is_empty() {
+        return;
+    }
+    out.push_str("\n    // JNI external funs for client instance methods.\n");
+    for ty in &client_types {
+        let owner_pascal = to_pascal_case(&ty.name);
+        for method in ty.methods.iter().filter(|m| !m.sanitized && !m.is_static) {
+            if exclude_functions.contains(method.name.as_str()) {
+                continue;
+            }
+            let native_name = format!("native{owner_pascal}{}", to_pascal_case(&method.name));
+            let return_ty = jni_return_type(&method.return_type);
+            // Methods with at least one param pass them all as a single JSON string.
+            // Methods with no params are called with only the handle.
+            let params = if method.params.is_empty() {
+                "handle: Long".to_string()
+            } else {
+                "handle: Long, requestJson: String".to_string()
+            };
+            if matches!(method.return_type, TypeRef::Unit) {
+                out.push_str(&format!("    external fun {native_name}({params})\n"));
+            } else {
+                out.push_str(&format!("    external fun {native_name}({params}): {return_ty}\n"));
+            }
+        }
     }
 }
 
@@ -214,6 +262,24 @@ pub fn emit_jni_client_class(
             "class {class_name} internal constructor(internal val handle: Long) : AutoCloseable {{\n"
         ));
 
+        // Emit MAPPER companion object for JSON serialisation/deserialisation.
+        // Used by all method wrappers that marshal to/from the JNI String boundary.
+        let has_json_methods = ty
+            .methods
+            .iter()
+            .filter(|m| !m.sanitized && !m.is_static)
+            .any(|m| !m.params.is_empty() || needs_json_deserialize(&m.return_type));
+        if has_json_methods {
+            body.push_str("    companion object {\n");
+            body.push_str("        private val MAPPER = com.fasterxml.jackson.databind.ObjectMapper()\n");
+            body.push_str("            .registerModule(com.fasterxml.jackson.datatype.jdk8.Jdk8Module())\n");
+            body.push_str("            .findAndRegisterModules()\n");
+            body.push_str(
+                "            .setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE)\n",
+            );
+            body.push_str("    }\n\n");
+        }
+
         for method in ty.methods.iter().filter(|m| !m.sanitized && !m.is_static) {
             emit_jni_client_method(method, class_name, &bridge_name, &mut body, &mut imports);
         }
@@ -258,6 +324,18 @@ pub fn emit_jni_client_class(
 // ---------------------------------------------------------------------------
 
 /// Emit a single instance method on the JNI DefaultClient class.
+///
+/// Wrapper strategy:
+/// - Bridge external fun takes `(handle: Long, requestJson: String)` for methods with params,
+///   or just `(handle: Long)` for zero-param methods.
+/// - When params are present, they are JSON-serialised via `MAPPER.writeValueAsString`:
+///   - 1 param → `MAPPER.writeValueAsString(<paramName>)`
+///   - 2+ params → `MAPPER.writeValueAsString(mapOf("p1" to p1, "p2" to p2, ...))`
+/// - Complex return types (Named, Vec<non-u8>, Map, Optional) are deserialised via
+///   `MAPPER.readValue(responseJson, ReturnType::class.java)`.
+/// - `ByteArray` returns (Vec<u8>), `Boolean`, and primitive returns pass through directly.
+/// - `Unit` returns drop response handling entirely.
+/// - All wrappers run in `withContext(Dispatchers.IO)` when the method is async.
 fn emit_jni_client_method(
     m: &alef_core::ir::MethodDef,
     class_name: &str,
@@ -272,44 +350,117 @@ fn emit_jni_client_method(
     }
     let method_name = to_lower_camel(&m.name);
     let native_name = format!("native{}{}", to_pascal_case(class_name), to_pascal_case(&m.name));
-    let return_ty = kotlin_type_with_string_imports(&m.return_type, false, imports);
     let async_kw = if m.is_async { "suspend " } else { "" };
 
     let params_with_types: Vec<String> = m.params.iter().map(|p| format_param_with_imports(p, imports)).collect();
-    let call_args: String = m
-        .params
-        .iter()
-        .map(|p| to_lower_camel(&p.name))
-        .collect::<Vec<_>>()
-        .join(", ");
 
-    // For JNI calls: pass `handle` as the first arg, then user params.
-    let full_args = if call_args.is_empty() {
-        "handle".to_string()
-    } else {
-        format!("handle, {call_args}")
-    };
+    // Determine the public Kotlin return type for the wrapper signature.
+    // For methods that return a Named type, Vec<non-u8>, or Map via JSON,
+    // the wrapper exposes the rich Kotlin type (deserialized from the JSON string
+    // returned by the bridge).
+    let wrapper_return_ty = kotlin_type_with_string_imports(&m.return_type, false, imports);
 
     out.push_str(&format!(
-        "    {async_kw}fun {method_name}({}): {return_ty} {{\n",
+        "    {async_kw}fun {method_name}({}): {wrapper_return_ty} {{\n",
         params_with_types.join(", ")
     ));
-    if m.is_async {
-        if matches!(m.return_type, TypeRef::Unit) {
-            out.push_str(&format!(
-                "        withContext(Dispatchers.IO) {{ {bridge_name}.{native_name}({full_args}) }}\n"
-            ));
-        } else {
-            out.push_str(&format!(
-                "        return withContext(Dispatchers.IO) {{ {bridge_name}.{native_name}({full_args}) }}\n"
-            ));
-        }
-    } else if matches!(m.return_type, TypeRef::Unit) {
-        out.push_str(&format!("        {bridge_name}.{native_name}({full_args})\n"));
-    } else {
-        out.push_str(&format!("        return {bridge_name}.{native_name}({full_args})\n"));
-    }
+
+    // Build the bridge call expression, with JSON marshalling where needed.
+    let bridge_call = build_bridge_call(m, bridge_name, &native_name);
+
+    // Emit the method body with optional `withContext` wrapping.
+    emit_method_body(m, out, &bridge_call, imports);
+
     out.push_str("    }\n\n");
+}
+
+/// Build the expression that calls the bridge, including any JSON serialisation.
+///
+/// Returns a string that produces the bridge's raw return value (String, ByteArray, Unit, etc.).
+fn build_bridge_call(m: &alef_core::ir::MethodDef, bridge_name: &str, native_name: &str) -> String {
+    if m.params.is_empty() {
+        return format!("{bridge_name}.{native_name}(handle)");
+    }
+    // Build requestJson expression.
+    let request_json_expr = if m.params.len() == 1 {
+        let param_name = to_lower_camel(&m.params[0].name);
+        format!("MAPPER.writeValueAsString({param_name})")
+    } else {
+        let map_entries: Vec<String> = m
+            .params
+            .iter()
+            .map(|p| {
+                let name = to_lower_camel(&p.name);
+                format!("\"{name}\" to {name}")
+            })
+            .collect();
+        format!("MAPPER.writeValueAsString(mapOf({}))", map_entries.join(", "))
+    };
+    format!("{bridge_name}.{native_name}(handle, {request_json_expr})")
+}
+
+/// Emit the method body lines (withContext wrapper, return, JSON deserialisation).
+fn emit_method_body(m: &alef_core::ir::MethodDef, out: &mut String, bridge_call: &str, imports: &mut BTreeSet<String>) {
+    let needs_deserialize = needs_json_deserialize(&m.return_type);
+    let return_kotlin_type = if needs_deserialize {
+        Some(kotlin_type_with_string_imports(&m.return_type, false, imports))
+    } else {
+        None
+    };
+
+    match &m.return_type {
+        TypeRef::Unit => {
+            if m.is_async {
+                out.push_str(&format!("        withContext(Dispatchers.IO) {{ {bridge_call} }}\n"));
+            } else {
+                out.push_str(&format!("        {bridge_call}\n"));
+            }
+        }
+        _ if needs_deserialize => {
+            // Bridge returns JSON String; deserialise to the rich Kotlin type.
+            let kotlin_ty = return_kotlin_type.unwrap();
+            // Strip trailing `?` from the class literal used in readValue.
+            let base_ty = kotlin_ty.trim_end_matches('?');
+            if m.is_async {
+                out.push_str("        return withContext(Dispatchers.IO) {\n");
+                out.push_str(&format!("            val responseJson = {bridge_call}\n"));
+                out.push_str(&format!(
+                    "            MAPPER.readValue(responseJson, {base_ty}::class.java)\n"
+                ));
+                out.push_str("        }\n");
+            } else {
+                out.push_str(&format!("        val responseJson = {bridge_call}\n"));
+                out.push_str(&format!(
+                    "        return MAPPER.readValue(responseJson, {base_ty}::class.java)\n"
+                ));
+            }
+        }
+        _ => {
+            // Primitive, Boolean, ByteArray, String — pass through.
+            if m.is_async {
+                out.push_str(&format!(
+                    "        return withContext(Dispatchers.IO) {{ {bridge_call} }}\n"
+                ));
+            } else {
+                out.push_str(&format!("        return {bridge_call}\n"));
+            }
+        }
+    }
+}
+
+/// Returns true when the bridge return type is a JSON String that must be
+/// deserialised into a richer Kotlin type in the wrapper body.
+fn needs_json_deserialize(ty: &TypeRef) -> bool {
+    match ty {
+        TypeRef::Named(_) => true,
+        TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Named(_)),
+        TypeRef::Map(_, _) => true,
+        TypeRef::Vec(inner) => {
+            // Vec<u8> → ByteArray (pass-through); other Vec → JSON String → needs deserialize.
+            !matches!(inner.as_ref(), TypeRef::Primitive(alef_core::ir::PrimitiveType::U8))
+        }
+        _ => false,
+    }
 }
 
 /// Emit a `Flow<ChunkType>` callbackFlow method for a streaming adapter,
@@ -385,6 +536,8 @@ fn emit_jni_streaming_client_method(
 ///
 /// JNI external funs must use primitive-width types and `String` for text.
 /// Complex types (structs, enums) are passed as JSON-encoded `String` values.
+/// `Vec<u8>` maps to `ByteArray` so binary responses (images, speech audio) avoid
+/// base64 overhead through Jackson.
 fn jni_return_type(ty: &TypeRef) -> &'static str {
     match ty {
         TypeRef::Unit => "Unit",
@@ -410,8 +563,15 @@ fn jni_return_type(ty: &TypeRef) -> &'static str {
         TypeRef::Optional(_) => "String?",
         // Named types (structs, enums, errors) → JSON-encoded String
         TypeRef::Named(_) => "String",
-        // Collections → JSON-encoded String
-        TypeRef::Vec(_) | TypeRef::Map(_, _) => "String",
+        // Vec<u8> (binary data) → ByteArray; other collections → JSON-encoded String
+        TypeRef::Vec(inner) => {
+            if matches!(inner.as_ref(), TypeRef::Primitive(alef_core::ir::PrimitiveType::U8)) {
+                "ByteArray"
+            } else {
+                "String"
+            }
+        }
+        TypeRef::Map(_, _) => "String",
         // Opaque handle → Long
         _ => "Long",
     }

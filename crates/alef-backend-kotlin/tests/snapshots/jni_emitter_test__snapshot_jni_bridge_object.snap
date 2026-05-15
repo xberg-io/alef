@@ -11,6 +11,9 @@ object DemoBridge {
 
     external fun nativeFoo(value: Int): String
 
+    // JNI external funs for client instance methods.
+    external fun nativeDefaultClientDoThing(handle: Long, requestJson: String): String
+
     // JNI streaming external funs — implementations are Rust JNI shims.
 
     // Streaming JNI externs for DefaultClient.streamData

@@ -5,7 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.16.5 - Unreleased]
+## [0.16.5] - 2026-05-15
+
+### Added
+
+- **alef-backend-kotlin (JNI mode)**: extended Bridge object and `DefaultClient`
+  emission to cover the full Panama-emitted method surface. Every visible
+  non-static instance method on an opaque client type now produces an
+  `external fun native<Owner><Method>(handle: Long, requestJson: String): String`
+  Bridge declaration plus a typed Kotlin wrapper that JSON-marshals the request
+  via `MAPPER.writeValueAsString` and deserialises the response via
+  `MAPPER.readValue`. Wrappers run on `Dispatchers.IO`. `Vec<u8>` IR returns map
+  to Kotlin `ByteArray` (pass-through, no base64); `Unit` returns drop response
+  handling; zero-param methods omit `requestJson` from both the Bridge external
+  fun and the wrapper call. A shared `MAPPER` companion object is emitted on
+  the client class when at least one method requires JSON marshalling.
 
 ### Fixed
 
