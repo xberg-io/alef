@@ -27,6 +27,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-backend-swift**: emit `extension RustBridge.{Owner}{Adapter}StreamHandle:
+  @unchecked Sendable {}` for every streaming adapter's opaque handle type.
+  swift-bridge generates opaque Swift classes without `Sendable` conformance; the
+  generated `chatStream` wrapper captures the handle inside two nested
+  `Task.detached` closures, which Swift 6 strict-concurrency rejects with "does
+  not conform to the 'Sendable' protocol". The Rust handle wraps a
+  `Mutex<BoxStream>` and a `tokio::runtime::Runtime` — both `Send + Sync` — so
+  `@unchecked Sendable` is the correct annotation: Rust enforces thread-safety,
+  Swift cannot see it through the opaque FFI boundary. The extension is emitted
+  immediately after the owning client class declaration.
+- **alef-backend-swift**: emit streaming `item_type` types that appear in
+  `api.types` with `has_serde: true` and populated fields as native
+  `public struct X: Codable { … }` declarations instead of opaque
+  `typealias X = RustBridge.X` aliases. The generated streaming wrapper calls
+  `JSONDecoder().decode(X.self, from: data)`, which requires `X: Decodable`; an
+  opaque swift-bridge class does not implement `Decodable`, causing a compile
+  error. The decision is field-gated (falling back to typealias when the IR has
+  no fields) so it is safe for types that the IR only partially describes.
+
 - **alef-backend-dart**: skip trait methods whose return type references another
   trait (e.g. `Option<&dyn SyncExtractor>` on `DocumentExtractor::as_sync_extractor`)
   from the generated trait bridge. The IR flattens `&dyn Trait` /
@@ -50,6 +69,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no-op `String → String` case. Surfaced by kreuzcrawl's
   `DownloadedDocument.headers: HashMap<Box<str>, Box<str>>` field
   breaking `cargo clippy -p kreuzcrawl-dart`.
+- **alef-backend-dart**: honor `[crates.dart.extra_dependencies]` when
+  generating the package-local Rust bridge `Cargo.toml`, allowing projects
+  to override sibling crate paths that differ from the workspace binding
+  crates.
 - **alef-e2e (zig)**: `field[key]` bracket notation in fixture aliases now
   resolves to a HashMap-style nested object lookup
   (`.object.get("field").?.object.get("key").?`). Previously the bracketed

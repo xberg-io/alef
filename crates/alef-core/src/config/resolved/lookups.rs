@@ -257,6 +257,7 @@ impl ResolvedCrateConfig {
             Language::Php => self.php.as_ref().map(|c| &c.extra_dependencies),
             Language::Elixir => self.elixir.as_ref().map(|c| &c.extra_dependencies),
             Language::Wasm => self.wasm.as_ref().map(|c| &c.extra_dependencies),
+            Language::Dart => self.dart.as_ref().map(|c| &c.extra_dependencies),
             _ => None,
         };
         if let Some(lang_deps) = lang_deps {
