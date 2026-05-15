@@ -199,8 +199,14 @@ pub(crate) fn emit_extern_block_for_type_methods(ty: &TypeDef) -> Option<String>
         let fn_name = format!("{type_snake}_{method_snake}");
         let swift_name = swift_ident(&fn_name.to_lower_camel_case());
 
-        // Build parameter list: first param is `client: &TypeName`, then method params.
-        let mut params: Vec<String> = vec![format!("client: &{}", ty.name)];
+        // Build parameter list: first param is `client: &TypeName` (or `&mut` for
+        // RefMut receivers), then method params.
+        let client_receiver = if matches!(method.receiver, Some(alef_core::ir::ReceiverKind::RefMut)) {
+            format!("client: &mut {}", ty.name)
+        } else {
+            format!("client: &{}", ty.name)
+        };
+        let mut params: Vec<String> = vec![client_receiver];
         for p in &method.params {
             let bridge_ty = bridge_type(&p.ty);
             let bridge_ty = if p.optional && !needs_json_bridge(&p.ty) {

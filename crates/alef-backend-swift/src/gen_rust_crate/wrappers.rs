@@ -825,8 +825,15 @@ pub(crate) fn emit_type_method_shims(
         let method_snake = method.name.to_snake_case();
         let fn_name = format!("{type_snake}_{method_snake}");
 
-        // Build param list: first param is `client: &TypeName`, then method params.
-        let mut params_vec: Vec<String> = vec![format!("client: &{type_name}")];
+        // Build param list: first param is `client: &TypeName` (or `&mut` for
+        // RefMut receivers so the inner `client.0.method()` borrow compiles), then
+        // method params.
+        let client_receiver = if matches!(method.receiver, Some(ReceiverKind::RefMut)) {
+            format!("client: &mut {type_name}")
+        } else {
+            format!("client: &{type_name}")
+        };
+        let mut params_vec: Vec<String> = vec![client_receiver];
         for p in &method.params {
             let bridge_ty = bridge_type(&p.ty);
             let bridge_ty = if p.optional && !needs_json_bridge(&p.ty) {

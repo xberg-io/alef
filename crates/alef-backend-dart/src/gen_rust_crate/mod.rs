@@ -1914,6 +1914,9 @@ fn emit_opaque_method_body(
                         if p.optional {
                             return format!("{param_name}.map(|h| h.inner)");
                         }
+                        if p.is_ref {
+                            return format!("&{param_name}.inner");
+                        }
                         return format!("{param_name}.inner");
                     }
                     let core_ty = format!("{source_crate_name}::{mirror_name}");
@@ -1921,6 +1924,9 @@ fn emit_opaque_method_body(
                         // Layout differs — use the generated From<MirrorT> for CoreT impl.
                         if p.optional {
                             format!("{param_name}.map({core_ty}::from)")
+                        } else if p.is_ref {
+                            // Cannot take a reference to a temporary — convert to owned then borrow.
+                            format!("&{core_ty}::from({param_name})")
                         } else {
                             format!("{core_ty}::from({param_name})")
                         }
@@ -1928,6 +1934,8 @@ fn emit_opaque_method_body(
                         // Named mirror type with identical layout: transmute to the source-crate type.
                         if p.optional {
                             format!("{param_name}.map(|v| unsafe {{ ::std::mem::transmute::<{mirror_name}, {core_ty}>(v) }})")
+                        } else if p.is_ref {
+                            format!("unsafe {{ ::std::mem::transmute::<&{mirror_name}, &{core_ty}>(&{param_name}) }}")
                         } else {
                             format!("unsafe {{ ::std::mem::transmute::<{mirror_name}, {core_ty}>({param_name}) }}")
                         }
@@ -1950,6 +1958,10 @@ fn emit_opaque_method_body(
                                 format!("unsafe {{ ::std::mem::transmute::<Vec<{mirror_name}>, Vec<{core_ty}>>({param_name}) }}")
                             }
                         }
+                    } else if matches!(inner.as_ref(), TypeRef::String) && p.is_ref {
+                        // Core takes `&[&str]`; FRB delivers `Vec<String>`.
+                        // Materialise a temporary `Vec<&str>` and pass it as a slice.
+                        format!("{param_name}.iter().map(|s| s.as_str()).collect::<Vec<_>>()")
                     } else {
                         param_name.clone()
                     }
