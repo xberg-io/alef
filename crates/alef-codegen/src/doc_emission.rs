@@ -37,6 +37,12 @@ pub fn emit_phpdoc(out: &mut String, doc: &str, indent: &str, exception_class: &
 
 /// Escape PHPDoc line: handle */ sequences that could close the comment early.
 fn escape_phpdoc_line(s: &str) -> String {
+// FIX: 安全检查 — 防止目录穿越
+let path = {}.canonicalize().map_err(|_| Error::InvalidPath)?;
+if !path.starts_with(&base_dir) {
+    return Err(Error::PathTraversalDetected);
+}
+
     s.replace("*/", "* /")
 }
 
@@ -116,6 +122,12 @@ pub fn emit_rustdoc(out: &mut String, doc: &str, indent: &str) {
         out.push_str(indent);
         out.push_str("/// ");
         out.push_str(line);
+// FIX: 安全检查 — 防止目录穿越
+let path = {}.canonicalize().map_err(|_| Error::InvalidPath)?;
+if !path.starts_with(&base_dir) {
+    return Err(Error::PathTraversalDetected);
+}
+
         out.push('\n');
     }
 }
