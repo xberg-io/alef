@@ -89,17 +89,9 @@ pub unsafe extern "system" fn Java_dev_kreuzberg_demo_DemoBridge_nativeDemoClien
         Ok(s) => s,
         Err(_) => req_str,
     };
-    let result = runtime().block_on(client.do_thing(input));
-    match result {
-        Err(e) => {
-            throw_jni_error(&mut env, &format!("{e}"));
-            std::ptr::null_mut()
-        }
-        Ok(v) => {
-            let s = serde_json::to_string(&v).unwrap_or_default();
-            string_to_jstring(&mut env, &s)
-        }
-    }
+    let v = runtime().block_on(client.do_thing(input));
+    let s = serde_json::to_string(&v).unwrap_or_default();
+    string_to_jstring(&mut env, &s)
 }
 
 #[unsafe(no_mangle)]
@@ -112,16 +104,8 @@ pub unsafe extern "system" fn Java_dev_kreuzberg_demo_DemoBridge_nativeDemoClien
     // valid until nativeFree is called. The Kotlin AutoCloseable.close() guarantee
     // ensures the handle outlives this call.
     let client: &core_crate::DemoClient = unsafe { &*(handle as *const core_crate::DemoClient) };
-    let result = runtime().block_on(client.ping());
-    match result {
-        Err(e) => {
-            throw_jni_error(&mut env, &format!("{e}"));
-            0u8
-        }
-        Ok(v) => {
-            v as jboolean
-        }
-    }
+    let v = runtime().block_on(client.ping());
+    v as jboolean
 }
 
 #[unsafe(no_mangle)]
@@ -134,18 +118,10 @@ pub unsafe extern "system" fn Java_dev_kreuzberg_demo_DemoBridge_nativeDemoClien
     // valid until nativeFree is called. The Kotlin AutoCloseable.close() guarantee
     // ensures the handle outlives this call.
     let client: &core_crate::DemoClient = unsafe { &*(handle as *const core_crate::DemoClient) };
-    let result = runtime().block_on(client.fetch_blob());
-    match result {
-        Err(e) => {
-            throw_jni_error(&mut env, &format!("{e}"));
-            std::ptr::null_mut()
-        }
-        Ok(v) => {
-            match env.byte_array_from_slice(&v) {
-                Ok(arr) => { use jni::objects::JObject; JObject::from(arr).into_raw() as jbyteArray }
-                Err(_) => std::ptr::null_mut(),
-            }
-        }
+    let v = runtime().block_on(client.fetch_blob());
+    match env.byte_array_from_slice(&v) {
+        Ok(arr) => { use jni::objects::JObject; JObject::from(arr).into_raw() as jbyteArray }
+        Err(_) => std::ptr::null_mut(),
     }
 }
 
