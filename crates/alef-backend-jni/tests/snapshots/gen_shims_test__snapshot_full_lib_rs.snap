@@ -12,6 +12,8 @@ expression: "&lib.content"
 #![allow(clippy::missing_safety_doc)]
 #![allow(unused_imports)]
 #![allow(unused_variables)]
+#![allow(unused_mut)]
+#![allow(dead_code)]
 
 use std::sync::OnceLock;
 use std::sync::Mutex;
