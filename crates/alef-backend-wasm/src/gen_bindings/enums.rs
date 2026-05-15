@@ -22,10 +22,9 @@ fn escape_rust_keyword(name: &str) -> String {
     // Rust 2024 edition reserved keywords (subset that can appear as field names).
     const RUST_KEYWORDS: &[&str] = &[
         "as", "break", "const", "continue", "crate", "else", "enum", "extern", "false", "fn", "for", "if", "impl",
-        "in", "let", "loop", "match", "mod", "move", "mut", "pub", "ref", "return", "self", "Self", "static",
-        "struct", "super", "trait", "true", "type", "unsafe", "use", "where", "while", "async", "await", "dyn",
-        "abstract", "become", "box", "do", "final", "macro", "override", "priv", "typeof", "unsized", "virtual",
-        "yield", "try",
+        "in", "let", "loop", "match", "mod", "move", "mut", "pub", "ref", "return", "self", "Self", "static", "struct",
+        "super", "trait", "true", "type", "unsafe", "use", "where", "while", "async", "await", "dyn", "abstract",
+        "become", "box", "do", "final", "macro", "override", "priv", "typeof", "unsized", "virtual", "yield", "try",
     ];
     if RUST_KEYWORDS.contains(&name) {
         format!("r#{name}")
@@ -274,11 +273,7 @@ pub(super) fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &
             lines.push("            },".to_string());
         } else {
             // Destructure variant's fields by name (using raw identifiers where needed).
-            let destructure_names: Vec<String> = variant
-                .fields
-                .iter()
-                .map(|f| escape_rust_keyword(&f.name))
-                .collect();
+            let destructure_names: Vec<String> = variant.fields.iter().map(|f| escape_rust_keyword(&f.name)).collect();
             let mut inits = vec![format!(
                 "                {tag_field_ident}: \"{tag_value}\".to_string()"
             )];
@@ -452,5 +447,4 @@ mod tests {
         assert!(result.contains("Self::Active => \"Active\""));
         assert!(result.contains("Self::Inactive => \"Inactive\""));
     }
-
 }

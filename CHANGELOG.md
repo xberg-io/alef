@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **kotlin-android: drop redundant variant constructor wrap in tagged sealed-class
+  deserializer**: the emitter for serde-tagged sealed classes (`#[serde(tag = ...)]`)
+  incorrectly wrapped the `readTreeAsValue` result in the variant constructor for
+  named-field struct variants (e.g. `ContentPart.Text(ctx.readTreeAsValue(node,
+  ContentPart.Text::class.java))` — the outer `ContentPart.Text(...)` call passes a
+  `ContentPart.Text` to a constructor expecting `String`, failing with "Argument type
+  mismatch"). Named-field variants now emit `ctx.readTreeAsValue<Variant>(node,
+  Variant::class.java)` directly. Newtype/tuple variants (`_0` field) correctly retain
+  the wrapper since they pass the inner type to the variant constructor. Explicit Kotlin
+  type parameters (`<T>`) are added to all `readTreeAsValue` call sites to prevent
+  Kotlin inferring `Any!` for the Java generic return type.
+  (`crates/alef-backend-kotlin/src/gen_bindings/object_wrapper.rs`)
+
 - **kotlin-android: add Jackson runtime deps to `build.gradle.kts`
   template**: alef v0.16.11 added `@JsonDeserialize` to sealed-class Kotlin
   DTOs for serde-tagged polymorphism, but the kotlin-android `build.gradle.kts`

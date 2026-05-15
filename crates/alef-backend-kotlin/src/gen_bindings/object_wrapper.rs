@@ -232,20 +232,25 @@ fn emit_kotlin_tagged_deserializer(out: &mut String, en: &EnumDef, tag_field: &s
             out.push_str(&variant.name);
             out.push('\n');
         } else if variant.fields.len() == 1 && is_tuple_field_name(&variant.fields[0].name) {
-            // Newtype/tuple variant: `readTreeAsValue` already returns the correct
-            // variant subtype — return it directly without wrapping in the variant
-            // constructor again.  Use the explicit Kotlin type parameter to avoid
-            // Kotlin inferring `Any!` for the Java generic method return.
+            // Newtype/tuple variant: the `_0` IR field holds an inner named type
+            // (e.g. `SystemMessage`).  Deserialize the node as that inner type and
+            // wrap it in the variant constructor.  The variant class is NOT the same
+            // as the inner type, so we cannot return readTreeAsValue directly.
             let inner_class = kotlin_class_name_for_type(&variant.fields[0].ty);
-            out.push_str("ctx.readTreeAsValue<");
+            out.push_str(name);
+            out.push('.');
+            out.push_str(&variant.name);
+            out.push_str("(ctx.readTreeAsValue<");
             out.push_str(&inner_class);
             out.push_str(">(node, ");
             out.push_str(&inner_class);
-            out.push_str("::class.java)\n");
+            out.push_str("::class.java))\n");
         } else {
-            // Named-field variant: `readTreeAsValue` returns the correct data class
-            // subtype — return it directly.  Use the explicit Kotlin type parameter
-            // so the compiler can verify the return satisfies the sealed-class bound.
+            // Named-field struct variant: the variant data class fields are the
+            // same as the JSON object fields.  `readTreeAsValue` constructs the
+            // correct variant subtype directly — no constructor wrap needed.  Use
+            // an explicit Kotlin type parameter to avoid `Any!` inference on the
+            // Java generic return type.
             out.push_str("ctx.readTreeAsValue<");
             out.push_str(name);
             out.push('.');
@@ -303,10 +308,7 @@ fn emit_kotlin_untagged_deserializer(out: &mut String, en: &EnumDef) {
             // Tuple/newtype variant — the JSON IS the inner value.
             let ty = &variant.fields[0].ty;
             match ty {
-                TypeRef::String => (
-                    "node.isTextual",
-                    format!("{name}.{}(node.asText())", variant.name),
-                ),
+                TypeRef::String => ("node.isTextual", format!("{name}.{}(node.asText())", variant.name)),
                 TypeRef::Vec(elem_ty) => {
                     // Use JavaType to carry the generic element type so Jackson can
                     // construct a properly-typed List<T> rather than a raw List<*>.
@@ -321,7 +323,10 @@ fn emit_kotlin_untagged_deserializer(out: &mut String, en: &EnumDef) {
                     let class_name = kotlin_class_name_for_type(ty);
                     (
                         "node.isNumber",
-                        format!("{name}.{}(ctx.readTreeAsValue(node, {class_name}::class.java))", variant.name),
+                        format!(
+                            "{name}.{}(ctx.readTreeAsValue(node, {class_name}::class.java))",
+                            variant.name
+                        ),
                     )
                 }
                 TypeRef::Named(n) => (
@@ -332,7 +337,10 @@ fn emit_kotlin_untagged_deserializer(out: &mut String, en: &EnumDef) {
                     let class_name = kotlin_class_name_for_type(ty);
                     (
                         "node.isObject",
-                        format!("{name}.{}(ctx.readTreeAsValue(node, {class_name}::class.java))", variant.name),
+                        format!(
+                            "{name}.{}(ctx.readTreeAsValue(node, {class_name}::class.java))",
+                            variant.name
+                        ),
                     )
                 }
             }
@@ -712,17 +720,12 @@ mod tests {
             out.contains("\"system\" ->"),
             "deserializer must dispatch on variant 'system'; got:\n{out}",
         );
-        // Fix: the variant value is returned directly from readTreeAsValue — the
-        // variant constructor must NOT be emitted around readTreeAsValue.  The
-        // explicit Kotlin type parameter avoids Kotlin inferring `Any!` for the
-        // Java generic method return type.
+        // Newtype variant: must wrap the inner type in the variant constructor.
+        // readTreeAsValue<InnerType> returns the inner type; the variant constructor
+        // wraps it to produce the sealed-class value.
         assert!(
-            out.contains("\"system\" -> ctx.readTreeAsValue<SystemMessage>(node, SystemMessage::class.java)"),
-            "tagged deserializer must return readTreeAsValue<T> directly (no variant-constructor wrap); got:\n{out}",
-        );
-        assert!(
-            !out.contains("Message.System(ctx.readTreeAsValue"),
-            "tagged deserializer must NOT double-wrap via variant constructor; got:\n{out}",
+            out.contains("Message.System(ctx.readTreeAsValue<SystemMessage>(node, SystemMessage::class.java))"),
+            "tagged deserializer must wrap readTreeAsValue<InnerType> in variant constructor for newtype; got:\n{out}",
         );
     }
 
@@ -795,10 +798,7 @@ mod tests {
                     Some("base64"),
                     vec![
                         make_field("data", TypeRef::String),
-                        make_field(
-                            "media_type",
-                            TypeRef::Named("MediaType".to_string()),
-                        ),
+                        make_field("media_type", TypeRef::Named("MediaType".to_string())),
                     ],
                 ),
             ],
@@ -837,13 +837,11 @@ mod tests {
         let mut out = String::new();
         emit_enum(&en, &mut out);
 
+        // Newtype variant: must wrap the inner-type result in the variant constructor.
+        // The variant class (ContentPart.Text) is different from the inner type (TextContent).
         assert!(
-            out.contains("\"text\" -> ctx.readTreeAsValue<TextContent>(node, TextContent::class.java)"),
-            "tagged deserializer must return readTreeAsValue<T> directly for newtype variant; got:\n{out}",
-        );
-        assert!(
-            !out.contains("ContentPart.Text(ctx.readTreeAsValue"),
-            "tagged deserializer must NOT wrap readTreeAsValue result in variant constructor; got:\n{out}",
+            out.contains("ContentPart.Text(ctx.readTreeAsValue<TextContent>(node, TextContent::class.java))"),
+            "tagged deserializer must wrap readTreeAsValue<InnerType> in variant constructor for newtype variant; got:\n{out}",
         );
     }
 
@@ -862,7 +860,10 @@ mod tests {
                 make_variant(
                     "Parts",
                     None,
-                    vec![make_field("_0", TypeRef::Vec(Box::new(TypeRef::Named("ContentPart".to_string()))))],
+                    vec![make_field(
+                        "_0",
+                        TypeRef::Vec(Box::new(TypeRef::Named("ContentPart".to_string()))),
+                    )],
                 ),
             ],
         );
