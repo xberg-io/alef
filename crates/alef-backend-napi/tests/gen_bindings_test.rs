@@ -1600,6 +1600,14 @@ fn test_capsule_types_end_to_end() {
         "get_language shim must NOT use bindgen_prelude::External::new; content:\n{content}"
     );
 
+    // The extern block must be gated with a Windows raw-dylib link attribute so
+    // MSVC can synthesize import-library entries for napi_create_external and
+    // napi_type_tag_object — symbols outside napi-sys's generate! allowlist.
+    assert!(
+        content.contains(r#"#[cfg_attr(target_os = "windows", link(name = "node", kind = "raw-dylib"))]"#),
+        "extern block must be gated with raw-dylib link attribute for Windows MSVC; content:\n{content}"
+    );
+
     // The shim must set the default __parser property on the returned JsObject
     // (the test config doesn't override property_name).
     assert!(
@@ -1801,6 +1809,13 @@ fn test_capsule_types_method_on_opaque_rust_shim() {
     assert!(
         !content.contains("bindgen_prelude::External::new"),
         "method shim must NOT use bindgen_prelude::External::new; content:\n{content}"
+    );
+
+    // The extern block must be gated with the Windows raw-dylib link attribute
+    // so MSVC can synthesize import-library entries for the raw napi symbols.
+    assert!(
+        content.contains(r#"#[cfg_attr(target_os = "windows", link(name = "node", kind = "raw-dylib"))]"#),
+        "extern block must be gated with raw-dylib link attribute for Windows MSVC; content:\n{content}"
     );
 
     // The shim must set __parser (default property name).

@@ -194,6 +194,15 @@ pub(super) fn gen_capsule_function(
 
 /// Emit the FFI extern declarations used by every capsule-returning shim.
 /// Emitted once per crate when any capsule_types are configured.
+///
+/// The `#[cfg_attr(target_os = "windows", link(name = "node", kind = "raw-dylib"))]`
+/// is required for Windows MSVC: the linker needs an import-library entry for
+/// every imported symbol. `napi-build`'s generated `.def` covers only symbols in
+/// `napi-sys`'s `generate!` allowlist — `napi_create_external` and
+/// `napi_type_tag_object` are not in that list, so MSVC fails with `LNK2019:
+/// unresolved external symbol` without `kind = "raw-dylib"` (Rust 1.71+).
+/// On Linux/macOS the attribute is a no-op; Node's dynamic loader resolves the
+/// symbols at module load.
 pub(super) fn gen_ffi_declarations() -> String {
     r#"#[repr(C)]
 struct NapiTypeTag {
@@ -201,6 +210,7 @@ struct NapiTypeTag {
     upper: u64,
 }
 
+#[cfg_attr(target_os = "windows", link(name = "node", kind = "raw-dylib"))]
 unsafe extern "C" {
     fn napi_create_external(
         env: napi::sys::napi_env,
@@ -442,5 +452,20 @@ mod tests {
         assert!(out.contains("fn napi_create_external"));
         assert!(out.contains("fn napi_type_tag_object"));
         assert!(out.contains("struct NapiTypeTag"));
+    }
+
+    /// gen_ffi_declarations emits a `kind = "raw-dylib"` link attribute scoped
+    /// to Windows so MSVC can synthesize import-library entries for symbols
+    /// outside napi-sys's `generate!` allowlist. Linux/macOS rely on Node's
+    /// dynamic loader and need no attribute — the cfg_attr is a no-op there.
+    #[test]
+    fn gen_ffi_declarations_emits_windows_raw_dylib_link() {
+        let out = gen_ffi_declarations();
+        assert!(
+            out.contains(r#"#[cfg_attr(target_os = "windows", link(name = "node", kind = "raw-dylib"))]"#),
+            "must gate the raw napi extern block with a Windows raw-dylib link attribute so MSVC can \
+             link against napi_create_external + napi_type_tag_object (symbols missing from napi-sys's \
+             generate! allowlist). Got: {out}"
+        );
     }
 }

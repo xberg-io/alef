@@ -7,8 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-05-14
+
 ### Fixed
 
+- **alef-backend-napi**: gate the raw `napi_create_external` /
+  `napi_type_tag_object` `extern "C"` block with
+  `#[cfg_attr(target_os = "windows", link(name = "node", kind = "raw-dylib"))]`.
+  Without this, generated capsule_types bindings failed to link on Windows MSVC
+  with `LNK2019: unresolved external symbol`, because `napi-build`'s `.def` only
+  exposes symbols inside `napi-sys`'s `generate!` allowlist — and these two are
+  not in it. `kind = "raw-dylib"` (stable since Rust 1.71) tells the MSVC
+  linker to synthesize the import-library entries from the `extern` block
+  itself; on Linux/macOS the `cfg_attr` is a no-op and Node's dynamic loader
+  continues to resolve at module load. Added `windows-latest` to alef's CI
+  test matrix so the new attribute regression-gates against future drift.
 - **alef-e2e (zig)**: emit unique `.name = "<test>_test"` on every
   `b.addTest(.{...})` block in the generated `build.zig`. Zig 0.16 hashes the
   output binary path off the artifact name; without an explicit name every
@@ -34,8 +47,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Workspaces that pointed `kotlin_android` at the project root continue
   to work — the legacy semantics are preserved when the configured path
   does not end with the Gradle Android source-set suffix.
-
-## [0.16.0] - 2026-05-14
 
 ### Added
 
@@ -85,10 +96,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     DSL was dropped; AGP's `compileOptions` (sourceCompatibility /
     targetCompatibility) drives the Kotlin compile JVM target.
 
-### Fixed
-
-- **alef-backend-swift, alef-backend-dart**: emit correct `package = "..."` rename in bridge `Cargo.toml`. The rename target previously used `core_crate_dir` (the on-disk directory name), but cargo needs the actual `[package].name` from the umbrella crate's `Cargo.toml`. The two differ when `[[crates]] name` is suffixed for crates.io disambiguation (e.g. `html-to-markdown-rs` package at `crates/html-to-markdown/`). Without the fix, `cargo check` errors with `no matching package found, searched package name: "html-to-markdown"`. Use `crate_name` (the [[crates]] `name` field) for the rename target instead.
-
 ### Changed
 
 - **BREAKING — alef-backend-kotlin**: the in-band `[crates.kotlin] mode =
@@ -100,7 +107,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Android scaffolding lives in `alef-backend-kotlin-android` so the same
   emitter owns the project tree on every regeneration. The
   `"android"` branch in `scaffold_kotlin` dispatch is gone.
-
 - **alef-backend-swift**: streaming adapters are now implemented end-to-end.
   `Capabilities::supports_streaming` flips from `false` to `true`. For every
   adapter with `pattern = streaming`:
@@ -130,12 +136,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   than a shared runtime, but isolates lifetimes); back-pressure is not yet
   implemented (Swift consumer slower than chunk arrival → unbounded
   `AsyncThrowingStream` buffer growth).
-
-### Fixed
-
-- **alef-backend-swift, alef-backend-dart**: emit correct `package = "..."` rename in bridge `Cargo.toml`. The rename target previously used `core_crate_dir` (the on-disk directory name), but cargo needs the actual `[package].name` from the umbrella crate's `Cargo.toml`. The two differ when `[[crates]] name` is suffixed for crates.io disambiguation (e.g. `html-to-markdown-rs` package at `crates/html-to-markdown/`). Without the fix, `cargo check` errors with `no matching package found, searched package name: "html-to-markdown"`. Use `crate_name` (the [[crates]] `name` field) for the rename target instead.
-
-### Changed
 
 - **alef-core/alef-scaffold/backends**: Alef is less organization-specific by
   default. Workspace config can now provide scaffold metadata plus generated
@@ -170,6 +170,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   properties.
 - **alef-scaffold**: Zig scaffolding no longer uses organization-specific
   workflow setup actions and now uses the public Zig setup action.
+
+### Fixed
+
+- **alef-backend-swift, alef-backend-dart**: emit correct `package = "..."`
+  rename in bridge `Cargo.toml`. The rename target previously used
+  `core_crate_dir` (the on-disk directory name), but cargo needs the actual
+  `[package].name` from the umbrella crate's `Cargo.toml`. The two differ when
+  `[[crates]] name` is suffixed for crates.io disambiguation (e.g.
+  `html-to-markdown-rs` package at `crates/html-to-markdown/`). Without the
+  fix, `cargo check` errors with `no matching package found, searched package
+  name: "html-to-markdown"`. Use `crate_name` (the `[[crates]]` `name` field)
+  for the rename target instead.
+- **alef-backend-swift**: emit method receivers from IR
+  (`&self`/`&mut self`/`self`) instead of hardcoded `&self` — closes E0053 for
+  traits with `&mut self` methods (40+ HtmlVisitor methods in h2m). Adds
+  optional and slice param reconstruction in trait impls, emits `Debug` impl
+  for non-Plugin inbound wrappers (`HtmlVisitor: Debug` supertrait), detects
+  `ReceiverKind::Owned` for inner method calls and clones the inner value to
+  support `&self` wrappers calling owned-self inner methods, and skips
+  serde-bridging `Vec<T>` when `T` lacks `Serialize`/`Deserialize` (sanitized
+  field detection).
+- **alef-backend-dart**: `build.rs` invokes `flutter_rust_bridge_codegen` CLI
+  at cargo build time (closes D1). Emits `visit_*` method receivers from IR.
+- **alef-core**: configurable `error_type` / `error_constructor` read from
+  `alef.toml` `[[crates]]` entries instead of hardcoded Kreuzberg error
+  variants.
+- **alef-extract**: flatten `Option<Option<T>>` in `type_resolver` (closes Z3).
+  flutter_rust_bridge rejects nested optionals and zig emits semantically
+  muddy `??T`. Structs that wrap already-optional fields (e.g.
+  `ConversionOptionsUpdate.max_depth: Option<Option<u64>>`) now extract as a
+  single `Option<T>` — `None` means "no change", matching the practical
+  semantics across all backends.
+- **alef-e2e (zig)**: emit unique `.name = "<test>_test"` on every
+  `b.addTest(.{...})` block in the generated `build.zig`. Zig 0.16 hashes the
+  output binary path off the artifact name; without an explicit name every
+  `addTest` defaulted to `"test"`, colliding in the cache so only one binary
+  survived and every other `addRunArtifact` invocation failed with
+  `FileNotFound` at its computed `.zig-cache/o/<hash>/test` path.
+- **alef-e2e (rust)**: omit `use {crate}::CrawlConfig;` (and other handle-arg
+  helper imports) from generated `tests/<category>_test.rs` files when the
+  rendered body never references the symbol. Test bodies are now buffered and
+  scanned for word-boundary references before optional `use` statements are
+  emitted, eliminating `unused_imports` errors under `-D warnings` for handle
+  fixtures whose `input.config` is null/empty.
+- **alef-backend-kotlin-android**: emit Android build-metadata files
+  (`build.gradle.kts`, `settings.gradle.kts`, `consumer-rules.pro`,
+  `proguard-rules.pro`, `.gitignore`, `src/main/AndroidManifest.xml`,
+  `src/main/jniLibs/<abi>/.gitkeep`, `src/main/java/<java-pkg>/*.java`)
+  at the AAR **project root**, not nested inside the Kotlin source
+  destination. `[crates.output].kotlin_android` semantically names the
+  Kotlin source destination (`src/main/kotlin/<dotted_package>/`); the
+  project root is now derived by stripping that suffix. Kotlin source
+  (`<Module>.kt`, `DefaultClient.kt`) is emitted directly at the
+  configured path with no extra `src/main/kotlin/<pkg>/` nesting.
+  Workspaces that pointed `kotlin_android` at the project root continue
+  to work — the legacy semantics are preserved when the configured path
+  does not end with the Gradle Android source-set suffix.
 
 ### Planned
 
