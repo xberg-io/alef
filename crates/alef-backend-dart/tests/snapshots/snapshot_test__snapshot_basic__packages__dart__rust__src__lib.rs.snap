@@ -12,6 +12,7 @@ expression: "&file.content"
     clippy::too_many_arguments,
     clippy::unit_arg,
     clippy::type_complexity,
+    clippy::useless_conversion,
 )]
 mod frb_generated;
 use flutter_rust_bridge::frb;
@@ -36,8 +37,8 @@ impl From<demo::Config> for Config {
     fn from(v: demo::Config) -> Self {
         Config {
             value: v.value as _,
-            label: v.label,
-            tag: v.tag.flatten(),
+            label: v.label.into(),
+            tag: v.tag.flatten().map(|s| s.into()),
         }
     }
 }
