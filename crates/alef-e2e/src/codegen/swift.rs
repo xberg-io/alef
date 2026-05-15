@@ -40,7 +40,13 @@ impl E2eCodegen for SwiftE2eCodegen {
         _type_defs: &[alef_core::ir::TypeDef],
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
-        let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
+        // SwiftPM identifies path-based deps by the path's last component. When the
+        // e2e consumer's path-last collides with the dep's path-last (e.g. both
+        // `e2e/swift/` and `packages/swift/` → identifier "swift"), SwiftPM resolves
+        // .product(package:) against the consumer itself and fails to find the dep's
+        // products. Emit the e2e package under `<output>/swift_e2e/` so the consumer
+        // has a distinct identity ("swift_e2e") regardless of where the dep lives.
+        let output_base = PathBuf::from(e2e_config.effective_output()).join("swift_e2e");
 
         let mut files = Vec::new();
 
@@ -188,22 +194,29 @@ fn render_package_swift(
             (dep, prod)
         }
         crate::config::DependencyMode::Local => {
-            // Path-based deps in monorepos commonly collide on the path's last
-            // component (e.g. both `e2e/swift/` and `packages/swift/` resolve to
-            // identifier "swift"). Use `.package(name:)` to give the dependency
-            // an explicit identity matching the upstream package's manifest `name`,
-            // and reference that name in the product declaration so SwiftPM
-            // resolves to the right side of the collision.
-            let dep = format!(r#"        .package(name: "{module_name}", path: "{pkg_path}")"#);
-            let prod = format!(r#".product(name: "{module_name}", package: "{module_name}")"#);
+            // SwiftPM identifies path-based deps by the path's last component.
+            // The e2e consumer is emitted at `<output>/swift_e2e/` (see output_base
+            // above) to avoid identifier collisions, so a plain `.package(path:)`
+            // works here and the `.product(package:)` reference uses the dep's
+            // path-last as the identifier.
+            let pkg_id = pkg_path
+                .trim_end_matches('/')
+                .split('/')
+                .next_back()
+                .unwrap_or(module_name);
+            let dep = format!(r#"        .package(path: "{pkg_path}")"#);
+            let prod = format!(r#".product(name: "{module_name}", package: "{pkg_id}")"#);
             (dep, prod)
         }
     };
     // SwiftPM platform enums use the major version only (.v13, .v14, ...);
     // strip patch components to match the scaffold's `Package.swift`.
     let min_macos_major = min_macos.split('.').next().unwrap_or(min_macos);
-    // iOS (.v14) is always included — swift-bridge supports both macOS and iOS targets
-    // and the generated Package.swift is used as a CI reference for both platforms.
+    let min_ios = toolchain::SWIFT_MIN_IOS;
+    let min_ios_major = min_ios.split('.').next().unwrap_or(min_ios);
+    // The consumer's minimum iOS must be >= the dep's minimum iOS or SwiftPM hides
+    // the product as platform-incompatible. Use the same constant the swift backend
+    // emits into the dep's Package.swift.
     format!(
         r#"// swift-tools-version: 6.0
 import PackageDescription
@@ -212,7 +225,7 @@ let package = Package(
     name: "E2eSwift",
     platforms: [
         .macOS(.v{min_macos_major}),
-        .iOS(.v14),
+        .iOS(.v{min_ios_major}),
     ],
     dependencies: [
 {dep_block},

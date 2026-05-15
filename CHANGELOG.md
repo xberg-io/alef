@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-e2e (swift)**: SwiftPM identifies path-based deps by the path's last
+  component, so a consumer at `e2e/swift/` referencing a dep at `packages/swift/`
+  collides on identifier `"swift"` and SPM resolves `.product(package:)` against
+  the consumer itself, failing with `product '<name>' required by package 'swift'
+  ... not found in package 'swift'`. Emit the swift e2e package under
+  `<output>/swift_e2e/` (path-last `"swift_e2e"`) so the consumer has a distinct
+  SwiftPM identity regardless of where the dep lives. Repos must update
+  `[crates.test.swift] e2e = "cd e2e/swift_e2e && swift test"` accordingly.
+  (`crates/alef-e2e/src/codegen/swift.rs`)
+
+- **alef-e2e (swift)**: the generated `Package.swift` for swift e2e now uses
+  `SWIFT_MIN_IOS` from `template_versions::toolchain` instead of hardcoding
+  `.iOS(.v14)`. Previously, when the dependency package required iOS 16+ (the
+  current default), SwiftPM hid the dep's products as platform-incompatible and
+  failed resolution — the consumer's iOS minimum must be >= the dep's iOS
+  minimum for SPM to expose products.
+  (`crates/alef-e2e/src/codegen/swift.rs`)
+
 - **alef-codegen (ruby kwargs constructor)**: Named enum fields with a resolved
   `EnumVariant` typed default now fall through to the explicit-default branch
   (`unwrap_or(EnumType::Variant)`) instead of being emitted as required kwargs
