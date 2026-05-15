@@ -35,7 +35,7 @@ repos:
 
   # Markdown linting
   - repo: https://github.com/kreuzberg-dev/pre-commit-hooks
-    rev: v1.0.5
+    rev: v1.0.7
     hooks:
       - id: cargo-sort
         args: [-w]
@@ -73,7 +73,7 @@ repos:
 
   # Python linting (hooks/)
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.12
+    rev: v0.15.13
     hooks:
       - id: ruff
         args: ["--fix"]
