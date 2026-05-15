@@ -3,7 +3,7 @@ use alef_core::backend::Backend;
 use alef_core::config::{AdapterConfig, AdapterParam, AdapterPattern, NewAlefConfig, ResolvedCrateConfig};
 use alef_core::ir::{
     ApiSurface, CoreWrapper, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef, MethodDef, ParamDef,
-    PrimitiveType, TypeDef, TypeRef,
+    PrimitiveType, ReceiverKind, TypeDef, TypeRef,
 };
 
 fn resolved_one(toml: &str) -> ResolvedCrateConfig {
@@ -835,6 +835,139 @@ fn real_ir_shape_optional_ref_result_async() {
     assert!(
         unreg_section.contains("match result {"),
         "unregisterCustomProvider (has error_type) must match result; section:\n{unreg_section}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// R1: &mut self receiver uses *mut T cast
+// ---------------------------------------------------------------------------
+
+/// Verifies that a method with `receiver = Some(ReceiverKind::RefMut)` emits
+/// `&mut *(handle as *mut T)` instead of `&*(handle as *const T)`.
+#[test]
+fn method_ref_mut_receiver_emits_mut_cast() {
+    let mut_method = MethodDef {
+        name: "set_language".to_string(),
+        params: vec![make_param("language", TypeRef::Named("Language".to_string()))],
+        return_type: TypeRef::Unit,
+        is_async: false,
+        is_static: false,
+        receiver: Some(ReceiverKind::RefMut),
+        error_type: Some("ParserError".to_string()),
+        doc: String::new(),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    };
+
+    let client_type = TypeDef {
+        name: "Parser".to_string(),
+        rust_path: "demo::Parser".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![mut_method],
+        is_opaque: true,
+        is_clone: false,
+        is_copy: false,
+        doc: String::new(),
+        cfg: None,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+    };
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![client_type],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: std::collections::HashMap::new(),
+    };
+
+    let config = make_demo_config();
+    let files = JniBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    let section = extract_fn_section(content, "nativeParserSetLanguage");
+    // Must dereference as *mut, not *const.
+    assert!(
+        section.contains("&mut *(handle as *mut core_crate::Parser)"),
+        "&mut self method must cast to *mut; section:\n{section}"
+    );
+    assert!(
+        !section.contains("*const core_crate::Parser"),
+        "&mut self method must NOT use *const; section:\n{section}"
+    );
+}
+
+/// Verifies that a method with `receiver = Some(ReceiverKind::Ref)` (or `None`)
+/// still emits `&*(handle as *const T)`.
+#[test]
+fn method_ref_receiver_emits_const_cast() {
+    let ref_method = MethodDef {
+        name: "kind".to_string(),
+        params: vec![],
+        return_type: TypeRef::String,
+        is_async: false,
+        is_static: false,
+        receiver: Some(ReceiverKind::Ref),
+        error_type: None,
+        doc: String::new(),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    };
+
+    let client_type = TypeDef {
+        name: "Node".to_string(),
+        rust_path: "demo::Node".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![ref_method],
+        is_opaque: true,
+        is_clone: false,
+        is_copy: false,
+        doc: String::new(),
+        cfg: None,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+    };
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![client_type],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: std::collections::HashMap::new(),
+    };
+
+    let config = make_demo_config();
+    let files = JniBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    let section = extract_fn_section(content, "nativeNodeKind");
+    assert!(
+        section.contains("&*(handle as *const core_crate::Node)"),
+        "&self method must cast to *const; section:\n{section}"
     );
 }
 

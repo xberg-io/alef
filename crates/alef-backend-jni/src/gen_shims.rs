@@ -175,7 +175,16 @@ pub(crate) fn emit_lib_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> Str
     let client_type_names: std::collections::HashSet<&str> = client_types.iter().map(|t| t.name.as_str()).collect();
 
     for ty in &client_types {
-        emit_client_shims(&mut out, ty, api, config, &package, &bridge, &exclude_functions);
+        emit_client_shims(
+            &mut out,
+            ty,
+            api,
+            config,
+            &package,
+            &bridge,
+            &exclude_functions,
+            &opaque_type_names,
+        );
     }
 
     // Emit destructors for opaque types that are returned by top-level functions
@@ -238,6 +247,7 @@ fn emit_runtime_helpers(out: &mut String) {
 // Client type shims
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 fn emit_client_shims(
     out: &mut String,
     ty: &TypeDef,
@@ -246,6 +256,7 @@ fn emit_client_shims(
     package: &str,
     bridge: &str,
     exclude_functions: &std::collections::HashSet<&str>,
+    opaque_type_names: &std::collections::HashSet<&str>,
 ) {
     // Instance method shims.
     for method in ty.methods.iter().filter(|m| !m.sanitized && !m.is_static) {
@@ -254,6 +265,14 @@ fn emit_client_shims(
         }
         let method_name = bridge_method_name(&ty.name, &method.name);
         let symbol = jni_symbol(package, bridge, &method_name);
+        let receiver_is_mut = matches!(
+            method.receiver.as_ref(),
+            Some(alef_core::ir::ReceiverKind::RefMut)
+        );
+        let receiver_owned = matches!(
+            method.receiver.as_ref(),
+            Some(alef_core::ir::ReceiverKind::Owned)
+        );
         emit_method_shim(
             out,
             &symbol,
@@ -263,6 +282,9 @@ fn emit_client_shims(
             &method.return_type,
             method.is_async,
             method.error_type.is_some(),
+            receiver_is_mut,
+            receiver_owned,
+            opaque_type_names,
         );
     }
 
@@ -299,6 +321,7 @@ fn emit_client_shims(
 /// When a parameter is an opaque named type it is received as `jlong` and
 /// dereferenced via an unsafe pointer cast — the Kotlin caller holds the
 /// handle as a `Long` that was previously obtained from the constructor shim.
+#[allow(clippy::too_many_arguments)]
 fn emit_function_shim(
     out: &mut String,
     symbol: &str,
@@ -471,6 +494,11 @@ fn emit_function_shim(
 }
 
 /// Emit a shim for an instance method on an opaque client type.
+///
+/// `receiver_is_mut` controls whether the handle is cast to `*mut T` (`&mut self`)
+/// or `*const T` (`&self`).  `opaque_type_names` is used to identify handle-typed
+/// params so they can be received as `jlong` rather than a JSON string.
+#[allow(clippy::too_many_arguments)]
 fn emit_method_shim(
     out: &mut String,
     symbol: &str,
@@ -480,12 +508,26 @@ fn emit_method_shim(
     return_type: &TypeRef,
     is_async: bool,
     has_error: bool,
+    receiver_is_mut: bool,
+    receiver_owned: bool,
+    opaque_type_names: &std::collections::HashSet<&str>,
 ) {
     let rust_method = method_name.replace('-', "_");
     let has_params = !params.is_empty();
 
-    let ret_decl = method_return_type_decl(return_type);
-    let ret_null = method_return_null(return_type);
+    let is_opaque_return =
+        matches!(return_type, TypeRef::Named(n) if opaque_type_names.contains(n.as_str()));
+
+    let ret_decl = if is_opaque_return {
+        " -> jlong".to_string()
+    } else {
+        method_return_type_decl(return_type)
+    };
+    let ret_null = if is_opaque_return {
+        "0"
+    } else {
+        method_return_null(return_type)
+    };
 
     let request_param = if has_params {
         "    request_json: JString,\n".to_string()
@@ -501,9 +543,21 @@ fn emit_method_shim(
     out.push_str("    // SAFETY: handle was allocated by the matching constructor shim and remains\n");
     out.push_str("    // valid until nativeFree is called. The Kotlin AutoCloseable.close() guarantee\n");
     out.push_str("    // ensures the handle outlives this call.\n");
-    out.push_str(&format!(
-        "    let client: &core_crate::{type_name} = unsafe {{ &*(handle as *const core_crate::{type_name}) }};\n"
-    ));
+    if receiver_owned {
+        // `self`-by-value: clone the contents so the caller's handle stays
+        // valid (Kotlin retains the owning reference until close()).
+        out.push_str(&format!(
+            "    let client: core_crate::{type_name} = unsafe {{ (*(handle as *const core_crate::{type_name})).clone() }};\n"
+        ));
+    } else if receiver_is_mut {
+        out.push_str(&format!(
+            "    let client: &mut core_crate::{type_name} = unsafe {{ &mut *(handle as *mut core_crate::{type_name}) }};\n"
+        ));
+    } else {
+        out.push_str(&format!(
+            "    let client: &core_crate::{type_name} = unsafe {{ &*(handle as *const core_crate::{type_name}) }};\n"
+        ));
+    }
 
     // Unmarshal params and build call_args with is_ref/optional adjustments.
     let call_args: String = if !has_params {
@@ -676,7 +730,9 @@ fn emit_return_marshal_with_indent(out: &mut String, return_type: &TypeRef, inde
             out.push_str(&format!("{indent}v\n"));
         }
         _ => {
-            out.push_str(&format!("{indent}let s = serde_json::to_string(&v).unwrap_or_default();\n"));
+            out.push_str(&format!(
+                "{indent}let s = serde_json::to_string(&v).unwrap_or_default();\n"
+            ));
             out.push_str(&format!("{indent}string_to_jstring(&mut env, &s)\n"));
         }
     }

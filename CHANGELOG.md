@@ -20,6 +20,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   at the function's top-level 4-space indent.
   (`crates/alef-backend-jni/src/gen_shims.rs`)
 
+- **JNI: `&mut self` methods use `*mut T` handle cast**: `emit_method_shim`
+  always emitted `&*(handle as *const T)` for the client dereference, causing
+  E0596 ("cannot borrow as mutable behind `&` reference") for any method whose
+  IR `receiver` is `ReceiverKind::RefMut` (e.g. `Parser::set_language`,
+  `Parser::parse`, all `TreeCursor::goto_*`). `emit_client_shims` now inspects
+  `method.receiver` and passes `receiver_is_mut` to `emit_method_shim`, which
+  emits `&mut *(handle as *mut T)` when the flag is set.
+  (`crates/alef-backend-jni/src/gen_shims.rs`)
+
 
 - **zig e2e codegen**: emit `build.zig` that runs tests via `addRunArtifact`
   directly (Zig 0.16+ no longer installs test binaries to `zig-out/bin/`).
