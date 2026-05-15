@@ -153,16 +153,34 @@ fn dart_action_body(method: &str, action: &CallbackAction) -> String {
         }
         CallbackAction::CustomTemplate { template, return_form } => {
             // Convert `{placeholder}` segments to Dart string-interpolation
-            // syntax (`${placeholder}`). Visitor method parameters are bound
-            // in the enclosing closure so the interpolation resolves at
-            // call-time. Template return form is ignored for Dart — the
-            // bridge only carries `VisitResult::Custom(String)` and there is
-            // no struct/dict variant.
+            // syntax (`${placeholderCamelCase}`). Fixture templates use snake_case
+            // parameter names (matching the Rust trait signature) but the dart
+            // closure parameters are lowerCamelCase (matching FRB's generated
+            // closure typedefs), so each placeholder name must be camelCased.
+            // Visitor method parameters are bound in the enclosing closure so
+            // the interpolation resolves at call-time. Template return form is
+            // ignored for Dart — the bridge only carries `VisitResult::Custom`
+            // (String) and there is no struct/dict variant.
             let _ = return_form;
+            let _ = method;
             let mut interpolated = String::with_capacity(template.len());
-            for ch in template.chars() {
+            let mut chars = template.chars().peekable();
+            while let Some(ch) = chars.next() {
                 match ch {
-                    '{' => interpolated.push_str("${"),
+                    '{' => {
+                        let mut name = String::new();
+                        while let Some(&peek) = chars.peek() {
+                            if peek == '}' {
+                                chars.next();
+                                break;
+                            }
+                            name.push(peek);
+                            chars.next();
+                        }
+                        interpolated.push_str("${");
+                        interpolated.push_str(&name.to_lower_camel_case());
+                        interpolated.push('}');
+                    }
                     '\\' => interpolated.push_str("\\\\"),
                     '\'' => interpolated.push_str("\\'"),
                     '\n' => interpolated.push_str("\\n"),
@@ -171,7 +189,6 @@ fn dart_action_body(method: &str, action: &CallbackAction) -> String {
                     other => interpolated.push(other),
                 }
             }
-            let _ = method;
             format!("VisitResult.custom(field0: '{interpolated}')")
         }
     }

@@ -72,6 +72,18 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, kotlin_source_dir: &
     // Always emit a {Module} object — even when the API has zero free
     // functions — so the System.loadLibrary call happens on first class load.
     imports.insert(format!("import {java_pkg}.{java_facade_class} as Bridge"));
+    // The Kotlin facade lives in `<kotlin_android.package>` (e.g.
+    // `dev.kreuzberg.kreuzcrawl.android`) while the bundled Java DTOs
+    // (`CrawlConfig`, `ScrapeResult`, …) live in the parent Java package
+    // (e.g. `dev.kreuzberg.kreuzcrawl`). Kotlin sub-packages do NOT inherit
+    // their parent's symbols, so without an explicit import every bare type
+    // reference in method signatures would be unresolved. Emit a wildcard
+    // import of the Java facade package when it differs from the Kotlin
+    // package (no-op when both packages match — defensive against future
+    // configs that flatten the layout).
+    if java_pkg != package {
+        imports.insert(format!("import {java_pkg}.*"));
+    }
     if visible_functions.iter().any(|f| f.is_async) {
         imports.insert("import kotlinx.coroutines.Dispatchers".to_string());
         imports.insert("import kotlinx.coroutines.withContext".to_string());

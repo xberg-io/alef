@@ -129,6 +129,27 @@ pub fn emit_jvm_client_class_with_package(
         imports.insert("import kotlinx.coroutines.withContext".to_string());
     }
 
+    // Collect streaming adapters and add required Flow imports when any adapter
+    // is owned by one of the client types.
+    let streaming_adapters_for_clients: Vec<&alef_core::config::AdapterConfig> = config
+        .adapters
+        .iter()
+        .filter(|a| matches!(a.pattern, AdapterPattern::Streaming))
+        .filter(|a| {
+            a.owner_type
+                .as_deref()
+                .map(|owner| client_types.iter().any(|t| t.name == owner))
+                .unwrap_or(false)
+        })
+        .collect();
+    if !streaming_adapters_for_clients.is_empty() {
+        imports.insert("import kotlinx.coroutines.Dispatchers".to_string());
+        imports.insert("import kotlinx.coroutines.withContext".to_string());
+        imports.insert("import kotlinx.coroutines.flow.Flow".to_string());
+        imports.insert("import kotlinx.coroutines.flow.callbackFlow".to_string());
+        imports.insert("import kotlinx.coroutines.channels.awaitClose".to_string());
+    }
+
     // Pre-scan return + param types so we collect every import the body needs.
     // We deliberately walk only non-sanitized methods — sanitized ones are
     // skipped during emission and any imports they would have required are
@@ -152,7 +173,7 @@ pub fn emit_jvm_client_class_with_package(
         content.push('\n');
     }
 
-    // Collect streaming adapters indexed by owner type name for quick lookup.
+    // All streaming adapters (for any owner type).
     let streaming_adapters: Vec<&alef_core::config::AdapterConfig> = config
         .adapters
         .iter()
@@ -178,17 +199,16 @@ pub fn emit_jvm_client_class_with_package(
             emit_client_method(method, &mut content, &mut method_imports);
         }
 
-        // Emit wrapper methods for streaming adapters owned by this client type.
-        // The Java facade generates these methods (e.g. `chatStream`) directly on
-        // the Java class — they are not part of the IR `methods` list and so are
-        // invisible to the generic method loop above. We emit thin non-suspend
-        // wrappers here so Kotlin callers can use them without an explicit Java
-        // facade import.
+        // Emit callbackFlow wrappers for streaming adapters owned by this client
+        // type. These adapters are not in the IR `methods` list — they are
+        // declared in `config.adapters` and bridge via JNI native methods on the
+        // Java facade class. Each wrapper returns `Flow<ChunkType>` so Android
+        // callers can use idiomatic coroutine collection.
         for adapter in streaming_adapters
             .iter()
             .filter(|a| a.owner_type.as_deref() == Some(class_name.as_str()))
         {
-            emit_streaming_client_method(adapter, &mut content);
+            emit_streaming_client_method(adapter, class_name, &java_package, &mut content);
         }
 
         content.push_str("    override fun close() { inner.close() }\n");
@@ -250,26 +270,62 @@ fn emit_client_method(m: &MethodDef, out: &mut String, imports: &mut BTreeSet<St
     out.push_str("    }\n\n");
 }
 
-/// Emit a thin non-suspend wrapper for a streaming adapter method.
+/// Emit a `Flow<ChunkType>` wrapper for a streaming adapter method using
+/// `callbackFlow`.
 ///
-/// Streaming adapters (e.g. `chatStream`) are generated directly on the Java
-/// facade class and return `Iterator<ItemType>`. Since iteration is lazy and
-/// synchronous (each `next()` call blocks the calling thread), these wrappers
-/// are NOT `suspend` functions — the caller is responsible for running them on
-/// an appropriate dispatcher (e.g. inside `runBlocking` or `withContext(IO)`).
+/// The generated method drives the three JNI native functions emitted on the
+/// Java facade class (`native{Owner}{Adapter}Start`, `native{Owner}{Adapter}Next`,
+/// `native{Owner}{Adapter}Free`) from within a `callbackFlow` block so Android
+/// callers can use idiomatic `collect { chunk -> … }` coroutine patterns.
+///
+/// The owner type and adapter name determine the JNI method names:
+/// - start: `native{PascalOwner}{PascalAdapter}Start(inner, requestJson)`
+/// - next:  `native{PascalOwner}{PascalAdapter}Next(streamHandle)`
+/// - free:  `native{PascalOwner}{PascalAdapter}Free(streamHandle)`
 ///
 /// Generated form:
 /// ```kotlin
-///     fun chatStream(req: ChatCompletionRequest): Iterator<ChatCompletionChunk> {
-///         return inner.chatStream(req)
-///     }
+///     fun chatStream(req: ChatCompletionRequest): kotlinx.coroutines.flow.Flow<ChatCompletionChunk> =
+///         kotlinx.coroutines.flow.callbackFlow {
+///             val handle: Long = withContext(Dispatchers.IO) {
+///                 Bridge.nativeDefaultClientChatStreamStart(inner, MAPPER.writeValueAsString(req))
+///             }
+///             try {
+///                 while (true) {
+///                     val chunkJson: String? = withContext(Dispatchers.IO) {
+///                         Bridge.nativeDefaultClientChatStreamNext(handle)
+///                     }
+///                     if (chunkJson == null) break
+///                     val chunk = MAPPER.readValue(chunkJson, ChatCompletionChunk::class.java)
+///                     send(chunk)
+///                 }
+///                 close()
+///             } catch (e: Throwable) {
+///                 close(e)
+///             }
+///             awaitClose {
+///                 Bridge.nativeDefaultClientChatStreamFree(handle)
+///             }
+///         }
 /// ```
-fn emit_streaming_client_method(adapter: &alef_core::config::AdapterConfig, out: &mut String) {
+fn emit_streaming_client_method(
+    adapter: &alef_core::config::AdapterConfig,
+    class_name: &str,
+    java_package: &str,
+    out: &mut String,
+) {
     let method_name = to_lower_camel(&adapter.name);
     let item_type = adapter.item_type.as_deref().unwrap_or("Any");
-    // The request type may be a fully-qualified Rust path (e.g.
-    // `liter_llm::ChatCompletionRequest`). Strip any module prefix so we use
-    // the simple Kotlin type name that the Kotlin package re-exports via typealias.
+    // Derive the JNI method name prefix from owner + adapter names.
+    // E.g. owner="DefaultClient", adapter="chat_stream" →
+    //   nativeDefaultClientChatStreamStart
+    let owner_pascal = to_pascal_case(class_name);
+    let adapter_pascal = to_pascal_case(&adapter.name);
+    let jni_start = format!("native{owner_pascal}{adapter_pascal}Start");
+    let jni_next = format!("native{owner_pascal}{adapter_pascal}Next");
+    let jni_free = format!("native{owner_pascal}{adapter_pascal}Free");
+
+    // Build Kotlin parameter list — strip Rust module paths from type names.
     let params: Vec<String> = adapter
         .params
         .iter()
@@ -279,17 +335,56 @@ fn emit_streaming_client_method(adapter: &alef_core::config::AdapterConfig, out:
             format!("{param_name}: {simple_ty}")
         })
         .collect();
-    let call_args: String = adapter
+
+    // Arguments to serialize as the request JSON (first param only for streaming).
+    let first_param_name = adapter
         .params
-        .iter()
+        .first()
         .map(|p| to_lower_camel(&p.name))
-        .collect::<Vec<_>>()
-        .join(", ");
+        .unwrap_or_else(|| "request".to_string());
+
+    let java_fqn_inner = format!("{java_package}.{class_name}");
+
     out.push_str(&format!(
-        "    fun {method_name}({}): Iterator<{item_type}> {{\n",
+        "    fun {method_name}({}): kotlinx.coroutines.flow.Flow<{item_type}> = kotlinx.coroutines.flow.callbackFlow {{\n",
         params.join(", ")
     ));
-    out.push_str(&format!("        return inner.{method_name}({call_args})\n"));
+    // Capture inner locally so the lambda can reference it without capturing `this`.
+    out.push_str(&format!(
+        "        val inner: {java_fqn_inner} = this@{class_name}.inner\n"
+    ));
+    // Start the native stream on the IO dispatcher. The ObjectMapper is
+    // allocated per-call here; a shared instance is not accessible from
+    // the Java facade because the generated MAPPER field is private.
+    out.push_str("        val mapper = com.fasterxml.jackson.databind.ObjectMapper()\n");
+    out.push_str("            .registerModule(com.fasterxml.jackson.datatype.jdk8.Jdk8Module())\n");
+    out.push_str("            .findAndRegisterModules()\n");
+    out.push_str(
+        "            .setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE)\n",
+    );
+    out.push_str("        val streamHandle: Long = withContext(Dispatchers.IO) {\n");
+    out.push_str(&format!(
+        "            Bridge.{jni_start}(inner, mapper.writeValueAsString({first_param_name}))\n"
+    ));
+    out.push_str("        }\n");
+    out.push_str("        try {\n");
+    out.push_str("            while (true) {\n");
+    out.push_str("                val chunkJson: String? = withContext(Dispatchers.IO) {\n");
+    out.push_str(&format!("                    Bridge.{jni_next}(streamHandle)\n"));
+    out.push_str("                }\n");
+    out.push_str("                if (chunkJson == null) break\n");
+    out.push_str(&format!(
+        "                val chunk = mapper.readValue(chunkJson, {item_type}::class.java)\n"
+    ));
+    out.push_str("                send(chunk)\n");
+    out.push_str("            }\n");
+    out.push_str("            close()\n");
+    out.push_str("        } catch (e: Throwable) {\n");
+    out.push_str("            close(e)\n");
+    out.push_str("        }\n");
+    out.push_str("        awaitClose {\n");
+    out.push_str(&format!("            Bridge.{jni_free}(streamHandle)\n"));
+    out.push_str("        }\n");
     out.push_str("    }\n\n");
 }
 
@@ -318,7 +413,7 @@ impl Backend for KotlinBackend {
             supports_option: true,
             supports_result: true,
             supports_callbacks: false,
-            supports_streaming: false,
+            supports_streaming: true,
         }
     }
 

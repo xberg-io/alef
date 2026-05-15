@@ -637,7 +637,11 @@ fn emit_trait_bridge_method(
                 ));
             }
         } else {
-            out.push_str("        let __result = tokio::runtime::Handle::current()\n");
+            // FRB workers don't have a tokio runtime installed; `Handle::current()` would
+            // panic. Build a fresh current-thread runtime per call to drive the DartFnFuture
+            // — overhead is acceptable since visitor callbacks already cross an FFI boundary
+            // and the runtime is cheap to construct (no I/O drivers needed).
+            out.push_str("        let __result = ::tokio::runtime::Builder::new_current_thread()\n            .build()\n            .expect(\"build alef visitor tokio runtime\")\n");
             out.push_str(&crate::template_env::render(
                 "rust_trait_method_block_on.jinja",
                 minijinja::context! {
@@ -687,7 +691,11 @@ fn emit_trait_bridge_method(
             ));
         }
     } else {
-        out.push_str("        let __result = tokio::runtime::Handle::current()\n");
+        // FRB workers don't have a tokio runtime installed; `Handle::current()` would
+        // panic. Build a fresh current-thread runtime per call to drive the DartFnFuture
+        // — overhead is acceptable since visitor callbacks already cross an FFI boundary
+        // and the runtime is cheap to construct (no I/O drivers needed).
+        out.push_str("        let __result = ::tokio::runtime::Builder::new_current_thread()\n            .build()\n            .expect(\"build alef visitor tokio runtime\")\n");
         out.push_str(&crate::template_env::render(
             "rust_trait_method_block_on.jinja",
             minijinja::context! {

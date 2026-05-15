@@ -721,10 +721,11 @@ fn render_test_case(
     //
     // The visitor setup line is INSERTED at the front of `setup_lines` so
     // `_visitor` is defined before any `_options` line that references it.
-    // Fixtures without an `options` json_object still get a `_visitor` —
-    // callers that need to attach it to a bare convert call will fail to
-    // compile, but no such fixture exists today (every visitor fixture also
-    // sends `options`).
+    // Fixtures without an `options` json_object in input still need an options
+    // blob to carry the visitor through to convert — we synthesise an empty-
+    // options call to `createConversionOptionsFromJsonWithVisitor(json: '{}',
+    // visitor: _visitor)` here when no `options` arg was emitted in the loop
+    // above.
     if let Some(visitor_spec) = &fixture.visitor {
         let mut visitor_setup: Vec<String> = Vec::new();
         let _ = super::dart_visitors::build_dart_visitor(&mut visitor_setup, visitor_spec);
@@ -732,6 +733,20 @@ fn render_test_case(
         // options call (which may reference it) runs.
         for line in visitor_setup.into_iter().rev() {
             setup_lines.insert(0, line);
+        }
+
+        // If no `options` arg was emitted by the loop above (the fixture has no
+        // input.options block), build an empty options-with-visitor and add it as
+        // an `options:` named arg so the visitor reaches the convert call.
+        let already_has_options = args.iter().any(|a| a.starts_with("options:") || a == "_options");
+        if !already_has_options {
+            if let Some(opts_type) = options_type {
+                let dart_fn = type_name_to_create_from_json_dart(opts_type);
+                setup_lines.push(format!(
+                    "final _options = await {dart_fn}WithVisitor(json: '{{}}', visitor: _visitor);"
+                ));
+                args.push("options: _options".to_string());
+            }
         }
     }
 

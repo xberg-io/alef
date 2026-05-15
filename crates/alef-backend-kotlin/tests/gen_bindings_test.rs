@@ -393,13 +393,14 @@ fn function_imports_native_facade() {
     );
 }
 
-/// Regression: streaming adapters (pattern = `streaming`) owned by a client type
-/// must appear as plain (non-suspend) wrapper methods on the generated Kotlin
-/// `DefaultClient` class. Previously `emit_jvm_client_class` only emitted
-/// non-sanitized IR methods and skipped streaming adapters entirely, so calling
-/// e.g. `client.chatStream(req)` in e2e tests produced "Unresolved reference".
+/// Streaming adapters (pattern = `streaming`) owned by a client type must appear
+/// as `Flow<T>` methods (using `callbackFlow`) on the generated Kotlin
+/// `DefaultClient` class. The previous implementation emitted an `Iterator<T>`
+/// delegation; it is now replaced with a coroutine-native `Flow<T>` wrapper that
+/// calls the three JNI native methods (`native{Owner}{Adapter}Start/Next/Free`)
+/// emitted on the Java facade class.
 #[test]
-fn streaming_adapter_emits_iterator_method_on_client_class() {
+fn streaming_adapter_emits_flow_method_on_client_class() {
     // Config with a streaming adapter owned by DefaultClient.
     let config = resolved_one(
         r#"
@@ -486,21 +487,151 @@ type = "ChatCompletionRequest"
         .iter()
         .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("DefaultClient.kt"));
     let content = client_file.map(|f| f.content.as_str()).unwrap_or("");
+    // Streaming method emits a callbackFlow wrapper.
     assert!(
         content.contains("fun chatStream("),
         "expected chatStream method on DefaultClient: {content}"
     );
+    // Return type is Flow<T>, not Iterator<T>.
     assert!(
-        content.contains("Iterator<ChatCompletionChunk>"),
-        "expected Iterator<ChatCompletionChunk> return type: {content}"
+        content.contains("Flow<ChatCompletionChunk>"),
+        "expected Flow<ChatCompletionChunk> return type: {content}"
     );
     assert!(
-        content.contains("inner.chatStream("),
-        "expected delegation to inner.chatStream: {content}"
+        !content.contains("Iterator<ChatCompletionChunk>"),
+        "must not emit Iterator<ChatCompletionChunk> any more: {content}"
     );
-    // Streaming methods must NOT be suspend — they return a lazy Iterator.
+    // callbackFlow is the wrapper mechanism.
+    assert!(
+        content.contains("callbackFlow"),
+        "expected callbackFlow in chatStream: {content}"
+    );
+    // JNI start/next/free are called via Bridge.
+    assert!(
+        content.contains("Bridge.nativeDefaultClientChatStreamStart("),
+        "expected nativeDefaultClientChatStreamStart call: {content}"
+    );
+    assert!(
+        content.contains("Bridge.nativeDefaultClientChatStreamNext("),
+        "expected nativeDefaultClientChatStreamNext call: {content}"
+    );
+    assert!(
+        content.contains("Bridge.nativeDefaultClientChatStreamFree("),
+        "expected nativeDefaultClientChatStreamFree call in awaitClose: {content}"
+    );
+    // awaitClose is used for resource cleanup.
+    assert!(
+        content.contains("awaitClose"),
+        "expected awaitClose in chatStream: {content}"
+    );
+    // Streaming methods must NOT be suspend — they return Flow.
     assert!(
         !content.contains("suspend fun chatStream"),
         "chatStream must not be suspend: {content}"
     );
+    // Flow imports are present.
+    assert!(
+        content.contains("import kotlinx.coroutines.flow.Flow"),
+        "expected Flow import: {content}"
+    );
+    assert!(
+        content.contains("import kotlinx.coroutines.flow.callbackFlow"),
+        "expected callbackFlow import: {content}"
+    );
+    assert!(
+        content.contains("import kotlinx.coroutines.channels.awaitClose"),
+        "expected awaitClose import: {content}"
+    );
+}
+
+/// Snapshot the generated `DefaultClient.kt` for a streaming adapter so that
+/// the exact emitted source is pinned and regressions are caught.
+#[test]
+fn snapshot_streaming_flow_default_client_kt() {
+    use alef_core::ir::MethodDef;
+
+    let config = resolved_one(
+        r#"
+[workspace]
+languages = ["kotlin", "java", "ffi"]
+
+[[crates]]
+name = "demo-crate"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "demo"
+
+[crates.java]
+package = "dev.kreuzberg"
+
+[crates.kotlin]
+package = "dev.kreuzberg"
+target = "jvm"
+
+[[crates.adapters]]
+name = "chat_stream"
+pattern = "streaming"
+core_path = "chat_stream"
+owner_type = "DefaultClient"
+item_type = "ChatCompletionChunk"
+
+[[crates.adapters.params]]
+name = "req"
+type = "ChatCompletionRequest"
+"#,
+    );
+
+    let chat_method = MethodDef {
+        name: "chat".into(),
+        params: vec![],
+        return_type: TypeRef::String,
+        is_async: true,
+        is_static: false,
+        error_type: None,
+        doc: String::new(),
+        receiver: None,
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    };
+    let client_type = TypeDef {
+        name: "DefaultClient".into(),
+        rust_path: "demo::DefaultClient".into(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![chat_method],
+        is_opaque: true,
+        is_clone: false,
+        is_copy: false,
+        doc: String::new(),
+        cfg: None,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+    };
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![client_type],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
+    let client_file = files
+        .iter()
+        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("DefaultClient.kt"))
+        .expect("DefaultClient.kt must be emitted");
+
+    insta::assert_snapshot!("snapshot_streaming_flow_default_client_kt", &client_file.content);
 }
