@@ -349,10 +349,13 @@ impl StreamingFieldResolver {
                 }
                 // Swift: chunks is [ChatCompletionChunk] (swift-bridge class objects).
                 // choices() → RustVec<StreamChoice> (Collection). delta() → StreamDelta.
-                // tool_calls() → RustVec<StreamToolCall>? — flatMap via Array($0) coercion.
+                // tool_calls() → RustVec<StreamToolCall>?
+                // Use an explicit return type annotation on the outer closure so Swift's
+                // type checker doesn't pick the Optional overload of flatMap.  Guard-let
+                // unwrapping avoids ambiguous ?? operator precedence.
                 "swift" => {
                     format!(
-                        "{chunks_var}.flatMap {{ c in c.choices().first.map {{ ch in ch.delta().tool_calls().map {{ Array($0) }} ?? [] }} ?? [] }}"
+                        "{chunks_var}.flatMap {{ c -> [StreamToolCallRef] in guard let ch = c.choices().first, let tcs = ch.delta().tool_calls() else {{ return [] }}; return Array(tcs) }}"
                     )
                 }
                 _ => {
@@ -488,6 +491,13 @@ impl StreamingFieldResolver {
                     // infer Option-wrapping, so we emit rust-specific idiom here.
                     if lang == "rust" && root == "tool_calls" {
                         return Some(render_rust_tool_calls_deep(chunks_var, tail));
+                    }
+                    // Swift: StreamToolCallRef fields are swift-bridge methods returning
+                    // Optional.  The generic render_deep_tail doesn't know to add `()`
+                    // or optional-chain with `?.`, so use a dedicated renderer.
+                    if lang == "swift" && root == "tool_calls" {
+                        let root_expr = Self::accessor(root, lang, chunks_var)?;
+                        return Some(render_swift_tool_calls_deep(&root_expr, tail));
                     }
                     // Zig stores stream chunks as JSON strings (`[]const u8`) in
                     // `chunks: ArrayList([]u8)`, not typed `ChatCompletionChunk`
@@ -639,6 +649,50 @@ impl StreamingFieldResolver {
             free_string = free_string,
         )
     }
+}
+
+/// Render a Swift deep accessor for `tool_calls[N]...` paths.
+///
+/// The flat tool_calls array is `[StreamToolCallRef]`.  Each element is a
+/// swift-bridge opaque ref: the first field after an index (e.g. `function`)
+/// is accessed with `.method()` (direct call on the non-optional ref).
+/// All subsequent fields use `?.method()` (optional chaining) because each
+/// intermediate method returns `Optional`.  The string leaf appends
+/// `?.toString()` to convert `RustString?` to `String?`.
+///
+/// Example: `[0].function.name`
+///   → `(root)[0].function()?.name()?.toString()`
+fn render_swift_tool_calls_deep(root_expr: &str, tail: &str) -> String {
+    use heck::ToLowerCamelCase;
+    let segs = parse_tail(tail);
+    let mut expr = root_expr.to_string();
+    let last_field_idx = segs.iter().rposition(|s| matches!(s, TailSeg::Field(_)));
+    // Track whether the previous segment was an index (non-optional element),
+    // which means the next field uses `.method()` not `?.method()`.
+    let mut prev_was_index = false;
+
+    for (i, seg) in segs.iter().enumerate() {
+        match seg {
+            TailSeg::Index(n) => {
+                expr = format!("({expr})[{n}]");
+                prev_was_index = true;
+            }
+            TailSeg::Field(f) => {
+                let method = f.to_lower_camel_case();
+                let is_last = Some(i) == last_field_idx;
+                let chain = if prev_was_index { "." } else { "?." };
+                if is_last {
+                    // Leaf: string field — call + optional-chain .toString()
+                    expr = format!("{expr}{chain}{method}()?.toString()");
+                } else {
+                    // Intermediate object field
+                    expr = format!("{expr}{chain}{method}()");
+                }
+                prev_was_index = false;
+            }
+        }
+    }
+    expr
 }
 
 /// Render a rust deep accessor for `tool_calls[N]...` paths over the flattened
@@ -1384,6 +1438,30 @@ mod tests {
         assert!(
             expr.contains("tool_calls()"),
             "swift tool_calls must use .tool_calls() method call, got: {expr}"
+        );
+    }
+
+    #[test]
+    fn accessor_tool_calls_deep_path_swift_uses_method_calls_with_optional_chain() {
+        // `tool_calls[0].function.name` must resolve to Swift method calls with
+        // optional chaining because swift-bridge opaque refs expose fields as
+        // methods that return Optional.
+        let expr = StreamingFieldResolver::accessor("tool_calls[0].function.name", "swift", "chunks").unwrap();
+        assert!(
+            expr.contains("function()"),
+            "swift deep tool_calls must use .function() method call, got: {expr}"
+        );
+        assert!(
+            expr.contains("name()"),
+            "swift deep tool_calls must use .name() method call, got: {expr}"
+        );
+        assert!(
+            expr.contains(".toString()"),
+            "swift deep tool_calls must convert RustString via .toString(), got: {expr}"
+        );
+        assert!(
+            !expr.contains("=>"),
+            "swift deep tool_calls must not use JS arrow syntax, got: {expr}"
         );
     }
 

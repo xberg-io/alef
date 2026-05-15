@@ -23,15 +23,11 @@ public final class DefaultClient {
 
         return AsyncThrowingStream<ChatChunk, Error> { continuation in
             let task = Task.detached(priority: .userInitiated) {
-                let decoder = JSONDecoder()
                 do {
                     while !Task.isCancelled {
                         let json = try handle.next().toString()
                         if json.isEmpty { break }
-                        guard let data = json.data(using: .utf8) else {
-                            throw NSError(domain: "chatStream", code: -1, userInfo: [NSLocalizedDescriptionKey: "chunk JSON is not UTF-8"])
-                        }
-                        let chunk = try decoder.decode(ChatChunk.self, from: data)
+                        let chunk = try RustBridge.chatChunkFromJson(json)
                         continuation.yield(chunk)
                     }
                     continuation.finish()
@@ -44,8 +40,16 @@ public final class DefaultClient {
     }
 }
 
+// MARK: - Sendable conformance for DefaultClient (streaming client inner)
+// swift-bridge opaque types are not automatically Sendable.
+// Captured by Task.detached in streaming methods — Rust type is Send + Sync.
+extension RustBridge.DefaultClient: @unchecked Sendable {}
 // MARK: - Sendable conformance for DefaultClientChatStreamStreamHandle
 // swift-bridge opaque types are not automatically Sendable.  The Rust
 // side uses Mutex<stream> + tokio Runtime — both Send + Sync — so
 // @unchecked is correct: thread-safety is enforced by Rust.
 extension RustBridge.DefaultClientChatStreamStreamHandle: @unchecked Sendable {}
+// MARK: - Sendable conformance for ChatRequest (streaming request param)
+// swift-bridge opaque types are not automatically Sendable.
+// Passed into Task.detached for streaming — Rust type is Send + Sync.
+extension RustBridge.ChatRequest: @unchecked Sendable {}

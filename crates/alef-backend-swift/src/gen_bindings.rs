@@ -2,7 +2,7 @@ use alef_codegen::keywords::swift_ident;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile, PostBuildStep};
 use alef_core::config::{AdapterConfig, AdapterPattern, Language, ResolvedCrateConfig, resolve_output_dir};
-use alef_core::ir::{ApiSurface, EnumDef, EnumVariant, ErrorDef, FunctionDef, MethodDef, ParamDef, TypeDef, TypeRef};
+use alef_core::ir::{ApiSurface, EnumDef, EnumVariant, ErrorDef, FunctionDef, MethodDef, ParamDef, TypeRef};
 use heck::ToLowerCamelCase;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -65,35 +65,17 @@ impl Backend for SwiftBackend {
 
         let mut body = String::new();
 
-        // Collect the set of type names that are `item_type` for streaming adapters.
-        // These types are used with `JSONDecoder().decode(X.self, …)` in the generated
-        // Swift streaming wrapper, so they must conform to `Decodable`.  When such a
-        // type appears in `api.types` with `has_serde: true` (serde derives present),
-        // we emit a native Codable Swift struct instead of an opaque typealias.
-        let streaming_item_types: std::collections::HashSet<&str> = config
-            .adapters
-            .iter()
-            .filter(|a| matches!(a.pattern, AdapterPattern::Streaming))
-            .filter_map(|a| a.item_type.as_deref())
-            .collect();
-
         // Emit typealiases for all struct types exposed by swift-bridge.
         // swift-bridge exposes types that are declared in the extern "Rust" block,
         // so we generate typealiases for all non-excluded types to provide a
         // stable Swift API that references RustBridge types.
         // Skip opaque handle types with methods — those get a full class wrapper below
         // instead of a typealias.
-        // Skip streaming item types that have `has_serde: true` with fields — those are
-        // emitted as native Codable structs below so `JSONDecoder` can decode them.
         for ty in api
             .types
             .iter()
             .filter(|t| !t.is_trait && !exclude_types.contains(&t.name))
             .filter(|t| t.methods.is_empty() || !t.is_opaque && t.has_serde)
-            .filter(|t| {
-                // Streaming item types with serde + fields are emitted as Codable structs.
-                !(streaming_item_types.contains(t.name.as_str()) && t.has_serde && !t.fields.is_empty())
-            })
         {
             emit_doc_comment(&ty.doc, "", &mut body);
             body.push_str(&crate::template_env::render(
@@ -102,21 +84,6 @@ impl Backend for SwiftBackend {
                     name => &ty.name,
                 },
             ));
-            body.push('\n');
-        }
-
-        // Emit native Codable Swift structs for streaming item types that carry serde
-        // derives and have their fields populated in the IR.  The streaming wrapper calls
-        // `JSONDecoder().decode(X.self, …)`, which requires `X: Decodable`; an opaque
-        // `RustBridge.X` typealias does not satisfy that requirement.
-        for ty in api
-            .types
-            .iter()
-            .filter(|t| !t.is_trait && !exclude_types.contains(&t.name))
-            .filter(|t| streaming_item_types.contains(t.name.as_str()) && t.has_serde && !t.fields.is_empty())
-        {
-            emit_doc_comment(&ty.doc, "", &mut body);
-            emit_codable_struct(ty, &mapper, &mut body);
             body.push('\n');
         }
 
@@ -161,13 +128,49 @@ impl Backend for SwiftBackend {
             // `Sendable`; Swift 6 strict-concurrency rejects passing them across
             // `Task.detached` boundaries.  The Rust side wraps a Mutex<stream> and a
             // tokio Runtime — both thread-safe — so `@unchecked` is correct.
-            for adapter in config
+            // Collect streaming adapters owned by this client type.
+            let streaming_adapters: Vec<&AdapterConfig> = config
                 .adapters
                 .iter()
                 .filter(|a| matches!(a.pattern, AdapterPattern::Streaming))
                 .filter(|a| a.owner_type.as_deref() == Some(ty.name.as_str()))
-            {
+                .collect();
+            if !streaming_adapters.is_empty() {
+                // The streaming methods capture `self.inner` (typed `RustBridge.{ty.name}`)
+                // inside a `Task.detached` closure.  Swift 6 strict-concurrency requires every
+                // captured value to be `Sendable`.  The Rust type is `Send + Sync`, so
+                // `@unchecked` is correct.
+                let inner_ty = ty.name.as_str();
+                body.push_str(&format!(
+                    "// MARK: - Sendable conformance for {inner_ty} (streaming client inner)\n"
+                ));
+                body.push_str("// swift-bridge opaque types are not automatically Sendable.\n");
+                body.push_str("// Captured by Task.detached in streaming methods — Rust type is Send + Sync.\n");
+                body.push_str(&format!("extension RustBridge.{inner_ty}: @unchecked Sendable {{}}\n"));
+            }
+            for adapter in &streaming_adapters {
                 emit_stream_handle_sendable(adapter, ty.name.as_str(), &mut body);
+            }
+            // Emit `@unchecked Sendable` conformance for every opaque param type
+            // used in streaming adapter calls.  These types are passed into
+            // `Task.detached` closures; Swift 6 strict-concurrency requires them
+            // to be `Sendable`.  They are swift-bridge opaque classes backed by
+            // Rust types that are `Send + Sync`, so `@unchecked` is correct.
+            {
+                let mut emitted: std::collections::HashSet<String> = std::collections::HashSet::new();
+                for adapter in &streaming_adapters {
+                    for param in &adapter.params {
+                        let simple_ty = param.ty.rsplit("::").next().unwrap_or(&param.ty).to_string();
+                        if emitted.insert(simple_ty.clone()) {
+                            body.push_str(&format!(
+                                "// MARK: - Sendable conformance for {simple_ty} (streaming request param)\n"
+                            ));
+                            body.push_str("// swift-bridge opaque types are not automatically Sendable.\n");
+                            body.push_str("// Passed into Task.detached for streaming — Rust type is Send + Sync.\n");
+                            body.push_str(&format!("extension RustBridge.{simple_ty}: @unchecked Sendable {{}}\n"));
+                        }
+                    }
+                }
             }
         }
 
@@ -217,6 +220,31 @@ impl Backend for SwiftBackend {
         let rust_crate_files = gen_rust_crate::emit(api, config)?;
         files.extend(rust_crate_files);
 
+        // Phase 2D: if the swift-bridge build output exists in target/*/out/, emit the
+        // properly prefixed bridge files into Sources/RustBridge{,C}/.
+        // These files are generated by `cargo build -p {crate}-swift` via
+        // swift_bridge_build and must be present in the SwiftPM package for it to compile.
+        let binding_crate_name = format!("{}-swift", &api.crate_name);
+        let base_dir = resolve_output_dir(config.output_paths.get("swift"), &config.name, "packages/swift");
+        let package_root = PathBuf::from(&base_dir)
+            .ancestors()
+            // walk up until we find Sources/ sibling, or stop at root
+            .find(|p| p.join("Sources").is_dir())
+            .map(|p| p.to_path_buf())
+            // fallback: use the configured base dir stripped of Sources/<Module>
+            .unwrap_or_else(|| {
+                // base_dir is e.g. "packages/swift/Sources/LiterLlm"
+                // go up two levels to get "packages/swift"
+                PathBuf::from(&base_dir)
+                    .parent()
+                    .and_then(|p| p.parent())
+                    .map(|p| p.to_path_buf())
+                    .unwrap_or_else(|| PathBuf::from("packages/swift"))
+            });
+        if let Some(bridge_files) = emit_swift_bridge_files(&api.crate_name, &binding_crate_name, &package_root)? {
+            files.extend(bridge_files);
+        }
+
         Ok(files)
     }
 
@@ -238,6 +266,12 @@ impl Backend for SwiftBackend {
 /// Emits a Swift enum or typealias for the given `EnumDef`.
 /// Non-Codable enums (`has_serde: false`) become typealiases to RustBridge.X.
 /// Codable enums (`has_serde: true`) are emitted as native Swift enums.
+///
+/// When `needs_codable` is `true` (the enum is a field type of a streaming item
+/// Codable struct), all-unit enums receive `: String, Codable` conformance so
+/// `JSONDecoder` can decode them. The raw value for each case is the `serde`
+/// serialized form derived from `serde_rename_all` (or the camelCase variant
+/// name when no rename strategy is set).
 fn emit_enum(en: &EnumDef, out: &mut String, mapper: &SwiftMapper) {
     emit_doc_comment(&en.doc, "", out);
 
@@ -254,12 +288,8 @@ fn emit_enum(en: &EnumDef, out: &mut String, mapper: &SwiftMapper) {
     let all_unit = en.variants.iter().all(|v| v.fields.is_empty());
 
     if all_unit {
-        out.push_str(&crate::template_env::render(
-            "swift_enum_header.jinja",
-            minijinja::context! {
-                name => &en.name,
-            },
-        ));
+        out.push_str(&format!("public enum {} {{\n", en.name));
+        let _ = mapper; // mapper unused for header — suppress unused warning
         for variant in &en.variants {
             emit_doc_comment(&variant.doc, "    ", out);
             let case_name = swift_ident(&variant.name.to_lower_camel_case());
@@ -271,18 +301,19 @@ fn emit_enum(en: &EnumDef, out: &mut String, mapper: &SwiftMapper) {
             ));
         }
         out.push_str("}\n");
-    } else {
-        out.push_str(&crate::template_env::render(
-            "swift_enum_header.jinja",
-            minijinja::context! {
-                name => &en.name,
-            },
-        ));
-        for variant in &en.variants {
-            emit_variant_with_data(variant, out, mapper);
-        }
-        out.push_str("}\n");
+        return;
     }
+    // Data-variant enum (has_serde + not all_unit): emit as native Swift enum with associated values.
+    out.push_str(&crate::template_env::render(
+        "swift_enum_header.jinja",
+        minijinja::context! {
+            name => &en.name,
+        },
+    ));
+    for variant in &en.variants {
+        emit_variant_with_data(variant, out, mapper);
+    }
+    out.push_str("}\n");
 }
 
 /// Emits a single enum case, with or without associated values.
@@ -553,17 +584,23 @@ fn emit_client_class(
 ///
 /// - Returns `AsyncThrowingStream<ItemType, Error>` for `for try await chunk in stream` use.
 /// - Runs `_start` on a detached high-priority Task to keep the calling executor unblocked.
-/// - Drives `handle.next()` from a second detached Task, decoding each JSON chunk via
-///   `JSONDecoder` against the configured `item_type` (which must conform to `Decodable`).
+/// - Drives `handle.next()` from a second detached Task, calling
+///   `RustBridge.{itemType}FromJson(json)` to deserialise each chunk into the opaque type
+///   so callers can use the full swift-bridge method API on the yielded values.
 /// - Empty-string response from `next()` finishes the stream cleanly.
 /// - `continuation.onTermination` cancels the drain task so the handle's `deinit`
 ///   runs promptly when a Swift consumer early-breaks out of the for-await loop.
 fn emit_streaming_client_method(adapter: &AdapterConfig, owner_snake: &str, out: &mut String) {
+    use heck::{AsSnakeCase, ToLowerCamelCase};
     let method_camel = swift_ident(&adapter.name.to_lower_camel_case());
     let start_fn_snake = format!("{owner_snake}_{}_start", adapter.name);
     let start_fn_camel = swift_ident(&start_fn_snake.to_lower_camel_case());
 
     let item_type = adapter.item_type.as_deref().unwrap_or("String");
+
+    // Compute the `from_json` Swift bridge function name for this item type.
+    // e.g. `ChatCompletionChunk` → `chatCompletionChunkFromJson`
+    let item_type_from_json = swift_ident(&format!("{}_from_json", AsSnakeCase(item_type)).to_lower_camel_case());
 
     // Build the Swift parameter list from the adapter params.
     let params: Vec<String> = adapter
@@ -609,18 +646,12 @@ fn emit_streaming_client_method(adapter: &AdapterConfig, owner_snake: &str, out:
         "        return AsyncThrowingStream<{item_type}, Error> {{ continuation in\n"
     ));
     out.push_str("            let task = Task.detached(priority: .userInitiated) {\n");
-    out.push_str("                let decoder = JSONDecoder()\n");
     out.push_str("                do {\n");
     out.push_str("                    while !Task.isCancelled {\n");
     out.push_str("                        let json = try handle.next().toString()\n");
     out.push_str("                        if json.isEmpty { break }\n");
-    out.push_str("                        guard let data = json.data(using: .utf8) else {\n");
     out.push_str(&format!(
-        "                            throw NSError(domain: \"{method_camel}\", code: -1, userInfo: [NSLocalizedDescriptionKey: \"chunk JSON is not UTF-8\"])\n"
-    ));
-    out.push_str("                        }\n");
-    out.push_str(&format!(
-        "                        let chunk = try decoder.decode({item_type}.self, from: data)\n"
+        "                        let chunk = try RustBridge.{item_type_from_json}(json)\n"
     ));
     out.push_str("                        continuation.yield(chunk)\n");
     out.push_str("                    }\n");
@@ -658,32 +689,6 @@ fn emit_stream_handle_sendable(adapter: &AdapterConfig, owner_type: &str, out: &
     out.push_str(&format!(
         "extension RustBridge.{handle_name}: @unchecked Sendable {{}}\n"
     ));
-}
-
-/// Emit a native `public struct X: Codable { … }` for a streaming item type.
-///
-/// Streaming adapter wrappers call `JSONDecoder().decode(X.self, from: data)`.
-/// When `X` is only a `typealias` to an opaque swift-bridge class, `Decodable`
-/// is not satisfied and the generated code fails to compile.  Types that carry
-/// serde derives (`has_serde: true`) and have their fields populated in the IR
-/// can be emitted as native Swift `Codable` structs instead of typealiases.
-///
-/// Field names are converted to camelCase (Swift convention).  Optional fields
-/// use the Swift `?` suffix.  The struct's `CodingKeys` are elided — Swift's
-/// synthesised `Codable` conformance uses property names by default.
-fn emit_codable_struct(ty: &TypeDef, mapper: &SwiftMapper, out: &mut String) {
-    use heck::ToLowerCamelCase;
-    out.push_str(&format!("public struct {}: Codable {{\n", ty.name));
-    for field in &ty.fields {
-        if field.sanitized {
-            continue;
-        }
-        let swift_name = swift_ident(&field.name.to_lower_camel_case());
-        let base_ty = mapper.map_type(&field.ty);
-        let ty_str = if field.optional { format!("{base_ty}?") } else { base_ty };
-        out.push_str(&format!("    public var {swift_name}: {ty_str}\n"));
-    }
-    out.push_str("}\n");
 }
 
 /// Emits `/// <line>` doc-comment lines with the given indent prefix.
@@ -1273,4 +1278,171 @@ fn convenience_name_shadows_bridge(func: &FunctionDef) -> bool {
         swift_inner.clone()
     };
     wrapper_name == swift_inner
+}
+
+/// Locate the swift-bridge build output directory under `target/`.
+///
+/// swift-bridge-build writes its output during `cargo build -p {binding_crate}` to
+/// `target/{profile}/build/{binding_crate}-{hash}/out/`.  We walk both `release` and
+/// `debug` profiles and return the most-recently-modified `out/` directory that
+/// contains `SwiftBridgeCore.swift`.
+///
+/// Returns `None` when no build output is found (i.e. `cargo build` has not been run
+/// yet), allowing the caller to skip the copy step without failing.
+fn find_swift_bridge_out_dir(binding_crate_name: &str) -> Option<PathBuf> {
+    let cwd = std::env::current_dir().ok()?;
+    // Search workspace root: try cwd, then parent dirs, until we find a Cargo.lock.
+    let workspace_root = std::iter::once(cwd.clone())
+        .chain(cwd.ancestors().skip(1).map(|p| p.to_path_buf()))
+        .take(8)
+        .find(|p| p.join("Cargo.lock").exists())?;
+    let target = workspace_root.join("target");
+
+    let crate_prefix = format!("{}-", binding_crate_name.replace('-', "-"));
+
+    let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
+    for profile in ["release", "debug"] {
+        let build_dir = target.join(profile).join("build");
+        let entries = match std::fs::read_dir(&build_dir) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+            if !name_str.starts_with(&crate_prefix) {
+                continue;
+            }
+            let out = entry.path().join("out");
+            let marker = out.join("SwiftBridgeCore.swift");
+            if !marker.exists() {
+                continue;
+            }
+            let mtime = std::fs::metadata(&out)
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::UNIX_EPOCH);
+            if best.as_ref().map(|(t, _)| mtime > *t).unwrap_or(true) {
+                best = Some((mtime, out));
+            }
+        }
+    }
+    best.map(|(_, p)| p)
+}
+
+/// Emit the swift-bridge generated files (`SwiftBridgeCore.swift`,
+/// `{crate}-swift.swift`, and `RustBridgeC.h`) into the SwiftPM package layout.
+///
+/// This is called from `generate_bindings` after the IR-based bindings and Rust crate
+/// have been emitted. When the cargo build output is not yet present (first run before
+/// `cargo build -p {crate}-swift`), the function returns `None` and the scaffold
+/// placeholders remain on disk untouched.
+///
+/// The two Swift files receive `import RustBridgeC\n` prepended so the SwiftPM
+/// `RustBridge` target can resolve the C types declared in the `RustBridgeC` target.
+/// `RustBridgeC.h` is emitted as a thin umbrella `#include` header that pulls in both
+/// `SwiftBridgeCore.h` and `{binding_crate}.h` from the same directory.
+fn emit_swift_bridge_files(
+    crate_name: &str,
+    binding_crate_name: &str,
+    package_root: &PathBuf,
+) -> anyhow::Result<Option<Vec<GeneratedFile>>> {
+    let out_dir = match find_swift_bridge_out_dir(binding_crate_name) {
+        Some(d) => d,
+        None => return Ok(None),
+    };
+
+    // SwiftBridgeCore.swift: top-level in out/
+    let core_swift_src = out_dir.join("SwiftBridgeCore.swift");
+    // {crate}-swift.swift: inside out/{binding_crate}/
+    let crate_swift_src = out_dir
+        .join(binding_crate_name)
+        .join(format!("{binding_crate_name}.swift"));
+    // SwiftBridgeCore.h + {crate}-swift.h for the umbrella header
+    let core_h_src = out_dir.join("SwiftBridgeCore.h");
+    let crate_h_src = out_dir.join(binding_crate_name).join(format!("{binding_crate_name}.h"));
+
+    // If any required file is missing, skip silently — the build may be stale.
+    for p in [&core_swift_src, &crate_swift_src, &core_h_src, &crate_h_src] {
+        if !p.exists() {
+            return Ok(None);
+        }
+    }
+
+    let core_swift = std::fs::read_to_string(&core_swift_src)
+        .map_err(|e| anyhow::anyhow!("failed to read {}: {e}", core_swift_src.display()))?;
+    let crate_swift = std::fs::read_to_string(&crate_swift_src)
+        .map_err(|e| anyhow::anyhow!("failed to read {}: {e}", crate_swift_src.display()))?;
+    let core_h = std::fs::read_to_string(&core_h_src)
+        .map_err(|e| anyhow::anyhow!("failed to read {}: {e}", core_h_src.display()))?;
+    let crate_h = std::fs::read_to_string(&crate_h_src)
+        .map_err(|e| anyhow::anyhow!("failed to read {}: {e}", crate_h_src.display()))?;
+
+    // Prepend `import RustBridgeC` to each Swift file.
+    // swift-bridge's generated SwiftBridgeCore.swift starts with `import Foundation`; the
+    // crate-specific swift file has no imports at all.  Both reference C types (RustStr,
+    // __private__Option*, __swift_bridge__$Vec_*) that live in the RustBridgeC SwiftPM target.
+    let core_swift_content = prepend_rust_bridge_c_import(&core_swift);
+    let crate_swift_content = prepend_rust_bridge_c_import(&crate_swift);
+
+    // RustBridgeC.h: umbrella header concatenating both generated C headers.
+    // SwiftPM exposes the directory via `publicHeadersPath: "."`, so every `.h` file
+    // in Sources/RustBridgeC/ is automatically visible to dependent targets.
+    // Using a single concatenated umbrella keeps the directory layout simple.
+    let rust_bridge_c_h = format!(
+        "#ifndef RUST_BRIDGE_C_H\n\
+         #define RUST_BRIDGE_C_H\n\
+         \n\
+         // Auto-generated by alef — do not edit by hand.\n\
+         // Concatenates SwiftBridgeCore.h and {binding_crate_name}.h produced by\n\
+         // `cargo build -p {binding_crate_name}` via swift_bridge_build.\n\
+         \n\
+         {core_h}\n\
+         {crate_h}\n\
+         #endif /* RUST_BRIDGE_C_H */\n"
+    );
+
+    let sources_rust_bridge = package_root.join("Sources").join("RustBridge");
+    let sources_rust_bridge_c = package_root.join("Sources").join("RustBridgeC");
+    // Use crate_name (e.g. "liter-llm") for the filename, not binding_crate_name.
+    // swift-bridge names the sub-directory after the binding crate, but the output
+    // Swift file is conventionally named after the crate being bridged.
+    let _ = crate_name; // used via binding_crate_name for path, crate_name kept for clarity
+    let files = vec![
+        GeneratedFile {
+            path: sources_rust_bridge.join("SwiftBridgeCore.swift"),
+            content: core_swift_content,
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: sources_rust_bridge.join(format!("{binding_crate_name}.swift")),
+            content: crate_swift_content,
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: sources_rust_bridge_c.join("RustBridgeC.h"),
+            content: rust_bridge_c_h,
+            generated_header: false,
+        },
+    ];
+    Ok(Some(files))
+}
+
+/// Prepend `import RustBridgeC\n\n` to a swift-bridge-generated Swift file.
+///
+/// swift-bridge's `SwiftBridgeCore.swift` starts with `import Foundation` but does not
+/// import the module that exposes the C types (`RustStr`, `__private__Option*`, etc.).
+/// Under SwiftPM the `RustBridgeC` target is the designated carrier for those declarations,
+/// and Swift source files in sibling targets must `import RustBridgeC` explicitly.
+///
+/// The crate-specific `{crate}-swift.swift` file has no imports at all and also
+/// requires the same import.
+///
+/// Idempotent: if the file already starts with `import RustBridgeC` the line is not
+/// duplicated.
+fn prepend_rust_bridge_c_import(content: &str) -> String {
+    const IMPORT: &str = "import RustBridgeC";
+    if content.lines().take(3).any(|l| l.trim() == IMPORT) {
+        return content.to_string();
+    }
+    format!("{IMPORT}\n\n{content}")
 }

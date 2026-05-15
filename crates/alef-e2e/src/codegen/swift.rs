@@ -885,6 +885,7 @@ fn render_test_method(
             result_is_array,
             result_is_option,
             &effective_enum_fields,
+            is_streaming,
         );
     }
 
@@ -1116,6 +1117,7 @@ fn render_assertion(
     result_is_array: bool,
     result_is_option: bool,
     enum_fields: &HashSet<String>,
+    is_streaming: bool,
 ) {
     // When the bare result is `Optional<T>` (no field path) the opaque class
     // exposed by swift-bridge has no `.toString()` method, so the usual
@@ -1124,8 +1126,14 @@ fn render_assertion(
     let bare_result_is_option = result_is_option && assertion.field.as_deref().filter(|f| !f.is_empty()).is_none();
     // Streaming virtual fields resolve against the `chunks` collected-array variable.
     // Intercept before is_valid_for_result so they are never skipped.
+    // Also intercept `usage.*` deep-paths in streaming tests: `AsyncThrowingStream` does
+    // not have a `usage()` method, so we must route them through the chunks accessor.
     if let Some(f) = &assertion.field {
-        if !f.is_empty() && crate::codegen::streaming_assertions::is_streaming_virtual_field(f) {
+        let is_streaming_usage_path =
+            is_streaming && (f == "usage" || (f.starts_with("usage.") || f.starts_with("usage[")));
+        if !f.is_empty()
+            && (crate::codegen::streaming_assertions::is_streaming_virtual_field(f) || is_streaming_usage_path)
+        {
             if let Some(expr) =
                 crate::codegen::streaming_assertions::StreamingFieldResolver::accessor(f, "swift", "chunks")
             {

@@ -396,6 +396,32 @@ fn emit_lib_rs(
     let extra_serde_param_types: Vec<&TypeDef> =
         collect_serde_param_types(api, &visible_types, &visible_functions, &e2e_type_names);
 
+    // Collect streaming item types that have serde derives.  The Swift streaming
+    // wrapper uses `RustBridge.{itemType}FromJson(json)` — a Rust-side free
+    // function — to deserialise each JSON chunk into the opaque type so that
+    // callers can use the full swift-bridge method API on the result.
+    // The `from_json` shim must be emitted even when the type is NOT a param type.
+    let extra_serde_param_names: std::collections::HashSet<&str> =
+        extra_serde_param_types.iter().map(|t| t.name.as_str()).collect();
+    let e2e_type_name_set: std::collections::HashSet<&str> = e2e_type_names.iter().copied().collect();
+    let streaming_item_types: Vec<&TypeDef> = {
+        let streaming_item_names: std::collections::HashSet<&str> = config
+            .adapters
+            .iter()
+            .filter(|a| matches!(a.pattern, alef_core::config::AdapterPattern::Streaming))
+            .filter_map(|a| a.item_type.as_deref())
+            .collect();
+        visible_types
+            .iter()
+            .copied()
+            .filter(|ty| streaming_item_names.contains(ty.name.as_str()))
+            .filter(|ty| ty.has_serde && !ty.is_opaque && !ty.is_trait)
+            // Skip types already covered by the other from_json shim sets.
+            .filter(|ty| !extra_serde_param_names.contains(ty.name.as_str()))
+            .filter(|ty| !e2e_type_name_set.contains(ty.name.as_str()))
+            .collect()
+    };
+
     out.push_str("#[swift_bridge::bridge]\nmod ffi {\n");
     for block in &extern_blocks {
         out.push_str(block);
@@ -416,6 +442,22 @@ fn emit_lib_rs(
     if !extra_serde_param_types.is_empty() {
         out.push_str("    extern \"Rust\" {\n\n");
         for ty in &extra_serde_param_types {
+            use heck::{AsSnakeCase, ToLowerCamelCase};
+            let type_snake = AsSnakeCase(ty.name.as_str()).to_string();
+            let type_name = &ty.name;
+            let swift_name = format!("{}_from_json", type_snake).to_lower_camel_case();
+            out.push_str(&format!(
+                "        #[swift_bridge(swift_name = \"{swift_name}\")]\n        fn {type_snake}_from_json(json: String) -> Result<{type_name}, String>;\n"
+            ));
+        }
+        out.push_str("    }\n");
+    }
+    // Emit from_json extern blocks for streaming item types.
+    // The streaming wrapper calls `RustBridge.{itemType}FromJson(json)` on the
+    // Swift side to deserialise each JSON chunk into the opaque type.
+    if !streaming_item_types.is_empty() {
+        out.push_str("    extern \"Rust\" {\n\n");
+        for ty in &streaming_item_types {
             use heck::{AsSnakeCase, ToLowerCamelCase};
             let type_snake = AsSnakeCase(ty.name.as_str()).to_string();
             let type_name = &ty.name;
@@ -541,6 +583,23 @@ fn emit_lib_rs(
     // These allow Swift e2e tests to deserialise fixture JSON into the strongly-typed
     // request objects (e.g. ChatCompletionRequest) that the swift-bridge wrappers require.
     for ty in &extra_serde_param_types {
+        use heck::AsSnakeCase;
+        let type_snake = AsSnakeCase(ty.name.as_str()).to_string();
+        let type_name = &ty.name;
+        let source_path =
+            alef_codegen::generators::type_paths::resolve_type_path(type_name, &source_crate, &type_paths);
+        out.push_str(&format!(
+            "pub fn {type_snake}_from_json(json: String) -> Result<{type_name}, String> {{\n    \
+             serde_json::from_str::<{source_path}>(&json)\n        \
+             .map({type_name})\n        \
+             .map_err(|e| e.to_string())\n}}\n\n"
+        ));
+    }
+
+    // Emit from_json shim implementations for streaming item types.
+    // The Swift streaming wrapper calls `RustBridge.{itemType}FromJson(json)` to
+    // deserialise each JSON chunk into the opaque swift-bridge type.
+    for ty in &streaming_item_types {
         use heck::AsSnakeCase;
         let type_snake = AsSnakeCase(ty.name.as_str()).to_string();
         let type_name = &ty.name;
