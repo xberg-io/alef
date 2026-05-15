@@ -8,7 +8,12 @@
 //! That trips ktlint's `standard:package-name` rule, which forbids
 //! underscores. Since the package is determined upstream and constrained by
 //! Java conventions, we disable that one rule for the generated tree rather
-//! than rewrite every repository name. All other ktlint rules remain on.
+//! than rewrite every repository name.
+//!
+//! The emitted Kotlin sources are canonically ktfmt-formatted. ktfmt and
+//! ktlint disagree on class/function/parameter splitting heuristics and
+//! continuation indent, so the ktlint rules that conflict with ktfmt are
+//! disabled here. All other ktlint rules remain on.
 
 /// Emit `.editorconfig` for the AAR project root.
 pub fn emit() -> String {
@@ -29,10 +34,30 @@ indent_size = 4
 # `com.github.kreuzberg_dev`) carry underscores; allow them for the
 # co-located Java facade and its Kotlin wrappers.
 ktlint_standard_package-name = disabled
+# ktfmt and ktlint disagree on class/function/parameter splitting heuristics
+# and continuation indent. ktfmt is the canonical formatter for the emitted
+# code, so we disable the ktlint rules that conflict.
+ktlint_standard_class-signature = disabled
+ktlint_standard_function-signature = disabled
+ktlint_standard_function-expression-body = disabled
+ktlint_standard_no-empty-class-body = disabled
+ktlint_standard_no-empty-first-line-in-method-block = disabled
+ktlint_standard_indent = disabled
+ktlint_standard_filename = disabled
 
 [*.gradle.kts]
 indent_style = space
 indent_size = 4
+# ktfmt and ktlint disagree on class/function/parameter splitting heuristics
+# and continuation indent. ktfmt is the canonical formatter for the emitted
+# code, so we disable the ktlint rules that conflict.
+ktlint_standard_class-signature = disabled
+ktlint_standard_function-signature = disabled
+ktlint_standard_function-expression-body = disabled
+ktlint_standard_no-empty-class-body = disabled
+ktlint_standard_no-empty-first-line-in-method-block = disabled
+ktlint_standard_indent = disabled
+ktlint_standard_filename = disabled
 
 [*.{xml,pro,gitignore}]
 indent_style = space

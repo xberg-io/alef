@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-backend-kotlin-android**: emitted `.editorconfig` now disables the
+  ktlint rules that conflict with ktfmt formatting (`class-signature`,
+  `function-signature`, `function-expression-body`, `no-empty-class-body`,
+  `no-empty-first-line-in-method-block`, `indent`, `filename`). The
+  alef-emitted Kotlin Android code is canonically ktfmt-formatted; ktlint's
+  competing layout opinions were spuriously flagging the output.
 - **alef-backend-kotlin-android**: explicitly set Kotlin compile target via
   `kotlin { compilerOptions { jvmTarget = ... } }` so it matches the Java
   `compileOptions` target. Previously the emitted `build.gradle.kts` only
