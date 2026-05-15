@@ -4,6 +4,7 @@
 //! appropriate target-specific emitter based on the configured [`KotlinTarget`].
 
 mod helpers;
+pub mod jni_emitter;
 mod object_wrapper;
 mod shared;
 pub mod trait_bridge;
@@ -12,7 +13,7 @@ mod typealiases;
 
 use crate::naming::kotlin_target;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
-use alef_core::config::{AdapterPattern, KotlinTarget, Language, ResolvedCrateConfig};
+use alef_core::config::{AdapterPattern, KotlinFfiStyle, KotlinTarget, Language, ResolvedCrateConfig};
 use alef_core::ir::{ApiSurface, EnumDef, ErrorDef, FunctionDef, MethodDef, ParamDef, TypeDef, TypeRef};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -320,13 +321,19 @@ pub fn emit_jvm_client_class_with_package(
         content.push_str("}\n");
     }
 
+    let client_file_name = if client_types.len() == 1 {
+        format!("{}.kt", client_types[0].name)
+    } else {
+        "DefaultClient.kt".to_string()
+    };
+
     let path = if config.explicit_output.kotlin.is_some() {
-        kotlin_root_path.join("DefaultClient.kt")
+        kotlin_root_path.join(&client_file_name)
     } else {
         kotlin_root_path
             .join("src/main/kotlin")
             .join(&package_path)
-            .join("DefaultClient.kt")
+            .join(&client_file_name)
     };
 
     Some(GeneratedFile {
@@ -558,6 +565,10 @@ impl Backend for KotlinBackend {
         if mode == Some("kmp") {
             return crate::gen_mpp::emit(api, config);
         }
+        // Dispatch by FFI style first; JNI mode is independent of target.
+        if config.kotlin_ffi_style() == KotlinFfiStyle::Jni {
+            return generate_jni(api, config);
+        }
         // Default: dispatch by `target` (preserves existing behaviour).
         match kotlin_target(config) {
             KotlinTarget::Jvm => generate_jvm(api, config),
@@ -740,5 +751,17 @@ fn generate_jvm(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
         files.push(client_file);
     }
 
+    Ok(files)
+}
+
+// ---------------------------------------------------------------------------
+// JNI code generation
+// ---------------------------------------------------------------------------
+
+fn generate_jni(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    let mut files = vec![jni_emitter::emit_jni_bridge_object(api, config)];
+    if let Some(client_file) = jni_emitter::emit_jni_client_class(api, config, None) {
+        files.push(client_file);
+    }
     Ok(files)
 }

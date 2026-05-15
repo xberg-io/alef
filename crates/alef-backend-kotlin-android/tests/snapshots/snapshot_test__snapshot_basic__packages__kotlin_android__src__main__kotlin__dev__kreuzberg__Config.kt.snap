@@ -6,6 +6,11 @@ expression: "&file.content"
 
 package dev.kreuzberg
 
-object Demo {
-    fun process(input: String, count: Int): String = DemoBridge.nativeProcess(input, count)
-}
+/**
+ * A demo configuration struct.
+ */
+data class Config(
+    val value: Int,
+    val label: String,
+    val tag: String??
+)

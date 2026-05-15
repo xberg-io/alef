@@ -6,6 +6,10 @@ expression: "&file.content"
 
 package dev.kreuzberg
 
-object Demo {
-    fun process(input: String, count: Int): String = DemoBridge.nativeProcess(input, count)
+/**
+ * Processing status.
+ */
+enum class Status {
+    ACTIVE,
+    INACTIVE;
 }

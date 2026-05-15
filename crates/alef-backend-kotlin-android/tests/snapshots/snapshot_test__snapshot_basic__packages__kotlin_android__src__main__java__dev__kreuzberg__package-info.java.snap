@@ -1,8 +1,0 @@
----
-source: crates/alef-backend-kotlin-android/tests/snapshot_test.rs
-expression: "&file.content"
----
-/**
- * Generated Java bindings.
- */
-package dev.kreuzberg;

@@ -39,6 +39,7 @@ pub mod swift;
 pub mod typescript;
 pub mod wasm;
 pub mod zig;
+mod zig_visitors;
 
 use crate::config::E2eConfig;
 use crate::fixture::{Fixture, FixtureGroup};

@@ -105,13 +105,23 @@ fn supports_streaming_capability_is_true() {
 
 /// A streaming adapter owned by a client type must produce a `Flow<T>`
 /// wrapper (via `callbackFlow`) in the generated `DefaultClient.kt`, and JNI
-/// native method declarations in the `{Module}Rs.java` facade, when the
-/// kotlin-android backend generates bindings.
+/// `external fun` declarations in the `DemoBridge.kt` object (not in any
+/// Java file), when the kotlin-android backend generates bindings in JNI mode.
 #[test]
 fn streaming_adapter_emits_flow_wrapper_in_kotlin_android() {
     let api = make_streaming_api();
     let config = make_streaming_config();
     let files = KotlinAndroidBackend.generate_bindings(&api, &config).unwrap();
+
+    // No Java files must be emitted — the AAR is pure-Kotlin JNI.
+    let java_files: Vec<_> = files
+        .iter()
+        .filter(|f| f.path.extension().and_then(|e| e.to_str()) == Some("java"))
+        .collect();
+    assert!(
+        java_files.is_empty(),
+        "kotlin-android must not emit Java files; got: {java_files:?}"
+    );
 
     // DefaultClient.kt must contain the callbackFlow wrapper.
     let client_kt = files
@@ -133,15 +143,15 @@ fn streaming_adapter_emits_flow_wrapper_in_kotlin_android() {
         "expected callbackFlow wrapper: {kt_content}"
     );
     assert!(
-        kt_content.contains("Bridge.nativeDefaultClientChatStreamStart("),
+        kt_content.contains("nativeDefaultClientChatStreamStart("),
         "expected nativeDefaultClientChatStreamStart: {kt_content}"
     );
     assert!(
-        kt_content.contains("Bridge.nativeDefaultClientChatStreamNext("),
+        kt_content.contains("nativeDefaultClientChatStreamNext("),
         "expected nativeDefaultClientChatStreamNext: {kt_content}"
     );
     assert!(
-        kt_content.contains("Bridge.nativeDefaultClientChatStreamFree("),
+        kt_content.contains("nativeDefaultClientChatStreamFree("),
         "expected nativeDefaultClientChatStreamFree: {kt_content}"
     );
     assert!(
@@ -149,24 +159,24 @@ fn streaming_adapter_emits_flow_wrapper_in_kotlin_android() {
         "expected awaitClose for stream handle cleanup: {kt_content}"
     );
 
-    // DemoRs.java must contain the JNI native declarations.
-    let demo_rs_java = files
+    // DemoBridge.kt must contain the JNI external fun declarations (not Java).
+    let bridge_kt = files
         .iter()
-        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("DemoRs.java"))
-        .expect("DemoRs.java must be emitted");
+        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("DemoBridge.kt"))
+        .expect("DemoBridge.kt must be emitted in JNI mode");
 
-    let java_content = &demo_rs_java.content;
+    let bridge_content = &bridge_kt.content;
     assert!(
-        java_content.contains("nativeDefaultClientChatStreamStart"),
-        "expected nativeDefaultClientChatStreamStart in DemoRs.java: {java_content}"
+        bridge_content.contains("external fun nativeDefaultClientChatStreamStart("),
+        "expected nativeDefaultClientChatStreamStart external fun in DemoBridge.kt: {bridge_content}"
     );
     assert!(
-        java_content.contains("nativeDefaultClientChatStreamNext"),
-        "expected nativeDefaultClientChatStreamNext in DemoRs.java: {java_content}"
+        bridge_content.contains("external fun nativeDefaultClientChatStreamNext("),
+        "expected nativeDefaultClientChatStreamNext external fun in DemoBridge.kt: {bridge_content}"
     );
     assert!(
-        java_content.contains("nativeDefaultClientChatStreamFree"),
-        "expected nativeDefaultClientChatStreamFree in DemoRs.java: {java_content}"
+        bridge_content.contains("external fun nativeDefaultClientChatStreamFree("),
+        "expected nativeDefaultClientChatStreamFree external fun in DemoBridge.kt: {bridge_content}"
     );
 
     // Snapshot the DefaultClient.kt so regressions are caught.

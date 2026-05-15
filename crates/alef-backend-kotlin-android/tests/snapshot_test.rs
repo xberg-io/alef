@@ -197,9 +197,9 @@ fn snapshot_basic() {
 /// Regression: when `[crates.output].kotlin_android` points at the Kotlin
 /// source destination (`src/main/kotlin/<pkg>/`), build metadata files
 /// (build.gradle.kts, settings.gradle.kts, AndroidManifest.xml,
-/// consumer/proguard rules, .gitignore, jniLibs/, src/main/java/) MUST
+/// consumer/proguard rules, .gitignore, jniLibs/) MUST
 /// be emitted at the derived project root — not nested inside the
-/// source destination.
+/// source destination. No Java files are emitted (pure-Kotlin JNI AAR).
 #[test]
 fn build_metadata_goes_to_project_root_when_output_points_at_kotlin_source() {
     let api = make_basic_api();
@@ -257,11 +257,15 @@ kotlin_android = "packages/kotlin-android/src/main/kotlin/dev/kreuzberg/demo/and
     expect_at("packages/kotlin-android/src/main/jniLibs/arm64-v8a/.gitkeep");
     expect_at("packages/kotlin-android/src/main/jniLibs/x86_64/.gitkeep");
 
-    // Java facade re-rooted under project root
-    expect_at("packages/kotlin-android/src/main/java/dev/kreuzberg/DemoRs.java");
-    expect_at("packages/kotlin-android/src/main/java/dev/kreuzberg/NativeLib.java");
+    // No Java files — the AAR is pure-Kotlin JNI.
+    let java_files: Vec<_> = paths.iter().filter(|p| p.ends_with(".java")).collect();
+    assert!(
+        java_files.is_empty(),
+        "kotlin-android must not emit Java files; got: {java_files:?}"
+    );
 
-    // Kotlin source at the configured path (no extra src/main/kotlin/<pkg>/ nesting)
+    // JNI Bridge + module object at the configured Kotlin source path.
+    expect_at("packages/kotlin-android/src/main/kotlin/dev/kreuzberg/demo/android/DemoBridge.kt");
     expect_at("packages/kotlin-android/src/main/kotlin/dev/kreuzberg/demo/android/Demo.kt");
 
     // Negative assertions: nothing should be emitted under the source

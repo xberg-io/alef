@@ -1,22 +1,25 @@
 //! Kotlin/Android (AAR library) backend for alef.
 //!
-//! Emits a self-contained Android library Gradle project:
+//! Emits a self-contained Android library Gradle project with a pure-Kotlin
+//! JNI layout — no bundled Java facade. All binding code lives under
+//! `src/main/kotlin/`.
 //!
 //! - `build.gradle.kts` with the Android Gradle Plugin and `maven-publish`
 //! - `settings.gradle.kts` with `pluginManagement` so plugins resolve from a
 //!   clean checkout
 //! - `src/main/AndroidManifest.xml`
-//! - `src/main/kotlin/<pkg>/<Module>.kt` — Kotlin facade wrapping the
-//!   bundled Java facade, loading the native cdylib via
-//!   `System.loadLibrary` on first class load
+//! - `src/main/kotlin/<pkg>/<Module>Bridge.kt` — a Kotlin `object` with
+//!   `external fun` JNI declarations and `init { System.loadLibrary(...) }`
 //! - `src/main/kotlin/<pkg>/DefaultClient.kt` — coroutine-friendly client
-//!   class when the API has methodful types
-//! - `src/main/java/<java_pkg>/*.java` — the full Java facade emitted by
-//!   `alef-backend-java`, copied into the AAR so consumers do not need to
-//!   depend on `packages/java/`
+//!   class holding a `Long` handle when the API has methodful types
 //! - `src/main/jniLibs/<abi>/.gitkeep` for each configured ABI (default
 //!   `arm64-v8a`, `x86_64`)
 //! - `consumer-rules.pro`, `proguard-rules.pro`, `.gitignore`
+//!
+//! Forces `KotlinFfiStyle::Jni` regardless of the workspace configuration.
+//! Consumers must ship a `<crate>-jni` Rust crate exporting
+//! `Java_<package>_<Module>Bridge_native<Method>` symbols per JNI spec §5.11.3
+//! and link `lib<crate>_jni.so` into `jniLibs/<abi>/`.
 //!
 //! Distinct from the JVM-only `alef-backend-kotlin` backend.
 
@@ -24,7 +27,6 @@ pub mod gen_bindings;
 pub mod gen_build_gradle;
 pub mod gen_editorconfig;
 pub mod gen_gitignore;
-pub mod gen_java_facade;
 pub mod gen_jni_skeleton;
 pub mod gen_manifest;
 pub mod gen_proguard;
@@ -34,7 +36,7 @@ pub mod naming;
 use std::path::{Path, PathBuf};
 
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
-use alef_core::config::{Language, ResolvedCrateConfig};
+use alef_core::config::{KotlinFfiStyle, Language, ResolvedCrateConfig};
 use alef_core::ir::ApiSurface;
 
 use crate::naming::package_path;
@@ -74,6 +76,9 @@ impl Backend for KotlinAndroidBackend {
     }
 
     fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+        // Always force JNI mode: the Android AAR does not ship a Java/Panama facade.
+        let config = config.clone().with_kotlin_ffi_style(KotlinFfiStyle::Jni);
+        let config = &config;
         let layout = ProjectLayout::resolve(config);
 
         let mut files = vec![
@@ -116,7 +121,6 @@ impl Backend for KotlinAndroidBackend {
 
         files.extend(gen_jni_skeleton::emit(config, &layout.package_root));
         files.extend(gen_bindings::emit(api, config, &layout.kotlin_source_dir));
-        files.extend(gen_java_facade::emit(api, config, &layout.package_root)?);
 
         Ok(files)
     }

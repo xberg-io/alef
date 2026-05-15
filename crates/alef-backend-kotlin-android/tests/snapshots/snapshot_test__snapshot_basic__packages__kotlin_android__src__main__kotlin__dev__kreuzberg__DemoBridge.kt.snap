@@ -6,6 +6,8 @@ expression: "&file.content"
 
 package dev.kreuzberg
 
-object Demo {
-    fun process(input: String, count: Int): String = DemoBridge.nativeProcess(input, count)
+object DemoBridge {
+    init { System.loadLibrary("demo_jni") }
+
+    external fun nativeProcess(input: String, count: Int): String
 }

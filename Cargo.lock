@@ -161,7 +161,6 @@ dependencies = [
 name = "alef-backend-kotlin-android"
 version = "0.16.4"
 dependencies = [
- "alef-backend-java",
  "alef-backend-kotlin",
  "alef-core",
  "anyhow",

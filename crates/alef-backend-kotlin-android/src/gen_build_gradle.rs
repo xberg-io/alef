@@ -63,7 +63,6 @@ android {{
 
     sourceSets {{
         getByName("main") {{
-            java.srcDirs("src/main/java")
             jniLibs.srcDirs("src/main/jniLibs")
         }}
     }}

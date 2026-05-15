@@ -1,10 +1,10 @@
 use crate::type_map::{java_boxed_type, java_return_type, java_type};
 use ahash::AHashSet;
 use alef_codegen::naming::to_java_name;
-use alef_core::config::{AdapterPattern, ResolvedCrateConfig};
+use alef_core::config::ResolvedCrateConfig;
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{ApiSurface, FunctionDef, TypeRef};
-use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
+use heck::ToSnakeCase;
 use std::collections::HashSet;
 
 use super::helpers::is_bridge_param_java;
@@ -16,7 +16,7 @@ use super::marshal::{
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn gen_main_class(
     api: &ApiSurface,
-    config: &ResolvedCrateConfig,
+    _config: &ResolvedCrateConfig,
     package: &str,
     class_name: &str,
     prefix: &str,
@@ -72,11 +72,6 @@ pub(crate) fn gen_main_class(
 
     // Add helper methods only if they are referenced in the body
     gen_helper_methods(&mut body, prefix, class_name);
-
-    // Emit JNI native method declarations for each streaming adapter.
-    // These are declaration-only — the Rust-side JNI shims are hand-written in
-    // consumer crates (e.g. liter-llm-ffi) for this release.
-    gen_streaming_jni_decls(&mut body, config, package, class_name);
 
     let footer_out = crate::template_env::render("ffi_main_class_footer.jinja", minijinja::context! {});
     body.push_str(&footer_out);
@@ -744,60 +739,6 @@ fn gen_convert_with_visitor_internal_method(class_name: &str, prefix: &str) -> S
     out.push_str("    }\n");
 
     out
-}
-
-/// Emit JNI `static native` method declarations for each streaming adapter
-/// whose owner type is present in the API surface.
-///
-/// These declarations are placed on the `{Module}Rs` class so the Kotlin
-/// `callbackFlow` wrapper can call them via the `Bridge` alias. The actual
-/// JNI implementation lives in hand-written Rust shims in consumer crates
-/// (e.g. `liter-llm-ffi`) for this release.
-///
-/// For an adapter `chat_stream` owned by `DefaultClient` the emitted
-/// declarations are:
-/// ```java
-///     // JNI streaming native declarations for DefaultClient.chatStream
-///     static native long nativeDefaultClientChatStreamStart(DefaultClient client, String requestJson) throws Exception;
-///     static native String nativeDefaultClientChatStreamNext(long streamHandle) throws Exception;
-///     static native void nativeDefaultClientChatStreamFree(long streamHandle);
-/// ```
-fn gen_streaming_jni_decls(out: &mut String, config: &ResolvedCrateConfig, package: &str, _class_name: &str) {
-    let streaming: Vec<_> = config
-        .adapters
-        .iter()
-        .filter(|a| matches!(a.pattern, AdapterPattern::Streaming) && a.owner_type.is_some())
-        .collect();
-    if streaming.is_empty() {
-        return;
-    }
-    out.push('\n');
-    out.push_str("    // JNI streaming native declarations — implementations are hand-written\n");
-    out.push_str("    // Rust shims in consumer crates (e.g. liter-llm-ffi).\n");
-    for adapter in &streaming {
-        let Some(owner) = adapter.owner_type.as_deref() else {
-            continue;
-        };
-        let owner_pascal = owner.to_pascal_case();
-        let adapter_pascal = adapter.name.to_pascal_case();
-        let jni_start = format!("native{owner_pascal}{adapter_pascal}Start");
-        let jni_next = format!("native{owner_pascal}{adapter_pascal}Next");
-        let jni_free = format!("native{owner_pascal}{adapter_pascal}Free");
-        // The owner type lives in the same package as this class.
-        let owner_fqn = format!("{package}.{owner}");
-        out.push('\n');
-        out.push_str(&format!(
-            "    // JNI streaming native declarations for {owner}.{}\n",
-            adapter.name.to_lower_camel_case()
-        ));
-        out.push_str(&format!(
-            "    static native long {jni_start}({owner_fqn} client, String requestJson) throws Exception;\n"
-        ));
-        out.push_str(&format!(
-            "    static native String {jni_next}(long streamHandle) throws Exception;\n"
-        ));
-        out.push_str(&format!("    static native void {jni_free}(long streamHandle);\n"));
-    }
 }
 
 #[cfg(test)]

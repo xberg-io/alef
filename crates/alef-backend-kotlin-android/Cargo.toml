@@ -9,7 +9,6 @@ repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
-alef-backend-java = { workspace = true }
 alef-backend-kotlin = { workspace = true }
 alef-core = { workspace = true }
 anyhow = { workspace = true }
