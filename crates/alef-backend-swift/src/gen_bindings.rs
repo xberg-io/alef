@@ -1298,7 +1298,7 @@ fn find_swift_bridge_out_dir(binding_crate_name: &str) -> Option<PathBuf> {
         .find(|p| p.join("Cargo.lock").exists())?;
     let target = workspace_root.join("target");
 
-    let crate_prefix = format!("{}-", binding_crate_name.replace('-', "-"));
+    let crate_prefix = format!("{binding_crate_name}-");
 
     let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
     for profile in ["release", "debug"] {
@@ -1344,7 +1344,7 @@ fn find_swift_bridge_out_dir(binding_crate_name: &str) -> Option<PathBuf> {
 fn emit_swift_bridge_files(
     crate_name: &str,
     binding_crate_name: &str,
-    package_root: &PathBuf,
+    package_root: &std::path::Path,
 ) -> anyhow::Result<Option<Vec<GeneratedFile>>> {
     let out_dir = match find_swift_bridge_out_dir(binding_crate_name) {
         Some(d) => d,
