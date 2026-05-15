@@ -16,7 +16,9 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use alef_backend_kotlin::{emit_enum_pub, emit_error_type_pub, emit_jni_bridge_object, emit_jni_client_class, emit_type_pub, to_pascal_case};
+use alef_backend_kotlin::{
+    emit_enum_pub, emit_error_type_pub, emit_jni_bridge_object, emit_jni_client_class, emit_type_pub, to_pascal_case,
+};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::ResolvedCrateConfig;
 use alef_core::ir::ApiSurface;
@@ -34,12 +36,7 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, kotlin_source_dir: &
 
     // Bridge object: external fun declarations + System.loadLibrary init block.
     let mut bridge_file = emit_jni_bridge_object(api, config);
-    bridge_file.path = kotlin_source_dir.join(
-        bridge_file
-            .path
-            .file_name()
-            .expect("bridge file must have a filename"),
-    );
+    bridge_file.path = kotlin_source_dir.join(bridge_file.path.file_name().expect("bridge file must have a filename"));
     files.push(bridge_file);
 
     // DefaultClient.kt — only emitted when the API has methodful opaque types.

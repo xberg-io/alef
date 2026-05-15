@@ -2,4 +2,3 @@
 source: crates/alef-backend-kotlin-android/tests/snapshot_test.rs
 expression: "&file.content"
 ---
-
