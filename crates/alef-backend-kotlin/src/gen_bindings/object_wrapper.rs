@@ -52,7 +52,7 @@ pub(crate) fn emit_type_with_imports(ty: &TypeDef, out: &mut String, imports: &m
     out.push_str(")\n");
 }
 
-pub(crate) fn emit_enum(en: &EnumDef, out: &mut String) {
+pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str) {
     emit_cleaned_kdoc(out, &en.doc, "");
     let all_unit = en.variants.iter().all(|v| v.fields.is_empty());
     if all_unit {
@@ -85,12 +85,31 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String) {
             out.push_str(&en.name);
             out.push_str("Deserializer::class)\n");
         }
+        // Sealed classes need custom serializers so that round-trip
+        // (Kotlin → JSON → Rust) works correctly.
+        // - Tagged: the tag field must be injected into the JSON output.
+        // - Untagged: newtype variants must serialize as their inner value,
+        //   not as a data-class wrapper object.
+        let needs_serializer = en.serde_tag.is_some() || en.serde_untagged;
+        if needs_serializer {
+            out.push_str("@com.fasterxml.jackson.databind.annotation.JsonSerialize(using = ");
+            out.push_str(&en.name);
+            out.push_str("Serializer::class)\n");
+        }
         out.push_str(&crate::template_env::render(
             "sealed_class_header.jinja",
             minijinja::context! {
                 name => &en.name,
             },
         ));
+
+        // Collect all variant names so we can detect name-shadowing in field types.
+        // Inside a sealed class body, a nested data class `Foo` shadows any outer
+        // `Foo` with the same simple name.  When a field type has the same name as a
+        // sibling variant we must fully-qualify the field type with the package path
+        // to avoid the compiler resolving the type to the variant itself (Bug E).
+        let variant_names: std::collections::HashSet<&str> = en.variants.iter().map(|v| v.name.as_str()).collect();
+
         for variant in &en.variants {
             if variant.fields.is_empty() {
                 out.push_str(&crate::template_env::render(
@@ -101,6 +120,31 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String) {
                     },
                 ));
             } else {
+                // When the sealed class has a custom @JsonDeserialize / @JsonSerialize
+                // annotation, all variant subclasses inherit it (Kotlin/Jackson
+                // annotation inheritance through the sealed class hierarchy).
+                //
+                // Problem: for named-field struct variants, ctx.readTreeAsValue or
+                // mapper.valueToTree with the variant class re-triggers the parent
+                // class's custom (de)serializer, causing infinite recursion or an
+                // "Unknown tag" error on the stripped payload.
+                //
+                // Fix: annotate each non-unit variant data class with bare
+                // @JsonDeserialize and @JsonSerialize (which default to
+                // using = JsonDeserializer.None / JsonSerializer.None, i.e. "use
+                // the default POJO (de)serializer").  This overrides the inherited
+                // custom annotation and breaks the recursion cycle.
+                //
+                // Applied unconditionally to all non-unit variants when the sealed
+                // class has custom (de)serializer annotations — it is safer to
+                // always emit the reset annotation than to only do so for
+                // named-field variants.
+                if needs_deserializer {
+                    out.push_str("    @com.fasterxml.jackson.databind.annotation.JsonDeserialize\n");
+                }
+                if needs_serializer {
+                    out.push_str("    @com.fasterxml.jackson.databind.annotation.JsonSerialize\n");
+                }
                 out.push_str(&crate::template_env::render(
                     "variant_data_class_header.jinja",
                     minijinja::context! {
@@ -108,7 +152,7 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String) {
                     },
                 ));
                 for (idx, f) in variant.fields.iter().enumerate() {
-                    let ty_str = kotlin_type(&f.ty, f.optional, &mut BTreeSet::new());
+                    let ty_str = kotlin_type_disambiguated(&f.ty, f.optional, &variant_names, package);
                     let name = kotlin_field_name(&f.name, idx);
                     let comma = if idx + 1 == variant.fields.len() { "" } else { "," };
                     out.push_str(&crate::template_env::render(
@@ -137,6 +181,13 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String) {
             } else if en.serde_untagged {
                 emit_kotlin_untagged_deserializer(out, en);
             }
+        }
+        // Emit the custom Jackson serializer for tagged/untagged sealed classes
+        // so that round-trip (Kotlin → JSON → Rust) works correctly.
+        if let Some(tag_field) = &en.serde_tag {
+            emit_kotlin_tagged_serializer(out, en, tag_field);
+        } else if en.serde_untagged {
+            emit_kotlin_untagged_serializer(out, en);
         }
     }
 }
@@ -196,6 +247,99 @@ fn kotlin_class_name_for_type(ty: &TypeRef) -> String {
     }
 }
 
+/// Emit a Jackson `StdSerializer` for an internally-tagged (`#[serde(tag = ...)]`)
+/// sealed class.  The serializer adds the tag field back into the JSON object so
+/// that round-tripping Kotlin → JSON → Rust works correctly.
+///
+/// Strategy:
+/// - For **newtype/tuple variants** (single `_0` field holding an inner type):
+///   serialize `value.field0` as a JSON object tree, then inject the tag field.
+/// - For **named-field struct variants**: serialize the variant data class as a
+///   tree (Jackson sees it as a plain data class), then inject the tag field.
+/// - **Unit variants**: write `{"<tag>": "<discriminator>"}` directly.
+fn emit_kotlin_tagged_serializer(out: &mut String, en: &EnumDef, tag_field: &str) {
+    let name = &en.name;
+    out.push('\n');
+    out.push_str("private class ");
+    out.push_str(name);
+    out.push_str("Serializer : com.fasterxml.jackson.databind.ser.std.StdSerializer<");
+    out.push_str(name);
+    out.push_str(">(");
+    out.push_str(name);
+    out.push_str("::class.java) {\n");
+    out.push_str("    override fun serialize(\n");
+    out.push_str("        value: ");
+    out.push_str(name);
+    out.push_str(",\n");
+    out.push_str("        gen: com.fasterxml.jackson.core.JsonGenerator,\n");
+    out.push_str("        provider: com.fasterxml.jackson.databind.SerializerProvider,\n");
+    out.push_str("    ) {\n");
+    // Use the codec as ObjectMapper so we can call valueToTree; fall back to a
+    // fresh ObjectMapper if the codec is not one (shouldn't happen in practice).
+    out.push_str("        @Suppress(\"UNCHECKED_CAST\")\n");
+    out.push_str("        val mapper = (gen.codec as? com.fasterxml.jackson.databind.ObjectMapper) ?: com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules()\n");
+    out.push_str("        val node: com.fasterxml.jackson.databind.node.ObjectNode = when (value) {\n");
+
+    for variant in &en.variants {
+        let discriminator = variant_discriminator(variant, en.serde_rename_all.as_deref());
+        out.push_str("            is ");
+        out.push_str(name);
+        out.push('.');
+        out.push_str(&variant.name);
+        out.push_str(" -> {\n");
+
+        if variant.fields.is_empty() {
+            // Unit variant: emit just the tag.
+            out.push_str("                val n = mapper.createObjectNode()\n");
+            out.push_str("                n.put(\"");
+            out.push_str(tag_field);
+            out.push_str("\", \"");
+            out.push_str(&discriminator);
+            out.push_str("\")\n");
+            out.push_str("                n\n");
+        } else if variant.fields.len() == 1 && is_tuple_field_name(&variant.fields[0].name) {
+            // Newtype/tuple variant: serialize the inner value as a tree then
+            // inject the tag field so the output matches the tagged serde format.
+            out.push_str("                @Suppress(\"UNCHECKED_CAST\")\n");
+            out.push_str("                val n = mapper.valueToTree<com.fasterxml.jackson.databind.node.ObjectNode>(value.field0) as com.fasterxml.jackson.databind.node.ObjectNode\n");
+            out.push_str("                n.put(\"");
+            out.push_str(tag_field);
+            out.push_str("\", \"");
+            out.push_str(&discriminator);
+            out.push_str("\")\n");
+            out.push_str("                n\n");
+        } else {
+            // Named-field struct variant: the data class carries the payload
+            // fields directly.  Cast `value` to the concrete variant type before
+            // calling valueToTree so Jackson resolves the serializer against the
+            // variant class (which has @JsonSerialize reset to the default POJO
+            // serializer), not against the parent sealed class (which would
+            // re-trigger OcrDocumentSerializer and cause infinite recursion).
+            out.push_str("                @Suppress(\"UNCHECKED_CAST\")\n");
+            out.push_str(
+                "                val n = mapper.valueToTree<com.fasterxml.jackson.databind.node.ObjectNode>(value as ",
+            );
+            out.push_str(name);
+            out.push('.');
+            out.push_str(&variant.name);
+            out.push_str(") as com.fasterxml.jackson.databind.node.ObjectNode\n");
+            out.push_str("                n.put(\"");
+            out.push_str(tag_field);
+            out.push_str("\", \"");
+            out.push_str(&discriminator);
+            out.push_str("\")\n");
+            out.push_str("                n\n");
+        }
+
+        out.push_str("            }\n");
+    }
+
+    out.push_str("        }\n");
+    out.push_str("        mapper.writeTree(gen, node)\n");
+    out.push_str("    }\n");
+    out.push_str("}\n");
+}
+
 /// Emit a Jackson `StdDeserializer` for an internally-tagged (`#[serde(tag = ...)]`)
 /// sealed class.  The deserializer reads the tag field from the JSON object and
 /// dispatches to the correct variant by calling `ctx.readTreeAsValue`.
@@ -216,9 +360,24 @@ fn emit_kotlin_tagged_deserializer(out: &mut String, en: &EnumDef, tag_field: &s
     out.push_str(name);
     out.push_str(" {\n");
     out.push_str("        val node = parser.codec.readTree<com.fasterxml.jackson.databind.node.ObjectNode>(parser)\n");
-    out.push_str("        return when (node.get(\"");
+    // Bug D fix: strip the tag field from the payload before passing it to
+    // readTreeAsValue.  Inner types (e.g. SystemMessage, ContentPart.Text) do
+    // not declare a `role`/`type` field, so Jackson rejects the extra key with
+    // UnrecognizedPropertyException unless it is removed first.
+    // Note: `deepCopy()` on `ObjectNode` is not generic in Kotlin's view of
+    // the Jackson API (the Java signature `<T extends JsonNode> T deepCopy()`
+    // is not callable with explicit type arguments in Kotlin 2.x), so we cast
+    // the result explicitly rather than using `deepCopy<ObjectNode>()`.
+    out.push_str("        val tag = node.get(\"");
     out.push_str(tag_field);
-    out.push_str("\")?.asText()) {\n");
+    out.push_str("\")?.asText()\n");
+    out.push_str("        @Suppress(\"UNCHECKED_CAST\")\n");
+    out.push_str(
+        "        val payload = (node.deepCopy() as com.fasterxml.jackson.databind.node.ObjectNode).apply { remove(\"",
+    );
+    out.push_str(tag_field);
+    out.push_str("\") }\n");
+    out.push_str("        return when (tag) {\n");
 
     for variant in &en.variants {
         let discriminator = variant_discriminator(variant, en.serde_rename_all.as_deref());
@@ -233,29 +392,28 @@ fn emit_kotlin_tagged_deserializer(out: &mut String, en: &EnumDef, tag_field: &s
             out.push('\n');
         } else if variant.fields.len() == 1 && is_tuple_field_name(&variant.fields[0].name) {
             // Newtype/tuple variant: the `_0` IR field holds an inner named type
-            // (e.g. `SystemMessage`).  Deserialize the node as that inner type and
-            // wrap it in the variant constructor.  The variant class is NOT the same
-            // as the inner type, so we cannot return readTreeAsValue directly.
+            // (e.g. `SystemMessage`).  Deserialize the tag-stripped payload as
+            // that inner type and wrap it in the variant constructor.
             let inner_class = kotlin_class_name_for_type(&variant.fields[0].ty);
             out.push_str(name);
             out.push('.');
             out.push_str(&variant.name);
             out.push_str("(ctx.readTreeAsValue<");
             out.push_str(&inner_class);
-            out.push_str(">(node, ");
+            out.push_str(">(payload, ");
             out.push_str(&inner_class);
             out.push_str("::class.java))\n");
         } else {
             // Named-field struct variant: the variant data class fields are the
-            // same as the JSON object fields.  `readTreeAsValue` constructs the
-            // correct variant subtype directly — no constructor wrap needed.  Use
-            // an explicit Kotlin type parameter to avoid `Any!` inference on the
-            // Java generic return type.
+            // same as the JSON object fields (minus the tag).  `readTreeAsValue`
+            // constructs the correct variant subtype directly from the stripped
+            // payload — no constructor wrap needed.  Explicit Kotlin type
+            // parameter avoids `Any!` inference on the Java generic return type.
             out.push_str("ctx.readTreeAsValue<");
             out.push_str(name);
             out.push('.');
             out.push_str(&variant.name);
-            out.push_str(">(node, ");
+            out.push_str(">(payload, ");
             out.push_str(name);
             out.push('.');
             out.push_str(&variant.name);
@@ -266,9 +424,7 @@ fn emit_kotlin_tagged_deserializer(out: &mut String, en: &EnumDef, tag_field: &s
     out.push_str("            else -> throw com.fasterxml.jackson.databind.exc.InvalidFormatException(\n");
     out.push_str("                parser, \"Unknown ");
     out.push_str(name);
-    out.push_str(" tag\", node.get(\"");
-    out.push_str(tag_field);
-    out.push_str("\")?.asText(), ");
+    out.push_str(" tag\", tag, ");
     out.push_str(name);
     out.push_str("::class.java,\n");
     out.push_str("            )\n");
@@ -369,6 +525,71 @@ fn emit_kotlin_untagged_deserializer(out: &mut String, en: &EnumDef) {
     out.push_str(name);
     out.push_str("::class.java,\n");
     out.push_str("        )\n");
+    out.push_str("    }\n");
+    out.push_str("}\n");
+}
+
+/// Emit a Jackson `StdSerializer` for an untagged (`#[serde(untagged)]`) sealed
+/// class.  Each variant serializes as its inner value (for newtype variants) or
+/// as a plain JSON object (for struct variants).
+///
+/// Without this serializer, Jackson would emit `{"field0": "..."}` for a newtype
+/// variant like `UserContent.Text(field0: String)`, but Rust expects just `"..."`.
+fn emit_kotlin_untagged_serializer(out: &mut String, en: &EnumDef) {
+    let name = &en.name;
+    out.push('\n');
+    out.push_str("private class ");
+    out.push_str(name);
+    out.push_str("Serializer : com.fasterxml.jackson.databind.ser.std.StdSerializer<");
+    out.push_str(name);
+    out.push_str(">(");
+    out.push_str(name);
+    out.push_str("::class.java) {\n");
+    out.push_str("    override fun serialize(\n");
+    out.push_str("        value: ");
+    out.push_str(name);
+    out.push_str(",\n");
+    out.push_str("        gen: com.fasterxml.jackson.core.JsonGenerator,\n");
+    out.push_str("        provider: com.fasterxml.jackson.databind.SerializerProvider,\n");
+    out.push_str("    ) {\n");
+    out.push_str("        @Suppress(\"UNCHECKED_CAST\")\n");
+    out.push_str("        val mapper = (gen.codec as? com.fasterxml.jackson.databind.ObjectMapper) ?: com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules()\n");
+    out.push_str("        when (value) {\n");
+
+    for variant in &en.variants {
+        if variant.fields.is_empty() {
+            // Unit variant in an untagged enum: emit null (safest fallback).
+            out.push_str("            is ");
+            out.push_str(name);
+            out.push('.');
+            out.push_str(&variant.name);
+            out.push_str(" -> gen.writeNull()\n");
+        } else if variant.fields.len() == 1 && is_tuple_field_name(&variant.fields[0].name) {
+            // Newtype/tuple variant: serialize the inner value directly
+            // (not wrapped in an object), matching serde's untagged behaviour.
+            out.push_str("            is ");
+            out.push_str(name);
+            out.push('.');
+            out.push_str(&variant.name);
+            out.push_str(" -> mapper.writeValue(gen, value.field0)\n");
+        } else {
+            // Named-field struct variant: cast to the concrete variant type before
+            // serializing so Jackson resolves the serializer against the variant
+            // class (which has @JsonSerialize reset to the default POJO serializer),
+            // not against the parent sealed class (which would recurse infinitely).
+            out.push_str("            is ");
+            out.push_str(name);
+            out.push('.');
+            out.push_str(&variant.name);
+            out.push_str(" -> mapper.writeValue(gen, value as ");
+            out.push_str(name);
+            out.push('.');
+            out.push_str(&variant.name);
+            out.push_str(")\n");
+        }
+    }
+
+    out.push_str("        }\n");
     out.push_str("    }\n");
     out.push_str("}\n");
 }
@@ -580,9 +801,47 @@ fn render_type_ref_with_string_imports(ty: &TypeRef, imports: &mut BTreeSet<Stri
 // Type-string rendering (&'static str imports variant — used internally for enums)
 // ---------------------------------------------------------------------------
 
-fn kotlin_type(ty: &TypeRef, optional: bool, imports: &mut BTreeSet<&'static str>) -> String {
-    let inner = render_type_ref_with_imports(ty, imports);
+/// Like the basic kotlin_type helper but fully-qualifies `Named` type references whose
+/// simple name clashes with a sibling variant name in the enclosing sealed
+/// class.  This prevents the Kotlin compiler from resolving the type to the
+/// nested variant class instead of the outer same-named top-level class (Bug E).
+fn kotlin_type_disambiguated(
+    ty: &TypeRef,
+    optional: bool,
+    variant_names: &std::collections::HashSet<&str>,
+    package: &str,
+) -> String {
+    let inner = render_type_ref_disambiguated(ty, variant_names, package);
     if optional { format!("{inner}?") } else { inner }
+}
+
+fn render_type_ref_disambiguated(
+    ty: &TypeRef,
+    variant_names: &std::collections::HashSet<&str>,
+    package: &str,
+) -> String {
+    match ty {
+        TypeRef::Named(n) if !package.is_empty() && variant_names.contains(n.as_str()) => {
+            format!("{package}.{n}")
+        }
+        TypeRef::Optional(inner) => {
+            format!("{}?", render_type_ref_disambiguated(inner, variant_names, package))
+        }
+        TypeRef::Vec(inner) => {
+            format!("List<{}>", render_type_ref_disambiguated(inner, variant_names, package))
+        }
+        TypeRef::Map(k, v) => {
+            format!(
+                "Map<{}, {}>",
+                render_type_ref_disambiguated(k, variant_names, package),
+                render_type_ref_disambiguated(v, variant_names, package),
+            )
+        }
+        _ => {
+            // No clash or non-Named type — fall back to the standard renderer.
+            render_type_ref_with_imports(ty, &mut BTreeSet::new())
+        }
+    }
 }
 
 fn render_type_ref_with_imports(ty: &TypeRef, imports: &mut BTreeSet<&'static str>) -> String {
@@ -701,7 +960,7 @@ mod tests {
             ],
         );
         let mut out = String::new();
-        emit_enum(&en, &mut out);
+        emit_enum(&en, &mut out, "");
         assert!(
             out.contains(
                 "@com.fasterxml.jackson.databind.annotation.JsonDeserialize(using = MessageDeserializer::class)"
@@ -720,12 +979,23 @@ mod tests {
             out.contains("\"system\" ->"),
             "deserializer must dispatch on variant 'system'; got:\n{out}",
         );
+        // Bug D regression: the tag field must be stripped from the payload before
+        // passing it to readTreeAsValue.  Inner types (e.g. SystemMessage) do not
+        // declare a `role` field, so Jackson rejects the extra key without this fix.
+        assert!(
+            out.contains("val tag = node.get(\"role\")?.asText()"),
+            "tagged deserializer must extract tag into separate variable; got:\n{out}",
+        );
+        assert!(
+            out.contains("val payload = (node.deepCopy() as com.fasterxml.jackson.databind.node.ObjectNode).apply { remove(\"role\") }"),
+            "tagged deserializer must strip tag field from payload via cast-safe deepCopy; got:\n{out}",
+        );
         // Newtype variant: must wrap the inner type in the variant constructor.
         // readTreeAsValue<InnerType> returns the inner type; the variant constructor
-        // wraps it to produce the sealed-class value.
+        // wraps it to produce the sealed-class value.  Uses `payload` (tag-stripped).
         assert!(
-            out.contains("Message.System(ctx.readTreeAsValue<SystemMessage>(node, SystemMessage::class.java))"),
-            "tagged deserializer must wrap readTreeAsValue<InnerType> in variant constructor for newtype; got:\n{out}",
+            out.contains("Message.System(ctx.readTreeAsValue<SystemMessage>(payload, SystemMessage::class.java))"),
+            "tagged deserializer must wrap readTreeAsValue<InnerType>(payload) in variant constructor for newtype; got:\n{out}",
         );
     }
 
@@ -749,7 +1019,7 @@ mod tests {
             ],
         );
         let mut out = String::new();
-        emit_enum(&en, &mut out);
+        emit_enum(&en, &mut out, "");
         assert!(
             out.contains(
                 "@com.fasterxml.jackson.databind.annotation.JsonDeserialize(using = EmbeddingInputDeserializer::class)"
@@ -804,13 +1074,15 @@ mod tests {
             ],
         );
         let mut out = String::new();
-        emit_enum(&en, &mut out);
+        emit_enum(&en, &mut out, "");
 
-        // Must return readTreeAsValue directly — no `OcrDocument.Base64(...)` wrap.
+        // Must return readTreeAsValue directly on payload (tag-stripped) — no `OcrDocument.Base64(...)` wrap.
         // The explicit Kotlin type parameter avoids `Any!` inference.
         assert!(
-            out.contains("\"base64\" -> ctx.readTreeAsValue<OcrDocument.Base64>(node, OcrDocument.Base64::class.java)"),
-            "tagged deserializer must return readTreeAsValue<T> directly for named-field variant; got:\n{out}",
+            out.contains(
+                "\"base64\" -> ctx.readTreeAsValue<OcrDocument.Base64>(payload, OcrDocument.Base64::class.java)"
+            ),
+            "tagged deserializer must return readTreeAsValue<T>(payload) directly for named-field variant; got:\n{out}",
         );
         assert!(
             !out.contains("OcrDocument.Base64(ctx.readTreeAsValue"),
@@ -835,13 +1107,14 @@ mod tests {
             )],
         );
         let mut out = String::new();
-        emit_enum(&en, &mut out);
+        emit_enum(&en, &mut out, "");
 
         // Newtype variant: must wrap the inner-type result in the variant constructor.
         // The variant class (ContentPart.Text) is different from the inner type (TextContent).
+        // Uses `payload` (tag-stripped node) — Bug D fix.
         assert!(
-            out.contains("ContentPart.Text(ctx.readTreeAsValue<TextContent>(node, TextContent::class.java))"),
-            "tagged deserializer must wrap readTreeAsValue<InnerType> in variant constructor for newtype variant; got:\n{out}",
+            out.contains("ContentPart.Text(ctx.readTreeAsValue<TextContent>(payload, TextContent::class.java))"),
+            "tagged deserializer must wrap readTreeAsValue<InnerType>(payload) in variant constructor for newtype variant; got:\n{out}",
         );
     }
 
@@ -868,7 +1141,7 @@ mod tests {
             ],
         );
         let mut out = String::new();
-        emit_enum(&en, &mut out);
+        emit_enum(&en, &mut out, "");
 
         assert!(
             out.contains("ctx.typeFactory.constructCollectionType(List::class.java, ContentPart::class.java)"),
@@ -893,7 +1166,7 @@ mod tests {
             vec![make_variant("Stop", None, vec![]), make_variant("Length", None, vec![])],
         );
         let mut out = String::new();
-        emit_enum(&en, &mut out);
+        emit_enum(&en, &mut out, "");
         assert!(
             !out.contains("@JsonDeserialize") && !out.contains("Deserializer"),
             "unit-only enum must not emit a deserializer; got:\n{out}",
@@ -901,6 +1174,252 @@ mod tests {
         assert!(
             out.contains("enum class FinishReason"),
             "must emit enum class; got:\n{out}"
+        );
+    }
+
+    /// Regression (Bug D): tagged sealed-class deserializer must strip the tag field
+    /// from the JSON payload before passing it to readTreeAsValue.
+    ///
+    /// Without this fix Jackson raises `UnrecognizedPropertyException` because the
+    /// inner type (e.g. `SystemMessage`) does not declare a `role` field.
+    #[test]
+    fn tagged_deserializer_strips_tag_field_from_payload() {
+        let en = make_enum(
+            "Message",
+            Some("role"),
+            false,
+            None,
+            vec![make_variant(
+                "System",
+                Some("system"),
+                vec![make_field("_0", TypeRef::Named("SystemMessage".to_string()))],
+            )],
+        );
+        let mut out = String::new();
+        emit_enum(&en, &mut out, "");
+
+        // The tag value must be read into a local variable first.
+        assert!(
+            out.contains("val tag = node.get(\"role\")?.asText()"),
+            "deserializer must extract tag into a local variable; got:\n{out}",
+        );
+        // A tag-stripped payload must be created via deepCopy (cast) + remove.
+        assert!(
+            out.contains(
+                "val payload = (node.deepCopy() as com.fasterxml.jackson.databind.node.ObjectNode).apply { remove(\"role\") }"
+            ),
+            "deserializer must create tag-stripped payload via cast-safe deepCopy; got:\n{out}",
+        );
+        // The when-expression dispatches on `tag`, not `node.get(...)`.
+        assert!(
+            out.contains("return when (tag)"),
+            "deserializer must dispatch on extracted tag variable; got:\n{out}",
+        );
+        // readTreeAsValue must receive `payload`, not the original `node`.
+        assert!(
+            out.contains("readTreeAsValue<SystemMessage>(payload, SystemMessage::class.java)"),
+            "deserializer must pass tag-stripped payload to readTreeAsValue; got:\n{out}",
+        );
+        assert!(
+            !out.contains("readTreeAsValue<SystemMessage>(node, SystemMessage::class.java)"),
+            "deserializer must NOT pass un-stripped node to readTreeAsValue; got:\n{out}",
+        );
+    }
+
+    /// Regression (Bug E): when a sealed-class variant field type has the same
+    /// simple name as a sibling variant, the field type must be fully-qualified
+    /// with the package path to prevent the Kotlin compiler from resolving the
+    /// type to the nested variant class (which causes self-recursion /
+    /// StackOverflowError in Jackson).
+    ///
+    /// Example: `ContentPart::ImageUrl { image_url: ImageUrl }` — inside
+    /// `ContentPart`, `ImageUrl` refers to the nested `data class ImageUrl` unless
+    /// the field type is explicitly qualified as `dev.kreuzberg.literllm.android.ImageUrl`.
+    #[test]
+    fn sealed_class_variant_field_type_qualified_when_name_clashes_with_sibling_variant() {
+        // Mirrors the real ContentPart::ImageUrl { image_url: ImageUrl } case.
+        let en = make_enum(
+            "ContentPart",
+            Some("type"),
+            false,
+            None,
+            vec![
+                make_variant("Text", Some("text"), vec![make_field("text", TypeRef::String)]),
+                make_variant(
+                    "ImageUrl",
+                    Some("image_url"),
+                    // Field type name `ImageUrl` matches variant name `ImageUrl` — clash!
+                    vec![make_field("image_url", TypeRef::Named("ImageUrl".to_string()))],
+                ),
+            ],
+        );
+        let mut out = String::new();
+        // Provide a non-empty package so disambiguation can emit the FQN.
+        emit_enum(&en, &mut out, "dev.kreuzberg.literllm.android");
+
+        // The variant data class must qualify the field type to avoid self-reference.
+        assert!(
+            out.contains("val imageUrl: dev.kreuzberg.literllm.android.ImageUrl"),
+            "variant field type must be package-qualified when it clashes with a sibling variant name; got:\n{out}",
+        );
+        // The variant data class header itself is unqualified.
+        assert!(
+            out.contains("data class ImageUrl("),
+            "variant class declaration must still use simple name; got:\n{out}",
+        );
+    }
+
+    /// Non-clashing variant field types must NOT be package-qualified (verbosity
+    /// guard — only disambiguate when the field type name matches a sibling variant).
+    #[test]
+    fn sealed_class_variant_field_type_unqualified_when_no_clash() {
+        let en = make_enum(
+            "ContentPart",
+            Some("type"),
+            false,
+            None,
+            vec![make_variant(
+                "Document",
+                Some("document"),
+                // `DocumentContent` does not match any variant name — no qualification needed.
+                vec![make_field("document", TypeRef::Named("DocumentContent".to_string()))],
+            )],
+        );
+        let mut out = String::new();
+        emit_enum(&en, &mut out, "dev.kreuzberg.literllm.android");
+
+        // Must use the simple name.
+        assert!(
+            out.contains("val document: DocumentContent"),
+            "non-clashing field type must remain unqualified; got:\n{out}",
+        );
+        // Must NOT spuriously qualify.
+        assert!(
+            !out.contains("dev.kreuzberg.literllm.android.DocumentContent"),
+            "non-clashing field type must not be package-qualified; got:\n{out}",
+        );
+    }
+
+    /// Regression (Bug G): sealed class variant data classes must each carry a bare
+    /// `@JsonDeserialize` annotation to prevent Jackson annotation inheritance from
+    /// the parent sealed class.
+    ///
+    /// When the sealed class has `@JsonDeserialize(using = FooDeserializer::class)`,
+    /// every nested variant class inherits that annotation.  This causes infinite
+    /// recursion (or an "Unknown tag" error on the stripped payload) when
+    /// `ctx.readTreeAsValue(payload, Foo.Variant::class.java)` is called inside
+    /// `FooDeserializer` — Jackson re-invokes `FooDeserializer` for the variant
+    /// class, which then fails because the variant's payload has no tag field.
+    ///
+    /// Emitting bare `@JsonDeserialize` (defaulting to `using = JsonDeserializer.None`)
+    /// on each variant data class overrides the inherited annotation with the default
+    /// POJO deserializer, breaking the recursion cycle.
+    #[test]
+    fn sealed_class_variant_data_classes_get_json_deserialize_reset_annotation() {
+        let en = make_enum(
+            "OcrDocument",
+            Some("type"),
+            false,
+            Some("snake_case"),
+            vec![
+                make_variant("Url", Some("document_url"), vec![make_field("url", TypeRef::String)]),
+                make_variant(
+                    "Base64",
+                    Some("base64"),
+                    vec![
+                        make_field("data", TypeRef::String),
+                        make_field("mediaType", TypeRef::String),
+                    ],
+                ),
+            ],
+        );
+        let mut out = String::new();
+        emit_enum(&en, &mut out, "");
+
+        // Each variant data class must carry bare @JsonDeserialize and @JsonSerialize
+        // annotations to reset the inherited custom (de)serializers from the parent
+        // OcrDocument sealed class.  Both annotations appear immediately before the
+        // `data class` keyword.
+        assert!(
+            out.contains("    @com.fasterxml.jackson.databind.annotation.JsonDeserialize\n    @com.fasterxml.jackson.databind.annotation.JsonSerialize\n    data class Url("),
+            "Url variant must have both @JsonDeserialize and @JsonSerialize reset annotations; got:\n{out}",
+        );
+        assert!(
+            out.contains("    @com.fasterxml.jackson.databind.annotation.JsonDeserialize\n    @com.fasterxml.jackson.databind.annotation.JsonSerialize\n    data class Base64("),
+            "Base64 variant must have both @JsonDeserialize and @JsonSerialize reset annotations; got:\n{out}",
+        );
+    }
+
+    /// Regression (Bug G — untagged): same annotation inheritance issue applies to
+    /// untagged sealed classes.  Variant data classes must carry bare `@JsonDeserialize`
+    /// and `@JsonSerialize` annotations to prevent the parent's custom (de)serializer
+    /// from being invoked for variants.
+    #[test]
+    fn untagged_sealed_class_variant_data_classes_get_json_reset_annotations() {
+        let en = make_enum(
+            "UserContent",
+            None,
+            true,
+            None,
+            vec![
+                make_variant("Text", None, vec![make_field("_0", TypeRef::String)]),
+                make_variant(
+                    "Parts",
+                    None,
+                    vec![make_field(
+                        "_0",
+                        TypeRef::Vec(Box::new(TypeRef::Named("ContentPart".to_string()))),
+                    )],
+                ),
+            ],
+        );
+        let mut out = String::new();
+        emit_enum(&en, &mut out, "");
+
+        // Both variants must carry @JsonDeserialize and @JsonSerialize to reset
+        // the inherited annotations from the parent sealed class.
+        assert!(
+            out.contains("    @com.fasterxml.jackson.databind.annotation.JsonDeserialize\n    @com.fasterxml.jackson.databind.annotation.JsonSerialize\n    data class Text("),
+            "Text variant must have both @JsonDeserialize and @JsonSerialize reset annotations; got:\n{out}",
+        );
+        assert!(
+            out.contains("    @com.fasterxml.jackson.databind.annotation.JsonDeserialize\n    @com.fasterxml.jackson.databind.annotation.JsonSerialize\n    data class Parts("),
+            "Parts variant must have both @JsonDeserialize and @JsonSerialize reset annotations; got:\n{out}",
+        );
+    }
+
+    /// Regression (Bug G — serializer cast): named-field struct variants in a tagged
+    /// sealed class serializer must cast `value` to the concrete variant type before
+    /// calling `mapper.valueToTree`.  Without the cast, Jackson would resolve the
+    /// serializer against the parent sealed class type, re-triggering the custom
+    /// serializer and causing infinite recursion.
+    #[test]
+    fn tagged_serializer_named_field_variant_casts_to_concrete_type() {
+        let en = make_enum(
+            "OcrDocument",
+            Some("type"),
+            false,
+            Some("snake_case"),
+            vec![make_variant(
+                "Url",
+                Some("document_url"),
+                vec![make_field("url", TypeRef::String)],
+            )],
+        );
+        let mut out = String::new();
+        emit_enum(&en, &mut out, "");
+
+        // The serializer must cast `value` to `OcrDocument.Url` before calling
+        // valueToTree so Jackson uses the variant class's serializer (reset to
+        // default POJO), not the parent sealed class's custom serializer.
+        assert!(
+            out.contains("mapper.valueToTree<com.fasterxml.jackson.databind.node.ObjectNode>(value as OcrDocument.Url) as com.fasterxml.jackson.databind.node.ObjectNode"),
+            "tagged serializer must cast value to concrete variant type; got:\n{out}",
+        );
+        // Must NOT call valueToTree on `value` without a cast.
+        assert!(
+            !out.contains("mapper.valueToTree<com.fasterxml.jackson.databind.node.ObjectNode>(value) as"),
+            "tagged serializer must NOT call valueToTree on un-cast parent-type value; got:\n{out}",
         );
     }
 }

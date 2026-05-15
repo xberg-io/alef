@@ -27,8 +27,8 @@ pub fn emit_type_pub(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<Stri
     object_wrapper::emit_type_with_imports(ty, out, imports)
 }
 
-pub fn emit_enum_pub(en: &EnumDef, out: &mut String) {
-    object_wrapper::emit_enum(en, out)
+pub fn emit_enum_pub(en: &EnumDef, out: &mut String, package: &str) {
+    object_wrapper::emit_enum(en, out, package)
 }
 
 pub fn emit_error_type_pub(error: &ErrorDef, out: &mut String, imports: &mut BTreeSet<String>) {

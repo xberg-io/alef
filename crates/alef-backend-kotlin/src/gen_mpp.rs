@@ -115,7 +115,7 @@ fn emit_common(api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
     }
 
     for en in api.enums.iter().filter(|e| !exclude_types.contains(e.name.as_str())) {
-        emit_enum_pub(en, &mut body);
+        emit_enum_pub(en, &mut body, &package);
         body.push('\n');
     }
 
