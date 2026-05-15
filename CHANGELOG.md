@@ -22,6 +22,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `createHtmlVisitor(...)` setup and attach the handle through generated
   `create<OptionsType>FromJsonWithVisitor(...)` helpers instead of skipping
   visitor tests as pending.
+- **alef-backend-dart**: emit `From<Mirror> for Core` impls for trait-bridge
+  method return types (e.g. `VisitResult`) so the bridge converts the Dart
+  callback's mirror return value back to the core type via `.into()` instead
+  of dropping it. Without this, trait methods returning a named mirror type
+  previously fell back to `Default::default()`, making every Dart visitor
+  callback a silent no-op even though the closures executed.
 - **alef-backend-kotlin-android**: add the Ben Manes Gradle Versions plugin
   to generated Android `build.gradle.kts` files.
 
