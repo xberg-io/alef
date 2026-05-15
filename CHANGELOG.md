@@ -35,6 +35,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-backend-dart (String→Cow From-impl)**: `Cow<'static, str>` struct
+  fields were silently dropped in the generated `From<MirrorT> for CoreT`
+  implementation. The type resolver resolves `Cow<'static, str>` to
+  `TypeRef::Named("str")`, which `sanitize_unknown_types` then replaces with
+  `TypeRef::String` and marks `sanitized = true`. The dart backend's
+  `emit_from_mirror_to_core_struct` unconditionally emitted `Default::default()`
+  for every `sanitized` field — including these perfectly convertible
+  `TypeRef::String` ones. Fix: skip the `Default::default()` fallback when
+  `field.ty` is `TypeRef::String`; use `field_from_expr_to_core` instead, which
+  emits `v.<field>.into()` (valid for `String → Cow<'static, str>`). Applies to
+  any `Cow<'static, str>` field in any config struct, not just `language`.
+  (`crates/alef-backend-dart/src/gen_rust_crate/mod.rs`)
+
 - **alef-backend-swift (Error enum name clash)**: when the Rust error type is
   literally named `Error`, Swift parses `public enum Error: Error` as a circular
   raw-type binding instead of protocol conformance, causing compile errors. The
