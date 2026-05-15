@@ -670,6 +670,29 @@ fn render_test_case(
                         "final {var_name} = (jsonDecode(r'{json_str}') as List<dynamic>).cast<String>();"
                     ));
                     args.push(var_name);
+                } else if let serde_json::Value::Object(map) = &arg_value {
+                    // Generic options-style json_object arg (e.g. h2m's
+                    // `options: ConversionOptions` on `convert(html, options)`). When the
+                    // fixture provides input.options and the call config declares an
+                    // `options_type`, build the mirror struct via the FRB-generated
+                    // `create<OptionsType>FromJson(json: '...')` helper. Use the arg's
+                    // original name (e.g. `options`) as the named parameter label.
+                    if !map.is_empty() {
+                        if let Some(opts_type) = options_type {
+                            let json_str = serde_json::to_string(&arg_value).unwrap_or_default();
+                            let escaped_json = escape_dart(&json_str);
+                            let dart_param_name = snake_to_camel(&arg_def.name);
+                            let var_name = format!("_{}", arg_def.name);
+                            let dart_fn = type_name_to_create_from_json_dart(opts_type);
+                            setup_lines
+                                .push(format!("final {var_name} = await {dart_fn}(json: '{escaped_json}');"));
+                            if arg_def.optional {
+                                args.push(format!("{dart_param_name}: {var_name}"));
+                            } else {
+                                args.push(var_name);
+                            }
+                        }
+                    }
                 }
             }
             _ => {}

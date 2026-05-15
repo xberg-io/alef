@@ -5,10 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.16.2] - [Unreleased]
 
 ### Fixed
 
+- **alef-e2e (dart)**: pass fixture `input.options` through to the bridge
+  call. Generic `json_object` args without a special name (e.g. h2m's
+  `options: ConversionOptions` on `convert(html, options)`) now build the
+  mirror struct via the FRB-generated `create<OptionsType>FromJson(json:
+  ...)` helper and pass it as a named parameter when the arg is optional.
+  Previously fixtures providing `input.options.include_document_structure
+  = true` etc. silently dropped the options, so tests requiring document
+  structure, visitor registration, or metadata extraction returned `null`
+  for the gated fields.
 - **alef-backend-kotlin-android**: alias the Kotlin wrapper's `Bridge`
   import to the `Rs`-suffixed Java facade class (e.g.
   `dev.kreuzberg.KreuzbergRs`) instead of the unsuffixed module name. When
