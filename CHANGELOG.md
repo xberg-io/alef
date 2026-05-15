@@ -9,45 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.16.0] - 2026-05-14
 
-### Fixed
-
-- **alef-backend-napi**: gate the raw `napi_create_external` /
-  `napi_type_tag_object` `extern "C"` block with
-  `#[cfg_attr(target_os = "windows", link(name = "node", kind = "raw-dylib"))]`.
-  Without this, generated capsule_types bindings failed to link on Windows MSVC
-  with `LNK2019: unresolved external symbol`, because `napi-build`'s `.def` only
-  exposes symbols inside `napi-sys`'s `generate!` allowlist — and these two are
-  not in it. `kind = "raw-dylib"` (stable since Rust 1.71) tells the MSVC
-  linker to synthesize the import-library entries from the `extern` block
-  itself; on Linux/macOS the `cfg_attr` is a no-op and Node's dynamic loader
-  continues to resolve at module load. Added `windows-latest` to alef's CI
-  test matrix so the new attribute regression-gates against future drift.
-- **alef-e2e (zig)**: emit unique `.name = "<test>_test"` on every
-  `b.addTest(.{...})` block in the generated `build.zig`. Zig 0.16 hashes the
-  output binary path off the artifact name; without an explicit name every
-  `addTest` defaulted to `"test"`, colliding in the cache so only one binary
-  survived and every other `addRunArtifact` invocation failed with
-  `FileNotFound` at its computed `.zig-cache/o/<hash>/test` path.
-- **alef-e2e (rust)**: omit `use {crate}::CrawlConfig;` (and other handle-arg
-  helper imports) from generated `tests/<category>_test.rs` files when the
-  rendered body never references the symbol. Test bodies are now buffered and
-  scanned for word-boundary references before optional `use` statements are
-  emitted, eliminating `unused_imports` errors under `-D warnings` for handle
-  fixtures whose `input.config` is null/empty.
-- **alef-backend-kotlin-android**: emit Android build-metadata files
-  (`build.gradle.kts`, `settings.gradle.kts`, `consumer-rules.pro`,
-  `proguard-rules.pro`, `.gitignore`, `src/main/AndroidManifest.xml`,
-  `src/main/jniLibs/<abi>/.gitkeep`, `src/main/java/<java-pkg>/*.java`)
-  at the AAR **project root**, not nested inside the Kotlin source
-  destination. `[crates.output].kotlin_android` semantically names the
-  Kotlin source destination (`src/main/kotlin/<dotted_package>/`); the
-  project root is now derived by stripping that suffix. Kotlin source
-  (`<Module>.kt`, `DefaultClient.kt`) is emitted directly at the
-  configured path with no extra `src/main/kotlin/<pkg>/` nesting.
-  Workspaces that pointed `kotlin_android` at the project root continue
-  to work — the legacy semantics are preserved when the configured path
-  does not end with the Gradle Android source-set suffix.
-
 ### Added
 
 - **alef-backend-kotlin-android**: new standalone backend crate for emitting
@@ -173,6 +134,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-backend-napi**: gate the raw `napi_create_external` /
+  `napi_type_tag_object` `extern "C"` block with
+  `#[cfg_attr(target_os = "windows", link(name = "node", kind = "raw-dylib"))]`.
+  Without this, generated capsule_types bindings failed to link on Windows MSVC
+  with `LNK2019: unresolved external symbol`, because `napi-build`'s `.def` only
+  exposes symbols inside `napi-sys`'s `generate!` allowlist — and these two are
+  not in it. `kind = "raw-dylib"` (stable since Rust 1.71) tells the MSVC
+  linker to synthesize the import-library entries from the `extern` block
+  itself; on Linux/macOS the `cfg_attr` is a no-op and Node's dynamic loader
+  continues to resolve at module load. Added `windows-latest` to alef's CI
+  test matrix so the new attribute regression-gates against future drift.
 - **alef-backend-swift, alef-backend-dart**: emit correct `package = "..."`
   rename in bridge `Cargo.toml`. The rename target previously used
   `core_crate_dir` (the on-disk directory name), but cargo needs the actual
