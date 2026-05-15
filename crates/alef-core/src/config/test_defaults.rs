@@ -251,6 +251,13 @@ pub(crate) fn default_test_config(lang: Language, output_dir: &str, ctx: &LangCo
                 coverage: Some(StringOrVec::Single(cmd)),
             }
         }
+        Language::Jni => TestConfig {
+            precondition: None,
+            before: None,
+            command: None,
+            e2e: None,
+            coverage: None,
+        },
     }
 }
 

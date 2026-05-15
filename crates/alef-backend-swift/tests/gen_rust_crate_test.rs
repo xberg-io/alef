@@ -1447,25 +1447,22 @@ fn option_named_return_on_method_uses_map_not_serde_json() {
         vec![],
         TypeRef::Optional(Box::new(TypeRef::Named("Node".to_string()))),
     );
-    let child_method = {
-        let m = make_simple_method(
-            "child",
-            vec![ParamDef {
-                name: "index".to_string(),
-                ty: TypeRef::Primitive(PrimitiveType::U32),
-                optional: false,
-                default: None,
-                sanitized: false,
-                typed_default: None,
-                is_ref: false,
-                is_mut: false,
-                newtype_wrapper: None,
-                original_type: None,
-            }],
-            TypeRef::Optional(Box::new(TypeRef::Named("Node".to_string()))),
-        );
-        m
-    };
+    let child_method = make_simple_method(
+        "child",
+        vec![ParamDef {
+            name: "index".to_string(),
+            ty: TypeRef::Primitive(PrimitiveType::U32),
+            optional: false,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: false,
+            is_mut: false,
+            newtype_wrapper: None,
+            original_type: None,
+        }],
+        TypeRef::Optional(Box::new(TypeRef::Named("Node".to_string()))),
+    );
 
     let api = ApiSurface {
         crate_name: "demo".into(),

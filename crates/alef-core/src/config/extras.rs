@@ -24,6 +24,10 @@ pub enum Language {
     Zig,
     /// C consumer of the FFI layer — e2e test target, not a generated binding.
     C,
+    /// Rust JNI shim crate emitter — paired with kotlin-android.
+    /// Emits `Java_*` symbols that mirror the Kotlin Bridge `external fun` declarations.
+    #[serde(rename = "jni")]
+    Jni,
 }
 
 impl std::fmt::Display for Language {
@@ -48,6 +52,7 @@ impl std::fmt::Display for Language {
             Self::Gleam => write!(f, "gleam"),
             Self::Zig => write!(f, "zig"),
             Self::C => write!(f, "c"),
+            Self::Jni => write!(f, "jni"),
         }
     }
 }

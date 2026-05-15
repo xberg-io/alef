@@ -47,7 +47,7 @@ pub(crate) fn per_crate_explicit_output(output: &OutputConfig, lang: &Language) 
         Language::Csharp => output.csharp.as_ref(),
         Language::R => output.r.as_ref(),
         Language::Zig => output.zig.as_ref(),
-        Language::Rust | Language::C => None,
+        Language::Rust | Language::C | Language::Jni => None,
     };
     path.map(|p| p.to_string_lossy().into_owned())
 }

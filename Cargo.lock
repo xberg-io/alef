@@ -144,6 +144,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "alef-backend-jni"
+version = "0.16.6"
+dependencies = [
+ "alef-core",
+ "anyhow",
+ "heck",
+ "insta",
+ "toml",
+]
+
+[[package]]
 name = "alef-backend-kotlin"
 version = "0.16.6"
 dependencies = [
@@ -292,6 +303,7 @@ dependencies = [
  "alef-backend-gleam",
  "alef-backend-go",
  "alef-backend-java",
+ "alef-backend-jni",
  "alef-backend-kotlin",
  "alef-backend-kotlin-android",
  "alef-backend-magnus",

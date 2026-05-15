@@ -24,7 +24,7 @@ pub fn generate_body(
         Language::Java => Ok(gen_java_body(adapter)),
         Language::Csharp => Ok(gen_csharp_body(adapter)),
         Language::R => Ok(gen_r_body(adapter, config)),
-        Language::Rust | Language::C => anyhow::bail!("Rust/C do not need generated binding adapters"),
+        Language::Rust | Language::C | Language::Jni => anyhow::bail!("Rust/C/JNI do not need generated binding adapters"),
         Language::Dart => Ok(gen_dart_body(adapter, config)),
         Language::Kotlin | Language::KotlinAndroid | Language::Swift | Language::Gleam | Language::Zig => {
             anyhow::bail!("Phase 1: {language} backend not yet implemented")

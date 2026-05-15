@@ -287,6 +287,13 @@ pub fn default_lint_config(lang: Language, output_dir: &str, ctx: &LangContext) 
             check: None,
             typecheck: None,
         },
+        Language::Jni => LintConfig {
+            precondition: None,
+            before: None,
+            format: None,
+            check: None,
+            typecheck: None,
+        },
     }
 }
 

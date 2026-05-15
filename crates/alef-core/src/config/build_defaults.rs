@@ -210,6 +210,12 @@ pub(crate) fn default_build_config(
             build: None,
             build_release: None,
         },
+        Language::Jni => BuildCommandConfig {
+            precondition: None,
+            before: None,
+            build: None,
+            build_release: None,
+        },
     }
 }
 

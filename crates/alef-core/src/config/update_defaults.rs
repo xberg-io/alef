@@ -199,6 +199,12 @@ pub fn default_update_config(lang: Language, output_dir: &str, ctx: &LangContext
             update: Some(StringOrVec::Single(format!("cd {output_dir} && gleam deps update"))),
             upgrade: Some(StringOrVec::Single(format!("cd {output_dir} && gleam deps update"))),
         },
+        Language::Jni => UpdateConfig {
+            precondition: None,
+            before: None,
+            update: None,
+            upgrade: None,
+        },
     }
 }
 

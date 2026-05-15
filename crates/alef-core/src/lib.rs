@@ -6,6 +6,7 @@ pub mod config;
 pub mod error;
 pub mod hash;
 pub mod ir;
+pub mod jni;
 pub mod keywords;
 pub mod template_versions;
 pub mod version;

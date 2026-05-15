@@ -1030,8 +1030,9 @@ fn build_args_and_setup(
         }
 
         // json_object "config" args: the swift-bridge wrapper requires an opaque
-        // `ExtractionConfig` (or sibling) instance, not a JSON string. Use the
-        // generated `extractionConfigFromJson(_:)` helper from RustBridge.
+        // config instance (e.g., `ExtractionConfig`, `ProcessConfig`), not a JSON string.
+        // Derive the from-json helper name from options_type if available, else default
+        // to kreuzberg's `extractionConfigFromJson` for backward compatibility.
         // Batch functions (batchExtract*) hardcode config internally — skip it.
         let is_config_arg = arg.name == "config" && arg.arg_type == "json_object";
         let is_batch_fn = function_name.starts_with("batch") || function_name.starts_with("Batch");
@@ -1044,7 +1045,13 @@ fn build_args_and_setup(
             };
             let escaped = escape_swift(&json_str);
             let var_name = format!("{}Obj", arg.name.to_lower_camel_case());
-            setup_lines.push(format!("let {var_name} = try extractionConfigFromJson(\"{escaped}\")"));
+            // Derive the from-json helper name from options_type, or default to extractionConfigFromJson
+            let from_json_fn = if let Some(type_name) = options_type {
+                format!("{}FromJson", type_name.to_lower_camel_case())
+            } else {
+                "extractionConfigFromJson".to_string()
+            };
+            setup_lines.push(format!("let {var_name} = try {from_json_fn}(\"{escaped}\")"));
             parts.push(var_name);
             continue;
         }

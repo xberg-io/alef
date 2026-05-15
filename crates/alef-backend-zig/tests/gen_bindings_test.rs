@@ -607,3 +607,115 @@ fn opaque_handle_with_no_methods_is_emitted() {
         "get_language return type or body must reference Language: {content}"
     );
 }
+
+/// A function that returns `bool` wraps the C `i32` result with `!= 0` so the
+/// Zig compiler does not reject the implicit i32→bool coercion.
+///
+/// The C ABI represents `bool` as `int` (i32). Zig's type system is strict and
+/// does not allow assigning an `i32` to a `bool` variable. The Zig backend must
+/// emit `return _result != 0;` (or `return _result != 0` in an infallible body).
+#[test]
+fn bool_return_emits_not_zero_conversion() {
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "has_feature".into(),
+            rust_path: "demo::has_feature".into(),
+            original_rust_path: String::new(),
+            params: vec![make_param("name", TypeRef::String)],
+            return_type: TypeRef::Primitive(PrimitiveType::Bool),
+            is_async: false,
+            error_type: None,
+            doc: "Check whether a feature is enabled.".into(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+
+    // The wrapper return type must be `bool`.
+    assert!(
+        content.contains(") error{OutOfMemory}!bool") || content.contains(") bool"),
+        "return type must be bool: {content}"
+    );
+    // The C function result must be converted with `!= 0` so Zig accepts it.
+    assert!(
+        content.contains("_result != 0"),
+        "bool return must emit `_result != 0` conversion: {content}"
+    );
+    // Must NOT return the raw `_result` (i32) directly — that would fail to
+    // compile because Zig does not coerce i32 to bool.
+    assert!(
+        !content.contains("return _result;"),
+        "must NOT return raw _result (i32) for bool return: {content}"
+    );
+}
+
+/// A fallible function that returns `bool` (error union `!bool`) also emits the
+/// `!= 0` conversion so that both the fallible and infallible paths are covered.
+#[test]
+fn bool_return_in_error_union_emits_not_zero_conversion() {
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "check_auth".into(),
+            rust_path: "demo::check_auth".into(),
+            original_rust_path: String::new(),
+            params: vec![make_param("token", TypeRef::String)],
+            return_type: TypeRef::Primitive(PrimitiveType::Bool),
+            is_async: false,
+            error_type: Some("DemoError".into()),
+            doc: "Check auth token validity.".into(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+        }],
+        enums: vec![],
+        errors: vec![ErrorDef {
+            name: "DemoError".into(),
+            rust_path: "demo::DemoError".into(),
+            original_rust_path: String::new(),
+            variants: vec![ErrorVariant {
+                name: "Unauthorized".into(),
+                message_template: None,
+                fields: vec![],
+                has_source: false,
+                has_from: false,
+                is_unit: true,
+                doc: String::new(),
+            }],
+            doc: String::new(),
+        }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+
+    // The wrapper return type must be an error union over bool.
+    assert!(
+        content.contains("!bool"),
+        "fallible bool return type must include !bool: {content}"
+    );
+    // The C function result must be converted with `!= 0`.
+    assert!(
+        content.contains("_result != 0"),
+        "fallible bool return must emit `_result != 0` conversion: {content}"
+    );
+}

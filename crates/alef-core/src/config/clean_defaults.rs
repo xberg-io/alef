@@ -115,6 +115,11 @@ pub(crate) fn default_clean_config(lang: Language, output_dir: &str, _ctx: &Lang
             before: None,
             clean: Some(StringOrVec::Single("cd e2e/c && make clean".to_string())),
         },
+        Language::Jni => CleanConfig {
+            precondition: None,
+            before: None,
+            clean: None,
+        },
     }
 }
 

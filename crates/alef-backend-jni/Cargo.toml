@@ -1,0 +1,18 @@
+[package]
+name = "alef-backend-jni"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Rust JNI shim emitter backend for alef"
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+alef-core = { workspace = true }
+anyhow = { workspace = true }
+heck = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }
+toml = { workspace = true }

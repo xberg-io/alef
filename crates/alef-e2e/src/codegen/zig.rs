@@ -643,6 +643,31 @@ fn render_test_fn(
     // than `.len`.
     let result_is_option = call_overrides.is_some_and(|o| o.result_is_option) || call_config.result_is_option;
 
+    // Whether the Zig wrapper returns an error union (`try` is required).
+    //
+    // The Zig backend emits an error union for a function when ANY of:
+    //   1. The Rust function is fallible (`returns_result = true`).
+    //   2. Any argument is a string/path/json_object/bytes type — the backend
+    //      must allocate a null-terminated copy, so the wrapper declares
+    //      `error{OutOfMemory}!T`.
+    //   3. A `client_factory` is in play (the factory call can fail).
+    //
+    // The per-language override `returns_result = false` opts out explicitly
+    // (e.g. for `language_count()` which is genuinely infallible with no
+    // alloc-requiring parameters).
+    let zig_override_returns_result = call_overrides.and_then(|o| o.returns_result);
+    let args_need_alloc = args.iter().any(|a| {
+        matches!(
+            a.arg_type.as_str(),
+            "string" | "path" | "bytes" | "json_object"
+        )
+    });
+    let call_returns_error_union = match zig_override_returns_result {
+        Some(false) => false, // explicit opt-out: infallible function
+        Some(true) => true,   // explicit opt-in
+        None => call_config.returns_result || args_need_alloc || client_factory.is_some(),
+    };
+
     let test_name = fixture.id.to_snake_case();
     let description = &fixture.description;
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
@@ -831,8 +856,10 @@ fn render_test_fn(
                 "    const _result_json = try {call_prefix}.{function_name}({args_str});"
             );
             let _ = writeln!(out, "    defer std.heap.c_allocator.free(_result_json);");
-        } else {
+        } else if call_returns_error_union {
             let _ = writeln!(out, "    _ = try {call_prefix}.{function_name}({args_str});");
+        } else {
+            let _ = writeln!(out, "    _ = {call_prefix}.{function_name}({args_str});");
         }
     } else {
         // Happy path: call and assert. Detect whether any assertion actually
@@ -946,9 +973,10 @@ fn render_test_fn(
                 }
             }
         } else if any_emits_code {
+            let try_kw = if call_returns_error_union { "try " } else { "" };
             let _ = writeln!(
                 out,
-                "    const {result_var} = try {call_prefix}.{function_name}({args_str});"
+                "    const {result_var} = {try_kw}{call_prefix}.{function_name}({args_str});"
             );
             for assertion in &fixture.assertions {
                 render_assertion(
@@ -960,8 +988,10 @@ fn render_test_fn(
                     result_is_option,
                 );
             }
-        } else {
+        } else if call_returns_error_union {
             let _ = writeln!(out, "    _ = try {call_prefix}.{function_name}({args_str});");
+        } else {
+            let _ = writeln!(out, "    _ = {call_prefix}.{function_name}({args_str});");
         }
     }
 

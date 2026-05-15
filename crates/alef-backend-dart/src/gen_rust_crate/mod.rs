@@ -891,11 +891,19 @@ fn emit_from_mirror_to_core_struct(out: &mut String, ty: &TypeDef, source_crate_
     ));
 
     for field in &ty.fields {
-        if field.sanitized {
+        if field.sanitized && !matches!(field.ty, TypeRef::String) {
             // Sanitized fields have an unknown core type simplified in the IR.
             // Only types in the transitive closure from input-parameter types get this
             // impl generated, and those core types implement Default (e.g. ExtractionConfig
             // has cancel_token: Option<CancellationToken> which implements Default).
+            //
+            // Exception: `TypeRef::String` fields are always safely convertible back to
+            // the core type via `.into()` — even when `sanitized = true`. This case
+            // arises when a `Cow<'static, str>` field is extracted as `Named("str")` by
+            // the type resolver and then sanitized to `TypeRef::String`. The mirror struct
+            // holds a plain `String` and the core struct holds `Cow<'static, str>`;
+            // `String: Into<Cow<'static, str>>` is a valid standard conversion.
+            //
             // `cfg = None`: the dart bridge crate enables `features = ["full"]` on
             // the source dependency, so every core-side cfg-gated field is present
             // at compile time. Emitting `#[cfg(...)]` here would gate on the dart
@@ -1960,21 +1968,39 @@ fn emit_opaque_method_body(
                         }
                     } else if matches!(inner.as_ref(), TypeRef::String) && p.is_ref {
                         // Core takes `&[&str]`; FRB delivers `Vec<String>`.
-                        // Materialise a temporary `Vec<&str>` and pass it as a slice.
-                        format!("{param_name}.iter().map(|s| s.as_str()).collect::<Vec<_>>()")
+                        // Borrow the temporary Vec<&str> into &[&str] — the temporary lives
+                        // long enough for the enclosing statement.
+                        format!("&{param_name}.iter().map(|s| s.as_str()).collect::<Vec<_>>()")
+                    } else if p.is_ref {
+                        // Core takes a slice reference (e.g. `&[u8]`, `&[u32]`).
+                        // Borrowing Vec<T> produces &Vec<T> which coerces to &[T].
+                        format!("&{param_name}")
                     } else {
                         param_name.clone()
                     }
                 }
+                TypeRef::Bytes => {
+                    // FRB bridges `bytes::Bytes` as `Vec<u8>`. When the core takes `&[u8]`
+                    // (is_ref=true), borrow the Vec so Rust coerces Vec<u8> → &[u8].
+                    if p.is_ref {
+                        format!("&{param_name}")
+                    } else {
+                        // Owned case: core takes `Bytes` — convert via From.
+                        format!("::bytes::Bytes::from({param_name})")
+                    }
+                }
                 TypeRef::Primitive(prim) => {
-                    let target = frb_rust_type_inner(&TypeRef::Primitive(prim.clone()));
-                    // FRB widens all integers to i64 and floats to f64 — cast back.
-                    if target == "i64" || target == "f64" || target == "bool" {
+                    // FRB widens all integers to i64 and floats to f64. Use the actual
+                    // core primitive name to decide whether a narrowing cast is needed.
+                    let native = conversions::primitive_name(prim);
+                    let frb_ty = frb_rust_type_inner(&TypeRef::Primitive(prim.clone()));
+                    if native == frb_ty {
+                        // Types match (e.g. both i64, f64, bool) — pass through unchanged.
                         param_name.clone()
                     } else if p.optional {
-                        format!("{param_name}.map(|v| v as {target})")
+                        format!("{param_name}.map(|v| v as {native})")
                     } else {
-                        format!("{param_name} as {target}")
+                        format!("{param_name} as {native}")
                     }
                 }
                 TypeRef::String => {
@@ -1992,6 +2018,14 @@ fn emit_opaque_method_body(
                         format!("{param_name}.as_deref().and_then(|s| serde_json::from_str(s).ok())")
                     } else {
                         format!("serde_json::from_str(&{param_name}).unwrap_or(serde_json::Value::Null)")
+                    }
+                }
+                TypeRef::Path => {
+                    // FRB bridges PathBuf as String. Convert to PathBuf for the core call.
+                    if p.optional {
+                        format!("{param_name}.map(::std::path::PathBuf::from)")
+                    } else {
+                        format!("::std::path::PathBuf::from({param_name})")
                     }
                 }
                 _ => param_name.clone(),

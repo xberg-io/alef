@@ -34,6 +34,10 @@ pub enum ResolveError {
         path: PathBuf,
         crates: Vec<String>,
     },
+
+    /// A crate has an invalid or incompatible configuration.
+    #[error("{0}")]
+    InvalidConfig(String),
 }
 
 /// Top-level multi-crate configuration (new schema).
@@ -151,6 +155,17 @@ impl NewAlefConfig {
         let format_overrides = merge_map(&ws.format_overrides, &krate.format_overrides);
         let generate_overrides = merge_map(&ws.generate_overrides, &krate.generate_overrides);
 
+        // --- Cross-language validation ------------------------------------------
+        // alef-backend-jni is paired with kotlin-android: the JNI backend derives
+        // the package, bridge class name, and feature list from kotlin_android
+        // config. Without it the backend has no symbol prefix to emit.
+        if languages.contains(&Language::Jni) && !languages.contains(&Language::KotlinAndroid) {
+            return Err(ResolveError::InvalidConfig(format!(
+                "crate `{}`: language `jni` requires `kotlin_android` to also be enabled in languages",
+                krate.name
+            )));
+        }
+
         Ok(ResolvedCrateConfig {
             name: krate.name.clone(),
             sources: krate.sources.clone(),
@@ -178,6 +193,7 @@ impl NewAlefConfig {
             dart: krate.dart.clone(),
             kotlin: krate.kotlin.clone(),
             kotlin_android: krate.kotlin_android.clone(),
+            jni: krate.jni.clone(),
             swift: krate.swift.clone(),
             gleam: krate.gleam.clone(),
             csharp: krate.csharp.clone(),

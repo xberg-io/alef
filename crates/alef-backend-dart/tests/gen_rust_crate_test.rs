@@ -1276,6 +1276,84 @@ fn opaque_method_named_param_with_is_ref_passes_by_reference() {
     );
 }
 
+/// A struct field that is `sanitized: true` with `ty: TypeRef::String` and
+/// `core_wrapper: CoreWrapper::Cow` (i.e. a `Cow<'static, str>` field that was
+/// sanitized because the type resolver resolved `str` → `Named("str")` before
+/// sanitize_unknown_types replaced it with `String`) must emit `v.<field>.into()`
+/// in the `From<Mirror> for Core` impl — NOT `Default::default()`.
+///
+/// Regression test for: `ProcessConfig::language` being silently dropped when
+/// converting from the dart mirror struct to the core struct.
+#[test]
+fn sanitized_string_cow_field_roundtrips_in_from_mirror_to_core_impl() {
+    // Build a struct that mimics ProcessConfig: `language: Cow<'static, str>` was
+    // extracted as TypeRef::String with sanitized=true and core_wrapper=Cow.
+    let mut language_field = make_field("language", TypeRef::String, false);
+    language_field.sanitized = true;
+    language_field.core_wrapper = CoreWrapper::Cow;
+
+    let config_type = TypeDef {
+        name: "ProcessConfig".to_string(),
+        rust_path: "demo_crate::ProcessConfig".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![language_field],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        doc: String::new(),
+        cfg: None,
+        is_trait: false,
+        has_default: true,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: true,
+        super_traits: vec![],
+    };
+
+    // A free function that takes ProcessConfig as input forces a From<Mirror> for Core impl.
+    let process_fn = FunctionDef {
+        name: "process".to_string(),
+        params: vec![make_param("config", TypeRef::Named("ProcessConfig".to_string()))],
+        return_type: TypeRef::String,
+        is_async: false,
+        error_type: None,
+        doc: String::new(),
+        sanitized: false,
+        return_sanitized: false,
+        rust_path: "demo_crate::process".to_string(),
+        original_rust_path: String::new(),
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        cfg: None,
+    };
+
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![config_type],
+        functions: vec![process_fn],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
+    let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
+
+    // Must emit v.language.into() — not Default::default() — in the From impl body.
+    assert!(
+        lib.contains("language: v.language.into()"),
+        "sanitized String+Cow field must emit v.language.into() in From<Mirror> for Core, got:\n{lib}"
+    );
+    assert!(
+        !lib.contains("language: Default::default()"),
+        "sanitized String+Cow field must NOT emit Default::default() for language:\n{lib}"
+    );
+}
+
 /// Opaque method param: `Vec<String>` with `is_ref = true` must be bridged to `&[&str]`
 /// (collect to `Vec<&str>` then auto-coerce at the call site).
 #[test]

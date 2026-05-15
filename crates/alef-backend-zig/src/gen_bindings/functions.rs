@@ -644,6 +644,8 @@ fn c_arg_names(
 /// Produce the Zig expression that converts a raw C return value (`raw`) to the
 /// wrapper return type.
 ///
+/// Bool: the C ABI represents `bool` as `i32`; Zig rejects an implicit `i32→bool`
+/// coercion, so emit `_result != 0`.
 /// String/Path/Json/Vec/Map: copy the C string to an owned Zig slice, then free
 /// the FFI allocation via `_free_string`.
 /// Named struct (has_serde): serialize to JSON via `<prefix>_<snake>_to_json`,
@@ -659,6 +661,10 @@ fn unwrap_return_expr(
     struct_names: &std::collections::HashSet<String>,
 ) -> String {
     match ty {
+        // The C ABI uses `int` (i32) for bool returns. Zig's type system is strict —
+        // assigning an i32 to a bool variable is a compile error. Emit `!= 0` to
+        // produce the required Zig bool from the C integer.
+        TypeRef::Primitive(PrimitiveType::Bool) => format!("{raw} != 0"),
         TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
             // Copy the null-terminated C string to an owned Zig allocation, then free the C copy.
             let mut s = String::new();

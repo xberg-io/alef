@@ -715,6 +715,15 @@ pub struct KotlinAndroidConfig {
     pub features: Option<Vec<String>>,
 }
 
+/// Configuration for the JNI Rust shim crate emitter (`alef-backend-jni`).
+///
+/// No crate-specific fields are required — all identifiers are derived from
+/// the paired `[crates.kotlin_android]` section (package, features, etc.).
+/// This config struct exists so the crate can target `jni` in `languages`
+/// without needing to configure anything extra.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct JniConfig {}
+
 /// Dart bridging style: FRB (default) or raw `dart:ffi`.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -1166,6 +1175,7 @@ impl CustomModulesConfig {
             | Language::Dart
             | Language::Gleam
             | Language::Zig
+            | Language::Jni
             | Language::C => &[],
         }
     }

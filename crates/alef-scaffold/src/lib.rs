@@ -428,7 +428,7 @@ fn scaffold_language(
             files.extend(scaffold_r_cargo(api, config)?);
             Ok(files)
         }
-        Language::Rust | Language::C => Ok(vec![]), // Rust/C don't need scaffolded binding crates
+        Language::Rust | Language::C | Language::Jni => Ok(vec![]), // Rust/C/Jni don't need scaffolded binding crates
         Language::Kotlin => scaffold_kotlin(api, config),
         // KotlinAndroid emission is fully handled by the dedicated backend
         // crate (`alef-backend-kotlin-android`); no scaffold step needed.

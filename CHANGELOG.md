@@ -101,6 +101,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   minimum for SPM to expose products.
   (`crates/alef-e2e/src/codegen/swift.rs`)
 
+- **alef-e2e/swift (config-from-json helper name)**: the config-arg codegen at
+  line 1047 hardcoded `extractionConfigFromJson(...)` for all crates, but should
+  derive the function name from the `options_type` configured in `CallOverride`.
+  For example, with `options_type = "ProcessConfig"`, emit
+  `processConfigFromJson(...)` instead. Derives the camelCased helper name on the
+  fly; falls back to `extractionConfigFromJson` if `options_type` is absent
+  (preserving backward compatibility for kreuzberg).
+  (`crates/alef-e2e/src/codegen/swift.rs`, `crates/alef-e2e/tests/swift_config_from_json_helper.rs`)
+
 - **alef-codegen (ruby kwargs constructor)**: Named enum fields with a resolved
   `EnumVariant` typed default now fall through to the explicit-default branch
   (`unwrap_or(EnumType::Variant)`) instead of being emitted as required kwargs
