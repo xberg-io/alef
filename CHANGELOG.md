@@ -143,6 +143,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Default::default()` like other sanitized fields.
   (`crates/alef-backend-dart/src/gen_rust_crate/mod.rs`)
 
+- **dart: wrap Arc/Box core wrappers in `enum_variant_field_conv_to_core`**:
+  enum variant fields previously emitted `.into()` regardless of `core_wrapper`
+  or `is_boxed`, but `From<T>` is not provided for `Arc<T>`/`Box<T>` by stdlib.
+  Variants now match the struct-field handling: `Arc`/`ArcMutex` core wrappers
+  emit `std::sync::Arc::new(_.into())`, `is_boxed` emits `Box::new(_.into())`,
+  and plain Named types keep `.into()`. Fixes
+  `the trait bound Box<HtmlMetadata>: From<HtmlMetadata> is not satisfied`
+  errors on `FormatMetadata::Html`/`FormatMetadata::Docx`.
+  (`crates/alef-backend-dart/src/gen_rust_crate/mod.rs`)
+
+- **dart: round-trip `Option<T>` flattening in enum-variant mirror-to-core**:
+  the forward direction collapses enum-variant `Option<String>` /
+  `Option<PathBuf>` / `Option<primitive>` to bare values via
+  `unwrap_or_default()`. The reverse direction now mirrors that: empty
+  `String` → `None`, non-empty → `Some(_)`; `0` primitive → `None`, non-zero
+  → `Some(_ as _)`; `newtype_wrapper` is honored on both branches so
+  `Vec<NodeIndex>` (mirror `Vec<i64>`) round-trips via `NodeIndex(x as _)`.
+  Fixes the `expected Option<String>, found String` / `i64 is not an iterator`
+  / `non-primitive cast: i64 as NodeIndex` regressions across
+  `NodeContent::{Image,Code,Group,Custom,Title}` and
+  `AnnotationKind::{Link,Custom}`.
+  (`crates/alef-backend-dart/src/gen_rust_crate/mod.rs`)
+
+- **dart: honor newtype_wrapper on `Vec<Primitive>` struct fields**: when a
+  struct field is `Vec<Primitive>` in the mirror with `newtype_wrapper` set,
+  `field_from_expr_to_core` previously emitted `|x| x as _`, breaking core
+  fields like `children: Vec<NodeIndex>`. Now emits `|x| {nw}(x as _)` when
+  `newtype_wrapper` is set, matching the scalar-primitive branch.
+  (`crates/alef-backend-dart/src/gen_rust_crate/mod.rs`)
+
 ## [0.16.6] - 2026-05-15
 
 ### Added
