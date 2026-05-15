@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-backend-swift (inbound plugin emission)**: gate the inbound
+  `extern "Swift"` block (`Swift<Trait>Box` declaration + per-method FFI shims),
+  the corresponding `extern "Rust"` register/unregister entry points, and the
+  Rust-side `Swift<Trait>Wrapper` newtype + `register_<trait>` fn on
+  `bind_via = "function_param"`. Previously, *every* configured trait bridge
+  emitted the inbound plugin block unconditionally, including `bind_via = "options_field"`
+  bridges (e.g. h2m's `HtmlVisitor`). The swift-bridge crate then declared
+  `type Swift<Trait>Box;` in the `extern "Swift"` block, but there was no
+  matching Swift class in the binding facade — `swift build` failed with
+  `cannot find type 'Swift<Trait>Box' in scope`. `options_field` bridges
+  conventionally bind via an options builder method (mirroring the dart/zig
+  pattern), not via a separate Rust-side registry, so the inbound plugin
+  scaffolding is the wrong shape for them. Until alef-backend-swift grows a
+  proper Swift class scaffold + handle-builder shim for `options_field` bridges,
+  skip the inbound emission entirely.
+  (`crates/alef-backend-swift/src/gen_rust_crate/mod.rs`)
+
 - **alef-e2e (swift)**: SwiftPM identifies path-based deps by the path's last
   component, so a consumer at `e2e/swift/` referencing a dep at `packages/swift/`
   collides on identifier `"swift"` and SPM resolves `.product(package:)` against

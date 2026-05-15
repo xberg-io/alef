@@ -17,7 +17,7 @@ pub(crate) mod wrappers;
 
 use alef_codegen::generators::type_paths::build_type_path_lookup;
 use alef_core::backend::GeneratedFile;
-use alef_core::config::{ResolvedCrateConfig, TraitBridgeConfig};
+use alef_core::config::{BridgeBinding, ResolvedCrateConfig, TraitBridgeConfig};
 use alef_core::ir::{ApiSurface, EnumDef, FunctionDef, TypeDef};
 use alef_core::template_versions;
 use std::collections::HashSet;
@@ -305,7 +305,7 @@ fn emit_lib_rs(
             if has_ctor_override && let Some(ctor_block) = extern_block::emit_extern_block_for_type_constructor(ty) {
                 extern_blocks.push(ctor_block);
             }
-            if let Some(method_block) = extern_block::emit_extern_block_for_type_methods(ty) {
+            if let Some(method_block) = extern_block::emit_extern_block_for_type_methods(ty, &handle_returned_types) {
                 extern_blocks.push(method_block);
             }
         }
@@ -329,13 +329,28 @@ fn emit_lib_rs(
     // Inbound (extern "Swift") plugin bridges — Swift implements the Rust trait.
     // First the register/unregister entry points (extern "Rust"), then the Swift-side
     // type and method declarations (extern "Swift").
+    //
+    // Only emit for `bind_via = "function_param"` bridges. For `bind_via = "options_field"`
+    // bridges (e.g. h2m's HtmlVisitor), the user wires the trait via an options field
+    // and there is no scaffolded Swift class for users to subclass. Emitting
+    // `extern "Swift" type Swift<Trait>Box` for options_field bridges produces
+    // unresolvable Swift symbols (`cannot find type 'Swift<Trait>Box'`) because
+    // the binding facade does not define such a class. Until alef-backend-swift
+    // grows a proper Swift class scaffold + handle-builder shim for options_field
+    // bridges, skip the inbound emission for them.
     for (bridge_cfg, trait_def) in &active_bridges {
+        if bridge_cfg.bind_via != BridgeBinding::FunctionParam {
+            continue;
+        }
         let reg_block = plugin_inbound::emit_extern_block_for_inbound_registration(trait_def, bridge_cfg);
         if !reg_block.is_empty() {
             extern_blocks.push(reg_block);
         }
     }
     for (bridge_cfg, trait_def) in &active_bridges {
+        if bridge_cfg.bind_via != BridgeBinding::FunctionParam {
+            continue;
+        }
         extern_blocks.push(plugin_inbound::emit_extern_block_for_inbound(trait_def, bridge_cfg));
     }
 
@@ -427,7 +442,7 @@ fn emit_lib_rs(
                 ));
                 out.push('\n');
             }
-            out.push_str(&wrappers::emit_type_method_shims(ty, &source_crate, &type_paths));
+            out.push_str(&wrappers::emit_type_method_shims(ty, &source_crate, &type_paths, &handle_returned_types));
             out.push('\n');
         }
     }
@@ -467,6 +482,13 @@ fn emit_lib_rs(
         ));
     }
     for (bridge_cfg, trait_def) in &active_bridges {
+        // Match the inbound-extern gate above: only emit Rust-side wrappers +
+        // register fns for `function_param` bridges. `options_field` bridges
+        // are handled via options-builder methods, not via the inbound plugin
+        // registry pattern.
+        if bridge_cfg.bind_via != BridgeBinding::FunctionParam {
+            continue;
+        }
         out.push_str(&plugin_inbound::emit_inbound_wrapper(
             trait_def,
             bridge_cfg,
