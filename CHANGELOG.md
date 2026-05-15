@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-e2e (zig)**: pin `.use_llvm = true` on every emitted
+  `b.addTest(.{...})` block and add a matching `b.installArtifact(...)`
+  call before the run step. Zig 0.16 defaults the self-hosted aarch64
+  backend on `aarch64-linux` Debug builds, which emits the test binary
+  at a path that does not match what `addRunArtifact` computes via
+  `getEmittedBin()`. Every test fails at run time with
+  `error: failed to spawn and capture stdio from
+  .zig-cache/o/<hash>/<name>: FileNotFound` even though the compile
+  step reports success. The previous fix (unique `.name` per test, see
+  0.16.0) was necessary to avoid cache collisions but did not address
+  the backend mismatch. Forcing the LLVM backend on every test pins the
+  binary at the cache path the RunStep expects on every supported host;
+  the explicit `installArtifact` is a defensive guarantee that the
+  build system materialises the binary on disk before the run step
+  executes. Other Zig backends (x86_64 macOS/Linux, aarch64-darwin)
+  already default to LLVM, so the change is a no-op there.
 - **alef-backend-kotlin-android**: stop re-declaring enum types in the
   Kotlin wrapper (`Kreuzberg.kt`) when the bundled Java facade already
   declares them. Previously every enum surfaced from the Rust IR was

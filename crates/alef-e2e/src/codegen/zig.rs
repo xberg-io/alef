@@ -297,10 +297,29 @@ pub fn build(b: *std.Build) void {
         // in the cache — only one binary survives, every other addRunArtifact fails
         // with FileNotFound at its computed path. Setting a unique name per test
         // module produces a distinct .zig-cache/o/<hash>/<name> binary for each.
+        //
+        // Zig 0.16 ALSO defaults to the self-hosted backend on aarch64-linux for
+        // Debug builds. That backend emits the test binary at a different cache
+        // path (or with different permissions) than the build system's RunStep
+        // computes when reading `getEmittedBin()`, so every `addRunArtifact` call
+        // fails with `FileNotFound` at `.zig-cache/o/<hash>/<name>` even though
+        // the compile step reports success. Forcing `.use_llvm = true` pins the
+        // LLVM backend, which keeps the emitted binary at the path the RunStep
+        // expects. Other Zig backends (x86_64 macOS/Linux) already default to
+        // LLVM, so this is a no-op there.
         content.push_str(&format!("    const {test_name}_tests = b.addTest(.{{\n"));
         content.push_str(&format!("        .name = \"{test_name}_test\",\n"));
         content.push_str(&format!("        .root_module = {test_name}_module,\n"));
+        content.push_str("        .use_llvm = true,\n");
         content.push_str("    });\n");
+        // Install the test artifact so its emitted binary is materialised at a
+        // stable, on-disk location (`zig-out/bin/<name>`) in addition to the
+        // cache. RunStep still resolves to the cache path via `getEmittedBin`,
+        // but the install-step dependency forces the build system to actually
+        // place the binary on disk before the run step executes — defensive
+        // against any future backend that elides cache-path materialisation
+        // when no install step references the artifact.
+        content.push_str(&format!("    b.installArtifact({test_name}_tests);\n"));
         content.push_str(&format!(
             "    const {test_name}_run = b.addRunArtifact({test_name}_tests);\n"
         ));
