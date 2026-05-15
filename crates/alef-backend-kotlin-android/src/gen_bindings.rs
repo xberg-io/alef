@@ -102,6 +102,26 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, kotlin_source_dir: &
 /// Emit `<Module>.kt` — a Kotlin `object` that re-exposes every free function
 /// by delegating to `<Module>Bridge`. This preserves the ergonomic call-site
 /// pattern `Module.foo(...)` while keeping all JNI declarations in the Bridge.
+///
+/// Opaque handle types appear in two shapes in the API:
+///
+/// 1. **Client shape** — an opaque type with instance methods (e.g.
+///    `DefaultClient` in liter-llm).  This is handled by
+///    `emit_jni_client_class` which emits a `DefaultClient.kt` class with one
+///    `suspend fun` per method.  Top-level free functions that return this
+///    type produce the same class.
+/// 2. **Handle shape** — an opaque type with no instance methods (e.g.
+///    `CrawlEngineHandle` in kreuzcrawl).  All operations on the handle are
+///    top-level free functions taking the handle as their first parameter.
+///    This emitter generates a one-off `<TypeName>.kt` wrapper class
+///    implementing `AutoCloseable` whose `close()` calls the bridge's
+///    `nativeFree<TypeName>` destructor.
+///
+/// In both cases:
+/// - Top-level fns returning the opaque type return the wrapper class instead
+///   of `Long` (the raw bridge return).
+/// - Top-level fns taking the opaque type as a parameter accept the wrapper
+///   class and pass `.handle` to the bridge call.
 fn emit_module_kt(
     api: &ApiSurface,
     config: &ResolvedCrateConfig,
@@ -113,6 +133,24 @@ fn emit_module_kt(
 
     let module_name = to_pascal_case(&config.name);
     let bridge_name = format!("{module_name}Bridge");
+
+    // Set of all opaque (non-trait) type names.
+    let opaque_type_names: std::collections::HashSet<&str> = api
+        .types
+        .iter()
+        .filter(|t| t.is_opaque && !t.is_trait)
+        .map(|t| t.name.as_str())
+        .collect();
+
+    // Subset of opaque types that have at least one visible instance method.
+    // These are the "client shape" — `emit_jni_client_class` already emits a
+    // Kotlin class for them with AutoCloseable + close().
+    let client_type_names: std::collections::HashSet<&str> = api
+        .types
+        .iter()
+        .filter(|t| t.is_opaque && !t.is_trait && t.methods.iter().any(|m| !m.sanitized && !m.is_static))
+        .map(|t| t.name.as_str())
+        .collect();
 
     let exclude_functions: std::collections::HashSet<&str> = config
         .kotlin_android
@@ -126,9 +164,74 @@ fn emit_module_kt(
         .filter(|f| !exclude_functions.contains(f.name.as_str()))
         .collect();
 
+    // Collect "handle shape" types: opaque types that are NOT clients but
+    // appear somewhere on the free-function surface (as a return or a
+    // parameter).  Each one gets its own AutoCloseable wrapper class file.
+    let handle_only_types: std::collections::BTreeSet<&str> = {
+        let mut set = std::collections::BTreeSet::new();
+        for f in &visible_functions {
+            if let alef_core::ir::TypeRef::Named(n) = &f.return_type {
+                if opaque_type_names.contains(n.as_str()) && !client_type_names.contains(n.as_str()) {
+                    set.insert(n.as_str());
+                }
+            }
+            for p in &f.params {
+                if let alef_core::ir::TypeRef::Named(n) = unwrap_optional(&p.ty) {
+                    if opaque_type_names.contains(n.as_str()) && !client_type_names.contains(n.as_str()) {
+                        set.insert(n.as_str());
+                    }
+                }
+            }
+        }
+        set
+    };
+
+    // Emit a one-off wrapper class file per handle-only opaque type.
+    for type_name in &handle_only_types {
+        let class_name = *type_name;
+        let free_name = format!("nativeFree{}", to_pascal_case(class_name));
+        let mut body = String::new();
+        body.push_str(&format!(
+            "/** JNI-backed wrapper holding a native `{class_name}` handle. */\n"
+        ));
+        body.push_str(&format!(
+            "class {class_name} internal constructor(internal val handle: Long) : AutoCloseable {{\n"
+        ));
+        body.push_str(&format!(
+            "    override fun close() {{ {bridge_name}.{free_name}(handle) }}\n"
+        ));
+        body.push_str("}\n");
+        let content = assemble_kt_content(package, &BTreeSet::new(), &body);
+        files.push(GeneratedFile {
+            path: kotlin_source_dir.join(format!("{class_name}.kt")),
+            content,
+            generated_header: false,
+        });
+    }
+
     if visible_functions.is_empty() {
         return;
     }
+
+    // Helper to resolve the wrapper Kotlin type for a TypeRef appearing in the
+    // facade signature.  Opaque types become their wrapper class; everything
+    // else uses the existing primitive/JSON mapping.
+    let facade_return_type = |ty: &alef_core::ir::TypeRef| -> String {
+        if let alef_core::ir::TypeRef::Named(n) = ty {
+            if opaque_type_names.contains(n.as_str()) {
+                return n.clone();
+            }
+        }
+        jni_return_type_str(ty).to_string()
+    };
+    let facade_param_type = |ty: &alef_core::ir::TypeRef| -> String {
+        if let alef_core::ir::TypeRef::Named(n) = unwrap_optional(ty) {
+            if opaque_type_names.contains(n.as_str()) {
+                return n.clone();
+            }
+        }
+        jni_param_type_str(ty).to_string()
+    };
 
     let imports: BTreeSet<String> = BTreeSet::new();
     let mut body = String::new();
@@ -137,20 +240,51 @@ fn emit_module_kt(
     for f in &visible_functions {
         let method_name = to_lower_camel(&f.name);
         let native_name = format!("native{}", to_pascal_case(&f.name));
-        let return_ty = jni_return_type_str(&f.return_type);
+
+        let return_ty = facade_return_type(&f.return_type);
+
         let params: Vec<String> = f
             .params
             .iter()
             .map(|p| {
-                let ty = jni_param_type_str(&p.ty);
+                let ty = facade_param_type(&p.ty);
                 format!("{}: {ty}", to_lower_camel(&p.name))
             })
             .collect();
-        let args: Vec<String> = f.params.iter().map(|p| to_lower_camel(&p.name)).collect();
+
+        // Bridge args: opaque params are unwrapped to `.handle`, everything
+        // else is passed through unchanged.
+        let bridge_args: Vec<String> = f
+            .params
+            .iter()
+            .map(|p| {
+                let name = to_lower_camel(&p.name);
+                if let alef_core::ir::TypeRef::Named(n) = unwrap_optional(&p.ty) {
+                    if opaque_type_names.contains(n.as_str()) {
+                        return format!("{name}.handle");
+                    }
+                }
+                name
+            })
+            .collect();
+
+        let bridge_call = format!("{bridge_name}.{native_name}({})", bridge_args.join(", "));
+
+        // Wrap the bridge return in the appropriate Kotlin wrapper class when
+        // the function returns an opaque handle.
+        let body_expr = if let alef_core::ir::TypeRef::Named(n) = &f.return_type {
+            if opaque_type_names.contains(n.as_str()) {
+                format!("{n}({bridge_call})")
+            } else {
+                bridge_call
+            }
+        } else {
+            bridge_call
+        };
+
         body.push_str(&format!(
-            "    fun {method_name}({}): {return_ty} = {bridge_name}.{native_name}({})\n",
+            "    fun {method_name}({}): {return_ty} = {body_expr}\n",
             params.join(", "),
-            args.join(", ")
         ));
     }
     body.push_str("}\n");
@@ -161,6 +295,14 @@ fn emit_module_kt(
         content,
         generated_header: false,
     });
+}
+
+/// Return the inner `TypeRef` if `ty` is `Optional(inner)`, otherwise return `ty`.
+fn unwrap_optional(ty: &alef_core::ir::TypeRef) -> &alef_core::ir::TypeRef {
+    match ty {
+        alef_core::ir::TypeRef::Optional(inner) => inner.as_ref(),
+        other => other,
+    }
 }
 
 /// Assemble a complete `.kt` file from package, imports, and body.
