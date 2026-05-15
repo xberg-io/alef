@@ -142,6 +142,14 @@ pub(crate) fn emit_lib_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> Str
         .filter(|f| !f.sanitized && !exclude_functions.contains(f.name.as_str()))
         .collect();
 
+    // Collect opaque type names for handle-vs-JSON dispatch.
+    let opaque_type_names: std::collections::HashSet<&str> = api
+        .types
+        .iter()
+        .filter(|t| t.is_opaque && !t.is_trait)
+        .map(|t| t.name.as_str())
+        .collect();
+
     // Top-level function shims.
     for f in &visible_functions {
         let method_name = bridge_method_name("", &f.name);
@@ -154,18 +162,40 @@ pub(crate) fn emit_lib_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> Str
             &f.return_type,
             f.is_async,
             f.error_type.is_some(),
+            &opaque_type_names,
         );
     }
 
-    // Opaque client type shims.
+    // Opaque client type shims (types that have instance methods).
     let client_types: Vec<_> = api
         .types
         .iter()
         .filter(|t| t.is_opaque && !t.is_trait && t.methods.iter().any(|m| !m.sanitized && !m.is_static))
         .collect();
+    let client_type_names: std::collections::HashSet<&str> = client_types.iter().map(|t| t.name.as_str()).collect();
 
     for ty in &client_types {
         emit_client_shims(&mut out, ty, api, config, &package, &bridge, &exclude_functions);
+    }
+
+    // Emit destructors for opaque types that are returned by top-level functions
+    // but do NOT have instance methods (those are handled by emit_client_shims above).
+    let top_level_opaque_returns: std::collections::HashSet<&str> = visible_functions
+        .iter()
+        .filter_map(|f| {
+            if let TypeRef::Named(n) = &f.return_type {
+                if opaque_type_names.contains(n.as_str()) && !client_type_names.contains(n.as_str()) {
+                    return Some(n.as_str());
+                }
+            }
+            None
+        })
+        .collect();
+
+    for type_name in &top_level_opaque_returns {
+        let free_name = destructor_method_name(type_name);
+        let free_symbol = jni_symbol(&package, &bridge, &free_name);
+        emit_destructor_shim(&mut out, &free_symbol, type_name);
     }
 
     out
@@ -263,8 +293,11 @@ fn emit_client_shims(
 
 /// Emit a shim for a top-level API function.
 ///
-/// Top-level functions typically create an opaque handle (e.g. `createClient`).
-/// The return type is `jstring` carrying a JSON `{"handle": <raw_ptr_as_long>}`.
+/// When the return type is an opaque named type the function returns `jlong`
+/// (a raw `Box::into_raw` pointer) rather than a JSON-encoded `jstring`.
+/// When a parameter is an opaque named type it is received as `jlong` and
+/// dereferenced via an unsafe pointer cast — the Kotlin caller holds the
+/// handle as a `Long` that was previously obtained from the constructor shim.
 fn emit_function_shim(
     out: &mut String,
     symbol: &str,
@@ -273,8 +306,16 @@ fn emit_function_shim(
     return_type: &TypeRef,
     is_async: bool,
     has_error: bool,
+    opaque_type_names: &std::collections::HashSet<&str>,
 ) {
     let core_fn = format!("core_crate::{}", rust_fn_name.replace('-', "_"));
+
+    // Determine whether the return type is an opaque handle up-front so we can
+    // use the correct null/zero sentinel in unmarshal error paths.
+    let is_opaque_return = matches!(return_type, TypeRef::Named(n) if opaque_type_names.contains(n.as_str()));
+    // Opaque returns use jlong; everything else uses jstring (or unit / primitives).
+    let ret_decl = if is_opaque_return { " -> jlong" } else { " -> jstring" };
+    let err_null = if is_opaque_return { "0" } else { "std::ptr::null_mut()" };
 
     // Collect param signatures and unmarshal logic.
     let mut param_sigs = String::new();
@@ -295,7 +336,9 @@ fn emit_function_shim(
                     "    let {rust_name} = match jstring_to_string(&mut env, {rust_name}) {{\n"
                 ));
                 unmarshal.push_str("        Ok(s) => s,\n");
-                unmarshal.push_str("        Err(e) => { throw_jni_error(&mut env, &format!(\"{e}\")); return std::ptr::null_mut(); }\n");
+                unmarshal.push_str(&format!(
+                    "        Err(e) => {{ throw_jni_error(&mut env, &format!(\"{{e}}\")); return {err_null}; }}\n"
+                ));
                 unmarshal.push_str("    };\n");
                 // Build call-site expression: optional → Some(name), is_ref → &name, else name.
                 if p.optional {
@@ -321,6 +364,22 @@ fn emit_function_shim(
                     call_args.push_str(&cast_expr);
                 }
             }
+            TypeRef::Named(type_name) if opaque_type_names.contains(type_name.as_str()) => {
+                // Opaque handle param: receive as jlong, dereference via raw pointer.
+                // SAFETY: the Kotlin caller holds a Long obtained from the matching
+                // constructor shim and guarantees the handle is live for this call.
+                param_sigs.push_str(&format!("    {rust_name}: jlong,\n"));
+                let type_path = format!("core_crate::{type_name}");
+                unmarshal.push_str(&format!(
+                    "    // SAFETY: {rust_name} was allocated by the matching constructor shim and\n"
+                ));
+                unmarshal.push_str("    // remains valid until the destructor shim is called.\n");
+                unmarshal.push_str(&format!(
+                    "    let {rust_name}: &{type_path} = unsafe {{ &*({rust_name} as *const {type_path}) }};\n"
+                ));
+                // Pass as reference (already &T via deref).
+                call_args.push_str(&rust_name);
+            }
             _ => {
                 // Complex types passed as JSON string from Kotlin side.
                 param_sigs.push_str(&format!("    {rust_name}: JString,\n"));
@@ -328,14 +387,16 @@ fn emit_function_shim(
                     "    let {rust_name}_str = match jstring_to_string(&mut env, {rust_name}) {{\n"
                 ));
                 unmarshal.push_str("        Ok(s) => s,\n");
-                unmarshal.push_str("        Err(e) => { throw_jni_error(&mut env, &format!(\"{e}\")); return std::ptr::null_mut(); }\n");
+                unmarshal.push_str(&format!(
+                    "        Err(e) => {{ throw_jni_error(&mut env, &format!(\"{{e}}\")); return {err_null}; }}\n"
+                ));
                 unmarshal.push_str("    };\n");
                 let type_path = type_ref_to_core_path(base_ty, "core_crate");
                 unmarshal.push_str(&format!(
                     "    let {rust_name}: {type_path} = match serde_json::from_str(&{rust_name}_str) {{\n"
                 ));
                 unmarshal.push_str("        Ok(v) => v,\n");
-                unmarshal.push_str("        Err(e) => { throw_jni_error(&mut env, &format!(\"deserialize: {e}\")); return std::ptr::null_mut(); }\n");
+                unmarshal.push_str(&format!("        Err(e) => {{ throw_jni_error(&mut env, &format!(\"deserialize: {{e}}\")); return {err_null}; }}\n"));
                 unmarshal.push_str("    };\n");
                 if p.optional {
                     call_args.push_str(&format!("Some({rust_name})"));
@@ -353,11 +414,8 @@ fn emit_function_shim(
         call_args.truncate(call_args.len() - 2);
     }
 
-    // For opaque handle returns (Named type), emit handle boxing.
-    let is_opaque_return = matches!(return_type, TypeRef::Named(_));
-
     out.push_str(&format!(
-        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {symbol}(\n    mut env: JNIEnv,\n    _class: JClass,\n{param_sigs}) -> jstring {{\n"
+        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {symbol}(\n    mut env: JNIEnv,\n    _class: JClass,\n{param_sigs}){ret_decl} {{\n"
     ));
 
     out.push_str(&unmarshal);
@@ -382,13 +440,11 @@ fn emit_function_shim(
         out.push_str("    match result {\n");
         out.push_str("        Err(e) => {\n");
         out.push_str("            throw_jni_error(&mut env, &format!(\"{e}\"));\n");
-        out.push_str("            std::ptr::null_mut()\n");
+        out.push_str(&format!("            {err_null}\n"));
         out.push_str("        }\n");
         out.push_str("        Ok(v) => {\n");
         if is_opaque_return {
-            out.push_str("            let handle_raw = Box::into_raw(Box::new(v)) as jlong;\n");
-            out.push_str("            let json = format!(\"{{\\\"handle\\\": {}}}\", handle_raw);\n");
-            out.push_str("            string_to_jstring(&mut env, &json)\n");
+            out.push_str("            Box::into_raw(Box::new(v)) as jlong\n");
         } else if matches!(return_type, TypeRef::Unit) {
             out.push_str("            string_to_jstring(&mut env, \"null\")\n");
         } else {
@@ -401,9 +457,7 @@ fn emit_function_shim(
         // Function returns T directly (no Result wrapping).
         out.push_str(&format!("    let v = {call_expr};\n"));
         if is_opaque_return {
-            out.push_str("    let handle_raw = Box::into_raw(Box::new(v)) as jlong;\n");
-            out.push_str("    let json = format!(\"{{\\\"handle\\\": {}}}\", handle_raw);\n");
-            out.push_str("    string_to_jstring(&mut env, &json)\n");
+            out.push_str("    Box::into_raw(Box::new(v)) as jlong\n");
         } else if matches!(return_type, TypeRef::Unit) {
             out.push_str("    string_to_jstring(&mut env, \"null\")\n");
         } else {

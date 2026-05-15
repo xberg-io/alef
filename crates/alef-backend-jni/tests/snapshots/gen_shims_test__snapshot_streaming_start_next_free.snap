@@ -53,21 +53,19 @@ pub unsafe extern "system" fn Java_dev_kreuzberg_demo_DemoBridge_nativeCreateCli
     mut env: JNIEnv,
     _class: JClass,
     api_key: JString,
-) -> jstring {
+) -> jlong {
     let api_key = match jstring_to_string(&mut env, api_key) {
         Ok(s) => s,
-        Err(e) => { throw_jni_error(&mut env, &format!("{e}")); return std::ptr::null_mut(); }
+        Err(e) => { throw_jni_error(&mut env, &format!("{e}")); return 0; }
     };
     let result = runtime().block_on(core_crate::create_client(api_key));
     match result {
         Err(e) => {
             throw_jni_error(&mut env, &format!("{e}"));
-            std::ptr::null_mut()
+            0
         }
         Ok(v) => {
-            let handle_raw = Box::into_raw(Box::new(v)) as jlong;
-            let json = format!("{{\"handle\": {}}}", handle_raw);
-            string_to_jstring(&mut env, &json)
+            Box::into_raw(Box::new(v)) as jlong
         }
     }
 }
