@@ -108,6 +108,8 @@ pub(crate) fn emit_lib_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> Str
     out.push_str("#![allow(clippy::missing_safety_doc)]\n");
     out.push_str("#![allow(unused_imports)]\n");
     out.push_str("#![allow(unused_variables)]\n");
+    out.push_str("#![allow(unused_mut)]\n");
+    out.push_str("#![allow(dead_code)]\n");
     out.push('\n');
     out.push_str("use std::sync::OnceLock;\n");
     out.push_str("use std::sync::Mutex;\n");

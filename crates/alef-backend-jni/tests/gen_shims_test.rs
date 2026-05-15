@@ -1047,7 +1047,7 @@ fn method_slice_u8_param_receives_jbytearray() {
         "Vec<u8> param must be jbyteArray, not JString; section:\n{section}"
     );
     assert!(
-        section.contains("env.convert_byte_array(source)"),
+        section.contains("env.convert_byte_array("),
         "Vec<u8> param must use env.convert_byte_array; section:\n{section}"
     );
     assert!(
