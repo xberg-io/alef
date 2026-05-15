@@ -103,6 +103,17 @@ pub struct ConversionConfig<'a> {
     ///   - core→binding: `serde_json::to_value(val.<name>).unwrap_or_default()`
     ///   - binding→core: `serde_json::from_value(val.<name>).unwrap_or_default()`
     pub untagged_data_enum_names: Option<&'a AHashSet<String>>,
+    /// Names of tagged-data enums (`#[serde(tag = "...")]` with at least one data variant).
+    /// Fields referencing these types (or `Vec` of these types) are stored as `JsValue` in the
+    /// wasm binding struct so that plain JS objects `{ role: "user", content: "..." }` can be
+    /// passed without being wrapped in an explicit binding-class instance.
+    ///
+    /// Used by the WASM backend only; `map_uses_jsvalue` must also be `true`.
+    ///
+    /// Conversions:
+    ///   - core→binding: `serde_wasm_bindgen::to_value(&val.<name>).unwrap_or(JsValue::NULL)`
+    ///   - binding→core: `serde_wasm_bindgen::from_value(val.<name>.clone()).unwrap_or_default()`
+    pub tagged_data_enum_names: Option<&'a AHashSet<String>>,
     /// Names of cfg-gated fields that must NOT be skipped in conversions because the binding
     /// emits them (via [`super::generators::RustBindingConfig::never_skip_cfg_field_names`]).
     /// Empty by default; backends populate from trait-bridge `bind_via = "options_field"` config.

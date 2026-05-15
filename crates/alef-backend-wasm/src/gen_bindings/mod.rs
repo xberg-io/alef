@@ -355,6 +355,16 @@ impl Backend for WasmBackend {
             }
         }
 
+        // Collect tagged-data enum names once for use in struct generation and conversions.
+        // These are enums with a serde tag *and* at least one data variant — they are emitted
+        // as wasm-bindgen structs with `JsValue` storage for fields that are Vec<TaggedEnum>.
+        let tagged_data_enum_names: AHashSet<String> = api
+            .enums
+            .iter()
+            .filter(|e| !exclude_types.contains(&e.name) && enums::is_tagged_data_enum(e))
+            .map(|e| e.name.clone())
+            .collect();
+
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if exclude_types.contains(&typ.name) {
                 continue;
@@ -373,7 +383,13 @@ impl Backend for WasmBackend {
             } else {
                 // gen_struct adds #[derive(Default)] when typ.has_default is true,
                 // so no separate Default impl is needed.
-                builder.add_item(&gen_struct(typ, &mapper, &exclude_types, &prefix));
+                builder.add_item(&gen_struct(
+                    typ,
+                    &mapper,
+                    &exclude_types,
+                    &prefix,
+                    &tagged_data_enum_names,
+                ));
                 builder.add_item(&gen_struct_methods(
                     typ,
                     &mapper,
@@ -494,6 +510,12 @@ impl Backend for WasmBackend {
                 Some(&opaque_names_set)
             },
             trait_bridge_arc_wrapper_field_names: &trait_bridge_arc_wrapper_field_names,
+            // Vec<TaggedDataEnum> fields are stored as JsValue; conversions use serde_wasm_bindgen.
+            tagged_data_enum_names: if tagged_data_enum_names.is_empty() {
+                None
+            } else {
+                Some(&tagged_data_enum_names)
+            },
             ..Default::default()
         };
         let convertible = alef_codegen::conversions::convertible_types(api);

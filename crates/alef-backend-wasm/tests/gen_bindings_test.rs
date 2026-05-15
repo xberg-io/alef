@@ -2489,3 +2489,148 @@ fn test_optional_vec_of_struct_getter_returns_js_array() {
         content
     );
 }
+
+/// Regression test: a `Vec<TaggedDataEnum>` struct field must be stored as `JsValue` so that
+/// plain JS object literals (e.g. `{ role: "user", content: "..." }`) can be assigned in e2e
+/// tests without wasm-bindgen throwing "array contains a value of the wrong type".
+///
+/// Before the fix `messages: Vec<WasmMessage>` was emitted; wasm-bindgen type-checks each
+/// element and rejects plain objects, causing all non-streaming chat tests to fail in CI.
+#[test]
+fn test_vec_of_tagged_data_enum_field_uses_js_value() {
+    let backend = WasmBackend;
+
+    // Build a tagged-data enum (Message) — serde_tag + at least one variant with fields.
+    let make_data_variant = |name: &str, tag: &str| EnumVariant {
+        name: name.to_string(),
+        fields: vec![FieldDef {
+            name: "_0".to_string(),
+            ty: TypeRef::Named(format!("{name}Msg")),
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: alef_core::ir::CoreWrapper::None,
+            vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+            newtype_wrapper: None,
+            serde_rename: Some(tag.to_string()),
+            serde_flatten: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        is_tuple: true,
+        doc: String::new(),
+        is_default: false,
+        serde_rename: Some(tag.to_string()),
+    };
+    let message_enum = EnumDef {
+        name: "Message".to_string(),
+        rust_path: "test_lib::Message".to_string(),
+        original_rust_path: String::new(),
+        variants: vec![make_data_variant("User", "user"), make_data_variant("System", "system")],
+        doc: String::new(),
+        cfg: None,
+        is_copy: false,
+        has_serde: true,
+        serde_tag: Some("role".to_string()),
+        serde_untagged: false,
+        serde_rename_all: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+
+    // Build a request struct with a required Vec<Message> field.
+    let request_type = make_type_def(
+        "ChatRequest",
+        vec![make_field(
+            "messages",
+            TypeRef::Vec(Box::new(TypeRef::Named("Message".to_string()))),
+            false, // required
+        )],
+    );
+
+    // Add a function that accepts ChatRequest so binding→core From impl is generated.
+    let chat_fn = FunctionDef {
+        name: "chat".to_string(),
+        rust_path: "test_lib::chat".to_string(),
+        original_rust_path: String::new(),
+        params: vec![ParamDef {
+            name: "request".to_string(),
+            ty: TypeRef::Named("ChatRequest".to_string()),
+            optional: false,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: false,
+            is_mut: false,
+            newtype_wrapper: None,
+            original_type: None,
+        }],
+        return_type: TypeRef::String,
+        is_async: false,
+        error_type: None,
+        doc: String::new(),
+        cfg: None,
+        sanitized: false,
+        return_sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![request_type],
+        functions: vec![chat_fn],
+        enums: vec![message_enum],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config();
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generate_bindings should succeed");
+    let content = &files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap().content;
+
+    // The struct field must be JsValue, not Vec<WasmMessage>.
+    assert!(
+        content.contains("messages: JsValue"),
+        "Vec<TaggedDataEnum> struct field must be stored as JsValue;\nactual content:\n{content}"
+    );
+    assert!(
+        !content.contains("messages: Vec<WasmMessage>"),
+        "Vec<TaggedDataEnum> must NOT be Vec<WasmMessage>;\nactual content:\n{content}"
+    );
+
+    // The getter must return JsValue.
+    assert!(
+        content.contains("pub fn messages(&self) -> JsValue"),
+        "Vec<TaggedDataEnum> getter must return JsValue;\nactual content:\n{content}"
+    );
+
+    // The setter must accept JsValue.
+    assert!(
+        content.contains("fn set_messages(&mut self, value: JsValue)"),
+        "Vec<TaggedDataEnum> setter must accept JsValue;\nactual content:\n{content}"
+    );
+
+    // The From<WasmChatRequest>→core binding→core conversion must use serde_wasm_bindgen.
+    assert!(
+        content.contains("serde_wasm_bindgen::from_value(val.messages.clone()).unwrap_or_default()"),
+        "binding→core From impl must deserialize JsValue via serde_wasm_bindgen;\nactual content:\n{content}"
+    );
+
+    // The core→binding From impl must serialize via serde_wasm_bindgen.
+    assert!(
+        content.contains("serde_wasm_bindgen::to_value(&val.messages).unwrap_or(JsValue::NULL)"),
+        "core→binding From impl must serialize Vec<Message> via serde_wasm_bindgen;\nactual content:\n{content}"
+    );
+}

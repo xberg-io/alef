@@ -49,6 +49,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   constructing or destructuring core Named types at the WASM boundary.
   (`crates/alef-backend-wasm/src/gen_bindings/enums.rs`)
 
+- **alef-backend-wasm: use `set_field_N` / `field_N` names for positional `_N` struct fields in tagged-enum wasm-bindgen getters/setters**: the getter/setter pair for positional fields (named `_0`, `_1`, … by the extractor) was emitting `fn set__0` and `fn _0`, which the Rust `non_snake_case` lint rejects as `method 'set__0' should have a snake case name` under `RUSTFLAGS="-D warnings"`. The Rust identifiers are now `field_0` (getter) and `set_field_0` (setter); the JS-visible name is unchanged via the `#[wasm_bindgen(getter/setter, js_name = "...")]` attribute. Adds a regression test asserting the correct identifier names are emitted. (`crates/alef-backend-wasm/src/gen_bindings/enums.rs`)
+
+- **alef-backend-kotlin-android: add `jackson-datatype-jdk8` to library `build.gradle.kts`**: the generated `DefaultClient.kt` registers `Jdk8Module` via `ObjectMapper().registerModule(com.fasterxml.jackson.datatype.jdk8.Jdk8Module())`, but the library scaffold's `build.gradle.kts` only declared `jackson-databind` and `jackson-module-kotlin`. Kotlin compilation failed with "Unresolved reference 'datatype'". Adds `implementation("com.fasterxml.jackson.datatype:jackson-datatype-jdk8:<version>")` to the emitted dependencies block, version-pinned via `maven::JACKSON` (same as the other Jackson deps). (`crates/alef-backend-kotlin-android/src/gen_build_gradle.rs`)
+
+- **alef-backend-wasm: store `Vec<TaggedDataEnum>` fields as `JsValue` to accept plain JS objects**:
+  wasm-bindgen type-checks every element of a `Vec<T>` setter against class instances of `T`;
+  plain JS object literals (e.g. `{ role: "user", content: "..." }`) were rejected with
+  "array contains a value of the wrong type", causing all non-streaming WASM chat tests to
+  fail in CI. Struct fields, constructor parameters, getters, and setters for
+  `Vec<TaggedDataEnum>` are now emitted as `JsValue`. The `From` impls in both directions
+  use `serde_wasm_bindgen::from_value`/`to_value` to deserialize/serialize the plain-object
+  array. A new `tagged_data_enum_names` field on `ConversionConfig` controls which named
+  types trigger this path; `binding_to_core.rs` and `core_to_binding.rs` emit the
+  `serde_wasm_bindgen` conversion when the field is set.
+  (`crates/alef-backend-wasm/src/gen_bindings/types.rs`,
+  `crates/alef-backend-wasm/src/gen_bindings/mod.rs`,
+  `crates/alef-codegen/src/conversions/mod.rs`,
+  `crates/alef-codegen/src/conversions/binding_to_core.rs`,
+  `crates/alef-codegen/src/conversions/core_to_binding.rs`)
+
 ## [0.16.12] - 2026-05-15
 
 ### Fixed

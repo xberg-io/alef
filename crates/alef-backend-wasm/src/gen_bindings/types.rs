@@ -10,6 +10,15 @@ use alef_core::ir::{EnumDef, FieldDef, MethodDef, ReceiverKind, TypeDef, TypeRef
 use super::functions::{emit_rustdoc, format_param_unused, gen_wasm_unimplemented_body, wasm_wrap_return};
 use super::methods::gen_method;
 
+/// Returns `true` when `ty` is `Vec<Named>` where `Named` is a tagged-data enum.
+///
+/// These fields are stored as `JsValue` in the wasm binding struct so that plain JS object
+/// literals (e.g. `{ role: "user", content: "..." }`) can be passed without constructing
+/// explicit wasm-bindgen class instances.
+fn is_vec_of_tagged_data_enum(ty: &TypeRef, tagged_data_enum_names: &AHashSet<String>) -> bool {
+    matches!(ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if tagged_data_enum_names.contains(n)))
+}
+
 /// Check if a TypeRef is a Copy type that shouldn't be cloned.
 /// `enum_names` contains the set of enum type names that derive Copy.
 pub(super) fn is_copy_type(ty: &TypeRef, enum_names: &AHashSet<String>) -> bool {
@@ -366,7 +375,13 @@ fn gen_opaque_static_method(
 }
 
 /// Generate a wasm-bindgen struct definition with private fields.
-pub(super) fn gen_struct(typ: &TypeDef, mapper: &WasmMapper, exclude_types: &[String], prefix: &str) -> String {
+pub(super) fn gen_struct(
+    typ: &TypeDef,
+    mapper: &WasmMapper,
+    exclude_types: &[String],
+    prefix: &str,
+    tagged_data_enum_names: &AHashSet<String>,
+) -> String {
     use super::field_references_excluded_type;
 
     let js_name = format!("{prefix}{}", typ.name);
@@ -387,9 +402,17 @@ pub(super) fn gen_struct(typ: &TypeDef, mapper: &WasmMapper, exclude_types: &[St
         // On has_default types, non-optional Duration fields are stored as Option<u64> so the
         // wasm constructor can omit them and the From conversion falls back to the core default.
         let force_optional = typ.has_default && !field.optional && matches!(field.ty, TypeRef::Duration);
+        // Vec<TaggedDataEnum> must be stored as JsValue so that plain JS object literals
+        // (e.g. `{ role: "user", content: "..." }`) can be assigned directly without
+        // constructing explicit wasm-bindgen class instances (wasm-bindgen would reject plain
+        // objects in a `Vec<WasmEnum>` setter with "array contains a value of the wrong type").
+        let is_vec_tagged_enum = is_vec_of_tagged_data_enum(&field.ty, tagged_data_enum_names);
         let field_type = if force_optional {
             // Duration field forced to Option<u64>: map_type returns "u64", wrap in Option<>.
             mapper.optional(&mapper.map_type(&field.ty))
+        } else if is_vec_tagged_enum {
+            // Vec<TaggedDataEnum>: use JsValue for the field so JS callers can pass plain objects.
+            "JsValue".to_string()
         } else if field.optional && matches!(field.ty, TypeRef::Optional(_)) {
             // Field is already Optional in the IR: map_type returns "Option<X>". Using
             // mapper.optional() would yield Option<Option<X>>, which wasm-bindgen can't handle
@@ -437,8 +460,27 @@ pub(super) fn gen_struct_methods(
     let mut impl_builder = ImplBuilder::new(&js_name);
     impl_builder.add_attr("wasm_bindgen");
 
+    // Collect enum names for Copy detection in getters.
+    // Use unprefixed names since TypeRef::Named stores the original name without Js prefix.
+    let enum_names: AHashSet<String> = api_enums.iter().map(|e| e.name.clone()).collect();
+    // Tagged data enums are emitted as wasm-bindgen structs, not C-enums — they do NOT have
+    // a `to_api_str()` method and they are not Copy. Track them separately so the getter
+    // path treats `Option<WasmAuthConfig>` like any other Optional<Struct> (clone-and-return).
+    // Also used for constructor generation: Vec<TaggedDataEnum> parameters become JsValue.
+    let tagged_data_enum_names: AHashSet<String> = api_enums
+        .iter()
+        .filter(|e| super::enums::is_tagged_data_enum(e))
+        .map(|e| e.name.clone())
+        .collect();
+
     if !typ.fields.is_empty() {
-        impl_builder.add_method(&gen_new_method(typ, mapper, exclude_types, prefix));
+        impl_builder.add_method(&gen_new_method(
+            typ,
+            mapper,
+            exclude_types,
+            prefix,
+            &tagged_data_enum_names,
+        ));
         // Skip synthetic Default factory when the IR already exposes an
         // explicit static method named `default` (it will be emitted below
         // through the methods loop and would otherwise conflict).
@@ -446,18 +488,6 @@ pub(super) fn gen_struct_methods(
             impl_builder.add_method(&gen_default_method(typ, prefix));
         }
     }
-
-    // Collect enum names for Copy detection in getters.
-    // Use unprefixed names since TypeRef::Named stores the original name without Js prefix.
-    let enum_names: AHashSet<String> = api_enums.iter().map(|e| e.name.clone()).collect();
-    // Tagged data enums are emitted as wasm-bindgen structs, not C-enums — they do NOT have
-    // a `to_api_str()` method and they are not Copy. Track them separately so the getter
-    // path treats `Option<WasmAuthConfig>` like any other Optional<Struct> (clone-and-return).
-    let tagged_data_enum_names: AHashSet<String> = api_enums
-        .iter()
-        .filter(|e| super::enums::is_tagged_data_enum(e))
-        .map(|e| e.name.clone())
-        .collect();
 
     for field in &typ.fields {
         // Skip fields whose type references an excluded type (the Js* wrapper won't exist)
@@ -471,7 +501,7 @@ pub(super) fn gen_struct_methods(
             &tagged_data_enum_names,
             typ.has_default,
         ));
-        impl_builder.add_method(&gen_setter(field, mapper, typ.has_default));
+        impl_builder.add_method(&gen_setter(field, mapper, typ.has_default, &tagged_data_enum_names));
     }
 
     if !exclude_types.contains(&typ.name) {
@@ -502,11 +532,25 @@ pub(super) fn gen_struct_methods(
 }
 
 /// Generate a constructor method.
-fn gen_new_method(typ: &TypeDef, mapper: &WasmMapper, exclude_types: &[String], prefix: &str) -> String {
+fn gen_new_method(
+    typ: &TypeDef,
+    mapper: &WasmMapper,
+    exclude_types: &[String],
+    prefix: &str,
+    tagged_data_enum_names: &AHashSet<String>,
+) -> String {
     use super::field_references_excluded_type;
     use alef_codegen::shared::constructor_parts;
 
-    let map_fn = |ty: &alef_core::ir::TypeRef| mapper.map_type(ty);
+    // Vec<TaggedDataEnum> fields are stored as JsValue in the struct; the constructor must accept
+    // JsValue for those parameters so callers can pass plain JS object arrays directly.
+    let map_fn = |ty: &alef_core::ir::TypeRef| {
+        if is_vec_of_tagged_data_enum(ty, tagged_data_enum_names) {
+            "JsValue".to_string()
+        } else {
+            mapper.map_type(ty)
+        }
+    };
 
     // Filter out fields whose types reference excluded types (the Js* wrapper won't exist).
     // Cfg-gated fields are retained: the struct body keeps them (with #[serde(skip)]) and the
@@ -611,13 +655,21 @@ fn gen_getter(
         && matches!(inner_ty, TypeRef::Named(n) if enum_names.contains(n) && !tagged_data_enum_names.contains(n));
     let is_required_enum = !field.optional
         && matches!(field.ty, TypeRef::Named(ref n) if enum_names.contains(n) && !tagged_data_enum_names.contains(n));
+    // Vec<TaggedDataEnum> is stored as JsValue — return it directly by clone.
+    let is_required_vec_tagged_enum = !field.optional && is_vec_of_tagged_data_enum(&field.ty, tagged_data_enum_names);
     let is_optional_vec_of_struct = field.optional
         && matches!(
             inner_ty,
             TypeRef::Vec(elem) if matches!(elem.as_ref(), TypeRef::Named(n) if !enum_names.contains(n))
-        );
+        )
+        // Do not apply the js_sys::Array path for Vec<TaggedDataEnum> — those are stored as
+        // JsValue and must be returned as JsValue (not reconstructed element-by-element).
+        && !is_vec_of_tagged_data_enum(inner_ty, tagged_data_enum_names);
 
-    let (field_type, return_expr) = if is_optional_enum {
+    let (field_type, return_expr) = if is_required_vec_tagged_enum {
+        // Vec<TaggedDataEnum> stored as JsValue: return the JsValue directly.
+        ("JsValue".to_string(), format!("self.{}.clone()", field.name))
+    } else if is_optional_enum {
         // Return Option<String> using the generated to_api_str() method.
         let expr = format!("self.{}.map(|v| v.to_api_str().to_owned())", field.name);
         ("Option<String>".to_string(), expr)
@@ -661,11 +713,20 @@ fn gen_getter(
 }
 
 /// Generate a setter method for a field.
-fn gen_setter(field: &FieldDef, mapper: &WasmMapper, has_default: bool) -> String {
+fn gen_setter(
+    field: &FieldDef,
+    mapper: &WasmMapper,
+    has_default: bool,
+    tagged_data_enum_names: &AHashSet<String>,
+) -> String {
     // On has_default types, non-optional Duration fields are stored as Option<u64>.
     let force_optional = has_default && !field.optional && matches!(field.ty, TypeRef::Duration);
+    // Vec<TaggedDataEnum> is stored as JsValue so plain JS object literals can be assigned.
+    let is_vec_tagged_enum = is_vec_of_tagged_data_enum(&field.ty, tagged_data_enum_names);
     let field_type = if force_optional {
         mapper.optional(&mapper.map_type(&field.ty))
+    } else if is_vec_tagged_enum {
+        "JsValue".to_string()
     } else if field.optional && matches!(field.ty, TypeRef::Optional(_)) {
         // Already Optional in IR: map_type returns "Option<X>". Don't double-wrap.
         mapper.map_type(&field.ty)

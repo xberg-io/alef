@@ -721,6 +721,27 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
             }
         }
     }
+    // Tagged-data enum field (WASM only; binding holds JsValue, core holds the typed enum).
+    // Vec<TaggedDataEnum> is stored as JsValue (a plain JS array) so callers can pass
+    // plain objects without constructing explicit binding-class instances.
+    if config.map_uses_jsvalue {
+        if let Some(tagged_names) = config.tagged_data_enum_names {
+            let vec_named = matches!(ty, TypeRef::Vec(inner)
+                if matches!(inner.as_ref(), TypeRef::Named(n) if tagged_names.contains(n)));
+            let optional_vec_named = matches!(ty, TypeRef::Optional(outer)
+                if matches!(outer.as_ref(), TypeRef::Vec(inner)
+                    if matches!(inner.as_ref(), TypeRef::Named(n) if tagged_names.contains(n))));
+            if vec_named {
+                return format!("{name}: serde_wasm_bindgen::from_value(val.{name}.clone()).unwrap_or_default()");
+            }
+            if optional_vec_named {
+                return format!(
+                    "{name}: val.{name}.as_ref().and_then(|v| serde_wasm_bindgen::from_value(v.clone()).ok())"
+                );
+            }
+        }
+    }
+
     // Untagged data enum field (binding holds serde_json::Value, core holds the typed enum):
     // convert via serde_json::from_value.  Handles direct, Optional, and Vec wrappings.
     if let Some(untagged_names) = config.untagged_data_enum_names {

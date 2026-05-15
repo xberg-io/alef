@@ -175,23 +175,37 @@ pub(super) fn gen_tagged_enum_as_struct(enum_def: &EnumDef, prefix: &str) -> Str
 
     // Field getters/setters. Use Option<T> uniformly because the field may not apply to the
     // currently-active variant.
+    //
+    // Positional fields from tuple-variant wrapper structs are named `_0`, `_1`, … by the
+    // extractor.  Rust's non_snake_case lint rejects `set__0` (the naive `format!("set_{name}")`)
+    // because of the double-underscore.  We rename the Rust identifier to `set_field_0` (getter
+    // `field_0`) while keeping the JS-visible name unchanged via the `js_name` attribute.
     for (name, ty) in &field_entries {
         let js_name_for_field = to_node_name(name);
-        let name_ident = escape_rust_keyword(name);
-        let setter_name = format!("set_{name}");
-        let setter_name_ident = escape_rust_keyword(&setter_name);
+        let field_name = name.as_str();
+        // Detect positional fields: `_` followed by one or more ASCII digits.
+        let rust_getter_ident = if field_name.starts_with('_')
+            && field_name.len() > 1
+            && field_name[1..].chars().all(|c| c.is_ascii_digit())
+        {
+            format!("field_{}", &field_name[1..])
+        } else {
+            escape_rust_keyword(field_name)
+        };
+        let rust_setter_ident = format!("set_{rust_getter_ident}");
+        let struct_field_ident = escape_rust_keyword(field_name);
         lines.push(String::new());
         lines.push(format!(
             "    #[wasm_bindgen(getter, js_name = \"{js_name_for_field}\")]"
         ));
         lines.push(format!(
-            "    pub fn {name_ident}(&self) -> {ty} {{ self.{name_ident}.clone() }}"
+            "    pub fn {rust_getter_ident}(&self) -> {ty} {{ self.{struct_field_ident}.clone() }}"
         ));
         lines.push(format!(
             "    #[wasm_bindgen(setter, js_name = \"{js_name_for_field}\")]"
         ));
         lines.push(format!(
-            "    pub fn {setter_name_ident}(&mut self, value: {ty}) {{ self.{name_ident} = value; }}"
+            "    pub fn {rust_setter_ident}(&mut self, value: {ty}) {{ self.{struct_field_ident} = value; }}"
         ));
     }
     lines.push("}".to_string());
@@ -809,6 +823,52 @@ mod tests {
         assert!(
             result.contains("Auth::Basic { username }"),
             "struct variant must keep struct destructure;\nactual:\n{result}"
+        );
+    }
+
+    /// Regression: tuple-variant enums with positional `_0` fields must not emit
+    /// `set__0` as the setter name — that double-underscore form is rejected by the
+    /// `non_snake_case` lint under `RUSTFLAGS="-D warnings"`.  The generated Rust
+    /// identifier must be `set_field_0` (getter: `field_0`) while the JS-visible
+    /// name is controlled by `js_name` and remains unchanged.
+    #[test]
+    fn gen_tagged_enum_as_struct_positional_field_setter_snake_case() {
+        use super::gen_tagged_enum_as_struct;
+
+        let e = make_tagged_tuple_enum();
+        let result = gen_tagged_enum_as_struct(&e, "Wasm");
+
+        // The problematic setter must not appear.
+        assert!(
+            !result.contains("fn set__0("),
+            "must not emit `set__0` — double-underscore violates non_snake_case lint;\nactual:\n{result}"
+        );
+
+        // The getter must not be named `_0` (also non-snake-case under strict lint).
+        // After the fix it is `field_0`.
+        assert!(
+            result.contains("fn field_0("),
+            "getter for positional `_0` field must be named `field_0`;\nactual:\n{result}"
+        );
+
+        // The setter must be `set_field_0`.
+        assert!(
+            result.contains("fn set_field_0("),
+            "setter for positional `_0` field must be named `set_field_0`;\nactual:\n{result}"
+        );
+
+        // The JS-visible name attribute must still expose the camelCase-converted field name so the
+        // WASM/JS API is unaffected.  `to_node_name("_0")` strips the leading underscore → `"0"`.
+        assert!(
+            result.contains("js_name = \"0\""),
+            "js_name attribute must use the to_node_name result for `_0` field;\nactual:\n{result}"
+        );
+
+        // The struct field access inside the getter/setter body must still reference
+        // `self._0` (the actual struct field identifier).
+        assert!(
+            result.contains("self._0"),
+            "getter/setter body must access `self._0` (the struct field);\nactual:\n{result}"
         );
     }
 }
