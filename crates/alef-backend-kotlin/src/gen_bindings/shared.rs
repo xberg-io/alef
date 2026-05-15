@@ -45,13 +45,34 @@ pub fn to_screaming_snake(name: &str) -> String {
     out
 }
 
+/// Kotlin reserved keywords that must be backtick-escaped when used as
+/// identifiers. Hard keywords cannot appear bare in any position; emitting
+/// e.g. `val object: String` is a parse error. Wrapping in backticks
+/// (`val \`object\`: String`) keeps the wire name intact while satisfying
+/// the Kotlin grammar.
+const KOTLIN_HARD_KEYWORDS: &[&str] = &[
+    "as", "break", "class", "continue", "do", "else", "false", "for", "fun", "if", "in", "interface", "is", "null",
+    "object", "package", "return", "super", "this", "throw", "true", "try", "typealias", "typeof", "val", "var", "when",
+    "while",
+];
+
+fn escape_kotlin_keyword(name: &str) -> String {
+    if KOTLIN_HARD_KEYWORDS.contains(&name) {
+        format!("`{name}`")
+    } else {
+        name.to_string()
+    }
+}
+
 /// Field-name resolution for Kotlin record-style data class params. IR
 /// positional fields use names like `_0`, `_1` which lowerCamelCase to `0`/`1`
 /// — invalid Kotlin identifiers. Map them to `field0`, `field1`, ...
+/// Names that collide with Kotlin hard keywords are backtick-escaped so they
+/// remain wire-compatible without breaking the grammar.
 pub fn kotlin_field_name(raw: &str, idx: usize) -> String {
     let stripped = raw.trim_start_matches('_');
     if stripped.is_empty() || stripped.chars().all(|c| c.is_ascii_digit()) {
         return format!("field{idx}");
     }
-    to_lower_camel(raw)
+    escape_kotlin_keyword(&to_lower_camel(raw))
 }
