@@ -2,6 +2,7 @@ use std::borrow::Cow;
 
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::ir::{PrimitiveType, TypeRef};
+use heck::ToPascalCase;
 
 /// TypeMapper for C# bindings.
 ///
@@ -66,6 +67,10 @@ impl TypeMapper for CsharpMapper {
 
     fn map(&self, key: &str, value: &str) -> String {
         format!("Dictionary<{key}, {value}>")
+    }
+
+    fn named<'a>(&self, name: &'a str) -> Cow<'a, str> {
+        Cow::Owned(name.to_pascal_case())
     }
 
     fn error_wrapper(&self) -> &str {
@@ -173,6 +178,10 @@ mod tests {
     #[test]
     fn test_named() {
         assert_eq!(CsharpMapper.map_type(&TypeRef::Named("MyType".to_string())), "MyType");
+        assert_eq!(
+            CsharpMapper.map_type(&TypeRef::Named("GraphQLRouteConfig".to_string())),
+            "GraphQlRouteConfig"
+        );
     }
 
     #[test]

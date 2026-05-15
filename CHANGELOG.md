@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **alef-backend-kotlin / alef-backend-kotlin-android**: emit Kotlin `Flow<T>`
+  streaming surface via `callbackFlow`. Each streaming method now produces a
+  `public fun {method}(...): Flow<ChunkType>` wrapper plus three JNI native
+  method declarations on the Java facade (`native{Owner}{Adapter}{Start,Next,Free}`).
+  Flips `supports_streaming` to `true` on both backends. JNI Rust shims for
+  the new native methods are hand-written in consumer crates (e.g.
+  `liter-llm-ffi`) for this release; full Rust-side automation tracked.
 - **alef-backend-dart / alef-e2e (dart)**: generate Dart visitor bridge
   factories that take typed `DartFnFuture` callback closures and return the
   configured opaque `type_alias` handle. Visitor fixtures now emit active
@@ -26,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **alef-backend-java**: honor FFI and Java `exclude_types` settings when
   generating Panama bindings, including record fields, functions, and methods
   whose signatures reference excluded types.
+- **alef-backend-csharp**: honor FFI and C# `exclude_types` settings when
+  generating P/Invoke bindings, and map named IR types through C# class casing
+  so acronym-heavy types resolve to their generated class names.
 
 ## [0.16.3] - 2026-05-15
 

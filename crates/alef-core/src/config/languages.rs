@@ -1059,6 +1059,12 @@ pub struct CSharpConfig {
     /// lint/build/test commands target this file instead of the output directory.
     #[serde(default)]
     pub project_file: Option<String>,
+    /// Types to exclude from C# binding generation.
+    ///
+    /// C# bindings call the generated C FFI through P/Invoke, so types excluded from
+    /// `[crates.ffi].exclude_types` are also excluded automatically by the C# backend.
+    #[serde(default)]
+    pub exclude_types: Vec<String>,
     /// Functions to exclude from C# binding generation (e.g., functions not present in the
     /// C FFI layer). Excluded functions are omitted from both NativeMethods.cs and the
     /// wrapper class.

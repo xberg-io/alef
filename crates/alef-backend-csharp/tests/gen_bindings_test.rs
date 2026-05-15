@@ -2,7 +2,8 @@ use alef_backend_csharp::CsharpBackend;
 use alef_core::backend::Backend;
 use alef_core::config::{NewAlefConfig, ResolvedCrateConfig};
 use alef_core::ir::{
-    ApiSurface, DefaultValue, EnumDef, EnumVariant, FieldDef, FunctionDef, ParamDef, PrimitiveType, TypeDef, TypeRef,
+    ApiSurface, DefaultValue, EnumDef, EnumVariant, FieldDef, FunctionDef, MethodDef, ParamDef, PrimitiveType,
+    ReceiverKind, TypeDef, TypeRef,
 };
 
 #[test]
@@ -222,6 +223,98 @@ fn test_basic_generation() {
         enum_type.content.contains("public enum OcrBackend"),
         "Should define OcrBackend enum"
     );
+}
+
+#[test]
+fn test_ffi_excluded_types_are_not_generated_for_pinvoke() {
+    let backend = CsharpBackend;
+    let config = make_test_config_with_ffi_excludes("HiddenHandle");
+    let hidden_type = TypeDef {
+        name: "HiddenHandle".to_string(),
+        rust_path: "test_lib::HiddenHandle".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![],
+        is_opaque: true,
+        is_clone: false,
+        is_copy: false,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: "Hidden FFI handle.".to_string(),
+        cfg: None,
+    };
+    let visible_type = TypeDef {
+        name: "VisibleHandle".to_string(),
+        rust_path: "test_lib::VisibleHandle".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![MethodDef {
+            name: "hidden".to_string(),
+            params: vec![],
+            return_type: TypeRef::Named("HiddenHandle".to_string()),
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: "Returns the hidden handle.".to_string(),
+            receiver: Some(ReceiverKind::Ref),
+            sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            trait_source: None,
+        }],
+        is_opaque: true,
+        is_clone: false,
+        is_copy: false,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: "Visible FFI handle.".to_string(),
+        cfg: None,
+    };
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![hidden_type, visible_type],
+        functions: vec![FunctionDef {
+            name: "hidden_handle".to_string(),
+            rust_path: "test_lib::hidden_handle".to_string(),
+            original_rust_path: String::new(),
+            params: vec![],
+            return_type: TypeRef::Named("HiddenHandle".to_string()),
+            is_async: false,
+            error_type: None,
+            doc: "Returns the hidden handle.".to_string(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+
+    assert!(!files.iter().any(|file| file.path.ends_with("HiddenHandle.cs")));
+    assert!(files.iter().any(|file| file.path.ends_with("VisibleHandle.cs")));
+    for file in &files {
+        assert!(!file.content.contains("HiddenHandle"));
+        assert!(!file.content.contains("VisibleHandleHidden"));
+    }
 }
 
 #[test]
@@ -605,6 +698,28 @@ fn make_config(crate_name: &str, namespace: Option<&str>, with_ffi: bool) -> Res
     };
     let toml_str = format!(
         "[workspace]\nlanguages = [\"csharp\"]\n[[crates]]\nname = \"{crate_name}\"\nsources = [\"src/lib.rs\"]\n[crates.csharp]\n{ns_line}{ffi_section}",
+    );
+    let cfg: NewAlefConfig = toml::from_str(&toml_str).unwrap();
+    cfg.resolve().unwrap().remove(0)
+}
+
+fn make_test_config_with_ffi_excludes(excluded_type: &str) -> ResolvedCrateConfig {
+    let toml_str = format!(
+        r#"
+[workspace]
+languages = ["csharp", "ffi"]
+
+[[crates]]
+name = "test_lib"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "test"
+exclude_types = ["{excluded_type}"]
+
+[crates.csharp]
+namespace = "Test"
+"#,
     );
     let cfg: NewAlefConfig = toml::from_str(&toml_str).unwrap();
     cfg.resolve().unwrap().remove(0)
