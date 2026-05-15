@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.16.0] - [Unreleased]
 
+### Added
+
+- **alef-e2e (kotlin_android)**: new `KotlinAndroidE2eCodegen` emits
+  `e2e/kotlin_android/` as a host-JVM Kotlin project that depends on the
+  AAR-bundled Java facade and Kotlin wrapper via gradle sourceSets, loads
+  `libkreuzberg_ffi` via JNA, and runs JUnit 5 tests on the host without
+  requiring an Android emulator. Validates the Kotlin Android bindings
+  end-to-end via the standard e2e fixture suite.
+
 ### Fixed
 
 - **alef-backend-dart**: the FRB bridge class name now honors

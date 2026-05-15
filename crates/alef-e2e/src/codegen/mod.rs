@@ -27,6 +27,7 @@ pub mod gleam;
 pub mod go;
 pub mod java;
 pub mod kotlin;
+pub mod kotlin_android;
 pub mod php;
 pub mod python;
 pub mod r;
@@ -142,6 +143,7 @@ pub fn all_generators() -> Vec<Box<dyn E2eCodegen>> {
         Box::new(go::GoCodegen),
         Box::new(java::JavaCodegen),
         Box::new(kotlin::KotlinE2eCodegen),
+        Box::new(kotlin_android::KotlinAndroidE2eCodegen),
         Box::new(csharp::CSharpCodegen),
         Box::new(php::PhpCodegen),
         Box::new(ruby::RubyCodegen),
