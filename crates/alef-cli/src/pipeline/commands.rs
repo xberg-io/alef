@@ -654,7 +654,8 @@ fn output_path_for(lang: Language, config: &ResolvedCrateConfig) -> Option<&Path
         Language::R => config.explicit_output.r.as_deref(),
         // Rust is the core language — no separate output path.
         // C is an e2e test consumer of the FFI layer — no generated binding output path.
-        Language::Rust | Language::C => None,
+        // Jni output is emitted into the consumer's Rust workspace, not a separate binding crate.
+        Language::Rust | Language::C | Language::Jni => None,
         Language::Kotlin
         | Language::KotlinAndroid
         | Language::Swift

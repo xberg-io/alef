@@ -242,7 +242,8 @@ fn get_default_formatter(config: &ResolvedCrateConfig, lang: Language) -> Option
             work_dir: "packages/zig/".to_owned(),
         }),
         // C is an e2e test consumer of the FFI layer — no generated files to format.
-        Language::Rust | Language::C => None,
+        // Jni output is Rust source formatted by `cargo fmt --all` (triggered by the Ffi formatter).
+        Language::Rust | Language::C | Language::Jni => None,
     }
 }
 

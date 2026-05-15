@@ -23,5 +23,6 @@ pub fn get_backend(lang: Language) -> Box<dyn Backend> {
         Language::Dart => Box::new(alef_backend_dart::DartBackend),
         Language::Gleam => Box::new(alef_backend_gleam::GleamBackend),
         Language::Zig => Box::new(alef_backend_zig::ZigBackend),
+        Language::Jni => panic!("Jni is emitted by the KotlinAndroid backend; it does not have a standalone binding backend"),
     }
 }

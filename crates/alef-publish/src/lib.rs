@@ -209,7 +209,7 @@ pub(crate) fn crate_name_from_output(config: &ResolvedCrateConfig, lang: Languag
         Language::KotlinAndroid => config.explicit_output.kotlin_android.as_deref(),
         Language::Gleam => config.explicit_output.gleam.as_deref(),
         Language::Zig => config.explicit_output.zig.as_deref(),
-        Language::Rust | Language::C => None,
+        Language::Rust | Language::C | Language::Jni => None,
         Language::Swift | Language::Dart => None,
     }?;
     let path = std::path::Path::new(output_path);
@@ -285,7 +285,8 @@ fn build_command_for_lang(
         | Language::Dart
         | Language::Gleam
         | Language::Zig
-        | Language::C => {
+        | Language::C
+        | Language::Jni => {
             eprintln!("Warning: Phase 1: {lang} backend build command not yet implemented");
             String::new()
         }
