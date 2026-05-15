@@ -245,11 +245,10 @@ impl Backend for WasmBackend {
                 let mut cloned = api.clone();
                 for typ in &mut cloned.types {
                     if let Some(skip_list) = exclude_fields_map.get(&typ.name) {
-                        for field in &mut typ.fields {
-                            if skip_list.iter().any(|s| s == &field.name) && field.cfg.is_none() {
-                                field.cfg = Some("alef_excluded".to_string());
-                                typ.has_stripped_cfg_fields = true;
-                            }
+                        let before = typ.fields.len();
+                        typ.fields.retain(|field| !skip_list.iter().any(|s| s == &field.name));
+                        if typ.fields.len() != before {
+                            typ.has_stripped_cfg_fields = true;
                         }
                     }
                 }

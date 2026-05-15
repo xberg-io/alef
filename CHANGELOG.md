@@ -78,6 +78,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **alef-backend-dart**: generate compiling Rust bridge conversions for
   optional borrowed string returns, optional JSON string params, optional
   borrowed string params, and named map values.
+- **alef-backend-wasm**: make `[crates.wasm.exclude_fields]` remove fields
+  from generated Wasm structs and conversions instead of leaving cfg-marked
+  fields in the emitted Rust.
 - **alef-e2e (zig)**: `field[key]` bracket notation in fixture aliases now
   resolves to a HashMap-style nested object lookup
   (`.object.get("field").?.object.get("key").?`). Previously the bracketed

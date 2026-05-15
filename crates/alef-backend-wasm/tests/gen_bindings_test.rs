@@ -891,6 +891,58 @@ fn test_exclude_types() {
     );
 }
 
+#[test]
+fn test_exclude_fields_removes_wasm_struct_field() {
+    let backend = WasmBackend;
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "ServerConfig".to_string(),
+            rust_path: "test_lib::ServerConfig".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                make_field("host", TypeRef::String, false),
+                make_field("enable_http_trace", TypeRef::Primitive(PrimitiveType::Bool), false),
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let mut config = make_config();
+    if let Some(wasm_cfg) = &mut config.wasm {
+        wasm_cfg
+            .exclude_fields
+            .insert("ServerConfig".to_string(), vec!["enable_http_trace".to_string()]);
+    }
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    assert!(content.contains("pub struct WasmServerConfig"), "content: {content}");
+    assert!(content.contains("host: String"), "content: {content}");
+    assert!(
+        !content.contains("enable_http_trace"),
+        "excluded wasm field must be absent from struct and conversions: {content}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // WASM trait bridge helpers
 // ---------------------------------------------------------------------------
