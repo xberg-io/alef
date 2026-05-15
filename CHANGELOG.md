@@ -39,6 +39,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no-op `String → String` case. Surfaced by kreuzcrawl's
   `DownloadedDocument.headers: HashMap<Box<str>, Box<str>>` field
   breaking `cargo clippy -p kreuzcrawl-dart`.
+- **alef-e2e (zig)**: `field[key]` bracket notation in fixture aliases now
+  resolves to a HashMap-style nested object lookup
+  (`.object.get("field").?.object.get("key").?`). Previously the bracketed
+  form was treated as a single literal JSON key, panicking with "attempt
+  to use null value" on accesses like
+  `metadata.document.open_graph[title]` (where `open_graph` is a
+  `HashMap<String, String>` serialized as a nested object).
 - **alef-e2e (zig)**: visitor fixtures now emit `return error.SkipZigTest`
   with a "pending zig-binding visitor wiring" comment, matching the dart
   codegen's pending-skip behaviour. The zig binding exposes a C-vtable
