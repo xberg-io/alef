@@ -635,3 +635,88 @@ type = "ChatCompletionRequest"
 
     insta::assert_snapshot!("snapshot_streaming_flow_default_client_kt", &client_file.content);
 }
+
+#[test]
+fn jvm_client_wrapper_filename_matches_single_client_class() {
+    use alef_core::ir::MethodDef;
+
+    let config = resolved_one(
+        r#"
+[workspace]
+languages = ["kotlin", "java", "ffi"]
+
+[[crates]]
+name = "demo-crate"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "demo"
+
+[crates.java]
+package = "dev.kreuzberg"
+
+[crates.kotlin]
+package = "dev.kreuzberg"
+target = "jvm"
+"#,
+    );
+
+    let client_type = TypeDef {
+        name: "GraphQLRouteConfig".into(),
+        rust_path: "demo::GraphQLRouteConfig".into(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![MethodDef {
+            name: "path".into(),
+            params: vec![make_param("path", TypeRef::String)],
+            return_type: TypeRef::Named("GraphQLRouteConfig".into()),
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: None,
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+        }],
+        is_opaque: true,
+        is_clone: false,
+        is_copy: false,
+        doc: String::new(),
+        cfg: None,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+    };
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![client_type],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
+
+    assert!(
+        files
+            .iter()
+            .any(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("GraphQLRouteConfig.kt")),
+        "single Kotlin wrapper class must be emitted in a matching file: {files:#?}"
+    );
+    assert!(
+        !files
+            .iter()
+            .any(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("DefaultClient.kt")),
+        "non-DefaultClient wrapper must not be emitted to DefaultClient.kt: {files:#?}"
+    );
+}
