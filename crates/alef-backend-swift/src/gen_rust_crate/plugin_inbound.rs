@@ -263,7 +263,11 @@ pub(crate) fn emit_inbound_wrapper(
         // Emit `Debug` when the trait's supertrait list includes it. The opaque swift-bridge
         // handle does not derive Debug, so we write a manual impl that identifies the wrapper
         // by name only — sufficient for trait satisfaction.
-        if trait_def.super_traits.iter().any(|s| s == "Debug" || s.ends_with("::Debug")) {
+        if trait_def
+            .super_traits
+            .iter()
+            .any(|s| s == "Debug" || s.ends_with("::Debug"))
+        {
             out.push_str(&format!(
                 "impl ::std::fmt::Debug for {wrapper_name} {{\n\
                  \x20   fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {{\n\

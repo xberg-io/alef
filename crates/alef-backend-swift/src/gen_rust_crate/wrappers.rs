@@ -886,7 +886,11 @@ pub(crate) fn emit_type_method_shims(
         // cannot be owned in the extern "Rust" declaration. Clone is cheap for builders
         // (they hold plain config fields, no heap-heavy state).
         let is_owned_receiver = matches!(method.receiver.as_ref(), Some(ReceiverKind::Owned));
-        let inner_access = if is_owned_receiver { "client.0.clone()" } else { "client.0" };
+        let inner_access = if is_owned_receiver {
+            "client.0.clone()"
+        } else {
+            "client.0"
+        };
         let method_call = format!("{inner_access}.{method_snake}({call_args_str})");
 
         // Determine return wrapping: Named return types get wrapped in their newtype.

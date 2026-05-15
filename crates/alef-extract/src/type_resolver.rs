@@ -214,8 +214,17 @@ fn resolve_path_type(type_path: &syn::TypePath) -> TypeRef {
         }
 
         // Option<T>
+        // Nested optionals (e.g. Option<Option<T>> from update-struct patterns where None means
+        // "no change") are collapsed to Option<T> here. This loses the outer/inner distinction
+        // but is required for FRB and Zig backends that reject nested optionals without
+        // indirection. The semantic loss is acceptable: callers that need to distinguish
+        // "absent" from "explicitly null" must use a dedicated enum instead.
         "Option" => {
-            let inner = extract_single_generic_arg(segment).unwrap_or(TypeRef::Named("unknown".into()));
+            let mut inner = extract_single_generic_arg(segment).unwrap_or(TypeRef::Named("unknown".into()));
+            // Flatten Option<Option<…>> → Option<…> (any depth).
+            while let TypeRef::Optional(inner_inner) = inner {
+                inner = *inner_inner;
+            }
             TypeRef::Optional(Box::new(inner))
         }
 
@@ -458,6 +467,24 @@ mod tests {
         assert_eq!(
             resolve_type(&parse_type("Option<u64>")),
             TypeRef::Optional(Box::new(TypeRef::Primitive(PrimitiveType::U64)))
+        );
+    }
+
+    #[test]
+    fn test_nested_option_flattened_to_single() {
+        // Option<Option<u64>> → Option<u64>  (update-struct pattern)
+        assert_eq!(
+            resolve_type(&parse_type("Option<Option<u64>>")),
+            TypeRef::Optional(Box::new(TypeRef::Primitive(PrimitiveType::U64)))
+        );
+    }
+
+    #[test]
+    fn test_deeply_nested_option_flattened() {
+        // Option<Option<Option<String>>> → Option<String>
+        assert_eq!(
+            resolve_type(&parse_type("Option<Option<Option<String>>>")),
+            TypeRef::Optional(Box::new(TypeRef::String))
         );
     }
 

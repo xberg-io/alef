@@ -313,7 +313,9 @@ pub(crate) fn emit_frb_yaml(rust_dir: &str, module_name: &str) -> GeneratedFile 
     // `add_mod_to_lib: false` prevents FRB codegen from prepending its own
     // `mod frb_generated;` at line 1 of lib.rs — alef already emits it in the
     // correct position (after crate-level #![allow] attrs) to avoid E0753.
-    let content = format!("rust_root: .\nrust_input: crate\ndart_output: ../lib/src/{module_name}_bridge_generated\nadd_mod_to_lib: false\n");
+    let content = format!(
+        "rust_root: .\nrust_input: crate\ndart_output: ../lib/src/{module_name}_bridge_generated\nadd_mod_to_lib: false\n"
+    );
     GeneratedFile {
         path: PathBuf::from(rust_dir).join("flutter_rust_bridge.yaml"),
         content,

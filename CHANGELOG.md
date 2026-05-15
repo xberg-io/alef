@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-e2e (zig)**: emit unique `.name = "<test>_test"` on every
+  `b.addTest(.{...})` block in the generated `build.zig`. Zig 0.16 hashes the
+  output binary path off the artifact name; without an explicit name every
+  `addTest` defaulted to `"test"`, colliding in the cache so only one binary
+  survived and every other `addRunArtifact` invocation failed with
+  `FileNotFound` at its computed `.zig-cache/o/<hash>/test` path.
 - **alef-e2e (rust)**: omit `use {crate}::CrawlConfig;` (and other handle-arg
   helper imports) from generated `tests/<category>_test.rs` files when the
   rendered body never references the symbol. Test bodies are now buffered and
