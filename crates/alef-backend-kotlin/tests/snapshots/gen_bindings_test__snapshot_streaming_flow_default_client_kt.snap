@@ -6,6 +6,8 @@ expression: "&client_file.content"
 
 package dev.kreuzberg.kt
 
+import dev.kreuzberg.ChatCompletionChunk
+import dev.kreuzberg.ChatCompletionRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow

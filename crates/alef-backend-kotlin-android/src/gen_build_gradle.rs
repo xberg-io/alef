@@ -23,7 +23,7 @@ pub fn emit(config: &ResolvedCrateConfig) -> String {
     let ktlint_gradle_plugin = maven::KTLINT_GRADLE_PLUGIN;
     let ktlint_version = maven::KTLINT;
     let gradle_versions_plugin = maven::GRADLE_VERSIONS_PLUGIN;
-    let _kotlinx_coroutines = maven::KOTLINX_COROUTINES_CORE;
+    let kotlinx_coroutines = maven::KOTLINX_COROUTINES_CORE;
     let _ = toolchain::ANDROID_JVM_TARGET;
 
     let android_namespace = namespace(config);
@@ -89,6 +89,9 @@ ktlint {{
 
 dependencies {{
     implementation("org.jetbrains.kotlin:kotlin-stdlib")
+    // Generated Kotlin facade uses suspend functions and Flow wrappers, both of
+    // which require kotlinx-coroutines-android (transitively pulls -core).
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:{kotlinx_coroutines}")
     testImplementation("junit:junit:{junit_legacy}")
     androidTestImplementation("androidx.test.ext:junit:{androidx_junit}")
     androidTestImplementation("androidx.test.espresso:espresso-core:{espresso_core}")

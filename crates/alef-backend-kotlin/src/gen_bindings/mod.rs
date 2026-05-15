@@ -121,6 +121,19 @@ pub fn emit_jvm_client_class_with_package(
     // client so we can keep method bodies short without leaking FQNs.
     let mut imports: BTreeSet<String> = BTreeSet::new();
 
+    // Method signatures and bodies reference DTO types (`ChatCompletionRequest`,
+    // `CrawlConfig`, …) by their simple name. Those DTOs live in
+    // `java_package` (emitted by the Java backend / bundled into the AAR by
+    // kotlin-android). When the Kotlin file's package differs (either via
+    // the `.kt` sub-package fallback when they were originally equal, or via
+    // a kotlin-android override like `dev.kreuzberg.kreuzcrawl.android`),
+    // Kotlin does NOT inherit symbols from the parent package — so without
+    // explicit per-type imports every bare type reference is unresolved.
+    // (ktlint forbids wildcard imports under `standard:no-wildcard-imports`.)
+    // The actual imports are added below once `client_types` + streaming
+    // adapter metadata are scanned for `Named` types.
+    let needs_java_pkg_imports = package != java_package;
+
     let has_async = client_types
         .iter()
         .any(|t| t.methods.iter().any(|m| !m.sanitized && m.is_async));
@@ -164,6 +177,35 @@ pub fn emit_jvm_client_class_with_package(
         }
     }
     imports.extend(scan_imports);
+
+    // Emit per-user-type imports for the Java DTO package when the Kotlin
+    // file lives in a different package. See the `needs_java_pkg_imports`
+    // declaration above for rationale.
+    if needs_java_pkg_imports {
+        let mut user_types: BTreeSet<String> = BTreeSet::new();
+        for ty in &client_types {
+            for m in ty.methods.iter().filter(|m| !m.sanitized && !m.is_static) {
+                collect_user_types(&m.return_type, &mut user_types);
+                for p in &m.params {
+                    collect_user_types(&p.ty, &mut user_types);
+                }
+            }
+        }
+        for adapter in &streaming_adapters_for_clients {
+            if let Some(item) = adapter.item_type.as_deref() {
+                user_types.insert(item.to_string());
+            }
+            for p in &adapter.params {
+                let simple = p.ty.rsplit("::").next().unwrap_or(&p.ty);
+                if simple.chars().next().is_some_and(char::is_uppercase) {
+                    user_types.insert(simple.to_string());
+                }
+            }
+        }
+        for ty in &user_types {
+            imports.insert(format!("import {java_package}.{ty}"));
+        }
+    }
 
     for import in &imports {
         content.push_str(import);
@@ -308,6 +350,26 @@ fn emit_client_method(m: &MethodDef, out: &mut String, imports: &mut BTreeSet<St
 ///             }
 ///         }
 /// ```
+/// Walk a `TypeRef` and collect every `Named` simple-name into `out`.
+///
+/// Used by `emit_jvm_client_class_with_package` to derive explicit per-type
+/// Kotlin imports for the Java DTO package when the emitted Kotlin file
+/// lives in a different (typically sub-) package (e.g. `dev.kreuzberg.kt`
+/// or `dev.kreuzberg.kreuzcrawl.android`).
+fn collect_user_types(ty: &TypeRef, out: &mut BTreeSet<String>) {
+    match ty {
+        TypeRef::Named(name) => {
+            out.insert(name.clone());
+        }
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => collect_user_types(inner, out),
+        TypeRef::Map(k, v) => {
+            collect_user_types(k, out);
+            collect_user_types(v, out);
+        }
+        _ => {}
+    }
+}
+
 fn emit_streaming_client_method(
     adapter: &alef_core::config::AdapterConfig,
     class_name: &str,

@@ -350,9 +350,13 @@ impl Backend for JavaBackend {
         let infrastructure_exception_names: AHashSet<&str> = ["InvalidInputException", "ConversionErrorException"]
             .into_iter()
             .collect();
+        let mut emitted_exception_names: AHashSet<String> = AHashSet::new();
         for error in &api.errors {
             for (class_name, content) in alef_codegen::error_gen::gen_java_error_types(error, &package) {
                 if infrastructure_exception_names.contains(class_name.as_str()) {
+                    continue;
+                }
+                if !emitted_exception_names.insert(class_name.clone()) {
                     continue;
                 }
                 files.push(GeneratedFile {

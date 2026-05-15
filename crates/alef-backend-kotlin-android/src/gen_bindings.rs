@@ -25,7 +25,7 @@ use std::path::PathBuf;
 use alef_backend_kotlin::{emit_function_jvm, emit_jvm_client_class_with_package, to_pascal_case};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::ResolvedCrateConfig;
-use alef_core::ir::ApiSurface;
+use alef_core::ir::{ApiSurface, TypeRef};
 
 use crate::naming::{java_package, kotlin_package};
 
@@ -76,13 +76,22 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, kotlin_source_dir: &
     // `dev.kreuzberg.kreuzcrawl.android`) while the bundled Java DTOs
     // (`CrawlConfig`, `ScrapeResult`, …) live in the parent Java package
     // (e.g. `dev.kreuzberg.kreuzcrawl`). Kotlin sub-packages do NOT inherit
-    // their parent's symbols, so without an explicit import every bare type
-    // reference in method signatures would be unresolved. Emit a wildcard
-    // import of the Java facade package when it differs from the Kotlin
-    // package (no-op when both packages match — defensive against future
-    // configs that flatten the layout).
+    // their parent's symbols, so without explicit imports every bare type
+    // reference in a method signature is unresolved. Walk every visible
+    // function signature, collect every `TypeRef::Named`, and emit one
+    // explicit import per type — ktlint disallows wildcard imports under
+    // `standard:no-wildcard-imports`.
     if java_pkg != package {
-        imports.insert(format!("import {java_pkg}.*"));
+        let mut named_types: BTreeSet<String> = BTreeSet::new();
+        for f in &visible_functions {
+            collect_named_types(&f.return_type, &mut named_types);
+            for p in &f.params {
+                collect_named_types(&p.ty, &mut named_types);
+            }
+        }
+        for ty in &named_types {
+            imports.insert(format!("import {java_pkg}.{ty}"));
+        }
     }
     if visible_functions.iter().any(|f| f.is_async) {
         imports.insert("import kotlinx.coroutines.Dispatchers".to_string());
@@ -133,4 +142,22 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, kotlin_source_dir: &
 
     let _ = PathBuf::new(); // suppress unused import on some toolchains
     files
+}
+
+/// Walk a `TypeRef` and collect every `TypeRef::Named` simple-name into
+/// `out`. Used to derive explicit per-type Kotlin imports for the bundled
+/// Java DTO package when the Kotlin facade lives in a sub-package
+/// (e.g. `dev.kreuzberg.kreuzcrawl.android` vs `dev.kreuzberg.kreuzcrawl`).
+fn collect_named_types(ty: &TypeRef, out: &mut BTreeSet<String>) {
+    match ty {
+        TypeRef::Named(name) => {
+            out.insert(name.clone());
+        }
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => collect_named_types(inner, out),
+        TypeRef::Map(k, v) => {
+            collect_named_types(k, out);
+            collect_named_types(v, out);
+        }
+        _ => {}
+    }
 }

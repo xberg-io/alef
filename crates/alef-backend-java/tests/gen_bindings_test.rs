@@ -2,8 +2,8 @@ use alef_backend_java::JavaBackend;
 use alef_core::backend::Backend;
 use alef_core::config::{NewAlefConfig, ResolvedCrateConfig};
 use alef_core::ir::{
-    ApiSurface, EnumDef, EnumVariant, ErrorDef, FieldDef, FunctionDef, MethodDef, ParamDef, PrimitiveType,
-    ReceiverKind, TypeDef, TypeRef,
+    ApiSurface, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef, MethodDef, ParamDef,
+    PrimitiveType, ReceiverKind, TypeDef, TypeRef,
 };
 
 fn resolved_one(toml: &str) -> ResolvedCrateConfig {
@@ -331,6 +331,53 @@ package = "dev.example"
         assert!(!file.content.contains("TEST_HIDDEN_HANDLE"));
         assert!(!file.content.contains("TEST_VISIBLE_HANDLE_HIDDEN"));
     }
+}
+
+#[test]
+fn test_duplicate_error_variant_exception_classes_are_emitted_once() {
+    let backend = JavaBackend;
+    let config = make_test_config("dev.example");
+    let duplicate_variant = ErrorVariant {
+        name: "DepthLimitExceeded".to_string(),
+        message_template: Some("depth limit exceeded".to_string()),
+        fields: vec![],
+        has_source: false,
+        has_from: false,
+        is_unit: true,
+        doc: "Depth limit exceeded.".to_string(),
+    };
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![
+            ErrorDef {
+                name: "GraphQLError".to_string(),
+                rust_path: "test_lib::GraphQLError".to_string(),
+                original_rust_path: String::new(),
+                variants: vec![duplicate_variant.clone()],
+                doc: "GraphQL errors.".to_string(),
+            },
+            ErrorDef {
+                name: "SchemaError".to_string(),
+                rust_path: "test_lib::SchemaError".to_string(),
+                original_rust_path: String::new(),
+                variants: vec![duplicate_variant],
+                doc: "Schema errors.".to_string(),
+            },
+        ],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let duplicate_count = files
+        .iter()
+        .filter(|file| file.path.ends_with("DepthLimitExceededException.java"))
+        .count();
+
+    assert_eq!(duplicate_count, 1);
 }
 
 #[test]

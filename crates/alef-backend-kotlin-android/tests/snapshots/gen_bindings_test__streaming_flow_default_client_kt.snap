@@ -6,6 +6,8 @@ expression: kt_content
 
 package dev.kreuzberg.demo.android
 
+import dev.kreuzberg.ChatCompletionChunk
+import dev.kreuzberg.ChatCompletionRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
