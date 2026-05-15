@@ -5,6 +5,56 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.7 - Unreleased]
+
+### Fixed
+
+- **JNI: raw jlong for opaque handle returns**: `emit_function_shim` now returns
+  `jlong` directly from opaque-returning top-level functions instead of a
+  JSON-encoded `jstring`. Consumer types no longer require `Serialize` /
+  `Deserialize` derives — the handle is a raw pointer cast, matching the
+  method-on-struct pattern already used by liter-llm.
+  (`crates/alef-backend-jni/src/gen_shims.rs`)
+
+- **JNI: raw jlong for opaque handle params**: top-level functions whose parameters
+  are opaque named types (e.g. `scrape(engine: &CrawlEngineHandle, ...)`) now
+  receive `handle: jlong` and dereference via
+  `unsafe { &*(handle as *const core_crate::T) }` instead of JSON-deserializing
+  from a `JString`. The error-return sentinel in all unmarshal paths is now `0`
+  (for jlong returns) rather than `std::ptr::null_mut()`.
+  (`crates/alef-backend-jni/src/gen_shims.rs`)
+
+- **JNI: emit nativeFreexxx destructors for top-level-function opaque returns**:
+  the JNI backend now emits a `nativeFreeXxx(handle: jlong)` destructor shim for
+  every opaque type returned by a top-level function that does not already have
+  instance methods (those types were already covered by `emit_client_shims`).
+  Fixes handle leaks on the kreuzcrawl `CrawlEngineHandle` shape.
+  (`crates/alef-backend-jni/src/gen_shims.rs`)
+
+- **kotlin-android: Bridge.kt Long for opaque handle params/returns**: Bridge.kt
+  `external fun` declarations for top-level functions now use `Long` (not
+  `String`) wherever a parameter or return type is an opaque named handle. Covers
+  both the constructor return type and handle params like `engine: Long`.
+  (`crates/alef-backend-kotlin/src/gen_bindings/jni_emitter.rs`)
+
+- **kotlin-android: Bridge.kt emits nativeFreexxx for client types**: the
+  `emit_method_jni_external_funs` helper now appends
+  `external fun nativeFreeXxx(handle: Long)` after each client type's method
+  declarations so the destructor that `DefaultClient.close()` delegates to is
+  properly declared in Bridge.kt.
+  (`crates/alef-backend-kotlin/src/gen_bindings/jni_emitter.rs`)
+
+- **kotlin-android: Bridge.kt emits nativeFreexxx for non-method opaque types**:
+  opaque types returned by top-level functions but without instance methods now
+  also get a `// Destructor external funs` block in Bridge.kt.
+  (`crates/alef-backend-kotlin/src/gen_bindings/jni_emitter.rs`)
+
+- **kotlin-android: ByteArray for bytes::Bytes returns in Bridge.kt**: instance
+  method `external fun` declarations now emit `ByteArray` (not `Long`) for
+  `TypeRef::Bytes` return types (e.g. `speech`, `file_content`), matching the
+  `Vec<u8>` → `ByteArray` mapping already present for the JNI Rust side.
+  (`crates/alef-backend-kotlin/src/gen_bindings/jni_emitter.rs`)
+
 ## [0.16.6 - Unreleased]
 
 ### Fixed

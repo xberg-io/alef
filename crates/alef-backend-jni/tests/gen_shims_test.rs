@@ -299,15 +299,15 @@ fn snapshot_constructor_symbol_and_body() {
         content.contains("Java_dev_kreuzberg_demo_DemoBridge_nativeCreateClient"),
         "constructor symbol missing; got:\n{content}"
     );
+    // Must return jlong (raw pointer) — NOT a JSON-encoded jstring.
+    assert!(
+        content.contains("-> jlong"),
+        "constructor must return jlong; got:\n{content}"
+    );
     // Must do Box::into_raw to return a handle.
     assert!(
         content.contains("Box::into_raw(Box::new(v)) as jlong"),
         "constructor must Box::into_raw the result; got:\n{content}"
-    );
-    // Must return jstring (JSON-encoded handle).
-    assert!(
-        content.contains("string_to_jstring(&mut env, &json)"),
-        "constructor must return jstring; got:\n{content}"
     );
     insta::assert_snapshot!("snapshot_constructor_symbol_and_body", content);
 }

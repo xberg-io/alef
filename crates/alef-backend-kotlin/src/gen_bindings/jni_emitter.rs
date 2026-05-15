@@ -55,6 +55,14 @@ pub fn emit_jni_bridge_object(api: &ApiSurface, config: &ResolvedCrateConfig) ->
         .filter(|f| !exclude_functions.contains(f.name.as_str()))
         .collect();
 
+    // Opaque type names: Named params of this shape are handles (Long), not JSON (String).
+    let opaque_type_names: std::collections::HashSet<&str> = api
+        .types
+        .iter()
+        .filter(|t| t.is_opaque && !t.is_trait)
+        .map(|t| t.name.as_str())
+        .collect();
+
     let mut body = String::new();
     body.push_str(&format!("object {bridge_name} {{\n"));
     body.push_str(&format!("    init {{ System.loadLibrary(\"{lib_name}\") }}\n"));
@@ -62,8 +70,8 @@ pub fn emit_jni_bridge_object(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     // Emit one `external fun` per visible API function.
     for f in &visible_functions {
         let native_name = format!("native{}", to_pascal_case(&f.name));
-        let return_ty = jni_return_type(&f.return_type);
-        let jni_params = jni_params_for_function(f);
+        let return_ty = jni_return_type_for_function(&f.return_type, &opaque_type_names);
+        let jni_params = jni_params_for_function(f, &opaque_type_names);
         body.push_str(&format!(
             "\n    external fun {native_name}({jni_params}): {return_ty}\n"
         ));
@@ -74,6 +82,37 @@ pub fn emit_jni_bridge_object(api: &ApiSurface, config: &ResolvedCrateConfig) ->
 
     // Emit streaming external funs.
     emit_streaming_jni_external_funs(&mut body, config);
+
+    // Emit nativeFreeXxx destructors for opaque types returned by top-level functions
+    // that do NOT have instance methods (those are handled via emit_method_jni_external_funs
+    // which already emits the destructor in the paired Kotlin client class, while the
+    // bridge external fun for the destructor is emitted here for the handle-only case).
+    let client_type_names: std::collections::HashSet<&str> = api
+        .types
+        .iter()
+        .filter(|t| t.is_opaque && !t.is_trait && t.methods.iter().any(|m| !m.sanitized && !m.is_static))
+        .map(|t| t.name.as_str())
+        .collect();
+
+    let top_level_opaque_returns: std::collections::BTreeSet<&str> = visible_functions
+        .iter()
+        .filter_map(|f| {
+            if let TypeRef::Named(n) = &f.return_type {
+                if opaque_type_names.contains(n.as_str()) && !client_type_names.contains(n.as_str()) {
+                    return Some(n.as_str());
+                }
+            }
+            None
+        })
+        .collect();
+
+    if !top_level_opaque_returns.is_empty() {
+        body.push_str("\n    // Destructor external funs for opaque handle types.\n");
+        for type_name in &top_level_opaque_returns {
+            let free_name = format!("nativeFree{}", to_pascal_case(type_name));
+            body.push_str(&format!("    external fun {free_name}(handle: Long)\n"));
+        }
+    }
 
     body.push_str("}\n");
 
@@ -127,7 +166,8 @@ pub fn emit_streaming_jni_external_funs(out: &mut String, config: &ResolvedCrate
 
 /// Emit `external fun native{Owner}{Method}(handle: Long, requestJson: String): <ReturnType>`
 /// declarations for every visible, non-sanitized, non-static instance method on every
-/// opaque client type in the API surface.
+/// opaque client type in the API surface, plus a `external fun nativeFree{Owner}(handle: Long)`
+/// destructor declaration for each client type.
 ///
 /// Methods with no params beyond `&self` produce `(handle: Long)` with no `requestJson`.
 /// `Vec<u8>` return types produce `ByteArray`; `Unit` stays `Unit`; everything else
@@ -167,6 +207,10 @@ fn emit_method_jni_external_funs(
                 out.push_str(&format!("    external fun {native_name}({params}): {return_ty}\n"));
             }
         }
+        // Emit destructor external fun so Bridge.kt declares the symbol that
+        // DefaultClient.close() delegates to.
+        let free_name = format!("nativeFree{owner_pascal}");
+        out.push_str(&format!("    external fun {free_name}(handle: Long)\n"));
     }
 }
 
@@ -544,7 +588,8 @@ fn emit_jni_streaming_client_method(
     out.push_str("    }\n\n");
 }
 
-/// Map an IR `TypeRef` to a JNI-compatible Kotlin type string for `external fun` signatures.
+/// Map an IR `TypeRef` to a JNI-compatible Kotlin type string for `external fun` return types
+/// on instance methods (where opaque handle semantics do not apply to the return).
 ///
 /// JNI external funs must use primitive-width types and `String` for text.
 /// Complex types (structs, enums) are passed as JSON-encoded `String` values.
@@ -584,25 +629,59 @@ fn jni_return_type(ty: &TypeRef) -> &'static str {
             }
         }
         TypeRef::Map(_, _) => "String",
+        // bytes::Bytes → ByteArray (same as Vec<u8>)
+        TypeRef::Bytes => "ByteArray",
         // Opaque handle → Long
         _ => "Long",
     }
 }
 
+/// Map an IR `TypeRef` to a JNI-compatible Kotlin type string for top-level function
+/// return types, where opaque named types become `Long` (raw handle) instead of `String`.
+fn jni_return_type_for_function(ty: &TypeRef, opaque_type_names: &std::collections::HashSet<&str>) -> &'static str {
+    if let TypeRef::Named(n) = ty {
+        if opaque_type_names.contains(n.as_str()) {
+            return "Long";
+        }
+    }
+    jni_return_type(ty)
+}
+
 /// Build the `external fun native<Method>(...)` parameter list for a function.
 ///
-/// Complex types (named, vec, map, optional-named) are serialized to JSON `String`
-/// by the caller. Primitive types map directly to JNI primitives.
-fn jni_params_for_function(f: &alef_core::ir::FunctionDef) -> String {
+/// Opaque named types are passed as `Long` (raw handle pointer).
+/// Complex non-opaque types (named structs, vec, map, optional-named) are serialized
+/// to JSON `String` by the caller. Primitive types map directly to JNI primitives.
+fn jni_params_for_function(
+    f: &alef_core::ir::FunctionDef,
+    opaque_type_names: &std::collections::HashSet<&str>,
+) -> String {
     f.params
         .iter()
         .map(|p| {
-            let jni_ty = jni_param_type(&p.ty);
+            let jni_ty = jni_param_type_for_function(&p.ty, opaque_type_names);
             let name = to_lower_camel(&p.name);
             format!("{name}: {jni_ty}")
         })
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+/// JNI param type for top-level function params.
+///
+/// Opaque named types → `Long`; everything else falls through to `jni_param_type`.
+fn jni_param_type_for_function<'a>(ty: &TypeRef, opaque_type_names: &std::collections::HashSet<&str>) -> &'static str {
+    // Unwrap Optional to check the inner type.
+    let base = match ty {
+        TypeRef::Optional(inner) => inner.as_ref(),
+        other => other,
+    };
+    if let TypeRef::Named(n) = base {
+        if opaque_type_names.contains(n.as_str()) {
+            return "Long";
+        }
+    }
+    jni_param_type(ty)
 }
 
 fn jni_param_type(ty: &TypeRef) -> &'static str {
