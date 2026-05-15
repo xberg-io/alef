@@ -1485,6 +1485,209 @@ fn test_tuple_variant_vec_primitive_stays_as_vec() {
     );
 }
 
+#[test]
+fn test_tuple_variant_bytes_stays_as_vec() {
+    let backend = MagnusBackend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "SocketMessage".to_string(),
+            rust_path: "test_lib::SocketMessage".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![EnumVariant {
+                name: "Binary".to_string(),
+                fields: vec![make_field("_0", TypeRef::Bytes, false)],
+                is_tuple: true,
+                doc: String::new(),
+                is_default: true,
+                serde_rename: None,
+            }],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: false,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: None,
+        }],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config();
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let lib = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("lib.rs"))
+        .unwrap();
+    let content = &lib.content;
+
+    assert!(
+        content.contains("_0: Vec<u8>"),
+        "TypeRef::Bytes tuple variant field must stay as Vec<u8>, got:\n{content}"
+    );
+    assert!(
+        !content.contains("_0: String"),
+        "TypeRef::Bytes tuple variant field must not collapse to String, got:\n{content}"
+    );
+}
+
+#[test]
+fn test_optional_ref_string_method_returns_owned_option() {
+    let backend = MagnusBackend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Response".to_string(),
+            rust_path: "test_lib::Response".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![MethodDef {
+                name: "header".to_string(),
+                params: vec![ParamDef {
+                    name: "name".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: true,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                }],
+                return_type: TypeRef::Optional(Box::new(TypeRef::String)),
+                is_async: false,
+                is_static: false,
+                error_type: None,
+                doc: String::new(),
+                receiver: Some(ReceiverKind::Ref),
+                sanitized: false,
+                trait_source: None,
+                returns_ref: true,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+            }],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config();
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let lib = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("lib.rs"))
+        .unwrap();
+    let content = &lib.content;
+
+    assert!(
+        content.contains("fn header(&self, name: String) -> Option<String>"),
+        "Ruby method wrapper must expose owned Option<String>, got:\n{content}"
+    );
+    assert!(
+        content.contains("core_self.header(&name).map(|v| v.to_owned())"),
+        "Ruby method wrapper must convert Option<&str> to Option<String>, got:\n{content}"
+    );
+}
+
+#[test]
+fn test_opaque_owned_builder_return_rewraps_arc() {
+    let backend = MagnusBackend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "GraphQlRouteConfig".to_string(),
+            rust_path: "test_lib::GraphQlRouteConfig".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![MethodDef {
+                name: "path".to_string(),
+                params: vec![ParamDef {
+                    name: "path".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                }],
+                return_type: TypeRef::Named("GraphQlRouteConfig".to_string()),
+                is_async: false,
+                is_static: false,
+                error_type: None,
+                doc: String::new(),
+                receiver: Some(ReceiverKind::Owned),
+                sanitized: false,
+                trait_source: None,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+            }],
+            is_opaque: true,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config();
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let lib = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("lib.rs"))
+        .unwrap();
+    let content = &lib.content;
+
+    assert!(
+        content.contains("Self { inner: Arc::new(self.inner.as_ref().clone().path(path)) }"),
+        "Owned opaque builder return must wrap the returned core value in Arc, got:\n{content}"
+    );
+    assert!(
+        !content.contains("Self { inner: self.inner.as_ref().clone().path(path) }"),
+        "Owned opaque builder return must not treat method-call result as an existing Arc, got:\n{content}"
+    );
+}
+
 /// Bug A regression — tuple variant Foo(Vec<Bar>) where Bar is a Named type should keep
 /// Vec<Bar> in the binding enum and use .into() conversions, not serde_json.
 #[test]

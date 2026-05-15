@@ -521,19 +521,7 @@ fn gen_instance_method(
             generators::gen_lossy_binding_to_core_fields(typ, core_import, false, opaque_types, false, false, &[])
         };
         let core_call = format!("core_self.{}({})", method.name, call_args);
-        let result_wrap = match &method.return_type {
-            TypeRef::Named(_) | TypeRef::String | TypeRef::Char | TypeRef::Path => ".into()".to_string(),
-            // Bytes: when the core returns &Bytes (returns_ref=true), use .to_vec() since
-            // Vec<u8> does not implement From<&Bytes>. For owned Bytes, .into() works.
-            TypeRef::Bytes => {
-                if method.returns_ref {
-                    ".to_vec()".to_string()
-                } else {
-                    ".into()".to_string()
-                }
-            }
-            _ => String::new(),
-        };
+        let result_wrap = non_opaque_method_result_wrap(method);
         if method.error_type.is_some() {
             format!(
                 "{field_conversions}let result = {core_call}.map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        Ok(result{result_wrap})"
@@ -586,19 +574,7 @@ fn gen_async_instance_method(
         let call_args = generators::gen_call_args(&method.params, opaque_types);
         let field_conversions =
             generators::gen_lossy_binding_to_core_fields(typ, core_import, false, opaque_types, false, false, &[]);
-        let result_wrap = match &method.return_type {
-            TypeRef::Named(_) | TypeRef::String | TypeRef::Char | TypeRef::Path => ".into()".to_string(),
-            // Bytes: when the core returns &Bytes (returns_ref=true), use .to_vec() since
-            // Vec<u8> does not implement From<&Bytes>. For owned Bytes, .into() works.
-            TypeRef::Bytes => {
-                if method.returns_ref {
-                    ".to_vec()".to_string()
-                } else {
-                    ".into()".to_string()
-                }
-            }
-            _ => String::new(),
-        };
+        let result_wrap = non_opaque_method_result_wrap(method);
         if method.error_type.is_some() {
             format!(
                 "{field_conversions}let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
@@ -639,6 +615,39 @@ pub(super) fn pascal_to_snake(name: &str) -> String {
         result.push(ch.to_lowercase().next().unwrap_or(ch));
     }
     result
+}
+
+fn non_opaque_method_result_wrap(method: &MethodDef) -> String {
+    match &method.return_type {
+        TypeRef::Named(_) | TypeRef::String | TypeRef::Char | TypeRef::Path => ".into()".to_string(),
+        // Bytes: when the core returns &Bytes (returns_ref=true), use .to_vec() since
+        // Vec<u8> does not implement From<&Bytes>. For owned Bytes, .into() works.
+        TypeRef::Bytes => {
+            if method.returns_ref {
+                ".to_vec()".to_string()
+            } else {
+                ".into()".to_string()
+            }
+        }
+        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) => {
+            if method.returns_ref || method.returns_cow {
+                ".map(|v| v.to_owned())".to_string()
+            } else {
+                String::new()
+            }
+        }
+        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Path) => {
+            ".map(|v| v.to_string_lossy().to_string())".to_string()
+        }
+        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Bytes) => {
+            if method.returns_ref {
+                ".map(|v| v.to_vec())".to_string()
+            } else {
+                String::new()
+            }
+        }
+        _ => String::new(),
+    }
 }
 
 /// Generate a Magnus enum definition with IntoValue and TryConvert impls.
@@ -731,6 +740,7 @@ fn field_type_for_serde_inner(ty: &TypeRef) -> String {
         TypeRef::Primitive(PrimitiveType::F32) => "f32".to_string(),
         TypeRef::Primitive(PrimitiveType::F64) => "f64".to_string(),
         TypeRef::Duration => "u64".to_string(),
+        TypeRef::Bytes => "Vec<u8>".to_string(),
         // Named types serde-derive in the generated module — emit by name so JSON
         // arrays/objects deserialize directly via serde.
         TypeRef::Named(n) => n.clone(),

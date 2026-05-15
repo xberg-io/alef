@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-backend-magnus**: generate compiling Ruby bindings for optional
+  borrowed string returns, opaque owned builder methods, and `Bytes` data
+  enum fields. Magnus now converts `Option<&str>` method results to owned
+  `Option<String>`, only treats exact `self.inner` expressions as already
+  `Arc`-wrapped, and keeps `TypeRef::Bytes` enum payloads as `Vec<u8>`.
+
 ## [0.16.2] - 2026-05-15
 
 ### Fixed

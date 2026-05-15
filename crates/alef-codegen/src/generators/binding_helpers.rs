@@ -29,10 +29,7 @@ fn arc_wrap(val: &str, name: &str, mutex_types: &AHashSet<String>) -> String {
 /// `Arc<Node>` and must not be wrapped in another `Arc::new(...)`.
 fn expr_is_already_arc(expr: &str) -> bool {
     let trimmed = expr.trim();
-    trimmed == "self.inner"
-        || trimmed == "self.inner.clone()"
-        || trimmed.starts_with("self.inner.as_ref()")
-        || trimmed.starts_with("self.inner.clone()")
+    trimmed == "self.inner" || trimmed == "self.inner.clone()" || trimmed == "self.inner.as_ref().clone()"
 }
 
 /// Wrap a core-call result for opaque delegation methods.
