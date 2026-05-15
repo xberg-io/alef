@@ -22,6 +22,7 @@ pub fn emit(config: &ResolvedCrateConfig) -> String {
     let espresso_core = maven::ANDROIDX_TEST_ESPRESSO_CORE;
     let ktlint_gradle_plugin = maven::KTLINT_GRADLE_PLUGIN;
     let ktlint_version = maven::KTLINT;
+    let gradle_versions_plugin = maven::GRADLE_VERSIONS_PLUGIN;
     let _kotlinx_coroutines = maven::KOTLINX_COROUTINES_CORE;
     let _ = toolchain::ANDROID_JVM_TARGET;
 
@@ -43,6 +44,7 @@ plugins {{
     kotlin("android") version "{kotlin_version}"
     id("maven-publish")
     id("org.jlleitschuh.gradle.ktlint") version "{ktlint_gradle_plugin}"
+    id("com.github.ben-manes.versions") version "{gradle_versions_plugin}"
 }}
 
 android {{

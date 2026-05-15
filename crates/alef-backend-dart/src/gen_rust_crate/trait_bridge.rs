@@ -64,16 +64,44 @@ pub(crate) fn emit_trait_bridge(
         .iter()
         .any(|s| s == "Plugin" || s.ends_with("::Plugin"));
 
-    // --- 1. Opaque struct with one closure field per method ---
-    out.push_str("/// FRB opaque handle holding Dart callbacks for each trait method.\n");
-    out.push_str("/// Dart-side: register callbacks via `create_{snake}_dart_impl(...)` factory.\n");
-    out.push_str("#[frb(opaque)]\n");
-    out.push_str(&crate::template_env::render(
-        "rust_mirror_struct_open.jinja",
-        minijinja::context! {
-            name => struct_name.as_str(),
-        },
-    ));
+    // The `type_alias` mode (e.g. `VisitorHandle` for the `HtmlVisitor` trait) wraps the
+    // Rust-side impl in the trait's `Arc<Mutex<dyn Trait + Send>>` alias before handing
+    // it back to Dart. In that mode:
+    //
+    //   - The impl struct is PRIVATE (no `pub`, no `#[frb(opaque)]`) so FRB never sees
+    //     it. This avoids FRB v2's failure mode where `Box<dyn Fn(...)>` fields on an
+    //     opaque struct render as uninstantiable opaque callback classes on the Dart side.
+    //   - The factory takes closures as `impl Fn(...) -> DartFnFuture<R> + Send + Sync +
+    //     'static` parameters — FRB synthesises Dart-callable function types for closure
+    //     **parameters** (but not for closure **fields** on opaque structs).
+    //   - The factory returns the already-emitted local `type_alias` opaque wrapper
+    //     (e.g. `VisitorHandle { inner: Arc<Mutex<...>> }`) which IS exposed to FRB.
+    //
+    // Bridge configs WITHOUT `type_alias` (the plugin/ocr pattern) keep the legacy
+    // factory shape: a `#[frb(opaque)] pub struct TraitDartImpl { Box<dyn Fn(...)> }`
+    // exposed directly to FRB and handed to a `register_*` forwarder. Those callsites
+    // use the Box-typed fields internally and never construct callbacks from Dart user
+    // code — so the FRB-opaque-callback limitation does not bite.
+    let uses_type_alias = bridge_config.type_alias.is_some();
+
+    // --- 1. Impl struct holding Dart callbacks ---
+    if uses_type_alias {
+        out.push_str("/// Internal Rust-side storage for Dart-provided visitor callbacks.\n");
+        out.push_str("/// Not exposed via FRB (private to the bridge crate); the public factory\n");
+        out.push_str("/// `create_{trait_snake}(...)` wraps this in the trait's configured `type_alias`\n");
+        out.push_str("/// (e.g. `VisitorHandle`) which FRB does expose as opaque.\n");
+        out.push_str(&format!("struct {struct_name} {{\n"));
+    } else {
+        out.push_str("/// FRB opaque handle holding Dart callbacks for each trait method.\n");
+        out.push_str("/// Dart-side: register callbacks via `create_{snake}_dart_impl(...)` factory.\n");
+        out.push_str("#[frb(opaque)]\n");
+        out.push_str(&crate::template_env::render(
+            "rust_mirror_struct_open.jinja",
+            minijinja::context! {
+                name => struct_name.as_str(),
+            },
+        ));
+    }
     // Plugin fields for name/version (required by Plugin super-trait).
     if has_plugin_super {
         out.push_str("    /// Plugin name used by the Plugin super-trait impl.\n");
@@ -171,62 +199,185 @@ pub(crate) fn emit_trait_bridge(
     out.push('\n');
 
     // --- 4. Factory function ---
-    out.push_str(&crate::template_env::render(
-        "rust_trait_factory_doc.jinja",
-        minijinja::context! {
-            struct_name => struct_name.as_str(),
-        },
-    ));
-    if has_plugin_super {
-        out.push_str("/// `plugin_name` and `plugin_version` are required for the Plugin super-trait.\n");
-    }
-    out.push_str(&crate::template_env::render(
-        "rust_trait_factory_fn.jinja",
-        minijinja::context! {
-            trait_snake => trait_snake.as_str(),
-        },
-    ));
-    if has_plugin_super {
-        out.push_str("    plugin_name: String,\n");
-        out.push_str("    plugin_version: String,\n");
-    }
-    for method in &own_methods {
-        let param_name = &method.name;
-        let callback_ty = dart_fn_future_callback_type(method, source_crate_name, type_paths, &api.excluded_type_paths);
+    // Two emission shapes:
+    //
+    // (A) `type_alias` is set (visitor pattern): factory takes closures as
+    //     `impl Fn(...) -> DartFnFuture<R> + Send + Sync + 'static` parameters and returns
+    //     the already-emitted local opaque wrapper. FRB synthesises a Dart-callable
+    //     function type for each closure parameter (whereas closure FIELDS on opaque
+    //     structs render as uninstantiable opaque types in FRB v2).
+    //
+    // (B) `type_alias` is unset (plugin/ocr pattern): legacy factory shape — takes
+    //     `Box<dyn Fn(...) -> DartFnFuture<R> + Send + Sync>` and returns the opaque
+    //     bridge struct directly. The Dart-side wiring goes through `register_*` /
+    //     `unregister_*` forwarders that consume the bridge struct opaquely.
+    if uses_type_alias {
+        let type_alias = bridge_config.type_alias.as_deref().unwrap_or("");
+        // Locate the local opaque-wrapper TypeDef so we can pull its `rust_path` (the
+        // qualified core path, e.g. `html_to_markdown_rs::visitor::VisitorHandle`).
+        let alias_def = api.types.iter().find(|t| t.name == type_alias);
+        let inner_path = match alias_def {
+            Some(td) if !td.rust_path.is_empty() => td.rust_path.replace('-', "_"),
+            _ => format!("{}::{}", source_crate_name.replace('-', "_"), type_alias),
+        };
+
+        out.push_str(&format!(
+            "/// Construct a `{type_alias}` from Dart callback closures.\n"
+        ));
+        out.push_str("/// FRB synthesises a Dart-callable function type for each closure parameter,\n");
+        out.push_str("/// which is the whole point of taking them as `impl Fn(...) -> DartFnFuture<R>`\n");
+        out.push_str("/// parameters rather than storing them as `Box<dyn Fn(...)>` fields on an\n");
+        out.push_str("/// opaque struct (FRB v2 cannot generate callable closure types in that shape).\n");
+        if has_plugin_super {
+            out.push_str("/// `plugin_name` and `plugin_version` are required for the Plugin super-trait.\n");
+        }
+        out.push_str(&format!("pub async fn create_{trait_snake}(\n"));
+        if has_plugin_super {
+            out.push_str("    plugin_name: String,\n");
+            out.push_str("    plugin_version: String,\n");
+        }
+        for method in &own_methods {
+            let param_name = &method.name;
+            let params: Vec<String> = method
+                .params
+                .iter()
+                .map(|p| frb_rust_type_excluded_aware(&p.ty, p.optional, &api.excluded_type_paths))
+                .collect();
+            let ret = frb_rust_type_excluded_aware(&method.return_type, false, &api.excluded_type_paths);
+            let params_str = params.join(", ");
+            // FRB v2's closure-parameter parser matches the return type by inspecting
+            // the FIRST path segment of the return type (`path.segments.first().ident`).
+            // A fully-qualified `flutter_rust_bridge::DartFnFuture<...>` makes that first
+            // segment resolve to `flutter_rust_bridge`, causing the parser to bail with
+            // "DartFn does not support return types except `DartFnFuture<T>` yet". Use
+            // the bare ident — `DartFnFuture` is already brought into scope via the
+            // `pub use flutter_rust_bridge::DartFnFuture` at the top of every generated
+            // lib.rs (see `gen_rust_crate::mod::generate_lib_rs`).
+            out.push_str(&format!(
+                "    {param_name}: impl Fn({params_str}) -> DartFnFuture<{ret}> + Send + Sync + 'static,\n"
+            ));
+        }
+        out.push_str(&format!(") -> {type_alias} {{\n"));
+        out.push_str(&format!("    let __impl = {struct_name} {{\n"));
+        if has_plugin_super {
+            out.push_str("        plugin_name,\n");
+            out.push_str("        plugin_version,\n");
+        }
+        for method in &own_methods {
+            out.push_str(&format!("        {name}: Box::new({name}),\n", name = method.name));
+        }
+        out.push_str("    };\n");
+        // VisitorHandle is `Arc<Mutex<dyn HtmlVisitor + Send>>`. Build the inner alias and
+        // wrap it in the local opaque struct via its `From<core_type>` impl.
+        out.push_str(&format!(
+            "    let __inner: {inner_path} = std::sync::Arc::new(std::sync::Mutex::new(__impl));\n"
+        ));
+        out.push_str(&format!("    {type_alias}::from(__inner)\n"));
+        out.push_str("}\n");
+
+        // --- 4b. Options-builder helper (options_field binding only) ---
+        //
+        // ConversionOptions is a mirror struct rendered as a Dart class with `final` fields
+        // and a `const` constructor — there is no copyWith and no way to set `visitor` after
+        // construction. To thread a visitor handle into an options blob loaded from JSON
+        // (e.g. the e2e fixture pattern), we emit a small Rust helper:
+        //
+        //     pub fn create_<options>_from_json_with_<field>(json, visitor) -> Result<Mirror, String>
+        //
+        // It deserialises the core options, sets the `visitor` field on the core value, then
+        // converts to the mirror type via the already-emitted `From<core>` impl.
+        if bridge_config.bind_via == alef_core::config::BridgeBinding::OptionsField {
+            if let (Some(options_type), Some(field_raw)) = (
+                bridge_config.options_type.as_deref(),
+                bridge_config.resolved_options_field(),
+            ) {
+                let field = field_raw.to_string();
+                let options_snake = options_type.to_snake_case();
+                let opts_def = api.types.iter().find(|t| t.name == options_type);
+                let core_options_path = match opts_def {
+                    Some(td) if !td.rust_path.is_empty() => td.rust_path.replace('-', "_"),
+                    _ => format!("{}::{}", source_crate_name.replace('-', "_"), options_type),
+                };
+                out.push('\n');
+                out.push_str(&format!(
+                    "/// Build a `{options_type}` from a JSON blob and attach a Dart-built\n"
+                ));
+                out.push_str(&format!(
+                    "/// `{type_alias}` to its `{field}` field. The mirror struct uses `final`\n"
+                ));
+                out.push_str("/// dart fields, so callers cannot patch the visitor in after JSON load —\n");
+                out.push_str("/// this helper does the merge on the Rust side instead.\n");
+                out.push_str("#[frb]\n");
+                out.push_str(&format!(
+                    "pub fn create_{options_snake}_from_json_with_{field}(\n    json: String,\n    {field}: Option<{type_alias}>,\n) -> Result<{options_type}, String> {{\n"
+                ));
+                out.push_str(&format!(
+                    "    let mut __core: {core_options_path} = serde_json::from_str(&json).map_err(|e| e.to_string())?;\n"
+                ));
+                out.push_str(&format!("    __core.{field} = {field}.map(<{inner_path}>::from);\n"));
+                out.push_str(&format!("    Ok({options_type}::from(__core))\n"));
+                out.push_str("}\n");
+            }
+        }
+    } else {
         out.push_str(&crate::template_env::render(
-            "rust_trait_factory_param.jinja",
+            "rust_trait_factory_doc.jinja",
             minijinja::context! {
-                param_name => param_name.as_str(),
-                callback_ty => callback_ty,
+                struct_name => struct_name.as_str(),
             },
         ));
-    }
-    out.push_str(&crate::template_env::render(
-        "rust_trait_factory_return.jinja",
-        minijinja::context! {
-            struct_name => struct_name.as_str(),
-        },
-    ));
-    out.push_str(&crate::template_env::render(
-        "rust_trait_factory_struct_init.jinja",
-        minijinja::context! {
-            struct_name => struct_name.as_str(),
-        },
-    ));
-    if has_plugin_super {
-        out.push_str("        plugin_name,\n");
-        out.push_str("        plugin_version,\n");
-    }
-    for method in &own_methods {
+        if has_plugin_super {
+            out.push_str("/// `plugin_name` and `plugin_version` are required for the Plugin super-trait.\n");
+        }
         out.push_str(&crate::template_env::render(
-            "rust_trait_factory_method_init.jinja",
+            "rust_trait_factory_fn.jinja",
             minijinja::context! {
-                param_name => method.name.as_str(),
+                trait_snake => trait_snake.as_str(),
             },
         ));
+        if has_plugin_super {
+            out.push_str("    plugin_name: String,\n");
+            out.push_str("    plugin_version: String,\n");
+        }
+        for method in &own_methods {
+            let param_name = &method.name;
+            let callback_ty =
+                dart_fn_future_callback_type(method, source_crate_name, type_paths, &api.excluded_type_paths);
+            out.push_str(&crate::template_env::render(
+                "rust_trait_factory_param.jinja",
+                minijinja::context! {
+                    param_name => param_name.as_str(),
+                    callback_ty => callback_ty,
+                },
+            ));
+        }
+        out.push_str(&crate::template_env::render(
+            "rust_trait_factory_return.jinja",
+            minijinja::context! {
+                struct_name => struct_name.as_str(),
+            },
+        ));
+        out.push_str(&crate::template_env::render(
+            "rust_trait_factory_struct_init.jinja",
+            minijinja::context! {
+                struct_name => struct_name.as_str(),
+            },
+        ));
+        if has_plugin_super {
+            out.push_str("        plugin_name,\n");
+            out.push_str("        plugin_version,\n");
+        }
+        for method in &own_methods {
+            out.push_str(&crate::template_env::render(
+                "rust_trait_factory_method_init.jinja",
+                minijinja::context! {
+                    param_name => method.name.as_str(),
+                },
+            ));
+        }
+        out.push_str("    }\n");
+        out.push_str("}\n");
     }
-    out.push_str("    }\n");
-    out.push_str("}\n");
 
     // --- 5. register_*/unregister_*/clear_* forwarder functions ---
     // Emitted only when the bridge config sets `register_fn` (and optionally `unregister_fn`

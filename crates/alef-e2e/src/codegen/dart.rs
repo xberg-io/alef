@@ -677,6 +677,13 @@ fn render_test_case(
                     // `options_type`, build the mirror struct via the FRB-generated
                     // `create<OptionsType>FromJson(json: '...')` helper. Use the arg's
                     // original name (e.g. `options`) as the named parameter label.
+                    //
+                    // When the fixture also carries a visitor spec, swap to the
+                    // `create<OptionsType>FromJsonWithVisitor(json, visitor)` helper
+                    // (emitted by `alef-backend-dart` for trait bridges with `type_alias`
+                    // + `options_field` binding). The `_visitor` variable is materialised
+                    // in the visitor block below — its setup line is inserted ahead of
+                    // this options call by `build_dart_visitor`.
                     if !map.is_empty() {
                         if let Some(opts_type) = options_type {
                             let json_str = serde_json::to_string(&arg_value).unwrap_or_default();
@@ -684,7 +691,14 @@ fn render_test_case(
                             let dart_param_name = snake_to_camel(&arg_def.name);
                             let var_name = format!("_{}", arg_def.name);
                             let dart_fn = type_name_to_create_from_json_dart(opts_type);
-                            setup_lines.push(format!("final {var_name} = await {dart_fn}(json: '{escaped_json}');"));
+                            if fixture.visitor.is_some() {
+                                setup_lines.push(format!(
+                                    "final {var_name} = await {dart_fn}WithVisitor(json: '{escaped_json}', visitor: _visitor);"
+                                ));
+                            } else {
+                                setup_lines
+                                    .push(format!("final {var_name} = await {dart_fn}(json: '{escaped_json}');"));
+                            }
                             if arg_def.optional {
                                 args.push(format!("{dart_param_name}: {var_name}"));
                             } else {
@@ -698,35 +712,27 @@ fn render_test_case(
         }
     }
 
-    // Fixture-driven visitor handle. When `fixture.visitor` is set we build
-    // a `_visitor` via `createHtmlVisitorDartImpl(...)` and pass it as the
-    // `visitor:` named parameter to convert. The dart binding currently lacks
-    // three pieces required to make this work end-to-end:
-    //   - `VisitResult` is `#[frb-ignore]`d, so the freezed factory variants
-    //     (`VisitResult.continue_()`, `VisitResult.custom(...)`, …) are not
-    //     emitted on the dart side.
-    //   - The `BoxFn...` callback parameters are opaque `RustOpaque` classes
-    //     with no public constructor — closures cannot be passed inline.
-    //   - There is no path from `HtmlVisitorDartImpl` to `VisitorHandle`, and
-    //     `H2mBridge.convert` / the free `convert` function do not accept a
-    //     `visitor:` argument.
+    // Fixture-driven visitor handle. When `fixture.visitor` is set we build a
+    // `_visitor` via the `createHtmlVisitor(...)` factory (emitted by
+    // `alef-backend-dart`'s trait-bridge generator in the `type_alias` mode)
+    // and thread it into the options blob via the
+    // `create<OptionsType>FromJsonWithVisitor(json, visitor)` helper (handled
+    // a few lines above in the json_object arg branch).
     //
-    // Until those binding pieces land, visitor fixtures emit a skip stub via
-    // `dart_visitors::build_dart_visitor` (exercised once in unit tests for
-    // snapshot coverage) plus a `test(...,  skip: 'pending dart-binding visitor wiring')`
-    // declaration so the file still compiles and the rest of the suite runs.
+    // The visitor setup line is INSERTED at the front of `setup_lines` so
+    // `_visitor` is defined before any `_options` line that references it.
+    // Fixtures without an `options` json_object still get a `_visitor` —
+    // callers that need to attach it to a bare convert call will fail to
+    // compile, but no such fixture exists today (every visitor fixture also
+    // sends `options`).
     if let Some(visitor_spec) = &fixture.visitor {
-        // Touch the visitor builder so the generated-code helper stays
-        // covered by per-fixture codegen exercise. The block is discarded;
-        // we do not append it to `setup_lines` because the emitted closures
-        // reference VisitResult symbols that are not yet exposed by the dart
-        // binding.
-        let mut _scratch: Vec<String> = Vec::new();
-        let _ = super::dart_visitors::build_dart_visitor(&mut _scratch, visitor_spec);
-        let skip_reason = "pending dart-binding visitor wiring (alef issue)";
-        let _ = writeln!(out, "  test('{description}', () async {{}}, skip: '{skip_reason}');");
-        let _ = writeln!(out);
-        return;
+        let mut visitor_setup: Vec<String> = Vec::new();
+        let _ = super::dart_visitors::build_dart_visitor(&mut visitor_setup, visitor_spec);
+        // Prepend the visitor block so `_visitor` is in scope by the time the
+        // options call (which may reference it) runs.
+        for line in visitor_setup.into_iter().rev() {
+            setup_lines.insert(0, line);
+        }
     }
 
     // Resolve client_factory: when set, tests create a client instance and call
