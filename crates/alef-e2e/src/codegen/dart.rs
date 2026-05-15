@@ -684,8 +684,7 @@ fn render_test_case(
                             let dart_param_name = snake_to_camel(&arg_def.name);
                             let var_name = format!("_{}", arg_def.name);
                             let dart_fn = type_name_to_create_from_json_dart(opts_type);
-                            setup_lines
-                                .push(format!("final {var_name} = await {dart_fn}(json: '{escaped_json}');"));
+                            setup_lines.push(format!("final {var_name} = await {dart_fn}(json: '{escaped_json}');"));
                             if arg_def.optional {
                                 args.push(format!("{dart_param_name}: {var_name}"));
                             } else {

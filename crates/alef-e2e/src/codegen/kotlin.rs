@@ -518,6 +518,7 @@ pub(crate) fn render_test_file(
 ///    boundary), so `is_empty` / `not_empty` assertions on a bare option
 ///    result emit `== null` / `!= null` instead of `.isEmpty` /
 ///    `.isPresent`.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn render_test_file_android(
     category: &str,
     fixtures: &[&Fixture],
@@ -1003,7 +1004,6 @@ fn render_http_test_method(out: &mut String, fixture: &Fixture, http: &HttpFixtu
     client::http_call::render_http_test(out, &KotlinTestClientRenderer, fixture);
 }
 
-#[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_arguments)]
 fn render_test_method(
     out: &mut String,
@@ -1772,12 +1772,7 @@ fn render_assertion(
                     out,
                     "        assertTrue({field_expr}.isPresent, \"expected non-empty value\")"
                 );
-            } else if bare_result_is_option {
-                let _ = writeln!(
-                    out,
-                    "        assertTrue({field_expr} != null, \"expected non-empty value\")"
-                );
-            } else if field_is_optional {
+            } else if bare_result_is_option || field_is_optional {
                 let _ = writeln!(
                     out,
                     "        assertTrue({field_expr} != null, \"expected non-empty value\")"
@@ -1797,12 +1792,7 @@ fn render_assertion(
                     out,
                     "        assertTrue({field_expr}.isEmpty, \"expected empty value\")"
                 );
-            } else if bare_result_is_option {
-                let _ = writeln!(
-                    out,
-                    "        assertTrue({field_expr} == null, \"expected empty value\")"
-                );
-            } else if field_is_optional {
+            } else if bare_result_is_option || field_is_optional {
                 let _ = writeln!(
                     out,
                     "        assertTrue({field_expr} == null, \"expected empty value\")"

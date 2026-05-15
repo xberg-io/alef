@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-e2e (kotlin)**: clear four clippy warnings in
+  `crates/alef-e2e/src/codegen/kotlin.rs` so `cargo clippy --workspace
+  -- -D warnings` is green again. Removed a duplicate
+  `#[allow(clippy::too_many_arguments)]` attribute on
+  `render_test_method`, added the same allow to the 13-arg
+  `render_test_file_android` companion (matches the existing
+  convention for these codegen-internal helpers), and collapsed two
+  pairs of `if`/`else if` branches in the `not_empty` / `is_empty`
+  assertion emitter that had identical bodies into single
+  `bare_result_is_option || field_is_optional` arms. Emission is
+  byte-identical (no snapshot churn).
 - **alef-e2e (dart)**: pass fixture `input.options` through to the bridge
   call. Generic `json_object` args without a special name (e.g. h2m's
   `options: ConversionOptions` on `convert(html, options)`) now build the
