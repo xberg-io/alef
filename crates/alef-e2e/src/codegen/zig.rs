@@ -1459,6 +1459,17 @@ fn render_assertion(
                     out,
                     "    try testing.expect(std.mem.indexOf(u8, {field_expr}, {zig_val}) == null);"
                 );
+            } else if let Some(values) = &assertion.values {
+                // not_contains with a plural `values` list: assert none of the entries
+                // appear in the field. Emit one expect line per needle so failures
+                // pinpoint the offending value.
+                for val in values {
+                    let zig_val = json_to_zig(val);
+                    let _ = writeln!(
+                        out,
+                        "    try testing.expect(std.mem.indexOf(u8, {field_expr}, {zig_val}) == null);"
+                    );
+                }
             }
         }
         "not_empty" => {

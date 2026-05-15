@@ -16,7 +16,7 @@
 #}
 {% if assertion_type == "equals" %}
 {% if is_string_val %}
-    try testing.expectEqualStrings({{ zig_val }}, {{ field_expr }}.string);
+    try testing.expectEqualStrings({{ zig_val }}, std.mem.trim(u8, {{ field_expr }}.string, " \n\r\t"));
 {% elif is_bool_val %}
     try testing.expectEqual({{ bool_val }}, {{ field_expr }}.bool);
 {% elif is_null_val %}
@@ -43,12 +43,23 @@
     }
 {% endfor %}
 {% elif assertion_type == "not_contains" %}
+{% if zig_val %}
     {
         const _jvnc = {{ field_expr }};
         const _jsnc = if (_jvnc == .string) _jvnc.string else try std.json.Stringify.valueAlloc(std.heap.c_allocator, _jvnc, .{});
         defer if (_jvnc != .string) std.heap.c_allocator.free(_jsnc);
         try testing.expect(std.mem.indexOf(u8, _jsnc, {{ zig_val }}) == null);
     }
+{% else %}
+{% for val in values_list %}
+    {
+        const _jvnc{{ loop.index0 }} = {{ field_expr }};
+        const _jsnc{{ loop.index0 }} = if (_jvnc{{ loop.index0 }} == .string) _jvnc{{ loop.index0 }}.string else try std.json.Stringify.valueAlloc(std.heap.c_allocator, _jvnc{{ loop.index0 }}, .{});
+        defer if (_jvnc{{ loop.index0 }} != .string) std.heap.c_allocator.free(_jsnc{{ loop.index0 }});
+        try testing.expect(std.mem.indexOf(u8, _jsnc{{ loop.index0 }}, {{ val }}) == null);
+    }
+{% endfor %}
+{% endif %}
 {% elif assertion_type == "not_empty" %}
     try testing.expect({{ field_expr }} != .null);
 {% elif assertion_type == "is_empty" %}

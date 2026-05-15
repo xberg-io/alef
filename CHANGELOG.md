@@ -27,6 +27,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-e2e (zig)**: `not_contains` assertions with a plural `values: [...]`
+  list now emit one `std.mem.indexOf` check per needle. Previously only
+  `value` (singular) was emitted; fixtures using `values` (e.g. XSS edge
+  cases asserting `["onclick", "onmouseover", "alert(", "steal_data"]`)
+  produced uncompilable code with an empty `indexOf(u8, str, )` third arg.
+- **alef-e2e (zig)**: `equals` string assertions now `std.mem.trim` the
+  JSON `.string` field on both whitespace and newlines before comparing,
+  matching the rust/dart pattern. h2m's `convert()` emits a trailing `\n`
+  on rendered markdown — the bare `expectEqualStrings(expected, ...)`
+  flagged that as a false positive on the `Hello World` smoke fixture.
 - **alef-backend-magnus**: generate compiling Ruby bindings for optional
   borrowed string returns, opaque owned builder methods, and `Bytes` data
   enum fields. Magnus now converts `Option<&str>` method results to owned
