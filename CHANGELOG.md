@@ -5,10 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.16.0] - [Unreleased]
 
 ### Fixed
 
+- **alef-backend-dart**: emitted dart-crate `build.rs` now skips `flutter_rust_bridge_codegen` invocation gracefully when the tool is not on PATH instead of panicking. Downstream CI environments (`cargo check --workspace`) no longer require `flutter_rust_bridge_codegen` to be installed; the committed generated FRB sources are sufficient. Developers with FRB installed still get automatic regen on source changes.
 - **alef-extract**: reverted the `Option<Option<T>>` → `Option<T>` IR flatten
   introduced in 0.16.0. The flatten produced cross-backend type mismatches
   (WASM and other passthrough backends saw `expected Option<Option<usize>>,

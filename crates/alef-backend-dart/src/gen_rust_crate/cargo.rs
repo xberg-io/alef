@@ -279,19 +279,30 @@ unexpected_cfgs = {{ level = "warn", check-cfg = ['cfg(frb_expand)'] }}"#
 pub(crate) fn emit_build_rs(rust_dir: &str) -> GeneratedFile {
     // Invoke `flutter_rust_bridge_codegen generate` at `cargo build` time so that
     // `src/frb_generated.rs` is always present before rustc tries to compile
-    // `mod frb_generated;` in lib.rs. The codegen binary must be on PATH (alef's
-    // `[crates.test.dart] before` step installs it via `dart pub global activate`).
+    // `mod frb_generated;` in lib.rs. The invocation is conditional: when the
+    // tool is not on PATH the build emits a cargo warning and proceeds against
+    // the committed generated sources. This keeps `cargo check --workspace` and
+    // `cargo build` working in CI environments and downstream projects that do
+    // not have FRB installed.
     let content = r#"fn main() {
     // Re-run whenever any Rust source changes.
     println!("cargo:rerun-if-changed=src");
 
-    let status = std::process::Command::new("flutter_rust_bridge_codegen")
+    // Optional FRB codegen: regenerate flutter_rust_bridge artifacts when the
+    // tool is on PATH. Missing tool is not fatal — committed generated sources
+    // are checked in, and CI environments without FRB still build cleanly.
+    match std::process::Command::new("flutter_rust_bridge_codegen")
         .args(["generate", "--config-file", "flutter_rust_bridge.yaml"])
         .status()
-        .expect("flutter_rust_bridge_codegen not found on PATH; install via `dart pub global activate flutter_rust_bridge_codegen`");
-
-    if !status.success() {
-        panic!("flutter_rust_bridge_codegen generate failed (exit code: {status})");
+    {
+        Ok(status) if status.success() => {}
+        Ok(status) => panic!("flutter_rust_bridge_codegen generate failed (exit code: {status})"),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            println!(
+                "cargo:warning=flutter_rust_bridge_codegen not on PATH — skipping codegen. Install via `dart pub global activate flutter_rust_bridge_codegen` to regenerate FRB artifacts at build time."
+            );
+        }
+        Err(err) => panic!("failed to spawn flutter_rust_bridge_codegen: {err}"),
     }
 }
 "#
