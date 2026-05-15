@@ -9,16 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **WASM: emit enum-with-payload types as classes with factory methods + payload fields**:
-  tagged enums with variant payloads (e.g. `AuthConfig`) now emit as Rust structs with
-  optional fields for each variant's data, plus `default_instance()` static factory and
-  getters/setters for all fields, instead of bare numeric TS enums. Round-trip conversions
-  between binding and core preserve variant discriminator (type field) + payload fields.
-  Custom From impls generated in `gen_tagged_enum_as_class` skip core-generated enum
-  conversions to avoid duplicate impl blocks.
-  (`crates/alef-backend-wasm/src/gen_bindings/enums.rs`)
-
-- JNI & Kotlin Android: various fixes from concurrent development
+- **zig e2e codegen**: emit `build.zig` that runs tests via `addRunArtifact`
+  directly (Zig 0.16+ no longer installs test binaries to `zig-out/bin/`).
+  The previous `addInstallArtifact` + `run.dependOn(install)` workaround
+  produced `FileNotFound` at spawn time against the would-be install path on
+  Zig 0.16+ Linux backends. `setCwd("../../test_documents")` is also dropped
+  — the generated tests reach the mock server purely through `MOCK_SERVER_*`
+  env vars and never read anything cwd-relative, so leaving cwd alone keeps
+  `convertPathArg` from re-resolving the cache spawn path.
+  (`crates/alef-e2e/src/codegen/zig.rs`)
 
 - **JNI: raw jlong for opaque handle returns**: `emit_function_shim` now returns
   `jlong` directly from opaque-returning top-level functions instead of a
@@ -86,19 +85,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Default::default()` like other sanitized fields.
   (`crates/alef-backend-dart/src/gen_rust_crate/mod.rs`)
 
-## [0.16.6 - Unreleased]
-
-### Fixed
-
-- **zig e2e codegen**: emit `build.zig` that runs tests via `addRunArtifact`
-  directly (Zig 0.16+ no longer installs test binaries to `zig-out/bin/`).
-  The previous `addInstallArtifact` + `run.dependOn(install)` workaround
-  produced `FileNotFound` at spawn time against the would-be install path on
-  Zig 0.16+ Linux backends. `setCwd("../../test_documents")` is also dropped
-  — the generated tests reach the mock server purely through `MOCK_SERVER_*`
-  env vars and never read anything cwd-relative, so leaving cwd alone keeps
-  `convertPathArg` from re-resolving the cache spawn path.
-  (`crates/alef-e2e/src/codegen/zig.rs`)
+## [0.16.6] - 2026-05-15
 
 ### Added
 

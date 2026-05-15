@@ -353,7 +353,15 @@ fn emit_lib_rs(
     content.push_str("\n// From<T> for SourceT conversions (mirror-to-core direction).\n");
     content.push_str("// Used in bridge functions for types with sanitized fields, and by\n");
     content.push_str("// nested conversions within those types.\n");
-    for ty in api.types.iter().filter(|t| types_needing_from_impl.contains(&t.name)) {
+    // Filter out trait and opaque types: trait types are not constructible with `{}` literals,
+    // and opaque types are handled separately by their own bridge impl block. Both can land in
+    // `types_needing_from_impl` via trait-bridge return types (e.g. `Option<&dyn SyncExtractor>`
+    // contributes `SyncExtractor` to the seed via `collect_named_types_from_type_ref`).
+    for ty in api
+        .types
+        .iter()
+        .filter(|t| types_needing_from_impl.contains(&t.name) && !t.is_trait && !t.is_opaque)
+    {
         content.push('\n');
         emit_from_mirror_to_core_struct(&mut content, ty, source_crate_name);
     }
@@ -891,18 +899,19 @@ fn emit_from_mirror_to_core_struct(out: &mut String, ty: &TypeDef, source_crate_
     ));
 
     for field in &ty.fields {
-        if field.sanitized && !matches!(field.ty, TypeRef::String) {
+        // Sanitized String fields with a non-Cow core_wrapper indicate the core type
+        // is something completely unrelated to a string (e.g. `Option<BoundingBox>`
+        // sanitized down to `Option<String>` because BoundingBox isn't in the API
+        // surface). Treat those like other sanitized fields and fall back to
+        // Default::default(). Only the Cow case (core `Cow<'static, str>` extracted
+        // as Named("str") and sanitized to String) safely roundtrips via .into().
+        let safe_sanitized_string =
+            matches!(field.ty, TypeRef::String) && field.core_wrapper == CoreWrapper::Cow;
+        if field.sanitized && !safe_sanitized_string {
             // Sanitized fields have an unknown core type simplified in the IR.
             // Only types in the transitive closure from input-parameter types get this
             // impl generated, and those core types implement Default (e.g. ExtractionConfig
             // has cancel_token: Option<CancellationToken> which implements Default).
-            //
-            // Exception: `TypeRef::String` fields are always safely convertible back to
-            // the core type via `.into()` — even when `sanitized = true`. This case
-            // arises when a `Cow<'static, str>` field is extracted as `Named("str")` by
-            // the type resolver and then sanitized to `TypeRef::String`. The mirror struct
-            // holds a plain `String` and the core struct holds `Cow<'static, str>`;
-            // `String: Into<Cow<'static, str>>` is a valid standard conversion.
             //
             // `cfg = None`: the dart bridge crate enables `features = ["full"]` on
             // the source dependency, so every core-side cfg-gated field is present

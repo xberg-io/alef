@@ -1389,3 +1389,119 @@ fn opaque_method_vec_string_param_with_is_ref_bridges_to_str_slice() {
         "is_ref Vec<String> param must not be passed as raw Vec<String>: {lib}"
     );
 }
+
+/// A trait surfaced via `trait_bridges` whose methods return another trait by name
+/// must NOT produce a `From<Trait> for SourceTrait` mirror-to-core impl. Trait types
+/// cannot be constructed with `{}`, so the emitted block would fail to compile
+/// (E0574 "expected struct, variant or union type, found trait"). The dart backend
+/// iterates `types_needing_from_impl` to emit those impls and must filter out
+/// `is_trait`/`is_opaque` entries — the seed set includes trait-bridge return-type
+/// names so a bare membership check is insufficient.
+#[test]
+fn trait_bridge_return_type_does_not_emit_from_impl_for_trait() {
+    let factory = make_method(
+        "make_visitor",
+        vec![],
+        TypeRef::Named("MyVisitor".to_string()),
+        false,
+    );
+    let trait_def = make_trait("MyFactory", "demo_crate::MyFactory", vec![factory]);
+    let visitor_trait = make_trait("MyVisitor", "demo_crate::MyVisitor", vec![]);
+
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_def, visitor_trait],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+    let config = make_config_with_bridge("MyFactory");
+    let files = DartBackend.generate_bindings(&api, &config).unwrap();
+    let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
+
+    assert!(
+        !lib.contains("impl From<MyVisitor>"),
+        "must not emit `impl From<MyVisitor>` for a trait type: {lib}"
+    );
+    assert!(
+        !lib.contains("demo_crate::MyVisitor {}"),
+        "must not construct a trait with `{{}}` literal: {lib}"
+    );
+}
+
+/// A field that is sanitized down to `TypeRef::String` because its real core type is
+/// not in the API surface (e.g. `Option<BoundingBox>` mirrored as `Option<String>`,
+/// `core_wrapper = None`) must use `Default::default()` in the From<Mirror> for Core
+/// impl. Only the `core_wrapper == Cow` case is safely round-trippable via `.into()`,
+/// because that's the genuine `Cow<'static, str>`-extracted-as-String case.
+#[test]
+fn sanitized_string_non_cow_field_falls_back_to_default_in_from_mirror_to_core_impl() {
+    let mut bounding_box_field = make_field("bounding_box", TypeRef::String, true);
+    bounding_box_field.sanitized = true;
+    bounding_box_field.core_wrapper = CoreWrapper::None;
+
+    let annotation_type = TypeDef {
+        name: "PdfAnnotation".to_string(),
+        rust_path: "demo_crate::PdfAnnotation".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![bounding_box_field],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        doc: String::new(),
+        cfg: None,
+        is_trait: false,
+        has_default: true,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: true,
+        super_traits: vec![],
+    };
+
+    let process_fn = FunctionDef {
+        name: "process".to_string(),
+        params: vec![make_param("annotation", TypeRef::Named("PdfAnnotation".to_string()))],
+        return_type: TypeRef::String,
+        is_async: false,
+        error_type: None,
+        doc: String::new(),
+        sanitized: false,
+        return_sanitized: false,
+        rust_path: "demo_crate::process".to_string(),
+        original_rust_path: String::new(),
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        cfg: None,
+    };
+
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![annotation_type],
+        functions: vec![process_fn],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
+    let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
+
+    assert!(
+        lib.contains("bounding_box: Default::default()"),
+        "sanitized String field with core_wrapper=None must emit Default::default(): {lib}"
+    );
+    assert!(
+        !lib.contains("bounding_box: v.bounding_box.map(Into::into)"),
+        "sanitized String field with core_wrapper=None must NOT emit .map(Into::into): {lib}"
+    );
+    assert!(
+        !lib.contains("bounding_box: v.bounding_box.into()"),
+        "sanitized String field with core_wrapper=None must NOT emit .into(): {lib}"
+    );
+}
