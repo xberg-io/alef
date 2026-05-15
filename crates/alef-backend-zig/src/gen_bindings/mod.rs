@@ -100,9 +100,9 @@ impl Backend for ZigBackend {
                     typ.methods.retain(method_is_visible);
                 }
                 filtered.enums.retain(|en| !exclude_types.contains(&en.name));
-                filtered.functions.retain(|func| {
-                    !signature_references_excluded(&func.params, &func.return_type, &exclude_types)
-                });
+                filtered
+                    .functions
+                    .retain(|func| !signature_references_excluded(&func.params, &func.return_type, &exclude_types));
                 filtered
             };
             &visible_api
@@ -226,11 +226,7 @@ impl Backend for ZigBackend {
             })
             .flat_map(|snake| [format!("register_{snake}"), format!("unregister_{snake}")])
             .collect();
-        for f in api
-            .functions
-            .iter()
-            .filter(|f| !exclude_functions.contains(&f.name))
-        {
+        for f in api.functions.iter().filter(|f| !exclude_functions.contains(&f.name)) {
             if trait_bridge_fn_names.contains(&f.name) {
                 continue;
             }

@@ -69,16 +69,20 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
     } else {
         base_features
     };
-    let exclude_functions: HashSet<String> = config
+    let mut exclude_functions: HashSet<String> = config
         .swift
         .as_ref()
         .map(|c| c.exclude_functions.iter().cloned().collect())
         .unwrap_or_default();
-    let exclude_types: HashSet<String> = config
+    let mut exclude_types: HashSet<String> = config
         .swift
         .as_ref()
         .map(|c| c.exclude_types.iter().cloned().collect())
         .unwrap_or_default();
+    if let Some(ffi) = &config.ffi {
+        exclude_functions.extend(ffi.exclude_functions.iter().cloned());
+        exclude_types.extend(ffi.exclude_types.iter().cloned());
+    }
     let exclude_fields: HashSet<String> = config
         .swift
         .as_ref()

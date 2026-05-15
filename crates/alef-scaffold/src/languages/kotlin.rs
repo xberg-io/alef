@@ -44,6 +44,7 @@ fn scaffold_kotlin_jvm(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow
     let jna = maven::JNA;
     let junit_legacy = maven::JUNIT_LEGACY;
     let jackson = maven::JACKSON;
+    let jackson_annotations = maven::JACKSON_ANNOTATIONS;
     let jspecify = maven::JSPECIFY;
     let ktlint_gradle_plugin = maven::KTLINT_GRADLE_PLUGIN;
     let ktlint = maven::KTLINT;
@@ -78,7 +79,7 @@ dependencies {{
   api("net.java.dev.jna:jna:{jna}")
   // Jackson is on the public surface because the alef-emitted Java records
   // include `@JsonProperty` annotations for serialization round-tripping.
-  api("com.fasterxml.jackson.core:jackson-annotations:{jackson}")
+  api("com.fasterxml.jackson.core:jackson-annotations:{jackson_annotations}")
   api("com.fasterxml.jackson.core:jackson-databind:{jackson}")
   api("com.fasterxml.jackson.datatype:jackson-datatype-jdk8:{jackson}")
   // jspecify ships the `@Nullable` / `@NonNull` annotations referenced by the

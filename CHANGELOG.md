@@ -61,6 +61,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that return opaque handles now wrap the returned pointer directly instead of
   calling non-existent `_to_json` exports, and generated error dispatch preserves
   base error class names such as `GraphQLErrorException`.
+- **alef-backend-kotlin / alef-backend-swift / alef-backend-zig**: honor FFI
+  `exclude_types` / `exclude_functions` for FFI-backed host bindings so
+  generated code does not reference C symbols or RustBridge types excluded from
+  the FFI layer. Kotlin scaffold now pins `jackson-annotations` to its published
+  `2.21` line while keeping `jackson-databind` on `2.21.3`.
 
 ## [0.16.3] - 2026-05-15
 

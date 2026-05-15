@@ -34,6 +34,50 @@ pub fn emit_error_type_pub(error: &ErrorDef, out: &mut String, imports: &mut BTr
     object_wrapper::emit_error_type_with_imports(error, out, imports)
 }
 
+fn effective_kotlin_exclude_types(config: &ResolvedCrateConfig) -> std::collections::HashSet<String> {
+    let mut exclude_types: std::collections::HashSet<String> = config
+        .ffi
+        .as_ref()
+        .map(|c| c.exclude_types.iter().cloned().collect())
+        .unwrap_or_default();
+    if let Some(kotlin) = &config.kotlin {
+        exclude_types.extend(kotlin.exclude_types.iter().cloned());
+    }
+    exclude_types
+}
+
+fn effective_kotlin_exclude_functions(config: &ResolvedCrateConfig) -> std::collections::HashSet<String> {
+    let mut exclude_functions: std::collections::HashSet<String> = config
+        .ffi
+        .as_ref()
+        .map(|c| c.exclude_functions.iter().cloned().collect())
+        .unwrap_or_default();
+    if let Some(kotlin) = &config.kotlin {
+        exclude_functions.extend(kotlin.exclude_functions.iter().cloned());
+    }
+    exclude_functions
+}
+
+fn type_ref_references_excluded(ty: &TypeRef, exclude_types: &std::collections::HashSet<String>) -> bool {
+    exclude_types.iter().any(|name| ty.references_named(name))
+}
+
+fn method_references_excluded(method: &MethodDef, exclude_types: &std::collections::HashSet<String>) -> bool {
+    type_ref_references_excluded(&method.return_type, exclude_types)
+        || method
+            .params
+            .iter()
+            .any(|param| type_ref_references_excluded(&param.ty, exclude_types))
+}
+
+fn function_references_excluded(func: &FunctionDef, exclude_types: &std::collections::HashSet<String>) -> bool {
+    type_ref_references_excluded(&func.return_type, exclude_types)
+        || func
+            .params
+            .iter()
+            .any(|param| type_ref_references_excluded(&param.ty, exclude_types))
+}
+
 /// Format a function parameter with its Kotlin type, collecting any needed imports.
 pub fn format_param_pub(p: &ParamDef, imports: &mut BTreeSet<String>) -> String {
     object_wrapper::format_param_with_imports(p, imports)
@@ -89,8 +133,15 @@ pub fn emit_jvm_client_class_with_package(
     //   * AND it has at least one non-sanitized, non-static instance method.
     // Non-opaque value types (e.g. kreuzberg `ExtractionConfig` with a
     // `default()` static) keep flowing through the Java typealias as before.
-    let is_client_type =
-        |t: &&TypeDef| t.is_opaque && !t.is_trait && t.methods.iter().any(|m| !m.sanitized && !m.is_static);
+    let exclude_types = effective_kotlin_exclude_types(config);
+    let is_client_type = |t: &&TypeDef| {
+        t.is_opaque
+            && !t.is_trait
+            && !exclude_types.contains(&t.name)
+            && t.methods
+                .iter()
+                .any(|m| !m.sanitized && !m.is_static && !method_references_excluded(m, &exclude_types))
+    };
     let client_types: Vec<&TypeDef> = api.types.iter().filter(is_client_type).collect();
     if client_types.is_empty() {
         return None;
@@ -169,7 +220,11 @@ pub fn emit_jvm_client_class_with_package(
     // therefore unused.
     let mut scan_imports: BTreeSet<String> = BTreeSet::new();
     for ty in &client_types {
-        for m in ty.methods.iter().filter(|m| !m.sanitized && !m.is_static) {
+        for m in ty
+            .methods
+            .iter()
+            .filter(|m| !m.sanitized && !m.is_static && !method_references_excluded(m, &exclude_types))
+        {
             kotlin_type_str_pub(&m.return_type, false, &mut scan_imports);
             for p in &m.params {
                 format_param_pub(p, &mut scan_imports);
@@ -184,7 +239,11 @@ pub fn emit_jvm_client_class_with_package(
     if needs_java_pkg_imports {
         let mut user_types: BTreeSet<String> = BTreeSet::new();
         for ty in &client_types {
-            for m in ty.methods.iter().filter(|m| !m.sanitized && !m.is_static) {
+            for m in ty
+                .methods
+                .iter()
+                .filter(|m| !m.sanitized && !m.is_static && !method_references_excluded(m, &exclude_types))
+            {
                 collect_user_types(&m.return_type, &mut user_types);
                 for p in &m.params {
                     collect_user_types(&p.ty, &mut user_types);
@@ -237,7 +296,11 @@ pub fn emit_jvm_client_class_with_package(
         ));
 
         let mut method_imports: BTreeSet<String> = BTreeSet::new();
-        for method in ty.methods.iter().filter(|m| !m.sanitized && !m.is_static) {
+        for method in ty
+            .methods
+            .iter()
+            .filter(|m| !m.sanitized && !m.is_static && !method_references_excluded(m, &exclude_types))
+        {
             emit_client_method(method, &mut content, &mut method_imports);
         }
 
@@ -531,16 +594,8 @@ fn generate_jvm(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
         configured_kotlin_package
     };
 
-    let exclude_functions: std::collections::HashSet<&str> = config
-        .kotlin
-        .as_ref()
-        .map(|c| c.exclude_functions.iter().map(String::as_str).collect())
-        .unwrap_or_default();
-    let mut exclude_types: std::collections::HashSet<&str> = config
-        .kotlin
-        .as_ref()
-        .map(|c| c.exclude_types.iter().map(String::as_str).collect())
-        .unwrap_or_default();
+    let exclude_functions = effective_kotlin_exclude_functions(config);
+    let mut exclude_types = effective_kotlin_exclude_types(config);
 
     // Types qualifying for a hand-written Kotlin wrapper class (see
     // `emit_jvm_client_class`) are opaque handles with at least one
@@ -549,13 +604,20 @@ fn generate_jvm(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
     // alias in the same package and `compileKotlin` would fail with
     // `Redeclaration: DefaultClient`. Non-opaque value types (e.g. `Config`
     // structs with only a `default()` static) keep flowing through the alias.
-    let client_type_names: std::collections::HashSet<&str> = api
+    let client_type_names: std::collections::HashSet<String> = api
         .types
         .iter()
-        .filter(|t| t.is_opaque && !t.is_trait && t.methods.iter().any(|m| !m.sanitized && !m.is_static))
-        .map(|t| t.name.as_str())
+        .filter(|t| {
+            t.is_opaque
+                && !t.is_trait
+                && !exclude_types.contains(&t.name)
+                && t.methods
+                    .iter()
+                    .any(|m| !m.sanitized && !m.is_static && !method_references_excluded(m, &exclude_types))
+        })
+        .map(|t| t.name.clone())
         .collect();
-    exclude_types.extend(client_type_names.iter().copied());
+    exclude_types.extend(client_type_names.iter().cloned());
 
     let configured_trait_bridges: std::collections::HashSet<&str> = config
         .trait_bridges
@@ -567,7 +629,14 @@ fn generate_jvm(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
     let mut imports: BTreeSet<String> = BTreeSet::new();
     let mut body = String::new();
 
-    typealiases::emit_typealiases(api, &java_package, &exclude_types, &configured_trait_bridges, &mut body);
+    let exclude_type_names: std::collections::HashSet<&str> = exclude_types.iter().map(String::as_str).collect();
+    typealiases::emit_typealiases(
+        api,
+        &java_package,
+        &exclude_type_names,
+        &configured_trait_bridges,
+        &mut body,
+    );
 
     // Functions whose signature involves a trait type are excluded — the Java
     // facade handles trait registration via a separate trait-bridge interface
@@ -593,7 +662,11 @@ fn generate_jvm(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
     let visible_functions: Vec<&FunctionDef> = api
         .functions
         .iter()
-        .filter(|f| !exclude_functions.contains(f.name.as_str()) && !function_uses_trait(f))
+        .filter(|f| {
+            !exclude_functions.contains(&f.name)
+                && !function_uses_trait(f)
+                && !function_references_excluded(f, &exclude_types)
+        })
         .collect();
 
     if !visible_functions.is_empty() {
@@ -613,7 +686,7 @@ fn generate_jvm(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
         ));
         body.push('\n');
         for f in &visible_functions {
-            object_wrapper::emit_function(f, &mut body, &mut imports, &java_package, &client_type_names);
+            object_wrapper::emit_function(f, &mut body, &mut imports, &java_package, &exclude_type_names);
             body.push('\n');
         }
         body.push_str("}\n");

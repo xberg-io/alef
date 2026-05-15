@@ -241,6 +241,9 @@ pub mod maven {
     // renovate: datasource=maven depName=com.fasterxml.jackson.core:jackson-databind
     pub const JACKSON: &str = "2.21.3";
 
+    // renovate: datasource=maven depName=com.fasterxml.jackson.core:jackson-annotations
+    pub const JACKSON_ANNOTATIONS: &str = "2.21";
+
     // renovate: datasource=maven depName=com.fasterxml.jackson.core:jackson-databind
     pub const JACKSON_E2E: &str = "2.18.2";
 

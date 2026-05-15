@@ -12,6 +12,18 @@ use crate::type_map::SwiftMapper;
 
 pub struct SwiftBackend;
 
+fn effective_exclude_types(config: &ResolvedCrateConfig) -> std::collections::HashSet<String> {
+    let mut exclude_types: std::collections::HashSet<String> = config
+        .ffi
+        .as_ref()
+        .map(|c| c.exclude_types.iter().cloned().collect())
+        .unwrap_or_default();
+    if let Some(swift) = &config.swift {
+        exclude_types.extend(swift.exclude_types.iter().cloned());
+    }
+    exclude_types
+}
+
 impl Backend for SwiftBackend {
     fn name(&self) -> &str {
         "swift"
@@ -40,11 +52,7 @@ impl Backend for SwiftBackend {
         // Function-wrapper emission is disabled in this phase (see comment below);
         // `swift.exclude_functions` therefore has no effect on the host wrapper but
         // is still consumed by the Rust-side bridge crate via gen_rust_crate::emit.
-        let exclude_types: std::collections::HashSet<&str> = config
-            .swift
-            .as_ref()
-            .map(|c| c.exclude_types.iter().map(String::as_str).collect())
-            .unwrap_or_default();
+        let exclude_types = effective_exclude_types(config);
 
         let mut imports: BTreeSet<String> = BTreeSet::new();
         // Foundation is always included — Codable, Data, URL all live there.
@@ -80,7 +88,7 @@ impl Backend for SwiftBackend {
         for ty in api
             .types
             .iter()
-            .filter(|t| !t.is_trait && !exclude_types.contains(t.name.as_str()))
+            .filter(|t| !t.is_trait && !exclude_types.contains(&t.name))
             .filter(|t| t.methods.is_empty() || !t.is_opaque && t.has_serde)
             .filter(|t| {
                 // Streaming item types with serde + fields are emitted as Codable structs.
@@ -104,7 +112,7 @@ impl Backend for SwiftBackend {
         for ty in api
             .types
             .iter()
-            .filter(|t| !t.is_trait && !exclude_types.contains(t.name.as_str()))
+            .filter(|t| !t.is_trait && !exclude_types.contains(&t.name))
             .filter(|t| streaming_item_types.contains(t.name.as_str()) && t.has_serde && !t.fields.is_empty())
         {
             emit_doc_comment(&ty.doc, "", &mut body);
@@ -116,7 +124,7 @@ impl Backend for SwiftBackend {
         // They are NOT typealiased to RustBridge since swift-bridge's automatic generation
         // is unreliable (not all enum types are exposed). Instead, we emit them directly
         // as Swift enums that mirror the unit variants from the Rust bridge enum wrapper.
-        for en in api.enums.iter().filter(|e| !exclude_types.contains(e.name.as_str())) {
+        for en in api.enums.iter().filter(|e| !exclude_types.contains(&e.name)) {
             emit_enum(en, &mut body, &mapper);
             body.push('\n');
         }
@@ -141,7 +149,7 @@ impl Backend for SwiftBackend {
             .unwrap_or_default();
         for ty in api.types.iter().filter(|t| {
             !t.is_trait
-                && !exclude_types.contains(t.name.as_str())
+                && !exclude_types.contains(&t.name)
                 && !t.methods.is_empty()
                 && (t.is_opaque || !t.has_serde)
                 && client_constructor_types.contains(t.name.as_str())
@@ -778,7 +786,7 @@ fn emit_convenience_wrappers(api: &ApiSurface, out: &mut String) {
 /// These forwarders re-export them as `public func chatCompletionRequestFromJson(_ json: String)
 /// throws -> TypeName` in the main `LiterLlm` module so generated e2e tests work without
 /// the `RustBridge.` prefix.
-fn emit_from_json_forwarders(api: &ApiSurface, exclude_types: &std::collections::HashSet<&str>, out: &mut String) {
+fn emit_from_json_forwarders(api: &ApiSurface, exclude_types: &std::collections::HashSet<String>, out: &mut String) {
     use heck::AsSnakeCase;
 
     // Mirror the filter used by `gen_rust_crate::collect_serde_param_types`:
@@ -794,7 +802,7 @@ fn emit_from_json_forwarders(api: &ApiSurface, exclude_types: &std::collections:
         .types
         .iter()
         .filter(|t| !t.is_trait && !t.is_opaque && t.has_serde)
-        .filter(|t| !exclude_types.contains(t.name.as_str()))
+        .filter(|t| !exclude_types.contains(&t.name))
         .filter(|t| !e2e_covered_set.contains(t.name.as_str()))
         .filter(|ty| {
             let name = ty.name.as_str();
