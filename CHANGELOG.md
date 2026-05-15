@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-extract**: reverted the `Option<Option<T>>` → `Option<T>` IR flatten
+  introduced in 0.16.0. The flatten produced cross-backend type mismatches
+  (WASM and other passthrough backends saw `expected Option<Option<usize>>,
+  found Option<usize>` against the core `ConversionOptionsUpdate` shape).
+  Nested optionals are now preserved in IR; per-backend renderers decide
+  how to surface them.
+- **alef-backend-dart**: `Option<Option<T>>` core fields now render as a
+  single `Option<T>` in the FRB mirror struct (FRB rejects nested optionals
+  at codegen time). The core→mirror conversion injects `.flatten()` and the
+  mirror→core conversion injects `.map(Some)` so the bridge round-trips
+  consistently. The "no change" vs "explicit clear" distinction is
+  collapsed to `None` on the dart side; callers needing both states must
+  model them via a dedicated enum.
+
 ## [0.16.0] - 2026-05-14
 
 ### Added

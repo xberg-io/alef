@@ -696,18 +696,29 @@ fn field_from_expr(field: &FieldDef, source_crate_name: &str) -> String {
             name,
             field.optional,
         ),
-        TypeRef::Optional(inner) => match inner.as_ref() {
-            TypeRef::Named(inner_name) => {
-                format!("v.{name}.map({inner_name}::from)")
+        TypeRef::Optional(inner) => {
+            // Nested-optional field. Core is `Option<Option<T>>` (the outer Option was
+            // stripped into `field.optional`, leaving `field.ty = Optional(T)`). The
+            // mirror flattens to a single `Option<T>` per `frb_rust_type`, so we must
+            // flatten the core value before converting elements. When `!field.optional`
+            // the existing direct map shape applies (no outer Option around v).
+            let flatten = if field.optional { ".flatten()" } else { "" };
+            match inner.as_ref() {
+                TypeRef::Named(inner_name) => {
+                    format!("v.{name}{flatten}.map({inner_name}::from)")
+                }
+                TypeRef::String | TypeRef::Char => {
+                    format!("v.{name}{flatten}.map(|s| s.into())")
+                }
+                TypeRef::Path => {
+                    format!("v.{name}{flatten}.map(|p| p.to_string_lossy().into_owned())")
+                }
+                TypeRef::Primitive(_) => {
+                    format!("v.{name}{flatten}.map(|x| x as _)")
+                }
+                _ => format!("v.{name}{flatten}"),
             }
-            TypeRef::String | TypeRef::Char => {
-                format!("v.{name}.map(|s| s.into())")
-            }
-            TypeRef::Path => {
-                format!("v.{name}.map(|p| p.to_string_lossy().into_owned())")
-            }
-            _ => format!("v.{name}"),
-        },
+        }
         TypeRef::Map(k, v_ty) => {
             // Maps: may need iter-collect to convert BTreeMap/AHashMap → HashMap,
             // and Value → String for value types.
@@ -1135,12 +1146,21 @@ fn field_from_expr_to_core(field: &FieldDef, _source_crate_name: &str) -> String
                 }
             }
         }
-        TypeRef::Optional(inner) => match inner.as_ref() {
-            TypeRef::Named(_) => format!("v.{name}.map(Into::into)"),
-            TypeRef::String | TypeRef::Char => format!("v.{name}.map(Into::into)"),
-            TypeRef::Path => format!("v.{name}.map(std::path::PathBuf::from)"),
-            _ => format!("v.{name}"),
-        },
+        TypeRef::Optional(inner) => {
+            // Inverse of `field_from_expr` Optional arm: mirror's flattened `Option<T>`
+            // → core's nested `Option<Option<T>>`. Wrap the per-element conversion in
+            // `Some(...)` so `Some(x_mirror) → Some(Some(x_core))` and `None → None`
+            // (collapsing the "no change" vs "explicit clear" distinction; see the
+            // `frb_rust_type` comment for the trade-off).
+            let wrap_some = if field.optional { ".map(Some)" } else { "" };
+            match inner.as_ref() {
+                TypeRef::Named(_) => format!("v.{name}.map(Into::into){wrap_some}"),
+                TypeRef::String | TypeRef::Char => format!("v.{name}.map(Into::into){wrap_some}"),
+                TypeRef::Path => format!("v.{name}.map(std::path::PathBuf::from){wrap_some}"),
+                TypeRef::Primitive(_) => format!("v.{name}.map(|x| x as _){wrap_some}"),
+                _ => format!("v.{name}{wrap_some}"),
+            }
+        }
         TypeRef::Primitive(_) => {
             if let Some(nw) = &field.newtype_wrapper {
                 if field.optional {

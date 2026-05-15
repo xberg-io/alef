@@ -7,7 +7,15 @@ use alef_core::ir::{ParamDef, PrimitiveType, TypeRef};
 /// because Dart's native `int` is 64-bit signed. Producers of u64-bearing APIs
 /// who need the full range should pre-truncate or document the contract.
 pub(crate) fn frb_rust_type(ty: &TypeRef, optional: bool) -> String {
-    let inner = frb_rust_type_inner(ty);
+    // FRB rejects nested optionals (panics during codegen with "Nested optionals without
+    // indirection are not supported"). When a field is `Option<Option<T>>` in core, the
+    // IR carries it as `optional=true` + `ty=Optional(T)`. Render the mirror field as
+    // a single `Option<T>` and let the conversion helpers (`field_from_expr` /
+    // `field_from_expr_to_core`) inject `.flatten()` and `.map(Some)` to bridge the
+    // shape gap. The semantic loss: callers can no longer distinguish "no change" from
+    // "explicit clear" on the dart side — both collapse to None.
+    let effective_ty = unwrap_nested_optional(ty, optional);
+    let inner = frb_rust_type_inner(effective_ty);
     if optional { format!("Option<{inner}>") } else { inner }
 }
 
@@ -19,8 +27,20 @@ pub(crate) fn frb_rust_type_excluded_aware(
     optional: bool,
     excluded_type_paths: &std::collections::HashMap<String, String>,
 ) -> String {
-    let inner = frb_rust_type_inner_excluded_aware(ty, excluded_type_paths);
+    let effective_ty = unwrap_nested_optional(ty, optional);
+    let inner = frb_rust_type_inner_excluded_aware(effective_ty, excluded_type_paths);
     if optional { format!("Option<{inner}>") } else { inner }
+}
+
+/// When the field is optional AND its inner IR type is also `Optional`, return the
+/// inner-of-inner; otherwise return the type unchanged. Used to flatten the mirror
+/// representation of `Option<Option<T>>` core fields.
+fn unwrap_nested_optional(ty: &TypeRef, optional: bool) -> &TypeRef {
+    if optional && let TypeRef::Optional(inner) = ty {
+        inner.as_ref()
+    } else {
+        ty
+    }
 }
 
 pub(crate) fn frb_rust_type_inner(ty: &TypeRef) -> String {
@@ -100,7 +120,8 @@ pub(crate) fn frb_rust_type_with_source(
     source_crate: &str,
     type_paths: &std::collections::HashMap<String, String>,
 ) -> String {
-    let inner = frb_rust_type_inner_with_source(ty, source_crate, type_paths);
+    let effective_ty = unwrap_nested_optional(ty, optional);
+    let inner = frb_rust_type_inner_with_source(effective_ty, source_crate, type_paths);
     if optional { format!("Option<{inner}>") } else { inner }
 }
 
