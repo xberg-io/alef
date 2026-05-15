@@ -30,6 +30,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tests. Whitespace-trimming Jinja blocks in `python/http_test.jinja` could
   concatenate adjacent statements such as `_headers = {}` and `_req = ...`,
   producing invalid Python syntax.
+- **alef-e2e (dart)**: import path for the FRB bridge now matches the
+  emitted directory layout. Tests previously imported
+  `package:{lib_name}/src/{lib_name}_bridge_generated/frb_generated.dart`
+  which doesn't exist — the FRB dir uses the snake_cased crate name (e.g.
+  `html_to_markdown_rs_bridge_generated`), not the pubspec `name`. Now
+  imports `package:{lib_name}/src/{module_name}_bridge_generated/frb_generated.dart`.
+- **alef-e2e (dart)**: dropped unconditional `dart:io` import from
+  generated test files (only emitted when HTTP fixtures or chdir-required
+  fixtures actually use it) and switched count-style assertions
+  (`count_equals`, `count_min`, `min_length`, `max_length`) from
+  unconditional `?.length ?? 0` to plain `.length` when the IR marks the
+  receiver as non-optional. Clears `unused_import` and
+  `invalid_null_aware_operator` warnings on the generated suite.
 - **alef-backend-dart**: the FRB bridge class name now honors
   `[crates.dart] lib_name` instead of always deriving from the crate name.
   Previously the dart backend's local `dart_bridge_class_name` helper used
