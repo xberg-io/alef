@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.16.6 - Unreleased]
 
+### Fixed
+
+- **alef-codegen (ruby kwargs constructor)**: Named enum fields with a resolved
+  `EnumVariant` typed default now fall through to the explicit-default branch
+  (`unwrap_or(EnumType::Variant)`) instead of being emitted as required kwargs
+  via `ok_or_else(... "missing required field")`. The previous behaviour
+  forced callers to pass every enum-typed config field explicitly even when
+  the parent struct's `impl Default` already specified a concrete variant —
+  e.g. kreuzberg's `ExtractionConfig.new` (Ruby) required `output_format:` on
+  every construction despite `#[serde(default)] pub output_format: OutputFormat`
+  on the Rust side. Magnus-wrapped *struct* fields (which never implement
+  `Default`) keep their required-kwarg behaviour. (`crates/alef-codegen/src/config_gen.rs`)
+
 
 ## [0.16.5] - 2026-05-15
 
