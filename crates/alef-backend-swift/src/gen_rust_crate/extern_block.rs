@@ -182,7 +182,10 @@ pub(crate) fn emit_extern_block_for_enum(en: &EnumDef) -> String {
 /// The Swift-side name is camelCased: `typeNameMethodName`.
 ///
 /// Skips sanitized methods (their signatures contain types that cannot be bridged).
-pub(crate) fn emit_extern_block_for_type_methods(ty: &TypeDef) -> Option<String> {
+pub(crate) fn emit_extern_block_for_type_methods(
+    ty: &TypeDef,
+    handle_returned_types: &std::collections::HashSet<String>,
+) -> Option<String> {
     // Static / associated functions (e.g. `T::default()`) can't be bridged via
     // `client: &T` shims — see the matching filter in `wrappers::emit_type_method_shims`.
     let bridgeable: Vec<_> = ty.methods.iter().filter(|m| !m.sanitized && !m.is_static).collect();
@@ -220,14 +223,14 @@ pub(crate) fn emit_extern_block_for_type_methods(ty: &TypeDef) -> Option<String>
         let params_str = params.join(", ");
 
         let return_ty = if method.error_type.is_some() {
-            let ok_ty = bridge_type(&method.return_type);
+            let ok_ty = bridge_type_with_handles(&method.return_type, handle_returned_types);
             if matches!(method.return_type, TypeRef::Unit) {
                 "Result<(), String>".to_string()
             } else {
                 format!("Result<{ok_ty}, String>")
             }
         } else {
-            bridge_type(&method.return_type)
+            bridge_type_with_handles(&method.return_type, handle_returned_types)
         };
 
         // Emit swift_name attribute when the generated Swift name differs from fn_name.

@@ -9,7 +9,8 @@
 
 use crate::gen_rust_crate::default_construction::{emit_default_construction_body, emit_direct_field_inits};
 use crate::gen_rust_crate::type_bridge::{
-    bridge_type, bridge_type_enum_aware_ref, is_enum_named, is_vec_of_enum, needs_json_bridge, swift_bridge_rust_type,
+    bridge_type, bridge_type_enum_aware_ref, is_enum_named, is_vec_of_enum, needs_json_bridge,
+    needs_json_bridge_with_handles, swift_bridge_rust_type,
 };
 use alef_codegen::generators::type_paths::resolve_type_path;
 use alef_core::ir::{CoreWrapper, FieldDef, ReceiverKind, TypeDef, TypeRef};
@@ -781,6 +782,7 @@ pub(crate) fn emit_type_method_shims(
     ty: &TypeDef,
     _source_crate: &str,
     _type_paths: &HashMap<String, String>,
+    handle_returned_types: &std::collections::HashSet<String>,
 ) -> String {
     let type_snake = ty.name.to_snake_case();
     let type_name = &ty.name;
@@ -847,14 +849,20 @@ pub(crate) fn emit_type_method_shims(
         let params_str = params_vec.join(", ");
 
         let return_ty = if method.error_type.is_some() {
-            let ok_ty = bridge_type(&method.return_type);
+            let ok_ty = crate::gen_rust_crate::type_bridge::bridge_type_with_handles(
+                &method.return_type,
+                handle_returned_types,
+            );
             if matches!(method.return_type, TypeRef::Unit) {
                 "Result<(), String>".to_string()
             } else {
                 format!("Result<{ok_ty}, String>")
             }
         } else {
-            bridge_type(&method.return_type)
+            crate::gen_rust_crate::type_bridge::bridge_type_with_handles(
+                &method.return_type,
+                handle_returned_types,
+            )
         };
 
         // Build call args for each method param (excluding the receiver).
@@ -862,6 +870,10 @@ pub(crate) fn emit_type_method_shims(
         // - Named newtype  → `arg.0` (unwrap to inner source-crate type)
         // - Optional<Named> → `arg.map(|v| v.0)` (preserve None, unwrap Some)
         // - String           → `&arg` (the underlying trait method usually takes `&str`)
+        // - Path             → `PathBuf::from(arg)` (bridge delivers String; core takes PathBuf)
+        // - Bytes+is_ref     → `&arg` (bridge delivers Vec<u8>; core takes &[u8])
+        // - Vec<String>+is_ref → `&arg.iter().map(|s| s.as_str()).collect::<Vec<_>>()` (→ &[&str])
+        // - Named+is_ref     → `&arg.0` (borrow the unwrapped inner value)
         // - JSON-bridged     → deserialize from the bridge String
         // - Other primitives → pass through verbatim
         let call_args: Vec<String> = method
@@ -879,8 +891,16 @@ pub(crate) fn emit_type_method_shims(
                     }
                 }
                 match &p.ty {
+                    TypeRef::Named(_) if p.is_ref => format!("&{name}.0"),
                     TypeRef::Named(_) => format!("{name}.0"),
-                    TypeRef::String | TypeRef::Path => format!("&{name}"),
+                    TypeRef::String => format!("&{name}"),
+                    TypeRef::Path => format!("::std::path::PathBuf::from({name})"),
+                    TypeRef::Bytes if p.is_ref => format!("&{name}"),
+                    TypeRef::Vec(inner) if p.is_ref && matches!(inner.as_ref(), TypeRef::String) => {
+                        // Core takes `&[&str]`; swift-bridge delivers `Vec<String>`.
+                        // Borrow the temporary Vec<&str> into &[&str].
+                        format!("&{name}.iter().map(|s| s.as_str()).collect::<Vec<_>>()")
+                    }
                     _ => name,
                 }
             })
@@ -901,7 +921,10 @@ pub(crate) fn emit_type_method_shims(
         let method_call = format!("{inner_access}.{method_snake}({call_args_str})");
 
         // Determine return wrapping: Named return types get wrapped in their newtype.
-        let json_wrap_ok = needs_json_bridge(&method.return_type);
+        // Use the handle-aware variant so that Option<Named(T)> where T is an opaque
+        // handle type does NOT collapse to JSON String — the handle is returned directly
+        // as a swift-bridge opaque and requires no serde::Serialize impl.
+        let json_wrap_ok = needs_json_bridge_with_handles(&method.return_type, handle_returned_types);
         let wrap_return = |source: String| -> String {
             if json_wrap_ok {
                 return format!("serde_json::to_string(&({source})).expect(\"serializable return\")");

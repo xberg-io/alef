@@ -1394,3 +1394,331 @@ fn no_streaming_adapters_emits_no_extra_blocks() {
         lib.content
     );
 }
+
+fn make_simple_method(name: &str, params: Vec<ParamDef>, return_type: TypeRef) -> MethodDef {
+    MethodDef {
+        name: name.to_string(),
+        params,
+        return_type,
+        is_async: false,
+        is_static: false,
+        error_type: None,
+        doc: String::new(),
+        receiver: Some(ReceiverKind::Ref),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    }
+}
+
+fn make_opaque_type(name: &str, methods: Vec<MethodDef>) -> TypeDef {
+    TypeDef {
+        name: name.to_string(),
+        rust_path: format!("demo::{name}"),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods,
+        is_opaque: true,
+        is_clone: false,
+        is_copy: false,
+        doc: String::new(),
+        cfg: None,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+    }
+}
+
+/// `Option<Named(T)>` return types on opaque-type methods must NOT be wrapped with
+/// `serde_json::to_string` — they should pass through as `Option<T>` using `.map(T)`.
+/// This is the Class A fix: capsule_types / handle-returned-type passthrough.
+#[test]
+fn option_named_return_on_method_uses_map_not_serde_json() {
+    // Build a Node type with a `parent()` method returning Option<Node>.
+    let parent_method = make_simple_method(
+        "parent",
+        vec![],
+        TypeRef::Optional(Box::new(TypeRef::Named("Node".to_string()))),
+    );
+    let child_method = {
+        let m = make_simple_method(
+            "child",
+            vec![ParamDef {
+                name: "index".to_string(),
+                ty: TypeRef::Primitive(PrimitiveType::U32),
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            }],
+            TypeRef::Optional(Box::new(TypeRef::Named("Node".to_string()))),
+        );
+        m
+    };
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![make_opaque_type("Node", vec![parent_method, child_method])],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
+    let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+    // Must use .map(Node) not serde_json::to_string for Option<Node> returns.
+    assert!(
+        lib.content.contains(".map(Node)"),
+        "Option<Named> return must use .map(T) not serde_json; got:\n{}",
+        lib.content
+    );
+    assert!(
+        !lib.content.contains("serde_json::to_string(&(client.0.parent()))"),
+        "parent() must not serialize Option<Node> via serde_json; got:\n{}",
+        lib.content
+    );
+    assert!(
+        !lib.content.contains("serde_json::to_string(&(client.0.child("),
+        "child() must not serialize Option<Node> via serde_json; got:\n{}",
+        lib.content
+    );
+    // The extern block must declare Option<Node> not String for these methods.
+    assert!(
+        lib.content.contains("fn node_parent(client: &Node) -> Option<Node>"),
+        "extern block must declare node_parent -> Option<Node>, not String; got:\n{}",
+        lib.content
+    );
+}
+
+/// Method with a `Bytes` param where `is_ref = true` must pass `&name` (not `name`)
+/// so the core method receives `&[u8]` instead of `Vec<u8>`.
+/// This is Class B bug 1.
+#[test]
+fn bytes_ref_param_on_method_passes_borrowed_slice() {
+    let parse_bytes_method = {
+        let mut m = make_simple_method(
+            "parse_bytes",
+            vec![ParamDef {
+                name: "source".to_string(),
+                ty: TypeRef::Bytes,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: true,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            }],
+            TypeRef::Optional(Box::new(TypeRef::Named("Tree".to_string()))),
+        );
+        m.receiver = Some(ReceiverKind::RefMut);
+        m
+    };
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![
+            make_opaque_type("Tree", vec![]),
+            make_opaque_type("Parser", vec![parse_bytes_method]),
+        ],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
+    let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+    assert!(
+        lib.content.contains("client.0.parse_bytes(&source)"),
+        "Bytes+is_ref param must pass &source; got:\n{}",
+        lib.content
+    );
+    assert!(
+        !lib.content.contains("client.0.parse_bytes(source)"),
+        "Bytes+is_ref param must NOT pass owned source; got:\n{}",
+        lib.content
+    );
+}
+
+/// Method with a `Path` param (not is_ref) must call `PathBuf::from(name)` not `&name`.
+/// This is Class B bug 2.
+#[test]
+fn path_param_on_method_converts_to_pathbuf() {
+    let add_dir_method = make_simple_method(
+        "add_extra_libs_dir",
+        vec![ParamDef {
+            name: "dir".to_string(),
+            ty: TypeRef::Path,
+            optional: false,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: false,
+            is_mut: false,
+            newtype_wrapper: None,
+            original_type: None,
+        }],
+        TypeRef::Unit,
+    );
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![make_opaque_type("Registry", vec![add_dir_method])],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
+    let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+    assert!(
+        lib.content.contains("::std::path::PathBuf::from(dir)"),
+        "Path param must convert via PathBuf::from; got:\n{}",
+        lib.content
+    );
+    assert!(
+        !lib.content.contains("add_extra_libs_dir(&dir)"),
+        "Path param must NOT pass &dir (that yields &String not PathBuf); got:\n{}",
+        lib.content
+    );
+}
+
+/// Method with a `Named` param where `is_ref = true` must pass `&name.0` not `name.0`.
+/// This is Class B bug 3.
+#[test]
+fn named_ref_param_on_method_passes_borrow_of_inner() {
+    let process_method = {
+        let mut m = make_simple_method(
+            "process",
+            vec![
+                ParamDef {
+                    name: "source".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: true,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                },
+                ParamDef {
+                    name: "config".to_string(),
+                    ty: TypeRef::Named("ProcessConfig".to_string()),
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: true,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                },
+            ],
+            TypeRef::Named("ProcessResult".to_string()),
+        );
+        m.error_type = Some("Error".to_string());
+        m
+    };
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![
+            make_type("ProcessConfig", vec![]),
+            make_type("ProcessResult", vec![]),
+            make_opaque_type("Registry", vec![process_method]),
+        ],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
+    let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+    assert!(
+        lib.content.contains("&config.0"),
+        "Named+is_ref param must pass &config.0; got:\n{}",
+        lib.content
+    );
+    assert!(
+        !lib.content.contains(".process(&source, config.0)"),
+        "Named+is_ref param must NOT pass owned config.0; got:\n{}",
+        lib.content
+    );
+}
+
+/// Method with a `Vec<String>` param where `is_ref = true` must emit
+/// `&name.iter().map(|s| s.as_str()).collect::<Vec<_>>()` so the core
+/// method receives `&[&str]` instead of `Vec<String>`.
+/// This is Class B bug 4.
+#[test]
+fn vec_string_ref_param_on_method_converts_to_str_slice() {
+    let ensure_languages_method = make_simple_method(
+        "ensure_languages",
+        vec![ParamDef {
+            name: "names".to_string(),
+            ty: TypeRef::Vec(Box::new(TypeRef::String)),
+            optional: false,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: true,
+            is_mut: false,
+            newtype_wrapper: None,
+            original_type: None,
+        }],
+        TypeRef::Unit,
+    );
+
+    let mut m = ensure_languages_method;
+    m.error_type = Some("Error".to_string());
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![make_opaque_type("Downloader", vec![m])],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
+    let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+    assert!(
+        lib.content.contains("&names.iter().map(|s| s.as_str()).collect::<Vec<_>>()"),
+        "Vec<String>+is_ref param must convert to &[&str]; got:\n{}",
+        lib.content
+    );
+    assert!(
+        !lib.content.contains("ensure_languages(names)"),
+        "Vec<String>+is_ref must NOT pass owned names directly; got:\n{}",
+        lib.content
+    );
+}

@@ -56,6 +56,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Default`) keep their required-kwarg behaviour. (`crates/alef-codegen/src/config_gen.rs`)
 
 
+- **alef-backend-swift (capsule/handle passthrough for Option<Named(T)> returns)**:
+  method shims and extern-block declarations for `Option<Named(T)>` return types
+  now route through the handle-aware path (`bridge_type_with_handles`,
+  `needs_json_bridge_with_handles`) instead of unconditionally falling back to
+  `serde_json::to_string`. When `T` is a known opaque handle type (returned by any
+  public function/method in the API surface), the shim emits `(call).map(T)` and
+  the extern block declares `Option<T>` — not `String`. This fixes `E0277` compile
+  errors in binding crates whose opaque types (e.g. `Tree`, `Node`) do not
+  implement `serde::Serialize`. (`crates/alef-backend-swift/src/gen_rust_crate/extern_block.rs`,
+  `crates/alef-backend-swift/src/gen_rust_crate/wrappers.rs`)
+
+- **alef-backend-swift (arg conversions in method shims)**: method shims now
+  insert correct conversions for four parameter patterns that previously generated
+  code that failed to compile against the core crate:
+  - `Bytes + is_ref` (`&[u8]` receiver): emit `&name` instead of `name`
+  - `Path` (non-ref, `PathBuf` receiver): emit `::std::path::PathBuf::from(name)`
+    instead of `&name`
+  - `Named + is_ref` (`&T` receiver): emit `&name.0` instead of `name.0`
+  - `Vec<String> + is_ref` (`&[&str]` receiver): emit
+    `&name.iter().map(|s| s.as_str()).collect::<Vec<_>>()` instead of `name`
+  (`crates/alef-backend-swift/src/gen_rust_crate/wrappers.rs`)
+
 - **alef-backend-zig (opaque handle emission)**: opaque handle types with no
   instance methods (e.g. a bare `Language` newtype returned by `get_language()`)
   were silently excluded from struct emission because the loop filtered on
