@@ -27,6 +27,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-backend-dart**: emit `.into()` on `String` / `Vec<String>` / `HashMap<String, _>`
+  field conversions in generated `From` impls (both `core → mirror` and
+  `mirror → core`). The IR collapses wrapped string types (`Box<str>`,
+  `Cow<'_, str>`, `Arc<str>`) into `TypeRef::String` and only tracks `Cow`
+  on `core_wrapper`, so the previous identity emit (`v.field`, `(k, v)`)
+  failed to compile when core fields used unwrapped boxed/arc string
+  variants (rustc E0277: `FromIterator<(Box<str>, Box<str>)>` is not
+  implemented for `HashMap<String, String>`). The crate-level
+  `#![allow(clippy::useless_conversion)]` was extended to absorb the
+  no-op `String → String` case. Surfaced by kreuzcrawl's
+  `DownloadedDocument.headers: HashMap<Box<str>, Box<str>>` field
+  breaking `cargo clippy -p kreuzcrawl-dart`.
 - **alef-e2e (zig)**: `not_contains` assertions with a plural `values: [...]`
   list now emit one `std.mem.indexOf` check per needle. Previously only
   `value` (singular) was emitted; fixtures using `values` (e.g. XSS edge
@@ -42,6 +54,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   enum fields. Magnus now converts `Option<&str>` method results to owned
   `Option<String>`, only treats exact `self.inner` expressions as already
   `Arc`-wrapped, and keeps `TypeRef::Bytes` enum payloads as `Vec<u8>`.
+- **alef-scaffold (elixir)**: normalize generated external `elixirc_paths`
+  entries so leading slashes in explicit output paths do not produce
+  `../..//crates/...` paths that Mix rejects during compilation.
 
 ## [0.16.2] - 2026-05-15
 

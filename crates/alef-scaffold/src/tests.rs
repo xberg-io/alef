@@ -786,6 +786,33 @@ fn test_scaffold_elixir_cargo_lib_name_no_path() {
 }
 
 #[test]
+fn test_scaffold_elixir_elixirc_paths_normalizes_leading_slash() {
+    let config = test_config_from_toml(
+        r#"
+[crates.output]
+elixir = "/crates/my-lib-elixir/src/"
+"#,
+    );
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Elixir]).unwrap();
+    let files = language_files(&all_files);
+    let mix_exs = files.iter().find(|f| f.path.ends_with("mix.exs")).unwrap();
+
+    assert!(
+        mix_exs
+            .content
+            .contains(r#"elixirc_paths: ["lib", "../../crates/my-lib-elixir/src"],"#),
+        "content: {}",
+        mix_exs.content
+    );
+    assert!(
+        !mix_exs.content.contains("../..//crates"),
+        "content: {}",
+        mix_exs.content
+    );
+}
+
+#[test]
 fn test_scaffold_language_level_extra_deps_override_crate_level() {
     let mut config = test_config();
     // Crate-level dep with version "1.0"

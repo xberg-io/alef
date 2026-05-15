@@ -118,7 +118,8 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
             let out = std::path::Path::new(elixir_out_str.trim_end_matches('/'));
             // Count pkg_dir depth and build a relative path.
             let pkg_depth = pkg.components().count();
-            let relative = format!("{}/{}", "../".repeat(pkg_depth), out.display());
+            let out_path = out.display().to_string();
+            let relative = format!("{}{}", "../".repeat(pkg_depth), out_path.trim_start_matches('/'));
             format!("\n      elixirc_paths: [\"lib\", \"{relative}\"],")
         } else {
             String::new()
