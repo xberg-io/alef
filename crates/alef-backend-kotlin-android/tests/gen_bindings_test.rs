@@ -495,3 +495,190 @@ fn handle_only_opaque_returns_wrapper_class_and_accepts_wrapper_params() {
         "wrapper close() must call nativeFreeCrawlEngineHandle(handle), got:\n{handle_content}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Bug 5 regression: optional params must get Kotlin default values so that
+// e2e callers that only pass `apiKey` and `baseUrl` still compile.
+// ---------------------------------------------------------------------------
+
+fn make_optional_params_api() -> ApiSurface {
+    // A top-level `create_client` with three optional params (the liter-llm shape):
+    //   create_client(api_key: String, base_url: String, timeout_secs: Option<u64>,
+    //                 max_retries: Option<u32>, model_hint: Option<String>) -> DefaultClient
+    let chat_method = MethodDef {
+        name: "chat".into(),
+        params: vec![],
+        return_type: TypeRef::String,
+        is_async: true,
+        is_static: false,
+        error_type: None,
+        doc: String::new(),
+        receiver: None,
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+    let client_type = TypeDef {
+        name: "DefaultClient".into(),
+        rust_path: "demo::DefaultClient".into(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![chat_method],
+        is_opaque: true,
+        is_clone: false,
+        is_copy: false,
+        doc: String::new(),
+        cfg: None,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+    use alef_core::ir::PrimitiveType;
+    let create_client_fn = FunctionDef {
+        name: "create_client".into(),
+        rust_path: "demo::create_client".into(),
+        original_rust_path: String::new(),
+        params: vec![
+            ParamDef {
+                name: "api_key".into(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            },
+            ParamDef {
+                name: "base_url".into(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            },
+            // timeout_secs: Option<u64> → mapped as Long in JNI, optional=true
+            ParamDef {
+                name: "timeout_secs".into(),
+                ty: TypeRef::Primitive(PrimitiveType::U64),
+                optional: true,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            },
+            // max_retries: Option<u32> → mapped as Int in JNI, optional=true
+            ParamDef {
+                name: "max_retries".into(),
+                ty: TypeRef::Primitive(PrimitiveType::U32),
+                optional: true,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            },
+            // model_hint: Option<String> → mapped as String in JNI, optional=true
+            ParamDef {
+                name: "model_hint".into(),
+                ty: TypeRef::String,
+                optional: true,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            },
+        ],
+        return_type: TypeRef::Named("DefaultClient".into()),
+        is_async: false,
+        error_type: None,
+        doc: String::new(),
+        cfg: None,
+        sanitized: false,
+        return_sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+    ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![client_type],
+        functions: vec![create_client_fn],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    }
+}
+
+/// Regression test: optional params in the facade must emit Kotlin default
+/// values (`= 0L`, `= 0`, `= ""`) so that e2e callers that only pass
+/// `apiKey` and `baseUrl` still compile.
+#[test]
+fn optional_params_get_kotlin_default_values_in_facade() {
+    let api = make_optional_params_api();
+    let config = make_opaque_factory_config();
+    let files = KotlinAndroidBackend.generate_bindings(&api, &config).unwrap();
+
+    let module_kt = files
+        .iter()
+        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("Demo.kt"))
+        .expect("Demo.kt must be emitted when visible free functions exist");
+
+    let content = &module_kt.content;
+
+    // Required params must NOT have a default value.
+    assert!(
+        content.contains("apiKey: String,"),
+        "apiKey must be required (no default), got:\n{content}"
+    );
+    assert!(
+        content.contains("baseUrl: String,"),
+        "baseUrl must be required (no default), got:\n{content}"
+    );
+
+    // Optional Long param must get `= 0L`.
+    assert!(
+        content.contains("timeoutSecs: Long = 0L"),
+        "timeoutSecs must default to 0L, got:\n{content}"
+    );
+
+    // Optional Int param must get `= 0`.
+    assert!(
+        content.contains("maxRetries: Int = 0"),
+        "maxRetries must default to 0, got:\n{content}"
+    );
+
+    // Optional String param must get `= ""`.
+    assert!(
+        content.contains("modelHint: String = \"\""),
+        "modelHint must default to \"\", got:\n{content}"
+    );
+}

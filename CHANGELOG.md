@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.16.7 - Unreleased]
+## [0.16.8] - 2026-05-15
 
 ### Added
 
@@ -18,6 +18,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`crates/alef-extract`, `crates/alef-cli`, `crates/alef-core`)
 
 ### Fixed
+
+- **kotlin-android: handle-only opaque types now get an AutoCloseable wrapper class
+  in the facade**: when a top-level free function takes or returns an opaque type
+  with no instance methods (the kreuzcrawl `CrawlEngineHandle` shape, distinct
+  from the liter-llm `DefaultClient` shape), the `<Module>.kt` facade previously
+  emitted `String` for both the parameter and the return type — disagreeing with
+  the JNI bridge, which (since the v0.16.7 JNI handle refactor) correctly emits
+  `Long`. The facade now emits a sibling `<TypeName>.kt` wrapper class implementing
+  `AutoCloseable` (`class <TypeName> internal constructor(internal val handle: Long)
+  : AutoCloseable`) whose `close()` delegates to the bridge's
+  `nativeFree<TypeName>(handle)` destructor. Top-level fns returning the opaque
+  type now return this wrapper class, constructed from the bridge's `Long`; fns
+  taking the type as a parameter accept the wrapper and unwrap `.handle` into
+  the bridge call. The liter-llm `DefaultClient` (client-with-methods) shape is
+  unchanged — `emit_jni_client_class` continues to emit `DefaultClient.kt` for
+  that case, and top-level factories now correctly construct it from the
+  `Long` bridge return instead of returning a stale `String`. Regression test
+  `handle_only_opaque_returns_wrapper_class_and_accepts_wrapper_params` in
+  `crates/alef-backend-kotlin-android/tests/gen_bindings_test.rs`.
+  (`crates/alef-backend-kotlin-android/src/gen_bindings.rs`)
+
+- **codegen/trait_bridge: synthesized `Plugin` methods include new `binding_excluded`
+  fields**: the synthetic `MethodDef`s for the Plugin trait's `version`,
+  `initialize`, and `shutdown` methods were missing the `binding_excluded` and
+  `binding_exclusion_reason` fields added when source-level exclusion metadata
+  landed, breaking workspace compilation.
+  (`crates/alef-codegen/src/generators/trait_bridge.rs`)
 
 - **kotlin-android: `createClient` wrapper returns `DefaultClient` not `String`**:
   `emit_module_kt` in `alef-backend-kotlin-android` previously passed every
@@ -72,6 +99,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shared core/runtime crates from generated Swift bridge code without manually
   editing the generated manifest.
   (`crates/alef-backend-swift/src/gen_rust_crate`)
+
+- **kotlin-android: optional facade params emit Kotlin default values**: params
+  where `p.optional == true` (mapped from Rust `Option<T>` through the JNI shim
+  as non-nullable `jlong`/`jint`/`JString`) previously had no Kotlin default in
+  the facade signature, forcing every call site to supply all arguments. E2e
+  codegen only passes `apiKey` and `baseUrl`, so `createClient(...)` failed to
+  compile. The facade now emits `= 0L` for `Long`, `= 0` for `Int`,
+  `= 0.0f`/`= 0.0` for `Float`/`Double`, `= false` for `Boolean`, and `= ""`
+  for `String` optional params. Regression test
+  `optional_params_get_kotlin_default_values_in_facade` in
+  `crates/alef-backend-kotlin-android/tests/gen_bindings_test.rs`.
+  (`crates/alef-backend-kotlin-android/src/gen_bindings.rs`)
 
 - **alef-scaffold/jni: `[lib] name` uses `config.jni_lib_name()`**: the JNI
   cdylib scaffold derived `[lib] name` from the crate directory (`<crate>` with

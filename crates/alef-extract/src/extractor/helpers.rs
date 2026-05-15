@@ -606,12 +606,19 @@ pub(crate) fn extract_binding_exclusion_reason(attrs: &[syn::Attribute]) -> Opti
 }
 
 fn has_doc_hidden(attrs: &[syn::Attribute]) -> bool {
+    // Match `#[doc(hidden)]` specifically — a list-form `doc` attribute whose only
+    // argument is the bare ident `hidden`. Doc-comment attributes (`#[doc = "..."]`)
+    // must NOT trigger this, even if the comment text contains the word "hidden".
     attrs.iter().any(|attr| {
         if !attr.path().is_ident("doc") {
             return false;
         }
-        let attr_str = quote::quote!(#attr).to_string();
-        attr_str.contains("hidden")
+        let Ok(list) = attr.meta.require_list() else {
+            return false;
+        };
+        list.parse_args::<syn::Ident>()
+            .map(|ident| ident == "hidden")
+            .unwrap_or(false)
     })
 }
 
