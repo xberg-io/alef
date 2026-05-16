@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-backend-pyo3: preserve `#[pymethods] impl` block header when first method returns a capsule type**: `rewrite_capsule_methods` uses `find_method_attrs_start` to walk backward from a `pub fn` to find the start of its attribute block. The walk accepted any line starting with `#[` — including `#[pymethods]impl Foo {` which minijinja emits as a single concatenated line when whitespace stripping is active. As a result, `attr_start` landed at byte 0, and the string slice `result[..0]` discarded the entire impl block header, leaving the rewritten method floating outside any `impl` block. Fixed by replacing the `starts_with("#[")` heuristic with `is_method_attr_line` — a bracket-depth scanner that accepts a line only when it consists entirely of `#[…]` patterns with no trailing non-whitespace tokens. (`crates/alef-backend-pyo3/src/gen_bindings/mod.rs`, `crates/alef-backend-pyo3/tests/gen_bindings_test.rs`)
+
 ### Changed
 
 - **[BREAKING] alef-backend-magnus: Ruby tagged enums emitted as class hierarchies instead of Hash method_missing**: Internally-tagged data enums now emit a sealed base class with per-variant predicate stubs (returning `false`) and one concrete subclass per variant. Each subclass carries Sorbet-typed `attr_reader` fields, a keyword-arg `initialize`, an overridden predicate (returning `true`), and a `self.from_hash` factory. The `Hash#method_missing` / `Hash#respond_to_missing?` monkey-patch that previously lived in `native.rb` is removed entirely. Callers that relied on `result.excel` or `format[:format_type]` style access must migrate to `result.is_a?(MessageSystem) && result.content`. (`crates/alef-backend-magnus/src/gen_bindings/mod.rs`)

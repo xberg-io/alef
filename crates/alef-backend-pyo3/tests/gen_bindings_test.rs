@@ -3693,24 +3693,15 @@ fn test_capsule_types_in_methods() {
     assert_eq!(files.len(), 1);
     let content = &files[0].content;
 
-    // Debug: print more context around LanguageRegistry
-    if let Some(pos) = content.find("impl LanguageRegistry") {
-        let start = pos.saturating_sub(50);
-        let end = (pos + 200).min(content.len());
-        eprintln!(
-            "=== FOUND impl LanguageRegistry at {} ===\n{:?}\n===",
-            pos,
-            &content[start..end]
-        );
-    } else {
-        eprintln!("=== impl LanguageRegistry NOT FOUND ===");
-        // Print the struct area
-        if let Some(pos) = content.find("struct LanguageRegistry") {
-            let start = pos.saturating_sub(5);
-            let end = (pos + 800).min(content.len());
-            eprintln!("=== struct LanguageRegistry area ===\n{:?}\n===", &content[start..end]);
-        }
-    }
+    // The #[pymethods] impl block for LanguageRegistry must be present.
+    // Regression guard: capsule-method rewriting was stripping the impl block header when the
+    // first method returns a capsule type (`attr_start` was incorrectly walking past `#[pymethods]`
+    // because `#[pymethods]impl Foo {` starts with `#[`).
+    assert!(
+        content.contains("#[pymethods]impl LanguageRegistry {")
+            || content.contains("#[pymethods]\nimpl LanguageRegistry {"),
+        "#[pymethods] impl block opening must be present for LanguageRegistry; content:\n{content}"
+    );
 
     // Language must NOT appear as a standalone #[pyclass] struct — it is a capsule type.
     // Note: "struct LanguageRegistry" is expected; we must not match that as a false positive.
@@ -3784,5 +3775,135 @@ fn test_capsule_types_in_methods() {
     assert!(
         stub_content.contains("from typing import") && stub_content.contains("Any"),
         "stub must contain 'from typing import ... Any ...'; content:\n{stub_content}"
+    );
+}
+
+// ==============================================================================
+// Regression tests: UPPER_SNAKE_CASE pyclass enum variants (iter35 wave-1 W2)
+// ==============================================================================
+
+fn make_unit_enum_def(name: &str, variants: &[&str]) -> EnumDef {
+    EnumDef {
+        name: name.to_string(),
+        rust_path: format!("test_lib::{name}"),
+        original_rust_path: String::new(),
+        variants: variants
+            .iter()
+            .enumerate()
+            .map(|(i, v)| EnumVariant {
+                name: v.to_string(),
+                fields: vec![],
+                is_tuple: false,
+                doc: String::new(),
+                is_default: i == 0,
+                serde_rename: None,
+            })
+            .collect(),
+        doc: String::new(),
+        cfg: None,
+        is_copy: false,
+        has_serde: true,
+        serde_tag: None,
+        serde_untagged: false,
+        serde_rename_all: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    }
+}
+
+/// Generated Rust binding emits `#[pyo3(name = "UPPER_SNAKE_CASE")]` on every unit-enum variant
+/// when the enum carries the `#[pyclass]` attribute.
+#[test]
+fn test_pyclass_enum_variants_use_upper_snake_case_pyo3_name() {
+    let backend = Pyo3Backend;
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![make_unit_enum_def("BatchStatus", &["Validating", "InProgress", "Complete"])],
+        errors: vec![],
+        excluded_type_paths: HashMap::new(),
+    };
+    let config = make_config();
+    let files = backend.generate_bindings(&api, &config).expect("generate_bindings must succeed");
+    let rust_src = files
+        .iter()
+        .find(|f| f.path.extension().is_some_and(|e| e == "rs"))
+        .map(|f| f.content.as_str())
+        .unwrap_or("");
+
+    assert!(
+        rust_src.contains("#[pyo3(name = \"VALIDATING\")]"),
+        "pyclass enum variant must carry UPPER_SNAKE_CASE pyo3(name), got:\n{}",
+        rust_src
+    );
+    assert!(
+        rust_src.contains("#[pyo3(name = \"IN_PROGRESS\")]"),
+        "multi-word variant must carry UPPER_SNAKE_CASE pyo3(name), got:\n{}",
+        rust_src
+    );
+    assert!(
+        rust_src.contains("#[pyo3(name = \"COMPLETE\")]"),
+        "simple variant must carry UPPER_SNAKE_CASE pyo3(name), got:\n{}",
+        rust_src
+    );
+}
+
+/// `options.py` must NOT emit SCREAMING_SNAKE_CASE monkey-patch alias lines for needed unit enums.
+/// The canonical UPPER_SNAKE_CASE name is now the direct pyclass variant name, not an alias.
+#[test]
+fn test_options_py_does_not_emit_screaming_alias_lines() {
+    let backend = Pyo3Backend;
+    // Use a has_default type that references the enum so it ends up in `needed_enums` and
+    // is therefore imported from the native module (the code path that previously monkey-patched).
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "ConversionOptions".to_string(),
+            rust_path: "test_lib::ConversionOptions".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![make_field("status", TypeRef::Named("BatchStatus".to_string()), false)],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![make_unit_enum_def("BatchStatus", &["Validating", "InProgress"])],
+        errors: vec![],
+        excluded_type_paths: HashMap::new(),
+    };
+    let config = make_config();
+    let files = backend.generate_bindings(&api, &config).expect("generate_bindings must succeed");
+    let options_py = files
+        .iter()
+        .find(|f| f.path.file_name().is_some_and(|n| n == "options.py"))
+        .map(|f| f.content.as_str())
+        .unwrap_or("");
+
+    // The old pattern was `BatchStatus.VALIDATING = BatchStatus.Validating`
+    // or `setattr(BatchStatus, "VALIDATING", getattr(...))`.  Neither should appear.
+    assert!(
+        !options_py.contains(".VALIDATING = "),
+        "options.py must NOT emit SCREAMING alias assignment, got:\n{}",
+        options_py
+    );
+    assert!(
+        !options_py.contains("setattr(BatchStatus"),
+        "options.py must NOT emit setattr monkey-patch for BatchStatus, got:\n{}",
+        options_py
     );
 }
