@@ -113,7 +113,7 @@ fn serde_variant_name(variant: &alef_core::ir::EnumVariant, rename_all: Option<&
         return rename.clone();
     }
     match rename_all {
-        Some("snake_case") => variant.name.to_snake_case(),
+        Some("snake_case") => alef_codegen::naming::pascal_to_snake(&variant.name),
         Some("lowercase") => variant.name.to_lowercase(),
         Some("UPPERCASE") => variant.name.to_uppercase(),
         Some("camelCase") => {

@@ -174,7 +174,7 @@ pub(crate) fn write_pyo3_variant_accessors(out: &mut String, enum_def: &EnumDef,
     use heck::ToSnakeCase;
 
     for variant in &enum_def.variants {
-        let variant_name_lower = variant.name.to_snake_case();
+        let variant_name_lower = crate::naming::pascal_to_snake(&variant.name);
         let fn_name = if RUST_KEYWORDS.contains(&variant_name_lower.as_str()) {
             format!("r#{}", variant_name_lower)
         } else {
