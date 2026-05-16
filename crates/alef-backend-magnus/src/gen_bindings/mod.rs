@@ -689,6 +689,7 @@ fn sorbet_type_for_field(ty: &alef_core::ir::TypeRef, optional: bool) -> String 
 /// This replaces the Hash `method_missing` monkey-patch that was previously emitted in
 /// `native.rb`. It is a BREAKING change for callers that relied on the Hash interface.
 fn gen_tagged_enum_ruby_classes(enum_def: &alef_core::ir::EnumDef, module_name: &str) -> String {
+    use alef_codegen::doc_emission::emit_yard_doc;
     use alef_core::ir::TypeRef;
     let mut out = String::new();
 
@@ -697,8 +698,13 @@ fn gen_tagged_enum_ruby_classes(enum_def: &alef_core::ir::EnumDef, module_name: 
 
     // --- Base class ---
     out.push_str(&format!("module {module_name}\n"));
-    out.push_str(&format!("  # Sealed base class for the {class_name} tagged enum.\n"));
-    out.push_str("  # Do not instantiate directly — use the variant subclasses.\n");
+    if !enum_def.doc.is_empty() {
+        emit_yard_doc(&mut out, &enum_def.doc, "  ");
+    } else {
+        // Fallback when no doc is available
+        out.push_str(&format!("  # Sealed base class for the {class_name} tagged enum.\n"));
+        out.push_str("  # Do not instantiate directly — use the variant subclasses.\n");
+    }
     out.push_str(&format!("  class {class_name}\n"));
     out.push_str("    extend T::Sig\n");
     out.push_str("    extend T::Helpers\n\n");
@@ -716,9 +722,14 @@ fn gen_tagged_enum_ruby_classes(enum_def: &alef_core::ir::EnumDef, module_name: 
         let variant_class = format!("{}{}", class_name, &variant.name);
         let snake = classes::pascal_to_snake(&variant.name);
 
-        out.push_str(&format!(
-            "  # Variant {variant_class} of the {class_name} tagged enum.\n"
-        ));
+        if !variant.doc.is_empty() {
+            emit_yard_doc(&mut out, &variant.doc, "  ");
+        } else {
+            // Fallback when no doc is available
+            out.push_str(&format!(
+                "  # Variant {variant_class} of the {class_name} tagged enum.\n"
+            ));
+        }
         out.push_str(&format!("  class {variant_class} < {class_name}\n"));
         out.push_str("    extend T::Sig\n\n");
 

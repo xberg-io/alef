@@ -244,6 +244,88 @@ pub fn emit_zig_doc(out: &mut String, doc: &str, indent: &str) {
     }
 }
 
+/// Emit YARD documentation comments for Ruby.
+/// Used for Ruby classes, methods, and attributes.
+///
+/// YARD syntax: each line prefixed with `# ` (with space). Translates rustdoc
+/// sections (`# Arguments` → `@param`, `# Returns` → `@return`, `# Errors` → `@raise`)
+/// via [`render_yard_sections`].
+pub fn emit_yard_doc(out: &mut String, doc: &str, indent: &str) {
+    if doc.is_empty() {
+        return;
+    }
+    let sections = parse_rustdoc_sections(doc);
+    let any_section = sections.arguments.is_some()
+        || sections.returns.is_some()
+        || sections.errors.is_some()
+        || sections.example.is_some();
+    let body = if any_section {
+        render_yard_sections(&sections)
+    } else {
+        doc.to_string()
+    };
+    for line in body.lines() {
+        out.push_str(indent);
+        out.push_str("# ");
+        out.push_str(line);
+        out.push('\n');
+    }
+}
+
+/// Render `RustdocSections` as YARD documentation comment body.
+///
+/// - `# Arguments` → `@param name desc` (one per arg)
+/// - `# Returns`   → `@return desc`
+/// - `# Errors`    → `@raise desc`
+/// - `# Example`   → `@example` block.
+///
+/// Output is a plain string with `\n` separators; the emitter wraps each line
+/// in `# ` itself.
+pub fn render_yard_sections(sections: &RustdocSections) -> String {
+    let mut out = String::new();
+    if !sections.summary.is_empty() {
+        out.push_str(&sections.summary);
+    }
+    if let Some(args) = sections.arguments.as_deref() {
+        for (name, desc) in parse_arguments_bullets(args) {
+            if !out.is_empty() {
+                out.push('\n');
+            }
+            if desc.is_empty() {
+                out.push_str("@param ");
+                out.push_str(&name);
+            } else {
+                out.push_str("@param ");
+                out.push_str(&name);
+                out.push(' ');
+                out.push_str(&desc);
+            }
+        }
+    }
+    if let Some(ret) = sections.returns.as_deref() {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str("@return ");
+        out.push_str(ret.trim());
+    }
+    if let Some(err) = sections.errors.as_deref() {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str("@raise ");
+        out.push_str(err.trim());
+    }
+    if let Some(example) = sections.example.as_deref() {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str("@example\n");
+        out.push_str(&replace_fence_lang(example.trim(), "ruby"));
+    }
+    out
+}
+
 /// Escape Javadoc line: handle XML special chars and backtick code blocks.
 ///
 /// HTML entities (`<`, `>`, `&`) are also escaped *inside* `{@code …}` blocks.
@@ -1114,5 +1196,42 @@ mod tests {
         assert!(out.contains("\\return The extracted text and metadata."));
         assert!(out.contains("\\code"));
         assert!(out.contains("\\endcode"));
+    }
+
+    #[test]
+    fn test_emit_yard_doc_simple() {
+        let mut out = String::new();
+        emit_yard_doc(&mut out, "Simple Ruby documentation", "    ");
+        assert!(out.contains("# Simple Ruby documentation"));
+    }
+
+    #[test]
+    fn test_emit_yard_doc_empty() {
+        let mut out = String::new();
+        emit_yard_doc(&mut out, "", "    ");
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn test_emit_yard_doc_with_sections() {
+        let mut out = String::new();
+        let doc = "Extracts text from a file.\n\n# Arguments\n\n* `path` - The file path.\n\n# Returns\n\nThe extracted text.\n\n# Errors\n\nReturns error on failure.";
+        emit_yard_doc(&mut out, doc, "  ");
+        assert!(out.contains("# Extracts text from a file."));
+        assert!(out.contains("# @param path The file path."));
+        assert!(out.contains("# @return The extracted text."));
+        assert!(out.contains("# @raise Returns error on failure."));
+    }
+
+    #[test]
+    fn test_render_yard_sections() {
+        let sections = fixture_sections();
+        let out = render_yard_sections(&sections);
+        assert!(out.contains("@param path The file path."));
+        assert!(out.contains("@return The extracted text and metadata."));
+        assert!(out.contains("@raise Returns an error when the file is unreadable."));
+        assert!(out.contains("@example"));
+        assert!(out.contains("```ruby"));
+        assert!(!out.contains("```rust"));
     }
 }
