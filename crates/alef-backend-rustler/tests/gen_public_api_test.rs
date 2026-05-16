@@ -966,3 +966,160 @@ fn test_reserved_attr_doc_variant_uses_safe_name() {
         "Should emit `@spec doc() :: t()`; content:\n{content}"
     );
 }
+
+/// Functions with trailing optional params must emit a single def with `opts \\ []`
+/// instead of one def per arity combination.
+#[test]
+fn test_trailing_optional_params_emit_keyword_opts_function() {
+    let backend = RustlerBackend;
+
+    fn make_param(name: &str, ty: TypeRef, optional: bool) -> ParamDef {
+        ParamDef {
+            name: name.to_string(),
+            ty,
+            optional,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: false,
+            is_mut: false,
+            newtype_wrapper: None,
+            original_type: None,
+        }
+    }
+
+    let api = ApiSurface {
+        crate_name: "my-lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "create_client".to_string(),
+            rust_path: "my_lib::create_client".to_string(),
+            original_rust_path: String::new(),
+            params: vec![
+                make_param("api_key", TypeRef::String, false),
+                make_param("base_url", TypeRef::Optional(Box::new(TypeRef::String)), true),
+                make_param("timeout_secs", TypeRef::Optional(Box::new(TypeRef::Primitive(PrimitiveType::U64))), true),
+            ],
+            return_type: TypeRef::Named("Client".to_string()),
+            is_async: false,
+            error_type: Some("Error".to_string()),
+            doc: "Create a client".to_string(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config("my_lib");
+    let files = backend.generate_public_api(&api, &config).unwrap();
+
+    let main = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("my_lib.ex"))
+        .expect("my_lib.ex should be generated");
+
+    let content = &main.content;
+
+    // (a) Exactly one `def create_client` definition — not one per arity.
+    let def_count = content.matches("def create_client(").count();
+    assert_eq!(
+        def_count, 1,
+        "Should emit exactly one def create_client (keyword-opts form); got {def_count}; content:\n{content}"
+    );
+
+    // (b) Keyword.get pattern for optional params.
+    assert!(
+        content.contains("Keyword.get(opts, :base_url)"),
+        "Should emit Keyword.get(opts, :base_url); content:\n{content}"
+    );
+    assert!(
+        content.contains("Keyword.get(opts, :timeout_secs)"),
+        "Should emit Keyword.get(opts, :timeout_secs); content:\n{content}"
+    );
+
+    // (c) The `opts \\ []` default is present in the function signature.
+    assert!(
+        content.contains("opts \\\\ []"),
+        "Should emit opts \\\\ [] default argument; content:\n{content}"
+    );
+
+    // (d) Required param is positional, not keyword.
+    assert!(
+        content.contains("def create_client(api_key, opts"),
+        "Required param api_key must be positional; content:\n{content}"
+    );
+}
+
+/// `defstruct` for struct types must default String fields to `nil` (not `""`).
+/// Empty-string sentinels hide absence — `nil` is the idiomatic Elixir absent value.
+#[test]
+fn test_defstruct_string_fields_default_to_nil() {
+    let backend = RustlerBackend;
+
+    let api = ApiSurface {
+        crate_name: "my-lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![TypeDef {
+            name: "Message".to_string(),
+            rust_path: "my_lib::Message".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                make_field("role", TypeRef::String, false),
+                make_field("content", TypeRef::String, false),
+                make_field("name", TypeRef::String, false),
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config("my_lib");
+    let files = backend.generate_public_api(&api, &config).unwrap();
+
+    let struct_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("my_lib/message.ex"))
+        .expect("message.ex should be generated");
+
+    let content = &struct_file.content;
+
+    // (c) defstruct fields must default to nil, not "".
+    assert!(
+        !content.contains(": \"\""),
+        "defstruct String fields must not default to \"\"; content:\n{content}"
+    );
+    assert!(
+        content.contains("role: nil"),
+        "defstruct String field must default to nil; content:\n{content}"
+    );
+    assert!(
+        content.contains("content: nil"),
+        "defstruct String field must default to nil; content:\n{content}"
+    );
+}

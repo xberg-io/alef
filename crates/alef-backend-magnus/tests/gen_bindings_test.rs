@@ -2120,3 +2120,309 @@ fn test_trait_bridge_options_field_error_propagation_in_generated_code() {
         "Generated trait bridge code must not use unwrap_or_default() for JSON serialization"
     );
 }
+
+/// Regression: `method_missing` must never appear in the public Ruby API.
+///
+/// The Hash monkey-patch that previously lived in `native.rb` was a global-state
+/// leak that broke IDE autocomplete and could interfere with any Ruby code that
+/// uses Hash. The replacement class hierarchy must not resort to `method_missing`.
+#[test]
+fn tagged_enum_public_api_does_not_emit_method_missing() {
+    let backend = MagnusBackend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "Message".to_string(),
+            rust_path: "test_lib::Message".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "System".to_string(),
+                    fields: vec![FieldDef {
+                        name: "content".to_string(),
+                        ty: TypeRef::String,
+                        optional: false,
+                        default: None,
+                        doc: String::new(),
+                        sanitized: false,
+                        is_boxed: false,
+                        type_rust_path: None,
+                        cfg: None,
+                        typed_default: None,
+                        core_wrapper: CoreWrapper::None,
+                        vec_inner_core_wrapper: CoreWrapper::None,
+                        newtype_wrapper: None,
+                        serde_rename: None,
+                        serde_flatten: false,
+                        binding_excluded: false,
+                        binding_exclusion_reason: None,
+                    }],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: true,
+                    serde_rename: None,
+                },
+                EnumVariant {
+                    name: "User".to_string(),
+                    fields: vec![FieldDef {
+                        name: "content".to_string(),
+                        ty: TypeRef::String,
+                        optional: false,
+                        default: None,
+                        doc: String::new(),
+                        sanitized: false,
+                        is_boxed: false,
+                        type_rust_path: None,
+                        cfg: None,
+                        typed_default: None,
+                        core_wrapper: CoreWrapper::None,
+                        vec_inner_core_wrapper: CoreWrapper::None,
+                        newtype_wrapper: None,
+                        serde_rename: None,
+                        serde_flatten: false,
+                        binding_excluded: false,
+                        binding_exclusion_reason: None,
+                    }],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+            ],
+            doc: "Chat message role".to_string(),
+            cfg: None,
+            is_copy: false,
+            has_serde: false,
+            serde_tag: Some("role".to_string()),
+            serde_untagged: false,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config();
+    let files = backend.generate_public_api(&api, &config).unwrap();
+    let native_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("native.rb"))
+        .unwrap();
+    let content = &native_file.content;
+
+    assert!(
+        !content.contains("method_missing"),
+        "native.rb must not emit Hash#method_missing — use class-based tagged enums instead:\n{content}"
+    );
+}
+
+/// Regression: Sorbet `sig {` blocks must appear in the public Ruby API for tagged enum subclass methods.
+///
+/// Every generated accessor and predicate must carry a Sorbet-compatible `sig { }` annotation
+/// so that Sorbet users get type-checked attribute access without manual type annotations.
+#[test]
+fn tagged_enum_public_api_emits_sorbet_sig_blocks() {
+    let backend = MagnusBackend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "Message".to_string(),
+            rust_path: "test_lib::Message".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![EnumVariant {
+                name: "System".to_string(),
+                fields: vec![FieldDef {
+                    name: "content".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    doc: String::new(),
+                    sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    typed_default: None,
+                    core_wrapper: CoreWrapper::None,
+                    vec_inner_core_wrapper: CoreWrapper::None,
+                    newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                }],
+                is_tuple: false,
+                doc: String::new(),
+                is_default: true,
+                serde_rename: None,
+            }],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: false,
+            serde_tag: Some("role".to_string()),
+            serde_untagged: false,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config();
+    let files = backend.generate_public_api(&api, &config).unwrap();
+    let native_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("native.rb"))
+        .unwrap();
+    let content = &native_file.content;
+
+    assert!(
+        content.contains("sig {"),
+        "native.rb must emit Sorbet sig {{ }} blocks on tagged enum methods:\n{content}"
+    );
+}
+
+/// Regression: tagged enum must emit a base class and per-variant subclasses.
+///
+/// The base `Message` class provides predicate methods that return `false` by default.
+/// Each variant subclass (`MessageSystem`, `MessageUser`, etc.) overrides its predicate
+/// to return `true` and carries typed `attr_reader` accessors for the variant's fields.
+#[test]
+fn tagged_enum_public_api_emits_class_hierarchy() {
+    let backend = MagnusBackend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "Message".to_string(),
+            rust_path: "test_lib::Message".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "System".to_string(),
+                    fields: vec![FieldDef {
+                        name: "content".to_string(),
+                        ty: TypeRef::String,
+                        optional: false,
+                        default: None,
+                        doc: String::new(),
+                        sanitized: false,
+                        is_boxed: false,
+                        type_rust_path: None,
+                        cfg: None,
+                        typed_default: None,
+                        core_wrapper: CoreWrapper::None,
+                        vec_inner_core_wrapper: CoreWrapper::None,
+                        newtype_wrapper: None,
+                        serde_rename: None,
+                        serde_flatten: false,
+                        binding_excluded: false,
+                        binding_exclusion_reason: None,
+                    }],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: true,
+                    serde_rename: None,
+                },
+                EnumVariant {
+                    name: "User".to_string(),
+                    fields: vec![FieldDef {
+                        name: "content".to_string(),
+                        ty: TypeRef::String,
+                        optional: false,
+                        default: None,
+                        doc: String::new(),
+                        sanitized: false,
+                        is_boxed: false,
+                        type_rust_path: None,
+                        cfg: None,
+                        typed_default: None,
+                        core_wrapper: CoreWrapper::None,
+                        vec_inner_core_wrapper: CoreWrapper::None,
+                        newtype_wrapper: None,
+                        serde_rename: None,
+                        serde_flatten: false,
+                        binding_excluded: false,
+                        binding_exclusion_reason: None,
+                    }],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+            ],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: false,
+            serde_tag: Some("role".to_string()),
+            serde_untagged: false,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config();
+    let files = backend.generate_public_api(&api, &config).unwrap();
+    let native_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("native.rb"))
+        .unwrap();
+    let content = &native_file.content;
+
+    // Base class with predicate stubs
+    assert!(
+        content.contains("class Message"),
+        "must emit a Message base class:\n{content}"
+    );
+    assert!(
+        content.contains("def system? = false"),
+        "base class must have system? predicate returning false:\n{content}"
+    );
+    assert!(
+        content.contains("def user? = false"),
+        "base class must have user? predicate returning false:\n{content}"
+    );
+
+    // Per-variant subclasses
+    assert!(
+        content.contains("class MessageSystem < Message"),
+        "must emit MessageSystem subclass:\n{content}"
+    );
+    assert!(
+        content.contains("class MessageUser < Message"),
+        "must emit MessageUser subclass:\n{content}"
+    );
+
+    // Subclass predicate override
+    assert!(
+        content.contains("def system? = true"),
+        "MessageSystem must override system? to true:\n{content}"
+    );
+    assert!(
+        content.contains("def user? = true"),
+        "MessageUser must override user? to true:\n{content}"
+    );
+
+    // attr_reader for fields
+    assert!(
+        content.contains("attr_reader :content"),
+        "variant subclass must expose content via attr_reader:\n{content}"
+    );
+}

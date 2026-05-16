@@ -1375,3 +1375,347 @@ fn test_sum_type_sealed_interface_with_record_variants() {
         enum_file.content
     );
 }
+
+/// Regression: streaming method signature must use `Stream<T>`, never bare `Iterator<T>`.
+#[test]
+fn test_streaming_method_returns_stream_not_iterator() {
+    let config = resolved_one(
+        r#"
+[workspace]
+languages = ["java", "ffi"]
+
+[[crates]]
+name = "stream_lib"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "sl"
+
+[crates.java]
+package = "com.example.stream"
+
+[[crates.adapters]]
+name = "events"
+pattern = "streaming"
+core_path = "events"
+owner_type = "EventSource"
+item_type = "Event"
+error_type = "StreamError"
+request_type = "stream_lib::EventRequest"
+
+[[crates.adapters.params]]
+name = "req"
+type = "EventRequest"
+"#,
+    );
+
+    let api = ApiSurface {
+        crate_name: "stream_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![
+            TypeDef {
+                name: "EventSource".to_string(),
+                rust_path: "stream_lib::EventSource".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: true,
+                is_clone: false,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+            TypeDef {
+                name: "EventRequest".to_string(),
+                rust_path: "stream_lib::EventRequest".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: true,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: true,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+            TypeDef {
+                name: "Event".to_string(),
+                rust_path: "stream_lib::Event".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: true,
+                has_stripped_cfg_fields: false,
+                is_return_type: true,
+                serde_rename_all: None,
+                has_serde: true,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+        ],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let backend = JavaBackend;
+    let files = backend.generate_bindings(&api, &config).unwrap();
+
+    let source = files
+        .iter()
+        .find(|f| f.path.ends_with("EventSource.java"))
+        .expect("EventSource.java must be generated");
+
+    // (a) Stream< appears in streaming method signature; no bare Iterator< return type
+    assert!(
+        source.content.contains("Stream<"),
+        "streaming method must return Stream<T>. Got:\n{}",
+        source.content
+    );
+    assert!(
+        !source.content.contains("public Iterator<"),
+        "streaming method must NOT return bare Iterator<T>. Got:\n{}",
+        source.content
+    );
+
+    // StreamSupport bridge is present
+    assert!(
+        source.content.contains("StreamSupport.stream("),
+        "streaming bridge must use StreamSupport.stream(). Got:\n{}",
+        source.content
+    );
+
+    // Stream is imported
+    assert!(
+        source.content.contains("import java.util.stream.Stream;"),
+        "must import java.util.stream.Stream. Got:\n{}",
+        source.content
+    );
+}
+
+/// Regression: tagged enum with data variants emits `sealed interface` with each
+/// variant as a `record` implementing the sealed interface.
+#[test]
+fn test_tagged_enum_emits_sealed_interface_with_record_variants() {
+    let backend = JavaBackend;
+
+    let make_field = |name: &str, ty: TypeRef| FieldDef {
+        name: name.to_string(),
+        ty,
+        optional: false,
+        default: None,
+        doc: String::new(),
+        sanitized: false,
+        is_boxed: false,
+        type_rust_path: None,
+        cfg: None,
+        typed_default: None,
+        core_wrapper: alef_core::ir::CoreWrapper::None,
+        vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+        newtype_wrapper: None,
+        serde_rename: None,
+        serde_flatten: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "Shape".to_string(),
+            rust_path: "test_lib::Shape".to_string(),
+            original_rust_path: String::new(),
+            serde_tag: Some("kind".to_string()),
+            serde_untagged: false,
+            serde_rename_all: None,
+            doc: "A geometric shape".to_string(),
+            cfg: None,
+            variants: vec![
+                EnumVariant {
+                    name: "Circle".to_string(),
+                    fields: vec![make_field("radius", TypeRef::Primitive(PrimitiveType::F64))],
+                    is_tuple: false,
+                    doc: "A circle".to_string(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+                EnumVariant {
+                    name: "Rectangle".to_string(),
+                    fields: vec![
+                        make_field("width", TypeRef::Primitive(PrimitiveType::F64)),
+                        make_field("height", TypeRef::Primitive(PrimitiveType::F64)),
+                    ],
+                    is_tuple: false,
+                    doc: "A rectangle".to_string(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+            ],
+            is_copy: false,
+            has_serde: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = backend
+        .generate_bindings(&api, &make_test_config("com.example"))
+        .expect("generation should succeed");
+
+    let shape_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("Shape.java"))
+        .expect("Shape.java should be generated");
+
+    let content = &shape_file.content;
+
+    // (b) tagged enum emits `sealed interface`; variants listed in file
+    assert!(
+        content.contains("public sealed interface Shape"),
+        "tagged enum must emit as sealed interface. Got:\n{content}"
+    );
+    assert!(
+        content.contains("Circle") && content.contains("Rectangle"),
+        "sealed interface file must contain all variant names. Got:\n{content}"
+    );
+
+    // (c) each variant is a `record` implementing the sealed interface
+    assert!(
+        content.contains("record Circle("),
+        "Circle variant must be emitted as a record. Got:\n{content}"
+    );
+    assert!(
+        content.contains("record Rectangle("),
+        "Rectangle variant must be emitted as a record. Got:\n{content}"
+    );
+    assert!(
+        content.contains("implements Shape"),
+        "variant records must implement the sealed interface. Got:\n{content}"
+    );
+}
+
+/// Regression: plain product DTOs (no tagged enum) emit as `public record`, not sealed class.
+#[test]
+fn test_plain_dto_emits_as_record_not_sealed_class() {
+    let backend = JavaBackend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "ModelInfo".to_string(),
+            rust_path: "test_lib::ModelInfo".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                FieldDef {
+                    name: "id".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    doc: "Model identifier".to_string(),
+                    sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    typed_default: None,
+                    core_wrapper: alef_core::ir::CoreWrapper::None,
+                    vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                    newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                },
+                FieldDef {
+                    name: "context_length".to_string(),
+                    ty: TypeRef::Primitive(PrimitiveType::I64),
+                    optional: false,
+                    default: None,
+                    doc: "Max context length".to_string(),
+                    sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    typed_default: None,
+                    core_wrapper: alef_core::ir::CoreWrapper::None,
+                    vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                    newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                },
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: "LLM model metadata".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = backend
+        .generate_bindings(&api, &make_test_config("com.example"))
+        .expect("generation should succeed");
+
+    let dto_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("ModelInfo.java"))
+        .expect("ModelInfo.java should be generated");
+
+    let content = &dto_file.content;
+
+    // (c) plain product DTOs are records, not sealed classes
+    assert!(
+        content.contains("public record ModelInfo("),
+        "plain product DTO must be a record. Got:\n{content}"
+    );
+    assert!(
+        !content.contains("sealed interface"),
+        "plain DTO must not emit as sealed interface. Got:\n{content}"
+    );
+}

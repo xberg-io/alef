@@ -2,7 +2,10 @@
 
 use alef_core::ir::EnumDef;
 
-use super::enums::{tagged_enum_binding_struct_fields, tagged_enum_mixed_named_fields, variant_data_field_names};
+use super::enums::{
+    tagged_enum_binding_struct_fields, tagged_enum_field_is_tuple, tagged_enum_field_name,
+    tagged_enum_mixed_named_fields, variant_data_field_names,
+};
 use super::functions::{core_prim_str, needs_napi_cast};
 
 /// Generate `From<JsTaggedEnum> for core::TaggedEnum` for a flattened struct representation.
@@ -48,32 +51,33 @@ pub(super) fn gen_tagged_enum_binding_to_core(
                     .fields
                     .iter()
                     .map(|f| {
+                        let binding_field_name = tagged_enum_field_name(variant, f);
                         let has_binding = fields_with_binding_struct.contains(f.name.as_str());
                         let is_mixed = mixed_named_fields.contains(&f.name);
                         if f.optional {
                             match &f.ty {
                                 TypeRef::Path => {
-                                    format!("val.{}.map(std::path::PathBuf::from)", f.name)
+                                    format!("val.{binding_field_name}.map(std::path::PathBuf::from)")
                                 }
                                 TypeRef::Named(n) if is_mixed => {
                                     let core_type = format!("{core_import}::{n}");
                                     format!(
                                         "val.{}.and_then(|s| serde_json::from_str::<{core_type}>(&s).ok())",
-                                        f.name
+                                        binding_field_name
                                     )
                                 }
                                 TypeRef::Named(_) if has_binding => {
-                                    format!("val.{}.map(|v| v.into())", f.name)
+                                    format!("val.{binding_field_name}.map(|v| v.into())")
                                 }
                                 TypeRef::Named(_) => {
-                                    format!("val.{}.map(|v| v.into())", f.name)
+                                    format!("val.{binding_field_name}.map(|v| v.into())")
                                 }
                                 TypeRef::Primitive(p) if needs_napi_cast(p) => {
                                     let core_ty = core_prim_str(p);
-                                    format!("val.{}.map(|v| v as {core_ty})", f.name)
+                                    format!("val.{binding_field_name}.map(|v| v as {core_ty})")
                                 }
                                 _ => {
-                                    format!("val.{}", f.name)
+                                    format!("val.{binding_field_name}")
                                 }
                             }
                         } else if f.sanitized {
@@ -85,24 +89,26 @@ pub(super) fn gen_tagged_enum_binding_to_core(
                                     let core_type = format!("{core_import}::{n}");
                                     format!(
                                         "val.{}.and_then(|s| serde_json::from_str::<{core_type}>(&s).ok()).unwrap_or_default()",
-                                        f.name
+                                        binding_field_name
                                     )
                                 }
                                 TypeRef::Named(_) if has_binding => {
-                                    format!("val.{}.map(|v| v.into()).unwrap_or_default()", f.name)
+                                    format!("val.{binding_field_name}.map(|v| v.into()).unwrap_or_default()")
                                 }
                                 TypeRef::Named(_) => {
-                                    format!("val.{}.map(|v| v.into()).unwrap_or_default()", f.name)
+                                    format!("val.{binding_field_name}.map(|v| v.into()).unwrap_or_default()")
                                 }
                                 TypeRef::Path => {
-                                    format!("val.{}.map(std::path::PathBuf::from).unwrap_or_default()", f.name)
+                                    format!(
+                                        "val.{binding_field_name}.map(std::path::PathBuf::from).unwrap_or_default()"
+                                    )
                                 }
                                 TypeRef::Primitive(p) if needs_napi_cast(p) => {
                                     let core_ty = core_prim_str(p);
-                                    format!("val.{}.map(|v| v as {core_ty}).unwrap_or_default()", f.name)
+                                    format!("val.{binding_field_name}.map(|v| v as {core_ty}).unwrap_or_default()")
                                 }
                                 _ => {
-                                    format!("val.{}.unwrap_or_default()", f.name)
+                                    format!("val.{binding_field_name}.unwrap_or_default()")
                                 }
                             };
                             if f.is_boxed { format!("Box::new({expr})") } else { expr }
@@ -195,7 +201,10 @@ pub(super) fn gen_tagged_enum_core_to_binding(
         let mut fields = std::collections::BTreeSet::new();
         for v in &enum_def.variants {
             for f in &v.fields {
-                fields.insert(f.name.clone());
+                if tagged_enum_field_is_tuple(f) && matches!(&f.ty, alef_core::ir::TypeRef::Named(_)) {
+                    continue;
+                }
+                fields.insert(tagged_enum_field_name(v, f));
             }
         }
         fields.into_iter().collect()
@@ -216,12 +225,8 @@ pub(super) fn gen_tagged_enum_core_to_binding(
             // Synthesized field name for this variant (snake_case of variant name), if any
             let this_synth_field = if variant.fields.len() == 1 {
                 let field = &variant.fields[0];
-                let is_tuple = field
-                    .name
-                    .strip_prefix('_')
-                    .is_some_and(|s| s.chars().all(|c| c.is_ascii_digit()));
-                if is_tuple && matches!(&field.ty, alef_core::ir::TypeRef::Named(_)) {
-                    Some(alef_codegen::naming::to_python_name(&variant.name))
+                if tagged_enum_field_is_tuple(field) && matches!(&field.ty, alef_core::ir::TypeRef::Named(_)) {
+                    Some(tagged_enum_field_name(variant, field))
                 } else {
                     None
                 }
@@ -245,27 +250,31 @@ pub(super) fn gen_tagged_enum_core_to_binding(
             } else {
                 use alef_core::ir::TypeRef;
                 let is_tuple = alef_codegen::conversions::is_tuple_variant(&variant.fields);
-                let variant_field_map: std::collections::BTreeMap<&str, &alef_core::ir::FieldDef> =
-                    variant.fields.iter().map(|f| (f.name.as_str(), f)).collect();
+                let variant_field_map: std::collections::BTreeMap<String, &alef_core::ir::FieldDef> = variant
+                    .fields
+                    .iter()
+                    .map(|f| (tagged_enum_field_name(variant, f), f))
+                    .collect();
                 let destructured: Vec<String> = variant
                     .fields
                     .iter()
                     .map(|f| {
+                        let binding_field_name = tagged_enum_field_name(variant, f);
                         if f.sanitized {
                             if is_tuple {
-                                format!("_{}", f.name)
+                                format!("_{binding_field_name}")
                             } else {
                                 format!("{}: _{}", f.name, f.name)
                             }
                         } else {
-                            f.name.clone()
+                            binding_field_name
                         }
                     })
                     .collect();
                 let mut field_inits: Vec<String> = all_fields
                     .iter()
                     .map(|f| {
-                        if let Some(field) = variant_field_map.get(f.as_str()) {
+                        if let Some(field) = variant_field_map.get(f) {
                             let has_binding = fields_with_binding_struct.contains(f.as_str());
                             let is_mixed = mixed_named_fields.contains(f.as_str());
                             if field.optional {
@@ -312,7 +321,7 @@ pub(super) fn gen_tagged_enum_core_to_binding(
                 for sf in &synth_field_names {
                     if this_synth_field.as_deref() == Some(sf.as_str()) {
                         // The destructured tuple variable is the first field name
-                        let var_name = &variant.fields[0].name;
+                        let var_name = tagged_enum_field_name(variant, &variant.fields[0]);
                         let is_boxed = variant.fields[0].is_boxed;
                         if is_boxed {
                             field_inits.push(format!("{sf}: Some((*{var_name}).into())"));

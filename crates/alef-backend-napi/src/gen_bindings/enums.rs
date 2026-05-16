@@ -1,7 +1,53 @@
 //! NAPI-RS enum code generation: plain enums and tagged union helpers.
 
 use crate::type_map::NapiMapper;
-use alef_core::ir::{EnumDef, TypeRef};
+use alef_core::ir::{EnumDef, EnumVariant, FieldDef, TypeRef};
+
+pub(super) fn tagged_enum_field_is_tuple(field: &FieldDef) -> bool {
+    field
+        .name
+        .strip_prefix('_')
+        .is_some_and(|s| s.chars().all(|c| c.is_ascii_digit()))
+}
+
+pub(super) fn tagged_enum_field_name(variant: &EnumVariant, field: &FieldDef) -> String {
+    if let Some(index) = field
+        .name
+        .strip_prefix('_')
+        .filter(|s| s.chars().all(|c| c.is_ascii_digit()))
+    {
+        if variant.fields.len() == 1 {
+            let source_name = field
+                .serde_rename
+                .as_deref()
+                .or(variant.serde_rename.as_deref())
+                .unwrap_or(&variant.name);
+            return alef_codegen::naming::to_python_name(source_name);
+        }
+        return format!("field_{index}");
+    }
+
+    field.name.clone()
+}
+
+pub(super) fn tagged_enum_field_js_name(variant: &EnumVariant, field: &FieldDef) -> String {
+    if let Some(index) = field
+        .name
+        .strip_prefix('_')
+        .filter(|s| s.chars().all(|c| c.is_ascii_digit()))
+    {
+        if variant.fields.len() == 1 {
+            return field
+                .serde_rename
+                .clone()
+                .or_else(|| variant.serde_rename.clone())
+                .unwrap_or_else(|| alef_codegen::naming::to_node_name(&variant.name));
+        }
+        return format!("field{index}");
+    }
+
+    alef_codegen::naming::to_node_name(&field.name)
+}
 
 /// Collect synthesized variant-data field names emitted on the binding struct for tagged enums
 /// where a variant carries a single-tuple Named field. These are the per-variant optional
@@ -14,15 +60,11 @@ pub(super) fn variant_data_field_names(enum_def: &EnumDef) -> Vec<String> {
             continue;
         }
         let field = &v.fields[0];
-        let is_tuple = field
-            .name
-            .strip_prefix('_')
-            .is_some_and(|s| s.chars().all(|c| c.is_ascii_digit()));
-        if !is_tuple {
+        if !tagged_enum_field_is_tuple(field) {
             continue;
         }
         if matches!(&field.ty, TypeRef::Named(_)) {
-            names.push(alef_codegen::naming::to_python_name(&v.name));
+            names.push(tagged_enum_field_name(v, field));
         }
     }
     names
@@ -181,21 +223,25 @@ pub(super) fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str, has_se
     let mut seen_fields: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for variant in &enum_def.variants {
         for field in &variant.fields {
-            if seen_fields.insert(field.name.clone()) {
+            if tagged_enum_field_is_tuple(field) && matches!(&field.ty, TypeRef::Named(_)) {
+                continue;
+            }
+            let field_name = tagged_enum_field_name(variant, field);
+            if seen_fields.insert(field_name.clone()) {
                 // Sanitized fields and mixed-type Named fields are represented as String
                 // and converted via serde_json in From/Into impls
-                let field_type = if (field.sanitized || mixed_named_fields.contains(&field.name))
+                let field_type = if (field.sanitized || mixed_named_fields.contains(&field_name))
                     && matches!(&field.ty, TypeRef::Named(_))
                 {
                     "String".to_string()
                 } else {
                     mapper.map_type(&field.ty).to_string()
                 };
-                let js_name = alef_codegen::naming::to_node_name(&field.name);
-                if js_name != field.name {
+                let js_name = tagged_enum_field_js_name(variant, field);
+                if js_name != field_name {
                     lines.push(format!("    #[napi(js_name = \"{js_name}\")]"));
                 }
-                lines.push(format!("    pub {}: Option<{field_type}>,", field.name));
+                lines.push(format!("    pub {field_name}: Option<{field_type}>,"));
             }
         }
     }
@@ -207,21 +253,17 @@ pub(super) fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str, has_se
             return;
         }
         let field = &v.fields[0];
-        let is_tuple = field
-            .name
-            .strip_prefix('_')
-            .is_some_and(|s| s.chars().all(|c| c.is_ascii_digit()));
-        if !is_tuple {
+        if !tagged_enum_field_is_tuple(field) {
             return;
         }
         if let TypeRef::Named(inner_type_name) = &field.ty {
-            let variant_name_snake = alef_codegen::naming::to_python_name(&v.name);
+            let field_name = tagged_enum_field_name(v, field);
             let binding_type = format!("{prefix}{inner_type_name}");
-            let js_name = alef_codegen::naming::to_node_name(&v.name);
-            if js_name != variant_name_snake {
+            let js_name = tagged_enum_field_js_name(v, field);
+            if js_name != field_name {
                 lines.push(format!("    #[napi(js_name = \"{js_name}\")]"));
             }
-            lines.push(format!("    pub {variant_name_snake}: Option<{binding_type}>,"));
+            lines.push(format!("    pub {field_name}: Option<{binding_type}>,"));
         }
     });
 

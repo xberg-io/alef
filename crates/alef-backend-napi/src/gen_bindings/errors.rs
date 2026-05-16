@@ -107,15 +107,21 @@ pub(super) fn gen_dts(
     }
     all_decls.sort_by_key(|a| a.0.to_lowercase());
 
+    // Emit declarations with unprefixed TS names. The Rust structs carry
+    // `#[napi(js_name = "Foo")]` so NAPI-RS maps JsFoo → Foo at runtime.
+    // Passing empty string to dts_type/dts_params ensures field type references
+    // (e.g. `Array<Config>`) are also unprefixed in the generated .d.ts.
+    let no_prefix: &str = "";
+    let _ = prefix; // prefix is still used in the sort-key strings above
     for (_, decl) in &all_decls {
         lines.push(String::new());
         match decl {
             Decl::Class(typ) => {
                 lines.extend(format_jsdoc(&typ.doc, ""));
-                lines.push(format!("export declare class {prefix}{} {{", typ.name));
+                lines.push(format!("export declare class {} {{", typ.name));
                 for method in &typ.methods {
                     let js_name = to_node_name(&method.name);
-                    let params = dts_params(&method.params, prefix);
+                    let params = dts_params(&method.params, no_prefix);
                     // Use capsule-aware return type so that methods returning a capsule type
                     // emit the ecosystem type name (e.g. `Language`) rather than the now-
                     // undeclared opaque handle (e.g. `JsLanguage`).
@@ -123,7 +129,7 @@ pub(super) fn gen_dts(
                         &method.return_type,
                         method.error_type.is_some(),
                         method.is_async,
-                        prefix,
+                        no_prefix,
                         capsule_types,
                     );
                     lines.extend(format_jsdoc(&method.doc, "  "));
@@ -137,10 +143,10 @@ pub(super) fn gen_dts(
             }
             Decl::Interface(typ) => {
                 lines.extend(format_jsdoc(&typ.doc, ""));
-                lines.push(format!("export interface {prefix}{} {{", typ.name));
+                lines.push(format!("export interface {} {{", typ.name));
                 for field in &typ.fields {
                     let js_name = to_node_name(&field.name);
-                    let ts_ty = dts_type(&field.ty, prefix);
+                    let ts_ty = dts_type(&field.ty, no_prefix);
                     lines.extend(format_jsdoc(&field.doc, "  "));
                     // Mark a field optional when:
                     //   1. The underlying Rust type is Option<T> (TypeRef::Optional)
@@ -161,15 +167,15 @@ pub(super) fn gen_dts(
                 // Emit visitor trait as a TypeScript interface with optional callback methods.
                 // Each method becomes an optional property with a function signature.
                 lines.extend(format_jsdoc(&typ.doc, ""));
-                lines.push(format!("export interface {prefix}{} {{", typ.name));
+                lines.push(format!("export interface {} {{", typ.name));
                 for method in &typ.methods {
                     let js_name = to_node_name(&method.name);
-                    let params = dts_params(&method.params, prefix);
+                    let params = dts_params(&method.params, no_prefix);
                     let ret = dts_return_type(
                         &method.return_type,
                         method.error_type.is_some(),
                         method.is_async,
-                        prefix,
+                        no_prefix,
                     );
                     lines.extend(format_jsdoc(&method.doc, "  "));
                     // Visitor methods are all optional callbacks
@@ -194,7 +200,7 @@ pub(super) fn gen_dts(
                         let mut obj_fields: Vec<String> = vec![format!("{tag_field}: '{tag_value}'")];
                         for field in &variant.fields {
                             let js_name = to_node_name(&field.name);
-                            let ts_ty = dts_type(&field.ty, prefix);
+                            let ts_ty = dts_type(&field.ty, no_prefix);
                             if matches!(field.ty, TypeRef::Optional(_)) {
                                 obj_fields.push(format!("{js_name}?: {ts_ty}"));
                             } else {
@@ -203,10 +209,10 @@ pub(super) fn gen_dts(
                         }
                         member_lines.push(format!("  | {{ {} }}", obj_fields.join("; ")));
                     }
-                    lines.push(format!("export type {prefix}{} =", e.name));
+                    lines.push(format!("export type {} =", e.name));
                     lines.extend(member_lines);
                 } else {
-                    lines.push(format!("export declare enum {prefix}{} {{", e.name));
+                    lines.push(format!("export declare enum {} {{", e.name));
                     for variant in &e.variants {
                         // NAPI string_enum: variant values follow serde_rename_all casing.
                         // Prefer explicit serde_rename, then apply rename_all, then fall back to variant name.
@@ -223,14 +229,14 @@ pub(super) fn gen_dts(
             }
             Decl::Function(func) => {
                 let js_name = to_node_name(&func.name);
-                let params = dts_params(&func.params, prefix);
+                let params = dts_params(&func.params, no_prefix);
                 // When the function returns a capsule type, use the ecosystem type name
                 // (e.g. `Language` from `tree-sitter`) instead of the Js-prefixed wrapper.
                 let ret = dts_return_type_capsule(
                     &func.return_type,
                     func.error_type.is_some(),
                     func.is_async,
-                    prefix,
+                    no_prefix,
                     capsule_types,
                 );
                 lines.extend(format_jsdoc(&func.doc, ""));

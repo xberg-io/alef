@@ -220,3 +220,227 @@ pub(super) fn emit_enum(en: &EnumDef, out: &mut String) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alef_core::ir::{CoreWrapper, EnumDef, EnumVariant, FieldDef, PrimitiveType, TypeDef, TypeRef};
+    use std::collections::BTreeSet;
+
+    fn make_field(name: &str, ty: TypeRef) -> FieldDef {
+        FieldDef {
+            name: name.to_string(),
+            ty,
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }
+    }
+
+    fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
+        TypeDef {
+            name: name.to_string(),
+            rust_path: format!("demo::{name}"),
+            original_rust_path: String::new(),
+            fields,
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            doc: String::new(),
+            cfg: None,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }
+    }
+
+    fn make_enum(name: &str, variants: Vec<EnumVariant>) -> EnumDef {
+        EnumDef {
+            name: name.to_string(),
+            rust_path: format!("demo::{name}"),
+            original_rust_path: String::new(),
+            variants,
+            doc: String::new(),
+            cfg: None,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: None,
+            is_copy: false,
+            has_serde: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }
+    }
+
+    fn make_variant(name: &str, fields: Vec<FieldDef>) -> EnumVariant {
+        EnumVariant {
+            name: name.to_string(),
+            fields,
+            doc: String::new(),
+            is_default: false,
+            serde_rename: None,
+            is_tuple: false,
+        }
+    }
+
+    // ── (a) sealed class keyword in tagged enum emission ────────────────────
+
+    #[test]
+    fn tagged_enum_emits_sealed_class_keyword() {
+        let en = make_enum(
+            "Message",
+            vec![
+                make_variant("System", vec![make_field("content", TypeRef::String)]),
+                make_variant("User", vec![make_field("content", TypeRef::String)]),
+            ],
+        );
+        let mut out = String::new();
+        emit_enum(&en, &mut out);
+        assert!(
+            out.contains("sealed class Message {}"),
+            "tagged enum must open with `sealed class`: {out}"
+        );
+    }
+
+    #[test]
+    fn tagged_enum_variants_emit_final_class_extends() {
+        let en = make_enum(
+            "Shape",
+            vec![
+                make_variant("Circle", vec![make_field("radius", TypeRef::Primitive(PrimitiveType::F64))]),
+                make_variant("Rect", vec![]),
+            ],
+        );
+        let mut out = String::new();
+        emit_enum(&en, &mut out);
+        assert!(
+            out.contains("final class Circle extends Shape {"),
+            "data variant must be `final class ... extends`: {out}"
+        );
+        assert!(
+            out.contains("final class Rect extends Shape {}"),
+            "unit variant must be `final class ... extends ... {{}}`: {out}"
+        );
+    }
+
+    // ── (b) const constructors on DTOs ──────────────────────────────────────
+
+    #[test]
+    fn dto_single_field_emits_const_constructor() {
+        let ty = make_type("Point", vec![make_field("x", TypeRef::Primitive(PrimitiveType::I32))]);
+        let mut out = String::new();
+        let mut imports = BTreeSet::new();
+        emit_type(&ty, &mut out, &mut imports);
+        assert!(
+            out.contains("const Point(this.x);"),
+            "single-field DTO must have `const` constructor: {out}"
+        );
+    }
+
+    #[test]
+    fn dto_multi_field_emits_const_constructor() {
+        let ty = make_type(
+            "Pair",
+            vec![
+                make_field("first", TypeRef::String),
+                make_field("second", TypeRef::Primitive(PrimitiveType::I32)),
+            ],
+        );
+        let mut out = String::new();
+        let mut imports = BTreeSet::new();
+        emit_type(&ty, &mut out, &mut imports);
+        assert!(
+            out.contains("const Pair({"),
+            "multi-field DTO must have `const` constructor: {out}"
+        );
+        assert!(
+            out.contains("required this.first"),
+            "multi-field DTO must use named required params: {out}"
+        );
+    }
+
+    // ── (c) final fields throughout ─────────────────────────────────────────
+
+    #[test]
+    fn dto_fields_are_final() {
+        let ty = make_type(
+            "Config",
+            vec![
+                make_field("name", TypeRef::String),
+                make_field("count", TypeRef::Primitive(PrimitiveType::I32)),
+            ],
+        );
+        let mut out = String::new();
+        let mut imports = BTreeSet::new();
+        emit_type(&ty, &mut out, &mut imports);
+        assert!(out.contains("final String name;"), "DTO fields must be `final`: {out}");
+        assert!(out.contains("final int count;"), "DTO fields must be `final`: {out}");
+    }
+
+    #[test]
+    fn tagged_enum_variant_fields_are_final() {
+        let en = make_enum(
+            "Event",
+            vec![make_variant(
+                "Clicked",
+                vec![make_field("button", TypeRef::Primitive(PrimitiveType::I32))],
+            )],
+        );
+        let mut out = String::new();
+        emit_enum(&en, &mut out);
+        assert!(
+            out.contains("final int button;"),
+            "sealed variant fields must be `final`: {out}"
+        );
+    }
+
+    // ── (d) const constructors on sealed variant classes ────────────────────
+
+    #[test]
+    fn tagged_enum_data_variant_emits_const_constructor() {
+        let en = make_enum(
+            "Cmd",
+            vec![make_variant(
+                "Quit",
+                vec![make_field("reason", TypeRef::String)],
+            )],
+        );
+        let mut out = String::new();
+        emit_enum(&en, &mut out);
+        assert!(
+            out.contains("const Quit(this.reason);"),
+            "sealed data variant must have `const` constructor: {out}"
+        );
+    }
+
+    #[test]
+    fn dto_class_uses_final_class_modifier() {
+        let ty = make_type("Token", vec![make_field("value", TypeRef::String)]);
+        let mut out = String::new();
+        let mut imports = BTreeSet::new();
+        emit_type(&ty, &mut out, &mut imports);
+        assert!(
+            out.contains("final class Token {"),
+            "DTO must use `final class` modifier: {out}"
+        );
+    }
+}

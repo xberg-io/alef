@@ -67,36 +67,26 @@ impl Backend for SwiftBackend {
 
         let mut body = String::new();
 
-        // Emit first-class Swift structs (Codable + Sendable + Hashable) for non-opaque,
-        // non-trait DTO types that have serde derives and at least one field.  These become
-        // proper Swift value types with stored `let` properties, memberwise initialisers,
-        // and CodingKeys so Codable works out-of-the-box.  An internal `// MARK: - FFI`
-        // extension is also emitted with `init(_ rb: RustBridge.X)` and `func intoRust()`
-        // so the DefaultClient façade can marshal at every public method boundary.
-        //
-        // Types that don't qualify for a first-class struct (no serde, empty fields, or
-        // opaque handle types) fall back to a `public typealias Foo = RustBridge.Foo`.
-        // Opaque handle types with methods get a full class wrapper below.
+        // Emit typealiases for all struct types exposed by swift-bridge.
+        // swift-bridge exposes types that are declared in the extern "Rust" block,
+        // so we generate typealiases for all non-excluded types to provide a
+        // stable Swift API that references RustBridge types.
+        // Skip opaque handle types with methods — those get a full class wrapper below
+        // instead of a typealias.
         for ty in api
             .types
             .iter()
             .filter(|t| !t.is_trait && !exclude_types.contains(&t.name))
             .filter(|t| t.methods.is_empty() || !t.is_opaque && t.has_serde)
         {
-            if !ty.is_opaque && ty.has_serde && !ty.fields.is_empty() {
-                emit_doc_comment(&ty.doc, "", &mut body);
-                emit_first_class_struct(ty, &mapper, &mut body);
-                body.push('\n');
-            } else {
-                emit_doc_comment(&ty.doc, "", &mut body);
-                body.push_str(&crate::template_env::render(
-                    "typealias.jinja",
-                    minijinja::context! {
-                        name => &ty.name,
-                    },
-                ));
-                body.push('\n');
-            }
+            emit_doc_comment(&ty.doc, "", &mut body);
+            body.push_str(&crate::template_env::render(
+                "typealias.jinja",
+                minijinja::context! {
+                    name => &ty.name,
+                },
+            ));
+            body.push('\n');
         }
 
         // Enums are emitted as native Swift enums with unit variants only.
@@ -856,15 +846,30 @@ fn emit_from_json_forwarders(api: &ApiSurface, exclude_types: &std::collections:
     }
 
     out.push_str("// MARK: - From-JSON Helpers\n");
-    out.push_str("// Public wrappers forwarding RustBridge's swift_bridge-generated\n");
-    out.push_str("// `{TypeName}FromJson` helpers into this module's namespace.\n\n");
+    out.push_str("// Public helpers that decode JSON into first-class Swift types.\n");
+    out.push_str("// First-class struct types (Codable) use JSONDecoder directly.\n");
+    out.push_str("// Opaque RustBridge types forward to RustBridge.\n\n");
+
+    // First-class structs have serde + non-empty fields — decode with JSONDecoder.
+    let first_class_set: std::collections::HashSet<&str> = api
+        .types
+        .iter()
+        .filter(|t| !t.is_trait && !t.is_opaque && t.has_serde && !t.fields.is_empty())
+        .map(|t| t.name.as_str())
+        .collect();
 
     for type_name in candidates {
         let type_snake = AsSnakeCase(type_name).to_string();
         let swift_name = format!("{type_snake}_from_json").to_lower_camel_case();
-        out.push_str(&format!(
-            "public func {swift_name}(_ json: String) throws -> {type_name} {{\n    return try RustBridge.{swift_name}(json)\n}}\n\n"
-        ));
+        if first_class_set.contains(type_name) {
+            out.push_str(&format!(
+                "public func {swift_name}(_ json: String) throws -> {type_name} {{\n                     let data = json.data(using: .utf8) ?? Data()\n                     return try JSONDecoder().decode({type_name}.self, from: data)\n}}\n\n"
+            ));
+        } else {
+            out.push_str(&format!(
+                "public func {swift_name}(_ json: String) throws -> {type_name} {{\n    return try RustBridge.{swift_name}(json)\n}}\n\n"
+            ));
+        }
     }
 }
 
