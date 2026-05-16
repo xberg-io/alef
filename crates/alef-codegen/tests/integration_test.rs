@@ -88,6 +88,7 @@ fn simple_type_def() -> TypeDef {
                 serde_flatten: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                original_type: None,
             },
             FieldDef {
                 name: "count".to_string(),
@@ -107,6 +108,7 @@ fn simple_type_def() -> TypeDef {
                 serde_flatten: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                original_type: None,
             },
         ],
         methods: vec![],
@@ -1499,6 +1501,7 @@ fn test_gen_lossy_binding_to_core_fields_map_named_applies_per_value_into() {
         serde_flatten: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        original_type: None,
     });
 
     let result = binding_helpers::gen_lossy_binding_to_core_fields(
@@ -1541,6 +1544,7 @@ fn test_gen_lossy_binding_to_core_fields_optional_map_named_applies_per_value_in
         serde_flatten: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        original_type: None,
     });
 
     let result = binding_helpers::gen_lossy_binding_to_core_fields(
@@ -1582,6 +1586,7 @@ fn test_gen_lossy_binding_to_core_fields_with_duration() {
         serde_flatten: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        original_type: None,
     });
 
     let result = binding_helpers::gen_lossy_binding_to_core_fields(
@@ -1618,6 +1623,7 @@ fn test_gen_lossy_binding_to_core_fields_with_duration_optional_flag() {
         serde_flatten: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        original_type: None,
     });
 
     let result = binding_helpers::gen_lossy_binding_to_core_fields(
@@ -1657,6 +1663,7 @@ fn test_gen_lossy_binding_to_core_fields_with_optional_duration_type() {
         serde_flatten: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        original_type: None,
     });
 
     let result = binding_helpers::gen_lossy_binding_to_core_fields(
@@ -2230,6 +2237,7 @@ fn test_gen_struct_default_impl_optional_field_uses_none() {
             serde_flatten: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            original_type: None,
         }],
         methods: vec![],
         is_opaque: false,
@@ -2290,6 +2298,7 @@ fn test_can_generate_default_impl_named_not_in_known_set() {
             serde_flatten: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            original_type: None,
         }],
         methods: vec![],
         is_opaque: false,
@@ -2338,6 +2347,7 @@ fn test_can_generate_default_impl_named_in_known_set() {
             serde_flatten: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            original_type: None,
         }],
         methods: vec![],
         is_opaque: false,
@@ -2391,6 +2401,7 @@ fn test_gen_struct_with_opaque_field_skips_serde_derives() {
             serde_flatten: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            original_type: None,
         }],
         methods: vec![],
         is_opaque: false,
@@ -2519,6 +2530,7 @@ fn test_enum_has_data_variants_true_when_fields_present() {
                 serde_flatten: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                original_type: None,
             }],
             is_tuple: false,
             doc: String::new(),
@@ -4776,6 +4788,7 @@ fn test_gen_constructor_more_than_7_fields_gets_clippy_allow() {
             serde_flatten: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            original_type: None,
         });
     }
     let mapper = RustMapper;
@@ -6275,6 +6288,7 @@ fn test_gen_lossy_binding_to_core_fields_named_field() {
         serde_flatten: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        original_type: None,
     });
 
     let result = binding_helpers::gen_lossy_binding_to_core_fields(
@@ -6314,6 +6328,7 @@ fn test_gen_lossy_binding_to_core_fields_path_field() {
         serde_flatten: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        original_type: None,
     });
 
     let result = binding_helpers::gen_lossy_binding_to_core_fields(
@@ -6353,6 +6368,7 @@ fn test_gen_lossy_binding_to_core_fields_path_optional() {
         serde_flatten: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        original_type: None,
     });
 
     let result = binding_helpers::gen_lossy_binding_to_core_fields(
@@ -6392,6 +6408,7 @@ fn test_gen_lossy_binding_to_core_fields_json_field() {
         serde_flatten: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        original_type: None,
     });
 
     let result = binding_helpers::gen_lossy_binding_to_core_fields(
@@ -6431,6 +6448,7 @@ fn test_gen_lossy_binding_to_core_fields_json_optional() {
         serde_flatten: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        original_type: None,
     });
 
     let result = binding_helpers::gen_lossy_binding_to_core_fields(
@@ -6470,6 +6488,7 @@ fn test_gen_lossy_binding_to_core_fields_vec_named() {
         serde_flatten: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        original_type: None,
     });
 
     let result = binding_helpers::gen_lossy_binding_to_core_fields(
@@ -6509,6 +6528,7 @@ fn test_gen_lossy_binding_to_core_fields_vec_named_optional() {
         serde_flatten: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        original_type: None,
     });
 
     let result = binding_helpers::gen_lossy_binding_to_core_fields(
@@ -6593,6 +6613,7 @@ fn test_gen_lossy_binding_to_core_fields_char_field() {
         serde_flatten: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        original_type: None,
     });
 
     let result = binding_helpers::gen_lossy_binding_to_core_fields(
@@ -6632,6 +6653,7 @@ fn test_gen_lossy_binding_to_core_fields_char_optional() {
         serde_flatten: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        original_type: None,
     });
 
     let result = binding_helpers::gen_lossy_binding_to_core_fields(
@@ -6674,6 +6696,7 @@ fn test_gen_lossy_binding_to_core_fields_duration_option_on_defaults() {
         serde_flatten: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        original_type: None,
     });
 
     let result = binding_helpers::gen_lossy_binding_to_core_fields(

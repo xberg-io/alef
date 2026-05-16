@@ -45,6 +45,7 @@ fn print_generated_java_code() {
                         serde_flatten: false,
                         binding_excluded: false,
                         binding_exclusion_reason: None,
+                        original_type: None,
                     },
                     FieldDef {
                         name: "timeout".to_string(),
@@ -64,6 +65,7 @@ fn print_generated_java_code() {
                         serde_flatten: false,
                         binding_excluded: false,
                         binding_exclusion_reason: None,
+                        original_type: None,
                     },
                 ],
                 methods: vec![],
@@ -105,6 +107,7 @@ fn print_generated_java_code() {
                         serde_flatten: false,
                         binding_excluded: false,
                         binding_exclusion_reason: None,
+                        original_type: None,
                     },
                     FieldDef {
                         name: "confidence".to_string(),
@@ -124,6 +127,7 @@ fn print_generated_java_code() {
                         serde_flatten: false,
                         binding_excluded: false,
                         binding_exclusion_reason: None,
+                        original_type: None,
                     },
                 ],
                 methods: vec![],

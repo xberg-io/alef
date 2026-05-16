@@ -23,6 +23,7 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
         serde_flatten: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        original_type: None,
     }
 }
 
@@ -1213,6 +1214,7 @@ fn test_tagged_enum_different_named_types_per_variant_uses_into_not_serde_json()
             serde_flatten: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            original_type: None,
         }],
         is_tuple: false,
         doc: String::new(),

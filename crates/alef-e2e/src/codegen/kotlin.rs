@@ -2336,6 +2336,7 @@ mod tests {
                     serde_flatten: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    original_type: None,
                 },
                 FieldDef {
                     name: "status".to_string(),
@@ -2355,6 +2356,7 @@ mod tests {
                     serde_flatten: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    original_type: None,
                 },
             ],
             methods: vec![],

@@ -112,6 +112,7 @@ pub(crate) fn extract_struct(item: &syn::ItemStruct, crate_name: &str, module_pa
                 serde_flatten: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                original_type: None,
             }]
         }
         _ => vec![],
@@ -271,8 +272,9 @@ pub(crate) fn extract_error_enum(item: &syn::ItemEnum, crate_name: &str, module_
                                 newtype_wrapper: None,
                                 serde_rename: None,
                                 serde_flatten: false,
-            binding_excluded: false,
-            binding_exclusion_reason: None,
+                                binding_excluded: false,
+                                binding_exclusion_reason: None,
+                                original_type: None,
                             }
                         })
                         .collect();

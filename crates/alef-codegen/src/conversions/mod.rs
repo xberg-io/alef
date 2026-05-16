@@ -224,6 +224,7 @@ mod tests {
                     serde_flatten: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    original_type: None,
                 },
                 FieldDef {
                     name: "timeout".into(),
@@ -243,6 +244,7 @@ mod tests {
                     serde_flatten: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    original_type: None,
                 },
                 FieldDef {
                     name: "backend".into(),
@@ -262,6 +264,7 @@ mod tests {
                     serde_flatten: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    original_type: None,
                 },
             ],
             methods: vec![],
@@ -375,6 +378,7 @@ mod tests {
             serde_flatten: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            original_type: None,
         });
 
         let result = gen_from_binding_to_core(&typ, "my_crate");
@@ -411,6 +415,7 @@ mod tests {
             serde_flatten: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            original_type: None,
         });
 
         let result = gen_from_core_to_binding(&typ, "my_crate", &AHashSet::new());
@@ -557,6 +562,7 @@ mod tests {
                 serde_flatten: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                original_type: None,
             },
             FieldDef {
                 name: "structure".into(),
@@ -576,6 +582,7 @@ mod tests {
                 serde_flatten: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                original_type: None,
             },
         ];
         let config = ConversionConfig {
@@ -635,6 +642,7 @@ mod tests {
             serde_flatten: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            original_type: None,
         }
     }
 

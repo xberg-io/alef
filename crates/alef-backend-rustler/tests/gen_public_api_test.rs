@@ -46,6 +46,7 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
         serde_flatten: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        original_type: None,
     }
 }
 
@@ -69,6 +70,7 @@ fn make_field_with_default(name: &str, ty: TypeRef, default: DefaultValue) -> Fi
         serde_flatten: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        original_type: None,
     }
 }
 

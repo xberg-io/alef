@@ -6,7 +6,9 @@ use std::borrow::Cow;
 ///
 /// Maps Rust types to idiomatic Zig types:
 /// - Integers map to fixed-width Zig int types (u32→u32, u64→u64, etc.)
-/// - Strings/paths/JSON become sentinel-terminated byte pointers ([:0]const u8)
+/// - Strings/paths/JSON become ordinary byte slices ([]const u8) — exact byte length
+///   is recovered at the wrapper boundary via the alef-backend-ffi `_len()` companion
+///   functions, so no NUL-terminator sentinel is required
 /// - Optionals use Zig's `?T` syntax
 /// - Collections use `[]const T` for arrays and `std.StringHashMap(T)` for maps
 pub struct ZigMapper;
@@ -32,7 +34,7 @@ impl TypeMapper for ZigMapper {
     }
 
     fn string(&self) -> Cow<'static, str> {
-        Cow::Borrowed("[:0]const u8")
+        Cow::Borrowed("[]const u8")
     }
 
     fn bytes(&self) -> Cow<'static, str> {
@@ -40,11 +42,11 @@ impl TypeMapper for ZigMapper {
     }
 
     fn path(&self) -> Cow<'static, str> {
-        Cow::Borrowed("[:0]const u8")
+        Cow::Borrowed("[]const u8")
     }
 
     fn json(&self) -> Cow<'static, str> {
-        Cow::Borrowed("[:0]const u8")
+        Cow::Borrowed("[]const u8")
     }
 
     fn unit(&self) -> Cow<'static, str> {
@@ -84,7 +86,7 @@ mod tests {
 
     #[test]
     fn test_string() {
-        assert_eq!(ZigMapper.string(), "[:0]const u8");
+        assert_eq!(ZigMapper.string(), "[]const u8");
     }
 
     #[test]
@@ -99,14 +101,14 @@ mod tests {
 
     #[test]
     fn test_map_type_json() {
-        assert_eq!(ZigMapper.map_type(&TypeRef::Json), "[:0]const u8");
+        assert_eq!(ZigMapper.map_type(&TypeRef::Json), "[]const u8");
     }
 
     #[test]
     fn test_optional_json() {
         assert_eq!(
             ZigMapper.map_type(&TypeRef::Optional(Box::new(TypeRef::Json))),
-            "?[:0]const u8"
+            "?[]const u8"
         );
     }
 }

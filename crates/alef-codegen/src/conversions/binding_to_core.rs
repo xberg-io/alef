@@ -1203,6 +1203,7 @@ mod tests {
             serde_flatten: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            original_type: None,
         };
 
         let out = gen_from_binding_to_core(&type_with_field(field), "crate");
@@ -1231,6 +1232,7 @@ mod tests {
             serde_flatten: false,
             binding_excluded: true,
             binding_exclusion_reason: Some("internal implementation detail".to_string()),
+            original_type: None,
         };
         let mut typ = type_with_field(field);
         typ.has_stripped_cfg_fields = true;
@@ -1274,6 +1276,7 @@ mod tests {
             serde_flatten: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            original_type: None,
         };
 
         let never_skip = vec!["visitor".to_string()];
@@ -1324,6 +1327,7 @@ mod tests {
             serde_flatten: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            original_type: None,
         };
 
         let config = ConversionConfig {

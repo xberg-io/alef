@@ -25,6 +25,7 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
         serde_flatten: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        original_type: None,
     }
 }
 
@@ -1020,17 +1021,23 @@ options_type = "ConversionOptions"
         .expect("lib.rs must be generated");
 
     assert!(
-        lib_rs.content.contains("impl From<demo::visitor::VisitorHandle> for VisitorHandle"),
+        lib_rs
+            .content
+            .contains("impl From<demo::visitor::VisitorHandle> for VisitorHandle"),
         "forward From impl (core→wrapper) must be emitted for VisitorHandle:\n{}",
         lib_rs.content
     );
     assert!(
-        lib_rs.content.contains("impl From<VisitorHandle> for demo::visitor::VisitorHandle"),
+        lib_rs
+            .content
+            .contains("impl From<VisitorHandle> for demo::visitor::VisitorHandle"),
         "reverse From impl (wrapper→core) must be emitted for VisitorHandle:\n{}",
         lib_rs.content
     );
     assert!(
-        lib_rs.content.contains("impl From<demo::options::ConversionOptions> for ConversionOptions"),
+        lib_rs
+            .content
+            .contains("impl From<demo::options::ConversionOptions> for ConversionOptions"),
         "forward From impl (core→wrapper) must be emitted for ConversionOptions:\n{}",
         lib_rs.content
     );
@@ -1110,7 +1117,9 @@ fn snapshot_into_rust_bulk_constructor_primitives() {
 
     // The Swift host wrapper must call the constructor directly — NOT JSONEncoder.
     assert!(
-        swift_file.content.contains("return RustBridge.Span(self.startByte, self.endByte)"),
+        swift_file
+            .content
+            .contains("return RustBridge.Span(self.startByte, self.endByte)"),
         "intoRust must emit a direct bulk-constructor call:\n{}",
         swift_file.content
     );
@@ -1207,11 +1216,7 @@ fn snapshot_into_rust_bulk_constructor_nested() {
                         TypeRef::Vec(Box::new(TypeRef::Named("Diagnostic".to_string()))),
                         false,
                     ),
-                    make_field(
-                        "tags",
-                        TypeRef::Vec(Box::new(TypeRef::String)),
-                        false,
-                    ),
+                    make_field("tags", TypeRef::Vec(Box::new(TypeRef::String)), false),
                 ],
                 methods: vec![],
                 is_opaque: false,
@@ -1246,7 +1251,9 @@ fn snapshot_into_rust_bulk_constructor_nested() {
 
     // Span (primitive-only): direct call.
     assert!(
-        swift_file.content.contains("return RustBridge.Span(self.startByte, self.endByte)"),
+        swift_file
+            .content
+            .contains("return RustBridge.Span(self.startByte, self.endByte)"),
         "Span.intoRust must use direct bulk constructor:\n{}",
         swift_file.content
     );

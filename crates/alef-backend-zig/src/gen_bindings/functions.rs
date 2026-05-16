@@ -171,6 +171,18 @@ pub(crate) fn emit_function(
         c_args.push("&_out_cap".to_string());
     }
     let c_call = format!("c.{prefix}_{}({})", f.name, c_args.join(", "));
+    // The alef-backend-ffi layer emits a `_len()` companion for every free
+    // function whose return type maps to `*mut c_char` (String/Path/Json and
+    // their Vec/Map JSON-serialized counterparts, plus the `Optional<>`
+    // variants).  We pair the primary call with the companion so the wrapper
+    // body can build an exact-length `[]const u8` slice via `ptr[0..len]` —
+    // no NUL-scan required.
+    let returns_c_char_like = return_uses_len_companion(&f.return_type);
+    let c_len_call = if returns_c_char_like {
+        Some(format!("c.{prefix}_{}_len({})", f.name, c_args.join(", ")))
+    } else {
+        None
+    };
 
     if let Some(error_type) = &zig_error_type {
         // Fallible function: call C, then check last_error_code(). Zig requires `_`
@@ -191,6 +203,9 @@ pub(crate) fn emit_function(
                     c_call => &c_call,
                 },
             ));
+            if let Some(len_call) = &c_len_call {
+                out.push_str(&format!("    const _result_len = {len_call};\n"));
+            }
         }
         out.push_str(&crate::template_env::render(
             "function_error_check.jinja",
@@ -256,6 +271,9 @@ pub(crate) fn emit_function(
                     c_call => &c_call,
                 },
             ));
+            if let Some(len_call) = &c_len_call {
+                out.push_str(&format!("    const _result_len = {len_call};\n"));
+            }
             let ret_expr = unwrap_return_expr("_result", &f.return_type, prefix, struct_names);
             out.push_str(&crate::template_env::render(
                 "function_return.jinja",
@@ -452,6 +470,22 @@ fn unwrap_optional(ty: &TypeRef) -> &TypeRef {
     }
 }
 
+/// Returns true when a return type maps to `*mut c_char` and therefore has a
+/// matching `_len()` companion in alef-backend-ffi.
+///
+/// Must mirror `alef_backend_ffi::gen_bindings::functions::returns_c_char`.
+pub(crate) fn return_uses_len_companion(ty: &TypeRef) -> bool {
+    match ty {
+        TypeRef::String | TypeRef::Path | TypeRef::Json => true,
+        TypeRef::Vec(_) | TypeRef::Map(_, _) => true,
+        TypeRef::Optional(inner) => matches!(
+            inner.as_ref(),
+            TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _)
+        ),
+        _ => false,
+    }
+}
+
 /// Return the max-value sentinel literal for a primitive integer type, if one
 /// is used by the C FFI to represent `None`.  The Rust FFI layer uses
 /// `<Type>::MAX` as the sentinel for optional numeric primitives.
@@ -621,15 +655,14 @@ fn unwrap_return_expr(
         // produce the required Zig bool from the C integer.
         TypeRef::Primitive(PrimitiveType::Bool) => format!("{raw} != 0"),
         TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-            // Copy the null-terminated C string to an owned Zig allocation, then free the C copy.
+            // Build an exact-length slice from the C string pointer using the byte
+            // length returned by the `_len()` companion (emitted by alef-backend-ffi
+            // commit 84d5eadf — see `returns_c_char` in
+            // crates/alef-backend-ffi/src/gen_bindings/functions.rs).  Avoids a
+            // NUL-scan and removes the dependency on the sentinel terminator.
             let mut s = String::new();
             s.push_str("blk: {\n");
-            s.push_str(&crate::template_env::render(
-                "return_unwrap_slice.jinja",
-                minijinja::context! {
-                    raw => raw,
-                },
-            ));
+            s.push_str(&format!("        const slice = {raw}[0.._result_len];\n"));
             s.push_str("        const owned = try std.heap.c_allocator.dupe(u8, slice);\n");
             s.push_str(&crate::template_env::render(
                 "return_unwrap_free.jinja",
@@ -664,15 +697,15 @@ fn unwrap_return_expr(
         TypeRef::Optional(inner) => match inner.as_ref() {
             // `?[]u8` returns: copy the C string into an owned Zig allocation when
             // non-null; return `null` otherwise.  Used for nullable owned-string and
-            // nullable JSON returns.
+            // nullable JSON returns.  The `_len()` companion (emitted by
+            // alef-backend-ffi for matching return types) returns 0 when the
+            // underlying value is None — but we gate on `raw != null` first to
+            // keep the null-branch zero-cost.
             TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
                 let mut s = String::new();
                 s.push_str("blk: {\n");
                 s.push_str(&format!("        if ({raw} == null) break :blk null;\n"));
-                s.push_str(&crate::template_env::render(
-                    "return_unwrap_slice.jinja",
-                    minijinja::context! { raw => raw },
-                ));
+                s.push_str(&format!("        const slice = {raw}[0.._result_len];\n"));
                 s.push_str("        const owned = try std.heap.c_allocator.dupe(u8, slice);\n");
                 s.push_str(&crate::template_env::render(
                     "return_unwrap_free.jinja",

@@ -591,6 +591,7 @@ pub(crate) fn extract_field(field: &syn::Field, crate_name: Option<&str>) -> Fie
         serde_flatten,
         binding_excluded,
         binding_exclusion_reason,
+        original_type: None,
     }
 }
 
@@ -712,6 +713,7 @@ pub(crate) fn extract_enum_variant(v: &syn::Variant) -> EnumVariant {
                     serde_flatten: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    original_type: None,
                 }
             })
             .collect(),

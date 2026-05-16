@@ -665,6 +665,7 @@ mod tests {
                 serde_flatten: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                original_type: None,
             }],
             is_tuple: true,
             doc: String::new(),
@@ -849,6 +850,7 @@ mod tests {
                     serde_flatten: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    original_type: None,
                 }],
                 is_tuple: false, // struct variant
                 doc: String::new(),
@@ -898,6 +900,7 @@ mod tests {
             serde_flatten: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            original_type: None,
         };
         let e = EnumDef {
             name: "SecuritySchemeInfo".to_string(),

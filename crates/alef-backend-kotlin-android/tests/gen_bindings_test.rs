@@ -733,6 +733,7 @@ fn make_sealed_field(name: &str, ty: TypeRef) -> FieldDef {
         serde_flatten: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        original_type: None,
     }
 }
 
@@ -891,6 +892,7 @@ fn make_tuple_error_api() -> ApiSurface {
                         serde_flatten: false,
                         binding_excluded: false,
                         binding_exclusion_reason: None,
+                        original_type: None,
                     }],
                     has_source: false,
                     has_from: false,
@@ -920,6 +922,7 @@ fn make_tuple_error_api() -> ApiSurface {
                             serde_flatten: false,
                             binding_excluded: false,
                             binding_exclusion_reason: None,
+                            original_type: None,
                         },
                         FieldDef {
                             name: "_1".to_string(),
@@ -939,6 +942,7 @@ fn make_tuple_error_api() -> ApiSurface {
                             serde_flatten: false,
                             binding_excluded: false,
                             binding_exclusion_reason: None,
+                            original_type: None,
                         },
                     ],
                     has_source: false,

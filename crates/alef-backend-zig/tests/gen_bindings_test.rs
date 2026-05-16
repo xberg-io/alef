@@ -25,6 +25,7 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
         serde_flatten: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        original_type: None,
     }
 }
 
@@ -480,7 +481,7 @@ fn optional_field_uses_zig_optional_syntax() {
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
-    assert!(content.contains("value: ?[:0]const u8,"), "missing optional: {content}");
+    assert!(content.contains("value: ?[]const u8,"), "missing optional: {content}");
 }
 
 #[test]
@@ -957,4 +958,110 @@ fn string_param_fallible_defers_free_after_c_call() {
         "defer must come after allocPrintSentinel: {content}"
     );
     assert!(defer_pos < c_call_pos, "defer must come before the C call: {content}");
+}
+
+#[test]
+fn string_return_uses_len_companion_and_pointer_slice() {
+    // Verifies: when a free function returns a `*mut c_char`-mapped type
+    // (String/Path/Json/Vec/Map), the Zig wrapper pairs the primary call with
+    // alef-backend-ffi's `_len()` companion and builds an exact-length slice via
+    // `ptr[0..len]` — no `std.mem.sliceTo`/sentinel scan required.
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "describe".into(),
+            rust_path: "demo::describe".into(),
+            original_rust_path: String::new(),
+            params: vec![make_param("topic", TypeRef::String)],
+            return_type: TypeRef::String,
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+
+    assert!(
+        content.contains("topic: []const u8"),
+        "String param must map to []const u8 (no :0 sentinel): {content}"
+    );
+    assert!(
+        content.contains("const _result = c.demo_describe(topic_z);"),
+        "primary C call must be captured into _result: {content}"
+    );
+    assert!(
+        content.contains("const _result_len = c.demo_describe_len(topic_z);"),
+        "_len() companion must be called with the same args and captured into _result_len: {content}"
+    );
+    assert!(
+        content.contains("const slice = _result[0.._result_len];"),
+        "wrapper must slice the C pointer with ptr[0..len] (no sentinel scan): {content}"
+    );
+    assert!(
+        !content.contains("std.mem.sliceTo(_result, 0)"),
+        "wrapper must not NUL-scan _result: {content}"
+    );
+}
+
+#[test]
+fn optional_string_return_uses_len_companion_with_null_guard() {
+    // Verifies: `Option<String>` returns gate the slice construction on a null
+    // check of `_result`, then build `ptr[0..len]` from the `_len()` companion.
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "lookup".into(),
+            rust_path: "demo::lookup".into(),
+            original_rust_path: String::new(),
+            params: vec![make_param("key", TypeRef::String)],
+            return_type: TypeRef::Optional(Box::new(TypeRef::String)),
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+
+    assert!(
+        content.contains("const _result_len = c.demo_lookup_len(key_z);"),
+        "optional-string return must also call the _len() companion: {content}"
+    );
+    assert!(
+        content.contains("if (_result == null) break :blk null;"),
+        "optional return must guard slice construction on a null check: {content}"
+    );
+    assert!(
+        content.contains("const slice = _result[0.._result_len];"),
+        "optional return must slice _result[0.._result_len] after the null check: {content}"
+    );
 }

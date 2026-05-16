@@ -2207,6 +2207,7 @@ package_name = "testlib"
             serde_flatten: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            original_type: None,
         }
     }
 

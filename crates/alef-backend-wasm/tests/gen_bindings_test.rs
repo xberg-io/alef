@@ -26,6 +26,7 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
         serde_flatten: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        original_type: None,
     }
 }
 
@@ -2521,6 +2522,7 @@ fn test_vec_of_tagged_data_enum_field_uses_js_value() {
             serde_flatten: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            original_type: None,
         }],
         is_tuple: true,
         doc: String::new(),
@@ -2670,6 +2672,7 @@ fn test_option_and_bare_tagged_data_enum_fields_use_js_value() {
                     serde_flatten: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    original_type: None,
                 }],
                 is_tuple: true,
                 doc: String::new(),

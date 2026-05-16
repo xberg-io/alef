@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **alef-core: `FieldDef.original_type: Option<String>`** preserves the pre-sanitization Rust type string (e.g. `"Vec<(String, String)>"`) so backends can reconstruct proper serialization logic for tuple types that the sanitizer downgrades. Populated by `sanitize_unknown_types()` when a field's type is rewritten. (`crates/alef-core/src/ir.rs`, `crates/alef-extract/src/extractor/{helpers,types}.rs`)
+
 - **alef-backend-ffi: emit `*_len()` companion for `c_char` returns**: every `pub unsafe extern "C" fn` returning `*mut c_char` now has a sibling `_len() -> usize` that returns the same string's byte length without allocating. Enables safe slice construction in Zig (drops `[:0]const u8` in favour of `[]const u8`) and Java FFM Panama bindings. (`crates/alef-backend-ffi/src/gen_bindings/functions.rs`, `crates/alef-backend-ffi/src/gen_bindings/mod.rs`)
 
 ### Changed

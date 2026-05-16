@@ -165,6 +165,12 @@ pub struct FieldDef {
     /// Human-readable reason for `binding_excluded`, used in diagnostics.
     #[serde(default)]
     pub binding_exclusion_reason: Option<String>,
+    /// Original Rust type string before sanitization (e.g. `"Vec<(String, String)>"`).
+    /// Populated by `sanitize_unknown_types()` when a type is downgraded.
+    /// Allows backends to reconstruct proper serialization/deserialization logic
+    /// even when the sanitized `ty` field only carries the simplified type.
+    #[serde(default)]
+    pub original_type: Option<String>,
 }
 
 /// A method on a public struct.

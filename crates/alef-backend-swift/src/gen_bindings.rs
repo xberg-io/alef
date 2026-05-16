@@ -548,9 +548,7 @@ fn field_intorust_arg(
 
         // Nested struct field: recurse via the symmetric `intoRust()` method on the
         // first-class struct. swift-bridge takes the wrapper class (e.g. `RustBridge.Span`).
-        TypeRef::Named(_) if !is_optional => Some(FieldArg::Direct(format!(
-            "try self.{self_property}.intoRust()"
-        ))),
+        TypeRef::Named(_) if !is_optional => Some(FieldArg::Direct(format!("try self.{self_property}.intoRust()"))),
 
         // Vec<T>: build a `RustVec<U>` and push each converted element. The element
         // converter is the inner type's own intoRust handling.
