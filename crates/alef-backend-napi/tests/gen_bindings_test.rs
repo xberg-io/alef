@@ -2388,7 +2388,9 @@ fn test_optional_return_types_emit_null_not_undefined() {
         if line.contains("function getName()") || line.contains("function getId()") {
             assert!(
                 !line.contains("undefined"),
-                "function return type should not contain 'undefined' at line {}: {}", i + 1, line
+                "function return type should not contain 'undefined' at line {}: {}",
+                i + 1,
+                line
             );
         }
     }

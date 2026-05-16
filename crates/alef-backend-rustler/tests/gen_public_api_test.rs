@@ -999,7 +999,11 @@ fn test_trailing_optional_params_emit_keyword_opts_function() {
             params: vec![
                 make_param("api_key", TypeRef::String, false),
                 make_param("base_url", TypeRef::Optional(Box::new(TypeRef::String)), true),
-                make_param("timeout_secs", TypeRef::Optional(Box::new(TypeRef::Primitive(PrimitiveType::U64))), true),
+                make_param(
+                    "timeout_secs",
+                    TypeRef::Optional(Box::new(TypeRef::Primitive(PrimitiveType::U64))),
+                    true,
+                ),
             ],
             return_type: TypeRef::Named("Client".to_string()),
             is_async: false,

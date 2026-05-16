@@ -213,8 +213,7 @@ impl E2eCodegen for KotlinAndroidE2eCodegen {
 
             // Instrumented Android test for on-device emulator runs.
             // Lives in src/androidTest/ and uses @RunWith(AndroidJUnit4::class).
-            let mut android_test_base =
-                output_base.join("src").join("androidTest").join("kotlin");
+            let mut android_test_base = output_base.join("src").join("androidTest").join("kotlin");
             for segment in kotlin_pkg_id.split('.') {
                 android_test_base = android_test_base.join(segment);
             }

@@ -478,10 +478,12 @@ fn kotlin_android_emits_android_test_source_set() {
         let p = f.path.to_string_lossy();
         p.contains("androidTest") && p.contains("ChatTest.kt")
     });
-    let file = android_test_file.unwrap_or_else(|| panic!(
-        "src/androidTest/.../ChatTest.kt must be emitted; got files:\n{}",
-        all_paths.join("\n")
-    ));
+    let file = android_test_file.unwrap_or_else(|| {
+        panic!(
+            "src/androidTest/.../ChatTest.kt must be emitted; got files:\n{}",
+            all_paths.join("\n")
+        )
+    });
     let content = &file.content;
 
     assert!(

@@ -132,12 +132,12 @@ fn swift_visitor_params(method: &str) -> &'static str {
         "visit_line_break"
         | "visit_horizontal_rule"
         | "visit_definition_list_start"
-        | "visit_figure_start"
-        | "visit_definition_list_end" => "_ ctx: String",
+        | "visit_figure_start" => "_ ctx: String",
+        "visit_definition_list_end" => "_ ctx: String, _ output: String",
         "visit_custom_element" => "_ ctx: String, _ tagName: String, _ html: String",
-        "visit_form" => "_ ctx: String, _ action: String, _ method: String",
-        "visit_input" => "_ ctx: String, _ inputType: String, _ name: String, _ value: String",
-        "visit_audio" | "visit_video" | "visit_iframe" => "_ ctx: String, _ src: String",
+        "visit_form" => "_ ctx: String, _ action: String?, _ method: String?",
+        "visit_input" => "_ ctx: String, _ inputType: String, _ name: String?, _ value: String?",
+        "visit_audio" | "visit_video" | "visit_iframe" => "_ ctx: String, _ src: String?",
         "visit_details" => "_ ctx: String, _ open: Bool",
         "visit_figure_end" => "_ ctx: String, _ output: String",
         _ => "_ ctx: String",

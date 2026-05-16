@@ -675,11 +675,7 @@ fn sorbet_type_for_field(ty: &alef_core::ir::TypeRef, optional: bool) -> String 
         TypeRef::Duration => "Integer".to_string(),
         TypeRef::Json | TypeRef::Unit => "T.untyped".to_string(),
     };
-    if optional {
-        format!("T.nilable({base})")
-    } else {
-        base
-    }
+    if optional { format!("T.nilable({base})") } else { base }
 }
 
 /// Generate a Ruby class hierarchy for an internally-tagged enum.
@@ -701,9 +697,7 @@ fn gen_tagged_enum_ruby_classes(enum_def: &alef_core::ir::EnumDef, module_name: 
 
     // --- Base class ---
     out.push_str(&format!("module {module_name}\n"));
-    out.push_str(&format!(
-        "  # Sealed base class for the {class_name} tagged enum.\n"
-    ));
+    out.push_str(&format!("  # Sealed base class for the {class_name} tagged enum.\n"));
     out.push_str("  # Do not instantiate directly — use the variant subclasses.\n");
     out.push_str(&format!("  class {class_name}\n"));
     out.push_str("    extend T::Sig\n");
@@ -730,7 +724,11 @@ fn gen_tagged_enum_ruby_classes(enum_def: &alef_core::ir::EnumDef, module_name: 
 
         // attr_reader declarations with Sorbet sigs
         for field in &variant.fields {
-            let attr_name = if field.name == "_0" { "value" } else { field.name.as_str() };
+            let attr_name = if field.name == "_0" {
+                "value"
+            } else {
+                field.name.as_str()
+            };
             let sorbet_t = sorbet_type_for_field(&field.ty, field.optional);
             out.push_str(&format!("    sig {{ returns({sorbet_t}) }}\n"));
             out.push_str(&format!("    attr_reader :{attr_name}\n\n"));
@@ -769,10 +767,7 @@ fn gen_tagged_enum_ruby_classes(enum_def: &alef_core::ir::EnumDef, module_name: 
         if init_sig_params.is_empty() {
             out.push_str("    sig { void }\n");
         } else {
-            out.push_str(&format!(
-                "    sig {{ params({}).void }}\n",
-                init_sig_params.join(", ")
-            ));
+            out.push_str(&format!("    sig {{ params({}).void }}\n", init_sig_params.join(", ")));
         }
         let kwarg_list = init_params
             .iter()
@@ -790,9 +785,7 @@ fn gen_tagged_enum_ruby_classes(enum_def: &alef_core::ir::EnumDef, module_name: 
         out.push_str(&format!("    def {snake}? = true\n\n"));
 
         // Class-level `from_hash` factory
-        out.push_str(
-            "    sig { params(hash: T::Hash[T.untyped, T.untyped]).returns(T.attached_class) }\n",
-        );
+        out.push_str("    sig { params(hash: T::Hash[T.untyped, T.untyped]).returns(T.attached_class) }\n");
         out.push_str("    def self.from_hash(hash)\n");
         let field_args: Vec<String> = variant
             .fields
@@ -803,7 +796,11 @@ fn gen_tagged_enum_ruby_classes(enum_def: &alef_core::ir::EnumDef, module_name: 
                 } else {
                     format!(":{}", f.name)
                 };
-                let param_name = if f.name == "_0" { "value".to_string() } else { f.name.clone() };
+                let param_name = if f.name == "_0" {
+                    "value".to_string()
+                } else {
+                    f.name.clone()
+                };
                 // Try both symbol (Magnus default) and string key
                 let val_expr = match &f.ty {
                     TypeRef::Optional(_) => format!("hash[{key_sym}] || hash[{key_sym}.to_s]"),

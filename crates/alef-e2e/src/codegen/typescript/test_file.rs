@@ -5,7 +5,7 @@ use crate::escape::{escape_js, expand_fixture_templates, sanitize_ident};
 use crate::field_access::FieldResolver;
 use crate::fixture::Fixture;
 use alef_core::hash::{self, CommentStyle};
-use alef_core::ir::{TypeDef, TypeRef, EnumDef};
+use alef_core::ir::{EnumDef, TypeDef, TypeRef};
 use heck::ToUpperCamelCase;
 
 use super::assertions::render_assertion;
@@ -334,6 +334,7 @@ pub fn render_test_file(
                 &enum_fields,
                 &result_enum_fields,
                 type_defs,
+                enums,
             );
         }
         if i + 1 < fixtures.len() {
@@ -555,6 +556,7 @@ fn render_test_case(
     enum_fields: &std::collections::HashMap<String, String>,
     result_enum_fields: &std::collections::HashMap<String, String>,
     type_defs: &[TypeDef],
+    enums: &[EnumDef],
 ) {
     let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
     let function_name = resolve_node_function_name(call_config);
@@ -628,6 +630,7 @@ fn render_test_case(
         &effective_bigint_fields,
         handle_config_type.as_deref(),
         type_defs,
+        enums,
     );
 
     if !extra_args.is_empty() {
@@ -887,6 +890,7 @@ fn emit_typescript_batch_item_array(arr: &serde_json::Value, elem_type: &str) ->
 /// setters, so we build the value with `new T()` followed by setter
 /// assignments wrapped in an IIFE so the expression can be inlined as a
 /// function argument. Nested object values follow the same pattern.
+#[allow(clippy::too_many_arguments)]
 fn ts_builder_expression(
     obj: &serde_json::Map<String, serde_json::Value>,
     type_name: &str,
@@ -895,6 +899,7 @@ fn ts_builder_expression(
     enum_fields: &std::collections::HashMap<String, String>,
     bigint_fields: &std::collections::BTreeSet<String>,
     type_defs: &[TypeDef],
+    enums: &[EnumDef],
 ) -> String {
     ts_builder_expression_inner(
         obj,
@@ -904,7 +909,26 @@ fn ts_builder_expression(
         enum_fields,
         bigint_fields,
         type_defs,
+        enums,
     )
+}
+
+/// True when `type_name` (possibly with a `Wasm` binding-prefix) names an
+/// IR enum that uses serde's internally-tagged representation
+/// (`#[serde(tag = "...")]`) and has at least one variant carrying data.
+///
+/// WASM bindings expose such enums via field setters of type
+/// `JsValue`/`Option<JsValue>`, which `serde_wasm_bindgen::from_value` then
+/// deserializes from a plain JS object. Wrapping the value with the
+/// per-variant `default()` factory + setters produces an opaque
+/// wasm-bindgen wrapper class whose own-property table is empty — serde
+/// then fails to read the discriminator. The e2e builder must emit a plain
+/// JS object literal for these instead.
+fn is_tagged_data_enum(type_name: &str, enums: &[EnumDef]) -> bool {
+    let stripped = type_name.strip_prefix("Wasm").unwrap_or(type_name);
+    enums
+        .iter()
+        .any(|e| e.name == stripped && e.serde_tag.is_some() && e.variants.iter().any(|v| !v.fields.is_empty()))
 }
 
 /// Convert a JS numeric literal expression to a BigInt-compatible literal
@@ -1021,6 +1045,7 @@ fn class_name_from_type_ref(ty: &TypeRef) -> Option<String> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn ts_builder_expression_inner(
     obj: &serde_json::Map<String, serde_json::Value>,
     type_name: &str,
@@ -1029,8 +1054,9 @@ fn ts_builder_expression_inner(
     enum_fields: &std::collections::HashMap<String, String>,
     bigint_fields: &std::collections::BTreeSet<String>,
     type_defs: &[TypeDef],
+    enums: &[EnumDef],
 ) -> String {
-    if lang == "node" {
+    if lang == "node" || (lang == "wasm" && is_tagged_data_enum(type_name, enums)) {
         let mut fields = Vec::new();
         for (key, val) in obj {
             let camel_key = snake_to_camel(key);
@@ -1082,6 +1108,7 @@ fn ts_builder_expression_inner(
                     enum_fields,
                     bigint_fields,
                     type_defs,
+                    enums,
                 );
                 stmts.push(format!("_u.{camel_key} = {nested_expr};"));
             } else {
@@ -1106,6 +1133,7 @@ fn ts_builder_expression_inner(
                                 enum_fields,
                                 bigint_fields,
                                 type_defs,
+                                enums,
                             )
                         } else {
                             json_to_js(item)
@@ -1157,6 +1185,7 @@ fn build_args_and_setup(
     bigint_fields: &std::collections::BTreeSet<String>,
     handle_config_type: Option<&str>,
     type_defs: &[TypeDef],
+    enums: &[EnumDef],
 ) -> (Vec<String>, String) {
     let fixture_id = &fixture.id;
     if args.is_empty() {
@@ -1247,6 +1276,7 @@ fn build_args_and_setup(
                                         enum_fields,
                                         bigint_fields,
                                         type_defs,
+                                        enums,
                                     )
                                 } else {
                                     json_to_js_camel(val)
@@ -1347,6 +1377,7 @@ fn build_args_and_setup(
                                 enum_fields,
                                 bigint_fields,
                                 type_defs,
+                                enums,
                             );
                             parts.push(ts_code);
                         } else {
@@ -1571,6 +1602,7 @@ mod tests {
             &std::collections::HashMap::new(),
             &std::collections::BTreeSet::new(),
             &[],
+            &[],
         );
         assert!(
             result.contains("const _u = WasmChatCompletionTool.default();"),
@@ -1597,6 +1629,7 @@ mod tests {
             "node",
             &std::collections::HashMap::new(),
             &std::collections::BTreeSet::new(),
+            &[],
             &[],
         );
         // Node path returns an object literal cast — no `default()` call.

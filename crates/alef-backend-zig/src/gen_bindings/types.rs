@@ -103,20 +103,135 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String) {
 pub(crate) fn zig_field_type(ty: &TypeRef, optional: bool) -> String {
     let mapper = ZigMapper;
     let inner = mapper.map_type(ty);
-    if optional { format!("?{inner}") } else { inner }
+    // Flatten double-optional: if the mapped type is already `?T` (from a
+    // TypeRef::Optional inner), do not prepend another `?` — Zig does not
+    // support `??T` syntax.
+    if optional && !inner.starts_with('?') {
+        format!("?{inner}")
+    } else {
+        inner
+    }
 }
 
+/// Convert a PascalCase identifier to snake_case with acronym awareness.
+///
+/// Consecutive uppercase letters (≥2) are treated as a single acronym word.
+/// The last uppercase in an all-caps run is the first letter of the next word
+/// when followed by a lowercase letter.
+///
+/// # Examples
+/// - `Rdfa`          → `rdfa`
+/// - `MyType`        → `my_type`
+/// - `HTMLParser`    → `html_parser`
+/// - `IOError`       → `io_error`
+/// - `URLPath`       → `url_path`
+/// - `XMLHttpRequest`→ `xml_http_request`
+/// - `JSONLD`        → `jsonld`
 pub(crate) fn to_snake_case(name: &str) -> String {
-    let mut out = String::new();
-    for (i, ch) in name.chars().enumerate() {
-        if ch.is_uppercase() {
-            if i > 0 {
-                out.push('_');
+    if name.is_empty() {
+        return String::new();
+    }
+    let chars: Vec<char> = name.chars().collect();
+    let n = chars.len();
+    let mut out = String::with_capacity(n + 4);
+    let mut i = 0;
+    while i < n {
+        let ch = chars[i];
+        if ch.is_ascii_uppercase() {
+            // Determine how long this uppercase run is.
+            let run_start = i;
+            while i < n && chars[i].is_ascii_uppercase() {
+                i += 1;
             }
-            out.extend(ch.to_lowercase());
+            let run_end = i; // exclusive
+            let run_len = run_end - run_start;
+            if run_len == 1 {
+                // Single uppercase letter — normal word boundary.
+                if !out.is_empty() {
+                    out.push('_');
+                }
+                out.extend(chars[run_start].to_lowercase());
+            } else {
+                // Multi-char uppercase run = acronym.
+                // If followed by lowercase, the last char of the run starts
+                // the next word: split as acronym[0..run_len-1] + next_word.
+                let split = if i < n && chars[i].is_ascii_lowercase() {
+                    run_len - 1
+                } else {
+                    run_len
+                };
+                // Emit acronym portion.
+                if !out.is_empty() {
+                    out.push('_');
+                }
+                for j in run_start..run_start + split {
+                    out.extend(chars[j].to_lowercase());
+                }
+                // Emit trailing char as new word if applicable.
+                if split < run_len {
+                    out.push('_');
+                    out.extend(chars[run_start + split].to_lowercase());
+                }
+            }
         } else {
             out.push(ch);
+            i += 1;
         }
     }
     out
+}
+
+#[cfg(test)]
+mod case_tests {
+    use super::to_snake_case;
+
+    #[test]
+    fn rdfa_single_word() {
+        assert_eq!(to_snake_case("Rdfa"), "rdfa");
+    }
+
+    #[test]
+    fn my_type_normal() {
+        assert_eq!(to_snake_case("MyType"), "my_type");
+    }
+
+    #[test]
+    fn html_parser_acronym_prefix() {
+        assert_eq!(to_snake_case("HTMLParser"), "html_parser");
+    }
+
+    #[test]
+    fn io_error_two_char_acronym() {
+        assert_eq!(to_snake_case("IOError"), "io_error");
+    }
+
+    #[test]
+    fn url_path_acronym_prefix() {
+        assert_eq!(to_snake_case("URLPath"), "url_path");
+    }
+
+    #[test]
+    fn xml_http_request_compound() {
+        assert_eq!(to_snake_case("XMLHttpRequest"), "xml_http_request");
+    }
+
+    #[test]
+    fn jsonld_all_caps() {
+        assert_eq!(to_snake_case("JSONLD"), "jsonld");
+    }
+
+    #[test]
+    fn empty_string() {
+        assert_eq!(to_snake_case(""), "");
+    }
+
+    #[test]
+    fn single_lowercase() {
+        assert_eq!(to_snake_case("value"), "value");
+    }
+
+    #[test]
+    fn single_uppercase() {
+        assert_eq!(to_snake_case("A"), "a");
+    }
 }

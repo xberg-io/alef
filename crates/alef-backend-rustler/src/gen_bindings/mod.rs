@@ -750,8 +750,8 @@ impl Backend for RustlerBackend {
             // Determine whether trailing optional params should be collapsed into a single
             // `opts \\ []` keyword argument (Elixir idiom) rather than N arity overloads.
             // Visitor-bridge params keep their positional form (handled below).
-            let visitor_bridge_idx = visitor_bridge_param_idx
-                .or_else(|| options_field_bridge.as_ref().map(|(idx, _)| *idx));
+            let visitor_bridge_idx =
+                visitor_bridge_param_idx.or_else(|| options_field_bridge.as_ref().map(|(idx, _)| *idx));
             let trailing_keyword_count = if visitor_bridge_idx.is_some() {
                 // Visitor bridge present — no keyword collapsing for safety.
                 0
@@ -789,8 +789,10 @@ impl Backend for RustlerBackend {
                 spec_types.push("keyword()".to_string());
                 let spec_inline = format!("  @spec {nif_fn_name}({}) :: {return_spec}", spec_types.join(", "));
                 if spec_inline.len() > 98 {
-                    let spec_broken =
-                        format!("  @spec {nif_fn_name}({}) ::\n          {return_spec}", spec_types.join(", "));
+                    let spec_broken = format!(
+                        "  @spec {nif_fn_name}({}) ::\n          {return_spec}",
+                        spec_types.join(", ")
+                    );
                     if spec_broken.lines().all(|l| l.len() <= 98) {
                         content.push_str(&spec_broken);
                         content.push('\n');
@@ -826,7 +828,9 @@ impl Backend for RustlerBackend {
                     nif_call_parts.push(format!("Keyword.get(opts, :{safe_name})"));
                 }
                 let nif_call_str = nif_call_parts.join(",\n      ");
-                content.push_str(&format!("    {native_mod}.{nif_fn_name}(\n      {nif_call_str}\n    )\n"));
+                content.push_str(&format!(
+                    "    {native_mod}.{nif_fn_name}(\n      {nif_call_str}\n    )\n"
+                ));
                 content.push_str("  end\n\n");
             }
 
