@@ -840,7 +840,13 @@ pub(super) fn gen_opaque_type_free_only(typ: &TypeDef, _ffi_prefix: &str) -> Str
 }
 
 /// Generate a Go struct type definition with json tags for marshaling.
-pub(super) fn gen_struct_type(typ: &TypeDef, enum_names: &std::collections::HashSet<&str>) -> String {
+/// Accepts enum_names (unit enums) and data_enum_names (sealed-interface enums).
+/// If any field has a data_enum type, emits custom UnmarshalJSON to dispatch to UnmarshalX().
+pub(super) fn gen_struct_type(
+    typ: &TypeDef,
+    enum_names: &std::collections::HashSet<&str>,
+    data_enum_names: &std::collections::HashSet<&str>,
+) -> String {
     let mut out = String::with_capacity(1024);
 
     let go_name = go_type_name(&typ.name);
@@ -1486,7 +1492,7 @@ mod tests {
             binding_excluded: false,
             binding_exclusion_reason: None,
         };
-        let out = gen_struct_type(&typ, &std::collections::HashSet::new());
+        let out = gen_struct_type(&typ, &std::collections::HashSet::new(), &std::collections::HashSet::new());
         assert!(out.contains("type MyConfig struct"));
         assert!(out.contains("json:\"timeout\""));
     }

@@ -3693,6 +3693,21 @@ fn test_capsule_types_in_methods() {
     assert_eq!(files.len(), 1);
     let content = &files[0].content;
 
+    // Debug: print more context around LanguageRegistry
+    if let Some(pos) = content.find("impl LanguageRegistry") {
+        let start = pos.saturating_sub(50);
+        let end = (pos + 200).min(content.len());
+        eprintln!("=== FOUND impl LanguageRegistry at {} ===\n{:?}\n===", pos, &content[start..end]);
+    } else {
+        eprintln!("=== impl LanguageRegistry NOT FOUND ===");
+        // Print the struct area
+        if let Some(pos) = content.find("struct LanguageRegistry") {
+            let start = pos.saturating_sub(5);
+            let end = (pos + 800).min(content.len());
+            eprintln!("=== struct LanguageRegistry area ===\n{:?}\n===", &content[start..end]);
+        }
+    }
+
     // Language must NOT appear as a standalone #[pyclass] struct — it is a capsule type.
     // Note: "struct LanguageRegistry" is expected; we must not match that as a false positive.
     assert!(
