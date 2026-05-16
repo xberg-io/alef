@@ -188,12 +188,16 @@ pub(super) fn gen_free_function_len_companion(
         return out;
     }
 
-    // Parameter conversions — identical to the primary function
+    // Parameter conversions — identical to the primary function, except the fail-path
+    // returns `0` (usize) instead of the primary function's null/sentinel pointer.  Pass
+    // a synthetic `usize` return type so `gen_param_conversion`'s `fail_ret` computation
+    // picks `"return 0;"` from `null_return_value`.
+    let len_return_type = TypeRef::Primitive(alef_core::ir::PrimitiveType::Usize);
     for p in &func.params {
         out.push_str(&crate::template_env::render(
             "emitted_code_block.jinja",
             context! {
-                content => gen_param_conversion(p, has_error, false, &func.return_type, core_import),
+                content => gen_param_conversion(p, has_error, false, &len_return_type, core_import),
             },
         ));
     }
