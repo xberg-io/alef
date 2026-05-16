@@ -2072,6 +2072,11 @@ fn test_option_params_and_returns_emit_nullable_annotations() {
         "Optional method return type should be Optional<T>. Got:\n{}",
         client.content
     );
+    assert!(
+        client.content.contains("import java.util.Optional;"),
+        "Optional opaque method return should import Optional. Got:\n{}",
+        client.content
+    );
 
     // (4) Import should be present
     assert!(

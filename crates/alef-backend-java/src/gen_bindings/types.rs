@@ -870,12 +870,13 @@ pub(crate) fn gen_opaque_handle_class(
     let has_instance_methods = !instance_methods.is_empty();
     let needs_helpers = has_streaming || has_instance_methods;
 
-    // Check instance methods for List, Map, Optional return types
+    // Check instance methods for List, Map, Optional return types using the
+    // same public mapper that renders the method signatures.
     let mut has_list_return = false;
     let mut has_optional_return = false;
     let mut has_map_return = false;
     for method in &instance_methods {
-        let return_type_str = java_type(&method.return_type).to_string();
+        let return_type_str = java_return_type(&method.return_type).to_string();
         if return_type_str.contains("List<") {
             has_list_return = true;
         }
