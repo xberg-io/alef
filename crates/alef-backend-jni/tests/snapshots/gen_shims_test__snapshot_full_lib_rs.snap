@@ -139,9 +139,12 @@ pub unsafe extern "system" fn Java_dev_kreuzberg_demo_DemoBridge_nativeFreeDemoC
     unsafe { let _ = Box::from_raw(handle as *mut core_crate::DemoClient); }
 }
 
+type DemoClientStreamDataStreamHandleItem = std::result::Result<core_crate::DataChunk, Box<dyn std::error::Error + Send + Sync + 'static>>;
+type DemoClientStreamDataStreamHandleStream = BoxStream<'static, DemoClientStreamDataStreamHandleItem>;
+
 struct DemoClientStreamDataStreamHandle {
     rt: &'static Runtime,
-    stream: Mutex<Option<BoxStream<'static, std::result::Result<core_crate::DataChunk, Box<dyn std::error::Error + Send + Sync + 'static>>>>>,
+    stream: Mutex<Option<DemoClientStreamDataStreamHandleStream>>,
 }
 
 #[unsafe(no_mangle)]

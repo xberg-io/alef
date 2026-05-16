@@ -1270,6 +1270,50 @@ fn method_slice_str_param_coerces_to_str_refs() {
 }
 
 // ---------------------------------------------------------------------------
+// Regression: streaming handle type aliases prevent clippy::type_complexity
+// ---------------------------------------------------------------------------
+
+/// Regression: the streaming handle struct field must not inline the full
+/// `Mutex<Option<BoxStream<'static, Result<T, Box<dyn Error + Send + Sync + 'static>>>>>>`
+/// type directly — that 6-level nesting triggers `clippy::type_complexity` under
+/// `-D warnings`. Instead, the emitter must emit two type aliases:
+///   - `<Handle>Item = Result<ItemType, Box<dyn Error + ...>>`
+///   - `<Handle>Stream = BoxStream<'static, <Handle>Item>`
+///
+/// The struct field then only references `Mutex<Option<<Handle>Stream>>`,
+/// which stays within clippy's complexity threshold.
+#[test]
+fn streaming_handle_struct_uses_type_aliases_to_avoid_type_complexity() {
+    let api = make_demo_api();
+    let config = make_demo_config_with_streaming();
+
+    let files = JniBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    // The two type aliases must appear in the output.
+    assert!(
+        content.contains("type DemoClientStreamDataStreamHandleItem"),
+        "Item alias must be emitted to reduce struct complexity;\ngot:\n{content}"
+    );
+    assert!(
+        content.contains("type DemoClientStreamDataStreamHandleStream"),
+        "Stream alias must be emitted to reduce struct complexity;\ngot:\n{content}"
+    );
+
+    // The struct field must reference the alias, NOT the inline nested type.
+    assert!(
+        content.contains("stream: Mutex<Option<DemoClientStreamDataStreamHandleStream>>"),
+        "struct field must use the short alias type, not the inlined nested form;\ngot:\n{content}"
+    );
+
+    // The fully-inlined form that triggers clippy::type_complexity must NOT appear.
+    assert!(
+        !content.contains("stream: Mutex<Option<BoxStream<'static, std::result::Result<core_crate::DataChunk, Box<dyn"),
+        "struct field must not inline the full nested type (would trigger clippy::type_complexity);\ngot:\n{content}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Helper: extract the function body section for a named symbol
 // ---------------------------------------------------------------------------
 

@@ -895,12 +895,21 @@ fn emit_streaming_shims(
         .map(|t| format!("core_crate::{t}"))
         .unwrap_or_else(|| "serde_json::Value".to_string());
 
+    // Emit stream item type aliases to keep the struct field type below clippy's
+    // `type_complexity` threshold (the naive inline form is 6 levels deep).
+    let stream_item_alias = format!("{stream_handle_type}Item");
+    let stream_box_alias = format!("{stream_handle_type}Stream");
+    out.push_str(&format!(
+        "type {stream_item_alias} = std::result::Result<{item_type}, Box<dyn std::error::Error + Send + Sync + 'static>>;\n"
+    ));
+    out.push_str(&format!(
+        "type {stream_box_alias} = BoxStream<'static, {stream_item_alias}>;\n\n"
+    ));
+
     // Emit StreamHandle struct.
     out.push_str(&format!("struct {stream_handle_type} {{\n"));
     out.push_str("    rt: &'static Runtime,\n");
-    out.push_str(&format!(
-        "    stream: Mutex<Option<BoxStream<'static, std::result::Result<{item_type}, Box<dyn std::error::Error + Send + Sync + 'static>>>>>,\n"
-    ));
+    out.push_str(&format!("    stream: Mutex<Option<{stream_box_alias}>>,\n"));
     out.push_str("}\n\n");
 
     // Start shim: (clientHandle: Long, requestJson: String) -> Long
