@@ -733,20 +733,40 @@ pub(super) fn gen_record_type(
             ));
         } else {
             // Non-optional field without explicit default.
-            // Use type-appropriate zero values instead of `required` to avoid
-            // JSON deserialization failures when fields are omitted via serde skip_serializing_if.
+            // Determine if we should emit `required` modifier for non-nullable reference types.
             let field_type = if is_complex {
                 "JsonElement".to_string()
             } else {
                 csharp_type(&field.ty).to_string()
             };
-            // Duration is mapped to ulong? so null is the correct "not set" default.
-            if matches!(&field.ty, TypeRef::Duration) {
+
+            // Check if this is a mandatory non-nullable reference type:
+            // - String, custom classes, or complex types
+            // - NOT value types (primitives, nullable types)
+            // - NOT collections (collections have default [] or new())
+            let should_emit_required = match &field.ty {
+                TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => true,
+                TypeRef::Named(_) if !is_complex => true,
+                TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Bytes => false,
+                TypeRef::Primitive(_) => false,
+                TypeRef::Duration => false,
+                _ => false,
+            };
+
+            if should_emit_required {
+                // Non-nullable reference type without default: use `required` modifier.
+                out.push_str(&render(
+                    "property_required_init.jinja",
+                    minijinja::context! { field_type, cs_name },
+                ));
+            } else if matches!(&field.ty, TypeRef::Duration) {
+                // Duration is mapped to ulong? so null is the correct "not set" default.
                 out.push_str(&render(
                     "property_with_default.jinja",
                     minijinja::context! { field_type, cs_name, default_val => "null" },
                 ));
             } else {
+                // Value types and collections: use type-appropriate zero values.
                 let default_val = match &field.ty {
                     TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => "\"\"",
                     TypeRef::Vec(_) => "[]",

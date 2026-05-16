@@ -1265,3 +1265,375 @@ fn test_bytes_result_func_emits_out_param_pinvoke_and_wrapper() {
         wrapper.content
     );
 }
+
+/// D6: Non-nullable reference property without default should emit `required` modifier.
+#[test]
+fn test_non_nullable_string_field_emits_required() {
+    let backend = CsharpBackend;
+
+    let api = ApiSurface {
+        crate_name: "test".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "ServerConfig".to_string(),
+            rust_path: "test::ServerConfig".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![FieldDef {
+                name: "host".to_string(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                doc: "Server hostname".to_string(),
+                sanitized: false,
+                is_boxed: false,
+                type_rust_path: None,
+                cfg: None,
+                typed_default: None,
+                core_wrapper: alef_core::ir::CoreWrapper::None,
+                vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                newtype_wrapper: None,
+                serde_rename: None,
+                serde_flatten: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = minimal_csharp_config("test");
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generation should succeed");
+
+    let cs_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("ServerConfig.cs"))
+        .expect("ServerConfig.cs should be generated");
+
+    assert!(
+        cs_file.content.contains("required string Host"),
+        "Non-nullable string field without default must emit 'required'; got:\n{}",
+        cs_file.content
+    );
+    assert!(
+        !cs_file.content.contains("Host { get; set; } ="),
+        "Non-nullable string field must NOT emit default initializer; got:\n{}",
+        cs_file.content
+    );
+}
+
+/// D6: Nullable field should NOT emit `required` modifier.
+#[test]
+fn test_nullable_field_does_not_emit_required() {
+    let backend = CsharpBackend;
+
+    let api = ApiSurface {
+        crate_name: "test".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Config".to_string(),
+            rust_path: "test::Config".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![FieldDef {
+                name: "timeout".to_string(),
+                ty: TypeRef::Optional(Box::new(TypeRef::String)),
+                optional: true,
+                default: None,
+                doc: String::new(),
+                sanitized: false,
+                is_boxed: false,
+                type_rust_path: None,
+                cfg: None,
+                typed_default: None,
+                core_wrapper: alef_core::ir::CoreWrapper::None,
+                vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                newtype_wrapper: None,
+                serde_rename: None,
+                serde_flatten: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = minimal_csharp_config("test");
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generation should succeed");
+
+    let cs_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("Config.cs"))
+        .expect("Config.cs should be generated");
+
+    assert!(
+        !cs_file.content.contains("required string? Timeout"),
+        "Nullable field must NOT emit 'required'; got:\n{}",
+        cs_file.content
+    );
+    assert!(
+        cs_file.content.contains("string? Timeout { get; init; } = null"),
+        "Nullable field should have null default; got:\n{}",
+        cs_file.content
+    );
+}
+
+/// D6: Collection field should NOT emit `required` modifier.
+#[test]
+fn test_collection_field_does_not_emit_required() {
+    let backend = CsharpBackend;
+
+    let api = ApiSurface {
+        crate_name: "test".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Config".to_string(),
+            rust_path: "test::Config".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![FieldDef {
+                name: "cors_origins".to_string(),
+                ty: TypeRef::Vec(Box::new(TypeRef::String)),
+                optional: false,
+                default: None,
+                doc: String::new(),
+                sanitized: false,
+                is_boxed: false,
+                type_rust_path: None,
+                cfg: None,
+                typed_default: None,
+                core_wrapper: alef_core::ir::CoreWrapper::None,
+                vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                newtype_wrapper: None,
+                serde_rename: None,
+                serde_flatten: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = minimal_csharp_config("test");
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generation should succeed");
+
+    let cs_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("Config.cs"))
+        .expect("Config.cs should be generated");
+
+    assert!(
+        !cs_file.content.contains("required List<string> CorsOrigins"),
+        "Collection field must NOT emit 'required'; got:\n{}",
+        cs_file.content
+    );
+    assert!(
+        cs_file.content.contains("List<string> CorsOrigins { get; init; } = []"),
+        "Collection field should have empty collection default; got:\n{}",
+        cs_file.content
+    );
+}
+
+/// D6: Field with explicit default should NOT emit `required`.
+#[test]
+fn test_field_with_default_does_not_emit_required() {
+    let backend = CsharpBackend;
+
+    let api = ApiSurface {
+        crate_name: "test".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Config".to_string(),
+            rust_path: "test::Config".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![FieldDef {
+                name: "host".to_string(),
+                ty: TypeRef::String,
+                optional: false,
+                default: Some("127.0.0.1".to_string()),
+                doc: String::new(),
+                sanitized: false,
+                is_boxed: false,
+                type_rust_path: None,
+                cfg: None,
+                typed_default: Some(DefaultValue::StringLiteral("127.0.0.1".to_string())),
+                core_wrapper: alef_core::ir::CoreWrapper::None,
+                vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                newtype_wrapper: None,
+                serde_rename: None,
+                serde_flatten: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = minimal_csharp_config("test");
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generation should succeed");
+
+    let cs_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("Config.cs"))
+        .expect("Config.cs should be generated");
+
+    assert!(
+        !cs_file.content.contains("required string Host"),
+        "Field with explicit default must NOT emit 'required'; got:\n{}",
+        cs_file.content
+    );
+    assert!(
+        cs_file.content.contains("string Host { get; init; } = \"127.0.0.1\""),
+        "Field with default should emit the default value; got:\n{}",
+        cs_file.content
+    );
+}
+
+/// D7: Opaque handle wrapper should use `internal` IntPtr Handle, not `public`.
+#[test]
+fn test_opaque_handle_wrapper_has_internal_handle() {
+    let backend = CsharpBackend;
+    let config = minimal_csharp_config("test");
+
+    let api = ApiSurface {
+        crate_name: "test".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Document".to_string(),
+            rust_path: "test::Document".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![MethodDef {
+                name: "text".to_string(),
+                params: vec![],
+                return_type: TypeRef::String,
+                is_async: false,
+                is_static: false,
+                error_type: None,
+                doc: "Get document text".to_string(),
+                receiver: Some(ReceiverKind::Ref),
+                sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                trait_source: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            is_opaque: true,
+            is_clone: false,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: "Document handle".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+
+    let doc_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("Document.cs"))
+        .expect("Document.cs should be generated");
+
+    assert!(
+        doc_file.content.contains("internal IntPtr Handle =>"),
+        "Opaque handle wrapper should use 'internal IntPtr Handle'; got:\n{}",
+        doc_file.content
+    );
+    assert!(
+        !doc_file.content.contains("public IntPtr Handle"),
+        "Opaque handle wrapper must NOT expose 'public IntPtr Handle'; got:\n{}",
+        doc_file.content
+    );
+}

@@ -346,6 +346,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/property_with_default.jinja"),
     ),
     (
+        "property_required_init.jinja",
+        include_str!("../templates/property_required_init.jinja"),
+    ),
+    (
         "vtable_slot_comment.jinja",
         include_str!("../templates/vtable_slot_comment.jinja"),
     ),
