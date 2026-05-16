@@ -386,6 +386,7 @@ fn gen_struct_methods_impl(
             let has_representable_required = typ
                 .fields
                 .iter()
+                .filter(|f| !f.binding_excluded)
                 .any(|f| !f.optional && field_can_be_param(&f.ty, enum_names, opaque_types));
 
             if has_representable_required {
@@ -394,6 +395,7 @@ fn gen_struct_methods_impl(
                 let param_defs: Vec<alef_core::ir::ParamDef> = typ
                     .fields
                     .iter()
+                    .filter(|f| !f.binding_excluded)
                     // cfg-gated fields are absent from the binding struct — skip them so they
                     // don't appear as constructor parameters or in the struct literal.
                     .filter(|f| f.cfg.is_none())
@@ -429,6 +431,7 @@ fn gen_struct_methods_impl(
                 for f in typ
                     .fields
                     .iter()
+                    .filter(|f| !f.binding_excluded)
                     .filter(|f| f.cfg.is_none())
                     .filter(|f| field_can_be_param(&f.ty, enum_names, opaque_types))
                 {
@@ -470,8 +473,8 @@ fn gen_struct_methods_impl(
                     // as constructor parameters.
                     .map(|f| {
                         let php_param_name = alef_codegen::naming::to_php_name(&f.name);
-                        if f.cfg.is_some() {
-                            // Force-restored cfg-gated field: no constructor parameter, default-init.
+                        if f.binding_excluded || f.cfg.is_some() {
+                            // Hidden/cfg-gated fields are core-only: no constructor parameter.
                             return format!("{}: Default::default()", f.name);
                         }
                         if field_can_be_param(&f.ty, enum_names, opaque_types) {
@@ -584,13 +587,12 @@ fn gen_struct_methods_impl(
                 let param_init = typ
                     .fields
                     .iter()
-                    .filter(|f| !f.binding_excluded)
                     // Iterate every field — cfg-gated fields stay in the binding struct so
                     // the Self literal must initialize them too. The .map below emits
                     // `Default::default()` for cfg-gated fields.
                     .map(|f| {
                         let php_param_name = alef_codegen::naming::to_php_name(&f.name);
-                        if f.cfg.is_some() {
+                        if f.binding_excluded || f.cfg.is_some() {
                             return format!("{}: Default::default()", f.name);
                         }
                         // Check if this needs let-binding conversion
