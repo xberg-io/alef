@@ -59,11 +59,17 @@ pub fn default_e2e_languages(scaffolded: &[Language]) -> Vec<String> {
 /// the TypeScript/WASM backend uses it to auto-derive `nested_types` for
 /// wasm-bindgen class wrapping). Pass an empty slice when the registry is not
 /// available; generators will fall back to explicit call-override mappings.
+///
+/// `enums` is the IR enum registry for the source crate. Pass `&api.enums`
+/// from the extracted [`alef_core::ir::ApiSurface`]. For WASM, it is used
+/// to identify tagged-data enums so they are emitted as plain JS object literals
+/// instead of wrapper factories. Pass an empty slice when not available.
 pub fn generate_e2e(
     config: &ResolvedCrateConfig,
     e2e_config: &E2eConfig,
     languages: Option<&[String]>,
     type_defs: &[alef_core::ir::TypeDef],
+    enums: &[alef_core::ir::EnumDef],
 ) -> Result<Vec<GeneratedFile>> {
     let fixtures_dir = Path::new(&e2e_config.fixtures);
     let fixtures = load_fixtures(fixtures_dir)
@@ -131,7 +137,7 @@ pub fn generate_e2e(
 
     let mut all_files = Vec::new();
     for generator in &generators {
-        let files = generator.generate(&groups, e2e_config, config, type_defs)?;
+        let files = generator.generate(&groups, e2e_config, config, type_defs, enums)?;
         info!("  [{}] generated {} file(s)", generator.language_name(), files.len());
         all_files.extend(files);
     }

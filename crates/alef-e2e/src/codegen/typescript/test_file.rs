@@ -5,7 +5,7 @@ use crate::escape::{escape_js, expand_fixture_templates, sanitize_ident};
 use crate::field_access::FieldResolver;
 use crate::fixture::Fixture;
 use alef_core::hash::{self, CommentStyle};
-use alef_core::ir::{TypeDef, TypeRef};
+use alef_core::ir::{TypeDef, TypeRef, EnumDef};
 use heck::ToUpperCamelCase;
 
 use super::assertions::render_assertion;
@@ -22,6 +22,10 @@ use super::visitors::build_typescript_visitor;
 /// mappings) so plain object literals are not passed where wasm-bindgen expects
 /// class instances. Pass an empty slice when not available; the generator
 /// falls back to explicit call-override mappings.
+///
+/// `enums` is the IR enum registry from the source crate. For WASM, it is used
+/// to identify tagged-data enums so they are emitted as plain JS object literals
+/// instead of wrapper factories. Pass an empty slice when not available.
 #[allow(clippy::too_many_arguments)]
 pub fn render_test_file(
     lang: &str,
@@ -36,6 +40,7 @@ pub fn render_test_file(
     client_factory: Option<&str>,
     e2e_config: &E2eConfig,
     type_defs: &[TypeDef],
+    enums: &[EnumDef],
 ) -> String {
     // `lang` is used for wasm visitor arg placement and override routing
     let (needs_cache_isolation, has_configure) = detect_cache_isolation_needs(fixtures, e2e_config);

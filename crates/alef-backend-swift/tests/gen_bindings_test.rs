@@ -182,9 +182,19 @@ fn struct_with_serde_derives_codable() {
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
 
+    // Config now emits as a first-class Codable struct (has_serde: true, has fields)
     assert!(
-        content.contains("public typealias Config = RustBridge.Config"),
-        "missing typealias declaration: {content}"
+        content.contains("public struct Config: Codable, Sendable, Hashable"),
+        "expected first-class Codable struct: {content}"
+    );
+    assert!(
+        content.contains("public let value: Int32"),
+        "expected stored property: {content}"
+    );
+    // RustBridge typealias must NOT appear for first-class structs
+    assert!(
+        !content.contains("public typealias Config = RustBridge.Config"),
+        "must not emit typealias for first-class struct: {content}"
     );
 }
 
@@ -1208,27 +1218,27 @@ client_constructor_body.DefaultClient = "Self { inner: ::demo_crate::DefaultClie
         .find(|f| f.path.to_string_lossy().ends_with(".swift"))
         .unwrap();
 
-    // Streaming item types are emitted as typealiases to the opaque RustBridge type.
-    // JSON deserialisation happens on the Rust side via a `{type}FromJson` bridge function,
-    // so the yielded value has the full swift-bridge method API.
+    // Streaming item types with has_serde + fields now emit as first-class Codable structs.
+    // The streaming wrapper uses JSONDecoder directly, not the RustBridge shim.
+    assert!(
+        swift.content.contains("public struct ChatCompletionChunk: Codable, Sendable, Hashable"),
+        "streaming item type must be emitted as a first-class Codable struct; got:\n{}",
+        swift.content
+    );
+    // Must NOT emit an opaque typealias — first-class structs replace typealiases.
+    assert!(
+        !swift
+            .content
+            .contains("typealias ChatCompletionChunk = RustBridge.ChatCompletionChunk"),
+        "must not emit typealias for first-class Codable struct; got:\n{}",
+        swift.content
+    );
+    // The streaming wrapper must use JSONDecoder for first-class struct chunks.
     assert!(
         swift
             .content
-            .contains("typealias ChatCompletionChunk = RustBridge.ChatCompletionChunk"),
-        "streaming item type must be emitted as a typealias to the opaque RustBridge type; got:\n{}",
-        swift.content
-    );
-    // Must NOT emit a native Codable struct — that would conflict with the opaque type
-    // when both LiterLlm and RustBridge are imported.
-    assert!(
-        !swift.content.contains("public struct ChatCompletionChunk: Codable"),
-        "streaming item type must NOT emit a Codable struct (ambiguous with opaque type); got:\n{}",
-        swift.content
-    );
-    // The streaming wrapper must call the from_json bridge function.
-    assert!(
-        swift.content.contains("RustBridge.chatCompletionChunkFromJson(json)"),
-        "streaming wrapper must call RustBridge.chatCompletionChunkFromJson; got:\n{}",
+            .contains("JSONDecoder().decode(ChatCompletionChunk.self, from: chunkData)"),
+        "streaming wrapper must use JSONDecoder for first-class struct; got:\n{}",
         swift.content
     );
 }

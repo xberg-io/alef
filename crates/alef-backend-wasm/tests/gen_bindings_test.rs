@@ -2845,7 +2845,9 @@ fn test_option_and_bare_tagged_data_enum_fields_use_js_value() {
 fn test_constructor_params_camel_case() {
     let backend = WasmBackend;
 
-    // Create a test struct with snake_case fields: field_one, field_two, field_three
+    // Create a test struct with snake_case fields: field_one, field_two, field_three.
+    // The constructor parameters should be camelCase for JS consumers, while the struct
+    // initialization must use explicit field syntax with the renamed parameters.
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
@@ -2889,18 +2891,17 @@ fn test_constructor_params_camel_case() {
 
     let content = &files[0].content;
 
-    // The constructor uses Rust-idiomatic snake_case parameter names that match the field
-    // names — this lets the struct literal use shorthand initialization. wasm-bindgen exposes
-    // these constructor parameters as positional arguments in JS, so the parameter NAME at the
-    // JS surface is irrelevant; the camelCase-vs-snake_case naming only affects the generated
-    // TypeScript .d.ts hints, which downstream consumers can rename freely.
+    // The constructor must have camelCase parameter names (fieldOne, fieldTwo, fieldThree)
+    // for JS consumers to see consistent naming in .d.ts hints and IDE autocomplete.
     assert!(
-        content.contains("pub fn new(field_one: bool, field_two: String, field_three: Option<u32>)"),
-        "Constructor parameters must be snake_case (matching field names for shorthand init); actual content:\n{content}"
+        content.contains("pub fn new(fieldOne: bool, fieldTwo: String, fieldThree: Option<u32>)"),
+        "Constructor parameters must be camelCase for JS consumers; actual content:\n{content}"
     );
 
+    // The struct initialization must use explicit field syntax mapping the camelCase
+    // parameter names to the snake_case field names, e.g. "field_one: fieldOne".
     assert!(
-        content.contains("WasmMyConfig { field_one, field_two, field_three }"),
-        "Struct literal must use Rust field names; actual content:\n{content}"
+        content.contains("WasmMyConfig { field_one: fieldOne, field_two: fieldTwo, field_three: fieldThree }"),
+        "Struct literal must use explicit field syntax with renamed params; actual content:\n{content}"
     );
 }

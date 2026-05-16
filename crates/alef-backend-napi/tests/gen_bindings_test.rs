@@ -188,12 +188,12 @@ fn test_basic_generation() {
         "Should contain extractFile function (camelCase)"
     );
     assert!(
-        lib_rs_content.contains("napi(object)"),
-        "Non-opaque structs should use napi(object) attribute"
+        lib_rs_content.contains("napi(object, js_name"),
+        "Non-opaque structs should use napi(object, js_name = ...) attribute"
     );
     assert!(
-        lib_rs_content.contains("napi(string_enum)"),
-        "Enums should use napi(string_enum) attribute"
+        lib_rs_content.contains("napi(string_enum, js_name"),
+        "Enums should use napi(string_enum, js_name = ...) attribute"
     );
 }
 

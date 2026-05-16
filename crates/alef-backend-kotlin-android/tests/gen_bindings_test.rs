@@ -712,7 +712,40 @@ group_id = "dev.kreuzberg"
     )
 }
 
-use alef_core::ir::{EnumDef, EnumVariant};
+use alef_core::ir::{CoreWrapper, EnumDef, EnumVariant, FieldDef, PrimitiveType};
+
+fn make_sealed_field(name: &str, ty: TypeRef) -> FieldDef {
+    FieldDef {
+        name: name.to_string(),
+        ty,
+        optional: false,
+        default: None,
+        doc: String::new(),
+        sanitized: false,
+        is_boxed: false,
+        type_rust_path: None,
+        cfg: None,
+        typed_default: None,
+        core_wrapper: CoreWrapper::None,
+        vec_inner_core_wrapper: CoreWrapper::None,
+        newtype_wrapper: None,
+        serde_rename: None,
+        serde_flatten: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    }
+}
+
+fn make_sealed_variant(name: &str, fields: Vec<FieldDef>, is_tuple: bool) -> EnumVariant {
+    EnumVariant {
+        name: name.to_string(),
+        fields,
+        doc: String::new(),
+        is_default: false,
+        serde_rename: None,
+        is_tuple,
+    }
+}
 
 fn make_sealed_variants_api() -> ApiSurface {
     // Create an enum with tuple variants having different payload types:
@@ -721,63 +754,38 @@ fn make_sealed_variants_api() -> ApiSurface {
     // - Multi(String, Int): multiple primitives, derives "value0", "value1"
     let format_metadata_enum = EnumDef {
         name: "FormatMetadata".into(),
+        rust_path: "demo::FormatMetadata".into(),
+        original_rust_path: "demo::FormatMetadata".into(),
         variants: vec![
-            EnumVariant {
-                name: "Pdf".into(),
-                fields: vec![alef_core::ir::Field {
-                    name: "_0".into(), // Tuple variant positional field
-                    ty: TypeRef::Named("PdfMetadata".into()),
-                    optional: false,
-                    serde_rename: None,
-                }],
-                discriminant: None,
-                serde_rename: None,
-            },
-            EnumVariant {
-                name: "Custom".into(),
-                fields: vec![alef_core::ir::Field {
-                    name: "_0".into(),
-                    ty: TypeRef::String,
-                    optional: false,
-                    serde_rename: None,
-                }],
-                discriminant: None,
-                serde_rename: None,
-            },
-            EnumVariant {
-                name: "Multi".into(),
-                fields: vec![
-                    alef_core::ir::Field {
-                        name: "_0".into(),
-                        ty: TypeRef::String,
-                        optional: false,
-                        serde_rename: None,
-                    },
-                    alef_core::ir::Field {
-                        name: "_1".into(),
-                        ty: TypeRef::Primitive(alef_core::ir::PrimitiveType::I32),
-                        optional: false,
-                        serde_rename: None,
-                    },
+            make_sealed_variant(
+                "Pdf",
+                vec![make_sealed_field("_0", TypeRef::Named("PdfMetadata".into()))],
+                true,
+            ),
+            make_sealed_variant("Custom", vec![make_sealed_field("_0", TypeRef::String)], true),
+            make_sealed_variant(
+                "Multi",
+                vec![
+                    make_sealed_field("_0", TypeRef::String),
+                    make_sealed_field("_1", TypeRef::Primitive(PrimitiveType::I32)),
                 ],
-                discriminant: None,
-                serde_rename: None,
-            },
-            EnumVariant {
-                name: "Struct".into(),
-                fields: vec![alef_core::ir::Field {
-                    name: "reason".into(), // Named struct field
-                    ty: TypeRef::String,
-                    optional: false,
-                    serde_rename: None,
-                }],
-                discriminant: None,
-                serde_rename: None,
-            },
+                true,
+            ),
+            make_sealed_variant(
+                "Struct",
+                vec![make_sealed_field("reason", TypeRef::String)],
+                false,
+            ),
         ],
         doc: "Test enum with various payload types".into(),
+        cfg: None,
+        is_copy: false,
+        has_serde: true,
         serde_tag: None,
         serde_untagged: false,
+        serde_rename_all: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     };
 
     ApiSurface {
