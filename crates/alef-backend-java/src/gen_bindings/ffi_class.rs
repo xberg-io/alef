@@ -96,6 +96,7 @@ pub(crate) fn gen_main_class(
             needs_completable_future => body.contains("CompletableFuture"),
             needs_completion_exception => body.contains("CompletionException"),
             needs_object_mapper => body.contains(" ObjectMapper"),
+            needs_nullable => body.contains("@Nullable"),
         },
     );
 
@@ -128,7 +129,8 @@ pub(crate) fn gen_sync_function_method(
             } else {
                 java_type(&p.ty)
             };
-            format!("final {} {}", ptype, to_java_name(&p.name))
+            let annotation = if p.optional { "@Nullable " } else { "" };
+            format!("final {annotation}{} {}", ptype, to_java_name(&p.name))
         })
         .collect();
 

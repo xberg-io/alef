@@ -40,3 +40,6 @@ import java.util.concurrent.CompletionException;
 {% if needs_object_mapper %}
 import com.fasterxml.jackson.databind.ObjectMapper;
 {% endif %}
+{% if needs_nullable %}
+import org.jspecify.annotations.Nullable;
+{% endif %}

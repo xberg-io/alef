@@ -1877,10 +1877,10 @@ fn test_option_params_and_returns_emit_nullable_annotations() {
         content
     );
 
-    // (3) find_user returns Option<User> — should be @Nullable User
+    // (3) find_user returns Option<User> — returns are represented as Optional<T>.
     assert!(
-        content.contains("public static @Nullable User findUser(final long id)"),
-        "Optional return type should be @Nullable. Got:\n{}",
+        content.contains("public static Optional<User> findUser(final long id)"),
+        "Optional return type should be Optional<T>. Got:\n{}",
         content
     );
 
