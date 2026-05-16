@@ -1393,6 +1393,12 @@ fn test_generate_bindings_cargo_toml_includes_js_sys() {
         "wasm Cargo.toml must include the serde-wasm-bindgen dependency"
     );
     assert!(
+        cargo_file
+            .content
+            .contains(r#"getrandom = { version = "0.4", features = ["wasm_js"] }"#),
+        "wasm Cargo.toml must use the current getrandom wasm_js dependency"
+    );
+    assert!(
         cargo_file.content.contains("[lib]"),
         "wasm Cargo.toml must have a [lib] section with crate-type = [\"cdylib\"]"
     );

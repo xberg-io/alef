@@ -36,6 +36,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-backend-wasm: emit current `getrandom` for wasm target dependencies**:
+  generated WASM `Cargo.toml` files now use `getrandom` `0.4` with `wasm_js`, so downstream
+  aggressive dependency upgrades no longer make generated manifests stale.
+  (`crates/alef-backend-wasm/src/gen_bindings/mod.rs`,
+  `crates/alef-backend-wasm/tests/gen_bindings_test.rs`)
+
 - **alef-e2e: omit non-runnable Python and Node fixtures instead of generating skipped tests**:
   fixtures that have no assertions for the target language, or HTTP 101 upgrade
   fixtures that the standard Python/Node HTTP clients cannot execute, are now
