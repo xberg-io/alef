@@ -4,6 +4,7 @@
             }
             try {
                 String result = resultPtr.reinterpret(Long.MAX_VALUE).getString(0);
-                NativeLib.{{ prefix_upper }}_FREE_STRING.invoke(resultPtr);
                 return java.util.Optional.of(result);
+            } finally {
+                NativeLib.{{ prefix_upper }}_FREE_STRING.invoke(resultPtr);
             }
