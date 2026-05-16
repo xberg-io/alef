@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.20] - 2026-05-16
+
+### Fixed
+
+- **alef-backend-kotlin-android: emit resolved workspace version in generated `build.gradle.kts`**: AAR `version` coordinate was hardcoded to `"0.0.0"`, leaving every published Android artifact tagged as v0.0.0 in Maven local. Now reads `config.resolved_version()` (workspace `version =`) so the generated `build.gradle.kts` carries the real release version. (`crates/alef-backend-kotlin-android/src/gen_build_gradle.rs`)
+
+- **release: include all v0.16.19 fixes**: v0.16.19 publish failed on `cargo fmt --check` due to a stray `eprintln!` in a test landed by a concurrent agent. v0.16.20 carries the same fix set plus the fmt scrub and the kotlin-android AAR version fix.
+
 ## [0.16.19] - 2026-05-16
 
 ### Fixed
