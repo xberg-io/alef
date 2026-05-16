@@ -97,6 +97,8 @@ mod tests {
     #[test]
     fn render_global_setup_waits_for_mock_server_shutdown() {
         let out = render_global_setup();
+        assert!(out.contains("clearTimeout(startupTimeout)"), "got: {out}");
+        assert!(out.contains("serverProcess.stdout.off('data', onData)"), "got: {out}");
         assert!(out.contains("await new Promise<void>"), "got: {out}");
         assert!(out.contains("child.once('close'"), "got: {out}");
         assert!(out.contains("child.kill('SIGKILL')"), "got: {out}");

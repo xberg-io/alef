@@ -23,7 +23,17 @@ export async function setup() {
     let collectedUrl = '';
     let collectedServers: Record<string, string> = {};
     let buffer = '';
-    serverProcess.stdout.on('data', (data: any) => {
+    let settled = false;
+
+    const finish = (result: { url: string; servers: Record<string, string> }) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(startupTimeout);
+      serverProcess.stdout.off('data', onData);
+      resolve(result);
+    };
+
+    const onData = (data: any) => {
       buffer += data.toString();
       const lines = buffer.split('\n');
       buffer = lines.pop() ?? '';
@@ -36,13 +46,20 @@ export async function setup() {
         const serversMatch = trimmed.match(/^MOCK_SERVERS=(.*)/);
         if (serversMatch) {
           try { collectedServers = JSON.parse(serversMatch[1].trim()); } catch { /* ignore */ }
-          if (collectedUrl) resolve({ url: collectedUrl, servers: collectedServers });
+          if (collectedUrl) finish({ url: collectedUrl, servers: collectedServers });
         } else if (collectedUrl && trimmed && !trimmed.startsWith('MOCK_SERVER')) {
-          resolve({ url: collectedUrl, servers: collectedServers });
+          finish({ url: collectedUrl, servers: collectedServers });
         }
       }
-    });
-    setTimeout(() => reject(new Error('Mock server startup timeout')), 30000);
+    };
+
+    const startupTimeout = setTimeout(() => {
+      settled = true;
+      serverProcess.stdout.off('data', onData);
+      reject(new Error('Mock server startup timeout'));
+    }, 30000);
+
+    serverProcess.stdout.on('data', onData);
   });
 
   process.env.MOCK_SERVER_URL = url;

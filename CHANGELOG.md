@@ -24,10 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   flattened binding field directly, with named inner values still mapped through `Into`.
   (`crates/alef-backend-wasm/src/gen_bindings/enums.rs`)
 
-- **alef-e2e/typescript: wait for mock-server shutdown in Vitest global teardown**:
-  The generated TypeScript e2e `globalSetup.ts` now waits for the spawned mock-server process to
-  close after sending SIGTERM, with a bounded SIGKILL fallback. This prevents Vitest from printing
-  hanging-process warnings after otherwise successful generated e2e runs.
+- **alef-e2e/typescript: clean up mock-server timers and process handles in Vitest global setup**:
+  The generated TypeScript e2e `globalSetup.ts` now clears the startup timeout after the mock
+  server emits its sentinel URL and removes the stdout listener, then waits for the spawned
+  mock-server process to close during teardown with a bounded SIGKILL fallback. This prevents
+  Vitest from printing hanging-process warnings after otherwise successful generated e2e runs.
   (`crates/alef-e2e/templates/typescript/globalSetup.ts.jinja`,
   `crates/alef-e2e/src/codegen/typescript/config.rs`)
 
