@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-backend-wasm: preserve `Option<T>` fields in tagged data enum variants**:
+  The flat wasm-bindgen struct representation for serde-tagged data enums stores every variant
+  field as optional because a single JS object only carries one variant's fields. When a source
+  variant field was already `Option<T>`, the conversion code incorrectly unwrapped it in
+  binding→core direction and wrapped it in `Some(...)` in core→binding direction, producing type
+  mismatches such as `Option<String>` vs `String`. Optional variant fields now pass through the
+  flattened binding field directly, with named inner values still mapped through `Into`.
+  (`crates/alef-backend-wasm/src/gen_bindings/enums.rs`)
+
 - **alef-e2e/typescript: wait for mock-server shutdown in Vitest global teardown**:
   The generated TypeScript e2e `globalSetup.ts` now waits for the spawned mock-server process to
   close after sending SIGTERM, with a bounded SIGKILL fallback. This prevents Vitest from printing

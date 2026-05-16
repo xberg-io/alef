@@ -73,6 +73,45 @@ fn mixed_type_fields(enum_def: &EnumDef) -> std::collections::BTreeSet<String> {
         .collect()
 }
 
+fn tagged_enum_binding_to_core_expr(field_ident: &str, field_ty: &TypeRef, field_optional: bool) -> String {
+    if field_optional {
+        return match field_ty {
+            TypeRef::Named(_) => format!("val.{field_ident}.clone().map(Into::into)"),
+            _ => format!("val.{field_ident}.clone()"),
+        };
+    }
+    match field_ty {
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(_) => format!("val.{field_ident}.clone().map(Into::into)"),
+            _ => format!("val.{field_ident}.clone()"),
+        },
+        TypeRef::Named(_) => format!("val.{field_ident}.clone().map(Into::into).unwrap_or_default()"),
+        _ => format!("val.{field_ident}.clone().unwrap_or_default()"),
+    }
+}
+
+fn tagged_enum_core_to_binding_expr(
+    field_ident: &str,
+    local: &str,
+    field_ty: &TypeRef,
+    field_optional: bool,
+) -> String {
+    if field_optional {
+        return match field_ty {
+            TypeRef::Named(_) => format!("                {field_ident}: {local}.map(Into::into)"),
+            _ => format!("                {field_ident}: {local}"),
+        };
+    }
+    match field_ty {
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(_) => format!("                {field_ident}: {local}.map(Into::into)"),
+            _ => format!("                {field_ident}: {local}"),
+        },
+        TypeRef::Named(_) => format!("                {field_ident}: Some({local}.into())"),
+        _ => format!("                {field_ident}: Some({local})"),
+    }
+}
+
 /// Compute the serde wire tag value for a variant — what JS supplies in the `type` field.
 pub(super) fn variant_tag_value(
     variant_name: &str,
@@ -258,12 +297,7 @@ pub(super) fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &
                         )
                     } else {
                         // Single-type Named or primitive field.
-                        match &f.ty {
-                            TypeRef::Named(_) => {
-                                format!("val.{f_ident}.clone().map(Into::into).unwrap_or_default()")
-                            }
-                            _ => format!("val.{f_ident}.clone().unwrap_or_default()"),
-                        }
+                        tagged_enum_binding_to_core_expr(&f_ident, &f.ty, f.optional)
                     }
                 })
                 .collect();
@@ -282,12 +316,11 @@ pub(super) fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &
                 .iter()
                 .map(|f| {
                     let f_ident = escape_rust_keyword(&f.name);
-                    match &f.ty {
-                        TypeRef::Named(_) => {
-                            format!("{}: val.{f_ident}.clone().map(Into::into).unwrap_or_default()", f.name)
-                        }
-                        _ => format!("{}: val.{f_ident}.clone().unwrap_or_default()", f.name),
-                    }
+                    format!(
+                        "{}: {}",
+                        f.name,
+                        tagged_enum_binding_to_core_expr(&f_ident, &f.ty, f.optional)
+                    )
                 })
                 .collect();
             lines.push(format!(
@@ -351,10 +384,6 @@ pub(super) fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &
         );
         let variant_field_names: std::collections::BTreeSet<String> =
             variant.fields.iter().map(|f| f.name.clone()).collect();
-        // Build a lookup: field name → TypeRef for this variant's fields.
-        let field_type_map: std::collections::HashMap<&str, &TypeRef> =
-            variant.fields.iter().map(|f| (f.name.as_str(), &f.ty)).collect();
-
         if variant.fields.is_empty() {
             let mut inits = vec![format!(
                 "                {tag_field_ident}: \"{tag_value}\".to_string()"
@@ -386,15 +415,13 @@ pub(super) fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &
                     // Map the positional field (e.g. `_0`) to the local binding name.
                     let pos = variant.fields.iter().position(|f| &f.name == name).unwrap();
                     let local = &local_names[pos];
-                    let field_ty = field_type_map.get(name.as_str());
                     let init = if mixed.contains(name) {
                         // Mixed-type Named field: stored as JsValue in the binding struct.
                         format!("                {n_ident}: serde_wasm_bindgen::to_value(&{local}).ok()")
-                    } else if matches!(field_ty, Some(TypeRef::Named(_))) {
-                        // Single-type Named: wrap with binding-type conversion.
-                        format!("                {n_ident}: Some({local}.into())")
+                    } else if let Some(field) = variant.fields.iter().find(|f| &f.name == name) {
+                        tagged_enum_core_to_binding_expr(&n_ident, local, &field.ty, field.optional)
                     } else {
-                        format!("                {n_ident}: Some({local})")
+                        format!("                {n_ident}: None")
                     };
                     inits.push(init);
                 } else {
@@ -419,11 +446,10 @@ pub(super) fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &
             for name in &all_field_names {
                 let n_ident = escape_rust_keyword(name);
                 if variant_field_names.contains(name) {
-                    let field_ty = field_type_map.get(name.as_str());
-                    let init = if matches!(field_ty, Some(TypeRef::Named(_))) {
-                        format!("                {n_ident}: Some({n_ident}.into())")
+                    let init = if let Some(field) = variant.fields.iter().find(|f| &f.name == name) {
+                        tagged_enum_core_to_binding_expr(&n_ident, &n_ident, &field.ty, field.optional)
                     } else {
-                        format!("                {n_ident}: Some({n_ident})")
+                        format!("                {n_ident}: None")
                     };
                     inits.push(init);
                 } else {
@@ -823,6 +849,78 @@ mod tests {
         assert!(
             result.contains("Auth::Basic { username }"),
             "struct variant must keep struct destructure;\nactual:\n{result}"
+        );
+    }
+
+    /// Regression: tagged struct variants whose source field type is already `Option<T>`
+    /// must preserve that option layer. The flat wasm struct stores every variant field as
+    /// `Option<T>`; wrapping an already-optional core field in `Some(...)` produces
+    /// `Option<Option<T>>`, and unwrapping it in the reverse direction produces `T`.
+    #[test]
+    fn gen_tagged_enum_struct_variant_preserves_optional_fields() {
+        let field = |name: &str, ty: TypeRef, optional: bool| FieldDef {
+            name: name.to_string(),
+            ty,
+            optional,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: alef_core::ir::CoreWrapper::None,
+            vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+            newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+        let e = EnumDef {
+            name: "SecuritySchemeInfo".to_string(),
+            rust_path: "test_lib::SecuritySchemeInfo".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![EnumVariant {
+                name: "Http".to_string(),
+                fields: vec![
+                    field("scheme", TypeRef::String, false),
+                    field("bearer_format", TypeRef::String, true),
+                ],
+                is_tuple: false,
+                doc: String::new(),
+                is_default: false,
+                serde_rename: Some("http".to_string()),
+            }],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: true,
+            serde_tag: Some("type".to_string()),
+            serde_untagged: false,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+
+        let binding_to_core = gen_tagged_enum_binding_to_core(&e, "test_lib", "Wasm");
+        assert!(
+            binding_to_core.contains("bearer_format: val.bearer_format.clone()"),
+            "binding→core must preserve Option<String>;\nactual:\n{binding_to_core}"
+        );
+        assert!(
+            !binding_to_core.contains("bearer_format: val.bearer_format.clone().unwrap_or_default()"),
+            "binding→core must not unwrap source Option<String>;\nactual:\n{binding_to_core}"
+        );
+
+        let core_to_binding = gen_tagged_enum_core_to_binding(&e, "test_lib", "Wasm");
+        assert!(
+            core_to_binding.contains("bearer_format: bearer_format"),
+            "core→binding must not wrap Option<String> in Some(...);\nactual:\n{core_to_binding}"
+        );
+        assert!(
+            !core_to_binding.contains("bearer_format: Some(bearer_format)"),
+            "core→binding must not create Option<Option<String>>;\nactual:\n{core_to_binding}"
         );
     }
 
