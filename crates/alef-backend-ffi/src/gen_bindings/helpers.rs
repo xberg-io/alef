@@ -1,6 +1,40 @@
 use crate::type_map::is_void_return;
 use ahash::AHashSet;
+use alef_codegen::doc_emission::emit_c_doxygen;
 use alef_core::ir::TypeRef;
+
+/// Render a `/** ... */` Doxygen block above a `typedef` line. `doc` is the
+/// raw rustdoc lifted from the upstream type's `///` comments; an empty `doc`
+/// yields the empty string so the caller can place a bare `typedef` directly.
+///
+/// The block is built by reusing the shared `emit_c_doxygen` emitter (which
+/// produces `///`-prefixed lines) and converting the result into `/** * */`
+/// form, because `forward_decls` is C-text passthrough — there is no source
+/// line for cbindgen to lift `///` comments from. Indentation is forced to
+/// zero so the inserted block aligns with the typedef.
+fn render_doxygen_typedef_block(doc: &str) -> String {
+    if doc.trim().is_empty() {
+        return String::new();
+    }
+    let mut raw = String::new();
+    emit_c_doxygen(&mut raw, doc, "");
+    let mut out = String::with_capacity(raw.len() + 16);
+    out.push_str("/**\n");
+    for line in raw.lines() {
+        // `emit_c_doxygen` prefixes each line with `/// ` — swap that for the
+        // Doxygen `*` continuation marker used inside `/** */` blocks.
+        let body = line.strip_prefix("/// ").unwrap_or(line.trim_start_matches("///"));
+        if body.is_empty() {
+            out.push_str(" *\n");
+        } else {
+            out.push_str(" * ");
+            out.push_str(body);
+            out.push('\n');
+        }
+    }
+    out.push_str(" */\n");
+    out
+}
 
 /// Render an expression that produces a Copy-typed value, avoiding clippy::clone_on_copy.
 ///
@@ -316,10 +350,10 @@ pub(super) fn gen_owned_value_to_c(expr: &str, ty: &TypeRef, indent: &str, _enum
 pub(super) fn gen_cbindgen_toml(prefix: &str, api: &alef_core::ir::ApiSurface) -> String {
     let prefix_upper = prefix.to_uppercase();
 
-    // Collect all type names that appear in the API surface and need forward
-    // declarations in the generated C header. cbindgen renames Rust types using
+    // Collect (c_name, doc) pairs for every opaque handle that needs a forward
+    // declaration in the generated C header. cbindgen renames Rust types using
     // the export prefix, producing e.g. `HTMMetadataConfig` for prefix `HTM`.
-    let mut type_names: Vec<String> = api
+    let mut entries: Vec<(String, String)> = api
         .types
         .iter()
         // Use the IR type name verbatim (it already comes from Rust source as
@@ -327,23 +361,36 @@ pub(super) fn gen_cbindgen_toml(prefix: &str, api: &alef_core::ir::ApiSurface) -
         // abbreviations: e.g. `GraphQLError` becomes `GraphQlError`, which
         // disagrees with cbindgen's emit (e.g. `MYLIBGraphQLError` for prefix
         // `MYLIB`) and breaks the C consumer build.
-        .map(|t| format!("{prefix_upper}{}", t.name))
+        .map(|t| (format!("{prefix_upper}{}", t.name), t.doc.clone()))
         .collect();
 
     // Include enum types as well — they may appear as opaque handles in
     // function signatures when used across module boundaries.
     for e in &api.enums {
         let c_name = format!("{prefix_upper}{}", e.name);
-        if !type_names.contains(&c_name) {
-            type_names.push(c_name);
+        if !entries.iter().any(|(n, _)| n == &c_name) {
+            entries.push((c_name, e.doc.clone()));
         }
     }
 
-    type_names.sort();
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
 
-    let forward_decls: String = type_names
+    let forward_decls: String = entries
         .iter()
-        .map(|name| format!("typedef struct {name} {name};"))
+        .map(|(name, doc)| {
+            // Render a Doxygen `/** ... */` block above each typedef when the
+            // upstream rustdoc is non-empty. The block is emitted inline (the
+            // declaration is part of cbindgen's `after_includes` literal text)
+            // rather than via `///` comments because there is no source line
+            // for cbindgen to lift comments from — `forward_decls` is a raw
+            // C-text passthrough.
+            let doc_block = render_doxygen_typedef_block(doc);
+            if doc_block.is_empty() {
+                format!("typedef struct {name} {name};")
+            } else {
+                format!("{doc_block}typedef struct {name} {name};")
+            }
+        })
         .collect::<Vec<_>>()
         .join("\n");
 

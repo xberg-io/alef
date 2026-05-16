@@ -1,9 +1,6 @@
 {%- if doc_comment %}
 {{ doc_comment }}
 {% endif -%}
-/// # Safety
-/// Caller must ensure all pointer arguments are valid or null.
-/// Returned pointers must be freed with the appropriate free function.
 {% if allow_clippy -%}
 #[allow({{ allow_clippy }})]
 {% endif -%}

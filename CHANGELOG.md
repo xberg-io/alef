@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **alef-backend-ffi: emit Doxygen comments on C headers**: every `extern "C" fn` declaration, `typedef`, opaque-handle wrapper, enum, and enum variant in the generated `.h` files now carries a `/** ... */` Doxygen block derived from the upstream rustdoc. `# Arguments` items render as `\param`, `# Returns` as `\return`, `# Errors` and `# Safety` as `\note`, `# Example` as `\code`/`\endcode`. C/C++ consumers and IDEs (clangd, Xcode, Visual Studio) now surface tooltips on every public FFI symbol. Adds `emit_c_doxygen` to the shared `alef-codegen::doc_emission` module. (`crates/alef-codegen/src/doc_emission.rs`, `crates/alef-backend-ffi/src/gen_bindings/{functions.rs,types.rs,enums.rs}`, snapshot tests)
+
 - **alef-backend-go: emit Godoc on methods + free functions**: every exported method declaration `func (r *Receiver) Method(...)` and every free function `func Name(...)` in generated `.go` files now carries `// Method ...` / `// Name ...` Godoc derived from upstream rustdoc. Comments start with the symbol name (per the `go doc` and `godoc` convention) so IDE tooltips and `pkg.go.dev` render every public binding member. `# Arguments` → `// Arguments:` bullets, `# Returns` → `// Returns ...`, `# Errors` → `// Errors are returned when ...`, `# Example` → `// Example:` indented code block. Also fixes a pre-existing double-prefix glitch where summaries that already started with the symbol name produced `// RootNode RootNode returns ...`. (`crates/alef-backend-go/src/gen_bindings/types.rs`, `crates/alef-backend-go/tests/snapshot_test.rs`)
 
 - **alef-backend-rustler: emit `@moduledoc`/`@typedoc`/`@doc` on DTO modules + enum variants**:

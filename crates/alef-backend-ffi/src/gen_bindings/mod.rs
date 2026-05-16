@@ -1440,6 +1440,197 @@ sources = ["src/lib.rs"]
         assert!(cbindgen.content.contains("language = \"C\""));
     }
 
+    // -----------------------------------------------------------------------
+    // Doxygen comment emission on extern "C" fn, opaque typedefs, and enums.
+    //
+    // These tests assert the structural shape of the generated Rust source
+    // (`pub unsafe extern "C" fn` declarations carry `\param`, `\return`,
+    // `\note` markers; opaque-handle `typedef` lines in cbindgen.toml carry
+    // a `/** ... */` block). cbindgen forwards these into the final `.h` file.
+    // -----------------------------------------------------------------------
+
+    fn doxygen_sample_api() -> ApiSurface {
+        ApiSurface {
+            crate_name: "my-lib".to_string(),
+            version: "1.0.0".to_string(),
+            types: vec![TypeDef {
+                name: "Handle".to_string(),
+                rust_path: "my_lib::Handle".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: true,
+                is_clone: false,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: "An opaque handle that wraps the underlying resource.".to_string(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            functions: vec![FunctionDef {
+                name: "lookup".to_string(),
+                rust_path: "my_lib::lookup".to_string(),
+                original_rust_path: String::new(),
+                params: vec![ParamDef {
+                    name: "name".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: true,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                }],
+                return_type: TypeRef::Primitive(PrimitiveType::U32),
+                is_async: false,
+                error_type: Some("MyError".to_string()),
+                doc: "Look up the registry index for a name.\n\n\
+                      # Arguments\n\n\
+                      * `name` - The unique key to search.\n\n\
+                      # Returns\n\n\
+                      A non-zero index when found; zero on lookup miss.\n\n\
+                      # Errors\n\n\
+                      Returns the last-error code when the registry is poisoned."
+                    .to_string(),
+                cfg: None,
+                sanitized: false,
+                return_sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            enums: vec![EnumDef {
+                name: "Severity".to_string(),
+                rust_path: "my_lib::Severity".to_string(),
+                original_rust_path: String::new(),
+                variants: vec![EnumVariant {
+                    name: "Warn".to_string(),
+                    fields: vec![],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                }],
+                doc: "Diagnostic severity level.".to_string(),
+                cfg: None,
+                is_copy: true,
+                has_serde: false,
+                serde_tag: None,
+                serde_untagged: false,
+                serde_rename_all: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn test_extern_fn_emits_doxygen_param_return_note_markers() {
+        let api = doxygen_sample_api();
+        let config = sample_config();
+        let backend = FfiBackend;
+
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+        // The generated extern fn carries Doxygen markers derived from the
+        // upstream rustdoc sections.
+        assert!(
+            lib.content.contains("/// \\param name The unique key to search."),
+            "expected \\param marker for `name`, got:\n{}",
+            lib.content
+        );
+        assert!(
+            lib.content
+                .contains("/// \\return A non-zero index when found; zero on lookup miss."),
+            "expected \\return marker, got:\n{}",
+            lib.content
+        );
+        assert!(
+            lib.content
+                .contains("/// \\note Returns the last-error code when the registry is poisoned."),
+            "expected \\note marker for # Errors, got:\n{}",
+            lib.content
+        );
+        // The universal FFI safety clause is now expressed as a Doxygen note
+        // (the previous hard-coded `/// # Safety` lines have been removed
+        // from the templates).
+        assert!(
+            lib.content.contains("/// \\note SAFETY:"),
+            "expected \\note SAFETY: marker derived from synthetic safety clause, got:\n{}",
+            lib.content
+        );
+    }
+
+    #[test]
+    fn test_opaque_typedef_carries_doxygen_block_in_cbindgen_toml() {
+        let api = doxygen_sample_api();
+        let config = sample_config();
+        let backend = FfiBackend;
+
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let cbindgen = files.iter().find(|f| f.path.ends_with("cbindgen.toml")).unwrap();
+
+        // Doxygen block precedes the typedef in `forward_decls`. The doc text
+        // is lifted from `TypeDef.doc` and rendered as `/** * ... */`.
+        assert!(
+            cbindgen.content.contains("/**"),
+            "expected /** doxygen opener, got:\n{}",
+            cbindgen.content
+        );
+        assert!(
+            cbindgen
+                .content
+                .contains("* An opaque handle that wraps the underlying resource."),
+            "expected typedef doc body, got:\n{}",
+            cbindgen.content
+        );
+        assert!(
+            cbindgen.content.contains("typedef struct MY_LIBHandle MY_LIBHandle;"),
+            "expected prefixed typedef, got:\n{}",
+            cbindgen.content
+        );
+    }
+
+    #[test]
+    fn test_enum_opaque_typedef_carries_doxygen_block() {
+        let api = doxygen_sample_api();
+        let config = sample_config();
+        let backend = FfiBackend;
+
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let cbindgen = files.iter().find(|f| f.path.ends_with("cbindgen.toml")).unwrap();
+
+        // The `Severity` enum is included as an opaque forward declaration
+        // (enums travel across FFI as `*mut EnumName`). Its rustdoc must
+        // surface as a Doxygen block above the typedef.
+        assert!(
+            cbindgen.content.contains("* Diagnostic severity level."),
+            "expected enum typedef doc body, got:\n{}",
+            cbindgen.content
+        );
+        assert!(
+            cbindgen
+                .content
+                .contains("typedef struct MY_LIBSeverity MY_LIBSeverity;"),
+            "expected prefixed enum typedef, got:\n{}",
+            cbindgen.content
+        );
+    }
+
     #[test]
     fn test_generates_build_rs() {
         let api = sample_api();

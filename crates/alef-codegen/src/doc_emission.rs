@@ -230,6 +230,202 @@ pub fn emit_gleam_doc(out: &mut String, doc: &str, indent: &str) {
     }
 }
 
+/// Emit Doxygen-style C documentation comments using `///`-prefixed lines.
+///
+/// Used by `alef-backend-ffi` above every `extern "C" fn`, the `*_len()`
+/// companion, opaque-handle typedef, and (post-cbindgen) the type/enum
+/// declarations cbindgen surfaces in the generated `.h`. cbindgen translates
+/// `///` source lines into a single `/** ... */` Doxygen block per item, so we
+/// only need to emit per-line `///` content here.
+///
+/// Translates rustdoc sections via [`render_doxygen_sections`]:
+///
+/// - `# Arguments` → `\param <name> <description>` (one per arg).
+/// - `# Returns`   → `\return <description>`.
+/// - `# Errors`    → `\note <description>` (Doxygen has no `\throws` for C;
+///   `\note` is the convention).
+/// - `# Safety`    → `\note SAFETY: <description>`.
+/// - `# Example`   → `\code` ... `\endcode` block.
+///
+/// Markdown links (`[text](url)`) are flattened to `text (url)`. Body lines
+/// are word-wrapped at ~100 columns so the rendered `/** */` block stays
+/// readable in IDE tooltips and terminal viewers.
+pub fn emit_c_doxygen(out: &mut String, doc: &str, indent: &str) {
+    if doc.trim().is_empty() {
+        return;
+    }
+    let sections = parse_rustdoc_sections(doc);
+    let any_section = sections.arguments.is_some()
+        || sections.returns.is_some()
+        || sections.errors.is_some()
+        || sections.safety.is_some()
+        || sections.example.is_some();
+    let mut body = if any_section {
+        render_doxygen_sections_with_notes(&sections)
+    } else {
+        sections.summary.clone()
+    };
+    body = strip_markdown_links(&body);
+    let wrapped = word_wrap(&body, DOXYGEN_WRAP_WIDTH);
+    for line in wrapped.lines() {
+        out.push_str(indent);
+        out.push_str("/// ");
+        out.push_str(line);
+        out.push('\n');
+    }
+}
+
+const DOXYGEN_WRAP_WIDTH: usize = 100;
+
+/// Render `RustdocSections` as a Doxygen body but route `# Errors` and
+/// `# Safety` to `\note` lines instead of plain prose. This is the variant
+/// `emit_c_doxygen` uses; the public `render_doxygen_sections` keeps its
+/// long-standing plain-prose semantics so existing callers don't shift.
+fn render_doxygen_sections_with_notes(sections: &RustdocSections) -> String {
+    let mut out = String::new();
+    if !sections.summary.is_empty() {
+        out.push_str(&sections.summary);
+    }
+    if let Some(args) = sections.arguments.as_deref() {
+        for (name, desc) in parse_arguments_bullets(args) {
+            if !out.is_empty() {
+                out.push('\n');
+            }
+            if desc.is_empty() {
+                out.push_str("\\param ");
+                out.push_str(&name);
+            } else {
+                out.push_str("\\param ");
+                out.push_str(&name);
+                out.push(' ');
+                out.push_str(&desc);
+            }
+        }
+    }
+    if let Some(ret) = sections.returns.as_deref() {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str("\\return ");
+        out.push_str(ret.trim());
+    }
+    if let Some(err) = sections.errors.as_deref() {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str("\\note ");
+        out.push_str(err.trim());
+    }
+    if let Some(safety) = sections.safety.as_deref() {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str("\\note SAFETY: ");
+        out.push_str(safety.trim());
+    }
+    if let Some(example) = sections.example.as_deref() {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str("\\code\n");
+        for line in example.lines() {
+            let t = line.trim_start();
+            if t.starts_with("```") {
+                continue;
+            }
+            out.push_str(line);
+            out.push('\n');
+        }
+        out.push_str("\\endcode");
+    }
+    out
+}
+
+/// Flatten Markdown inline links `[text](url)` to `text (url)` so the rendered
+/// Doxygen block stays readable when consumed without a Markdown filter.
+fn strip_markdown_links(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'[' {
+            // Find matching closing bracket on the same logical span (no nested brackets).
+            if let Some(close) = bytes[i + 1..].iter().position(|&b| b == b']') {
+                let text_end = i + 1 + close;
+                if text_end + 1 < bytes.len() && bytes[text_end + 1] == b'(' {
+                    if let Some(paren_close) = bytes[text_end + 2..].iter().position(|&b| b == b')') {
+                        let url_start = text_end + 2;
+                        let url_end = url_start + paren_close;
+                        let text = &s[i + 1..text_end];
+                        let url = &s[url_start..url_end];
+                        out.push_str(text);
+                        out.push_str(" (");
+                        out.push_str(url);
+                        out.push(')');
+                        i = url_end + 1;
+                        continue;
+                    }
+                }
+            }
+        }
+        out.push(bytes[i] as char);
+        i += 1;
+    }
+    out
+}
+
+/// Word-wrap each input line at `width` columns. Lines starting with `\code`
+/// or contained between `\code`/`\endcode` markers, as well as Markdown fence
+/// blocks, are passed through verbatim to preserve example formatting.
+fn word_wrap(input: &str, width: usize) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut in_code = false;
+    for raw in input.lines() {
+        let trimmed = raw.trim_start();
+        if trimmed.starts_with("\\code") {
+            in_code = true;
+            out.push_str(raw);
+            out.push('\n');
+            continue;
+        }
+        if trimmed.starts_with("\\endcode") {
+            in_code = false;
+            out.push_str(raw);
+            out.push('\n');
+            continue;
+        }
+        if in_code || trimmed.starts_with("```") {
+            out.push_str(raw);
+            out.push('\n');
+            continue;
+        }
+        if raw.len() <= width {
+            out.push_str(raw);
+            out.push('\n');
+            continue;
+        }
+        let mut current = String::with_capacity(width);
+        for word in raw.split_whitespace() {
+            if current.is_empty() {
+                current.push_str(word);
+            } else if current.len() + 1 + word.len() > width {
+                out.push_str(&current);
+                out.push('\n');
+                current.clear();
+                current.push_str(word);
+            } else {
+                current.push(' ');
+                current.push_str(word);
+            }
+        }
+        if !current.is_empty() {
+            out.push_str(&current);
+            out.push('\n');
+        }
+    }
+    out.trim_end_matches('\n').to_string()
+}
+
 /// Emit Zig documentation comments (///)
 /// Used for Zig functions, types, and declarations.
 pub fn emit_zig_doc(out: &mut String, doc: &str, indent: &str) {
@@ -1221,6 +1417,83 @@ mod tests {
         assert!(out.contains("# @param path The file path."));
         assert!(out.contains("# @return The extracted text."));
         assert!(out.contains("# @raise Returns error on failure."));
+    }
+
+    #[test]
+    fn test_emit_c_doxygen_simple_prose() {
+        let mut out = String::new();
+        emit_c_doxygen(&mut out, "Free a string.", "");
+        assert!(out.contains("/// Free a string."), "got: {out}");
+    }
+
+    #[test]
+    fn test_emit_c_doxygen_with_sections() {
+        let mut out = String::new();
+        let doc = "Extract content from a file.\n\n# Arguments\n\n* `path` - Path to the file.\n* `mode` - Read mode.\n\n# Returns\n\nA newly allocated string the caller owns.\n\n# Errors\n\nReturns null when the file is unreadable.";
+        emit_c_doxygen(&mut out, doc, "");
+        assert!(out.contains("/// Extract content from a file."));
+        assert!(out.contains("/// \\param path Path to the file."));
+        assert!(out.contains("/// \\param mode Read mode."));
+        assert!(out.contains("/// \\return A newly allocated string the caller owns."));
+        assert!(out.contains("/// \\note Returns null when the file is unreadable."));
+    }
+
+    #[test]
+    fn test_emit_c_doxygen_safety_section_maps_to_note() {
+        let mut out = String::new();
+        let doc = "Free a buffer.\n\n# Safety\n\nPointer must have been returned by this library.";
+        emit_c_doxygen(&mut out, doc, "");
+        assert!(out.contains("/// \\note SAFETY: Pointer must have been returned by this library."));
+    }
+
+    #[test]
+    fn test_emit_c_doxygen_example_renders_code_fence() {
+        let mut out = String::new();
+        let doc = "Demo.\n\n# Example\n\n```rust\nlet x = run();\n```";
+        emit_c_doxygen(&mut out, doc, "");
+        assert!(out.contains("/// \\code"));
+        assert!(out.contains("/// \\endcode"));
+        assert!(out.contains("let x = run();"));
+    }
+
+    #[test]
+    fn test_emit_c_doxygen_strips_markdown_links() {
+        let mut out = String::new();
+        let doc = "See [the docs](https://example.com/x) for details.";
+        emit_c_doxygen(&mut out, doc, "");
+        assert!(
+            out.contains("the docs (https://example.com/x)"),
+            "expected flattened link, got: {out}"
+        );
+        assert!(!out.contains("](https://"));
+    }
+
+    #[test]
+    fn test_emit_c_doxygen_word_wraps_long_lines() {
+        let mut out = String::new();
+        let long = "a ".repeat(80);
+        emit_c_doxygen(&mut out, long.trim(), "");
+        for line in out.lines() {
+            // Each emitted prefix is "/// " (4 chars); the body after that
+            // should be ≤ 100 chars per `DOXYGEN_WRAP_WIDTH`.
+            let body = line.trim_start_matches("/// ");
+            assert!(body.len() <= 100, "line too long ({}): {line}", body.len());
+        }
+    }
+
+    #[test]
+    fn test_emit_c_doxygen_empty_input_is_noop() {
+        let mut out = String::new();
+        emit_c_doxygen(&mut out, "", "");
+        emit_c_doxygen(&mut out, "   \n\t  ", "");
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn test_emit_c_doxygen_indent_applied() {
+        let mut out = String::new();
+        emit_c_doxygen(&mut out, "Hello.", "    ");
+        assert!(out.starts_with("    /// Hello."));
     }
 
     #[test]

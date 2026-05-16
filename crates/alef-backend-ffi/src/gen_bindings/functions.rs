@@ -1,8 +1,37 @@
 use ahash::{AHashMap, AHashSet};
 use alef_codegen::conversions::core_type_path;
+use alef_codegen::doc_emission::emit_c_doxygen;
 use alef_core::ir::{FunctionDef, MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef};
 use heck::{ToPascalCase, ToSnakeCase};
 use minijinja::context;
+
+/// Render a Doxygen `///` block for an FFI extern function whose rustdoc comes
+/// from the source `# Arguments` / `# Returns` / `# Errors` sections. Always
+/// appends the universal FFI `\note SAFETY:` clause that the alef FFI template
+/// previously hard-coded, so callers don't have to repeat it.
+///
+/// Returns an empty string when `doc` is empty AND no safety note is needed
+/// (currently we always emit the safety note for `extern "C"` boundaries).
+fn ffi_doxygen_block(doc: &str) -> String {
+    let mut full_doc = String::with_capacity(doc.len() + 128);
+    if !doc.is_empty() {
+        full_doc.push_str(doc);
+        if !doc.contains("# Safety") {
+            full_doc.push_str(
+                "\n\n# Safety\n\nCaller must ensure all pointer arguments are valid or null. \
+                 Returned pointers must be freed with the appropriate free function.",
+            );
+        }
+    } else {
+        full_doc.push_str(
+            "# Safety\n\nCaller must ensure all pointer arguments are valid or null. \
+             Returned pointers must be freed with the appropriate free function.",
+        );
+    }
+    let mut out = String::new();
+    emit_c_doxygen(&mut out, &full_doc, "");
+    out
+}
 
 /// Returns true when a sanitized function/method can be auto-recovered via JSON-roundtrip:
 /// every sanitized param is a `Vec<String>` with `original_type` set (i.e. originally a
@@ -152,19 +181,17 @@ pub(super) fn gen_free_function_len_companion(
         }
     }
 
-    let doc_comment = format!(
-        "/// Return the byte length of the C string that `{prefix}_{fn_name_snake}` would return\n\
-         /// for the same arguments, without allocating.  Returns 0 when the underlying value is\n\
-         /// None or an error occurs.  Enables safe slice construction in Zig and Java FFM Panama\n\
-         /// without a NUL-scan.\n\
-         ///\n\
-         /// # Safety\n\
-         /// All pointer parameters obey the same validity rules as `{prefix}_{fn_name_snake}`.",
+    let synthetic_doc = format!(
+        "Return the byte length of the C string that `{prefix}_{fn_name_snake}` would return for \
+         the same arguments, without allocating. Returns 0 when the underlying value is None or \
+         an error occurs. Enables safe slice construction in Zig and Java FFM Panama without a \
+         NUL-scan.\n\n# Safety\n\nAll pointer parameters obey the same validity rules as \
+         `{prefix}_{fn_name_snake}`.",
     );
+    let doc_comment = ffi_doxygen_block(&synthetic_doc);
 
     let mut out = String::with_capacity(2048);
     out.push_str(&doc_comment);
-    out.push('\n');
     if let Some(ref clippy) = allow_clippy {
         out.push_str(&format!("#[allow({clippy})]\n"));
     }
@@ -397,12 +424,7 @@ pub(super) fn gen_streaming_method_wrapper(
     let qualified = core_type_path(typ, core_import);
     let callback_type = format!("{}StreamCallback", prefix.to_pascal_case());
 
-    let doc_comment = if !method.doc.is_empty() {
-        let lines: Vec<&str> = method.doc.lines().collect();
-        crate::template_env::render("doc_comment_lines.jinja", minijinja::context! { doc_lines => lines })
-    } else {
-        String::new()
-    };
+    let doc_comment = ffi_doxygen_block(&method.doc);
 
     let body_indented = format!(" {}", body.replace('\n', "\n "));
 
@@ -436,12 +458,7 @@ pub(super) fn gen_method_wrapper(
     let fn_name = format!("{prefix}_{type_snake}_{method_name}");
 
     // Generate doc comment
-    let doc_comment = if !method.doc.is_empty() {
-        let lines: Vec<&str> = method.doc.lines().collect();
-        crate::template_env::render("doc_comment_lines.jinja", context! { doc_lines => lines })
-    } else {
-        String::new()
-    };
+    let doc_comment = ffi_doxygen_block(&method.doc);
 
     let has_error = method.error_type.is_some();
 
@@ -891,12 +908,7 @@ pub(super) fn gen_free_function(
     let func_name = &func.name;
 
     // Generate doc comment
-    let doc_comment = if !func.doc.is_empty() {
-        let lines: Vec<&str> = func.doc.lines().collect();
-        crate::template_env::render("doc_comment_lines.jinja", context! { doc_lines => lines })
-    } else {
-        String::new()
-    };
+    let doc_comment = ffi_doxygen_block(&func.doc);
 
     let has_error = func.error_type.is_some();
 
