@@ -636,11 +636,28 @@ fn emit_kotlin_untagged_serializer(out: &mut String, en: &EnumDef) {
         } else if variant.fields.len() == 1 && is_tuple_field_name(&variant.fields[0].name) {
             // Newtype/tuple variant: serialize the inner value directly
             // (not wrapped in an object), matching serde's untagged behaviour.
+            // Use the same payload-derived field name that the data-class declaration
+            // uses (via kotlin_field_name_with_type), so `value.<field>` resolves.
+            let field = &variant.fields[0];
+            let field_name = super::shared::kotlin_field_name_with_type(
+                &field.name,
+                0,
+                match &field.ty {
+                    TypeRef::Named(n) => Some(n.as_str()),
+                    TypeRef::String => Some("String"),
+                    TypeRef::Primitive(p) => Some(primitive_type_name(p)),
+                    _ => None,
+                },
+                &variant.name,
+                1,
+            );
             out.push_str("            is ");
             out.push_str(name);
             out.push('.');
             out.push_str(&variant.name);
-            out.push_str(" -> mapper.writeValue(gen, value.field0)\n");
+            out.push_str(" -> mapper.writeValue(gen, value.");
+            out.push_str(&field_name);
+            out.push_str(")\n");
         } else {
             // Named-field struct variant: cast to the concrete variant type before
             // serializing so Jackson resolves the serializer against the variant
@@ -1497,6 +1514,46 @@ mod tests {
         assert!(
             out.contains("    @com.fasterxml.jackson.databind.annotation.JsonDeserialize\n    @com.fasterxml.jackson.databind.annotation.JsonSerialize\n    data class Parts("),
             "Parts variant must have both @JsonDeserialize and @JsonSerialize reset annotations; got:\n{out}",
+        );
+    }
+
+    /// Regression: untagged sealed-class serializer must use the payload-derived field
+    /// name (e.g. `value`) rather than the literal `field0`.  Without this fix the
+    /// generated `when`-branch emits `value.field0` which is an unresolved reference
+    /// because the data-class declaration uses the name derived by
+    /// `kotlin_field_name_with_type` (e.g. `Single(val value: String)`).
+    #[test]
+    fn untagged_serializer_tuple_variant_uses_payload_derived_field_name() {
+        // EmbeddingInput pattern: single-field tuple variants whose field type is a
+        // primitive (String, List<String>) → field name must be `value`, not `field0`.
+        let en = make_enum(
+            "EmbeddingInput",
+            None,
+            true,
+            None,
+            vec![
+                make_variant("Single", None, vec![make_field("_0", TypeRef::String)]),
+                make_variant(
+                    "Multiple",
+                    None,
+                    vec![make_field(
+                        "_0",
+                        TypeRef::Vec(Box::new(TypeRef::String)),
+                    )],
+                ),
+            ],
+        );
+        let mut out = String::new();
+        emit_enum(&en, &mut out, "");
+
+        // Serializer when-branches must reference `value.value`, not `value.field0`.
+        assert!(
+            out.contains("-> mapper.writeValue(gen, value.value)"),
+            "untagged serializer must use payload-derived field name `value`; got:\n{out}",
+        );
+        assert!(
+            !out.contains("value.field0"),
+            "untagged serializer must NOT use hardcoded `field0`; got:\n{out}",
         );
     }
 
