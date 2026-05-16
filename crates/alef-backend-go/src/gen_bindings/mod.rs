@@ -607,7 +607,12 @@ fn gen_go_file(
             // structs that share field names with the primary config type, producing duplicate
             // With* function declarations.
             if typ.has_default && !typ.name.ends_with("Update") && has_non_zero_default(typ) {
-                out.push_str(&gen_config_options(typ, &unit_enum_names, &passthrough_enum_names));
+                out.push_str(&gen_config_options(
+                    typ,
+                    &unit_enum_names,
+                    &passthrough_enum_names,
+                    &data_enum_names,
+                ));
                 out.push_str("\n\n");
             }
         }
