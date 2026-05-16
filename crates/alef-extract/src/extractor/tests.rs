@@ -1986,6 +1986,40 @@ fn test_extract_pub_type_alias() {
 }
 
 #[test]
+fn test_pub_type_alias_with_doc_hidden_is_binding_excluded() {
+    // `#[doc(hidden)]` on a type alias should mark it as binding_excluded so
+    // downstream backends skip it.
+    let source = r#"
+        #[doc(hidden)]
+        pub type InternalBuffer = std::vec::Vec<u8>;
+    "#;
+
+    let surface = extract_from_source(source);
+    assert_eq!(surface.types.len(), 1);
+    let alias = &surface.types[0];
+    assert_eq!(alias.name, "InternalBuffer");
+    assert!(alias.binding_excluded);
+    assert_eq!(alias.binding_exclusion_reason.as_deref(), Some("doc(hidden)"));
+}
+
+#[test]
+fn test_pub_type_alias_with_alef_skip_is_binding_excluded() {
+    // `#[cfg_attr(alef, alef(skip))]` on a type alias should mark it as
+    // binding_excluded so downstream backends skip it.
+    let source = r#"
+        #[cfg_attr(alef, alef(skip))]
+        pub type StringBufferPool = Pool<String>;
+    "#;
+
+    let surface = extract_from_source(source);
+    assert_eq!(surface.types.len(), 1);
+    let alias = &surface.types[0];
+    assert_eq!(alias.name, "StringBufferPool");
+    assert!(alias.binding_excluded);
+    assert_eq!(alias.binding_exclusion_reason.as_deref(), Some("alef(skip)"));
+}
+
+#[test]
 fn test_generic_type_alias_not_extracted_as_typedef() {
     // Generic type aliases (e.g. BoxFuture<'a, T>) are not extracted as TypeDefs
     // (they're used only to detect result-wrapping patterns for async detection).

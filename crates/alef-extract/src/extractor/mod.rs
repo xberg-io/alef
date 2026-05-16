@@ -618,6 +618,8 @@ fn extract_items(
                 let _ty = type_resolver::resolve_type(&item_type.ty);
                 let rust_path = build_rust_path(crate_name, module_path, &name);
                 let doc = extract_doc_comments(&item_type.attrs);
+                let binding_exclusion_reason = extract_binding_exclusion_reason(&item_type.attrs);
+                let binding_excluded = binding_exclusion_reason.is_some();
                 surface.types.push(TypeDef {
                     name,
                     rust_path,
@@ -636,8 +638,8 @@ fn extract_items(
                     serde_rename_all: None,
                     has_serde: false,
                     super_traits: vec![],
-                    binding_excluded: false,
-                    binding_exclusion_reason: None,
+                    binding_excluded,
+                    binding_exclusion_reason,
                 });
             }
             syn::Item::Trait(item_trait) if is_pub(&item_trait.vis) && item_trait.generics.params.is_empty() => {

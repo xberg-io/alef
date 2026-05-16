@@ -206,8 +206,30 @@ impl E2eCodegen for KotlinAndroidE2eCodegen {
                 &type_enum_fields,
             );
             files.push(GeneratedFile {
-                path: test_base.join(class_file_name),
+                path: test_base.join(&class_file_name),
                 content,
+                generated_header: true,
+            });
+
+            // Instrumented Android test for on-device emulator runs.
+            // Lives in src/androidTest/ and uses @RunWith(AndroidJUnit4::class).
+            let mut android_test_base =
+                output_base.join("src").join("androidTest").join("kotlin");
+            for segment in kotlin_pkg_id.split('.') {
+                android_test_base = android_test_base.join(segment);
+            }
+            let android_test_base = android_test_base.join("e2e");
+            files.push(GeneratedFile {
+                path: android_test_base.join(class_file_name),
+                content: render_android_instrumented_test(
+                    &group.category,
+                    &active,
+                    &class_name,
+                    &function_name,
+                    &kotlin_pkg_id,
+                    result_var,
+                    &pkg_name,
+                ),
                 generated_header: true,
             });
         }

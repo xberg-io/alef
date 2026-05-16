@@ -827,25 +827,25 @@ fn sealed_variant_tuple_params_use_payload_derived_names() {
 
     // Pdf(PdfMetadata) should derive "metadata" by stripping "Pdf" prefix
     assert!(
-        content.contains("data class Pdf(val metadata: PdfMetadata)"),
+        content.contains("data class Pdf(\n        val metadata: PdfMetadata\n    )"),
         "Pdf variant should use payload-derived name 'metadata', got:\n{content}"
     );
 
     // Custom(String) should use generic "value" for primitive
     assert!(
-        content.contains("data class Custom(val value: String)"),
+        content.contains("data class Custom(\n        val value: String\n    )"),
         "Custom variant should use generic name 'value' for primitive payload, got:\n{content}"
     );
 
     // Multi(String, Int) should use "value0" and "value1"
     assert!(
-        content.contains("data class Multi(val value0: String, val value1: Int)"),
+        content.contains("data class Multi(\n        val value0: String,\n        val value1: Int\n    )"),
         "Multi variant should use generic names 'value0', 'value1', got:\n{content}"
     );
 
     // Struct { reason: String } should use the original field name
     assert!(
-        content.contains("data class Struct(val reason: String)"),
+        content.contains("data class Struct(\n        val reason: String\n    )"),
         "Struct variant should preserve the field name 'reason', got:\n{content}"
     );
 

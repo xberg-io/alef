@@ -221,7 +221,7 @@ fn render_kotlin_android_chat(toml: &str, fixture: Fixture) -> String {
         fixtures: vec![fixture],
     }];
     let files = KotlinAndroidE2eCodegen
-        .generate(&groups, &e2e, &resolved, &[])
+        .generate(&groups, &e2e, &resolved, &[], &[])
         .expect("generation succeeds");
     files
         .iter()
@@ -294,7 +294,7 @@ fn render_kotlin_android_streaming(fixture: Fixture) -> String {
         fixtures: vec![fixture],
     }];
     let files = KotlinAndroidE2eCodegen
-        .generate(&groups, &e2e, &resolved, &[])
+        .generate(&groups, &e2e, &resolved, &[], &[])
         .expect("generation succeeds");
     files
         .iter()
@@ -445,5 +445,82 @@ fn kotlin_android_streaming_collect_uses_flow_to_list_not_as_sequence() {
     assert!(
         rendered.contains("import kotlinx.coroutines.flow.toList"),
         "must import kotlinx.coroutines.flow.toList; got:\n{rendered}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// D: androidTest source set + Gradle Managed Devices
+// ---------------------------------------------------------------------------
+
+fn generate_kotlin_android_files(toml: &str, fixture: Fixture) -> Vec<alef_core::backend::GeneratedFile> {
+    let cfg: NewAlefConfig = toml::from_str(toml).expect("config parses");
+    let resolved = cfg.clone().resolve().expect("config resolves").remove(0);
+    let e2e = cfg.crates[0].e2e.clone().expect("e2e config present");
+    let groups = vec![FixtureGroup {
+        category: "chat".to_string(),
+        fixtures: vec![fixture],
+    }];
+    KotlinAndroidE2eCodegen
+        .generate(&groups, &e2e, &resolved, &[], &[])
+        .expect("generation succeeds")
+}
+
+/// Regression for D: `kotlin_android` codegen must emit an `src/androidTest/`
+/// source set alongside the host-JVM `src/test/` source set so that
+/// instrumented tests can run on the Android emulator.
+#[test]
+fn kotlin_android_emits_android_test_source_set() {
+    let fixture = make_chat_fixture("chat_basic");
+    let files = generate_kotlin_android_files(TOML_WITH_JAVA_CLIENT_FACTORY, fixture);
+
+    let all_paths: Vec<String> = files.iter().map(|f| f.path.to_string_lossy().to_string()).collect();
+    let android_test_file = files.iter().find(|f| {
+        let p = f.path.to_string_lossy();
+        p.contains("androidTest") && p.contains("ChatTest.kt")
+    });
+    let file = android_test_file.unwrap_or_else(|| panic!(
+        "src/androidTest/.../ChatTest.kt must be emitted; got files:\n{}",
+        all_paths.join("\n")
+    ));
+    let content = &file.content;
+
+    assert!(
+        content.contains("@RunWith(AndroidJUnit4::class)"),
+        "androidTest file must use @RunWith(AndroidJUnit4::class); got:\n{content}"
+    );
+    assert!(
+        content.contains("System.loadLibrary"),
+        "androidTest file must call System.loadLibrary; got:\n{content}"
+    );
+    assert!(
+        content.contains("import androidx.test.ext.junit.runners.AndroidJUnit4"),
+        "androidTest file must import AndroidJUnit4; got:\n{content}"
+    );
+}
+
+/// Regression for D: the emitted `build.gradle.kts` must include a Gradle
+/// Managed Devices block so `./gradlew pixel6api34DebugAndroidTest` works.
+#[test]
+fn kotlin_android_build_gradle_includes_managed_devices() {
+    let fixture = make_chat_fixture("chat_basic");
+    let files = generate_kotlin_android_files(TOML_WITH_JAVA_CLIENT_FACTORY, fixture);
+
+    let build_gradle = files
+        .iter()
+        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("build.gradle.kts"))
+        .expect("build.gradle.kts must be emitted");
+    let content = &build_gradle.content;
+
+    assert!(
+        content.contains("ManagedVirtualDevice"),
+        "build.gradle.kts must import ManagedVirtualDevice; got:\n{content}"
+    );
+    assert!(
+        content.contains("managedDevices"),
+        "build.gradle.kts must have managedDevices block; got:\n{content}"
+    );
+    assert!(
+        content.contains("pixel6api34"),
+        "build.gradle.kts must declare pixel6api34 managed device; got:\n{content}"
     );
 }
