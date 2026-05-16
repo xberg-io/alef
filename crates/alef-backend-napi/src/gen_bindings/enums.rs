@@ -541,11 +541,11 @@ mod tests {
 
         let result = gen_enum(&e, "Js", true);
 
-        // The variant's serde_rename must be respected, and the synthesized variant property
-        // must use the correct camelCase name.
+        // The variant's serde_rename must be respected at the JS boundary while Rust field names
+        // remain snake_case so generated code is warning-free.
         assert!(
-            result.contains("fontSize") && !result.contains("font_size"),
-            "tagged enum with tuple variant must emit camelCase variant name (fontSize), not snake_case;\nactual:\n{result}"
+            result.contains("js_name = \"fontSize\"") && result.contains("pub font_size: Option<String>"),
+            "tagged enum with tuple variant must expose camelCase js_name and keep Rust snake_case;\nactual:\n{result}"
         );
     }
 
