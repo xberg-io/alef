@@ -417,6 +417,12 @@ fn emit_module_kt(
                         }
                     }
                 }
+                // Nullable primitive scalar or String: null-coalesce to the JNI
+                // zero value so the non-nullable `external fun` signature is satisfied.
+                if p.optional {
+                    let zero = jni_zero_literal(inner);
+                    return format!("{name} ?: {zero}");
+                }
                 name
             })
             .collect();
@@ -573,6 +579,30 @@ fn kotlin_nullable_type_for_optional(ty: &alef_core::ir::TypeRef) -> String {
         _ => "String",
     };
     format!("{non_null}?")
+}
+
+/// Return the Kotlin literal zero-value for a JNI primitive type.
+///
+/// Used when null-coalescing an optional facade param to satisfy the non-nullable
+/// `external fun` bridge signature: `timeoutSecs ?: 0L`, `modelHint ?: ""`, etc.
+fn jni_zero_literal(ty: &alef_core::ir::TypeRef) -> &'static str {
+    use alef_core::ir::{PrimitiveType, TypeRef};
+    match ty {
+        TypeRef::String => "\"\"",
+        TypeRef::Primitive(p) => match p {
+            PrimitiveType::Bool => "false",
+            PrimitiveType::F32 | PrimitiveType::F64 => "0.0",
+            PrimitiveType::I64
+            | PrimitiveType::U64
+            | PrimitiveType::Usize
+            | PrimitiveType::Isize => "0L",
+            // All other integer widths map to Int at the JNI boundary.
+            _ => "0",
+        },
+        // Named, Vec, Map and anything else: not expected here (handled by
+        // earlier branches), but fall back to "" so we produce valid Kotlin.
+        _ => "\"\"",
+    }
 }
 
 fn jni_return_type_str(ty: &alef_core::ir::TypeRef) -> &'static str {

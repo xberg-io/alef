@@ -684,6 +684,173 @@ fn optional_params_get_kotlin_default_values_in_facade() {
 }
 
 // ---------------------------------------------------------------------------
+// Bug 6 regression: nullable primitive bridge args must null-coalesce to JNI
+// zero values so the non-nullable `external fun` signature is satisfied.
+// ---------------------------------------------------------------------------
+
+fn make_nullable_primitives_api() -> ApiSurface {
+    // A top-level free function with every nullable primitive scalar type:
+    //   fn nullable_all(
+    //       s: Option<String>,
+    //       l: Option<i64>,
+    //       i: Option<i32>,
+    //       d: Option<f64>,
+    //       b: Option<bool>,
+    //   ) -> String
+    use alef_core::ir::PrimitiveType;
+    ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "nullable_all".into(),
+            rust_path: "demo::nullable_all".into(),
+            original_rust_path: String::new(),
+            params: vec![
+                ParamDef {
+                    name: "s".into(),
+                    ty: TypeRef::String,
+                    optional: true,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                },
+                ParamDef {
+                    name: "l".into(),
+                    ty: TypeRef::Primitive(PrimitiveType::I64),
+                    optional: true,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                },
+                ParamDef {
+                    name: "i".into(),
+                    ty: TypeRef::Primitive(PrimitiveType::I32),
+                    optional: true,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                },
+                ParamDef {
+                    name: "d".into(),
+                    ty: TypeRef::Primitive(PrimitiveType::F64),
+                    optional: true,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                },
+                ParamDef {
+                    name: "b".into(),
+                    ty: TypeRef::Primitive(PrimitiveType::Bool),
+                    optional: true,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                },
+            ],
+            return_type: TypeRef::String,
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    }
+}
+
+/// Regression test for Bug 6: nullable primitive scalar / String params in the
+/// facade bridge call must null-coalesce to the JNI zero-value (`?: ""`,
+/// `?: 0L`, `?: 0`, `?: 0.0`, `?: false`) so the non-nullable `external fun`
+/// signature is satisfied.  Without the fix these are passed as bare `name`,
+/// causing a Kotlin type-mismatch compile error at the call site.
+#[test]
+fn nullable_primitive_bridge_args_null_coalesce_to_jni_defaults() {
+    let api = make_nullable_primitives_api();
+    let config = make_opaque_factory_config();
+    let files = KotlinAndroidBackend.generate_bindings(&api, &config).unwrap();
+
+    let module_kt = files
+        .iter()
+        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("Demo.kt"))
+        .expect("Demo.kt must be emitted when visible free functions exist");
+
+    let content = &module_kt.content;
+
+    // The bridge call must null-coalesce each nullable param to its JNI zero value.
+    assert!(
+        content.contains("s ?: \"\""),
+        "nullable String param must coalesce to \\\"\\\": got:\n{content}"
+    );
+    assert!(
+        content.contains("l ?: 0L"),
+        "nullable Long param must coalesce to 0L, got:\n{content}"
+    );
+    assert!(
+        content.contains("i ?: 0"),
+        "nullable Int param must coalesce to 0, got:\n{content}"
+    );
+    assert!(
+        content.contains("d ?: 0.0"),
+        "nullable Double param must coalesce to 0.0, got:\n{content}"
+    );
+    assert!(
+        content.contains("b ?: false"),
+        "nullable Boolean param must coalesce to false, got:\n{content}"
+    );
+
+    // The facade signature must still use nullable types with null defaults.
+    assert!(
+        content.contains("s: String? = null"),
+        "s must be String? = null in facade signature, got:\n{content}"
+    );
+    assert!(
+        content.contains("l: Long? = null"),
+        "l must be Long? = null in facade signature, got:\n{content}"
+    );
+    assert!(
+        content.contains("i: Int? = null"),
+        "i must be Int? = null in facade signature, got:\n{content}"
+    );
+    assert!(
+        content.contains("d: Double? = null"),
+        "d must be Double? = null in facade signature, got:\n{content}"
+    );
+    assert!(
+        content.contains("b: Boolean? = null"),
+        "b must be Boolean? = null in facade signature, got:\n{content}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Feature: payload-derived sealed variant param names
 // ---------------------------------------------------------------------------
 
