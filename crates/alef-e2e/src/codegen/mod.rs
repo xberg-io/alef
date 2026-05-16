@@ -36,6 +36,7 @@ pub mod ruby;
 pub mod rust;
 pub mod streaming_assertions;
 pub mod swift;
+mod swift_visitors;
 pub mod typescript;
 pub mod wasm;
 pub mod zig;

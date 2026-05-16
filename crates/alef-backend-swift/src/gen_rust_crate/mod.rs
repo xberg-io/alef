@@ -363,11 +363,30 @@ fn emit_lib_rs(
             extern_blocks.push(reg_block);
         }
     }
+    // Both FunctionParam AND OptionsField need the extern "Swift" block — it declares
+    // the Swift opaque type and per-method shims that Rust calls back into Swift.
     for (bridge_cfg, trait_def) in &active_bridges {
-        if bridge_cfg.bind_via != BridgeBinding::FunctionParam {
+        extern_blocks.push(plugin_inbound::emit_extern_block_for_inbound(trait_def, bridge_cfg));
+    }
+    // OptionsField bridges additionally need:
+    //   - an extern "Rust" factory (`make_{trait_snake}_handle`) so Swift can wrap
+    //     a protocol-conforming class into a VisitorHandle opaque type.
+    //   - an extern "Rust" options helper (`{options_snake}_from_json_with_{field}`)
+    //     so Swift e2e tests can deserialise fixture JSON and attach the visitor in one step.
+    for (bridge_cfg, trait_def) in &active_bridges {
+        if bridge_cfg.bind_via != BridgeBinding::OptionsField {
             continue;
         }
-        extern_blocks.push(plugin_inbound::emit_extern_block_for_inbound(trait_def, bridge_cfg));
+        let (factory_extern, _factory_body) =
+            plugin_inbound::emit_options_field_factory(trait_def, bridge_cfg, api, &source_crate);
+        if !factory_extern.is_empty() {
+            extern_blocks.push(factory_extern);
+        }
+        let (helper_extern, _helper_body) =
+            plugin_inbound::emit_options_field_options_helper(bridge_cfg, api, &source_crate);
+        if !helper_extern.is_empty() {
+            extern_blocks.push(helper_extern);
+        }
     }
 
     // Streaming adapters: emit an extern "Rust" block for each streaming adapter
@@ -545,13 +564,12 @@ fn emit_lib_rs(
         ));
     }
     for (bridge_cfg, trait_def) in &active_bridges {
-        // Match the inbound-extern gate above: only emit Rust-side wrappers +
-        // register fns for `function_param` bridges. `options_field` bridges
-        // are handled via options-builder methods, not via the inbound plugin
-        // registry pattern.
-        if bridge_cfg.bind_via != BridgeBinding::FunctionParam {
-            continue;
-        }
+        // Emit the Rust-side wrapper struct + trait impl for ALL inbound bridges
+        // (both FunctionParam and OptionsField). The wrapper is the same in both
+        // modes — a struct holding a Swift handle that routes Rust trait calls back
+        // into Swift via the extern "Swift" shims. FunctionParam bridges additionally
+        // emit register/unregister fns; OptionsField bridges emit a factory + options
+        // helper instead (see below).
         out.push_str(&plugin_inbound::emit_inbound_wrapper(
             trait_def,
             bridge_cfg,
@@ -562,6 +580,25 @@ fn emit_lib_rs(
             &config.error_constructor_expr(),
         ));
         out.push('\n');
+    }
+    // OptionsField: emit factory fn + options-helper fn bodies (the extern "Rust"
+    // declarations were already pushed into extern_blocks above, inside the ffi module).
+    for (bridge_cfg, trait_def) in &active_bridges {
+        if bridge_cfg.bind_via != BridgeBinding::OptionsField {
+            continue;
+        }
+        let (_factory_extern, factory_body) =
+            plugin_inbound::emit_options_field_factory(trait_def, bridge_cfg, api, &source_crate);
+        if !factory_body.is_empty() {
+            out.push_str(&factory_body);
+            out.push('\n');
+        }
+        let (_helper_extern, helper_body) =
+            plugin_inbound::emit_options_field_options_helper(bridge_cfg, api, &source_crate);
+        if !helper_body.is_empty() {
+            out.push_str(&helper_body);
+            out.push('\n');
+        }
     }
 
     // Emit Rust free-function shims for streaming adapters.

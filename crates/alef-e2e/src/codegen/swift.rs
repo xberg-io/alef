@@ -677,28 +677,14 @@ fn render_test_method(
         return;
     }
 
-    // Visitor-driven fixtures: the swift binding does not yet expose a Swift
-    // class scaffold + handle-builder shim for `bind_via = "options_field"`
-    // trait bridges (see alef-backend-swift gate on inbound plugin emission).
-    // Without that, tests cannot construct a visitor instance and the assertions
-    // checking visitor-applied transformations always fail. Emit a skip so the
-    // test compiles and is recorded as pending rather than producing a false
-    // negative on the test report.
-    if fixture.visitor.is_some() {
-        if is_async {
-            let _ = writeln!(out, "    func test{method_name}() async throws {{");
-        } else {
-            let _ = writeln!(out, "    func test{method_name}() throws {{");
-        }
-        let _ = writeln!(out, "        // {description}");
-        let _ = writeln!(
-            out,
-            "        try XCTSkipIf(true, \"swift: visitor (options_field bridge) wiring not yet supported in alef-backend-swift (fixture: {})\")",
-            fixture.id
-        );
-        let _ = writeln!(out, "    }}");
-        return;
-    }
+    // Visitor-driven fixtures: emit a class that conforms to `HtmlVisitorProtocol`
+    // and wrap it via `makeHtmlVisitorHandle(...)`. The handle is then threaded
+    // into the options via `conversionOptionsFromJsonWithVisitor(json, handle)`.
+    let mut visitor_setup_lines: Vec<String> = Vec::new();
+    let visitor_handle_expr: Option<String> = fixture
+        .visitor
+        .as_ref()
+        .map(|spec| super::swift_visitors::build_swift_visitor(&mut visitor_setup_lines, spec, &fixture.id));
 
     // Resolve extra_args from per-call swift overrides (e.g. `nil` for optional
     // query-param arguments on list_files/list_batches that have no fixture-level
@@ -734,7 +720,7 @@ fn render_test_method(
         .get("c")
         .and_then(|c| c.c_engine_factory.as_deref())
         .map(|ty| format!("{}_from_json", ty.to_snake_case()).to_lower_camel_case());
-    let (setup_lines, args_str) = build_args_and_setup(
+    let (mut setup_lines, args_str) = build_args_and_setup(
         &fixture.input,
         args,
         &fixture.id,
@@ -743,7 +729,13 @@ fn render_test_method(
         options_via_str,
         options_type_str,
         handle_config_fn_owned.as_deref(),
+        visitor_handle_expr.as_deref(),
     );
+    // Prepend visitor class declarations (before any setup lines that reference the handle).
+    if !visitor_setup_lines.is_empty() {
+        visitor_setup_lines.extend(setup_lines);
+        setup_lines = visitor_setup_lines;
+    }
 
     // Append extra_args to the argument list.
     let args_str = if extra_args.is_empty() {
@@ -915,6 +907,7 @@ fn build_args_and_setup(
     options_via: Option<&str>,
     options_type: Option<&str>,
     handle_config_fn: Option<&str>,
+    visitor_handle_expr: Option<&str>,
 ) -> (Vec<String>, String) {
     if args.is_empty() {
         return (Vec::new(), String::new());
@@ -1061,6 +1054,8 @@ fn build_args_and_setup(
         // Use the generated `{typeCamelCase}FromJson(_:)` helper so the fixture JSON is
         // deserialised into the opaque swift-bridge type rather than passed as a raw string.
         // When arg.field == "input", the entire fixture input IS the request object.
+        // When a visitor handle is present, use `{typeCamelCase}FromJsonWithVisitor(json, handle)`
+        // instead to attach the visitor to the options in one step.
         if arg.arg_type == "json_object" && options_via == Some("from_json") {
             if let Some(type_name) = options_type {
                 let resolved_val = super::resolve_field(input, &arg.field);
@@ -1070,8 +1065,21 @@ fn build_args_and_setup(
                 };
                 let escaped = escape_swift(&json_str);
                 let var_name = format!("_{}", arg.name.to_lower_camel_case());
-                let from_json_fn = format!("{}FromJson", type_name.to_lower_camel_case());
-                setup_lines.push(format!("let {var_name} = try {from_json_fn}(\"{escaped}\")"));
+                if let Some(handle_expr) = visitor_handle_expr {
+                    // Use the visitor-aware helper: `{typeCamelCase}FromJsonWithVisitor(json, handle)`.
+                    // The handle expression builds a VisitorHandle from the local class instance.
+                    // The function name mirrors emit_options_field_options_helper: camelCase of
+                    // `{options_snake}_from_json_with_visitor`.
+                    let with_visitor_fn = format!("{}FromJsonWithVisitor", type_name.to_lower_camel_case());
+                    let handle_var = format!("_visitorHandle_{}", var_name.trim_start_matches('_'));
+                    setup_lines.push(format!("let {handle_var} = {handle_expr}"));
+                    setup_lines.push(format!(
+                        "let {var_name} = try {with_visitor_fn}(\"{escaped}\", {handle_var})"
+                    ));
+                } else {
+                    let from_json_fn = format!("{}FromJson", type_name.to_lower_camel_case());
+                    setup_lines.push(format!("let {var_name} = try {from_json_fn}(\"{escaped}\")"));
+                }
                 parts.push(var_name);
                 continue;
             }
