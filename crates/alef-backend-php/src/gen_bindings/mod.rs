@@ -1361,13 +1361,16 @@ fn gen_php_opaque_class_file(typ: &alef_core::ir::TypeDef, namespace: &str) -> S
 
         // Method signature.
         let static_kw = if is_static { "static " } else { "" };
+        let first_optional_idx = method.params.iter().position(|p| p.optional);
         let params: Vec<String> = method
             .params
             .iter()
-            .map(|p| {
+            .enumerate()
+            .map(|(idx, p)| {
                 let ptype = php_type(&p.ty);
-                if p.optional {
-                    format!("?{} ${} = null", ptype, p.name)
+                if p.optional || first_optional_idx.is_some_and(|first| idx >= first) {
+                    let nullable = if ptype.starts_with('?') { "" } else { "?" };
+                    format!("{nullable}{ptype} ${} = null", p.name)
                 } else {
                     format!("{} ${}", ptype, p.name)
                 }

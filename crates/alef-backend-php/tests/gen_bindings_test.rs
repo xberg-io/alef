@@ -1133,6 +1133,110 @@ fn test_generate_public_api_delegates_to_api_class() {
 }
 
 #[test]
+fn test_opaque_class_promotes_parameters_after_first_optional() {
+    let backend = PhpBackend;
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "TestClient".to_string(),
+            rust_path: "test_lib::TestClient".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![MethodDef {
+                name: "post".to_string(),
+                params: vec![
+                    ParamDef {
+                        name: "path".to_string(),
+                        ty: TypeRef::String,
+                        optional: false,
+                        default: None,
+                        sanitized: false,
+                        typed_default: None,
+                        is_ref: false,
+                        is_mut: false,
+                        newtype_wrapper: None,
+                        original_type: None,
+                    },
+                    ParamDef {
+                        name: "json".to_string(),
+                        ty: TypeRef::String,
+                        optional: true,
+                        default: None,
+                        sanitized: false,
+                        typed_default: None,
+                        is_ref: false,
+                        is_mut: false,
+                        newtype_wrapper: None,
+                        original_type: None,
+                    },
+                    ParamDef {
+                        name: "multipart".to_string(),
+                        ty: TypeRef::String,
+                        optional: false,
+                        default: None,
+                        sanitized: false,
+                        typed_default: None,
+                        is_ref: false,
+                        is_mut: false,
+                        newtype_wrapper: None,
+                        original_type: None,
+                    },
+                ],
+                return_type: TypeRef::Named("ResponseSnapshot".to_string()),
+                is_async: false,
+                is_static: false,
+                error_type: Some("Error".to_string()),
+                doc: String::new(),
+                receiver: Some(ReceiverKind::Ref),
+                sanitized: false,
+                trait_source: None,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            is_opaque: true,
+            is_clone: false,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config();
+    let files = backend.generate_public_api(&api, &config).unwrap();
+    let client = files
+        .iter()
+        .find(|file| file.path.ends_with("TestClient.php"))
+        .expect("public API should include TestClient.php");
+
+    assert!(
+        client
+            .content
+            .contains("post(string $path, ?string $json = null, ?string $multipart = null): ResponseSnapshot"),
+        "opaque PHP class should keep PHP syntax valid when a required Rust param follows an optional one; content:\n{}",
+        client.content
+    );
+}
+
+#[test]
 fn test_sanitized_function_generates_stub_not_direct_call() {
     // Regression test for functions whose return types were sanitized from unknown types
     // (e.g. tuples) to String/Vec<String>/Option<String>.  The PHP backend must NOT emit a

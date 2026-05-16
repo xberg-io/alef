@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-backend-php: promote opaque class parameters after the first optional argument**:
+  generated PHP userland class declarations now mirror static extension stubs by
+  marking parameters after an optional parameter as nullable with `= null`,
+  keeping PHPStan/PHP syntax valid for methods like `TestClient::post`.
+  (`crates/alef-backend-php/src/gen_bindings/mod.rs`,
+  `crates/alef-backend-php/tests/gen_bindings_test.rs`)
+
 ## [0.16.20] - 2026-05-16
 
 ### Fixed
