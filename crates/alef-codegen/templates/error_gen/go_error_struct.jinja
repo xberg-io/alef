@@ -4,4 +4,4 @@ type {{ go_type_name }} struct {
 	Message string
 }
 
-func (e *{{ go_type_name }}) Error() string { return e.Message }
+func (e {{ go_type_name }}) Error() string { return e.Message }

@@ -3,10 +3,9 @@
 // The pointer is treated as a NUL-terminated C string; binary payloads
 // that may contain interior NULs should be exposed by the FFI with an
 // explicit length out-parameter instead.
-func unmarshalBytes(ptr *C.uint8_t) *[]byte {
+func unmarshalBytes(ptr *C.uint8_t) []byte {
 	if ptr == nil {
 		return nil
 	}
-	v := []byte(C.GoString((*C.char)(unsafe.Pointer(ptr))))
-	return &v
+	return []byte(C.GoString((*C.char)(unsafe.Pointer(ptr))))
 }

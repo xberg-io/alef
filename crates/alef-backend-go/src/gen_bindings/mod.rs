@@ -6,7 +6,7 @@ use functions::{gen_convert_with_visitor_wrapper, gen_function_wrapper};
 use methods::{gen_method_wrapper, gen_streaming_method_wrapper};
 use types::{
     gen_config_options, gen_enum_type, gen_last_error_helper, gen_opaque_type, gen_opaque_type_free_only,
-    gen_struct_type, gen_unmarshal_bytes_helper, is_passthrough_raw_message_enum, is_tuple_field,
+    gen_struct_type, gen_unmarshal_bytes_helper, has_non_zero_default, is_passthrough_raw_message_enum, is_tuple_field,
 };
 
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
@@ -600,11 +600,13 @@ fn gen_go_file(
         } else {
             out.push_str(&gen_struct_type(typ, &unit_enum_names, &data_enum_names));
             out.push_str("\n\n");
-            // Generate functional options pattern if type has defaults.
+            // Generate functional options pattern only if type has defaults AND at least one
+            // non-zero-value default. Types with all-zero-default fields use idiomatic struct
+            // literals instead: &Span{StartByte: 1} rather than NewSpan(WithSpanStartByte(1)).
             // Skip "Update" types (e.g., ConversionOptionsUpdate) — they are partial update
             // structs that share field names with the primary config type, producing duplicate
             // With* function declarations.
-            if typ.has_default && !typ.name.ends_with("Update") {
+            if typ.has_default && !typ.name.ends_with("Update") && has_non_zero_default(typ) {
                 out.push_str(&gen_config_options(typ, &unit_enum_names, &passthrough_enum_names));
                 out.push_str("\n\n");
             }

@@ -53,6 +53,30 @@ pub(super) fn needs_omitempty_pointer(field: &FieldDef) -> bool {
     }
 }
 
+/// Returns true if a struct type has at least one field with a non-zero default value.
+///
+/// Types with all-zero-default fields do not need the functional-options builder pattern;
+/// idiomatic Go usage is direct struct literals like `&Span{StartByte: 1, EndByte: 5}`.
+/// Types with at least one non-zero default benefit from the NewX/WithX pattern to ensure
+/// proper initialization of non-zero defaults without requiring callers to remember every field.
+pub(super) fn has_non_zero_default(typ: &TypeDef) -> bool {
+    typ.fields.iter().any(|field| {
+        // Duration fields always count as non-zero (zero duration is invalid).
+        if matches!(field.ty, TypeRef::Duration) {
+            return true;
+        }
+        // Check if the field has a non-zero default value.
+        match &field.typed_default {
+            Some(DefaultValue::BoolLiteral(true)) => true,
+            Some(DefaultValue::IntLiteral(n)) => *n != 0,
+            Some(DefaultValue::FloatLiteral(f)) => *f != 0.0,
+            Some(DefaultValue::StringLiteral(s)) => !s.is_empty(),
+            Some(DefaultValue::EnumVariant(_)) => true,
+            _ => false,
+        }
+    })
+}
+
 /// Generate the package-level `unmarshalBytes` helper.
 ///
 /// Emitted exactly once per generated `binding.go`. Methods and functions

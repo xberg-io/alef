@@ -370,8 +370,32 @@ pub(super) fn gen_elixir_struct_module(
     };
     out.push_str(&template_env::render("struct_module_header.jinja", ctx));
 
-    // defstruct with defaults - use bare keyword list style (mix format compliant)
+    // Emit @type t typespec before defstruct
+    let default_types: AHashSet<String> = enum_defaults.keys().cloned().collect();
+    out.push_str("  @type t :: %__MODULE__{\n");
+
     let fields: Vec<_> = typ.fields.iter().collect();
+    if !fields.is_empty() {
+        for (i, field) in fields.iter().enumerate() {
+            let field_name = field.name.to_snake_case();
+            let field_type = elixir_typespec(&field.ty, opaque_types, &default_types);
+            let field_type_with_optional = if field.optional && !matches!(field.ty, TypeRef::Optional(_)) {
+                format!("{field_type} | nil")
+            } else {
+                field_type
+            };
+
+            if i == fields.len() - 1 {
+                // Last field: no comma
+                out.push_str(&format!("    {field_name}: {field_type_with_optional}\n"));
+            } else {
+                out.push_str(&format!("    {field_name}: {field_type_with_optional},\n"));
+            }
+        }
+    }
+    out.push_str("  }\n\n");
+
+    // defstruct with defaults - use bare keyword list style (mix format compliant)
     if fields.is_empty() {
         out.push_str(&template_env::render("struct_empty.jinja", minijinja::context! {}));
     } else {

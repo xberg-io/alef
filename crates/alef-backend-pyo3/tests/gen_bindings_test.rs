@@ -3907,3 +3907,230 @@ fn test_options_py_does_not_emit_screaming_alias_lines() {
         options_py
     );
 }
+
+/// Bug A: void-returning functions should NOT emit `return` statement.
+/// Functions with `-> None` annotation must emit a bare call without `return`.
+#[test]
+fn test_api_py_void_function_no_redundant_return() {
+    let backend = Pyo3Backend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "init".to_string(),
+            rust_path: "test_lib::init".to_string(),
+            original_rust_path: String::new(),
+            params: vec![],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            error_type: None,
+            doc: "Initialize the system.".to_string(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: HashMap::new(),
+    };
+
+    let mut config = make_config();
+    config.python = Some(PythonConfig {
+        module_name: Some("_test_lib".to_string()),
+        pip_name: None,
+        async_runtime: None,
+        stubs: Some(StubsConfig {
+            output: std::path::PathBuf::from("packages/python/src/"),
+        }),
+        features: None,
+        serde_rename_all: None,
+        capsule_types: Default::default(),
+        release_gil: false,
+        exclude_functions: Vec::new(),
+        exclude_types: Vec::new(),
+        extra_dependencies: Default::default(),
+        scaffold_output: Default::default(),
+        rename_fields: Default::default(),
+        run_wrapper: None,
+        extra_lint_paths: Vec::new(),
+        extra_init_imports: std::collections::BTreeMap::new(),
+    });
+
+    let files = backend.generate_public_api(&api, &config).expect("generate_public_api failed");
+    let api_py = files
+        .iter()
+        .find(|f| f.path.ends_with("api.py"))
+        .expect("api.py not found");
+
+    // The function body should call _rust.init() without a return statement
+    assert!(
+        api_py.content.contains("def init() -> None:"),
+        "api.py should have void-returning init function signature, got:\n{}",
+        api_py.content
+    );
+
+    // Extract the function body to verify no `return` keyword appears
+    if let Some(start) = api_py.content.find("def init() -> None:") {
+        // Look for the next function definition to find the end of this function
+        let rest = &api_py.content[start..];
+        let next_fn_start = rest[19..].find("def ").map(|p| p + 19);
+        let fn_body = if let Some(end) = next_fn_start {
+            &rest[..end]
+        } else {
+            rest
+        };
+        // The body should have the docstring and the call
+        assert!(
+            fn_body.contains("_rust.init()"),
+            "Function should call _rust.init()"
+        );
+        // But it should NOT have "return _rust.init()"
+        let without_docstring = fn_body.split("\"\"\"").last().unwrap_or(fn_body);
+        assert!(
+            !without_docstring.contains("return _rust.init()"),
+            "Void-returning function must not emit 'return _rust.init()', got:\n{}",
+            fn_body
+        );
+    }
+}
+
+/// Bug B: Consecutive top-level function definitions must have exactly two blank lines between them.
+/// This is a PEP 8 requirement for spacing between top-level definitions.
+#[test]
+fn test_api_py_pep8_blank_lines_between_functions() {
+    let backend = Pyo3Backend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![
+            FunctionDef {
+                name: "first_function".to_string(),
+                rust_path: "test_lib::first_function".to_string(),
+                original_rust_path: String::new(),
+                params: vec![],
+                return_type: TypeRef::String,
+                is_async: false,
+                error_type: None,
+                doc: "First function.".to_string(),
+                cfg: None,
+                sanitized: false,
+                return_sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+            FunctionDef {
+                name: "second_function".to_string(),
+                rust_path: "test_lib::second_function".to_string(),
+                original_rust_path: String::new(),
+                params: vec![],
+                return_type: TypeRef::String,
+                is_async: false,
+                error_type: None,
+                doc: "Second function.".to_string(),
+                cfg: None,
+                sanitized: false,
+                return_sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+            FunctionDef {
+                name: "third_function".to_string(),
+                rust_path: "test_lib::third_function".to_string(),
+                original_rust_path: String::new(),
+                params: vec![],
+                return_type: TypeRef::String,
+                is_async: false,
+                error_type: None,
+                doc: "Third function.".to_string(),
+                cfg: None,
+                sanitized: false,
+                return_sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+        ],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: HashMap::new(),
+    };
+
+    let mut config = make_config();
+    config.python = Some(PythonConfig {
+        module_name: Some("_test_lib".to_string()),
+        pip_name: None,
+        async_runtime: None,
+        stubs: Some(StubsConfig {
+            output: std::path::PathBuf::from("packages/python/src/"),
+        }),
+        features: None,
+        serde_rename_all: None,
+        capsule_types: Default::default(),
+        release_gil: false,
+        exclude_functions: Vec::new(),
+        exclude_types: Vec::new(),
+        extra_dependencies: Default::default(),
+        scaffold_output: Default::default(),
+        rename_fields: Default::default(),
+        run_wrapper: None,
+        extra_lint_paths: Vec::new(),
+        extra_init_imports: std::collections::BTreeMap::new(),
+    });
+
+    let files = backend.generate_public_api(&api, &config).expect("generate_public_api failed");
+    let api_py = files
+        .iter()
+        .find(|f| f.path.ends_with("api.py"))
+        .expect("api.py not found");
+
+    // Find the three function definitions and verify spacing
+    let first_pos = api_py.content.find("def first_function").expect("first_function not found");
+    let second_pos = api_py.content.find("def second_function").expect("second_function not found");
+    let third_pos = api_py.content.find("def third_function").expect("third_function not found");
+
+    // Between first and second function
+    let between_1_2 = &api_py.content[first_pos..second_pos];
+    // Count the blank lines between the functions
+    // Should be: closing of first function + empty line + empty line + def of second
+    let blank_count_1_2 = between_1_2.matches("\n\n").count();
+    assert!(
+        blank_count_1_2 >= 1,
+        "Between first and second function, should have blank lines, got:\n{}",
+        between_1_2
+    );
+
+    // Between second and third function
+    let between_2_3 = &api_py.content[second_pos..third_pos];
+    let blank_count_2_3 = between_2_3.matches("\n\n").count();
+    assert!(
+        blank_count_2_3 >= 1,
+        "Between second and third function, should have blank lines, got:\n{}",
+        between_2_3
+    );
+
+    // More stringent check: no single-line function definitions jammed together.
+    // Look for the pattern where one function ends and the next starts with only one newline.
+    let has_improper_spacing = api_py.content.contains(")\n\ndef ") || api_py.content.contains(")\ndef ");
+    assert!(
+        !has_improper_spacing,
+        "Functions are jammed together without proper PEP 8 spacing:\n{}",
+        api_py.content
+    );
+}

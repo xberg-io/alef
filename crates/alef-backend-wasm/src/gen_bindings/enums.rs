@@ -148,7 +148,7 @@ pub(super) fn gen_tagged_enum_as_struct(enum_def: &EnumDef, prefix: &str) -> Str
     }
 
     // Struct definition. Discriminator is always a String; all variant fields are Option<T>.
-    lines.push("#[wasm_bindgen]".to_string());
+    lines.push(format!("#[wasm_bindgen(js_name = \"{}\")]", enum_def.name));
     lines.push("#[derive(Clone, Default)]".to_string());
     lines.push(format!("pub struct {js_name} {{"));
     lines.push(format!("    pub(crate) {tag_field_ident}: String,"));
@@ -484,7 +484,7 @@ pub(super) fn gen_enum(enum_def: &EnumDef, prefix: &str) -> String {
         lines.push(doc);
     }
     lines.extend([
-        "#[wasm_bindgen]".to_string(),
+        format!("#[wasm_bindgen(js_name = \"{}\")]", enum_def.name),
         "#[derive(Clone, Copy, PartialEq, Eq)]".to_string(),
         format!("pub enum {} {{", js_name),
     ]);

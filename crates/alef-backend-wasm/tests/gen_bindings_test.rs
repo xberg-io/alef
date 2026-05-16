@@ -313,8 +313,8 @@ fn test_enum_generation() {
 
     let content = &files[0].content;
 
-    // Should contain WasmLevel enum with #[wasm_bindgen]
-    assert!(content.contains("#[wasm_bindgen]"));
+    // Should contain WasmLevel enum with #[wasm_bindgen(js_name = "Level")]
+    assert!(content.contains("#[wasm_bindgen(js_name = \"Level\")]"));
     assert!(content.contains("pub enum WasmLevel"));
 
     // Should have all variants
@@ -2903,5 +2903,293 @@ fn test_constructor_params_camel_case() {
     assert!(
         content.contains("WasmMyConfig { field_one: fieldOne, field_two: fieldTwo, field_three: fieldThree }"),
         "Struct literal must use explicit field syntax with renamed params; actual content:\n{content}"
+    );
+}
+
+#[test]
+fn test_wasm_js_name_on_non_opaque_struct() {
+    let backend = WasmBackend;
+
+    // Create test API with a non-opaque struct
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Config".to_string(),
+            rust_path: "test_lib::Config".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                make_field("timeout", TypeRef::Primitive(PrimitiveType::U32), false),
+                make_field("enabled", TypeRef::Primitive(PrimitiveType::Bool), false),
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: "Test configuration".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config();
+    let result = backend.generate_bindings(&api, &config);
+
+    assert!(result.is_ok(), "Generation should succeed");
+    let files = result.unwrap();
+    let content = &files[0].content;
+
+    // The struct should have #[wasm_bindgen(js_name = "Config")] to export unprefixed name
+    assert!(
+        content.contains("#[wasm_bindgen(js_name = \"Config\")]"),
+        "Non-opaque struct should have #[wasm_bindgen(js_name = \"Config\")] to expose unprefixed name; actual content:\n{content}"
+    );
+
+    // The internal Rust struct name remains WasmConfig (prefixed) for internal use
+    assert!(
+        content.contains("pub struct WasmConfig"),
+        "Rust struct should retain WasmConfig name; actual content:\n{content}"
+    );
+}
+
+#[test]
+fn test_wasm_js_name_on_opaque_struct() {
+    let backend = WasmBackend;
+
+    // Create test API with an opaque struct
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Parser".to_string(),
+            rust_path: "test_lib::Parser".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![MethodDef {
+                name: "parse".to_string(),
+                params: vec![],
+                return_type: TypeRef::String,
+                receiver: Some(ReceiverKind::Ref),
+                is_static: false,
+                is_async: false,
+                error_type: None,
+                doc: "Parse source code".to_string(),
+                sanitized: false,
+                trait_source: None,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            is_opaque: true,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: "Parser handle".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config();
+    let result = backend.generate_bindings(&api, &config);
+
+    assert!(result.is_ok(), "Generation should succeed");
+    let files = result.unwrap();
+    let content = &files[0].content;
+
+    // The opaque struct should have #[wasm_bindgen(js_name = "Parser")] to export unprefixed name
+    assert!(
+        content.contains("#[wasm_bindgen(js_name = \"Parser\")]"),
+        "Opaque struct should have #[wasm_bindgen(js_name = \"Parser\")] to expose unprefixed name; actual content:\n{content}"
+    );
+
+    // The internal Rust struct name remains WasmParser (prefixed) for internal use
+    assert!(
+        content.contains("pub struct WasmParser"),
+        "Rust opaque struct should retain WasmParser name; actual content:\n{content}"
+    );
+}
+
+#[test]
+fn test_wasm_js_name_on_unit_enum() {
+    let backend = WasmBackend;
+
+    // Create test API with a unit enum
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "Mode".to_string(),
+            rust_path: "test_lib::Mode".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Fast".to_string(),
+                    fields: vec![],
+                    is_tuple: false,
+                    doc: "Fast mode".to_string(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+                EnumVariant {
+                    name: "Accurate".to_string(),
+                    fields: vec![],
+                    is_tuple: false,
+                    doc: "Accurate mode".to_string(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+            ],
+            doc: "Processing mode".to_string(),
+            cfg: None,
+            is_copy: false,
+            has_serde: false,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config();
+    let result = backend.generate_bindings(&api, &config);
+
+    assert!(result.is_ok(), "Generation should succeed");
+    let files = result.unwrap();
+    let content = &files[0].content;
+
+    // The enum should have #[wasm_bindgen(js_name = "Mode")] to export unprefixed name
+    assert!(
+        content.contains("#[wasm_bindgen(js_name = \"Mode\")]"),
+        "Unit enum should have #[wasm_bindgen(js_name = \"Mode\")] to expose unprefixed name; actual content:\n{content}"
+    );
+
+    // The internal Rust enum name remains WasmMode (prefixed) for internal use
+    assert!(
+        content.contains("pub enum WasmMode"),
+        "Rust enum should retain WasmMode name; actual content:\n{content}"
+    );
+}
+
+#[test]
+fn test_wasm_index_ts_exports_unprefixed_names() {
+    let backend = WasmBackend;
+
+    // Create test API with a struct and enum
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Config".to_string(),
+            rust_path: "test_lib::Config".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                make_field("timeout", TypeRef::Primitive(PrimitiveType::U32), false),
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: "Test configuration".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "Status".to_string(),
+            rust_path: "test_lib::Status".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Active".to_string(),
+                    fields: vec![],
+                    is_tuple: false,
+                    doc: "Active status".to_string(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+            ],
+            doc: "Processing status".to_string(),
+            cfg: None,
+            is_copy: false,
+            has_serde: false,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config();
+    let result = backend.generate_public_api(&api, &config);
+
+    assert!(result.is_ok(), "Public API generation should succeed");
+    let files = result.unwrap();
+
+    // Find the index.ts file
+    let index_ts = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("index.ts"))
+        .expect("Should generate index.ts");
+
+    let content = &index_ts.content;
+
+    // Should export unprefixed names (Config, Status) NOT prefixed names (WasmConfig, WasmStatus)
+    assert!(
+        content.contains("Config") && content.contains("Status") && content.contains("export {"),
+        "index.ts should export unprefixed names Config and Status; actual content:\n{content}"
+    );
+
+    // Should NOT export prefixed names
+    assert!(
+        !content.contains("WasmConfig"),
+        "index.ts should NOT export prefixed name WasmConfig; actual content:\n{content}"
+    );
+
+    assert!(
+        !content.contains("WasmStatus"),
+        "index.ts should NOT export prefixed name WasmStatus; actual content:\n{content}"
     );
 }

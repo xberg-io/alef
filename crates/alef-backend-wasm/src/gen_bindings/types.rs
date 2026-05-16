@@ -103,6 +103,7 @@ pub(super) fn gen_opaque_struct(typ: &TypeDef, core_import: &str, prefix: &str) 
         "gen_opaque_struct",
         minijinja::context! {
             struct_name => js_name,
+            unprefixed_name => typ.name,
             core_path => core_path,
             has_mut_methods => has_mut_methods,
         },
@@ -504,6 +505,7 @@ pub(super) fn gen_struct(
         "gen_struct",
         minijinja::context! {
             struct_name => js_name,
+            unprefixed_name => typ.name,
             fields => fields.iter().map(|(name, ty)| {
                 minijinja::context! {
                     name => name,

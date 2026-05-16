@@ -664,22 +664,22 @@ fn optional_params_get_kotlin_default_values_in_facade() {
         "baseUrl must be required (no default), got:\n{content}"
     );
 
-    // Optional Long param must get `= 0L`.
+    // Optional Long param must use nullable type with null default.
     assert!(
-        content.contains("timeoutSecs: Long = 0L"),
-        "timeoutSecs must default to 0L, got:\n{content}"
+        content.contains("timeoutSecs: Long? = null"),
+        "timeoutSecs must be nullable with null default, got:\n{content}"
     );
 
-    // Optional Int param must get `= 0`.
+    // Optional Int param must use nullable type with null default.
     assert!(
-        content.contains("maxRetries: Int = 0"),
-        "maxRetries must default to 0, got:\n{content}"
+        content.contains("maxRetries: Int? = null"),
+        "maxRetries must be nullable with null default, got:\n{content}"
     );
 
-    // Optional String param must get `= ""`.
+    // Optional String param must use nullable type with null default.
     assert!(
-        content.contains("modelHint: String = \"\""),
-        "modelHint must default to \"\", got:\n{content}"
+        content.contains("modelHint: String? = null"),
+        "modelHint must be nullable with null default, got:\n{content}"
     );
 }
 

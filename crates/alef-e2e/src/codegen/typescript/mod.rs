@@ -214,7 +214,7 @@ result_var = "result"
         let e2e = cfg.crates[0].e2e.clone().unwrap();
         let resolved = cfg.resolve().unwrap().remove(0);
         let codegen = TypeScriptCodegen;
-        let files = codegen.generate(&[], &e2e, &resolved, &[]).unwrap();
+        let files = codegen.generate(&[], &e2e, &resolved, &[], &[]).unwrap();
         // package.json, tsconfig.json, vitest.config.ts
         assert!(files.len() >= 3, "got {} files", files.len());
     }

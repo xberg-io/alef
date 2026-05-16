@@ -200,11 +200,13 @@ impl Backend for SwiftBackend {
         // prefix, which the generated e2e test layer doesn't use.
         emit_from_json_forwarders(api, &exclude_types, &mut body);
 
-        // Emit Swift protocol + box class for OptionsField inbound trait bridges.
+        // Emit Swift protocol + adapter class for OptionsField inbound trait bridges.
         // Each bridge in `config.trait_bridges` where `bind_via = "options_field"` gets:
         //   - A `public protocol {Trait}Protocol: AnyObject` with one method per trait method.
-        //   - A `public final class Swift{Trait}Box` that routes swift-bridge callbacks to
-        //     the protocol. Also a factory func `make{TraitCamel}Handle(...)`.
+        //   - A private adapter class that wraps the protocol conformer.
+        //   - A factory func `make{TraitCamel}Handle(...)`.
+        // NOTE: The `Swift{Trait}Box` class is emitted into Sources/RustBridge/ (separate file)
+        // because it is referenced by the swift-bridge generated @_cdecl shims there.
         emit_inbound_protocols(api, config, &mut body);
 
         let mut content = String::new();
@@ -264,6 +266,14 @@ impl Backend for SwiftBackend {
             });
         if let Some(bridge_files) = emit_swift_bridge_files(&api.crate_name, &binding_crate_name, &package_root)? {
             files.extend(bridge_files);
+        }
+
+        // Emit Swift{Trait}Box.swift into Sources/RustBridge/ for every OptionsField bridge.
+        // This class is referenced by the @_cdecl shims generated into that same directory
+        // by swift-bridge, so it MUST live in the RustBridge module — not HtmlToMarkdown.
+        let rust_bridge_sources = package_root.join("Sources").join("RustBridge");
+        for box_file in emit_inbound_box_files(api, config, &rust_bridge_sources) {
+            files.push(box_file);
         }
 
         Ok(files)

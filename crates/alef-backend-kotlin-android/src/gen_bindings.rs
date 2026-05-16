@@ -268,15 +268,17 @@ fn emit_module_kt(
             .params
             .iter()
             .map(|p| {
-                let ty = facade_param_type(&p.ty);
                 let name = to_lower_camel(&p.name);
                 if p.optional {
-                    // Emit a Kotlin default value so callers that pass only
-                    // required params still compile (e.g. e2e codegen omits
-                    // optional timeout_secs / max_retries / model_hint).
-                    let default = kotlin_default_for_type(&p.ty);
-                    format!("{name}: {ty}{default}")
+                    // Use nullable Kotlin type with null default so callers
+                    // that only pass required params still compile (e.g. e2e
+                    // codegen omits optional timeout_secs / max_retries /
+                    // model_hint).  Nullable is idiomatic Kotlin and avoids
+                    // sentinel zero-value collisions.
+                    let ty = kotlin_nullable_type_for_optional(&p.ty);
+                    format!("{name}: {ty} = null")
                 } else {
+                    let ty = facade_param_type(&p.ty);
                     format!("{name}: {ty}")
                 }
             })
@@ -351,25 +353,34 @@ fn assemble_kt_content(package: &str, imports: &BTreeSet<String>, body: &str) ->
     content
 }
 
-/// Map a `TypeRef` to a JNI return type string for the delegate wrapper.
-/// Return a Kotlin default-value suffix (including the ` = `) for a facade
-/// parameter type.  Used when `p.optional == true` to make params skippable
-/// at the call site (e.g. `timeoutSecs: Long = 0L`).
-fn kotlin_default_for_type(ty: &alef_core::ir::TypeRef) -> &'static str {
+/// Return a nullable Kotlin type string for an optional facade parameter.
+/// Used when `p.optional == true` so callers can pass `null` to skip the
+/// param (e.g. `timeoutSecs: Long? = null`).  Nullable is idiomatic Kotlin
+/// and avoids sentinel zero-value collisions (`0L`, `""`).
+fn kotlin_nullable_type_for_optional(ty: &alef_core::ir::TypeRef) -> String {
     use alef_core::ir::{PrimitiveType, TypeRef};
-    match ty {
+    let base = match ty {
+        TypeRef::Optional(inner) => inner.as_ref(),
+        other => other,
+    };
+    let non_null = match base {
         TypeRef::Primitive(p) => match p {
-            PrimitiveType::Bool => " = false",
-            PrimitiveType::I64 | PrimitiveType::U64 | PrimitiveType::Usize | PrimitiveType::Isize => " = 0L",
-            PrimitiveType::F32 => " = 0.0f",
-            PrimitiveType::F64 => " = 0.0",
-            _ => " = 0",
+            PrimitiveType::Bool => "Boolean",
+            PrimitiveType::I8 | PrimitiveType::U8 => "Byte",
+            PrimitiveType::I16 | PrimitiveType::U16 => "Short",
+            PrimitiveType::I32 | PrimitiveType::U32 => "Int",
+            PrimitiveType::I64
+            | PrimitiveType::U64
+            | PrimitiveType::Usize
+            | PrimitiveType::Isize => "Long",
+            PrimitiveType::F32 => "Float",
+            PrimitiveType::F64 => "Double",
         },
-        TypeRef::String => " = \"\"",
-        // Optional types are serialized as JSON strings in JNI — default to empty.
-        TypeRef::Optional(_) => " = \"\"",
-        _ => " = \"\"",
-    }
+        TypeRef::String => "String",
+        TypeRef::Named(n) => return format!("{n}?"),
+        _ => "String",
+    };
+    format!("{non_null}?")
 }
 
 fn jni_return_type_str(ty: &alef_core::ir::TypeRef) -> &'static str {

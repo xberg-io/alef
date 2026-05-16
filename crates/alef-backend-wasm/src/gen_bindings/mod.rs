@@ -677,22 +677,21 @@ impl Backend for WasmBackend {
         let exclude_functions = wasm_config.map(|c| c.exclude_functions.clone()).unwrap_or_default();
         let exclude_types = wasm_config.map(|c| c.exclude_types.clone()).unwrap_or_default();
         let exclude_reexports = wasm_config.map(|c| c.exclude_reexports.clone()).unwrap_or_default();
-        let prefix = config.wasm_type_prefix();
 
         // Collect all exported names from the API
         let mut exports = vec![];
 
-        // Collect all types (exported with prefix from WASM module)
+        // Collect all types (exported with unprefixed names via js_name = "Foo")
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if !exclude_types.contains(&typ.name) {
-                exports.push(format!("{prefix}{}", typ.name));
+                exports.push(typ.name.clone());
             }
         }
 
-        // Collect all enums (exported with prefix from WASM module)
+        // Collect all enums (exported with unprefixed names via js_name = "Foo")
         for enum_def in &api.enums {
             if !exclude_types.contains(&enum_def.name) {
-                exports.push(format!("{prefix}{}", enum_def.name));
+                exports.push(enum_def.name.clone());
             }
         }
 

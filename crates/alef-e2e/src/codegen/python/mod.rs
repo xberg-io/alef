@@ -154,7 +154,7 @@ result_var = "result"
         let e2e = cfg.crates[0].e2e.clone().unwrap();
         let resolved = cfg.resolve().unwrap().remove(0);
         let codegen = PythonE2eCodegen;
-        let files = codegen.generate(&[], &e2e, &resolved, &[]).unwrap();
+        let files = codegen.generate(&[], &e2e, &resolved, &[], &[]).unwrap();
         // conftest.py, __init__.py (root), tests/__init__.py, pyproject.toml
         assert_eq!(files.len(), 4, "expected 4 config files, got: {}", files.len());
         let paths: Vec<_> = files.iter().map(|f| f.path.to_string_lossy().to_string()).collect();

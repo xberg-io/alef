@@ -1019,19 +1019,34 @@ pub(super) fn gen_api_py(
         let kwargs: Vec<String> = call_args.iter().map(|(k, v)| format!("{k}={v}")).collect();
         // Async pyo3 functions return a coroutine that must be awaited by the Python caller.
         let return_prefix = if func.is_async { "await " } else { "" };
+
+        // Check if this function returns Unit (void). Void-returning functions should emit
+        // a bare call without `return`.
+        let is_void_return = matches!(&func.return_type, alef_core::ir::TypeRef::Unit);
+
+        if is_void_return {
+            // Emit bare call without return statement for void-returning functions
+            out.push_str(&format!(
+                "    {return_prefix}_rust.{}({})\n",
+                &func.name,
+                kwargs.join(", ")
+            ));
+        }
         // When the return type is a capsule type, the _native stub returns Any (the actual
         // value is a PyCapsule wrapped into the third-party type via the capsule codegen).
         // Wrap the call in `cast(ReturnType, ...)` so mypy --strict (warn_return_any) is happy
         // without weakening the public api.py annotation.
-        let returns_capsule = match &func.return_type {
-            alef_core::ir::TypeRef::Named(n) => capsule_types.contains_key(n),
-            alef_core::ir::TypeRef::Optional(inner) => match inner.as_ref() {
+        else if {
+            let returns_capsule = match &func.return_type {
                 alef_core::ir::TypeRef::Named(n) => capsule_types.contains_key(n),
+                alef_core::ir::TypeRef::Optional(inner) => match inner.as_ref() {
+                    alef_core::ir::TypeRef::Named(n) => capsule_types.contains_key(n),
+                    _ => false,
+                },
                 _ => false,
-            },
-            _ => false,
-        };
-        if returns_capsule {
+            };
+            returns_capsule
+        } {
             let cast_target = match &func.return_type {
                 alef_core::ir::TypeRef::Named(n) => n.clone(),
                 alef_core::ir::TypeRef::Optional(inner) => match inner.as_ref() {
@@ -1055,6 +1070,7 @@ pub(super) fn gen_api_py(
                 },
             ));
         }
+        out.push_str("\n\n");
     }
 
     // Emit pass-through wrappers for trait-bridge registration functions.
