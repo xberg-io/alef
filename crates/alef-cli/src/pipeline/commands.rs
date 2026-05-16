@@ -966,7 +966,8 @@ fn run_post_build(
                 }
             }
             PostBuildStep::RunCommand { cmd, args } => {
-                run_run_command(cmd, args, base_dir)
+                let work_dir = base_dir.join(crate_dir);
+                run_run_command(cmd, args, &work_dir)
                     .with_context(|| format!("post-build RunCommand '{cmd}' failed"))?;
             }
             PostBuildStep::PostProcessFile { path, processor } => {
