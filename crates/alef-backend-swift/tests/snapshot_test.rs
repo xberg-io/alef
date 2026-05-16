@@ -1145,12 +1145,10 @@ fn snapshot_into_rust_bulk_constructor_primitives() {
     }
 }
 
-/// Verifies that `intoRust()` on a nested DTO (Vec<Named>, nested struct, primitive fields)
-/// emits a direct bulk constructor call that builds RustVec for each Vec field and recurses
-/// via `try self.field.intoRust()` for nested struct fields.
+/// Verifies that `intoRust()` is emitted only for directly bridgeable first-class DTOs.
 ///
-/// Models the tslp `ProcessResult` and `CodeChunk` shape — a top-level DTO that owns
-/// nested first-class DTOs and Vec<DTO> collections.
+/// Complex DTOs with nested wrappers or vectors remain RustBridge typealiases until
+/// the Swift backend has complete bidirectional conversions for those shapes.
 #[test]
 fn snapshot_into_rust_bulk_constructor_nested() {
     let api = ApiSurface {
@@ -1258,38 +1256,26 @@ fn snapshot_into_rust_bulk_constructor_nested() {
         swift_file.content
     );
 
-    // Diagnostic (nested struct): recurse via `try self.span.intoRust()`.
+    // Diagnostic (nested struct) and ProcessResult (vectors) stay as RustBridge
+    // typealiases rather than emitting uncompilable first-class wrappers.
     assert!(
         swift_file
             .content
-            .contains("return RustBridge.Diagnostic(self.message, try self.span.intoRust())"),
-        "Diagnostic.intoRust must recurse via nested intoRust:\n{}",
-        swift_file.content
-    );
-
-    // ProcessResult: Vec<Named> via per-element intoRust, Vec<String> via raw push.
-    assert!(
-        swift_file
-            .content
-            .contains("let __diagnostics = RustVec<RustBridge.Diagnostic>()"),
-        "ProcessResult.intoRust must materialise RustVec<RustBridge.Diagnostic>:\n{}",
+            .contains("public typealias Diagnostic = RustBridge.Diagnostic"),
+        "Diagnostic should stay a RustBridge typealias:\n{}",
         swift_file.content
     );
     assert!(
         swift_file
             .content
-            .contains("__diagnostics.push(value: try __elem.intoRust())"),
-        "ProcessResult.intoRust must push per-element intoRust() into the Vec<Named>:\n{}",
+            .contains("public typealias ProcessResult = RustBridge.ProcessResult"),
+        "ProcessResult should stay a RustBridge typealias:\n{}",
         swift_file.content
     );
     assert!(
-        swift_file.content.contains("let __tags = RustVec<String>()"),
-        "ProcessResult.intoRust must materialise RustVec<String> for Vec<String>:\n{}",
-        swift_file.content
-    );
-    assert!(
-        !swift_file.content.contains("JSONEncoder().encode(self)"),
-        "no DTO in this surface should use the JSONEncoder fallback:\n{}",
+        !swift_file.content.contains("return RustBridge.Diagnostic(")
+            && !swift_file.content.contains("return RustBridge.ProcessResult("),
+        "complex DTOs must not emit first-class intoRust constructors:\n{}",
         swift_file.content
     );
 

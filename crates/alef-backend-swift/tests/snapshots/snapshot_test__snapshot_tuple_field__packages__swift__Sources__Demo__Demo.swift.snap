@@ -8,31 +8,7 @@ import Foundation
 import RustBridge
 
 /// Keyword extraction configuration.
-public struct KeywordConfig: Codable, Sendable, Hashable {
-    public let maxKeywords: UInt
-    public let ngramRange: [UInt]
-    public init(maxKeywords: UInt, ngramRange: [UInt]) {
-        self.maxKeywords = maxKeywords
-        self.ngramRange = ngramRange
-    }
-    private enum CodingKeys: String, CodingKey {
-        case maxKeywords = "max_keywords"
-        case ngramRange = "ngram_range"
-    }
-}
-
-// MARK: - Internal FFI conversions for KeywordConfig
-internal extension KeywordConfig {
-    init(_ rb: RustBridge.KeywordConfig) throws {
-        self.maxKeywords = rb.maxKeywords()
-        self.ngramRange = rb.ngramRange()
-    }
-    func intoRust() throws -> RustBridge.KeywordConfig {
-        let __ngramRange = RustVec<UInt>()
-        for __elem in self.ngramRange { __ngramRange.push(value: __elem) }
-        return RustBridge.KeywordConfig(self.maxKeywords, __ngramRange)
-    }
-}
+public typealias KeywordConfig = RustBridge.KeywordConfig
 
 /// Errors emitted by keyword extraction.
 public enum DemoError: Swift.Error {
@@ -46,6 +22,5 @@ public enum DemoError: Swift.Error {
 // Opaque RustBridge types forward to RustBridge.
 
 public func keywordConfigFromJson(_ json: String) throws -> KeywordConfig {
-    let data = json.data(using: .utf8) ?? Data()
-    return try JSONDecoder().decode(KeywordConfig.self, from: data)
+    return try RustBridge.keywordConfigFromJson(json)
 }

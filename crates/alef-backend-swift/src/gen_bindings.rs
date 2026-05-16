@@ -90,7 +90,7 @@ impl Backend for SwiftBackend {
             .filter(|t| t.methods.is_empty() || !t.is_opaque && t.has_serde)
         {
             emit_doc_comment(&ty.doc, "", &mut body);
-            if !ty.is_opaque && ty.has_serde && !ty.fields.is_empty() {
+            if can_emit_first_class_struct(ty) {
                 emit_first_class_struct(ty, &mapper, &exclude_fields, &mut body);
             } else {
                 body.push_str(&crate::template_env::render(
@@ -311,6 +311,21 @@ impl Backend for SwiftBackend {
     }
 }
 
+fn can_emit_first_class_struct(ty: &alef_core::ir::TypeDef) -> bool {
+    !ty.is_opaque
+        && ty.has_serde
+        && !ty.fields.is_empty()
+        && binding_fields(&ty.fields).all(|field| first_class_field_supported(&field.ty))
+}
+
+fn first_class_field_supported(ty: &TypeRef) -> bool {
+    match ty {
+        TypeRef::Primitive(_) | TypeRef::String => true,
+        TypeRef::Optional(inner) => first_class_field_supported(inner),
+        _ => false,
+    }
+}
+
 /// Emits a first-class Swift struct (`public struct Foo: Codable, Sendable, Hashable`)
 /// for a non-opaque DTO that has serde derives and at least one field.
 ///
@@ -409,7 +424,7 @@ fn emit_first_class_struct(
     out.push_str(&format!("    init(_ rb: RustBridge.{type_name}) throws {{\n"));
     for field in &visible_fields {
         let swift_field = swift_case_ident(&field.name.to_lower_camel_case());
-        let rust_accessor = swift_ident(&field.name.to_lower_camel_case());
+        let rust_accessor = swift_ident(&field.name.to_snake_case());
         let is_optional = field.optional || matches!(&field.ty, TypeRef::Optional(_));
         let expr = swift_ffi_read_expr(&field.ty, is_optional, &rust_accessor);
         out.push_str(&format!("        self.{swift_field} = {expr}\n"));
@@ -1205,7 +1220,7 @@ fn emit_from_json_forwarders(api: &ApiSurface, exclude_types: &std::collections:
     let first_class_set: std::collections::HashSet<&str> = api
         .types
         .iter()
-        .filter(|t| !t.is_trait && !t.is_opaque && t.has_serde && !t.fields.is_empty())
+        .filter(|t| !t.is_trait && can_emit_first_class_struct(t))
         .map(|t| t.name.as_str())
         .collect();
 

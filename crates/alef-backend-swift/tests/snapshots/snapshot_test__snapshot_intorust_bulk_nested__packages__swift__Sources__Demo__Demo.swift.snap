@@ -24,8 +24,8 @@ public struct Span: Codable, Sendable, Hashable {
 // MARK: - Internal FFI conversions for Span
 internal extension Span {
     init(_ rb: RustBridge.Span) throws {
-        self.startByte = rb.startByte()
-        self.endByte = rb.endByte()
+        self.startByte = rb.start_byte()
+        self.endByte = rb.end_byte()
     }
     func intoRust() throws -> RustBridge.Span {
         return RustBridge.Span(self.startByte, self.endByte)
@@ -33,50 +33,7 @@ internal extension Span {
 }
 
 /// Parse diagnostic.
-public struct Diagnostic: Codable, Sendable, Hashable {
-    public let message: String
-    public let span: Span
-    public init(message: String, span: Span) {
-        self.message = message
-        self.span = span
-    }
-}
-
-// MARK: - Internal FFI conversions for Diagnostic
-internal extension Diagnostic {
-    init(_ rb: RustBridge.Diagnostic) throws {
-        self.message = rb.message().toString()
-        self.span = rb.span()
-    }
-    func intoRust() throws -> RustBridge.Diagnostic {
-        return RustBridge.Diagnostic(self.message, try self.span.intoRust())
-    }
-}
+public typealias Diagnostic = RustBridge.Diagnostic
 
 /// Top-level processing result.
-public struct ProcessResult: Codable, Sendable, Hashable {
-    public let language: String
-    public let diagnostics: [Diagnostic]
-    public let tags: [String]
-    public init(language: String, diagnostics: [Diagnostic], tags: [String]) {
-        self.language = language
-        self.diagnostics = diagnostics
-        self.tags = tags
-    }
-}
-
-// MARK: - Internal FFI conversions for ProcessResult
-internal extension ProcessResult {
-    init(_ rb: RustBridge.ProcessResult) throws {
-        self.language = rb.language().toString()
-        self.diagnostics = rb.diagnostics()
-        self.tags = rb.tags()
-    }
-    func intoRust() throws -> RustBridge.ProcessResult {
-        let __diagnostics = RustVec<RustBridge.Diagnostic>()
-        for __elem in self.diagnostics { __diagnostics.push(value: try __elem.intoRust()) }
-        let __tags = RustVec<String>()
-        for __elem in self.tags { __tags.push(value: __elem) }
-        return RustBridge.ProcessResult(self.language, __diagnostics, __tags)
-    }
-}
+public typealias ProcessResult = RustBridge.ProcessResult

@@ -24,7 +24,7 @@ public struct ConversionOptions: Codable, Sendable, Hashable {
 // MARK: - Internal FFI conversions for ConversionOptions
 internal extension ConversionOptions {
     init(_ rb: RustBridge.ConversionOptions) throws {
-        self.timeoutMs = rb.timeoutMs()
+        self.timeoutMs = rb.timeout_ms()
     }
     func intoRust() throws -> RustBridge.ConversionOptions {
         return RustBridge.ConversionOptions(self.timeoutMs)

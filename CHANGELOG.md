@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **alef-backend-swift: emit bidirectional `From` impls for `OptionsField` newtype wrappers**: the `OptionsField` bind_via path generates a factory (`make_{trait}_handle`) and options-helper (`{opts}_from_json_with_{field}`) that call `TypeAlias::from(inner)`, `<inner>::from(handle)`, and `OptionsType::from(core_opts)`. These three `From` impls were missing — only enums emitted one-direction `From` via match arms. `emit_options_field_from_impls` now emits all three bidirectional newtype-struct impls (`.0` field access) with a deduplication guard so multiple bridges sharing the same alias or options type don't produce duplicate `impl` blocks. Fixes E0308 and E0277 in every consumer using `bind_via = "options_field"` (e.g. html-to-markdown's `HtmlVisitor` bridge). (`crates/alef-backend-swift/src/gen_rust_crate/plugin_inbound.rs`, `crates/alef-backend-swift/src/gen_rust_crate/mod.rs`)
 
+- **alef-backend-swift: only emit first-class Swift DTOs for directly bridgeable field shapes**: complex serde DTOs with maps, vectors, nested wrappers, paths, bytes, JSON, or duration fields now remain RustBridge typealiases instead of generating uncompilable Codable/Hashable wrappers that called missing bridge accessors or JSON factory shims. Simple primitive/string DTOs keep first-class Codable wrappers and call snake_case RustBridge accessors. (`crates/alef-backend-swift/src/gen_bindings.rs`)
+
 ## [0.16.16] - 2026-05-16
 
 ### Fixed
