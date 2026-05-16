@@ -2,6 +2,15 @@ use ahash::AHashSet;
 use alef_core::ir::{DefaultValue, FieldDef, MethodDef, ParamDef, PrimitiveType, ReceiverKind, TypeRef};
 use std::collections::HashMap;
 
+/// Fields that should be emitted in generated binding structs.
+///
+/// Source-level binding exclusions (`#[doc(hidden)]` / `#[cfg_attr(alef, alef(skip))]`)
+/// keep the field in IR so conversion code can still default the core field, but public
+/// language DTOs must not expose it.
+pub fn binding_fields(fields: &[FieldDef]) -> impl Iterator<Item = &FieldDef> {
+    fields.iter().filter(|field| !field.binding_excluded)
+}
+
 /// Returns true if this parameter is required but must be promoted to optional
 /// because it follows an optional parameter in the list.
 /// PyO3 requires that required params come before all optional params.
@@ -183,6 +192,7 @@ pub fn constructor_parts_with_renames_and_cfg_restore(
     // constructor (e.g. visitor= kwarg).
     let mut sorted_fields: Vec<&FieldDef> = fields
         .iter()
+        .filter(|f| !f.binding_excluded)
         .filter(|f| f.cfg.is_none() || never_skip_cfg_field_names.contains(&f.name))
         .collect();
     sorted_fields.sort_by_key(|f| (f.optional || f.cfg.is_some()) as u8);
@@ -220,6 +230,7 @@ pub fn constructor_parts_with_renames_and_cfg_restore(
     //   exposed as constructor parameters.
     let assignments: Vec<String> = fields
         .iter()
+        .filter(|f| !f.binding_excluded)
         .map(|f| {
             let binding_name = field_renames
                 .and_then(|r| r.get(&f.name))
@@ -387,6 +398,7 @@ fn config_constructor_parts_inner(
     // like any optional kwarg.
     let mut sorted_fields: Vec<&FieldDef> = fields
         .iter()
+        .filter(|f| !f.binding_excluded)
         .filter(|f| f.cfg.is_none() || never_skip_cfg_field_names.contains(&f.name))
         .collect();
     sorted_fields.sort_by_key(|f| f.optional as u8);
@@ -419,6 +431,7 @@ fn config_constructor_parts_inner(
     // - Non-restored cfg-gated fields get Default::default() (not exposed as parameters).
     let assignments: Vec<String> = fields
         .iter()
+        .filter(|f| !f.binding_excluded)
         .map(|f| {
             let binding_name = field_renames
                 .and_then(|r| r.get(&f.name))

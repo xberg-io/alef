@@ -1,6 +1,7 @@
 //! TypeScript declaration file (`.d.ts`) generation for NAPI-RS bindings.
 
 use alef_codegen::naming::to_node_name;
+use alef_codegen::shared::binding_fields;
 use alef_core::config::NodeCapsuleTypeConfig;
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{ApiSurface, EnumDef, FunctionDef, ParamDef, TypeDef, TypeRef};
@@ -144,7 +145,7 @@ pub(super) fn gen_dts(
             Decl::Interface(typ) => {
                 lines.extend(format_jsdoc(&typ.doc, ""));
                 lines.push(format!("export interface {} {{", typ.name));
-                for field in &typ.fields {
+                for field in binding_fields(&typ.fields) {
                     let js_name = to_node_name(&field.name);
                     let ts_ty = dts_type(&field.ty, no_prefix);
                     lines.extend(format_jsdoc(&field.doc, "  "));

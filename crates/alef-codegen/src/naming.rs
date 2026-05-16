@@ -170,6 +170,83 @@ pub fn to_constant_name(name: &str) -> String {
     name.to_shouty_snake_case()
 }
 
+/// Convert a PascalCase or mixed-case name to snake_case with correct acronym handling.
+///
+/// Use this instead of `heck::ToSnakeCase` when the input is a PascalCase Rust type or
+/// enum variant name — `heck` inserts an underscore before every uppercase letter, which
+/// incorrectly splits acronym-style names like `Rdfa` into `rd_fa`.
+///
+/// Rules:
+/// - A run of consecutive uppercase letters is treated as a single acronym word.
+/// - If the run is followed by a lowercase letter, the last uppercase char begins the
+///   next word (e.g. `XMLHttp` → `xml_http`).
+/// - A single uppercase letter followed by lowercase is a normal word start.
+///
+/// Examples:
+/// - `MyType`         → `my_type`
+/// - `Rdfa`           → `rdfa`
+/// - `HTMLParser`     → `html_parser`
+/// - `XMLHttpRequest` → `xml_http_request`
+/// - `IOError`        → `io_error`
+/// - `URLPath`        → `url_path`
+/// - `JSONLD`         → `jsonld`
+pub fn pascal_to_snake(name: &str) -> String {
+    if name.is_empty() {
+        return String::new();
+    }
+    let chars: Vec<char> = name.chars().collect();
+    let n = chars.len();
+    let mut out = String::with_capacity(n + 4);
+    let mut i = 0;
+    while i < n {
+        let ch = chars[i];
+        if ch.is_ascii_uppercase() {
+            let run_start = i;
+            while i < n && chars[i].is_ascii_uppercase() {
+                i += 1;
+            }
+            let run_end = i;
+            let run_len = run_end - run_start;
+            if run_len == 1 {
+                if !out.is_empty() {
+                    out.push('_');
+                }
+                out.extend(chars[run_start].to_lowercase());
+            } else {
+                let split = if i < n && chars[i].is_ascii_lowercase() {
+                    run_len - 1
+                } else {
+                    run_len
+                };
+                if !out.is_empty() {
+                    out.push('_');
+                }
+                for &c in chars.iter().skip(run_start).take(split) {
+                    out.extend(c.to_lowercase());
+                }
+                if split < run_len {
+                    out.push('_');
+                    out.extend(chars[run_start + split].to_lowercase());
+                }
+            }
+        } else {
+            out.push(ch);
+            i += 1;
+        }
+    }
+    out
+}
+
+/// Convert a PascalCase name to SCREAMING_SNAKE_CASE with correct acronym handling.
+///
+/// Examples:
+/// - `MyType`     → `MY_TYPE`
+/// - `Rdfa`       → `RDFA`
+/// - `HTMLParser` → `HTML_PARSER`
+pub fn pascal_to_screaming_snake(name: &str) -> String {
+    pascal_to_snake(name).to_ascii_uppercase()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -238,5 +315,74 @@ mod tests {
     #[test]
     fn test_go_param_name_plain() {
         assert_eq!(go_param_name("json"), "json");
+    }
+
+    // --- pascal_to_snake ---
+
+    #[test]
+    fn pascal_to_snake_normal_case() {
+        assert_eq!(pascal_to_snake("MyType"), "my_type");
+    }
+
+    #[test]
+    fn pascal_to_snake_rdfa() {
+        assert_eq!(pascal_to_snake("Rdfa"), "rdfa");
+    }
+
+    #[test]
+    fn pascal_to_snake_html_parser() {
+        assert_eq!(pascal_to_snake("HTMLParser"), "html_parser");
+    }
+
+    #[test]
+    fn pascal_to_snake_xml_http_request() {
+        assert_eq!(pascal_to_snake("XMLHttpRequest"), "xml_http_request");
+    }
+
+    #[test]
+    fn pascal_to_snake_io_error() {
+        assert_eq!(pascal_to_snake("IOError"), "io_error");
+    }
+
+    #[test]
+    fn pascal_to_snake_url_path() {
+        assert_eq!(pascal_to_snake("URLPath"), "url_path");
+    }
+
+    #[test]
+    fn pascal_to_snake_jsonld_all_caps() {
+        assert_eq!(pascal_to_snake("JSONLD"), "jsonld");
+    }
+
+    #[test]
+    fn pascal_to_snake_camel_case() {
+        assert_eq!(pascal_to_snake("myField"), "my_field");
+    }
+
+    #[test]
+    fn pascal_to_snake_already_snake() {
+        assert_eq!(pascal_to_snake("already_snake"), "already_snake");
+    }
+
+    #[test]
+    fn pascal_to_snake_empty() {
+        assert_eq!(pascal_to_snake(""), "");
+    }
+
+    // --- pascal_to_screaming_snake ---
+
+    #[test]
+    fn pascal_to_screaming_snake_rdfa() {
+        assert_eq!(pascal_to_screaming_snake("Rdfa"), "RDFA");
+    }
+
+    #[test]
+    fn pascal_to_screaming_snake_html_parser() {
+        assert_eq!(pascal_to_screaming_snake("HTMLParser"), "HTML_PARSER");
+    }
+
+    #[test]
+    fn pascal_to_screaming_snake_my_type() {
+        assert_eq!(pascal_to_screaming_snake("MyType"), "MY_TYPE");
     }
 }

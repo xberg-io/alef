@@ -5,7 +5,7 @@ use ahash::AHashSet;
 use alef_codegen::builder::{ImplBuilder, StructBuilder};
 use alef_codegen::generators::{self, RustBindingConfig};
 use alef_codegen::naming::to_node_name;
-use alef_codegen::shared::{can_auto_delegate, function_params, partition_methods};
+use alef_codegen::shared::{binding_fields, can_auto_delegate, function_params, partition_methods};
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::ir::{MethodDef, TypeDef, TypeRef};
 
@@ -37,7 +37,7 @@ pub(super) fn gen_struct(
     // Pre-check if any field uses serde_with (HashMap<_, Vec<u8>>) so we can add struct-level attr.
     // The IR represents `Vec<u8>` as TypeRef::Bytes (not Vec(Bytes)); accept both wrappers for safety.
     let has_serde_with_field = has_serde
-        && typ.fields.iter().any(|f| match &f.ty {
+        && binding_fields(&typ.fields).any(|f| match &f.ty {
             TypeRef::Map(_k, v) => {
                 matches!(v.as_ref(), TypeRef::Bytes)
                     || matches!(v.as_ref(), TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Bytes))
@@ -70,7 +70,7 @@ pub(super) fn gen_struct(
 
     // Suppress unused-variable warning when no field uses it.
     let _ = never_skip_cfg_field_names;
-    for field in &typ.fields {
+    for field in binding_fields(&typ.fields) {
         // Opaque NAPI classes (e.g. JsVisitorHandle) cannot be embedded in `#[napi(object)]`
         // structs because they don't implement `FromNapiValue`. Use a raw JavaScript object
         // (`napi::bindgen_prelude::Object<'static>`) as the field type instead — the convert

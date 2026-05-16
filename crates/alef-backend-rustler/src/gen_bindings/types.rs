@@ -1,5 +1,6 @@
 use crate::template_env;
 use ahash::AHashSet;
+use alef_codegen::shared::binding_fields;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::ir::{EnumDef, FieldDef, TypeDef, TypeRef};
 
@@ -54,7 +55,7 @@ pub(super) fn gen_struct(
         },
     ));
 
-    for field in &typ.fields {
+    for field in binding_fields(&typ.fields) {
         // Skip fields excluded by the caller (e.g. options_field bridge fields).
         if exclude_fields.contains(&field.name) {
             continue;

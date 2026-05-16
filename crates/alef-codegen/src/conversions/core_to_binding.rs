@@ -47,6 +47,9 @@ pub fn gen_from_core_to_binding_cfg(
     // Pre-compute all field conversions
     let mut fields = Vec::new();
     for field in &typ.fields {
+        if field.binding_excluded {
+            continue;
+        }
         // Fields referencing excluded types are not present in the binding struct — skip
         if !config.exclude_types.is_empty()
             && super::helpers::field_references_excluded_type(&field.ty, config.exclude_types)

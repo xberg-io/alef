@@ -7,6 +7,7 @@ use super::{
 };
 use crate::type_map::csharp_type;
 use alef_codegen::naming::to_csharp_name;
+use alef_codegen::shared::binding_fields;
 use alef_core::ir::{DefaultValue, MethodDef, PrimitiveType, TypeDef, TypeRef};
 use heck::{ToLowerCamelCase, ToPascalCase};
 use std::collections::{HashMap, HashSet};
@@ -510,7 +511,7 @@ pub(super) fn gen_record_type(
     out.push_str(&render("record_class_header.jinja", minijinja::context! { class_name }));
     out.push_str("{\n");
 
-    for field in &typ.fields {
+    for field in binding_fields(&typ.fields) {
         // Skip unnamed tuple struct fields (e.g., _0, _1, 0, 1, etc.)
         if is_tuple_field(field) {
             continue;

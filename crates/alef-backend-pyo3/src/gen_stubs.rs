@@ -1,4 +1,5 @@
 use crate::type_map::python_type;
+use alef_codegen::shared::binding_fields;
 use alef_core::config::{Language, ResolvedCrateConfig, TraitBridgeConfig};
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{ApiSurface, EnumDef, FunctionDef, MethodDef, TypeDef, TypeRef};
@@ -302,7 +303,7 @@ fn gen_type_stub(
     // The underlying `#[pyo3(get, name = "class")]` attribute on the Rust struct exposes
     // it as `obj.class_` (the escaped name), NOT as `obj.class`, because `class` is a
     // syntax error in a Python attribute access expression.  The stub must match.
-    for field in &typ.fields {
+    for field in binding_fields(&typ.fields) {
         let type_str = python_type(&field.ty);
         // Duration fields on has_default types are Option<u64> in PyO3, so annotate as int | None
         let is_optional_duration = typ.has_default && matches!(field.ty, TypeRef::Duration) && !field.optional;
@@ -355,14 +356,15 @@ fn gen_type_init_stub(
     //
     // For non-has_default types, only fields explicitly marked `optional` (or Duration
     // fields on has_default types) go into the optional partition.
-    let (required, optional): (Vec<_>, Vec<_>) = typ.fields.iter().filter(|f| f.cfg.is_none()).partition(|f| {
-        if typ.has_default {
-            // All fields are optional in the Rust signature — nothing is required.
-            return false;
-        }
-        let is_optional_duration = matches!(f.ty, TypeRef::Duration) && !f.optional;
-        !f.optional && !is_optional_duration
-    });
+    let (required, optional): (Vec<_>, Vec<_>) =
+        binding_fields(&typ.fields).filter(|f| f.cfg.is_none()).partition(|f| {
+            if typ.has_default {
+                // All fields are optional in the Rust signature — nothing is required.
+                return false;
+            }
+            let is_optional_duration = matches!(f.ty, TypeRef::Duration) && !f.optional;
+            !f.optional && !is_optional_duration
+        });
 
     // Generate required params first, then optional params.
     // For constructor params, use str instead of enum types (PyO3 accepts any string).

@@ -321,10 +321,17 @@ fn emit_first_class_struct(ty: &alef_core::ir::TypeDef, mapper: &SwiftMapper, ou
     out.push_str(&format!("public struct {type_name}: Codable, Sendable, Hashable {{\n"));
 
     // Emit `public let` stored properties.
+    // The extractor unwraps Option<T> into (ty: T, optional: true) -- check field.optional
+    // in addition to TypeRef::Optional to handle both IR representations correctly.
     for field in &ty.fields {
         let camel = swift_ident(&field.name.to_lower_camel_case());
+        let already_optional = matches!(&field.ty, TypeRef::Optional(_));
         let swift_ty = mapper.map_type(&field.ty);
-        out.push_str(&format!("    public let {camel}: {swift_ty}\n"));
+        if field.optional && !already_optional {
+            out.push_str(&format!("    public let {camel}: {swift_ty}?\n"));
+        } else {
+            out.push_str(&format!("    public let {camel}: {swift_ty}\n"));
+        }
     }
 
     // Memberwise init with default-nil for Optional fields.
@@ -333,8 +340,11 @@ fn emit_first_class_struct(ty: &alef_core::ir::TypeDef, mapper: &SwiftMapper, ou
         .iter()
         .map(|field| {
             let camel = swift_ident(&field.name.to_lower_camel_case());
+            let already_optional = matches!(&field.ty, TypeRef::Optional(_));
             let swift_ty = mapper.map_type(&field.ty);
-            if matches!(&field.ty, TypeRef::Optional(_)) {
+            if field.optional && !already_optional {
+                format!("{camel}: {swift_ty}? = nil")
+            } else if already_optional {
                 format!("{camel}: {swift_ty} = nil")
             } else {
                 format!("{camel}: {swift_ty}")
@@ -374,7 +384,8 @@ fn emit_first_class_struct(ty: &alef_core::ir::TypeDef, mapper: &SwiftMapper, ou
     out.push_str(&format!("    init(_ rb: RustBridge.{type_name}) throws {{\n"));
     for field in &ty.fields {
         let camel = swift_ident(&field.name.to_lower_camel_case());
-        let expr = swift_ffi_read_expr(&field.ty, false, &camel);
+        let is_optional = field.optional || matches!(&field.ty, TypeRef::Optional(_));
+        let expr = swift_ffi_read_expr(&field.ty, is_optional, &camel);
         out.push_str(&format!("        self.{camel} = {expr}\n"));
     }
     out.push_str("    }\n");
@@ -395,9 +406,10 @@ fn emit_first_class_struct(ty: &alef_core::ir::TypeDef, mapper: &SwiftMapper, ou
 /// swift-bridge exposes Rust struct fields as method calls: `.field_name()`.
 /// For `String` fields the return type is `RustString`, so `.toString()` is needed.
 /// `Optional<String>` accessors return `Optional<RustString>`, so `?.toString()` is used.
-fn swift_ffi_read_expr(ty: &alef_core::ir::TypeRef, _field_optional: bool, accessor: &str) -> String {
+fn swift_ffi_read_expr(ty: &alef_core::ir::TypeRef, field_optional: bool, accessor: &str) -> String {
     use alef_core::ir::TypeRef;
     match ty {
+        TypeRef::String if field_optional => format!("rb.{accessor}()?.toString()"),
         TypeRef::String => format!("rb.{accessor}().toString()"),
         TypeRef::Optional(inner) => match inner.as_ref() {
             TypeRef::String => format!("rb.{accessor}()?.toString()"),

@@ -611,7 +611,18 @@ pub(super) fn gen_struct_methods(
 /// Convert snake_case parameter names to camelCase for JS-facing constructor signatures.
 /// Also converts the assignments list to use explicit field: param syntax.
 /// Input: ("foo_bar: String, baz_qux: Option<u32>", "foo_bar: String, baz_qux")
-/// Output: (camel_params, camel_assignments) where assignments use explicit syntax mapping renamed params to original field names.
+/// Convert snake_case parameter names to camelCase for JS-facing constructor signatures.
+/// Also converts the assignments list to use explicit `field: param` syntax.
+///
+/// The `param_list` may be single-line (`, ` separated) or multi-line (`,\n        ` separated)
+/// — both forms are produced by `shared::constructor_parts`. Both are handled.
+///
+/// Assignment forms:
+/// 1. Shorthand (required field): `"tool_call_id"` → `"tool_call_id: toolCallId"`
+/// 2. Explicit passthrough: `"total_tokens: total_tokens"` → `"total_tokens: totalTokens"`
+/// 3. Explicit with suffix: `"total_tokens: total_tokens.unwrap_or_default()"` →
+///    `"total_tokens: totalTokens.unwrap_or_default()"` (leading ident renamed, suffix kept)
+/// 4. Constant expressions (e.g. `"field: Default::default()"`): kept as-is.
 fn convert_constructor_params_to_camel_case(
     param_list: &str,
     assignments: &str,
@@ -623,45 +634,55 @@ fn convert_constructor_params_to_camel_case(
         .map(|name| (name.clone(), to_node_name(name)))
         .collect();
 
-    // Rename parameter declarations: "foo_bar: String" → "fooBar: String"
-    let camel_params = param_list
-        .split(", ")
-        .map(|param| {
-            if let Some((name, ty)) = param.split_once(':') {
-                let name_trimmed = name.trim();
-                let ty_trimmed = ty.trim();
-                let camel_name = to_node_name(name_trimmed);
-                format!("{}: {}", camel_name, ty_trimmed)
+    // Rename parameter declarations: "foo_bar: String" → "fooBar: String".
+    // Split on ',' (not ", ") so multi-line param lists (wrapped at 100 chars by
+    // shared::constructor_parts) are handled correctly alongside single-line lists.
+    let is_multiline = param_list.contains('\n');
+    let raw_camel_params: Vec<String> = param_list
+        .split(',')
+        .filter_map(|param| {
+            let trimmed = param.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            if let Some((name, ty)) = trimmed.split_once(':') {
+                let camel_name = to_node_name(name.trim());
+                Some(format!("{}: {}", camel_name, ty.trim()))
             } else {
-                param.to_string()
+                Some(trimmed.to_string())
             }
         })
-        .collect::<Vec<_>>()
-        .join(", ");
+        .collect();
+    let camel_params = if is_multiline {
+        format!("\n        {},\n    ", raw_camel_params.join(",\n        "))
+    } else {
+        raw_camel_params.join(", ")
+    };
 
-    // Rewrite assignments to use explicit field: param syntax.
-    // E.g. "foo_bar, baz_qux" becomes "foo_bar: foo_bar, baz_qux: baz_qux"
-    // (where the RHS is now the camelCase parameter name).
+    // Rewrite assignments so that every RHS reference to a snake_case param ident is replaced
+    // with the corresponding camelCase ident (matching what the param list now declares).
     let camel_assignments = assignments
         .split(", ")
         .map(|assignment| {
-            // Check if this is already an explicit assignment (e.g. "field: Default::default()")
             if assignment.contains(':') {
-                // Already explicit: keep it, but if RHS is a field name, apply camelCase rename
+                // Explicit form: "field_name: <rhs_expr>"
+                // Use split_once so that "::" in RHS (e.g. "Default::default()") is preserved.
                 if let Some((field_name, rhs)) = assignment.split_once(':') {
                     let field_trimmed = field_name.trim();
                     let rhs_trimmed = rhs.trim();
-                    // If the RHS matches a field name, rename it to camelCase
-                    if let Some(camel_rhs) = field_to_camel.get(rhs_trimmed) {
-                        format!("{}: {}", field_trimmed, camel_rhs)
+                    // Extract the leading identifier from the RHS; the remainder (suffix) is kept.
+                    let (leading_ident, suffix) = split_leading_ident(rhs_trimmed);
+                    if let Some(camel_rhs) = field_to_camel.get(leading_ident) {
+                        format!("{}: {}{}", field_trimmed, camel_rhs, suffix)
                     } else {
-                        assignment.to_string()
+                        // RHS starts with a non-field token (e.g. "Default::default()").
+                        format!("{}: {}", field_trimmed, rhs_trimmed)
                     }
                 } else {
                     assignment.to_string()
                 }
             } else {
-                // Shorthand: "foo_bar" → "foo_bar: foo_bar" (where RHS is camelCase param)
+                // Shorthand: "foo_bar" → "foo_bar: fooBar"
                 let field_name = assignment.trim();
                 if let Some(camel_name) = field_to_camel.get(field_name) {
                     format!("{}: {}", field_name, camel_name)
@@ -676,6 +697,18 @@ fn convert_constructor_params_to_camel_case(
     (camel_params, camel_assignments)
 }
 
+/// Split a Rust expression into `(leading_identifier, rest_of_expression)`.
+///
+/// Examples:
+/// - `"total_tokens.unwrap_or_default()"` → `("total_tokens", ".unwrap_or_default()")`
+/// - `"totalTokens"`                       → `("totalTokens", "")`
+/// - `"Default::default()"`               → `("Default", "::default()")` (no field match → kept)
+fn split_leading_ident(expr: &str) -> (&str, &str) {
+    let end = expr
+        .find(|c: char| !c.is_alphanumeric() && c != '_')
+        .unwrap_or(expr.len());
+    (&expr[..end], &expr[end..])
+}
 /// Generate a constructor method.
 fn gen_new_method(
     typ: &TypeDef,
@@ -733,16 +766,18 @@ fn gen_new_method(
     let (param_list_camel, assignments_camel) =
         convert_constructor_params_to_camel_case(&param_list, &assignments, &field_names);
 
-    // Suppress too_many_arguments when the constructor has >7 params
+    // Suppress too_many_arguments when the constructor has >7 params.
     let field_count = filtered_fields.iter().filter(|f| f.cfg.is_none()).count();
-    let allow_attr = if field_count > 7 {
-        "#[allow(clippy::too_many_arguments)]\n"
+    // Suppress non_snake_case: wasm-bindgen needs camelCase param names for the JS constructor
+    // signature, but Rust warns about non-snake_case identifiers in function params.
+    let allow_attrs = if field_count > 7 {
+        "#[allow(clippy::too_many_arguments)]\n#[allow(non_snake_case)]\n"
     } else {
-        ""
+        "#[allow(non_snake_case)]\n"
     };
 
     format!(
-        "{allow_attr}#[wasm_bindgen(constructor)]\npub fn new({param_list_camel}) -> {prefix}{} {{\n    {prefix}{} {{ {assignments_camel} }}\n}}",
+        "{allow_attrs}#[wasm_bindgen(constructor)]\npub fn new({param_list_camel}) -> {prefix}{} {{\n    {prefix}{} {{ {assignments_camel} }}\n}}",
         typ.name, typ.name
     )
 }

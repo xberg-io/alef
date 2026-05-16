@@ -243,6 +243,23 @@ fn emit_runtime_helpers(out: &mut String) {
     out.push_str("    let _ = env.throw_new(ERROR_CLASS, msg);\n");
     out.push_str("}\n");
     out.push('\n');
+
+    out.push_str("fn run_or_throw<T, F>(env: &mut JNIEnv, f: F) -> Option<T>\n");
+    out.push_str("where\n");
+    out.push_str("    F: FnOnce() -> T + std::panic::UnwindSafe,\n");
+    out.push_str("{\n");
+    out.push_str("    match std::panic::catch_unwind(f) {\n");
+    out.push_str("        Ok(v) => Some(v),\n");
+    out.push_str("        Err(payload) => {\n");
+    out.push_str("            let msg = payload.downcast_ref::<String>().cloned()\n");
+    out.push_str("                .or_else(|| payload.downcast_ref::<&str>().map(|s| (*s).to_string()))\n");
+    out.push_str("                .unwrap_or_else(|| \"panic in native code\".to_string());\n");
+    out.push_str("            throw_jni_error(env, &format!(\"native panic: {msg}\"));\n");
+    out.push_str("            None\n");
+    out.push_str("        }\n");
+    out.push_str("    }\n");
+    out.push_str("}\n");
+    out.push('\n');
 }
 
 // ---------------------------------------------------------------------------
@@ -447,16 +464,17 @@ fn emit_function_shim(
         format!("{core_fn}({call_args})")
     };
 
-    // Wrap in block_on for async functions.
-    let call_expr = if is_async {
-        format!("runtime().block_on({raw_call})")
-    } else {
-        raw_call
-    };
-
     if has_error {
         // Function returns Result<T, E>: match on Ok/Err.
-        out.push_str(&format!("    let result = {call_expr};\n"));
+        if is_async {
+            out.push_str(&format!(
+                "    let Some(result) = run_or_throw(&mut env, std::panic::AssertUnwindSafe(|| runtime().block_on({raw_call}))) else {{\n"
+            ));
+            out.push_str(&format!("        return {err_null};\n"));
+            out.push_str("    };\n");
+        } else {
+            out.push_str(&format!("    let result = {raw_call};\n"));
+        }
         out.push_str("    match result {\n");
         out.push_str("        Err(e) => {\n");
         out.push_str("            throw_jni_error(&mut env, &format!(\"{e}\"));\n");
@@ -480,7 +498,15 @@ fn emit_function_shim(
         out.push_str("    }\n");
     } else {
         // Function returns T directly (no Result wrapping).
-        out.push_str(&format!("    let v = {call_expr};\n"));
+        if is_async {
+            out.push_str(&format!(
+                "    let Some(v) = run_or_throw(&mut env, std::panic::AssertUnwindSafe(|| runtime().block_on({raw_call}))) else {{\n"
+            ));
+            out.push_str(&format!("        return {err_null};\n"));
+            out.push_str("    };\n");
+        } else {
+            out.push_str(&format!("    let v = {raw_call};\n"));
+        }
         if is_opaque_return {
             out.push_str("    Box::into_raw(Box::new(v)) as jlong\n");
         } else if matches!(return_type, TypeRef::Unit) {
@@ -668,7 +694,11 @@ fn emit_method_shim(
 
     if has_error {
         if is_async {
-            out.push_str(&format!("    let result = runtime().block_on({call_expr});\n"));
+            out.push_str(&format!(
+                "    let Some(result) = run_or_throw(&mut env, std::panic::AssertUnwindSafe(|| runtime().block_on({call_expr}))) else {{\n"
+            ));
+            out.push_str(&format!("        return {ret_null};\n"));
+            out.push_str("    };\n");
         } else {
             out.push_str(&format!("    let result = {call_expr};\n"));
         }
@@ -693,7 +723,11 @@ fn emit_method_shim(
     } else {
         // Method returns T directly (no Result wrapping).
         if is_async {
-            out.push_str(&format!("    let v = runtime().block_on({call_expr});\n"));
+            out.push_str(&format!(
+                "    let Some(v) = run_or_throw(&mut env, std::panic::AssertUnwindSafe(|| runtime().block_on({call_expr}))) else {{\n"
+            ));
+            out.push_str(&format!("        return {ret_null};\n"));
+            out.push_str("    };\n");
         } else {
             out.push_str(&format!("    let v = {call_expr};\n"));
         }
@@ -950,12 +984,16 @@ fn emit_streaming_shims(
         out.push_str("        Err(e) => { throw_jni_error(&mut env, &format!(\"{e}\")); return 0; }\n");
         out.push_str("    };\n");
         out.push_str(&format!(
-            "    let stream_result = runtime().block_on(async {{ client.{adapter_method}(request).await }});\n"
+            "    let Some(stream_result) = run_or_throw(&mut env, std::panic::AssertUnwindSafe(|| runtime().block_on(async {{ client.{adapter_method}(request).await }}))) else {{\n"
         ));
+        out.push_str("        return 0;\n");
+        out.push_str("    };\n");
     } else {
         out.push_str(&format!(
-            "    let stream_result = runtime().block_on(async {{ client.{adapter_method}().await }});\n"
+            "    let Some(stream_result) = run_or_throw(&mut env, std::panic::AssertUnwindSafe(|| runtime().block_on(async {{ client.{adapter_method}().await }}))) else {{\n"
         ));
+        out.push_str("        return 0;\n");
+        out.push_str("    };\n");
     }
     out.push_str("    let stream = match stream_result {\n");
     out.push_str("        Ok(s) => s,\n");
@@ -988,7 +1026,9 @@ fn emit_streaming_shims(
     out.push_str("        Err(_) => return std::ptr::null_mut(),\n");
     out.push_str("    };\n");
     out.push_str("    let Some(stream) = guard.as_mut() else { return std::ptr::null_mut(); };\n");
-    out.push_str("    let next = h.rt.block_on(stream.next());\n");
+    out.push_str("    let Some(next) = run_or_throw(&mut env, std::panic::AssertUnwindSafe(|| h.rt.block_on(stream.next()))) else {\n");
+    out.push_str("        return std::ptr::null_mut();\n");
+    out.push_str("    };\n");
     out.push_str("    match next {\n");
     out.push_str("        None => std::ptr::null_mut(),\n");
     out.push_str("        Some(Err(e)) => {\n");
