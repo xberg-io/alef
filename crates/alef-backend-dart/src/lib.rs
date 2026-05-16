@@ -8,6 +8,7 @@
 //!   cbindgen-produced C shared library directly at runtime (Phase 3). No Rust crate
 //!   is generated; the same C library consumed by Go/Java/C#/Zig is reused.
 
+mod frb_rewrite;
 mod gen_bindings;
 pub(crate) mod gen_ffi;
 pub(crate) mod gen_rust_crate;
@@ -16,4 +17,5 @@ pub mod naming;
 mod template_env;
 mod type_map;
 
+pub use frb_rewrite::rewrite_frb_sealed_variants;
 pub use gen_bindings::DartBackend;
