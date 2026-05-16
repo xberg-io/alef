@@ -5,6 +5,24 @@ use tempfile::TempDir;
 
 pub struct CsharpValidator;
 
+impl CsharpValidator {
+    fn wrap_if_fragment(code: &str) -> String {
+        let trimmed = code.trim();
+        let only_comments = !trimmed.is_empty()
+            && trimmed
+                .lines()
+                .all(|line| line.trim().is_empty() || line.trim().starts_with("//"));
+        if only_comments {
+            return format!("{trimmed}\n// snippet placeholder\nreturn;\n");
+        }
+        code.to_string()
+    }
+
+    fn is_dependency_error_text(output: &str) -> bool {
+        output.contains("CS0246") || output.contains("CS0234") || output.contains("CS0103") || output.contains("CS5001")
+    }
+}
+
 impl SnippetValidator for CsharpValidator {
     fn language(&self) -> Language {
         Language::Csharp
@@ -32,7 +50,8 @@ impl SnippetValidator for CsharpValidator {
 </Project>
 "#;
         std::fs::write(&project_path, project)?;
-        std::fs::write(dir.path().join("Program.cs"), snippet.code.trim())?;
+        let wrapped = Self::wrap_if_fragment(&snippet.code);
+        std::fs::write(dir.path().join("Program.cs"), wrapped)?;
 
         let mut command = std::process::Command::new("dotnet");
         match level {
@@ -57,6 +76,6 @@ impl SnippetValidator for CsharpValidator {
     }
 
     fn is_dependency_error(&self, output: &str) -> bool {
-        output.contains("CS0246") || output.contains("CS0234") || output.contains("CS0103")
+        Self::is_dependency_error_text(output)
     }
 }

@@ -79,6 +79,14 @@ impl SnippetValidator for CValidator {
     fn max_level(&self) -> ValidationLevel {
         ValidationLevel::Run
     }
+
+    fn is_dependency_error(&self, output: &str) -> bool {
+        output.contains("file not found")
+            || output.contains("No such file or directory")
+            || output.contains("undeclared identifier")
+            || output.contains("implicit declaration")
+            || output.contains("unknown type name")
+    }
 }
 
 #[cfg(test)]
