@@ -2226,3 +2226,170 @@ type = "EventRequest"
         source.content
     );
 }
+
+// ---------------------------------------------------------------------------
+// iter-9 Stream B: Java facade must unwrap `Optional<T>` returned from the
+// raw class through `.orElse(null)` so the declared `@Nullable T` signature
+// type-checks under javac.  Also covers the Optional-Named return case where
+// the body of the raw FFI class must wrap the readValue() result in
+// `Optional.of(...)` so the declared `Optional<NamedDto>` signature matches
+// what the body actually returns.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn facade_unwraps_optional_string_return_via_or_else_null() {
+    let backend = JavaBackend;
+    let api = ApiSurface {
+        crate_name: "demo".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "detect_language".to_string(),
+            rust_path: "demo::detect_language".to_string(),
+            original_rust_path: String::new(),
+            params: vec![ParamDef {
+                name: "path".to_string(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            }],
+            return_type: TypeRef::Optional(Box::new(TypeRef::String)),
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_test_config("dev.test");
+    let files = backend.generate_bindings(&api, &config).expect("generation");
+    let facade = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("Demo.java"))
+        .expect("facade Demo.java must be emitted");
+    let content = &facade.content;
+
+    assert!(
+        content.contains("public static @Nullable String detectLanguage"),
+        "facade must declare @Nullable String detectLanguage, got:\n{content}"
+    );
+    assert!(
+        content.contains(".detectLanguage(path).orElse(null);"),
+        "facade must unwrap the bridge's Optional<String> via .orElse(null), got:\n{content}"
+    );
+}
+
+#[test]
+fn optional_named_method_body_wraps_via_optional_of() {
+    // Regression for tslp Node.parent() / Node.child() / Parser.parse():
+    // when an instance method on an opaque type returns `Optional<NamedDto>`,
+    // the body must build the value through `Optional.of(STREAM_MAPPER...)`
+    // — never return a bare NamedDto (which fails javac's type inference).
+    let backend = JavaBackend;
+    let api = ApiSurface {
+        crate_name: "demo".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![
+            TypeDef {
+                name: "DemoItem".to_string(),
+                rust_path: "demo::DemoItem".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: true,
+                serde_rename_all: None,
+                has_serde: true,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+            TypeDef {
+                name: "DemoHandle".to_string(),
+                rust_path: "demo::DemoHandle".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![MethodDef {
+                    name: "maybe_item".to_string(),
+                    receiver: Some(ReceiverKind::Ref),
+                    is_static: false,
+                    params: vec![],
+                    return_type: TypeRef::Optional(Box::new(TypeRef::Named("DemoItem".to_string()))),
+                    is_async: false,
+                    doc: String::new(),
+                    error_type: Some("Error".to_string()),
+                    sanitized: false,
+                    trait_source: None,
+                    returns_ref: false,
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                    has_default_impl: false,
+                }],
+                is_opaque: true,
+                is_clone: false,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+        ],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_test_config("dev.test");
+    let files = backend.generate_bindings(&api, &config).expect("generation");
+    let handle = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("DemoHandle.java"))
+        .expect("DemoHandle.java must be emitted");
+    let content = &handle.content;
+
+    assert!(
+        content.contains("public Optional<DemoItem> maybeItem("),
+        "maybeItem must declare Optional<DemoItem> return, got:\n{content}"
+    );
+    assert!(
+        content.contains("return Optional.of(STREAM_MAPPER.readValue(json, DemoItem.class));"),
+        "Optional<DemoItem> body must wrap readValue in Optional.of(...), got:\n{content}"
+    );
+    assert!(
+        content.contains("return java.util.Optional.empty();") || content.contains("return Optional.empty();"),
+        "null-handle branch must return Optional.empty() (not bare null), got:\n{content}"
+    );
+}
