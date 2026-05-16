@@ -1638,7 +1638,7 @@ fn test_opaque_handle_wrapper_has_internal_handle() {
     );
 }
 
-/// B5: Every generated file must use file-scoped namespace syntax (`namespace Foo;`),
+/// B5: Every generated `.cs` file must use file-scoped namespace syntax (`namespace Foo;`),
 /// not block-scoped (`namespace Foo { ... }`).
 #[test]
 fn test_file_scoped_namespace_emitted() {
@@ -1654,7 +1654,13 @@ fn test_file_scoped_namespace_emitted() {
     };
     let config = make_config("test", Some("MyNs"), false);
     let files = backend.generate_bindings(&api, &config).unwrap();
-    for file in &files {
+    // Only .cs files contain a namespace declaration; skip project/props files.
+    let cs_files: Vec<_> = files
+        .iter()
+        .filter(|f| f.path.extension().and_then(|e| e.to_str()) == Some("cs"))
+        .collect();
+    assert!(!cs_files.is_empty(), "At least one .cs file should be generated");
+    for file in &cs_files {
         assert!(
             file.content.contains("namespace MyNs;"),
             "File {} must use file-scoped namespace 'namespace MyNs;'; got:\n{}",
@@ -1672,10 +1678,42 @@ fn test_file_scoped_namespace_emitted() {
 
 /// B5: Streaming method on an opaque handle must return `IAsyncEnumerable<T>`,
 /// not `Task<List<T>>` or `IEnumerable<T>`.
+///
+/// The streaming code path is activated only when the crate's adapter list contains an entry
+/// with `pattern = "streaming"` for the method name and owner type. This test configures a
+/// full streaming adapter via TOML to ensure the emitter produces `IAsyncEnumerable<ChatChunk>`.
 #[test]
 fn test_streaming_method_returns_iasync_enumerable() {
     let backend = CsharpBackend;
-    let config = minimal_csharp_config("test");
+    let toml_str = r#"
+[workspace]
+languages = ["csharp", "ffi"]
+
+[[crates]]
+name = "test"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "test"
+error_style = "last_error"
+
+[crates.csharp]
+namespace = "Test"
+
+[[crates.adapters]]
+name = "chat_stream"
+pattern = "streaming"
+core_path = "chat_stream"
+owner_type = "StreamClient"
+item_type = "ChatChunk"
+error_type = "TestError"
+
+[[crates.adapters.params]]
+name = "req"
+type = "ChatRequest"
+"#;
+    let cfg: alef_core::config::NewAlefConfig = toml::from_str(toml_str).unwrap();
+    let config = cfg.resolve().unwrap().remove(0);
     let api = ApiSurface {
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
@@ -1686,7 +1724,18 @@ fn test_streaming_method_returns_iasync_enumerable() {
             fields: vec![],
             methods: vec![MethodDef {
                 name: "chat_stream".to_string(),
-                params: vec![],
+                params: vec![ParamDef {
+                    name: "req".to_string(),
+                    ty: TypeRef::Named("ChatRequest".to_string()),
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                }],
                 return_type: TypeRef::Vec(Box::new(TypeRef::Named("ChatChunk".to_string()))),
                 is_async: true,
                 is_static: false,

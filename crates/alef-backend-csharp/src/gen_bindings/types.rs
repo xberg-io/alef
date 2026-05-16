@@ -770,7 +770,7 @@ pub(super) fn gen_record_type(
                 let default_val = match &field.ty {
                     TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => "\"\"",
                     TypeRef::Vec(_) => "[]",
-                    TypeRef::Bytes => "Array.Empty<byte>()",
+                    TypeRef::Bytes => "[]",
                     TypeRef::Primitive(PrimitiveType::Bool) => "false",
                     TypeRef::Primitive(PrimitiveType::F32) => "0.0f",
                     TypeRef::Primitive(PrimitiveType::F64) => "0.0",
