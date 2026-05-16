@@ -1404,3 +1404,130 @@ client_constructor_body.DefaultClient = "Self { inner: ::demo_crate::DefaultClie
         swift.content
     );
 }
+
+/// Methods on opaque client classes must surface their rustdoc as `///` lines
+/// immediately above the `public func …` declaration, routed through the same
+/// `emit_doc_comment` helper used for types/enums/errors so formatting matches.
+#[test]
+fn opaque_class_method_emits_doc_comment_above_signature() {
+    use alef_core::ir::{MethodDef, ReceiverKind};
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![TypeDef {
+            name: "Client".to_string(),
+            rust_path: "demo::Client".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![MethodDef {
+                name: "ping".to_string(),
+                params: vec![],
+                return_type: TypeRef::String,
+                is_async: false,
+                is_static: false,
+                error_type: None,
+                doc: "Send a ping request.\nReturns the server greeting.".to_string(),
+                sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                receiver: Some(ReceiverKind::Ref),
+                trait_source: None,
+                has_default_impl: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            is_opaque: true,
+            is_clone: false,
+            is_copy: false,
+            doc: String::new(),
+            cfg: None,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let toml = r#"
+[workspace]
+languages = ["swift"]
+
+[[crates]]
+name = "demo-crate"
+sources = ["src/lib.rs"]
+
+[crates.swift]
+client_constructor_body.Client = "Self { inner: ::demo::Client::new(api_key, base_url) }"
+"#;
+    let cfg: NewAlefConfig = toml::from_str(toml).expect("test config must parse");
+    let config = cfg.resolve().expect("test config must resolve").remove(0);
+    let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
+    let swift = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with(".swift"))
+        .unwrap();
+
+    assert!(
+        swift.content.contains("    /// Send a ping request.\n"),
+        "method doc summary line must be emitted; got:\n{}",
+        swift.content
+    );
+    assert!(
+        swift.content.contains("    /// Returns the server greeting.\n"),
+        "method doc continuation line must be emitted; got:\n{}",
+        swift.content
+    );
+    assert!(
+        swift
+            .content
+            .contains("    /// Returns the server greeting.\n    public func ping()"),
+        "method doc must sit immediately above the signature; got:\n{}",
+        swift.content
+    );
+}
+
+/// First-class struct fields must emit their rustdoc as `///` lines immediately
+/// above the `public let` declaration, mirroring how type/enum docs are surfaced.
+#[test]
+fn first_class_struct_field_emits_doc_comment_above_let() {
+    let mut field = make_field("user_id", TypeRef::String, false);
+    field.doc = "Stable, opaque identifier.".to_string();
+    let mut ty = make_type("User", vec![field]);
+    ty.has_serde = true;
+    ty.has_default = true;
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![ty],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+    let config = make_config();
+    let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
+    let swift = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with(".swift"))
+        .unwrap();
+
+    assert!(
+        swift
+            .content
+            .contains("    /// Stable, opaque identifier.\n    public let userId: String"),
+        "field doc must sit immediately above the `public let`; got:\n{}",
+        swift.content
+    );
+}
