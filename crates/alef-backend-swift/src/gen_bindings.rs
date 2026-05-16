@@ -365,6 +365,7 @@ fn emit_first_class_struct(
     // trailing underscore.
     let visible_fields: Vec<_> = binding_fields(&ty.fields).collect();
     for field in &visible_fields {
+        emit_doc_comment(&field.doc, "    ", out);
         let camel = swift_case_ident(&field.name.to_lower_camel_case());
         let already_optional = matches!(&field.ty, TypeRef::Optional(_));
         let swift_ty = mapper.map_type(&field.ty);
@@ -873,12 +874,9 @@ fn emit_client_class(
             format!(" -> {return_ty}")
         };
 
-        // Emit `/// doc` when available.
-        if !method.doc.is_empty() {
-            for line in method.doc.lines() {
-                out.push_str(&format!("    /// {line}\n"));
-            }
-        }
+        // Emit `/// doc` when available — routed through the shared template helper so
+        // method documentation matches the formatting used for types, enums, and errors.
+        emit_doc_comment(&method.doc, "    ", out);
         out.push_str(&format!(
             "    public func {method_camel}({params_str}){async_clause}{throws_clause}{return_clause} {{\n"
         ));
