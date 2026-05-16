@@ -6,7 +6,7 @@ use alef_codegen::type_mapper::TypeMapper;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{Language, ResolvedCrateConfig, resolve_output_dir};
 use alef_core::hash::{self, CommentStyle};
-use alef_core::ir::{ApiSurface, FunctionDef, TypeDef, TypeRef};
+use alef_core::ir::{ApiSurface, FunctionDef, ParamDef, PrimitiveType, TypeDef, TypeRef};
 use std::borrow::Cow;
 use std::path::PathBuf;
 
@@ -2341,7 +2341,10 @@ package_name = "testlib"
             content.contains("#' @return ExtractionResult object"),
             "@return must describe the return type:\n{content}"
         );
-        assert!(content.contains("#' @export"), "@export tag must be preserved:\n{content}");
+        assert!(
+            content.contains("#' @export"),
+            "@export tag must be preserved:\n{content}"
+        );
         for line in content.lines() {
             if let Some(rest) = line.strip_prefix("#' @param ") {
                 let mut parts = rest.splitn(2, ' ');

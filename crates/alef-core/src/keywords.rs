@@ -672,6 +672,32 @@ pub fn swift_ident(name: &str) -> String {
     swift_safe_name(name).unwrap_or_else(|| name.to_string())
 }
 
+/// Returns `Some(backtick_escaped_name)` if `name` is a Swift reserved keyword,
+/// else `None`.
+///
+/// Use this for identifiers that appear in *emitted Swift source code* — enum
+/// cases, struct field names, function parameter labels — where the idiomatic
+/// escape for a keyword collision is `` `keyword` `` (backticks) rather than a
+/// trailing underscore. For identifiers on the Rust side of the swift-bridge
+/// boundary use [`swift_safe_name`] / [`swift_ident`] instead.
+pub fn swift_case_safe_name(name: &str) -> Option<String> {
+    if SWIFT_KEYWORDS.contains(&name) {
+        Some(format!("`{name}`"))
+    } else {
+        None
+    }
+}
+
+/// Convenience: always returns a usable Swift identifier for emitted Swift
+/// code, wrapping reserved keywords in backticks (`` `default` ``).
+///
+/// This is the Swift-idiomatic escape for keyword-collision identifiers in
+/// Swift source — distinct from [`swift_ident`], which appends a trailing
+/// underscore for use on the Rust side of the bridge.
+pub fn swift_case_ident(name: &str) -> String {
+    swift_case_safe_name(name).unwrap_or_else(|| name.to_string())
+}
+
 /// Returns `Some(escaped_name)` if `name` is a Dart reserved keyword, else `None`.
 pub fn dart_safe_name(name: &str) -> Option<String> {
     if DART_KEYWORDS.contains(&name) {
