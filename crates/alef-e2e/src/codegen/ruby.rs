@@ -355,15 +355,16 @@ fn render_spec_file(
             let has_usable = has_usable_assertion(fixture, field_resolver, result_is_simple);
             let is_streaming = raw_function_name == "chat_stream";
 
-            // Non-HTTP, non-streaming fixtures with no usable assertions stay pending.
-            // A fixture whose only assertion is `not_error` is still testable — it
-            // verifies the call does not raise, so route it to render_example.
-            if !expects_error && !has_usable && !has_not_error && !is_streaming {
+            // Ruby has FFI access to the Rust core, so it can execute non-HTTP
+            // fixtures. Render tests for all fixtures that have error assertions,
+            // not_error assertions, streaming calls, or are explicitly testable.
+            // Fixtures with no assertions remain skipped as genuinely untestable.
+            if !expects_error && !has_usable && !has_not_error && !is_streaming && fixture.assertions.is_empty() {
                 let test_name = sanitize_ident(&fixture.id);
                 let description = fixture.description.replace('\'', "\\'");
                 let mut out = String::new();
                 out.push_str(&format!("  it '{test_name}: {description}' do\n"));
-                out.push_str("    skip 'Non-HTTP fixture cannot be tested via Net::HTTP'\n");
+                out.push_str("    skip 'Fixture has no assertions to validate'\n");
                 out.push_str("  end\n");
                 examples.push(out);
             } else {
