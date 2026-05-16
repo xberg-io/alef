@@ -17,6 +17,49 @@ pub(super) fn get_module_info(_api: &alef_core::ir::ApiSurface, config: &Resolve
     (app_name, module_prefix)
 }
 
+/// Emit an Elixir documentation attribute (`@moduledoc`, `@typedoc`, `@doc`).
+///
+/// Multi-line docs use the heredoc form `@attr """ ... """`. Single-line docs use the
+/// inline quoted form `@attr "..."`. Empty docs emit nothing (caller is expected to
+/// fall back to `@moduledoc false` separately when wanted).
+///
+/// The `indent` string is prepended to every emitted line so the helper can be used
+/// inside `defmodule` blocks (2-space indent) or at module scope.
+pub(super) fn emit_elixir_doc_attr(out: &mut String, attr: &str, doc: &str, indent: &str) {
+    if doc.trim().is_empty() {
+        return;
+    }
+    let trimmed = doc.trim_end_matches('\n');
+    if !trimmed.contains('\n') {
+        // Single-line form: escape backslashes then quotes.
+        let escaped = trimmed.replace('\\', "\\\\").replace('"', "\\\"");
+        out.push_str(indent);
+        out.push('@');
+        out.push_str(attr);
+        out.push_str(" \"");
+        out.push_str(&escaped);
+        out.push_str("\"\n");
+        return;
+    }
+    // Multi-line heredoc form. Break any embedded `"""` so the heredoc terminator is unique.
+    out.push_str(indent);
+    out.push('@');
+    out.push_str(attr);
+    out.push_str(" \"\"\"\n");
+    for line in trimmed.lines() {
+        let safe = line.replace("\"\"\"", "\"\" \"");
+        if safe.is_empty() {
+            out.push('\n');
+        } else {
+            out.push_str(indent);
+            out.push_str(&safe);
+            out.push('\n');
+        }
+    }
+    out.push_str(indent);
+    out.push_str("\"\"\"\n");
+}
+
 /// Generate a type-appropriate unimplemented body for Rustler (no todo!()).
 pub(super) fn gen_rustler_unimplemented_body(return_type: &TypeRef, fn_name: &str, has_error: bool) -> String {
     let err_msg = format!("Not implemented: {fn_name}");
@@ -429,21 +472,24 @@ pub(super) fn gen_elixir_struct_module(
 
     out.push_str(&hash::header(CommentStyle::Hash));
 
-    let doc_first = if !typ.doc.is_empty() {
-        doc_first_paragraph_joined(&typ.doc).replace('"', "\\\"")
-    } else {
-        String::new()
-    };
     let ctx = minijinja::context! {
         app_module => app_module,
         type_name => &typ.name,
-        has_doc => !typ.doc.is_empty(),
-        doc => doc_first,
     };
     out.push_str(&template_env::render("struct_module_header.jinja", ctx));
+    if !typ.doc.is_empty() {
+        emit_elixir_doc_attr(&mut out, "moduledoc", &typ.doc, "  ");
+    } else {
+        out.push_str("  @moduledoc false\n");
+    }
+    out.push('\n');
 
-    // Emit @type t typespec before defstruct
+    // Emit @typedoc and @type t typespec before defstruct.
     let default_types: AHashSet<String> = enum_defaults.keys().cloned().collect();
+    if !typ.doc.is_empty() {
+        let first_para = doc_first_paragraph_joined(&typ.doc);
+        emit_elixir_doc_attr(&mut out, "typedoc", &first_para, "  ");
+    }
     out.push_str("  @type t :: %__MODULE__{\n");
 
     let fields: Vec<_> = binding_fields(&typ.fields).collect();
@@ -524,22 +570,25 @@ pub(super) fn gen_elixir_opaque_module(typ: &TypeDef, app_module: &str, config: 
 
     out.push_str(&hash::header(CommentStyle::Hash));
 
-    let doc_first = if !typ.doc.is_empty() {
-        doc_first_paragraph_joined(&typ.doc).replace('"', "\\\"")
-    } else {
-        String::new()
-    };
     let ctx = minijinja::context! {
         app_module => app_module,
         type_name => &typ.name,
-        has_doc => !typ.doc.is_empty(),
-        doc => doc_first,
     };
     out.push_str(&template_env::render("struct_module_header.jinja", ctx));
+    if !typ.doc.is_empty() {
+        emit_elixir_doc_attr(&mut out, "moduledoc", &typ.doc, "  ");
+    } else {
+        out.push_str("  @moduledoc false\n");
+    }
+    out.push('\n');
 
     // Native alias and reference-only struct.
     out.push_str(&format!("  alias {app_module}.Native\n\n"));
     out.push_str("  defstruct [:ref]\n\n");
+    if !typ.doc.is_empty() {
+        let first_para = doc_first_paragraph_joined(&typ.doc);
+        emit_elixir_doc_attr(&mut out, "typedoc", &first_para, "  ");
+    }
     out.push_str("  @type t :: %__MODULE__{ref: reference()}\n\n");
 
     let type_lower = typ.name.to_lowercase();
@@ -831,14 +880,17 @@ pub(super) fn gen_elixir_enum_module_with_known_types(
 
     out.push_str(&hash::header(CommentStyle::Hash));
 
-    let doc_first = enum_def.doc.lines().next().unwrap_or("").replace('"', "\\\"");
     let ctx = minijinja::context! {
         app_module => app_module,
         enum_name => &enum_def.name,
-        has_doc => !enum_def.doc.is_empty(),
-        doc => doc_first,
     };
     out.push_str(&template_env::render("enum_module_header.jinja", ctx));
+    if !enum_def.doc.is_empty() {
+        emit_elixir_doc_attr(&mut out, "moduledoc", &enum_def.doc, "  ");
+    } else {
+        out.push_str("  @moduledoc false\n");
+    }
+    out.push('\n');
 
     let is_simple = enum_def.variants.iter().all(|v| v.fields.is_empty());
 
@@ -857,6 +909,10 @@ pub(super) fn gen_elixir_enum_module_with_known_types(
                 format!(":{}", elixir_safe_atom(&atom))
             })
             .collect();
+        if !enum_def.doc.is_empty() {
+            let first_para = doc_first_paragraph_joined(&enum_def.doc);
+            emit_elixir_doc_attr(&mut out, "typedoc", &first_para, "  ");
+        }
         // Emit multi-line @type when the single-line form exceeds 120 chars
         let single_line = format!("  @type t :: {}", atom_arms.join(" | "));
         if single_line.len() <= 120 {
@@ -912,6 +968,10 @@ pub(super) fn gen_elixir_enum_module_with_known_types(
             // Use original variant name (snake_cased) as the function identifier.
             let fn_name = alef_codegen::naming::pascal_to_snake(&variant.name);
             let attr_name = elixir_safe_attr_name(&fn_name);
+            if !variant.doc.is_empty() {
+                let first_para = doc_first_paragraph_joined(&variant.doc);
+                emit_elixir_doc_attr(&mut out, "doc", &first_para, "  ");
+            }
             out.push_str(&template_env::render(
                 "elixir_enum_accessor.jinja",
                 minijinja::context! {
@@ -922,11 +982,19 @@ pub(super) fn gen_elixir_enum_module_with_known_types(
         }
     } else {
         // Data enum: provide a @type t :: term() and per-variant type aliases
+        if !enum_def.doc.is_empty() {
+            let first_para = doc_first_paragraph_joined(&enum_def.doc);
+            emit_elixir_doc_attr(&mut out, "typedoc", &first_para, "  ");
+        }
         out.push_str("  @type t :: term()\n");
         out.push('\n');
         for variant in &enum_def.variants {
             let variant_atom = format!(":{}", alef_codegen::naming::pascal_to_snake(&variant.name));
             let type_name = elixir_safe_type_name(&alef_codegen::naming::pascal_to_snake(&variant.name));
+            if !variant.doc.is_empty() {
+                let first_para = doc_first_paragraph_joined(&variant.doc);
+                emit_elixir_doc_attr(&mut out, "typedoc", &first_para, "  ");
+            }
             if variant.fields.is_empty() {
                 // Unit variant: just an atom
                 out.push_str(&template_env::render(

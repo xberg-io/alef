@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **alef-backend-go: emit Godoc on methods + free functions**: every exported method declaration `func (r *Receiver) Method(...)` and every free function `func Name(...)` in generated `.go` files now carries `// Method ...` / `// Name ...` Godoc derived from upstream rustdoc. Comments start with the symbol name (per the `go doc` and `godoc` convention) so IDE tooltips and `pkg.go.dev` render every public binding member. `# Arguments` → `// Arguments:` bullets, `# Returns` → `// Returns ...`, `# Errors` → `// Errors are returned when ...`, `# Example` → `// Example:` indented code block. Also fixes a pre-existing double-prefix glitch where summaries that already started with the symbol name produced `// RootNode RootNode returns ...`. (`crates/alef-backend-go/src/gen_bindings/types.rs`, `crates/alef-backend-go/tests/snapshot_test.rs`)
+
+- **alef-backend-rustler: emit `@moduledoc`/`@typedoc`/`@doc` on DTO modules + enum variants**:
+  previously only NIF stubs (function-level) carried rustdoc-derived `@doc` heredocs; the
+  generated Elixir DTO `defmodule` blocks, unit-enum variant accessors, and data-enum
+  per-variant type aliases emitted no doc attributes, leaving `mix docs` with blank ExDoc
+  pages for those modules. Now wires a shared `emit_elixir_doc_attr` helper at every
+  applicable site so `mix docs` shows complete coverage: full multi-line `@moduledoc`
+  heredocs on struct-bearing modules (DTO + opaque resource wrappers) and enum modules,
+  `@typedoc` above each `@type t ::` typespec and above each data-enum per-variant type
+  alias, and `@doc` above each unit-enum variant accessor function (preserving
+  `@doc → @spec → def` ordering for mix-format compliance). Modules with no rustdoc still
+  fall back to `@moduledoc false` to silence ExDoc warnings.
+  (`crates/alef-backend-rustler/src/template_env.rs`,
+  `crates/alef-backend-rustler/src/gen_bindings/helpers.rs`,
+  `crates/alef-backend-rustler/tests/elixir_module_doc_test.rs`)
+
 ### Fixed
 
 - **alef-e2e: omit non-runnable Python and Node fixtures instead of generating skipped tests**:
