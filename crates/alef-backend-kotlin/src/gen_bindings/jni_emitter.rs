@@ -34,6 +34,9 @@ use super::shared::{to_lower_camel, to_pascal_case};
 pub fn emit_jni_bridge_object(api: &ApiSurface, config: &ResolvedCrateConfig) -> GeneratedFile {
     let module_name = to_pascal_case(&config.name);
     let bridge_name = format!("{module_name}Bridge");
+    // The exception class is emitted alongside the Bridge object and referenced in
+    // @Throws annotations so that callers can catch typed JNI errors.
+    let exception_class = format!("{bridge_name}Exception");
     let lib_name = config.jni_lib_name();
     let package = jni_kotlin_package(config);
 
@@ -71,20 +74,29 @@ pub fn emit_jni_bridge_object(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     body.push_str(&format!("    init {{ System.loadLibrary(\"{lib_name}\") }}\n"));
 
     // Emit one `external fun` per visible API function.
+    // Every native method is annotated @Throws so typed catch blocks work in
+    // Kotlin/Java callers — without this the JNI RuntimeException is wrapped in
+    // UndeclaredThrowableException and silently bypasses catch(BridgeException).
     for f in &visible_functions {
         let native_name = format!("native{}", to_pascal_case(&f.name));
         let return_ty = jni_return_type_for_function(&f.return_type, &opaque_type_names);
         let jni_params = jni_params_for_function(f, &opaque_type_names);
-        body.push_str(&format!(
-            "\n    external fun {native_name}({jni_params}): {return_ty}\n"
-        ));
+        if matches!(f.return_type, TypeRef::Unit) {
+            body.push_str(&format!(
+                "\n    @Throws({exception_class}::class)\n    external fun {native_name}({jni_params})\n"
+            ));
+        } else {
+            body.push_str(&format!(
+                "\n    @Throws({exception_class}::class)\n    external fun {native_name}({jni_params}): {return_ty}\n"
+            ));
+        }
     }
 
     // Emit external funs for instance methods on opaque client types.
-    emit_method_jni_external_funs(&mut body, api, &exclude_functions);
+    emit_method_jni_external_funs(&mut body, api, &exclude_functions, &exception_class);
 
     // Emit streaming external funs.
-    emit_streaming_jni_external_funs(&mut body, config);
+    emit_streaming_jni_external_funs(&mut body, config, &exception_class);
 
     // Emit nativeFreeXxx destructors for opaque types returned by top-level functions
     // that do NOT have instance methods (those are handled via emit_method_jni_external_funs
@@ -135,7 +147,10 @@ pub fn emit_jni_bridge_object(api: &ApiSurface, config: &ResolvedCrateConfig) ->
 /// Emit `external fun native{Owner}{Adapter}{Start,Next,Free}` declarations
 /// for every streaming adapter with an owner type. Called from both
 /// `emit_jni_bridge_object` (for the Bridge object body) and from tests.
-pub fn emit_streaming_jni_external_funs(out: &mut String, config: &ResolvedCrateConfig) {
+/// `exception_class` is the simple name of the exception class emitted alongside
+/// the Bridge object (e.g. `"DemoBridgeException"`).  Start and Next are annotated
+/// with `@Throws` because they can propagate Rust errors; Free is infallible.
+pub fn emit_streaming_jni_external_funs(out: &mut String, config: &ResolvedCrateConfig, exception_class: &str) {
     let streaming: Vec<_> = config
         .adapters
         .iter()
@@ -160,9 +175,12 @@ pub fn emit_streaming_jni_external_funs(out: &mut String, config: &ResolvedCrate
             to_lower_camel(&adapter.name)
         ));
         out.push_str(&format!(
-            "    external fun {jni_start}(clientHandle: Long, requestJson: String): Long\n"
+            "    @Throws({exception_class}::class)\n    external fun {jni_start}(clientHandle: Long, requestJson: String): Long\n"
         ));
-        out.push_str(&format!("    external fun {jni_next}(streamHandle: Long): String?\n"));
+        out.push_str(&format!(
+            "    @Throws({exception_class}::class)\n    external fun {jni_next}(streamHandle: Long): String?\n"
+        ));
+        // Free is infallible: it only drops the Rust Box, never throws.
         out.push_str(&format!("    external fun {jni_free}(streamHandle: Long)\n"));
     }
 }
@@ -175,10 +193,13 @@ pub fn emit_streaming_jni_external_funs(out: &mut String, config: &ResolvedCrate
 /// Methods with no params beyond `&self` produce `(handle: Long)` with no `requestJson`.
 /// `Vec<u8>` return types produce `ByteArray`; `Unit` stays `Unit`; everything else
 /// serialises via JSON → `String` (or `String?` for optionals).
+/// `exception_class` is the simple name of the exception class so every method gets
+/// an `@Throws` annotation that allows typed catch blocks to reach the error.
 fn emit_method_jni_external_funs(
     out: &mut String,
     api: &ApiSurface,
     exclude_functions: &std::collections::HashSet<&str>,
+    exception_class: &str,
 ) {
     let client_types: Vec<_> = api
         .types
@@ -205,13 +226,17 @@ fn emit_method_jni_external_funs(
                 "handle: Long, requestJson: String".to_string()
             };
             if matches!(method.return_type, TypeRef::Unit) {
-                out.push_str(&format!("    external fun {native_name}({params})\n"));
+                out.push_str(&format!(
+                    "    @Throws({exception_class}::class)\n    external fun {native_name}({params})\n"
+                ));
             } else {
-                out.push_str(&format!("    external fun {native_name}({params}): {return_ty}\n"));
+                out.push_str(&format!(
+                    "    @Throws({exception_class}::class)\n    external fun {native_name}({params}): {return_ty}\n"
+                ));
             }
         }
         // Emit destructor external fun so Bridge.kt declares the symbol that
-        // DefaultClient.close() delegates to.
+        // DefaultClient.close() delegates to.  Destructors are infallible — no @Throws.
         let free_name = format!("nativeFree{owner_pascal}");
         out.push_str(&format!("    external fun {free_name}(handle: Long)\n"));
     }

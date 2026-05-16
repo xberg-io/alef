@@ -11,6 +11,7 @@ object DemoBridge {
     init { System.loadLibrary("demo_jni") }
 
     // JNI external funs for client instance methods.
+    @Throws(DemoBridgeException::class)
     external fun nativeDefaultClientSpeech(handle: Long, requestJson: String): ByteArray
     external fun nativeFreeDefaultClient(handle: Long)
 }

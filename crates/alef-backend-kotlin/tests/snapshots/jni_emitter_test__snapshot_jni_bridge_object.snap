@@ -10,16 +10,20 @@ package dev.kreuzberg
 object DemoBridge {
     init { System.loadLibrary("demo_jni") }
 
+    @Throws(DemoBridgeException::class)
     external fun nativeFoo(value: Int): String
 
     // JNI external funs for client instance methods.
+    @Throws(DemoBridgeException::class)
     external fun nativeDefaultClientDoThing(handle: Long, requestJson: String): String
     external fun nativeFreeDefaultClient(handle: Long)
 
     // JNI streaming external funs — implementations are Rust JNI shims.
 
     // Streaming JNI externs for DefaultClient.streamData
+    @Throws(DemoBridgeException::class)
     external fun nativeDefaultClientStreamDataStart(clientHandle: Long, requestJson: String): Long
+    @Throws(DemoBridgeException::class)
     external fun nativeDefaultClientStreamDataNext(streamHandle: Long): String?
     external fun nativeDefaultClientStreamDataFree(streamHandle: Long)
 }

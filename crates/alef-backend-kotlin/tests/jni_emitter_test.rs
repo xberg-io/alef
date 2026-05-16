@@ -223,6 +223,22 @@ fn snapshot_jni_bridge_object() {
         content.contains("external fun nativeDefaultClientStreamDataFree("),
         "missing nativeDefaultClientStreamDataFree: {content}"
     );
+    // @Throws must appear before every non-destructor external fun so that
+    // JNI exceptions (Rust Result::Err / panics) surface as typed exceptions
+    // rather than being swallowed or wrapped in UndeclaredThrowableException.
+    assert!(
+        content.contains("@Throws(DemoBridgeException::class)"),
+        "@Throws annotation missing from Bridge.kt: {content}"
+    );
+    // Destructors are infallible — they must NOT carry @Throws.
+    let free_idx = content.find("nativeFreeDefaultClient").expect("destructor must be present");
+    let throws_before_free = content[..free_idx].rfind("@Throws");
+    let external_before_free = content[..free_idx].rfind("external fun native");
+    // @Throws must not appear between the last non-destructor external fun and nativeFree.
+    assert!(
+        throws_before_free < external_before_free || external_before_free.is_none(),
+        "destructor nativeFreeDefaultClient must not have a preceding @Throws: {content}"
+    );
 
     insta::assert_snapshot!("snapshot_jni_bridge_object", content);
 }
