@@ -1161,15 +1161,18 @@ fn error_tuple_variant_message_template_interpolates_field_refs() {
 
     let content = &error_kt.content;
 
-    // Single-field variant: `{0}` → `${field0}`.
+    // Single-field variant: `{0}` → `$field0` (no braces — next char `"` is not
+    // an identifier continuation, so the brace form would be redundant per
+    // ktlint's `standard:string-template` rule).
     assert!(
-        content.contains(r#"ConversionError("HTML parsing error: ${field0}")"#),
+        content.contains(r#"ConversionError("HTML parsing error: $field0")"#),
         "ParseError must interpolate field0, got:\n{content}"
     );
 
-    // Multi-field variant: `{0}` → `${field0}`, `{1}` → `${field1}`.
+    // Multi-field variant: `{0}:{1}` → `$field0:$field1`. The `:` and `"`
+    // are not identifier-continuation chars so neither slot needs braces.
     assert!(
-        content.contains(r#"ConversionError("Error at ${field0}:${field1}")"#),
+        content.contains(r#"ConversionError("Error at $field0:$field1")"#),
         "Located must interpolate field0 and field1, got:\n{content}"
     );
 

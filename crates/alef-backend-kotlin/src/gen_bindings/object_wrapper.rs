@@ -723,12 +723,13 @@ fn emit_kotlin_untagged_serializer(out: &mut String, en: &EnumDef) {
 /// Rust error message templates use `{0}`, `{1}`, … to reference the Nth
 /// positional field. Kotlin error variant fields are named `field0`, `field1`,
 /// … by the `kotlin_field_name` helper. This function replaces each `{N}` with
-/// `${fieldN}` (brace form is always safe regardless of the character following
-/// the interpolation) so the generated Kotlin constructor argument is a proper
-/// string template rather than a literal placeholder token.
+/// `$fieldN` when the next character is NOT an identifier-continuation
+/// character (letter, digit, underscore) — matching ktlint's
+/// `standard:string-template` rule which flags `${field0}` as redundant in
+/// that position. When the next character would make the interpolation
+/// ambiguous (e.g. `{0}suffix` where `field0suffix` is also a valid Kotlin
+/// identifier) `${fieldN}` is emitted instead.
 fn interpolate_error_message_template(template: &str) -> String {
-    // Replace `{N}` → `${fieldN}` for any non-negative integer N.
-    // Build a new string left-to-right so byte offsets remain valid.
     let mut out = String::with_capacity(template.len());
     let mut remaining = template;
     while let Some(open) = remaining.find('{') {
@@ -736,16 +737,24 @@ fn interpolate_error_message_template(template: &str) -> String {
         if let Some(close) = after_open.find('}') {
             let token = &after_open[..close];
             if token.chars().all(|c| c.is_ascii_digit()) && !token.is_empty() {
-                // Valid `{N}` placeholder — flush prefix, emit `${fieldN}`.
                 out.push_str(&remaining[..open]);
-                out.push_str("${field");
-                out.push_str(token);
-                out.push('}');
+                let after_close = &after_open[close + 1..];
+                let next_is_ident_cont = after_close
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_');
+                if next_is_ident_cont {
+                    out.push_str("${field");
+                    out.push_str(token);
+                    out.push('}');
+                } else {
+                    out.push_str("$field");
+                    out.push_str(token);
+                }
                 remaining = &remaining[open + 1 + close + 1..];
                 continue;
             }
         }
-        // Not a valid `{N}` token — emit up to and including `{` literally.
         out.push_str(&remaining[..open + 1]);
         remaining = &remaining[open + 1..];
     }
