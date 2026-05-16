@@ -42,6 +42,27 @@ fn primitive_type_name(pt: &PrimitiveType) -> &'static str {
 // Type/enum/error emitters (re-exported for gen_mpp)
 // ---------------------------------------------------------------------------
 
+/// Maximum line length ktfmt uses when deciding whether to collapse a data-class
+/// primary constructor to a single line. Any declaration that fits within this
+/// budget is emitted as `data class Foo(val a: T, val b: T)`.
+const KTFMT_LINE_WIDTH: usize = 100;
+
+/// Decide whether a data-class declaration should be emitted on a single line.
+///
+/// ktfmt collapses to a single line when the entire declaration fits within
+/// `KTFMT_LINE_WIDTH` characters. We match that heuristic so the emitter output
+/// is stable across ktfmt runs without any post-processing step.
+///
+/// `indent` is the leading indentation (e.g. `""` for top-level, `"    "` for
+/// nested). `prefix` is everything up to the opening `(` (e.g. `"data class Foo"`).
+/// `field_strings` are the rendered `val name: Type` strings without commas.
+/// `suffix` is everything after the closing `)` excluding the trailing newline.
+fn fits_single_line(indent: &str, prefix: &str, field_strings: &[String], suffix: &str) -> bool {
+    let fields_inline = field_strings.join(", ");
+    let total = indent.len() + prefix.len() + 1 + fields_inline.len() + 1 + suffix.len();
+    total <= KTFMT_LINE_WIDTH
+}
+
 pub(crate) fn emit_type_with_imports(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<String>) {
     emit_cleaned_kdoc(out, &ty.doc, "");
     if ty.fields.is_empty() {
@@ -53,30 +74,32 @@ pub(crate) fn emit_type_with_imports(ty: &TypeDef, out: &mut String, imports: &m
         ));
         return;
     }
-    out.push_str(&crate::template_env::render(
-        "data_class_header.jinja",
-        minijinja::context! {
-            name => &ty.name,
-        },
-    ));
+
+    // Pre-build field strings so we can apply the ktfmt single-line heuristic
+    // before committing to an emission style. Field-level KDoc forces multi-line
+    // because KDoc comments cannot be inlined inside a constructor parameter list.
+    let has_field_docs = ty.fields.iter().any(|f| !f.doc.is_empty());
+    let mut field_strings: Vec<String> = Vec::with_capacity(ty.fields.len());
     for (idx, field) in ty.fields.iter().enumerate() {
-        // Field-level KDoc renders above each `val name: T,` line inside the
-        // data-class primary constructor. Empty docs no-op via the early
-        // return in `emit_cleaned_kdoc`.
-        emit_cleaned_kdoc(out, &field.doc, "    ");
         let ty_str = kotlin_type_with_string_imports(&field.ty, field.optional, imports);
         let name = kotlin_field_name(&field.name, idx);
-        let comma = if idx + 1 == ty.fields.len() { "" } else { "," };
-        out.push_str(&crate::template_env::render(
-            "class_field.jinja",
-            minijinja::context! {
-                name => &name,
-                type => &ty_str,
-                comma => comma,
-            },
-        ));
+        field_strings.push(format!("val {name}: {ty_str}"));
     }
-    out.push_str(")\n");
+
+    let prefix = format!("data class {}", ty.name);
+    let use_single_line = !has_field_docs && fits_single_line("", &prefix, &field_strings, "");
+
+    if use_single_line {
+        out.push_str(&format!("{prefix}({})\n", field_strings.join(", ")));
+    } else {
+        out.push_str(&format!("{prefix}(\n"));
+        for (idx, (field, field_str)) in ty.fields.iter().zip(field_strings.iter()).enumerate() {
+            emit_cleaned_kdoc(out, &field.doc, "    ");
+            let comma = if idx + 1 == ty.fields.len() { "" } else { "," };
+            out.push_str(&format!("    {field_str}{comma}\n"));
+        }
+        out.push_str(")\n");
+    }
 }
 
 pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str) {
@@ -178,15 +201,13 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str) {
                 if needs_serializer {
                     out.push_str("    @com.fasterxml.jackson.databind.annotation.JsonSerialize\n");
                 }
-                out.push_str(&crate::template_env::render(
-                    "variant_data_class_header.jinja",
-                    minijinja::context! {
-                        name => &variant.name,
-                    },
-                ));
+
+                // Pre-build field strings for the ktfmt single-line heuristic.
+                // Annotations force multi-line because they cannot be inlined.
+                let has_annotations = needs_deserializer || needs_serializer;
+                let mut variant_field_strings: Vec<String> = Vec::with_capacity(variant.fields.len());
                 for (idx, f) in variant.fields.iter().enumerate() {
                     let ty_str = kotlin_type_disambiguated(&f.ty, f.optional, &variant_names, package);
-                    // Extract the simple type name from TypeRef for payload-derived naming.
                     let field_type_name = match &f.ty {
                         TypeRef::Named(name) => Some(name.as_str()),
                         TypeRef::String => Some("String"),
@@ -200,22 +221,28 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str) {
                         &variant.name,
                         variant.fields.len(),
                     );
-                    let comma = if idx + 1 == variant.fields.len() { "" } else { "," };
-                    out.push_str(&crate::template_env::render(
-                        "variant_class_field.jinja",
-                        minijinja::context! {
-                            name => &name,
-                            type => &ty_str,
-                            comma => comma,
-                        },
-                    ));
+                    variant_field_strings.push(format!("val {name}: {ty_str}"));
                 }
-                out.push_str(&crate::template_env::render(
-                    "variant_close.jinja",
-                    minijinja::context! {
-                        parent_name => &en.name,
-                    },
-                ));
+
+                let variant_prefix = format!("data class {}", variant.name);
+                let variant_suffix = format!(" : {}()", en.name);
+                let use_single_line = !has_annotations
+                    && fits_single_line("    ", &variant_prefix, &variant_field_strings, &variant_suffix);
+
+                if use_single_line {
+                    out.push_str(&format!(
+                        "    {variant_prefix}({fields}){variant_suffix}\n",
+                        fields = variant_field_strings.join(", ")
+                    ));
+                } else {
+                    out.push_str(&format!("    {variant_prefix}(\n"));
+                    let last_idx = variant_field_strings.len().saturating_sub(1);
+                    for (i, field_str) in variant_field_strings.iter().enumerate() {
+                        let comma = if i < last_idx { "," } else { "" };
+                        out.push_str(&format!("        {field_str}{comma}\n"));
+                    }
+                    out.push_str(&format!("    ){variant_suffix}\n"));
+                }
             }
         }
         out.push_str("}\n");
@@ -754,38 +781,37 @@ pub(crate) fn emit_error_type_with_imports(
                 },
             ));
         } else {
-            out.push_str(&crate::template_env::render(
-                "variant_data_class_header.jinja",
-                minijinja::context! {
-                    name => &variant.name,
-                },
-            ));
+            let raw_msg = variant.message_template.as_deref().unwrap_or(&variant.name);
+            let message = interpolate_error_message_template(raw_msg);
+
+            // Pre-build field strings for the ktfmt single-line heuristic.
+            // Each entry includes the optional `override` modifier for `message` fields.
+            let mut err_field_strings: Vec<String> = Vec::with_capacity(variant.fields.len());
             for (idx, f) in variant.fields.iter().enumerate() {
                 let ty_str = kotlin_type_with_string_imports(&f.ty, f.optional, imports);
                 let name = kotlin_field_name(&f.name, idx);
-                // `message` on Throwable subclasses must be `override` because
-                // `kotlin.Throwable` declares `open val message: String?`.
                 let modifier = if name == "message" { "override " } else { "" };
-                let comma = if idx + 1 == variant.fields.len() { "" } else { "," };
-                out.push_str(&crate::template_env::render(
-                    "error_field.jinja",
-                    minijinja::context! {
-                        modifier => modifier,
-                        name => &name,
-                        type => &ty_str,
-                        comma => comma,
-                    },
-                ));
+                err_field_strings.push(format!("{modifier}val {name}: {ty_str}"));
             }
-            let raw_msg = variant.message_template.as_deref().unwrap_or(&variant.name);
-            let message = interpolate_error_message_template(raw_msg);
-            out.push_str(&crate::template_env::render(
-                "error_variant_close.jinja",
-                minijinja::context! {
-                    parent_name => &error.name,
-                    message => message,
-                },
-            ));
+
+            let err_prefix = format!("data class {}", variant.name);
+            let err_suffix = format!(" : {}(\"{message}\")", error.name);
+            let use_single_line = fits_single_line("    ", &err_prefix, &err_field_strings, &err_suffix);
+
+            if use_single_line {
+                out.push_str(&format!(
+                    "    {err_prefix}({fields}){err_suffix}\n",
+                    fields = err_field_strings.join(", ")
+                ));
+            } else {
+                out.push_str(&format!("    {err_prefix}(\n"));
+                let last_idx = err_field_strings.len().saturating_sub(1);
+                for (i, field_str) in err_field_strings.iter().enumerate() {
+                    let comma = if i < last_idx { "," } else { "" };
+                    out.push_str(&format!("        {field_str}{comma}\n"));
+                }
+                out.push_str(&format!("    ){err_suffix}\n"));
+            }
         }
     }
     out.push_str("}\n");

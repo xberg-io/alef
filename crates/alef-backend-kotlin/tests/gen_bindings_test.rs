@@ -1,4 +1,4 @@
-use alef_backend_kotlin::KotlinBackend;
+use alef_backend_kotlin::{KotlinBackend, emit_enum_pub, emit_error_type_pub, emit_type_pub};
 use alef_core::backend::Backend;
 use alef_core::config::{NewAlefConfig, ResolvedCrateConfig};
 use alef_core::ir::{
@@ -778,5 +778,215 @@ target = "jvm"
             .contains("fun getDescription(): String? {\n        return inner.getDescription().orElse(null)\n    }"),
         "optional Java method returns must be unwrapped for Kotlin nullable APIs:\n{}",
         wrapper.content
+    );
+}
+
+// ---------------------------------------------------------------------------
+// ktfmt single-line vs multi-line data-class emission
+// ---------------------------------------------------------------------------
+
+/// A data class with a single short field fits within 100 chars → ktfmt
+/// collapses it to a single line. The emitter must produce the same output
+/// without a post-processing step.
+#[test]
+fn short_data_class_emits_single_line() {
+    let ty = make_type(
+        "Point",
+        vec![make_field("x", TypeRef::Primitive(PrimitiveType::I32), false)],
+    );
+    let mut out = String::new();
+    let mut imports = std::collections::BTreeSet::new();
+    emit_type_pub(&ty, &mut out, &mut imports);
+    // Single-line: `data class Point(val x: Int)\n`
+    assert_eq!(
+        out, "data class Point(val x: Int)\n",
+        "short data class must be single-line: {out:?}"
+    );
+}
+
+/// A data class whose single-line form exceeds 100 chars must be emitted
+/// multi-line so ktfmt leaves it unchanged.
+#[test]
+fn long_data_class_emits_multi_line() {
+    // 6 fields with long names and types → single-line would exceed 100 chars.
+    let fields = vec![
+        make_field("total_request_count", TypeRef::Primitive(PrimitiveType::I64), false),
+        make_field("completed_request_count", TypeRef::Primitive(PrimitiveType::I64), false),
+        make_field("failed_request_count", TypeRef::Primitive(PrimitiveType::I64), false),
+        make_field("pending_request_count", TypeRef::Primitive(PrimitiveType::I64), false),
+        make_field("cancelled_request_count", TypeRef::Primitive(PrimitiveType::I64), false),
+        make_field("expired_request_count", TypeRef::Primitive(PrimitiveType::I64), false),
+    ];
+    let ty = make_type("BatchRequestCounts", fields);
+    let mut out = String::new();
+    let mut imports = std::collections::BTreeSet::new();
+    emit_type_pub(&ty, &mut out, &mut imports);
+    // Must start with multi-line header and not be a single line.
+    assert!(
+        out.starts_with("data class BatchRequestCounts(\n"),
+        "long data class must be multi-line: {out:?}"
+    );
+    assert!(
+        out.contains("    val totalRequestCount: Long"),
+        "multi-line field must be indented: {out:?}"
+    );
+}
+
+fn make_enum_variant(name: &str, fields: Vec<FieldDef>) -> EnumVariant {
+    EnumVariant {
+        name: name.to_string(),
+        fields,
+        doc: String::new(),
+        is_default: false,
+        serde_rename: None,
+        is_tuple: false,
+    }
+}
+
+fn make_error_variant(name: &str, fields: Vec<FieldDef>, message: &str) -> ErrorVariant {
+    ErrorVariant {
+        name: name.to_string(),
+        message_template: Some(message.to_string()),
+        fields,
+        has_source: false,
+        has_from: false,
+        is_unit: false,
+        doc: String::new(),
+    }
+}
+
+/// A sealed-class variant with a single short field fits within 100 chars →
+/// emitted as a single line (matches ktfmt output).
+#[test]
+fn short_sealed_class_variant_emits_single_line() {
+    let en = EnumDef {
+        name: "MyEnum".into(),
+        rust_path: "demo::MyEnum".into(),
+        original_rust_path: String::new(),
+        variants: vec![make_enum_variant(
+            "Value",
+            vec![make_field("_0", TypeRef::Primitive(PrimitiveType::I32), false)],
+        )],
+        doc: String::new(),
+        cfg: None,
+        serde_tag: None,
+        serde_untagged: false,
+        serde_rename_all: None,
+        is_copy: false,
+        has_serde: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+    let mut out = String::new();
+    emit_enum_pub(&en, &mut out, "dev.kreuzberg");
+    // Variant with 1 Int field: `    data class Value(val value: Int) : MyEnum()\n`
+    assert!(
+        out.contains("    data class Value(val value: Int) : MyEnum()"),
+        "short sealed-class variant must be single-line: {out:?}"
+    );
+    assert!(
+        !out.contains("        val"),
+        "single-line variant must not have indented fields: {out:?}"
+    );
+}
+
+/// A sealed-class variant whose single-line form exceeds 100 chars is emitted
+/// multi-line.
+#[test]
+fn long_sealed_class_variant_emits_multi_line() {
+    let en = EnumDef {
+        name: "LiterLlmError".into(),
+        rust_path: "demo::LiterLlmError".into(),
+        original_rust_path: String::new(),
+        variants: vec![make_enum_variant(
+            "ProviderError",
+            vec![
+                make_field("provider_name", TypeRef::String, false),
+                make_field("status_code", TypeRef::Primitive(PrimitiveType::I32), false),
+                make_field("message_detail", TypeRef::String, false),
+                make_field("request_id", TypeRef::Optional(Box::new(TypeRef::String)), false),
+            ],
+        )],
+        doc: String::new(),
+        cfg: None,
+        serde_tag: None,
+        serde_untagged: false,
+        serde_rename_all: None,
+        is_copy: false,
+        has_serde: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+    let mut out = String::new();
+    emit_enum_pub(&en, &mut out, "dev.kreuzberg");
+    assert!(
+        out.contains("    data class ProviderError(\n"),
+        "long sealed-class variant must be multi-line: {out:?}"
+    );
+    assert!(
+        out.contains("        val providerName: String"),
+        "multi-line variant fields must be indented: {out:?}"
+    );
+}
+
+fn make_error_def(name: &str, variants: Vec<ErrorVariant>) -> ErrorDef {
+    ErrorDef {
+        name: name.to_string(),
+        rust_path: format!("demo::{name}"),
+        original_rust_path: String::new(),
+        variants,
+        doc: String::new(),
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    }
+}
+
+/// An error variant with a single short field fits within 100 chars →
+/// single-line emission.
+#[test]
+fn short_error_variant_emits_single_line() {
+    let err = make_error_def(
+        "ApiError",
+        vec![make_error_variant(
+            "NotFound",
+            vec![make_field("code", TypeRef::Primitive(PrimitiveType::I32), false)],
+            "not found {0}",
+        )],
+    );
+    let mut out = String::new();
+    let mut imports = std::collections::BTreeSet::new();
+    emit_error_type_pub(&err, &mut out, &mut imports);
+    assert!(
+        out.contains("    data class NotFound(val code: Int) : ApiError(\"not found ${field0}\")"),
+        "short error variant must be single-line: {out:?}"
+    );
+}
+
+/// An error variant whose single-line form exceeds 100 chars is emitted
+/// multi-line.
+#[test]
+fn long_error_variant_emits_multi_line() {
+    let err = make_error_def(
+        "LiterLlmException",
+        vec![make_error_variant(
+            "ProviderRateLimitExceeded",
+            vec![
+                make_field("provider_name", TypeRef::String, false),
+                make_field("retry_after_seconds", TypeRef::Primitive(PrimitiveType::I64), false),
+                make_field("request_id", TypeRef::Optional(Box::new(TypeRef::String)), false),
+            ],
+            "rate limit exceeded for provider {0}",
+        )],
+    );
+    let mut out = String::new();
+    let mut imports = std::collections::BTreeSet::new();
+    emit_error_type_pub(&err, &mut out, &mut imports);
+    assert!(
+        out.contains("    data class ProviderRateLimitExceeded(\n"),
+        "long error variant must be multi-line: {out:?}"
+    );
+    assert!(
+        out.contains("        val providerName: String"),
+        "multi-line error variant fields must be indented: {out:?}"
     );
 }

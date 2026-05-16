@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.22] - 2026-05-16
+
+### Fixed
+
+- **alef-backend-swift: preserve `Option<T>` as `T?` in enum-variant associated values**: `emit_variant_with_data` previously called `mapper.map_type(&f.ty)` without checking `field.optional`, so fields where the extractor had unwrapped `TypeRef::Optional(inner)` into `(ty: inner, optional: true)` were emitted as bare `T` instead of `T?`. The same gap existed in `emit_error` for error-variant fields. Both sites now check `f.optional && !already_optional` and append `?` when the flag is set, matching the existing behavior in `emit_first_class_struct`. (`crates/alef-backend-swift/src/gen_bindings.rs`, `crates/alef-backend-swift/tests/snapshot_test.rs`)
+
+- **alef-backend-kotlin: emit ktfmt-stable data-class declarations**: the Kotlin data-class emitter now applies ktfmt's 100-character heuristic — declarations whose single-line form fits within 100 chars are emitted as a single line (`data class Foo(val a: Int, val b: T)`); longer declarations stay multi-line. Previously the emitter always used multi-line, causing ktfmt in CI to rewrite every short declaration and break the lint step. The same heuristic applies to sealed-class variant data classes and error-variant data classes. Annotations (`@JsonDeserialize` / `@JsonSerialize`) on variant subclasses force multi-line regardless of length. Field-level KDoc also forces multi-line. Adds 6 new unit tests: short/long coverage for top-level data classes, sealed-class variants, and error variants. (`crates/alef-backend-kotlin/src/gen_bindings/object_wrapper.rs`, `crates/alef-backend-kotlin/tests/gen_bindings_test.rs`)
+
 ## [0.16.21] - 2026-05-16
 
 ### Added
