@@ -11,6 +11,7 @@ use super::helpers::{
     RECORD_LINE_WRAP_THRESHOLD, emit_javadoc, escape_javadoc_line, format_optional_value, is_tuple_field_name,
     java_apply_rename_all, safe_java_field_name,
 };
+use super::marshal::{is_ffi_string_return, java_ffi_return_cast};
 
 pub(crate) fn gen_record_type(
     package: &str,
@@ -1224,6 +1225,37 @@ fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner
                 ret_free => ret_free,
             },
         ));
+    } else if is_ffi_string_return(&dispatch_return) {
+        let template = if is_optional_return {
+            "stream_method_optional_string_result.jinja"
+        } else {
+            "stream_method_string_result.jinja"
+        };
+        out.push_str(&crate::template_env::render(
+            template,
+            minijinja::context! {
+                ffi_handle => ffi_handle,
+                args_joined => args_joined,
+                named_frees => render_named_frees("            "),
+                prefix_upper => prefix_upper,
+            },
+        ));
+    } else if matches!(dispatch_return, TypeRef::Primitive(_) | TypeRef::Duration) {
+        let template = if is_optional_return {
+            "stream_method_optional_primitive_result.jinja"
+        } else {
+            "stream_method_primitive_result.jinja"
+        };
+        out.push_str(&crate::template_env::render(
+            template,
+            minijinja::context! {
+                ffi_handle => ffi_handle,
+                args_joined => args_joined,
+                named_frees => render_named_frees("            "),
+                java_primitive_type => java_ffi_return_cast(&dispatch_return),
+                is_optional_long => matches!(dispatch_return, TypeRef::Primitive(PrimitiveType::I64 | PrimitiveType::U64 | PrimitiveType::Isize | PrimitiveType::Usize) | TypeRef::Duration),
+            },
+        ));
     } else if matches!(dispatch_return, TypeRef::Unit) {
         out.push_str(&crate::template_env::render(
             "stream_method_unit_result.jinja",
@@ -1612,9 +1644,7 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
     body.push_str("        return new ");
     body.push_str(&typ.name);
     body.push_str("(\n");
-    let non_tuple_fields: Vec<_> = typ
-        .fields
-        .iter()
+    let non_tuple_fields: Vec<_> = binding_fields(&typ.fields)
         .filter(|f| {
             !(f.name.starts_with('_') && f.name[1..].chars().all(|c| c.is_ascii_digit())
                 || f.name.chars().next().is_none_or(|c| c.is_ascii_digit()))

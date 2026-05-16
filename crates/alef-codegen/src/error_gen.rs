@@ -1298,7 +1298,7 @@ mod tests {
         assert!(output.contains("ErrOther = errors.New("));
         assert!(output.contains("type ConversionError struct {"));
         assert!(output.contains("Code    string"));
-        assert!(output.contains("func (e *ConversionError) Error() string"));
+        assert!(output.contains("func (e ConversionError) Error() string"));
         // Each sentinel error var should have a doc comment.
         assert!(output.contains("// ErrParseError is returned when"));
         assert!(output.contains("// ErrIoError is returned when"));
@@ -1316,7 +1316,7 @@ mod tests {
             "expected stutter strip, got:\n{output}"
         );
         assert!(
-            output.contains("func (e *Error) Error() string"),
+            output.contains("func (e Error) Error() string"),
             "expected stutter strip, got:\n{output}"
         );
         // Sentinel vars are unaffected by stutter stripping.
