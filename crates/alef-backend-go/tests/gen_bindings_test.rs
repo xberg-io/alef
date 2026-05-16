@@ -2257,6 +2257,73 @@ fn test_trait_bridge_dedup_snake_case_unregister_functions() {
 }
 
 // ---------------------------------------------------------------------------
+// Trait-bridge config marshalling (T1.5 — avoid interface{} for typed configs)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_trait_bridge_unmarshals_config_into_concrete_type() {
+    let trait_type = make_trait_type(
+        "OcrBackend",
+        vec![make_trait_method(
+            "process_image",
+            vec![
+                make_trait_param("image_bytes", TypeRef::Bytes),
+                make_trait_param("config", TypeRef::Named("OcrConfig".to_string())),
+            ],
+            TypeRef::String,
+            true,
+        )],
+    );
+    let bridge_cfg = TraitBridgeConfig {
+        trait_name: "OcrBackend".to_string(),
+        super_trait: None,
+        registry_getter: Some("get_ocr_registry".to_string()),
+        register_fn: Some("register_ocr_backend".to_string()),
+        unregister_fn: None,
+        clear_fn: None,
+        type_alias: None,
+        param_name: None,
+        register_extra_args: None,
+        exclude_languages: Vec::new(),
+        ffi_skip_methods: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
+        context_type: None,
+        result_type: None,
+    };
+    let config = make_config_with_bridges(vec![bridge_cfg]);
+    let api = make_api_with_type(trait_type);
+
+    let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "../ffi", "..", "testlib");
+
+    // Debug: print what was generated
+    eprintln!("Full generated code:\n{}", &code);
+    eprintln!("---");
+    if let Some(pos) = code.find("go") {
+        eprintln!("Code starting at 'go': {}", &code[pos..pos.min(pos + 500)]);
+    }
+
+    // Assert: config parameter should unmarshal directly into OcrConfig, not interface{}
+    assert!(
+        code.contains("var goConfig OcrConfig"),
+        "trampoline must declare config variable as concrete OcrConfig type"
+    );
+    assert!(
+        code.contains("json.Unmarshal([]byte(C.GoString(config)), &goConfig)"),
+        "trampoline must unmarshal directly into concrete OcrConfig type"
+    );
+
+    // Assert: the generated code should NOT contain the problematic interface{} pattern
+    // for config parameter unmarshalling
+    let problem_pattern = "var rawData interface{}\n\t\t\tjson.Unmarshal([]byte(C.GoString(config))";
+    assert!(
+        !code.contains(problem_pattern),
+        "trampoline callback body must not use 'var rawData interface{{}}' for typed config params"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // CFLAGS bundled include dir (regression: downstream go get compatibility)
 // ---------------------------------------------------------------------------
 

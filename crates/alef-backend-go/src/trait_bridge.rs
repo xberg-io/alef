@@ -916,8 +916,36 @@ fn gen_param_conversion(out: &mut String, param: &alef_core::ir::ParamDef) {
             out.push_str("\t}\n");
             out.push('\n');
         }
-        TypeRef::Map(_, _) | TypeRef::Named(_) => {
-            // Map and named types unmarshal as map[string]interface{}
+        TypeRef::Named(_) => {
+            // Named types (structs/config types) unmarshal directly into concrete type
+            let go_type = rust_to_go_type(&param.ty);
+            out.push_str(&crate::template_env::render(
+                "var_type_decl.jinja",
+                minijinja::context! {
+                    var_name => &var_name,
+                    type_name => &go_type,
+                },
+            ));
+            out.push_str(&crate::template_env::render(
+                "if_nil_check.jinja",
+                minijinja::context! {
+                    param => param.name.as_str(),
+                },
+            ));
+            // Unmarshal directly into the concrete Go type
+            out.push_str(&crate::template_env::render(
+                "json_unmarshal_simple.jinja",
+                minijinja::context! {
+                    param => param.name.as_str(),
+                    var_name => &var_name,
+                },
+            ));
+            out.push('\n');
+            out.push_str("\t}\n");
+            out.push('\n');
+        }
+        TypeRef::Map(_, _) => {
+            // Map types unmarshal as map[string]interface{}
             let go_type = rust_to_go_type(&param.ty);
             out.push_str(&crate::template_env::render(
                 "var_type_decl.jinja",
