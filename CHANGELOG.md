@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-backend-pyo3: remove leaked debug `eprintln!` in `rewrite_capsule_methods`**: a diagnostic `eprintln!("[rewrite_capsule] method=... start_idx=... attr_start=... prefix=...")` introduced alongside the capsule-passthrough impl-header fix was left in place and emitted a line to stderr for every pyo3 capsule method on every `alef generate`. Removed. (`crates/alef-backend-pyo3/src/gen_bindings/mod.rs`)
+
 - **alef-backend-pyo3: preserve `#[pymethods] impl` block header when first method returns a capsule type**: `rewrite_capsule_methods` uses `find_method_attrs_start` to walk backward from a `pub fn` to find the start of its attribute block. The walk accepted any line starting with `#[` — including `#[pymethods]impl Foo {` which minijinja emits as a single concatenated line when whitespace stripping is active. As a result, `attr_start` landed at byte 0, and the string slice `result[..0]` discarded the entire impl block header, leaving the rewritten method floating outside any `impl` block. Fixed by replacing the `starts_with("#[")` heuristic with `is_method_attr_line` — a bracket-depth scanner that accepts a line only when it consists entirely of `#[…]` patterns with no trailing non-whitespace tokens. (`crates/alef-backend-pyo3/src/gen_bindings/mod.rs`, `crates/alef-backend-pyo3/tests/gen_bindings_test.rs`)
 
 ### Changed
