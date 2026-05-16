@@ -247,7 +247,7 @@ fn emit_module_kt(
     // Helper to resolve the facade Kotlin type for a return TypeRef.
     // Opaque types become their wrapper class; non-opaque Named types are
     // exposed as-is (Jackson deserialization makes them real Kotlin objects);
-    // everything else uses the JNI primitive/JSON mapping.
+    // Vec<DTO> becomes List<DTO>; everything else uses the JNI primitive/JSON mapping.
     let facade_return_type = |ty: &alef_core::ir::TypeRef| -> String {
         if let alef_core::ir::TypeRef::Named(n) = ty {
             if opaque_type_names.contains(n.as_str()) {
@@ -256,12 +256,21 @@ fn emit_module_kt(
             // Non-opaque Named: expose the real Kotlin type.
             return n.clone();
         }
+        // Vec<DTO> → List<DTO>
+        if let alef_core::ir::TypeRef::Vec(inner) = ty {
+            if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
+                if !opaque_type_names.contains(n.as_str()) {
+                    return format!("List<{}>", n);
+                }
+            }
+        }
         jni_return_type_str(ty).to_string()
     };
 
     // Helper to resolve the facade Kotlin type for a parameter TypeRef.
     // Non-opaque Named types (optionally wrapped) become their Kotlin class so
     // callers pass typed objects rather than raw JSON strings.
+    // Vec<DTO> becomes List<DTO>.
     let facade_param_type = |ty: &alef_core::ir::TypeRef| -> String {
         let inner = unwrap_optional(ty);
         if let alef_core::ir::TypeRef::Named(n) = inner {
@@ -271,20 +280,47 @@ fn emit_module_kt(
             // Non-opaque Named: expose the real Kotlin type.
             return n.clone();
         }
+        // Vec<DTO> → List<DTO>
+        if let alef_core::ir::TypeRef::Vec(vec_inner) = inner {
+            if let alef_core::ir::TypeRef::Named(n) = vec_inner.as_ref() {
+                if !opaque_type_names.contains(n.as_str()) {
+                    return format!("List<{}>", n);
+                }
+            }
+        }
         jni_param_type_str(ty).to_string()
+    };
+
+    // Helper: detect if a TypeRef is a Vec of DTOs (needs deserialization).
+    let is_vec_of_dtos = |ty: &alef_core::ir::TypeRef| -> bool {
+        if let alef_core::ir::TypeRef::Vec(inner) = ty {
+            if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
+                return !opaque_type_names.contains(n.as_str());
+            }
+        }
+        false
     };
 
     // Determine whether any function needs Jackson serialization/deserialization.
     // If so, emit a private mapper field and add the necessary imports.
-    let needs_jackson = visible_functions
-        .iter()
-        .any(|f| is_dto_named(&f.return_type) || f.params.iter().any(|p| is_dto_named(unwrap_optional(&p.ty))));
+    let needs_jackson = visible_functions.iter().any(|f| {
+        is_dto_named(&f.return_type)
+            || is_vec_of_dtos(&f.return_type)
+            || f.params
+                .iter()
+                .any(|p| is_dto_named(unwrap_optional(&p.ty)) || is_vec_of_dtos(unwrap_optional(&p.ty)))
+    });
 
     let mut imports: BTreeSet<String> = BTreeSet::new();
     if needs_jackson {
         imports.insert("import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper".to_string());
         imports.insert("import kotlinx.coroutines.Dispatchers".to_string());
         imports.insert("import kotlinx.coroutines.withContext".to_string());
+    }
+    // Check if any function returns a Vec<DTO> that needs TypeReference.
+    let has_vec_dto_return = visible_functions.iter().any(|f| is_vec_of_dtos(&f.return_type));
+    if has_vec_dto_return {
+        imports.insert("import com.fasterxml.jackson.core.type.TypeReference".to_string());
     }
 
     let mut body = String::new();
@@ -299,6 +335,7 @@ fn emit_module_kt(
         let native_name = format!("native{}", to_pascal_case(&f.name));
         let return_ty = facade_return_type(&f.return_type);
         let returns_dto = is_dto_named(&f.return_type);
+        let returns_vec_of_dtos = is_vec_of_dtos(&f.return_type);
 
         // Build the public param list. Optional non-opaque Named params become
         // `TypeName? = null`; required ones become `TypeName`.
@@ -334,8 +371,8 @@ fn emit_module_kt(
             .collect();
 
         // Build the bridge argument list. DTO params are serialized to JSON;
-        // opaque params are unwrapped to `.handle`; everything else passes
-        // through.
+        // opaque params are unwrapped to `.handle`; Vec<DTO> is serialized;
+        // everything else passes through.
         let bridge_args: Vec<String> = f
             .params
             .iter()
@@ -354,6 +391,17 @@ fn emit_module_kt(
                     }
                     return format!("mapper.writeValueAsString({name})");
                 }
+                // Vec<DTO>: serialize to JSON.
+                if let alef_core::ir::TypeRef::Vec(vec_inner) = inner {
+                    if let alef_core::ir::TypeRef::Named(n) = vec_inner.as_ref() {
+                        if !opaque_type_names.contains(n.as_str()) {
+                            if p.optional {
+                                return format!("{name}?.let {{ mapper.writeValueAsString(it) }} ?: \"\"");
+                            }
+                            return format!("mapper.writeValueAsString({name})");
+                        }
+                    }
+                }
                 name
             })
             .collect();
@@ -361,12 +409,12 @@ fn emit_module_kt(
         let bridge_call = format!("{bridge_name}.{native_name}({})", bridge_args.join(", "));
 
         // Determine body expression: deserialize from JSON when the return type
-        // is a DTO, wrap in opaque class when it is a handle, pass through
+        // is a DTO or Vec<DTO>, wrap in opaque class when it is a handle, pass through
         // otherwise.
         let returns_opaque =
             matches!(&f.return_type, alef_core::ir::TypeRef::Named(n) if opaque_type_names.contains(n.as_str()));
 
-        if returns_dto || returns_opaque || needs_jackson {
+        if returns_dto || returns_vec_of_dtos || returns_opaque || needs_jackson {
             // Emit a block body so we can introduce local vars for clarity.
             if returns_dto {
                 let return_class = match &f.return_type {
@@ -380,6 +428,37 @@ fn emit_module_kt(
                 body.push_str(&format!("        val resultJson = {bridge_call}\n"));
                 body.push_str(&format!(
                     "        return mapper.readValue(resultJson, {return_class}::class.java)\n"
+                ));
+                body.push_str("    }\n\n");
+                // Emit the suspend companion variant.
+                body.push_str(&format!(
+                    "    suspend fun {method_name}Async({}): {return_ty} =\n",
+                    params.join(", ")
+                ));
+                body.push_str(&format!(
+                    "        withContext(Dispatchers.IO) {{ {method_name}({}) }}\n",
+                    f.params
+                        .iter()
+                        .map(|p| to_lower_camel(&p.name))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+                body.push('\n');
+            } else if returns_vec_of_dtos {
+                let element_class = match &f.return_type {
+                    alef_core::ir::TypeRef::Vec(inner) => match inner.as_ref() {
+                        alef_core::ir::TypeRef::Named(n) => n.clone(),
+                        _ => unreachable!(),
+                    },
+                    _ => unreachable!(),
+                };
+                body.push_str(&format!(
+                    "    fun {method_name}({}): {return_ty} {{\n",
+                    params.join(", ")
+                ));
+                body.push_str(&format!("        val resultJson = {bridge_call}\n"));
+                body.push_str(&format!(
+                    "        return mapper.readValue(resultJson, object : TypeReference<List<{element_class}>>() {{}})\n"
                 ));
                 body.push_str("    }\n\n");
                 // Emit the suspend companion variant.

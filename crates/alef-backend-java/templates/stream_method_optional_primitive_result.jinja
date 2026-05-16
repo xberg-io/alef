@@ -1,0 +1,6 @@
+            var result = ({{ java_primitive_type }}) {{ ffi_handle }}.invoke({{ args_joined }});
+{{ named_frees }}{%- if is_optional_long %}
+            return java.util.OptionalLong.of(result);
+{%- else %}
+            return java.util.Optional.of(result);
+{%- endif %}

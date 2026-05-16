@@ -1185,3 +1185,166 @@ fn typed_dto_return_emits_jackson_wrapper_and_suspend_async() {
         "options param must not be raw String, got:\n{content}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Defect T1.6 — Batch functions must return typed List<T> not raw String
+// ---------------------------------------------------------------------------
+
+fn make_batch_function_api() -> ApiSurface {
+    // Simulate kreuzberg's batch_extract_files and batch_extract_bytes:
+    //   batch_extract_files(items: Vec<BatchFileItem>) -> Result<Vec<ExtractionResult>, _>
+    //   batch_extract_bytes(items: Vec<BatchBytesItem>) -> Result<Vec<ExtractionResult>, _>
+    ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![
+            TypeDef {
+                name: "DemoItem".into(),
+                rust_path: "demo::DemoItem".into(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                doc: String::new(),
+                cfg: None,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: true,
+                super_traits: vec![],
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+            TypeDef {
+                name: "DemoResult".into(),
+                rust_path: "demo::DemoResult".into(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                doc: String::new(),
+                cfg: None,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: true,
+                serde_rename_all: None,
+                has_serde: true,
+                super_traits: vec![],
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+        ],
+        functions: vec![FunctionDef {
+            name: "batch_demo".into(),
+            rust_path: "demo::batch_demo".into(),
+            original_rust_path: String::new(),
+            params: vec![ParamDef {
+                name: "items".into(),
+                ty: TypeRef::Vec(Box::new(TypeRef::Named("DemoItem".into()))),
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            }],
+            return_type: TypeRef::Vec(Box::new(TypeRef::Named("DemoResult".into()))),
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    }
+}
+
+/// Defect T1.6 regression: batch functions returning `Vec<DTO>` must:
+/// - Accept typed list params (`List<DemoItem>`) not raw JSON strings.
+/// - Return typed list (`List<DemoResult>`) not raw JSON strings.
+/// - Deserialize the result JSON via Jackson into `List<DemoResult>`.
+/// - Emit a `suspend fun batchDemoAsync` companion via `withContext(Dispatchers.IO)`.
+#[test]
+fn batch_function_returns_typed_list_with_jackson_deserialization() {
+    let api = make_batch_function_api();
+    let config = make_opaque_factory_config();
+    let files = KotlinAndroidBackend.generate_bindings(&api, &config).unwrap();
+
+    let module_kt = files
+        .iter()
+        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("Demo.kt"))
+        .expect("Demo.kt must be emitted");
+
+    let content = &module_kt.content;
+
+    // Items param must be typed List<DemoItem>, not raw String.
+    assert!(
+        content.contains("items: List<DemoItem>"),
+        "items param must be typed List<DemoItem>, got:\n{content}"
+    );
+
+    // Return type must be List<DemoResult>, not raw String.
+    assert!(
+        content.contains("): List<DemoResult> {"),
+        "batchDemo must return List<DemoResult>, NOT String, got:\n{content}"
+    );
+
+    // Must NOT return raw String.
+    assert!(
+        !content.contains("fun batchDemo(items: List<DemoItem>): String"),
+        "batchDemo must not return String, got:\n{content}"
+    );
+
+    // Jackson deserialization with TypeReference must be present.
+    assert!(
+        content.contains("mapper.readValue"),
+        "must deserialize result via Jackson mapper.readValue, got:\n{content}"
+    );
+    assert!(
+        content.contains("TypeReference<List<DemoResult>>"),
+        "must use TypeReference<List<DemoResult>> for deserialization, got:\n{content}"
+    );
+
+    // Items must be serialized to JSON when passed to bridge.
+    assert!(
+        content.contains("mapper.writeValueAsString(items)"),
+        "must serialize items via Jackson, got:\n{content}"
+    );
+
+    // Suspend async companion must be emitted.
+    assert!(
+        content.contains("suspend fun batchDemoAsync("),
+        "must emit suspend fun batchDemoAsync, got:\n{content}"
+    );
+    assert!(
+        content.contains("withContext(Dispatchers.IO)"),
+        "batchDemoAsync must use withContext(Dispatchers.IO), got:\n{content}"
+    );
+
+    // Jackson and coroutine imports must be present.
+    assert!(
+        content.contains("import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper"),
+        "must import jacksonObjectMapper, got:\n{content}"
+    );
+    assert!(
+        content.contains("import com.fasterxml.jackson.core.type.TypeReference"),
+        "must import TypeReference for List deserialization, got:\n{content}"
+    );
+}

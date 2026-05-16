@@ -1,0 +1,9 @@
+            MemorySegment resultPtr = (MemorySegment) {{ ffi_handle }}.invoke({{ args_joined }});
+{{ named_frees }}            if (resultPtr.equals(MemorySegment.NULL)) {
+                return java.util.Optional.empty();
+            }
+            try {
+                String result = resultPtr.reinterpret(Long.MAX_VALUE).getString(0);
+                NativeLib.{{ prefix_upper }}_FREE_STRING.invoke(resultPtr);
+                return java.util.Optional.of(result);
+            }
