@@ -928,7 +928,7 @@ pub(super) fn gen_opaque_type_free_only(typ: &TypeDef, _ffi_prefix: &str) -> Str
 pub(super) fn gen_struct_type(
     typ: &TypeDef,
     enum_names: &std::collections::HashSet<&str>,
-    _data_enum_names: &std::collections::HashSet<&str>,
+    data_enum_names: &std::collections::HashSet<&str>,
 ) -> String {
     let mut out = String::with_capacity(1024);
 
@@ -1142,6 +1142,156 @@ pub(super) fn gen_struct_type(
             "struct_marshal_json_footer.jinja",
             minijinja::Value::default(),
         ));
+    }
+
+    // Collect fields whose type is a sealed-interface data enum (either direct or optional).
+    // These cannot be unmarshalled by Go's default json.Unmarshal (interface types are opaque),
+    // so we emit a custom UnmarshalJSON that reads every data-enum field as json.RawMessage
+    // first, then dispatches via the generated UnmarshalX() helper.
+    struct DataEnumField {
+        go_name: String,
+        enum_go_name: String,
+        is_optional: bool,
+    }
+    let data_enum_fields: Vec<DataEnumField> = binding_fields(&typ.fields)
+        .filter(|f| !is_tuple_field(f))
+        .filter(|f| {
+            f.name != "visitor" || !matches!(&f.ty, TypeRef::Named(n) if n.contains("Visitor"))
+        })
+        .filter_map(|f| {
+            // Determine the inner Named type name, and whether the field is optional.
+            let (enum_name_str, is_optional) = match &f.ty {
+                TypeRef::Named(n) if data_enum_names.contains(n.as_str()) => {
+                    (n.as_str(), false)
+                }
+                TypeRef::Optional(inner) => match inner.as_ref() {
+                    TypeRef::Named(n) if data_enum_names.contains(n.as_str()) => {
+                        (n.as_str(), true)
+                    }
+                    _ => return None,
+                },
+                _ => return None,
+            };
+            Some(DataEnumField {
+                go_name: to_go_name(&f.name),
+                enum_go_name: go_type_name(enum_name_str),
+                is_optional,
+            })
+        })
+        .collect();
+
+    if !data_enum_fields.is_empty() {
+        out.push('\n');
+        // Emit: func (s *StructName) UnmarshalJSON(data []byte) error {
+        out.push_str(&format!(
+            "func (s *{go_name}) UnmarshalJSON(data []byte) error {{\n"
+        ));
+
+        // Emit the anonymous helper struct with all fields,
+        // replacing data-enum fields with json.RawMessage.
+        out.push_str("\tvar raw struct {\n");
+        for field in binding_fields(&typ.fields) {
+            if is_tuple_field(field) {
+                continue;
+            }
+            let is_visitor_field =
+                field.name == "visitor" && matches!(&field.ty, TypeRef::Named(n) if n.contains("Visitor"));
+            if is_visitor_field {
+                continue;
+            }
+            let go_field_name = to_go_name(&field.name);
+            let json_name = field
+                .serde_rename
+                .clone()
+                .unwrap_or_else(|| apply_serde_rename(&field.name, typ.serde_rename_all.as_deref()));
+            // Check if this field is a data enum field (direct or optional).
+            let is_data_enum = data_enum_fields.iter().any(|def| def.go_name == go_field_name);
+            if is_data_enum {
+                // Always use omitempty for raw message fields; nil check guards the decode.
+                out.push_str(&format!(
+                    "\t\t{go_field_name} json.RawMessage `json:\"{json_name},omitempty\"`\n"
+                ));
+            } else {
+                // Use the normal field type and tag.
+                let use_default_pointer = !field.optional && typ.has_default && needs_omitempty_pointer(field);
+                let is_named_enum = !field.optional
+                    && !use_default_pointer
+                    && typ.has_default
+                    && matches!(&field.ty, TypeRef::Named(n) if enum_names.contains(n.as_str()));
+                let is_collection = matches!(&field.ty, TypeRef::Vec(_) | TypeRef::Map(_, _));
+                let field_type = if field.optional || use_default_pointer {
+                    go_optional_type(&field.ty)
+                } else {
+                    go_type(&field.ty)
+                };
+                let json_tag = if field.optional || is_collection || use_default_pointer || is_named_enum {
+                    format!("json:\"{json_name},omitempty\"")
+                } else {
+                    format!("json:\"{json_name}\"")
+                };
+                out.push_str(&format!("\t\t{go_field_name} {field_type} `{json_tag}`\n"));
+            }
+        }
+        out.push_str("\t}\n");
+        out.push_str("\tif err := json.Unmarshal(data, &raw); err != nil {\n");
+        out.push_str("\t\treturn err\n");
+        out.push_str("\t}\n");
+
+        // Copy all non-data-enum fields.
+        for field in binding_fields(&typ.fields) {
+            if is_tuple_field(field) {
+                continue;
+            }
+            let is_visitor_field =
+                field.name == "visitor" && matches!(&field.ty, TypeRef::Named(n) if n.contains("Visitor"));
+            if is_visitor_field {
+                continue;
+            }
+            let go_field_name = to_go_name(&field.name);
+            let is_data_enum = data_enum_fields.iter().any(|def| def.go_name == go_field_name);
+            if !is_data_enum {
+                out.push_str(&format!("\ts.{go_field_name} = raw.{go_field_name}\n"));
+            }
+        }
+
+        // Decode each data-enum field via its UnmarshalX helper.
+        for def in &data_enum_fields {
+            let unmarshal_fn = format!("Unmarshal{}", def.enum_go_name);
+            if def.is_optional {
+                // Optional field: only decode when the raw bytes are non-nil/non-empty.
+                out.push_str(&format!(
+                    "\tif len(raw.{}) > 0 {{\n",
+                    def.go_name
+                ));
+                out.push_str(&format!(
+                    "\t\tv, err := {unmarshal_fn}(raw.{})\n",
+                    def.go_name
+                ));
+                out.push_str("\t\tif err != nil {\n");
+                out.push_str("\t\t\treturn err\n");
+                out.push_str("\t\t}\n");
+                out.push_str(&format!("\t\ts.{} = &v\n", def.go_name));
+                out.push_str("\t}\n");
+            } else {
+                // Required field: always decode (raw is guaranteed non-nil by the struct unmarshal above).
+                out.push_str(&format!(
+                    "\tif len(raw.{}) > 0 {{\n",
+                    def.go_name
+                ));
+                out.push_str(&format!(
+                    "\t\tv, err := {unmarshal_fn}(raw.{})\n",
+                    def.go_name
+                ));
+                out.push_str("\t\tif err != nil {\n");
+                out.push_str("\t\t\treturn err\n");
+                out.push_str("\t\t}\n");
+                out.push_str(&format!("\t\ts.{} = v\n", def.go_name));
+                out.push_str("\t}\n");
+            }
+        }
+
+        out.push_str("\treturn nil\n");
+        out.push_str("}\n");
     }
 
     out
