@@ -10,5 +10,6 @@ package dev.kreuzberg
 object DemoBridge {
     init { System.loadLibrary("demo_jni") }
 
+    @Throws(DemoBridgeException::class)
     external fun nativeProcess(input: String, count: Int): String
 }

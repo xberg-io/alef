@@ -46,7 +46,9 @@ impl JavaValidator {
         let mut past_imports = false;
         for line in code.lines() {
             let trimmed = line.trim();
-            if !past_imports && (trimmed.is_empty() || trimmed.starts_with("import ") || trimmed.starts_with("package ")) {
+            if !past_imports
+                && (trimmed.is_empty() || trimmed.starts_with("import ") || trimmed.starts_with("package "))
+            {
                 imports.push(line);
             } else {
                 past_imports = true;
@@ -79,7 +81,9 @@ impl JavaValidator {
         } else {
             format!("{imports}\n\n")
         };
-        format!("{imports_block}public class Snippet {{\n    public static void main(String[] args) throws Exception {{\n{body_inner}\n    }}\n}}\n")
+        format!(
+            "{imports_block}public class Snippet {{\n    public static void main(String[] args) throws Exception {{\n{body_inner}\n    }}\n}}\n"
+        )
     }
 }
 
@@ -133,7 +137,6 @@ impl SnippetValidator for JavaValidator {
     }
 
     fn is_dependency_error(&self, output: &str) -> bool {
-        output.contains("cannot find symbol")
-            || output.contains("package") && output.contains("does not exist")
+        output.contains("cannot find symbol") || output.contains("package") && output.contains("does not exist")
     }
 }
