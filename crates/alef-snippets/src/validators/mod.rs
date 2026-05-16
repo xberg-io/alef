@@ -1,4 +1,5 @@
 pub mod bash;
+pub mod c;
 pub mod csharp;
 pub mod dart;
 pub mod elixir;
@@ -59,6 +60,7 @@ impl ValidatorRegistry {
         registry.register(Box::new(elixir::ElixirValidator));
         registry.register(Box::new(bash::BashValidator));
         registry.register(Box::new(toml_validator::TomlValidator));
+        registry.register(Box::new(c::CValidator));
         registry.register(Box::new(csharp::CsharpValidator));
         registry.register(Box::new(dart::DartValidator));
         registry.register(Box::new(go::GoValidator));
