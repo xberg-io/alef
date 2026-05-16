@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **alef-backend-magnus: generate aggregated RBS type stub sidecar (`types.rbs`)**: the Magnus backend now generates a comprehensive aggregated RBS sidecar file (`packages/ruby/sig/types.rbs`) containing all public API type signatures when `[crates.ruby.stubs] output = "..."` is configured. The file includes module declarations, class definitions with attr_reader/attr_accessor annotations, method signatures with typed parameters and return types, and enum type aliases. RBS types are mapped from Rust IR: `String` → `String`, integers → `Integer`, floats → `Float`, booleans → `bool`, `Vec<T>` → `Array[T]`, `Option<T>` → `T?`, `Map<K, V>` → `Hash[K, V]`. The generated file is consumable by Steep type checker; clients configure `target :lib do; signature 'sig'; check 'lib'; end` in their `Steepfile`. (`crates/alef-backend-magnus/src/gen_stubs.rs`, existing tests in `gen_stubs_test.rs`)
+
 - **alef-backend-rustler: emit `@type t` typespec above every DTO `defstruct`**: all generated Elixir DTO modules now emit a `@type t :: %__MODULE__{ field: Type, ... }` type specification immediately above the `defstruct` declaration. This enables Dialyzer static type checking on DTO instances and improves IDE autocomplete and type inference in Elixir code that manipulates DTOs. Field types are mapped from Rust types: `String` → `String.t()`, `u64`/`usize` → `non_neg_integer()`, `bool` → `boolean()`, `Vec<T>` → `[T]`, `Option<T>` → `T | nil`, `Map` → `map()`, and named struct types → `map()`. (`crates/alef-backend-rustler/src/gen_bindings/helpers.rs`, `crates/alef-backend-rustler/tests/elixir_struct_typespec_test.rs`)
 
 ### Fixed
