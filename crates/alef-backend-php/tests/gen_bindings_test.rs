@@ -2547,3 +2547,156 @@ fn test_unit_enums_emit_native_php_81_backed_enums() {
         "Unit-variant enum should NOT be emitted as a class with constants\nContent:\n{content}"
     );
 }
+
+fn make_field_with_doc(name: &str, ty: TypeRef, optional: bool, doc: &str) -> FieldDef {
+    FieldDef {
+        name: name.to_string(),
+        ty,
+        optional,
+        default: None,
+        doc: doc.to_string(),
+        sanitized: false,
+        is_boxed: false,
+        type_rust_path: None,
+        cfg: None,
+        typed_default: None,
+        core_wrapper: CoreWrapper::None,
+        vec_inner_core_wrapper: CoreWrapper::None,
+        newtype_wrapper: None,
+        serde_rename: None,
+        serde_flatten: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        original_type: None,
+    }
+}
+
+#[test]
+fn test_type_stubs_documented_field_emits_var_phpdoc_with_description() {
+    let backend = PhpBackend;
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "ClientConfig".to_string(),
+            rust_path: "test_lib::ClientConfig".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                make_field_with_doc(
+                    "base_url",
+                    TypeRef::Optional(Box::new(TypeRef::String)),
+                    true,
+                    "Base URL of the remote API endpoint. Defaults to OpenAI's.",
+                ),
+                make_field_with_doc(
+                    "timeout_secs",
+                    TypeRef::Optional(Box::new(TypeRef::Primitive(PrimitiveType::I32))),
+                    true,
+                    "Request timeout in seconds.\nDefaults to 30.",
+                ),
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config();
+    let files = backend.generate_type_stubs(&api, &config).unwrap();
+    let stubs = files.first().unwrap();
+    let content = &stubs.content;
+
+    // Single-line doc: compact /** @var T Description. */ form.
+    assert!(
+        content.contains("@var ?string Base URL of the remote API endpoint. Defaults to OpenAI's."),
+        "Documented optional string field should have @var ?string with description;\ncontent:\n{content}"
+    );
+
+    // Multi-line doc: multi-line block with description + @var tag.
+    assert!(
+        content.contains("@var ?int"),
+        "Documented optional int field should have @var ?int tag;\ncontent:\n{content}"
+    );
+    assert!(
+        content.contains("Request timeout in seconds."),
+        "Multi-line doc first line should appear in PHPDoc;\ncontent:\n{content}"
+    );
+    assert!(
+        content.contains("Defaults to 30."),
+        "Multi-line doc second line should appear in PHPDoc;\ncontent:\n{content}"
+    );
+}
+
+#[test]
+fn test_type_stubs_undocumented_field_emits_var_phpdoc_type_only() {
+    let backend = PhpBackend;
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Options".to_string(),
+            rust_path: "test_lib::Options".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                make_field("enabled", TypeRef::Primitive(PrimitiveType::Bool), false),
+                make_field(
+                    "max_retries",
+                    TypeRef::Optional(Box::new(TypeRef::Primitive(PrimitiveType::I32))),
+                    true,
+                ),
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config();
+    let files = backend.generate_type_stubs(&api, &config).unwrap();
+    let stubs = files.first().unwrap();
+    let content = &stubs.content;
+
+    // Type-only compact form for undocumented fields.
+    assert!(
+        content.contains("/** @var bool */"),
+        "Undocumented bool field should have type-only /** @var bool */;\ncontent:\n{content}"
+    );
+    assert!(
+        content.contains("/** @var ?int */"),
+        "Undocumented optional int field should have type-only /** @var ?int */;\ncontent:\n{content}"
+    );
+}

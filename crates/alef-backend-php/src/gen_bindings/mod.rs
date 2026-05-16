@@ -1005,32 +1005,10 @@ impl Backend for PhpBackend {
             let mut sorted_fields: Vec<&alef_core::ir::FieldDef> = binding_fields(&typ.fields).collect();
             sorted_fields.sort_by_key(|f| f.optional);
 
-            // Emit PHPDoc before the constructor for any array-typed fields so PHPStan
-            // understands the generic element type (e.g. `@param array<string> $items`).
-            let array_fields: Vec<&alef_core::ir::FieldDef> = sorted_fields
-                .iter()
-                .copied()
-                .filter(|f| matches!(&f.ty, TypeRef::Vec(_) | TypeRef::Map(_, _)))
-                .collect();
-            if !array_fields.is_empty() {
-                content.push_str("    /**\n");
-                for f in &array_fields {
-                    let phpdoc = php_phpdoc_type(&f.ty);
-                    let nullable_prefix = if f.optional { "?" } else { "" };
-                    content.push_str(&crate::template_env::render(
-                        "php_phpdoc_array_param.jinja",
-                        context! {
-                            nullable_prefix => nullable_prefix,
-                            phpdoc => &phpdoc,
-                            param_name => &f.name,
-                        },
-                    ));
-                }
-                content.push_str("     */\n");
-            }
-
             // Promoted readonly parameters replace both separate property declarations
             // and redundant getter methods — direct property access is the PHP 8.3+ idiom.
+            // Each promoted parameter gets an inline /** @var T [description] */ block so that
+            // phpdoc-lint (phpstan level max) and IDEs see the precise generic type and field docs.
             let params: Vec<String> = sorted_fields
                 .iter()
                 .map(|f| {
@@ -1042,7 +1020,14 @@ impl Backend for PhpBackend {
                     };
                     let default = if f.optional { " = null" } else { "" };
                     let php_name = to_php_name(&f.name);
-                    format!("        public readonly {} ${}{}", nullable, php_name, default)
+                    let phpdoc_type = php_phpdoc_type(&f.ty);
+                    let var_type = if f.optional && !phpdoc_type.starts_with('?') {
+                        format!("?{phpdoc_type}")
+                    } else {
+                        phpdoc_type
+                    };
+                    let phpdoc = php_property_phpdoc(&var_type, &f.doc, "        ");
+                    format!("{phpdoc}        public readonly {nullable} ${php_name}{default}",)
                 })
                 .collect();
             content.push_str(&crate::template_env::render(
@@ -1425,4 +1410,38 @@ fn php_type(ty: &TypeRef) -> String {
         TypeRef::Unit => "void".to_string(),
         TypeRef::Duration => "float".to_string(),
     }
+}
+
+/// Build an inline PHPDoc block for a class property or constructor-promoted parameter.
+///
+/// - When `doc` is non-empty and multi-line, emits a multi-line block with description lines
+///   followed by an `@var` tag.
+/// - When `doc` is non-empty and single-line, emits a compact `/** @var T Description. */` form.
+/// - When `doc` is empty, emits the type-only compact form `/** @var T */`.
+///
+/// `indent` is prepended to every line of the output (typically 4 or 8 spaces).
+fn php_property_phpdoc(var_type: &str, doc: &str, indent: &str) -> String {
+    let doc = doc.trim();
+    if doc.is_empty() {
+        return format!("{indent}/** @var {var_type} */\n");
+    }
+    let lines: Vec<&str> = doc.lines().collect();
+    if lines.len() == 1 {
+        let line = lines[0].trim();
+        return format!("{indent}/** @var {var_type} {line} */\n");
+    }
+    // Multi-line: description block + @var tag.
+    let mut out = format!("{indent}/**\n");
+    for line in &lines {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            out.push_str(&format!("{indent} *\n"));
+        } else {
+            out.push_str(&format!("{indent} * {trimmed}\n"));
+        }
+    }
+    out.push_str(&format!("{indent} *\n"));
+    out.push_str(&format!("{indent} * @var {var_type}\n"));
+    out.push_str(&format!("{indent} */\n"));
+    out
 }
