@@ -1419,9 +1419,7 @@ fn find_method_attrs_start(code: &str, fn_idx: usize) -> usize {
     for &line_byte_start in line_starts.iter().rev() {
         let line = &before[line_byte_start..before.len().min(attr_start_byte)];
         let trimmed = line.trim_end_matches('\n').trim();
-        if trimmed.is_empty() {
-            attr_start_byte = line_byte_start;
-        } else if is_method_attr_line(trimmed) {
+        if trimmed.is_empty() || is_method_attr_line(trimmed) {
             attr_start_byte = line_byte_start;
         } else {
             break;

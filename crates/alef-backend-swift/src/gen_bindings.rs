@@ -1878,9 +1878,7 @@ fn swift_box_ffi_type(ty: &TypeRef, optional: bool) -> String {
         }
         TypeRef::Optional(inner) => return format!("{}?", swift_box_ffi_type(inner, false)),
         TypeRef::Vec(inner) => format!("RustVec<{}>", swift_box_ffi_type(inner, false)),
-        TypeRef::Primitive(PrimitiveType::Usize) | TypeRef::Primitive(PrimitiveType::Isize) => {
-            "UInt".to_string()
-        }
+        TypeRef::Primitive(PrimitiveType::Usize) | TypeRef::Primitive(PrimitiveType::Isize) => "UInt".to_string(),
         TypeRef::Primitive(PrimitiveType::Bool) => "Bool".to_string(),
         TypeRef::Primitive(PrimitiveType::U32) => "UInt32".to_string(),
         TypeRef::Primitive(PrimitiveType::U64) => "UInt64".to_string(),
@@ -1952,11 +1950,7 @@ fn swift_adapter_conversions(method: &alef_core::ir::MethodDef) -> (Vec<String>,
         .map(|p| {
             let snake = p.name.to_snake_case();
             match &p.ty {
-                TypeRef::String
-                | TypeRef::Named(_)
-                | TypeRef::Path
-                | TypeRef::Json
-                | TypeRef::Map(_, _) => {
+                TypeRef::String | TypeRef::Named(_) | TypeRef::Path | TypeRef::Json | TypeRef::Map(_, _) => {
                     if p.optional {
                         format!("{snake}?.toString()")
                     } else {
@@ -1964,15 +1958,14 @@ fn swift_adapter_conversions(method: &alef_core::ir::MethodDef) -> (Vec<String>,
                     }
                 }
                 TypeRef::Optional(inner) => match inner.as_ref() {
-                    TypeRef::String
-                    | TypeRef::Named(_)
-                    | TypeRef::Path
-                    | TypeRef::Json
-                    | TypeRef::Map(_, _) => format!("{snake}?.toString()"),
+                    TypeRef::String | TypeRef::Named(_) | TypeRef::Path | TypeRef::Json | TypeRef::Map(_, _) => {
+                        format!("{snake}?.toString()")
+                    }
                     _ => snake,
                 },
-                TypeRef::Primitive(PrimitiveType::Usize)
-                | TypeRef::Primitive(PrimitiveType::Isize) => format!("Int({snake})"),
+                TypeRef::Primitive(PrimitiveType::Usize) | TypeRef::Primitive(PrimitiveType::Isize) => {
+                    format!("Int({snake})")
+                }
                 _ => snake,
             }
         })

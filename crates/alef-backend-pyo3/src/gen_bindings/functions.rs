@@ -1036,16 +1036,13 @@ pub(super) fn gen_api_py(
         // value is a PyCapsule wrapped into the third-party type via the capsule codegen).
         // Wrap the call in `cast(ReturnType, ...)` so mypy --strict (warn_return_any) is happy
         // without weakening the public api.py annotation.
-        else if {
-            let returns_capsule = match &func.return_type {
+        else if match &func.return_type {
+            alef_core::ir::TypeRef::Named(n) => capsule_types.contains_key(n),
+            alef_core::ir::TypeRef::Optional(inner) => match inner.as_ref() {
                 alef_core::ir::TypeRef::Named(n) => capsule_types.contains_key(n),
-                alef_core::ir::TypeRef::Optional(inner) => match inner.as_ref() {
-                    alef_core::ir::TypeRef::Named(n) => capsule_types.contains_key(n),
-                    _ => false,
-                },
                 _ => false,
-            };
-            returns_capsule
+            },
+            _ => false,
         } {
             let cast_target = match &func.return_type {
                 alef_core::ir::TypeRef::Named(n) => n.clone(),

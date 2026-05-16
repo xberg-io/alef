@@ -129,10 +129,9 @@ fn swift_visitor_params(method: &str) -> &'static str {
         | "visit_figcaption"
         | "visit_definition_term"
         | "visit_definition_description" => "_ ctx: String, _ text: String",
-        "visit_line_break"
-        | "visit_horizontal_rule"
-        | "visit_definition_list_start"
-        | "visit_figure_start" => "_ ctx: String",
+        "visit_line_break" | "visit_horizontal_rule" | "visit_definition_list_start" | "visit_figure_start" => {
+            "_ ctx: String"
+        }
         "visit_definition_list_end" => "_ ctx: String, _ output: String",
         "visit_custom_element" => "_ ctx: String, _ tagName: String, _ html: String",
         "visit_form" => "_ ctx: String, _ action: String?, _ method: String?",

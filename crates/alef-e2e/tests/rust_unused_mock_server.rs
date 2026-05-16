@@ -87,7 +87,7 @@ args = [
 fn render(group: FixtureGroup) -> String {
     let (e2e, resolved) = build_config(CONFIG_TOML);
     let files = RustE2eCodegen
-        .generate(&[group], &e2e, &resolved, &[])
+        .generate(&[group], &e2e, &resolved, &[], &[])
         .expect("generation succeeds");
     files.iter().map(|f| f.content.clone()).collect::<Vec<_>>().join("\n")
 }

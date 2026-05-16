@@ -76,7 +76,7 @@ fn not_error_only_fixture_does_not_emit_pending() {
     let (e2e, resolved) = build_config();
     let groups = vec![not_error_only_fixture_group()];
     let files = RubyCodegen
-        .generate(&groups, &e2e, &resolved, &[])
+        .generate(&groups, &e2e, &resolved, &[], &[])
         .expect("generation succeeds");
 
     let spec_file = files

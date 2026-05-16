@@ -23,7 +23,7 @@ impl E2eCodegen for RCodegen {
         e2e_config: &E2eConfig,
         config: &ResolvedCrateConfig,
         _type_defs: &[alef_core::ir::TypeDef],
-        enums: &[alef_core::ir::EnumDef],
+        _enums: &[alef_core::ir::EnumDef],
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
         let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);

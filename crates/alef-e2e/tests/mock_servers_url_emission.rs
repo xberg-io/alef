@@ -142,7 +142,7 @@ fn generate_all(
     let (e2e, resolved) = build_config(language);
     let groups = groups_with(fixtures);
     codegen
-        .generate(&groups, &e2e, &resolved, &[])
+        .generate(&groups, &e2e, &resolved, &[], &[])
         .expect("generation succeeds")
 }
 

@@ -164,8 +164,8 @@ pub(crate) fn to_snake_case(name: &str) -> String {
                 if !out.is_empty() {
                     out.push('_');
                 }
-                for j in run_start..run_start + split {
-                    out.extend(chars[j].to_lowercase());
+                for &ch in chars.iter().skip(run_start).take(split) {
+                    out.extend(ch.to_lowercase());
                 }
                 // Emit trailing char as new word if applicable.
                 if split < run_len {

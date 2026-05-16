@@ -55,7 +55,7 @@ fn render_swift(toml: &str, fixture_id: &str) -> Vec<alef_core::backend::Generat
     let e2e = cfg.crates[0].e2e.clone().expect("e2e config present");
     let groups = vec![make_group(fixture_id)];
     SwiftE2eCodegen
-        .generate(&groups, &e2e, &resolved, &[])
+        .generate(&groups, &e2e, &resolved, &[], &[])
         .expect("generation succeeds")
 }
 

@@ -47,7 +47,7 @@ fn render_gleam_smoke(toml: &str, fixture_id: &str) -> String {
     let e2e = cfg.crates[0].e2e.clone().expect("e2e config present");
     let groups = vec![make_group(fixture_id)];
     let files = GleamE2eCodegen
-        .generate(&groups, &e2e, &resolved, &[])
+        .generate(&groups, &e2e, &resolved, &[], &[])
         .expect("generation succeeds");
     files
         .iter()
@@ -158,7 +158,7 @@ fn erlang_startup_shim_has_graceful_fallback() {
     let e2e = cfg.crates[0].e2e.clone().expect("e2e config present");
     let groups = vec![make_group("smoke_basic")];
     let files = GleamE2eCodegen
-        .generate(&groups, &e2e, &resolved, &[])
+        .generate(&groups, &e2e, &resolved, &[], &[])
         .expect("generation succeeds");
     let startup_erl = files
         .iter()

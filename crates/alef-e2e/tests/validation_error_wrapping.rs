@@ -111,7 +111,7 @@ fn generate_content(codegen: &dyn E2eCodegen, language: &str) -> String {
     let (e2e, resolved) = build_validation_config(language);
     let groups = vec![build_validation_fixture()];
     let files = codegen
-        .generate(&groups, &e2e, &resolved, &[])
+        .generate(&groups, &e2e, &resolved, &[], &[])
         .expect("generation succeeds");
     files.iter().map(|f| f.content.clone()).collect::<Vec<_>>().join("\n")
 }

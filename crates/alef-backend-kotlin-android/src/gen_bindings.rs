@@ -276,10 +276,9 @@ fn emit_module_kt(
 
     // Determine whether any function needs Jackson serialization/deserialization.
     // If so, emit a private mapper field and add the necessary imports.
-    let needs_jackson = visible_functions.iter().any(|f| {
-        is_dto_named(&f.return_type)
-            || f.params.iter().any(|p| is_dto_named(unwrap_optional(&p.ty)))
-    });
+    let needs_jackson = visible_functions
+        .iter()
+        .any(|f| is_dto_named(&f.return_type) || f.params.iter().any(|p| is_dto_named(unwrap_optional(&p.ty))));
 
     let mut imports: BTreeSet<String> = BTreeSet::new();
     if needs_jackson {
@@ -364,7 +363,8 @@ fn emit_module_kt(
         // Determine body expression: deserialize from JSON when the return type
         // is a DTO, wrap in opaque class when it is a handle, pass through
         // otherwise.
-        let returns_opaque = matches!(&f.return_type, alef_core::ir::TypeRef::Named(n) if opaque_type_names.contains(n.as_str()));
+        let returns_opaque =
+            matches!(&f.return_type, alef_core::ir::TypeRef::Named(n) if opaque_type_names.contains(n.as_str()));
 
         if returns_dto || returns_opaque || needs_jackson {
             // Emit a block body so we can introduce local vars for clarity.
@@ -377,9 +377,7 @@ fn emit_module_kt(
                     "    fun {method_name}({}): {return_ty} {{\n",
                     params.join(", ")
                 ));
-                body.push_str(&format!(
-                    "        val resultJson = {bridge_call}\n"
-                ));
+                body.push_str(&format!("        val resultJson = {bridge_call}\n"));
                 body.push_str(&format!(
                     "        return mapper.readValue(resultJson, {return_class}::class.java)\n"
                 ));
@@ -391,7 +389,11 @@ fn emit_module_kt(
                 ));
                 body.push_str(&format!(
                     "        withContext(Dispatchers.IO) {{ {method_name}({}) }}\n",
-                    f.params.iter().map(|p| to_lower_camel(&p.name)).collect::<Vec<_>>().join(", ")
+                    f.params
+                        .iter()
+                        .map(|p| to_lower_camel(&p.name))
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 ));
                 body.push('\n');
             } else if returns_opaque {

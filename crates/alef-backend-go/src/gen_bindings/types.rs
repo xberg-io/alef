@@ -680,7 +680,7 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
     ));
     out.push_str(&format!("type {go_enum_name} interface {{\n"));
     out.push_str(&format!("\tis{go_enum_name}()\n"));
-    out.push_str(&"\tType() string\n".to_string());
+    out.push_str("\tType() string\n");
     out.push_str("}\n\n");
 
     // Emit one concrete struct per variant
@@ -737,7 +737,7 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
         out.push_str(&format!(
             "func (v {variant_struct_name}) MarshalJSON() ([]byte, error) {{\n"
         ));
-        out.push_str(&"\ttype aux struct {\n".to_string());
+        out.push_str("\ttype aux struct {\n");
         if let Some(tag_name) = &enum_def.serde_tag {
             let tag_json_name = tag_name.as_str();
             out.push_str(&format!(
@@ -756,7 +756,7 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
             out.push_str(&format!("\t\t{field_go_name} {field_type} `json:\"{json_name}\"`\n"));
         }
         out.push_str("\t}\n");
-        out.push_str(&"\treturn json.Marshal(aux{\n".to_string());
+        out.push_str("\treturn json.Marshal(aux{\n");
         if let Some(tag_name) = &enum_def.serde_tag {
             out.push_str(&format!("\t\t{}: v.Type(),\n", to_go_name(tag_name)));
         }

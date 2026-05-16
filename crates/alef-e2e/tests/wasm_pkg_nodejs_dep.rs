@@ -77,7 +77,7 @@ fn wasm_package_json_dep_points_at_pkg_nodejs() {
     let e2e = cfg.crates[0].e2e.clone().expect("e2e config");
 
     let files = WasmCodegen
-        .generate(&[group()], &e2e, &resolved, &[])
+        .generate(&[group()], &e2e, &resolved, &[], &[])
         .expect("generation succeeds");
 
     let package_json = files

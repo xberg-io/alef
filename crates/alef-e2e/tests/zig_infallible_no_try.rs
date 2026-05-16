@@ -51,7 +51,7 @@ fn render_zig_registry(toml: &str) -> String {
     let e2e = cfg.crates[0].e2e.clone().expect("e2e config present");
     let groups = vec![make_group()];
     let files = ZigE2eCodegen
-        .generate(&groups, &e2e, &resolved, &[])
+        .generate(&groups, &e2e, &resolved, &[], &[])
         .expect("generation succeeds");
     files
         .iter()
@@ -171,7 +171,7 @@ args = [{ name = "name", field = "language", type = "string" }]
         fixtures: vec![fixture],
     }];
     let files = ZigE2eCodegen
-        .generate(&groups, &e2e, &resolved, &[])
+        .generate(&groups, &e2e, &resolved, &[], &[])
         .expect("generation succeeds");
     let rendered = files
         .iter()

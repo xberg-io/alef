@@ -843,6 +843,11 @@ fn test_opaque_type() {
 #[test]
 fn test_default_config() {
     let backend = GoBackend;
+    let field_with_default = |name: &str, ty: TypeRef, default| {
+        let mut field = make_field(name, ty, false);
+        field.typed_default = Some(default);
+        field
+    };
 
     let api = ApiSurface {
         crate_name: "test-lib".to_string(),
@@ -852,8 +857,16 @@ fn test_default_config() {
             rust_path: "test_lib::Config".to_string(),
             original_rust_path: String::new(),
             fields: vec![
-                make_field("timeout", TypeRef::Primitive(PrimitiveType::U32), false),
-                make_field("retries", TypeRef::Primitive(PrimitiveType::U8), false),
+                field_with_default(
+                    "timeout",
+                    TypeRef::Primitive(PrimitiveType::U32),
+                    DefaultValue::IntLiteral(30),
+                ),
+                field_with_default(
+                    "retries",
+                    TypeRef::Primitive(PrimitiveType::U8),
+                    DefaultValue::IntLiteral(3),
+                ),
                 make_field("name", TypeRef::String, true),
             ],
             methods: vec![],
@@ -1853,7 +1866,7 @@ fn test_opaque_error_type_uses_value_semantics() {
         content
     );
     assert!(
-        content.contains("func (e *GraphQLError) Error() string"),
+        content.contains("func (e GraphQLError) Error() string"),
         "value-type error must implement the error interface"
     );
 

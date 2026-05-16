@@ -1129,7 +1129,7 @@ mod tests {
     fn gen_unregistration_fn_emits_wrapper_when_set() {
         let cfg = alef_core::config::TraitBridgeConfig {
             trait_name: "OcrBackend".to_string(),
-            unregister_fn: Some("unregister_ocr_backend".to_string()),
+            unregister_fn: Some("remove_ocr_backend".to_string()),
             clear_fn: None,
             ..Default::default()
         };
@@ -1139,7 +1139,7 @@ mod tests {
             "expected non-empty output when unregister_fn is set"
         );
         assert!(
-            result.contains("func unregister_ocr_backend(name string) error"),
+            result.contains("func remove_ocr_backend(name string) error"),
             "generated function signature not found in:\n{result}"
         );
         assert!(
