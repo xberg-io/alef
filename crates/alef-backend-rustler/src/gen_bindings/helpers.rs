@@ -798,18 +798,48 @@ pub(super) fn gen_elixir_enum_module(enum_def: &alef_core::ir::EnumDef, app_modu
                     },
                 ));
             } else {
-                // Struct variant: a map with a type tag
+                // Struct variant: a map with a type tag and payload-derived field names
                 let field_types: Vec<String> = variant
                     .fields
                     .iter()
-                    .map(|f| {
-                        let name = f.name.to_snake_case();
-                        let safe_name = if name.starts_with(|c: char| c.is_ascii_digit()) {
-                            format!("value_{name}")
-                        } else {
-                            name
+                    .enumerate()
+                    .map(|(idx, f)| {
+                        // Determine the type name for type inference
+                        let type_name = match &f.ty {
+                            TypeRef::Named(n) => Some(n.as_str()),
+                            TypeRef::String => Some("String"),
+                            TypeRef::Bytes => Some("bytes"),
+                            TypeRef::Char => Some("char"),
+                            TypeRef::Path => Some("path"),
+                            TypeRef::Json => Some("json"),
+                            TypeRef::Primitive(p) => match p {
+                                alef_core::ir::PrimitiveType::Bool => Some("bool"),
+                                alef_core::ir::PrimitiveType::U8 => Some("u8"),
+                                alef_core::ir::PrimitiveType::U16 => Some("u16"),
+                                alef_core::ir::PrimitiveType::U32 => Some("u32"),
+                                alef_core::ir::PrimitiveType::U64 => Some("u64"),
+                                alef_core::ir::PrimitiveType::Usize => Some("usize"),
+                                alef_core::ir::PrimitiveType::I8 => Some("i8"),
+                                alef_core::ir::PrimitiveType::I16 => Some("i16"),
+                                alef_core::ir::PrimitiveType::I32 => Some("i32"),
+                                alef_core::ir::PrimitiveType::I64 => Some("i64"),
+                                alef_core::ir::PrimitiveType::Isize => Some("isize"),
+                                alef_core::ir::PrimitiveType::F32 => Some("f32"),
+                                alef_core::ir::PrimitiveType::F64 => Some("f64"),
+                            },
+                            _ => None,
                         };
-                        format!("{safe_name}: term()")
+
+                        // Derive field name using payload-informed naming
+                        let field_name =
+                            elixir_field_name_with_type(&f.name, idx, type_name, &variant.name, variant.fields.len());
+
+                        // Emit concrete type using elixir_typespec
+                        let opaque_types = AHashSet::new();
+                        let default_types = AHashSet::new();
+                        let field_type = elixir_typespec(&f.ty, &opaque_types, &default_types);
+
+                        format!("{field_name}: {field_type}")
                     })
                     .collect();
                 out.push_str(&template_env::render(
@@ -829,6 +859,80 @@ pub(super) fn gen_elixir_enum_module(enum_def: &alef_core::ir::EnumDef, app_modu
         minijinja::context! {},
     ));
     out
+}
+
+/// Derive a payload-informed field name for union/enum tuple variants.
+///
+/// For tuple variants with a single payload, this function derives smarter names:
+/// - If the field name is positional (like `_0`), infer from the type:
+///   - Named type `PdfMetadata` with variant name `Pdf` → strip prefix "Pdf" → `metadata`
+///   - Primitive type (String, bool, etc.) → use generic `value`
+/// - If the field name is a struct field name (like `reason`), use it directly.
+/// - For multiple tuple fields, use generic names: `value0`, `value1`, etc.
+fn elixir_field_name_with_type(
+    field_name: &str,
+    field_idx: usize,
+    field_type_name: Option<&str>,
+    variant_name: &str,
+    total_fields: usize,
+) -> String {
+    let stripped = field_name.trim_start_matches('_');
+
+    // If field name is non-positional (not `_N`), use it directly (struct variant).
+    if !stripped.is_empty() && !stripped.chars().all(|c| c.is_ascii_digit()) {
+        return stripped.to_snake_case();
+    }
+
+    // For positional fields, derive from type if available and single field.
+    if total_fields == 1 {
+        if let Some(type_name) = field_type_name {
+            // Try to strip variant name as prefix. E.g., `Pdf` variant with `PdfMetadata` type.
+            if let Some(remainder) = type_name.strip_prefix(variant_name) {
+                // Convert `Metadata` to `metadata`
+                let derived = remainder.to_snake_case();
+                if !derived.is_empty() {
+                    return derived;
+                }
+            }
+
+            // For primitive types (String, bool, etc.), use generic `value`.
+            if is_primitive_type(type_name) {
+                return "value".to_string();
+            }
+        }
+    }
+
+    // For multiple fields or when inference fails, use generic names.
+    if total_fields > 1 {
+        return format!("value{}", field_idx);
+    }
+
+    // Fallback: use `value` for single non-inferred field.
+    "value".to_string()
+}
+
+/// Check if a type name is a primitive type (String, bool, integers, floats, etc.).
+fn is_primitive_type(type_name: &str) -> bool {
+    matches!(
+        type_name,
+        "String"
+            | "bool"
+            | "u8"
+            | "u16"
+            | "u32"
+            | "u64"
+            | "usize"
+            | "i8"
+            | "i16"
+            | "i32"
+            | "i64"
+            | "isize"
+            | "f32"
+            | "f64"
+            | "char"
+            | "byte"
+            | "unit"
+    )
 }
 
 /// Format an integer literal with underscore separators for Elixir conventions.
@@ -964,5 +1068,147 @@ pub(super) fn elixir_return_typespec(
         format!("{{:ok, {}}} | {{:error, String.t()}}", base)
     } else {
         base
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alef_core::ir::{EnumDef, EnumVariant, FieldDef};
+
+    #[test]
+    fn test_elixir_field_name_with_type_payload_derived() {
+        // Named type Pdf with variant Pdf → strip Pdf → metadata
+        let name = elixir_field_name_with_type("_0", 0, Some("PdfMetadata"), "Pdf", 1);
+        assert_eq!(name, "metadata");
+
+        // Named type Excel with variant Excel → strip Excel → metadata
+        let name = elixir_field_name_with_type("_0", 0, Some("ExcelMetadata"), "Excel", 1);
+        assert_eq!(name, "metadata");
+
+        // Docx variant with DocxMetadata type → strip Docx → metadata
+        let name = elixir_field_name_with_type("_0", 0, Some("DocxMetadata"), "Docx", 1);
+        assert_eq!(name, "metadata");
+    }
+
+    #[test]
+    fn test_elixir_field_name_with_type_primitive() {
+        // Primitive String type → value
+        let name = elixir_field_name_with_type("_0", 0, Some("String"), "Error", 1);
+        assert_eq!(name, "value");
+
+        // Primitive bool type → value
+        let name = elixir_field_name_with_type("_0", 0, Some("bool"), "Flag", 1);
+        assert_eq!(name, "value");
+    }
+
+    #[test]
+    fn test_elixir_field_name_with_type_multiple_fields() {
+        // Multiple fields → generic value0, value1
+        let name = elixir_field_name_with_type("_0", 0, None, "Pair", 2);
+        assert_eq!(name, "value0");
+
+        let name = elixir_field_name_with_type("_1", 1, None, "Pair", 2);
+        assert_eq!(name, "value1");
+    }
+
+    #[test]
+    fn test_elixir_field_name_with_type_named_field() {
+        // Non-positional field name → use directly
+        let name = elixir_field_name_with_type("reason", 0, Some("String"), "Error", 1);
+        assert_eq!(name, "reason");
+    }
+
+    #[test]
+    fn test_gen_elixir_enum_module_data_enum_with_payload_derived_names() {
+        // Create FormatMetadata enum with Pdf(PdfMetadata) and Docx(DocxMetadata) variants
+        let format_enum = EnumDef {
+            name: "FormatMetadata".to_string(),
+            rust_path: "my_crate::FormatMetadata".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Pdf".into(),
+                    fields: vec![FieldDef {
+                        name: "_0".into(),
+                        ty: TypeRef::Named("PdfMetadata".into()),
+                        optional: false,
+                        default: None,
+                        doc: String::new(),
+                        sanitized: false,
+                        is_boxed: false,
+                        type_rust_path: None,
+                        cfg: None,
+                        typed_default: None,
+                        core_wrapper: alef_core::ir::CoreWrapper::None,
+                        vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                        newtype_wrapper: None,
+                        serde_rename: None,
+                        serde_flatten: false,
+                        binding_excluded: false,
+                        binding_exclusion_reason: None,
+                    }],
+                    is_tuple: true,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+                EnumVariant {
+                    name: "Docx".into(),
+                    fields: vec![FieldDef {
+                        name: "_0".into(),
+                        ty: TypeRef::Named("DocxMetadata".into()),
+                        optional: false,
+                        default: None,
+                        doc: String::new(),
+                        sanitized: false,
+                        is_boxed: false,
+                        type_rust_path: None,
+                        cfg: None,
+                        typed_default: None,
+                        core_wrapper: alef_core::ir::CoreWrapper::None,
+                        vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                        newtype_wrapper: None,
+                        serde_rename: None,
+                        serde_flatten: false,
+                        binding_excluded: false,
+                        binding_exclusion_reason: None,
+                    }],
+                    is_tuple: true,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+            ],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: false,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+
+        let result = gen_elixir_enum_module(&format_enum, "Kreuzberg");
+
+        // Should emit @type pdf with metadata field (not value_0) and concrete type (not term())
+        assert!(
+            result.contains("@type pdf :: %{type: :pdf, metadata: map()}"),
+            "should use payload-derived 'metadata' field name with concrete type map(); got:\n{result}"
+        );
+
+        // Should emit @type docx with metadata field (not value_0) and concrete type (not term())
+        assert!(
+            result.contains("@type docx :: %{type: :docx, metadata: map()}"),
+            "should use payload-derived 'metadata' field name with concrete type map(); got:\n{result}"
+        );
+
+        // Must not use the old generic name for variant fields
+        assert!(
+            !result.contains("value_0: term()"),
+            "should not use generic value_0 field name with term() type; got:\n{result}"
+        );
     }
 }
