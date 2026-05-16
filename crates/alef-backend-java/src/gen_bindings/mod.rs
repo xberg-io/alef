@@ -19,7 +19,7 @@ use facade::gen_facade_class;
 use ffi_class::gen_main_class;
 use helpers::{gen_exception_class, gen_infrastructure_exception_class};
 use native_lib::gen_native_lib;
-use types::{gen_builder_class, gen_byte_array_serializer, gen_enum_class, gen_opaque_handle_class, gen_record_type};
+use types::{gen_byte_array_serializer, gen_enum_class, gen_opaque_handle_class, gen_record_type};
 
 pub struct JavaBackend;
 
@@ -281,14 +281,8 @@ impl Backend for JavaBackend {
                     ),
                     generated_header: true,
                 });
-                // Generate builder class for types with defaults
-                if typ.has_default {
-                    files.push(GeneratedFile {
-                        path: base_path.join(format!("{}Builder.java", typ.name)),
-                        content: gen_builder_class(&package, typ, has_visitor_pattern),
-                        generated_header: true,
-                    });
-                }
+                // The builder is now emitted as a nested static class inside the record file —
+                // no separate *Builder.java file is created.
             }
         }
 
@@ -307,18 +301,9 @@ impl Backend for JavaBackend {
             });
         }
 
-        // Collect builder class names generated from record types with defaults,
-        // so we can skip opaque types that would collide with them.
-        let builder_class_names: AHashSet<String> = api
-            .types
-            .iter()
-            .filter(|t| !t.is_opaque && (!t.fields.is_empty() || (t.has_serde && t.fields.is_empty())) && t.has_default)
-            .map(|t| format!("{}Builder", t.name))
-            .collect();
-
-        // 4b. Opaque handle types (skip if a pure-Java builder already covers this name)
+        // 4b. Opaque handle types
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
-            if typ.is_opaque && !builder_class_names.contains(&typ.name) {
+            if typ.is_opaque {
                 files.push(GeneratedFile {
                     path: base_path.join(format!("{}.java", typ.name)),
                     content: gen_opaque_handle_class(&package, typ, &prefix, &config.adapters, &main_class),

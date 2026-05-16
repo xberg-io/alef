@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-backend-java: nest Jackson POJO builders inside their owning record**: every DTO record now embeds its `Builder` as `public static final class Builder` rather than emitting `FooBuilder.java` as a sibling top-level class. Cuts the generated file count for the Java package by ~32% (54 fewer `.java` files in liter-llm) and matches idiomatic Java conventions (`Foo.Builder` pattern, mirroring `ImmutableList.Builder`, `LocalDate.Builder`, etc.). The `@JsonDeserialize(builder = ...)` annotation now references `Foo.Builder.class`. (`crates/alef-backend-java/src/gen_bindings/types.rs`, snapshot tests refreshed)
+
 - **alef-backend-dart: pass generated config to flutter_rust_bridge post-build command**: the Dart backend's post-build `RunCommand` now invokes `flutter_rust_bridge_codegen generate --config-file packages/dart/rust/flutter_rust_bridge.yaml`, matching the root-relative post-build working directory and ensuring FRB reads the emitted `rust_input`/`dart_output` settings instead of failing with "Please provide `rust_input`" or "Cannot find config_file". (`crates/alef-backend-dart/src/gen_bindings/mod.rs`)
 
 - **alef-e2e/node: use workspace version for registry test apps when no package version is configured**: Node registry-mode `package.json` now falls back to the crate's resolved Cargo version before the `0.1.0` placeholder, matching the Python/Ruby/PHP/Dart generators and preventing generated `test_apps/node` projects from depending on unpublished `@scope/package@0.1.0` versions. (`crates/alef-e2e/src/codegen/typescript/mod.rs`)
