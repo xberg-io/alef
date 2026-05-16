@@ -79,11 +79,7 @@ fn mixed_type_fields(enum_def: &EnumDef) -> std::collections::BTreeSet<String> {
 /// representation (`[[k, v], ...]`) round-trips correctly through `serde_wasm_bindgen` rather
 /// than collapsing to a flat `Vec<String>`.
 fn is_sanitized_tuple_vec(field: &FieldDef) -> bool {
-    field.sanitized
-        && field
-            .original_type
-            .as_deref()
-            .is_some_and(|s| s.starts_with("Vec<("))
+    field.sanitized && field.original_type.as_deref().is_some_and(|s| s.starts_with("Vec<("))
 }
 
 fn tagged_enum_binding_to_core_expr(field_ident: &str, field_ty: &TypeRef, field_optional: bool) -> String {

@@ -3512,7 +3512,10 @@ fn test_sanitized_tuple_vec_field_uses_js_value_in_tagged_enum() {
     let result = backend.generate_bindings(&api, &config);
     assert!(result.is_ok(), "generate_bindings should not fail: {:?}", result.err());
     let files = result.unwrap();
-    let lib_file = files.iter().find(|f| f.path.ends_with("lib.rs")).expect("lib.rs must be generated");
+    let lib_file = files
+        .iter()
+        .find(|f| f.path.ends_with("lib.rs"))
+        .expect("lib.rs must be generated");
     let content = &lib_file.content;
 
     // The binding struct must store entries as JsValue, not Vec<String>.

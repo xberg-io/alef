@@ -592,10 +592,7 @@ fn jni_zero_literal(ty: &alef_core::ir::TypeRef) -> &'static str {
         TypeRef::Primitive(p) => match p {
             PrimitiveType::Bool => "false",
             PrimitiveType::F32 | PrimitiveType::F64 => "0.0",
-            PrimitiveType::I64
-            | PrimitiveType::U64
-            | PrimitiveType::Usize
-            | PrimitiveType::Isize => "0L",
+            PrimitiveType::I64 | PrimitiveType::U64 | PrimitiveType::Usize | PrimitiveType::Isize => "0L",
             // All other integer widths map to Int at the JNI boundary.
             _ => "0",
         },

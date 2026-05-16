@@ -1536,10 +1536,7 @@ mod tests {
                 make_variant(
                     "Multiple",
                     None,
-                    vec![make_field(
-                        "_0",
-                        TypeRef::Vec(Box::new(TypeRef::String)),
-                    )],
+                    vec![make_field("_0", TypeRef::Vec(Box::new(TypeRef::String)))],
                 ),
             ],
         );
