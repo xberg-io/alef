@@ -180,6 +180,14 @@ fn test_unmarshal_bytes_returns_slice_not_pointer() {
         !content.contains("func unmarshalBytes(ptr *C.uint8_t) *[]byte"),
         "unmarshalBytes must not return *[]byte"
     );
+    assert!(
+        content.contains("func (r *ByteContainer) GetBytes() ([]byte, error)"),
+        "bytes-returning methods that can fail while marshaling the receiver must return []byte, not *[]byte"
+    );
+    assert!(
+        !content.contains("func (r *ByteContainer) GetBytes() (*[]byte, error)"),
+        "bytes-returning methods must not expose *[]byte"
+    );
 }
 
 /// Bug C: DTOs with all-zero-default fields should not emit functional-options pattern

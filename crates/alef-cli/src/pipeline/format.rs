@@ -1,6 +1,6 @@
 use alef_core::config::{Language, ResolvedCrateConfig};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output};
 use tracing::{debug, warn};
 
 /// One formatter invocation (command + args).
@@ -31,19 +31,27 @@ fn get_default_formatter(config: &ResolvedCrateConfig, lang: Language) -> Option
         // ruff check --fix runs lint autofixes (unused imports, missing TypeAlias
         // annotations, import sorting); ruff format applies whitespace formatting.
         // Both must run — `format` alone leaves I001/F401/TC008 issues that fail CI.
-        Language::Python => Some(FormatterSpec {
-            commands: vec![
-                FormatterCommand {
-                    command: "ruff".to_owned(),
-                    args: vec!["check".to_owned(), "--fix".to_owned(), ".".to_owned()],
-                },
-                FormatterCommand {
-                    command: "ruff".to_owned(),
-                    args: vec!["format".to_owned(), ".".to_owned()],
-                },
-            ],
-            work_dir: "packages/python/".to_owned(),
-        }),
+        Language::Python => {
+            let package_path = config
+                .python
+                .as_ref()
+                .and_then(|python| python.stubs.as_ref())
+                .map(|stubs| stubs.output.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "packages/python/".to_owned());
+            Some(FormatterSpec {
+                commands: vec![
+                    FormatterCommand {
+                        command: "ruff".to_owned(),
+                        args: vec!["check".to_owned(), "--fix".to_owned(), package_path.clone()],
+                    },
+                    FormatterCommand {
+                        command: "ruff".to_owned(),
+                        args: vec!["format".to_owned(), package_path],
+                    },
+                ],
+                work_dir: String::new(),
+            })
+        }
         Language::Node => Some(FormatterSpec {
             // Run the Oxc formatter and linter from the repo root so package,
             // e2e, and registry-mode test app output are normalized consistently.
@@ -73,8 +81,12 @@ fn get_default_formatter(config: &ResolvedCrateConfig, lang: Language) -> Option
         }),
         Language::Php => Some(FormatterSpec {
             commands: vec![FormatterCommand {
-                command: "php-cs-fixer".to_owned(),
-                args: vec!["fix".to_owned()],
+                command: "env".to_owned(),
+                args: vec![
+                    "PHP_CS_FIXER_IGNORE_ENV=1".to_owned(),
+                    "php-cs-fixer".to_owned(),
+                    "fix".to_owned(),
+                ],
             }],
             work_dir: "packages/php/".to_owned(),
         }),
@@ -318,8 +330,8 @@ pub fn format_generated(
         // Get the formatter command (custom or default)
         let formatter_cmd = if let Some(custom) = format_cfg.command {
             // Custom command: run as-is in the package directory
-            if !run_custom_formatter(&custom, base_dir) {
-                warn!("[{lang_str}] custom formatter failed");
+            if let Err(e) = run_custom_formatter(&custom, base_dir) {
+                warn!("[{lang_str}] custom formatter failed: {e}");
             }
             formatted_langs.insert(*lang);
             continue;
@@ -433,11 +445,10 @@ fn run_formatter(command: &str, args: &[&str], work_dir: &Path) -> anyhow::Resul
     let output = Command::new(command).args(args).current_dir(work_dir).output()?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(anyhow::anyhow!(
             "formatter exited with code {:?}: {}",
             output.status.code(),
-            stderr.trim()
+            format_command_output(&output)
         ));
     }
 
@@ -445,15 +456,32 @@ fn run_formatter(command: &str, args: &[&str], work_dir: &Path) -> anyhow::Resul
 }
 
 /// Run a custom formatter command (shell-style string) in a directory.
-fn run_custom_formatter(cmd: &str, work_dir: &Path) -> bool {
-    let output = Command::new("sh").arg("-c").arg(cmd).current_dir(work_dir).output();
+fn run_custom_formatter(cmd: &str, work_dir: &Path) -> anyhow::Result<()> {
+    let output = Command::new("sh").arg("-c").arg(cmd).current_dir(work_dir).output()?;
 
-    match output {
-        Ok(out) => out.status.success(),
-        Err(e) => {
-            debug!("custom formatter error: {}", e);
-            false
-        }
+    if !output.status.success() {
+        debug!("custom formatter output: {}", format_command_output(&output));
+        return Err(anyhow::anyhow!(
+            "formatter exited with code {:?}: {}",
+            output.status.code(),
+            format_command_output(&output)
+        ));
+    }
+
+    Ok(())
+}
+
+fn format_command_output(output: &Output) -> String {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = stdout.trim();
+    let stderr = stderr.trim();
+
+    match (stdout.is_empty(), stderr.is_empty()) {
+        (false, false) => format!("stdout:\n{stdout}\nstderr:\n{stderr}"),
+        (false, true) => format!("stdout:\n{stdout}"),
+        (true, false) => format!("stderr:\n{stderr}"),
+        (true, true) => "<no output>".to_string(),
     }
 }
 
@@ -497,6 +525,19 @@ project_file = "{project_file}"
         ))
         .expect("valid config");
         cfg.resolve().unwrap().remove(0)
+    }
+
+    #[test]
+    fn formatter_error_includes_stdout_and_stderr() {
+        let err = run_formatter(
+            "sh",
+            &["-c", "printf 'stdout text'; printf 'stderr text' >&2; exit 7"],
+            Path::new("."),
+        )
+        .expect_err("formatter should fail");
+        let msg = err.to_string();
+        assert!(msg.contains("stdout text"), "missing stdout in error: {msg}");
+        assert!(msg.contains("stderr text"), "missing stderr in error: {msg}");
     }
 
     #[test]

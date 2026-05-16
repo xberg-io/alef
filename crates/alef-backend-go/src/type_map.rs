@@ -92,12 +92,13 @@ pub fn go_type(ty: &TypeRef) -> Cow<'static, str> {
 /// Maps a TypeRef to its optional Go type representation (pointer for option).
 ///
 /// If the type is already `Optional`, delegates to `go_type` (which produces `*T`).
-/// Slices (`Vec<T>`) and maps are already reference types in Go — they are not
-/// wrapped in a pointer because `*[]T` and `*map[K]V` are unidiomatic and unnecessary.
+/// Slices (`Vec<T>` and `Bytes`) and maps are already reference types in Go — they
+/// are not wrapped in a pointer because `*[]T` and `*map[K]V` are unidiomatic
+/// and unnecessary.
 /// All other types are wrapped in a pointer: `*T`.
 pub fn go_optional_type(ty: &TypeRef) -> Cow<'static, str> {
     match ty {
-        TypeRef::Optional(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) => go_type(ty),
+        TypeRef::Optional(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Bytes => go_type(ty),
         _ => Cow::Owned(format!("*{}", GoMapper.map_type(ty))),
     }
 }
@@ -203,6 +204,12 @@ mod tests {
         // Vec<T> is already a reference type in Go; do not wrap in *
         let ty = TypeRef::Vec(Box::new(TypeRef::String));
         assert_eq!(go_optional_type(&ty), "[]string");
+    }
+
+    #[test]
+    fn test_go_optional_type_bytes_not_pointer() {
+        // []byte is already a reference type in Go; do not wrap in *
+        assert_eq!(go_optional_type(&TypeRef::Bytes), "[]byte");
     }
 
     #[test]
