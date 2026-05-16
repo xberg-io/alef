@@ -370,4 +370,144 @@ mod tests {
         let result = gen_enum(&e, "", false);
         assert!(result.contains("Red") || result.contains("red") || result.contains("RED"));
     }
+
+    /// Regression test D4A: tagged enum with unit variant emits { kind: 'bold' }
+    /// and not { annotation_type: 'bold' }.
+    #[test]
+    fn gen_tagged_enum_unit_variant_uses_kind_discriminant() {
+        let mut e = make_simple_enum("AnnotationKind", &["Bold"]);
+        e.serde_tag = Some("annotation_type".to_string());
+        e.has_serde = true;
+
+        let result = gen_enum(&e, "Js", true);
+
+        // Must NOT use the Rust serde tag name ("annotation_type") as js_name.
+        // The discriminant field in napi-rs-generated TypeScript should be "kind", not "annotation_type".
+        assert!(
+            result.contains("js_name = \"kind\""),
+            "tagged enum must use js_name = \"kind\" for discriminant field, not annotation_type;\nactual:\n{result}"
+        );
+    }
+
+    /// Regression test D4B: tagged enum with tuple variant (payload) emits camelCase
+    /// value name in serde_rename, e.g., 'fontSize' not 'font_size'.
+    #[test]
+    fn gen_tagged_enum_tuple_variant_uses_camel_case_value() {
+        use alef_core::ir::{FieldDef, TypeRef};
+
+        let mut e = EnumDef {
+            name: "AnnotationKind".to_string(),
+            rust_path: "test::AnnotationKind".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "FontSize".to_string(),
+                    fields: vec![FieldDef {
+                        name: "_0".to_string(),
+                        ty: TypeRef::String,
+                        optional: false,
+                        default: None,
+                        doc: String::new(),
+                        sanitized: false,
+                        is_boxed: false,
+                        type_rust_path: None,
+                        cfg: None,
+                        typed_default: None,
+                        core_wrapper: alef_core::ir::CoreWrapper::None,
+                        vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                        newtype_wrapper: None,
+                        serde_rename: Some("fontSize".to_string()),
+                        serde_flatten: false,
+                        binding_excluded: false,
+                        binding_exclusion_reason: None,
+                    }],
+                    is_tuple: true,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: Some("fontSize".to_string()),
+                },
+            ],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: true,
+            serde_tag: Some("annotation_type".to_string()),
+            serde_untagged: false,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+
+        let result = gen_enum(&e, "Js", true);
+
+        // The variant's serde_rename must be respected, and the synthesized variant property
+        // must use the correct camelCase name.
+        assert!(
+            result.contains("fontSize") && !result.contains("font_size"),
+            "tagged enum with tuple variant must emit camelCase variant name (fontSize), not snake_case;\nactual:\n{result}"
+        );
+    }
+
+    /// Regression test D4C: struct variant with named field emits field name unchanged.
+    /// E.g., Custom { reason: String } → { kind: 'custom'; reason: string }
+    #[test]
+    fn gen_tagged_enum_struct_variant_emits_field_names() {
+        use alef_core::ir::{FieldDef, TypeRef};
+
+        let mut e = EnumDef {
+            name: "AnnotationKind".to_string(),
+            rust_path: "test::AnnotationKind".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Custom".to_string(),
+                    fields: vec![FieldDef {
+                        name: "reason".to_string(),
+                        ty: TypeRef::String,
+                        optional: false,
+                        default: None,
+                        doc: String::new(),
+                        sanitized: false,
+                        is_boxed: false,
+                        type_rust_path: None,
+                        cfg: None,
+                        typed_default: None,
+                        core_wrapper: alef_core::ir::CoreWrapper::None,
+                        vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                        newtype_wrapper: None,
+                        serde_rename: None,
+                        serde_flatten: false,
+                        binding_excluded: false,
+                        binding_exclusion_reason: None,
+                    }],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: Some("custom".to_string()),
+                },
+            ],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: true,
+            serde_tag: Some("annotation_type".to_string()),
+            serde_untagged: false,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+
+        let result = gen_enum(&e, "Js", true);
+
+        // Must include the struct variant field names.
+        assert!(
+            result.contains("reason"),
+            "struct variant must emit field names (reason);\nactual:\n{result}"
+        );
+        // And discriminant must be "kind".
+        assert!(
+            result.contains("js_name = \"kind\""),
+            "struct variant enum must use js_name = \"kind\";\nactual:\n{result}"
+        );
+    }
 }

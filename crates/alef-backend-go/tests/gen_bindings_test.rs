@@ -1988,6 +1988,215 @@ impl StartsWithStrAfterFirst for str {
 }
 
 // ---------------------------------------------------------------------------
+// Trait bridge typed params (regression: D1 - interface{} instead of concrete types)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_trait_bridge_string_param_emitted_as_string_not_interface() {
+    // Regression test D1: path: String should emit "path string", not "path interface{}"
+    let trait_type = make_trait_type(
+        "Backend",
+        vec![
+            make_trait_method(
+                "process_file",
+                vec![make_trait_param("path", TypeRef::String)],
+                TypeRef::String,
+                true,
+            ),
+        ],
+    );
+    let bridge_cfg = TraitBridgeConfig {
+        trait_name: "Backend".to_string(),
+        super_trait: None,
+        registry_getter: Some("my_lib::get_registry".to_string()),
+        register_fn: Some("register_backend".to_string()),
+        unregister_fn: None,
+        clear_fn: None,
+        type_alias: None,
+        param_name: None,
+        register_extra_args: None,
+        exclude_languages: Vec::new(),
+        ffi_skip_methods: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
+        context_type: None,
+        result_type: None,
+    };
+    let config = make_config_with_bridges(vec![bridge_cfg]);
+    let api = make_api_with_type(trait_type);
+
+    let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "../ffi", "..", "testlib");
+
+    // The Go interface method signature should emit "path string", NOT "path interface{}"
+    assert!(
+        code.contains("ProcessFile(path string"),
+        "String parameter must emit as 'string', not 'interface{{}}' in trait interface method\nGenerated code:\n{code}"
+    );
+}
+
+#[test]
+fn test_trait_bridge_named_config_param_emitted_as_concrete_type() {
+    // Regression test D1: config: OcrConfig should emit "config OcrConfig", not "config map[string]interface{}"
+    let trait_type = make_trait_type(
+        "OcrBackend",
+        vec![
+            make_trait_method(
+                "process_image",
+                vec![
+                    make_trait_param("image_bytes", TypeRef::Bytes),
+                    make_trait_param("config", TypeRef::Named("OcrConfig".to_string())),
+                ],
+                TypeRef::Named("OcrResult".to_string()),
+                true,
+            ),
+        ],
+    );
+    let bridge_cfg = TraitBridgeConfig {
+        trait_name: "OcrBackend".to_string(),
+        super_trait: None,
+        registry_getter: Some("my_lib::get_registry".to_string()),
+        register_fn: Some("register_ocr_backend".to_string()),
+        unregister_fn: None,
+        clear_fn: None,
+        type_alias: None,
+        param_name: None,
+        register_extra_args: None,
+        exclude_languages: Vec::new(),
+        ffi_skip_methods: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
+        context_type: None,
+        result_type: None,
+    };
+    let config = make_config_with_bridges(vec![bridge_cfg]);
+
+    // Add OcrConfig and OcrResult structs to the API
+    let mut api = make_api_with_type(trait_type);
+    api.types.push(TypeDef {
+        name: "OcrConfig".to_string(),
+        rust_path: "my_lib::OcrConfig".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    });
+    api.types.push(TypeDef {
+        name: "OcrResult".to_string(),
+        rust_path: "my_lib::OcrResult".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    });
+
+    let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "../ffi", "..", "testlib");
+
+    // The Go interface method signature should emit "config OcrConfig", NOT "config map[string]interface{}"
+    assert!(
+        code.contains("ProcessImage(") && code.contains("config OcrConfig"),
+        "Named config parameter must emit as concrete type 'OcrConfig', not 'map[string]interface{{}}' in trait interface method\nGenerated code:\n{code}"
+    );
+}
+
+#[test]
+fn test_trait_bridge_enum_return_type_emitted_as_concrete_type() {
+    // Regression test D1: return BackendType should emit "OcrBackendType", not "map[string]interface{}"
+    let trait_type = make_trait_type(
+        "OcrBackend",
+        vec![
+            make_trait_method(
+                "backend_type",
+                vec![],
+                TypeRef::Named("OcrBackendType".to_string()),
+                false,
+            ),
+        ],
+    );
+    let bridge_cfg = TraitBridgeConfig {
+        trait_name: "OcrBackend".to_string(),
+        super_trait: None,
+        registry_getter: Some("my_lib::get_registry".to_string()),
+        register_fn: Some("register_ocr_backend".to_string()),
+        unregister_fn: None,
+        clear_fn: None,
+        type_alias: None,
+        param_name: None,
+        register_extra_args: None,
+        exclude_languages: Vec::new(),
+        ffi_skip_methods: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
+        context_type: None,
+        result_type: None,
+    };
+    let config = make_config_with_bridges(vec![bridge_cfg]);
+
+    // Add OcrBackendType enum to the API
+    let mut api = make_api_with_type(trait_type);
+    api.enums.push(EnumDef {
+        name: "OcrBackendType".to_string(),
+        rust_path: "my_lib::OcrBackendType".to_string(),
+        original_rust_path: String::new(),
+        variants: vec![
+            EnumVariant {
+                name: "Tesseract".to_string(),
+                fields: vec![],
+                is_tuple: false,
+                doc: String::new(),
+                is_default: false,
+                serde_rename: None,
+            },
+        ],
+        doc: String::new(),
+        cfg: None,
+        is_copy: false,
+        has_serde: false,
+        serde_tag: None,
+        serde_untagged: false,
+        serde_rename_all: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    });
+
+    let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "../ffi", "..", "testlib");
+
+    // The Go interface method signature should emit "OcrBackendType", NOT "map[string]interface{}"
+    assert!(
+        code.contains("BackendType() OcrBackendType"),
+        "Named return type must emit as concrete enum type 'OcrBackendType', not 'map[string]interface{{}}' in trait interface method\nGenerated code:\n{code}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // CFLAGS bundled include dir (regression: downstream go get compatibility)
 // ---------------------------------------------------------------------------
 
