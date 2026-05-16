@@ -531,7 +531,7 @@ impl StreamingFieldResolver {
                 "var {chunks_var} []pkg.ChatCompletionChunk\n\tfor chunk := range {stream_var} {{\n\t\t{chunks_var} = append({chunks_var}, chunk)\n\t}}"
             )),
             "java" => Some(format!(
-                "var {chunks_var} = new java.util.ArrayList<ChatCompletionChunk>();\n        var _it = {stream_var};\n        while (_it.hasNext()) {{ {chunks_var}.add(_it.next()); }}"
+                "var {chunks_var} = new java.util.ArrayList<ChatCompletionChunk>();\n        var _it = {stream_var}.iterator();\n        while (_it.hasNext()) {{ {chunks_var}.add(_it.next()); }}"
             )),
             // PHP binding's chat_stream_async typically returns a JSON string of the
             // chunk array (PHP cannot expose Rust iterators directly via ext-php-rs).
@@ -1068,7 +1068,11 @@ mod tests {
     #[test]
     fn collect_snippet_java_uses_iterator() {
         let snip = StreamingFieldResolver::collect_snippet("java", "result", "chunks").unwrap();
+        // Must call .iterator() on the Stream<T> before using hasNext()/next() —
+        // Stream does not implement those methods directly.
+        assert!(snip.contains(".iterator()"), "java snippet must call .iterator() on stream: {snip}");
         assert!(snip.contains("hasNext()"), "java: {snip}");
+        assert!(snip.contains(".next()"), "java: {snip}");
     }
 
     #[test]
