@@ -500,10 +500,13 @@ fn kotlin_android_emits_android_test_source_set() {
     );
 }
 
-/// Regression for D: the emitted `build.gradle.kts` must include a Gradle
-/// Managed Devices block so `./gradlew pixel6api34DebugAndroidTest` works.
+/// Regression for D: the emitted `build.gradle.kts` must apply the Android
+/// Gradle Plugin so that the `android { }` DSL — including Managed Devices —
+/// resolves at Kotlin script compile time.  Without the AGP in `plugins { }`,
+/// every reference to `android`, `testOptions`, `managedDevices`, and
+/// `ManagedVirtualDevice` raises "Unresolved reference" at script compilation.
 #[test]
-fn kotlin_android_build_gradle_includes_managed_devices() {
+fn kotlin_android_build_gradle_applies_android_gradle_plugin() {
     let fixture = make_chat_fixture("chat_basic");
     let files = generate_kotlin_android_files(TOML_WITH_JAVA_CLIENT_FACTORY, fixture);
 
@@ -513,6 +516,16 @@ fn kotlin_android_build_gradle_includes_managed_devices() {
         .expect("build.gradle.kts must be emitted");
     let content = &build_gradle.content;
 
+    // The AGP plugin must be declared so the `android { }` block compiles.
+    assert!(
+        content.contains("com.android.library"),
+        "build.gradle.kts must apply id(\"com.android.library\"); got:\n{content}"
+    );
+    assert!(
+        content.contains("kotlin(\"android\")"),
+        "build.gradle.kts must apply kotlin(\"android\"); got:\n{content}"
+    );
+    // The managed devices block must still be present for on-device runs.
     assert!(
         content.contains("ManagedVirtualDevice"),
         "build.gradle.kts must import ManagedVirtualDevice; got:\n{content}"

@@ -263,12 +263,12 @@ fn is_enum_typed(ty: &alef_core::ir::TypeRef, struct_names: &HashSet<&str>) -> b
 // Rendering
 // ---------------------------------------------------------------------------
 
-/// Render build.gradle.kts for the kotlin_android host-JVM e2e project.
-/// This is a JVM Kotlin project (NOT an Android library) that:
-/// 1. Adds the bundled Java facade as test sources via sourceSets
-/// 2. Adds the bundled Kotlin wrapper as test sources via sourceSets
-/// 3. Depends on JNA for native library loading
-/// 4. Runs tests against libkreuzberg_ffi loaded via JNA
+/// Render build.gradle.kts for the kotlin_android e2e project.
+///
+/// This is an Android library project (applies `com.android.library`) so that
+/// the `android { }` DSL — including Gradle Managed Devices — resolves at
+/// Kotlin script compile time. The host-JVM test sources live in
+/// `src/test/kotlin/` and run against the shared native library via JNA.
 fn render_build_gradle_kotlin_android(
     _pkg_name: &str,
     kotlin_pkg_id: &str,
@@ -276,11 +276,8 @@ fn render_build_gradle_kotlin_android(
     _dep_mode: crate::config::DependencyMode,
     needs_mock_server: bool,
 ) -> String {
-    // For kotlin_android, we don't add the AAR as a dependency (since this is a
-    // host JVM project, not an Android project). Instead, we use sourceSets to
-    // include the bundled Java facade and Kotlin wrapper from the AAR's source
-    // directories.
     let kotlin_plugin = maven::KOTLIN_JVM_PLUGIN;
+    let android_gradle_plugin = maven::ANDROID_GRADLE_PLUGIN;
     let junit = maven::JUNIT;
     let jackson = maven::JACKSON_E2E;
     // E2E tests run on the host JVM (not Android), so pick a target that
@@ -306,39 +303,61 @@ fn render_build_gradle_kotlin_android(
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {{
-    kotlin("jvm") version "{kotlin_plugin}"
-    java
+    id("com.android.library") version "{android_gradle_plugin}"
+    kotlin("android") version "{kotlin_plugin}"
 }}
 
 group = "{kotlin_pkg_id}"
 version = "0.1.0"
 
-java {{
-    sourceCompatibility = JavaVersion.VERSION_{jvm_target}
-    targetCompatibility = JavaVersion.VERSION_{jvm_target}
-}}
+android {{
+    namespace = "{kotlin_pkg_id}.e2e"
+    compileSdk = 35
 
-kotlin {{
-    compilerOptions {{
-        jvmTarget.set(JvmTarget.JVM_{jvm_target})
+    defaultConfig {{
+        minSdk = 21
+    }}
+
+    compileOptions {{
+        sourceCompatibility = JavaVersion.VERSION_{jvm_target}
+        targetCompatibility = JavaVersion.VERSION_{jvm_target}
+    }}
+
+    kotlinOptions {{
+        jvmTarget = "{jvm_target}"
+    }}
+
+    sourceSets {{
+        getByName("test") {{
+            // Include the AAR-bundled Java facade as test sources
+            java.srcDir("../../packages/kotlin-android/src/main/java")
+            // Include the AAR-bundled Kotlin wrapper as test sources
+            kotlin.srcDir("../../packages/kotlin-android/src/main/kotlin")
+        }}
+    }}
+
+    testOptions {{
+        // Gradle Managed Virtual Devices for on-device instrumented tests.
+        // Run: ./gradlew pixel6api34DebugAndroidTest
+        managedDevices {{
+            devices {{
+                create<ManagedVirtualDevice>("pixel6api34") {{
+                    device = "Pixel 6"
+                    apiLevel = 34
+                    systemImageSource = "aosp"
+                }}
+            }}
+        }}
     }}
 }}
 
 repositories {{
     mavenCentral()
-}}
-
-sourceSets {{
-    test {{
-        // Include the AAR-bundled Java facade as test sources
-        java.srcDir("../../packages/kotlin-android/src/main/java")
-        // Include the AAR-bundled Kotlin wrapper as test sources
-        kotlin.srcDir("../../packages/kotlin-android/src/main/kotlin")
-    }}
+    google()
 }}
 
 dependencies {{
-    // JNA for loading libkreuzberg_ffi from java.library.path
+    // JNA for loading the native library from java.library.path
     testImplementation("net.java.dev.jna:jna:{jna}")
 
     // Jackson for JSON assertion helpers
@@ -366,32 +385,16 @@ dependencies {{
     testImplementation(kotlin("test"))
 }}
 
-tasks.test {{
+tasks.withType<Test> {{
     useJUnitPlatform()
 
-    // Resolve libkreuzberg_ffi location (e.g., ../../target/release)
+    // Resolve the native library location (e.g., ../../target/release)
     val libPath = System.getProperty("kb.lib.path") ?: "${{rootDir}}/../../target/release"
     systemProperty("java.library.path", libPath)
     systemProperty("jna.library.path", libPath)
 
     // Resolve fixture paths (e.g. "docx/fake.docx") against test_documents/
     workingDir = file("${{rootDir}}/../../test_documents")
-}}
-
-// Gradle Managed Virtual Devices for on-device instrumented tests.
-// Run: ./gradlew pixel6api34DebugAndroidTest
-android {{
-    testOptions {{
-        managedDevices {{
-            devices {{
-                create<ManagedVirtualDevice>("pixel6api34") {{
-                    device = "Pixel 6"
-                    apiLevel = 34
-                    systemImageSource = "aosp"
-                }}
-            }}
-        }}
-    }}
 }}
 "#
     )
