@@ -33,12 +33,6 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "struct_module_header.jinja",
         r#"defmodule {{ app_module }}.{{ type_name }} do
-{% if has_doc %}
-  @moduledoc "{{ doc }}"
-{% else %}
-  @moduledoc false
-{% endif %}
-
 "#,
     ),
     ("struct_module_footer.jinja", "end\n"),
@@ -46,12 +40,6 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "enum_module_header.jinja",
         r#"defmodule {{ app_module }}.{{ enum_name }} do
-{% if has_doc %}
-  @moduledoc "{{ doc }}"
-{% else %}
-  @moduledoc false
-{% endif %}
-
 "#,
     ),
     ("enum_module_footer.jinja", "end\n"),

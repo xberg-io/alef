@@ -105,12 +105,23 @@ pub(super) fn gen_last_error_helper(ffi_prefix: &str) -> String {
     )
 }
 
-/// Emit Go-convention doc comment lines for an exported type into `out`.
+/// Emit Go-convention doc comment lines for an exported symbol into `out`.
 ///
 /// Go's revive linter requires that the first line of a doc comment starts with
 /// the exported name (with an optional leading article). This function rewrites
 /// verbatim docs that begin with an article ("A ", "An ", "The ") by prepending
-/// the type name, and falls back to a generated comment when no doc is present.
+/// the symbol name, and falls back to a generated comment when no doc is present.
+///
+/// Used for both types and methods/functions: the symbol name appears at the
+/// start of the comment so `go doc`, `godoc`, and `pkg.go.dev` recognise the
+/// item description.
+///
+/// Rustdoc sections are translated into Godoc-friendly prose:
+/// - `# Arguments` → `// Arguments:` followed by `//   - name: desc` bullets
+/// - `# Returns`   → `// Returns ...`
+/// - `# Errors`    → `// Errors are returned when ...` (verbatim body if it
+///   already reads naturally)
+/// - `# Example` / `# Examples` → `//\n// Example:\n//   <indented code>`
 ///
 /// Examples:
 /// - `"A chat message."` on `Message` → `"// Message is a chat message."`
@@ -125,51 +136,174 @@ pub(super) fn emit_type_doc(out: &mut String, type_name: &str, doc: &str, fallba
                 doc => fallback,
             },
         ));
-        out.push('\n');
         return;
     }
-    let mut lines = doc.lines();
-    if let Some(first) = lines.next() {
-        let trimmed = first.trim();
-        // Check whether the first line already starts with the type name.
-        let already_starts = trimmed.starts_with(type_name);
-        let doc_text = if already_starts {
-            trimmed.to_string()
-        } else {
-            // Strip leading articles and rewrite as "<TypeName> <rest>".
-            let rest = trimmed
-                .strip_prefix("A ")
-                .or_else(|| trimmed.strip_prefix("An "))
-                .or_else(|| trimmed.strip_prefix("The "))
-                .unwrap_or(trimmed);
-            // Lowercase the first letter of the rest so the sentence reads naturally
-            // after the PascalCase type name prefix.
-            let rest = if rest.is_empty() {
-                fallback.to_string()
-            } else {
-                let mut chars = rest.chars();
-                match chars.next() {
-                    Some(c) => c.to_lowercase().to_string() + chars.as_str(),
-                    None => fallback.to_string(),
-                }
-            };
-            format!("{} {}", type_name, rest)
-        };
+    let sections = alef_codegen::doc_emission::parse_rustdoc_sections(doc);
+    let summary = sections.summary.trim();
+    if summary.is_empty() {
+        // No summary prose, only sections — synthesise a header line then
+        // append sections so the symbol still has a name-prefixed doc line.
         out.push_str(&crate::template_env::render(
             "type_doc_header.jinja",
             context! {
                 type_name => type_name,
-                doc => &doc_text,
+                doc => fallback,
             },
         ));
+    } else {
+        emit_godoc_summary(out, type_name, summary);
+    }
+    emit_godoc_sections(out, &sections);
+}
+
+/// Emit the summary prose with the symbol name prefixed onto the first line.
+///
+/// Subsequent lines of the summary are emitted as plain `// <line>` continuation
+/// comments. Article-stripping is applied only to the first sentence so
+/// "A foo" becomes "Name is a foo".
+fn emit_godoc_summary(out: &mut String, symbol_name: &str, summary: &str) {
+    let mut lines = summary.lines();
+    let first = lines.next().unwrap_or("").trim();
+    // The template prepends `// {{ symbol_name }} `, so strip a leading
+    // occurrence of `{symbol_name}` (plus an optional separator space) from
+    // the rendered body — otherwise summaries that already start with the
+    // exported name produce `// Name Name does ...` double-prefixes.
+    let body = if let Some(rest) = first.strip_prefix(symbol_name) {
+        rest.trim_start().to_string()
+    } else {
+        let rest = first
+            .strip_prefix("A ")
+            .or_else(|| first.strip_prefix("An "))
+            .or_else(|| first.strip_prefix("The "))
+            .unwrap_or(first);
+        if rest.is_empty() {
+            String::new()
+        } else {
+            let mut chars = rest.chars();
+            match chars.next() {
+                Some(c) => c.to_lowercase().to_string() + chars.as_str(),
+                None => String::new(),
+            }
+        }
+    };
+    out.push_str(&crate::template_env::render(
+        "type_doc_header.jinja",
+        context! {
+            type_name => symbol_name,
+            doc => &body,
+        },
+    ));
+    for line in lines {
+        out.push_str(&crate::template_env::render(
+            "go_doc_comment_line.jinja",
+            context! { line => line.trim() },
+        ));
+    }
+}
+
+/// Push a blank `//` separator line if one isn't already at the end of `out`.
+fn push_godoc_blank(out: &mut String) {
+    if !out.ends_with("//\n") {
+        out.push_str("//\n");
+    }
+}
+
+/// Push `// <text>` line, or `//` when `text` is empty.
+fn push_godoc_line(out: &mut String, text: &str) {
+    if text.is_empty() {
+        out.push_str("//\n");
+    } else {
+        out.push_str("// ");
+        out.push_str(text);
         out.push('\n');
-        for line in lines {
-            out.push_str(&crate::template_env::render(
-                "go_doc_comment_line.jinja",
-                context! {
-                    line => line.trim(),
-                },
-            ));
+    }
+}
+
+/// Emit a section body prefixed with `lead` on the first line.
+///
+/// If the body already starts with the lead phrase (case-insensitive) the body
+/// is emitted verbatim. Otherwise the first content word's leading character is
+/// lowercased so `Returns` + `"The root node"` reads as `Returns the root node`
+/// rather than `Returns The root node`.
+fn emit_prefixed_section(out: &mut String, body: &str, lead: &str) {
+    let trimmed = body.trim();
+    let lead_first_word = lead.split_whitespace().next().unwrap_or(lead);
+    let starts_with_lead = trimmed
+        .split_whitespace()
+        .next()
+        .is_some_and(|w| w.eq_ignore_ascii_case(lead_first_word));
+    if starts_with_lead {
+        for line in trimmed.lines() {
+            push_godoc_line(out, line.trim());
+        }
+        return;
+    }
+    let mut lines = trimmed.lines();
+    if let Some(first) = lines.next() {
+        let first = first.trim();
+        let first_lc = first
+            .chars()
+            .next()
+            .map(|c| c.to_lowercase().to_string() + &first[c.len_utf8()..])
+            .unwrap_or_default();
+        push_godoc_line(out, &format!("{} {}", lead, first_lc));
+    }
+    for line in lines {
+        push_godoc_line(out, line.trim());
+    }
+}
+
+/// Emit `# Arguments`, `# Returns`, `# Errors`, `# Example` sections of a
+/// rustdoc block as Godoc-friendly prose. Each section is separated from
+/// preceding output by a blank `//` line so godoc tooling renders paragraphs.
+fn emit_godoc_sections(out: &mut String, sections: &alef_codegen::doc_emission::RustdocSections) {
+    if let Some(body) = sections.arguments.as_deref() {
+        push_godoc_blank(out);
+        push_godoc_line(out, "Arguments:");
+        let bullets = alef_codegen::doc_emission::parse_arguments_bullets(body);
+        if bullets.is_empty() {
+            for line in body.lines() {
+                push_godoc_line(out, line.trim());
+            }
+        } else {
+            for (name, desc) in bullets {
+                let bullet = if desc.is_empty() {
+                    format!("  - {}", name)
+                } else {
+                    format!("  - {}: {}", name, desc)
+                };
+                push_godoc_line(out, &bullet);
+            }
+        }
+    }
+    if let Some(body) = sections.returns.as_deref() {
+        push_godoc_blank(out);
+        emit_prefixed_section(out, body, "Returns");
+    }
+    if let Some(body) = sections.errors.as_deref() {
+        push_godoc_blank(out);
+        emit_prefixed_section(out, body, "Errors are returned when");
+    }
+    if let Some(body) = sections.example.as_deref() {
+        push_godoc_blank(out);
+        push_godoc_line(out, "Example:");
+        // Godoc renders indented blocks as preformatted code. Strip a single
+        // ``` fence pair if present, then indent each line with two spaces.
+        let mut in_fence = false;
+        for line in body.lines() {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("```") {
+                in_fence = !in_fence;
+                continue;
+            }
+            if line.trim().is_empty() {
+                out.push_str("//\n");
+            } else {
+                out.push_str("//   ");
+                out.push_str(line.trim_end());
+                out.push('\n');
+            }
+            let _ = in_fence;
         }
     }
 }
