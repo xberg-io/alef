@@ -773,7 +773,7 @@ pub(super) fn gen_elixir_enum_module_with_known_types(
 
         // Module attributes for each variant value — convenient aliases
         for variant in &enum_def.variants {
-            let atom_name = variant.name.to_snake_case();
+            let atom_name = alef_codegen::naming::pascal_to_snake(&variant.name);
             let attr_name = elixir_safe_attr_name(&atom_name);
             out.push_str(&template_env::render(
                 "elixir_enum_attr.jinja",
@@ -786,7 +786,7 @@ pub(super) fn gen_elixir_enum_module_with_known_types(
         out.push('\n');
         // Export the values so callers can reference MyEnum.variant_name/0
         for variant in &enum_def.variants {
-            let atom_name = variant.name.to_snake_case();
+            let atom_name = alef_codegen::naming::pascal_to_snake(&variant.name);
             let attr_name = elixir_safe_attr_name(&atom_name);
             out.push_str(&template_env::render(
                 "elixir_enum_accessor.jinja",
@@ -801,8 +801,8 @@ pub(super) fn gen_elixir_enum_module_with_known_types(
         out.push_str("  @type t :: term()\n");
         out.push('\n');
         for variant in &enum_def.variants {
-            let variant_atom = format!(":{}", variant.name.to_snake_case());
-            let type_name = elixir_safe_type_name(&variant.name.to_snake_case());
+            let variant_atom = format!(":{}", alef_codegen::naming::pascal_to_snake(&variant.name));
+            let type_name = elixir_safe_type_name(&alef_codegen::naming::pascal_to_snake(&variant.name));
             if variant.fields.is_empty() {
                 // Unit variant: just an atom
                 out.push_str(&template_env::render(

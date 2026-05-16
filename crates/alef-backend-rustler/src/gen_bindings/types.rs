@@ -160,10 +160,10 @@ fn variant_wire_name(variant: &alef_core::ir::EnumVariant, enum_def: &EnumDef) -
         return rename.clone();
     }
     match enum_def.serde_rename_all.as_deref() {
-        Some("snake_case") => heck::AsSnakeCase(variant.name.as_str()).to_string(),
+        Some("snake_case") => alef_codegen::naming::pascal_to_snake(&variant.name),
         Some("camelCase") => heck::AsLowerCamelCase(variant.name.as_str()).to_string(),
         Some("PascalCase") | Some("UpperCamelCase") => variant.name.clone(),
-        Some("SCREAMING_SNAKE_CASE") => heck::AsShoutySnakeCase(variant.name.as_str()).to_string(),
+        Some("SCREAMING_SNAKE_CASE") => alef_codegen::naming::pascal_to_screaming_snake(&variant.name),
         Some("kebab-case") => heck::AsKebabCase(variant.name.as_str()).to_string(),
         _ => variant.name.clone(),
     }
@@ -207,7 +207,7 @@ fn gen_rustler_flat_data_enum(enum_def: &EnumDef, module_prefix: &str) -> String
         if !variant.fields.is_empty() && variant.is_tuple {
             // Tuple variant: field is the first (and typically only) inner type
             if let Some(first_field) = variant.fields.first() {
-                let field_name = heck::AsSnakeCase(variant.name.as_str()).to_string();
+                let field_name = alef_codegen::naming::pascal_to_snake(&variant.name);
                 let field_type = field_type_for_rustler(first_field);
                 out.push_str(&template_env::render(
                     "flat_enum_variant_field.jinja",
@@ -236,7 +236,7 @@ fn gen_rustler_flat_data_enum(enum_def: &EnumDef, module_prefix: &str) -> String
 
     for variant in &enum_def.variants {
         if !variant.fields.is_empty() && variant.is_tuple {
-            let field_name = heck::AsSnakeCase(variant.name.as_str()).to_string();
+            let field_name = alef_codegen::naming::pascal_to_snake(&variant.name);
             out.push_str(&template_env::render(
                 "flat_enum_default_variant_field.jinja",
                 minijinja::context! {
@@ -286,7 +286,7 @@ pub(super) fn gen_rustler_flat_data_enum_from_core(enum_def: &EnumDef, core_impo
     ));
 
     for variant in &enum_def.variants {
-        let field_name = heck::AsSnakeCase(variant.name.as_str()).to_string();
+        let field_name = alef_codegen::naming::pascal_to_snake(&variant.name);
         let wire_name = variant_wire_name(variant, enum_def);
 
         if variant.fields.is_empty() {
@@ -366,7 +366,7 @@ pub(super) fn gen_rustler_flat_data_enum_to_core(enum_def: &EnumDef, core_import
     ));
 
     for variant in &enum_def.variants {
-        let field_name = heck::AsSnakeCase(variant.name.as_str()).to_string();
+        let field_name = alef_codegen::naming::pascal_to_snake(&variant.name);
         let wire_name = variant_wire_name(variant, enum_def);
 
         if variant.fields.is_empty() {
