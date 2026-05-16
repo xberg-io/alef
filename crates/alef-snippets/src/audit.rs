@@ -202,7 +202,9 @@ fn audit_fences(path: &Path, content: &str) -> Vec<AuditIssue> {
                     index + 1,
                     "fenced code block is missing a language tag".to_string(),
                 ));
-            } else if Language::from_fence_tag(&tag) == Language::Unknown {
+            } else if Language::from_fence_tag(&tag) == Language::Unknown
+                && !is_known_display_tag(&tag)
+            {
                 issues.push(issue(
                     AuditIssueKind::UnknownLanguage,
                     path,
@@ -256,6 +258,29 @@ fn issue(kind: AuditIssueKind, path: &Path, line: usize, message: String) -> Aud
         line,
         message,
     }
+}
+
+/// Returns true for fence tags that are valid display-only markup the audit
+/// should accept without flagging as `UnknownLanguage`. These tags do not map
+/// to executable validators in `Language::from_fence_tag`, but they are
+/// well-known in the Markdown / docs ecosystem (data formats, diagram DSLs,
+/// shell session transcripts, third-party JVM build files, etc.).
+fn is_known_display_tag(tag: &str) -> bool {
+    matches!(
+        tag.trim().to_lowercase().as_str(),
+        // Data / config formats
+        "json" | "yaml" | "yml" | "xml" | "ini" | "csv" | "tsv" | "properties" | "env" | "diff" | "patch"
+            // Markup / web
+            | "html" | "css" | "scss" | "sass" | "svg" | "markdown" | "md" | "mdx" | "rst" | "tex" | "latex"
+            // Diagrams & docs DSLs
+            | "mermaid" | "plantuml" | "graphviz" | "dot" | "d2"
+            // Build tooling / scripts not yet validated
+            | "groovy" | "gradle" | "make" | "makefile" | "cmake" | "nginx" | "apache"
+            // Misc display
+            | "text" | "txt" | "plain" | "plaintext" | "output" | "log" | "console"
+            // Database / query languages
+            | "sql" | "graphql" | "gql"
+    )
 }
 
 #[cfg(test)]

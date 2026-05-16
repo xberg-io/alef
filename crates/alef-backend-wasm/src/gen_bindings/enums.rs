@@ -329,22 +329,35 @@ pub(super) fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &
                     let f_ident = escape_rust_keyword(&f.name);
                     if mixed.contains(&f.name) {
                         // Field is stored as JsValue in the binding struct.
-                        let core_inner = match &f.ty {
-                            TypeRef::Named(n) => format!("{core_import}::{n}"),
-                            _ => "serde_json::Value".to_string(),
+                        // Prefer the full type_rust_path when available so that external-crate
+                        // types (e.g. `tree_sitter_language_pack::ProcessResult`) are
+                        // reconstructed via the correct fully-qualified path rather than
+                        // `{core_import}::{short_name}` (which would be wrong for types not
+                        // re-exported from the core crate).
+                        let core_inner = if let Some(ref path) = f.type_rust_path {
+                            path.replace('-', "_")
+                        } else {
+                            match &f.ty {
+                                TypeRef::Named(n) => format!("{core_import}::{n}"),
+                                _ => "serde_json::Value".to_string(),
+                            }
                         };
-                        format!(
+                        let expr = format!(
                             "val.{f_ident}.as_ref().and_then(|v| serde_wasm_bindgen::from_value::<{core_inner}>(v.clone()).ok()).unwrap_or_default()"
-                        )
+                        );
+                        // Box<T> variants: the reconstructed value must be heap-allocated.
+                        if f.is_boxed { format!("Box::new({expr})") } else { expr }
                     } else if tuple_vec_fields.contains(&f.name) {
-                        // Sanitized Vec<(K, V)> stored as JsValue — decode via serde.
+                        // Sanitized Vec<(K, V)> or fixed-tuple-array stored as JsValue — decode via serde.
                         let orig = f.original_type.as_deref().unwrap_or("Vec<(String, String)>");
                         format!(
                             "val.{f_ident}.as_ref().and_then(|v| serde_wasm_bindgen::from_value::<{orig}>(v.clone()).ok()).unwrap_or_default()"
                         )
                     } else {
-                        // Single-type Named or primitive field.
-                        tagged_enum_binding_to_core_expr(&f_ident, &f.ty, f.optional)
+                        // Single-type Named or primitive field. Wrap in Box::new() when the
+                        // core variant holds Box<T> (is_boxed on the field definition).
+                        let expr = tagged_enum_binding_to_core_expr(&f_ident, &f.ty, f.optional);
+                        if f.is_boxed { format!("Box::new({expr})") } else { expr }
                     }
                 })
                 .collect();

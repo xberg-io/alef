@@ -498,9 +498,24 @@ fn extract_tuple_vec_original_type(ty: &TypeRef) -> Option<String> {
         }
         None
     }
+    /// Detect fixed-size tuple-array strings like `[(u32, u32); 4]`.
+    ///
+    /// The extractor emits these as `TypeRef::Named("[(u32, u32); 4]")` because there is no
+    /// dedicated IR variant for fixed-size arrays.  We capture the string before sanitization
+    /// so the wasm backend can reconstruct the type via `serde_wasm_bindgen::from_value`.
+    fn fixed_tuple_array_name(name: &str) -> Option<String> {
+        let s = name.trim();
+        if s.starts_with("[(") && s.contains(");") {
+            Some(s.to_string())
+        } else {
+            None
+        }
+    }
     match ty {
         TypeRef::Vec(_) => inner_tuple_name(ty),
         TypeRef::Optional(inner) => inner_tuple_name(inner),
+        // Fixed-size tuple arrays arrive as Named("[(T, U); N]") from the extractor.
+        TypeRef::Named(name) => fixed_tuple_array_name(name),
         _ => None,
     }
 }

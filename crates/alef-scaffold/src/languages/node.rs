@@ -111,14 +111,10 @@ pub(crate) fn scaffold_node_cargo(
     let content = format!(
         r#"{pkg_header}
 
-[package.metadata.cargo-machete]
-ignored = ["serde"]
-
 [lib]
 crate-type = ["cdylib"]
 
 [dependencies]
-futures-util = "{futures_util}"
 {crate_name} = {{ path = "../{core_crate_dir}"{features} }}
 napi = {{ version = "{napi}", features = [{napi_features}] }}
 napi-derive = "{napi_derive}"
@@ -133,7 +129,6 @@ napi-build = "{napi_build}"
         crate_name = &config.name,
         core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::Node),
-        futures_util = tv::cargo::FUTURES_UTIL,
         napi = tv::cargo::NAPI,
         napi_features = napi_features_str,
         napi_derive = tv::cargo::NAPI_DERIVE,

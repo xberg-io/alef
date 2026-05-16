@@ -2,17 +2,21 @@ pub mod bash;
 pub mod c;
 pub mod csharp;
 pub mod dart;
+pub mod documentation;
 pub mod elixir;
 pub mod go;
 pub mod java;
+pub mod json_validator;
 pub mod kotlin;
 pub mod php;
 pub mod python;
+pub mod r;
 pub mod ruby;
 pub mod rust;
 pub mod swift;
 pub mod toml_validator;
 pub mod typescript;
+pub mod yaml_validator;
 pub mod zig;
 
 use crate::error::Result;
@@ -68,6 +72,14 @@ impl ValidatorRegistry {
         registry.register(Box::new(kotlin::KotlinValidator));
         registry.register(Box::new(swift::SwiftValidator));
         registry.register(Box::new(zig::ZigValidator));
+        registry.register(Box::new(json_validator::JsonValidator));
+        registry.register(Box::new(yaml_validator::YamlValidator));
+        registry.register(Box::new(r::RValidator));
+        registry.register(Box::new(documentation::TextValidator));
+        registry.register(Box::new(documentation::MermaidValidator));
+        registry.register(Box::new(documentation::PowerShellValidator));
+        registry.register(Box::new(documentation::XmlValidator));
+        registry.register(Box::new(documentation::DockerValidator));
 
         registry
     }

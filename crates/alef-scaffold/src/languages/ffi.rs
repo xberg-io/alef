@@ -57,17 +57,11 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
         r#"{pkg_header}
 repository = "{repository}"
 
-[package.metadata.cargo-machete]
-# tokio is pulled in for its runtime/macros at link time but the generated
-# FFI source never `use`s it directly — cargo-machete would otherwise flag it.
-ignored = ["tokio"]
-
 [lib]
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
 {crate_name} = {{ path = "../{core_crate_dir}"{features} }}
-futures-util = "{futures_util}"
 serde_json = "1"
 tokio = {{ version = "1", features = ["full"] }}{extra_deps_block}
 
@@ -85,7 +79,6 @@ tempfile = "{tempfile}"
         crate_name = &config.name,
         core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::Ffi),
-        futures_util = tv::cargo::FUTURES_UTIL,
         cbindgen = tv::cargo::CBINDGEN,
         tempfile = tv::cargo::TEMPFILE,
         extra_deps_block = extra_deps_block,
