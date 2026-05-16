@@ -1598,20 +1598,20 @@ fn emit_swift_bridge_files(
 // Inbound protocol emission (OptionsField trait bridges)
 // ---------------------------------------------------------------------------
 
-/// Emit Swift protocol + box class for every `bind_via = "options_field"` inbound bridge.
+/// Emit Swift protocol + adapter class for every `bind_via = "options_field"` inbound bridge
+/// into the main module file (e.g. `HtmlToMarkdown.swift`).
 ///
 /// For each such bridge this produces:
 ///
-/// 1. `public protocol {Trait}Protocol: AnyObject` — one method per trait method, using
-///    JSON-bridged types for Named params (same transformation as the Rust `inbound_bridge_type`).
-///    A default extension returns `.continue_` for all methods so adopters only override
-///    methods they care about.
-/// 2. `public final class Swift{Trait}Box` — wraps an inner `{Trait}Protocol` object.
-///    Each `alef_{method}` shim (called by the Rust `extern "Swift"` machinery) delegates
-///    to the inner protocol.  The shim also converts the `VisitResult` return value to
-///    the String form the Rust side expects (no: VisitResult is not JSON-bridged here;
-///    it is a Rust enum exposed directly by swift-bridge).
-/// 3. A `public func make{TraitCamel}Handle(_ visitor: {Trait}Protocol) -> {TypeAlias}` factory.
+/// 1. `public protocol {Trait}Protocol: AnyObject` — user-facing protocol with `String`-typed
+///    params and `VisitResult` return.  A default extension returns `.continue_` for all methods.
+/// 2. A private adapter class `_{Trait}ProtocolAdapter` that wraps the user protocol and
+///    translates RustString params → String, serializes `VisitResult` → JSON String.
+///    This implements the internal `Swift{Trait}BoxDelegate` protocol defined in RustBridge.
+/// 3. A `public func make{TraitCamel}Handle(...)` factory that creates the opaque handle.
+///
+/// NOTE: `Swift{Trait}Box` (with RustString-typed methods) is emitted into `Sources/RustBridge/`
+/// by `emit_inbound_box_files` because the swift-bridge @_cdecl shims reference it there.
 fn emit_inbound_protocols(api: &ApiSurface, config: &ResolvedCrateConfig, out: &mut String) {
     for bridge_cfg in &config.trait_bridges {
         if bridge_cfg.bind_via != BridgeBinding::OptionsField {
@@ -1625,31 +1625,33 @@ fn emit_inbound_protocols(api: &ApiSurface, config: &ResolvedCrateConfig, out: &
             Some(a) => a,
             None => continue,
         };
+        let result_type_name = bridge_cfg.result_type.as_deref().unwrap_or("VisitResult");
 
         // Locate trait def in the API surface.
         let Some(trait_def) = api.types.iter().find(|t| t.is_trait && t.name == *trait_name) else {
             continue;
         };
 
+        // Locate the result enum in the API surface for JSON serialization codegen.
+        let result_enum = api.enums.iter().find(|e| e.name == result_type_name);
+
         let box_name = format!("Swift{trait_name}Box");
+        let adapter_name = format!("_{trait_name}ProtocolAdapter");
         let protocol_name = format!("{trait_name}Protocol");
+        let delegate_protocol_name = format!("Swift{trait_name}BoxDelegate");
         let factory_fn = format!("make{}Handle", trait_name.to_upper_camel_case());
 
-        // --- 1. Protocol definition ---
+        // --- 1. Protocol definition (user-facing, String params, VisitResult return) ---
         out.push_str(&format!(
             "/// Swift protocol that Swift classes implement to provide visitor callbacks.\n\
-             /// Conform to this protocol to intercept HTML→Markdown conversion events.\n\
+             /// Conform to this protocol to intercept HTML\u{2192}Markdown conversion events.\n\
              public protocol {protocol_name}: AnyObject {{\n"
         ));
         for method in &trait_def.methods {
-            if method.has_default_impl {
-                // All HtmlVisitor methods have default impls — include all of them so
-                // the Swift side can override selectively. We do NOT skip here.
-            }
             let method_snake = method.name.to_snake_case();
             let method_camel = method_snake.to_lower_camel_case();
             let params = swift_protocol_params(method);
-            out.push_str(&format!("    func {method_camel}({params}) -> VisitResult\n"));
+            out.push_str(&format!("    func {method_camel}({params}) -> {result_type_name}\n"));
         }
         out.push_str("}\n\n");
 
@@ -1662,46 +1664,97 @@ fn emit_inbound_protocols(api: &ApiSurface, config: &ResolvedCrateConfig, out: &
         for method in &trait_def.methods {
             let method_snake = method.name.to_snake_case();
             let method_camel = method_snake.to_lower_camel_case();
-            let params = swift_protocol_params(method);
-            // Build unused-param placeholders.
             let underscore_params = swift_protocol_underscore_params(method);
             out.push_str(&format!(
-                "    func {method_camel}({underscore_params}) -> VisitResult {{ return .continue_ }}\n"
+                "    func {method_camel}({underscore_params}) -> {result_type_name} {{ return .continue_ }}\n"
             ));
-            let _ = params;
         }
         out.push_str("}\n\n");
 
-        // --- 3. Box class (routes Rust shim calls to the protocol) ---
+        // --- 3. Adapter class (private, lives in HtmlToMarkdown module) ---
+        // Implements Swift{Trait}BoxDelegate (from RustBridge), wrapping any {Trait}Protocol.
+        // Converts RustString → String, passes to user protocol, serializes result to JSON.
         out.push_str(&format!(
-            "/// Opaque wrapper that swift-bridge retains on the Rust side.\n\
-             /// Each `alef_*` method is called by the Rust extern \"Swift\" machinery;\n\
-             /// it delegates to the inner `{protocol_name}` conformer.\n\
-             public final class {box_name} {{\n\
+            "/// Internal adapter: wraps a `{protocol_name}` conformer as a `{delegate_protocol_name}`.\n\
+             /// Converts swift-bridge raw types (RustString, UInt, etc.) to user-friendly Swift\n\
+             /// types before dispatching, and serialises the `{result_type_name}` return to JSON.\n\
+             private final class {adapter_name}: {delegate_protocol_name} {{\n\
              \x20   private let inner: any {protocol_name}\n\
-             \x20   public init(_ inner: any {protocol_name}) {{ self.inner = inner }}\n"
+             \x20   init(_ inner: any {protocol_name}) {{ self.inner = inner }}\n"
         ));
+        // Emit one delegate method per trait method.
         for method in &trait_def.methods {
             let method_snake = method.name.to_snake_case();
             let method_camel = method_snake.to_lower_camel_case();
-            // The Rust extern "Swift" shim is named `alef_{method_snake}`.
-            let shim_name = format!("alef_{method_snake}");
-            let shim_params = swift_shim_params(method);
-            let shim_call_args = swift_shim_call_args(method);
+            let delegate_params = swift_box_params(method); // RustString-typed
+            let (conversion_lines, call_args) = swift_adapter_conversions(method);
             out.push_str(&format!(
-                "    public func {shim_name}({shim_params}) -> VisitResult {{\n\
-                 \x20       return inner.{method_camel}({shim_call_args})\n\
-                 \x20   }}\n"
+                "    func {method_snake}({delegate_params}) -> String {{\n"
             ));
+            for line in &conversion_lines {
+                out.push_str(&format!("        {line}\n"));
+            }
+            let result_json = if let Some(_en) = result_enum {
+                format!("        return {}_toJson(inner.{method_camel}({call_args}))\n", result_type_name.to_snake_case())
+            } else {
+                "        return \"{}\"\n".to_string()
+            };
+            out.push_str(&result_json);
+            out.push_str("    }\n");
         }
         out.push_str("}\n\n");
 
-        // --- 4. Factory function ---
+        // --- 4. JSON serialization helper for the result type ---
+        if let Some(en) = result_enum {
+            let fn_name = format!("{}_toJson", result_type_name.to_snake_case());
+            out.push_str(&format!(
+                "/// Serialise a `{result_type_name}` to a JSON string matching Rust serde defaults.\n\
+                 private func {fn_name}(_ result: {result_type_name}) -> String {{\n\
+                 \x20   switch result {{\n"
+            ));
+            for variant in &en.variants {
+                let variant_name = &variant.name;
+                // The Swift case name: camelCase of variant name. Unit variants are bare;
+                // newtype variants have associated values.
+                let swift_case = swift_ident(&variant_name.to_lower_camel_case());
+                if variant.fields.is_empty() {
+                    // Unit variant: serialises to `"VariantName"` (a JSON string).
+                    out.push_str(&format!("    case .{swift_case}: return \"\\\"{}\\\"\"",
+                        variant_name));
+                } else if variant.is_tuple && variant.fields.len() == 1 {
+                    // Newtype variant: serialises to `{\"VariantName\":\"value\"}`.
+                    let _field_swift = if variant.fields[0].name.starts_with("field") {
+                        "field0".to_string()
+                    } else {
+                        variant.fields[0].name.to_lower_camel_case()
+                    };
+                    // The associated value label in Swift for a tuple variant is `field0:`.
+                    out.push_str(&format!(
+                        "    case .{swift_case}(let v): return \"{{\\\"{}\\\":\\\"\\(jsonEscapeStr(v))\\\"}}\""
+                        , variant_name));
+                }
+                out.push('\n');
+            }
+            out.push_str("    }\n}\n\n");
+            // Emit jsonEscapeStr helper once (idempotent — only once per bridge).
+            out.push_str(
+                "/// Escape a Swift String for embedding in a JSON string literal.\n\
+                 private func jsonEscapeStr(_ s: String) -> String {\n\
+                 \x20   s.replacingOccurrences(of: \"\\\\\", with: \"\\\\\\\\\")\n\
+                 \x20    .replacingOccurrences(of: \"\\\"\", with: \"\\\\\\\"\")\n\
+                 \x20    .replacingOccurrences(of: \"\\n\", with: \"\\\\n\")\n\
+                 \x20    .replacingOccurrences(of: \"\\r\", with: \"\\\\r\")\n\
+                 \x20    .replacingOccurrences(of: \"\\t\", with: \"\\\\t\")\n\
+                 }\n\n"
+            );
+        }
+
+        // --- 5. Factory function ---
         out.push_str(&format!(
             "/// Wrap a `{protocol_name}` conformer in an opaque `{type_alias}` handle\n\
              /// that can be passed to `{options_fn}(...)` on the Rust side.\n\
              public func {factory_fn}(_ visitor: any {protocol_name}) -> {type_alias} {{\n\
-             \x20   return RustBridge.make{trait_name}Handle({box_name}(visitor))\n\
+             \x20   return RustBridge.make{trait_name}Handle({box_name}({adapter_name}(visitor)))\n\
              }}\n\n",
             options_fn = {
                 let options_type = bridge_cfg.options_type.as_deref().unwrap_or("ConversionOptions");
@@ -1710,7 +1763,96 @@ fn emit_inbound_protocols(api: &ApiSurface, config: &ResolvedCrateConfig, out: &
                 format!("{opts_snake}FromJsonWith{}", field.to_upper_camel_case()).to_lower_camel_case()
             },
         ));
+        let _ = api;
     }
+}
+
+/// Generate `Swift{Trait}Box.swift` files for every OptionsField bridge.
+/// These go into `Sources/RustBridge/` so the swift-bridge @_cdecl shims can reference them.
+///
+/// Each file contains:
+/// 1. `public protocol Swift{Trait}BoxDelegate: AnyObject` — internal-ish protocol with
+///    RustString-typed params and String return (matching the @_cdecl shim call sites).
+/// 2. `public final class Swift{Trait}Box` — the opaque type declared in `extern "Swift"`.
+///    Methods have keyword labels and RustString params, returning String (JSON).
+fn emit_inbound_box_files(
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+    rust_bridge_dir: &std::path::Path,
+) -> Vec<GeneratedFile> {
+    let mut files = Vec::new();
+    for bridge_cfg in &config.trait_bridges {
+        if bridge_cfg.bind_via != BridgeBinding::OptionsField {
+            continue;
+        }
+        if bridge_cfg.exclude_languages.iter().any(|l| l == "swift") {
+            continue;
+        }
+        let trait_name = &bridge_cfg.trait_name;
+
+        let Some(trait_def) = api.types.iter().find(|t| t.is_trait && t.name == *trait_name) else {
+            continue;
+        };
+
+        let box_name = format!("Swift{trait_name}Box");
+        let delegate_protocol_name = format!("Swift{trait_name}BoxDelegate");
+
+        let mut content = String::new();
+        content.push_str("// Generated by alef. Do not edit by hand.\n");
+        content.push_str("// This file is in Sources/RustBridge/ because the swift-bridge @_cdecl\n");
+        content.push_str("// shims reference Swift");
+        content.push_str(trait_name);
+        content.push_str("Box by name and must see it in the same module.\n\n");
+        content.push_str("import RustBridgeC\n\n");
+
+        // --- Delegate protocol (also in RustBridge so HtmlToMarkdown can conform to it) ---
+        content.push_str(&format!(
+            "/// Delegate protocol for `{box_name}`.\n\
+             /// Conforming types convert raw FFI params (RustString etc.) to user-friendly\n\
+             /// Swift types and return a JSON-encoded result string.\n\
+             /// Implemented by the private adapter class in the `{trait_name}` module.\n\
+             public protocol {delegate_protocol_name}: AnyObject {{\n"
+        ));
+        for method in &trait_def.methods {
+            let method_snake = method.name.to_snake_case();
+            let delegate_params = swift_box_params(method);
+            content.push_str(&format!("    func {method_snake}({delegate_params}) -> String\n"));
+        }
+        content.push_str("}\n\n");
+
+        // --- Box class ---
+        content.push_str(&format!(
+            "/// Opaque box class retained by Rust via `Unmanaged<{box_name}>.passRetained`.\n\
+             /// Each `alef_*` method corresponds to an `extern \"Swift\"` declaration in the\n\
+             /// Rust bridge crate; swift-bridge generates @_cdecl shims that call these.\n\
+             /// Delegates to a `{delegate_protocol_name}` (implemented in the main module).\n\
+             public final class {box_name} {{\n\
+             \x20   private let delegate: any {delegate_protocol_name}\n\
+             \x20   public init(_ delegate: any {delegate_protocol_name}) {{ self.delegate = delegate }}\n"
+        ));
+
+        for method in &trait_def.methods {
+            let method_snake = method.name.to_snake_case();
+            let shim_name = format!("alef_{method_snake}");
+            // Box method params: keyword labels + RustString/RustVec types.
+            let box_params = swift_box_params_keyword(method);
+            // Args to pass to delegate (same names, no conversion needed — delegate takes same types).
+            let delegate_call_args = swift_box_delegate_call_args(method);
+            content.push_str(&format!(
+                "    public func {shim_name}({box_params}) -> String {{\n\
+                 \x20       return delegate.{method_snake}({delegate_call_args})\n\
+                 \x20   }}\n"
+            ));
+        }
+        content.push_str("}\n");
+
+        files.push(GeneratedFile {
+            path: rust_bridge_dir.join(format!("Swift{trait_name}Box.swift")),
+            content,
+            generated_header: false,
+        });
+    }
+    files
 }
 
 /// Swift shim parameter list for the `alef_{method}` method on `Swift{Trait}Box`.
@@ -1733,9 +1875,93 @@ fn swift_shim_params(method: &alef_core::ir::MethodDef) -> String {
     params.join(", ")
 }
 
+
+/// Generate conversion lines and call args for the adapter class delegate method.
+///
+/// The adapter receives `String`-typed params (from swift-bridge via the box protocol)
+/// and must convert `Named` types from their JSON representation back to the Swift type
+/// before calling the user-facing protocol method.
+///
+/// Returns: (conversion_lines, call_args_for_protocol_call)
+fn swift_adapter_conversions(method: &alef_core::ir::MethodDef) -> (Vec<String>, String) {
+    use alef_core::ir::TypeRef;
+    let mut conversion_lines: Vec<String> = Vec::new();
+    let call_args: Vec<String> = method
+        .params
+        .iter()
+        .map(|p| {
+            let snake = p.name.to_snake_case();
+            let camel = p.name.to_lower_camel_case();
+            match &p.ty {
+                TypeRef::Named(type_name) => {
+                    // Named types arrive as JSON-encoded String; decode to Swift type.
+                    let local = format!("{camel}Decoded");
+                    if p.optional {
+                        conversion_lines.push(format!(
+                            "let {local}: {type_name}? = {snake}.flatMap {{ s in try? JSONDecoder().decode({type_name}.self, from: s.data(using: .utf8) ?? Data()) }}"
+                        ));
+                    } else {
+                        conversion_lines.push(format!(
+                            "let {local} = (try? JSONDecoder().decode({type_name}.self, from: {snake}.data(using: .utf8) ?? Data())) ?? {type_name}()"
+                        ));
+                    }
+                    local
+                }
+                TypeRef::Optional(inner) => {
+                    if matches!(inner.as_ref(), TypeRef::Named(_)) {
+                        // Optional Named arrives as String?; decode if present.
+                        let TypeRef::Named(type_name) = inner.as_ref() else { unreachable!() };
+                        let local = format!("{camel}Decoded");
+                        conversion_lines.push(format!(
+                            "let {local}: {type_name}? = {snake}.flatMap {{ s in try? JSONDecoder().decode({type_name}.self, from: s.data(using: .utf8) ?? Data()) }}"
+                        ));
+                        local
+                    } else {
+                        snake
+                    }
+                }
+                _ => snake,
+            }
+        })
+        .collect();
+    (conversion_lines, call_args.join(", "))
+}
+
 /// Swift protocol parameter list (user-facing). Same types as shim, but parameter
 /// names are camelCase (idiomatic Swift).  `ctx` is the first element of
 /// `method.params` so it is included naturally.
+/// Box/delegate protocol method params — positional (`_ name: Type`).
+/// Alias for `swift_shim_params` used in delegate protocol and adapter class emit.
+fn swift_box_params(method: &alef_core::ir::MethodDef) -> String {
+    swift_shim_params(method)
+}
+
+/// Box class method params with keyword argument labels (`name: Type`), no leading `_`.
+/// Used by the `public final class {Box}` methods exposed via `@_cdecl` shims.
+fn swift_box_params_keyword(method: &alef_core::ir::MethodDef) -> String {
+    let params: Vec<String> = method
+        .params
+        .iter()
+        .map(|p| {
+            let name = p.name.to_snake_case();
+            let ty = swift_inbound_type(&p.ty, p.optional);
+            format!("{name}: {ty}")
+        })
+        .collect();
+    params.join(", ")
+}
+
+/// Argument list for forwarding from box class to delegate protocol method.
+/// Produces `name1, name2` (positional, matching `_ name:` labels in protocol).
+fn swift_box_delegate_call_args(method: &alef_core::ir::MethodDef) -> String {
+    method
+        .params
+        .iter()
+        .map(|p| p.name.to_snake_case())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 fn swift_protocol_params(method: &alef_core::ir::MethodDef) -> String {
     let params: Vec<String> = method
         .params
@@ -1765,6 +1991,7 @@ fn swift_protocol_underscore_params(method: &alef_core::ir::MethodDef) -> String
 
 /// Argument list for the `inner.{methodCamel}(...)` delegation call.
 /// `ctx` is `method.params[0]` so it is included naturally.
+#[allow(dead_code)]
 fn swift_shim_call_args(method: &alef_core::ir::MethodDef) -> String {
     method
         .params
