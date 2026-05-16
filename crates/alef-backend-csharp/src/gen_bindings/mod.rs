@@ -1,8 +1,8 @@
+use alef_codegen::shared::binding_fields;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{AdapterPattern, Language, ResolvedCrateConfig, resolve_output_dir};
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{ApiSurface, FieldDef, TypeRef};
-use alef_codegen::shared::binding_fields;
 use heck::ToPascalCase;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;

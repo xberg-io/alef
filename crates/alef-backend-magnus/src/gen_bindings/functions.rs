@@ -2,7 +2,7 @@
 
 use ahash::AHashSet;
 use alef_codegen::generators;
-use alef_codegen::shared::function_params;
+use alef_codegen::shared::{binding_fields, function_params};
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::config::{Language, ResolvedCrateConfig};
 use alef_core::ir::{ApiSurface, FieldDef, FunctionDef, ReceiverKind, TypeRef};
@@ -919,7 +919,7 @@ pub(super) fn gen_module_init(
         }
 
         if !typ.is_opaque {
-            for field in &typ.fields {
+            for field in binding_fields(&typ.fields) {
                 // Skip thread-unsafe fields (e.g., VisitorHandle) that cannot be used in Magnus methods
                 if is_thread_unsafe_field(field) {
                     continue;

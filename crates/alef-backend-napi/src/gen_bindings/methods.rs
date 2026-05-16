@@ -53,7 +53,10 @@ pub(super) fn gen_tagged_enum_binding_to_core(
                     .map(|f| {
                         let binding_field_name = tagged_enum_field_name(variant, f);
                         let has_binding = fields_with_binding_struct.contains(f.name.as_str());
-                        let is_mixed = mixed_named_fields.contains(&f.name);
+                        let is_single_tuple_named = variant.fields.len() == 1
+                            && tagged_enum_field_is_tuple(f)
+                            && matches!(&f.ty, TypeRef::Named(_));
+                        let is_mixed = !is_single_tuple_named && mixed_named_fields.contains(&f.name);
                         if f.optional {
                             match &f.ty {
                                 TypeRef::Path => {
@@ -276,7 +279,7 @@ pub(super) fn gen_tagged_enum_core_to_binding(
                     .map(|f| {
                         if let Some(field) = variant_field_map.get(f) {
                             let has_binding = fields_with_binding_struct.contains(f.as_str());
-                            let is_mixed = mixed_named_fields.contains(f.as_str());
+                            let is_mixed = mixed_named_fields.contains(field.name.as_str());
                             if field.optional {
                                 match &field.ty {
                                     TypeRef::Path => format!("{f}: {f}.map(|p| p.to_string_lossy().to_string())"),
@@ -321,8 +324,9 @@ pub(super) fn gen_tagged_enum_core_to_binding(
                 for sf in &synth_field_names {
                     if this_synth_field.as_deref() == Some(sf.as_str()) {
                         // The destructured tuple variable is the first field name
-                        let var_name = tagged_enum_field_name(variant, &variant.fields[0]);
-                        let is_boxed = variant.fields[0].is_boxed;
+                        let field = &variant.fields[0];
+                        let var_name = tagged_enum_field_name(variant, field);
+                        let is_boxed = field.is_boxed;
                         if is_boxed {
                             field_inits.push(format!("{sf}: Some((*{var_name}).into())"));
                         } else {

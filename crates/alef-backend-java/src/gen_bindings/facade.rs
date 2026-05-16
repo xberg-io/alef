@@ -6,6 +6,18 @@ use std::collections::HashSet;
 
 use super::helpers::{emit_javadoc, is_bridge_param_java};
 
+/// Helper to emit @Nullable annotation for optional types that are not primitives.
+fn nullable_prefix(ty: &TypeRef) -> &'static str {
+    match ty {
+        TypeRef::Primitive(_) => {
+            // Optional primitives become boxed (e.g., Optional<i32> → Integer), which are nullable.
+            // But we rely on java_boxed_type to handle this.
+            "@Nullable "
+        }
+        _ => "@Nullable ",
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn gen_facade_class(
     api: &ApiSurface,
@@ -32,11 +44,17 @@ pub(crate) fn gen_facade_class(
                     } else {
                         java_type(&p.ty)
                     };
-                    format!("final {} {}", ptype, to_java_name(&p.name))
+                    let annotation = if p.optional { nullable_prefix(&p.ty) } else { "" };
+                    format!("final {}{} {}", annotation, ptype, to_java_name(&p.name))
                 })
                 .collect();
 
-            let return_type = java_return_type(&func.return_type).to_string();
+            let return_type_str = java_return_type(&func.return_type).to_string();
+            let return_type = if matches!(func.return_type, TypeRef::Optional(_)) {
+                format!("@Nullable {}", return_type_str)
+            } else {
+                return_type_str
+            };
             let is_void = matches!(func.return_type, TypeRef::Unit);
             let is_optional = matches!(func.return_type, TypeRef::Optional(_));
             let java_name = to_java_name(&func.name);
@@ -71,7 +89,10 @@ pub(crate) fn gen_facade_class(
                 func.params
                     .iter()
                     .filter(|p| !p.optional && !is_bridge_param_java(p, bridge_param_names, bridge_type_aliases))
-                    .map(|p| format!("final {} {}", java_type(&p.ty), to_java_name(&p.name)))
+                    .map(|p| {
+                        let ptype = java_type(&p.ty);
+                        format!("final {} {}", ptype, to_java_name(&p.name))
+                    })
                     .collect()
             } else {
                 vec![]
@@ -140,6 +161,7 @@ pub(crate) fn gen_facade_class(
     let has_list = class_body.contains("List<");
     let has_map = class_body.contains("Map<");
     let has_optional = class_body.contains("Optional<");
+    let has_nullable = class_body.contains("@Nullable");
 
     crate::template_env::render(
         "facade_file.jinja",
@@ -149,6 +171,7 @@ pub(crate) fn gen_facade_class(
             has_list => has_list,
             has_map => has_map,
             has_optional => has_optional,
+            has_nullable => has_nullable,
             body => class_body,
         },
     )

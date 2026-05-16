@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-backend-zig: collapse error unions to single `KreuzbergError` set**: every emitted error set now includes `OutOfMemory` as a variant, so allocator failures can be propagated without a `||error{OutOfMemory}` concat. Return types for fallible functions are now `ErrorSet!T` instead of the verbose `(ErrorSet||error{OutOfMemory})!T`. (`crates/alef-backend-zig/src/gen_bindings/errors.rs`, `crates/alef-backend-zig/src/gen_bindings/functions.rs`)
+
 ### Added
 
 - **alef-codegen: add acronym-preserving PascalCase conversion helpers**: shared naming utilities now include `pascal_to_snake` and `pascal_to_screaming_snake`, preserving acronym runs such as `Rdfa`, `HTMLParser`, and `XMLHttpRequest` instead of splitting every uppercase letter. (`crates/alef-codegen/src/naming.rs`)

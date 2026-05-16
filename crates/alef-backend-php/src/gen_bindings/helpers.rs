@@ -2,6 +2,7 @@ use crate::type_map::PhpMapper;
 use ahash::AHashSet;
 use alef_codegen::conversions::ConversionConfig;
 use alef_codegen::naming::to_php_name;
+use alef_codegen::shared::binding_fields;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::ir::{EnumDef, PrimitiveType, TypeDef, TypeRef};
 use minijinja::context;
@@ -30,7 +31,7 @@ pub(crate) fn has_enum_named_field(typ: &alef_core::ir::TypeDef, enum_names: &AH
             _ => false,
         }
     }
-    typ.fields.iter().any(|f| type_ref_has_enum_named(&f.ty, enum_names))
+    binding_fields(&typ.fields).any(|f| type_ref_has_enum_named(&f.ty, enum_names))
 }
 
 /// Generate PHP-specific function parameter list.
@@ -687,6 +688,16 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
         },
     );
     for field in &typ.fields {
+        if field.binding_excluded {
+            out.push_str(&crate::template_env::render(
+                "php_struct_field_assignment.jinja",
+                context! {
+                    field_name => field.name.as_str(),
+                    field_expr => "Default::default()",
+                },
+            ));
+            continue;
+        }
         // Skip cfg-gated fields — they are absent from the binding struct.
         // The ..Default::default() spread below fills them when the feature is enabled.
         if field.cfg.is_some() {
@@ -867,7 +878,7 @@ pub(crate) fn gen_convertible_enum_tainted(
         if !enum_tainted.contains(&typ.name) {
             continue;
         }
-        for field in &typ.fields {
+        for field in binding_fields(&typ.fields) {
             if let Some(enum_name) = get_direct_enum_named(&field.ty, enum_names) {
                 if let Some(enum_def) = enums.iter().find(|e| e.name == enum_name) {
                     if enum_def.variants.iter().any(|v| !v.fields.is_empty()) {
@@ -885,7 +896,7 @@ pub(crate) fn gen_convertible_enum_tainted(
             if !enum_tainted.contains(&typ.name) || unconvertible.contains(&typ.name) {
                 continue;
             }
-            if typ.fields.iter().any(|f| references_named_type(&f.ty, &unconvertible)) {
+            if binding_fields(&typ.fields).any(|f| references_named_type(&f.ty, &unconvertible)) {
                 unconvertible.insert(typ.name.clone());
                 changed = true;
             }
@@ -923,6 +934,16 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
         },
     ));
     for field in &typ.fields {
+        if field.binding_excluded {
+            out.push_str(&crate::template_env::render(
+                "php_struct_field_assignment.jinja",
+                context! {
+                    field_name => field.name.as_str(),
+                    field_expr => "Default::default()",
+                },
+            ));
+            continue;
+        }
         // cfg-gated fields are absent from the binding struct and must not appear in the
         // From impl field list — they are filled by the ..Default::default() spread.
         // Exception: fields in `never_skip_cfg_field_names` (trait-bridge options-field

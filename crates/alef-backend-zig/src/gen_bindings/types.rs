@@ -1,4 +1,5 @@
 use alef_codegen::keywords::zig_ident;
+use alef_codegen::shared::binding_fields;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::ir::{EnumDef, TypeDef, TypeRef};
 
@@ -14,7 +15,7 @@ pub(crate) fn emit_type(ty: &TypeDef, out: &mut String) {
             type_name => &ty.name,
         },
     ));
-    for field in &ty.fields {
+    for field in binding_fields(&ty.fields) {
         let ty_str = zig_field_type(&field.ty, field.optional);
         out.push_str(&crate::template_env::render(
             "type_field.jinja",

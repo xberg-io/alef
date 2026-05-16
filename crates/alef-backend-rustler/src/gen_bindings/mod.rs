@@ -17,8 +17,8 @@ use std::path::PathBuf;
 
 use functions::{gen_nif_async_function, gen_nif_async_method, gen_nif_function, gen_nif_method};
 use helpers::{
-    elixir_return_typespec, elixir_safe_param_name, elixir_typespec, gen_elixir_enum_module, gen_elixir_opaque_module,
-    gen_elixir_struct_module, gen_native_ex, get_module_info,
+    elixir_return_typespec, elixir_safe_param_name, elixir_typespec, gen_elixir_enum_module_with_known_types,
+    gen_elixir_opaque_module, gen_elixir_struct_module, gen_native_ex, get_module_info,
 };
 use types::{
     gen_enum, gen_opaque_resource, gen_rustler_config_impl, gen_rustler_flat_data_enum_from_core,
@@ -640,8 +640,10 @@ impl Backend for RustlerBackend {
         }
 
         // ── 3. Enum modules ───────────────────────────────────────────────────
+        // Build a set of known type names for resolving union payload types
+        let known_type_names: AHashSet<String> = api.types.iter().map(|t| t.name.clone()).collect();
         for enum_def in &api.enums {
-            let enum_content = gen_elixir_enum_module(enum_def, &app_module);
+            let enum_content = gen_elixir_enum_module_with_known_types(enum_def, &app_module, &known_type_names);
             let file_name = format!("{}.ex", enum_def.name.to_snake_case());
             files.push(GeneratedFile {
                 path: PathBuf::from(&output_dir)

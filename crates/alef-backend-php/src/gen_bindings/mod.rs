@@ -9,6 +9,7 @@ use alef_codegen::conversions::ConversionConfig;
 use alef_codegen::generators::RustBindingConfig;
 use alef_codegen::generators::{self, AsyncPattern};
 use alef_codegen::naming::to_php_name;
+use alef_codegen::shared::binding_fields;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{Language, ResolvedCrateConfig, detect_serde_available, resolve_output_dir};
 use alef_core::hash::{self, CommentStyle};
@@ -507,7 +508,7 @@ impl Backend for PhpBackend {
             changed = false;
             for typ in api.types.iter().filter(|typ| !typ.is_trait) {
                 if !enum_tainted.contains(&typ.name)
-                    && typ.fields.iter().any(|f| references_named_type(&f.ty, &enum_tainted))
+                    && binding_fields(&typ.fields).any(|f| references_named_type(&f.ty, &enum_tainted))
                 {
                     enum_tainted.insert(typ.name.clone());
                     changed = true;
@@ -1001,7 +1002,7 @@ impl Backend for PhpBackend {
 
             // PHP 8.3+ constructor property promotion with `public readonly`.
             // Required parameters come before optional ones (PHP syntax requirement).
-            let mut sorted_fields: Vec<&alef_core::ir::FieldDef> = typ.fields.iter().collect();
+            let mut sorted_fields: Vec<&alef_core::ir::FieldDef> = binding_fields(&typ.fields).collect();
             sorted_fields.sort_by_key(|f| f.optional);
 
             // Emit PHPDoc before the constructor for any array-typed fields so PHPStan

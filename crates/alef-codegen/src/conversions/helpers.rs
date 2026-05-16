@@ -2,6 +2,7 @@ use ahash::{AHashMap, AHashSet};
 use alef_core::ir::{ApiSurface, EnumDef, FieldDef, PrimitiveType, TypeDef, TypeRef};
 
 use crate::conversions::ConversionConfig;
+use crate::shared::binding_fields;
 
 /// Collect all Named type names that appear in the API surface — both as
 /// function/method input parameters AND as function/method return types.
@@ -50,7 +51,7 @@ pub fn input_type_names(surface: &ApiSurface) -> AHashSet<String> {
     // Those field types need binding→core From impls.
     for typ in surface.types.iter().filter(|typ| !typ.is_trait) {
         if !typ.is_opaque && !typ.methods.is_empty() {
-            for field in &typ.fields {
+            for field in binding_fields(&typ.fields) {
                 if !field.sanitized {
                     collect_named_types(&field.ty, &mut names);
                 }
@@ -77,7 +78,7 @@ pub fn input_type_names(surface: &ApiSurface) -> AHashSet<String> {
         let snapshot: Vec<String> = names.iter().cloned().collect();
         for name in &snapshot {
             if let Some(typ) = surface.types.iter().find(|t| t.name == *name) {
-                for field in &typ.fields {
+                for field in binding_fields(&typ.fields) {
                     let mut field_names = AHashSet::new();
                     collect_named_types(&field.ty, &mut field_names);
                     for n in field_names {
@@ -243,7 +244,7 @@ pub fn core_to_binding_convertible_types(surface: &ApiSurface) -> AHashSet<Strin
         let mut to_remove = Vec::new();
         for type_name in &snapshot {
             if let Some(typ) = surface.types.iter().find(|t| t.name == *type_name) {
-                let ok = typ.fields.iter().all(|f| {
+                let ok = binding_fields(&typ.fields).all(|f| {
                     if f.sanitized {
                         true
                     } else if field_has_path_mismatch(f, &enum_paths, &type_paths) {
@@ -337,7 +338,7 @@ pub fn convertible_types(surface: &ApiSurface) -> AHashSet<String> {
         let mut to_remove = Vec::new();
         for type_name in &snapshot {
             if let Some(typ) = surface.types.iter().find(|t| t.name == *type_name) {
-                let ok = typ.fields.iter().all(|f| {
+                let ok = binding_fields(&typ.fields).all(|f| {
                     if f.sanitized {
                         sanitized_field_has_default(&f.ty, &default_type_names)
                     } else if field_has_path_mismatch(f, &enum_paths, &type_paths) {
@@ -583,7 +584,7 @@ pub fn apply_crate_remaps(path: &str, remaps: &[(&str, &str)]) -> String {
 
 /// Check if a type has any sanitized fields (binding→core conversion is lossy).
 pub fn has_sanitized_fields(typ: &TypeDef) -> bool {
-    typ.fields.iter().any(|f| f.sanitized)
+    binding_fields(&typ.fields).any(|f| f.sanitized)
 }
 
 /// Derive the Rust import path for an enum, replacing hyphens with underscores.

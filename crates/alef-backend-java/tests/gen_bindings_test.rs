@@ -1719,3 +1719,175 @@ fn test_plain_dto_emits_as_record_not_sealed_class() {
         "plain DTO must not emit as sealed interface. Got:\n{content}"
     );
 }
+
+#[test]
+fn test_option_params_and_returns_emit_nullable_annotations() {
+    let backend = JavaBackend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "User".to_string(),
+            rust_path: "test_lib::User".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![FieldDef {
+                name: "id".to_string(),
+                ty: TypeRef::Primitive(PrimitiveType::U64),
+                optional: false,
+                default: None,
+                doc: String::new(),
+                sanitized: false,
+                is_boxed: false,
+                type_rust_path: None,
+                cfg: None,
+                typed_default: None,
+                core_wrapper: alef_core::ir::CoreWrapper::None,
+                vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                newtype_wrapper: None,
+                serde_rename: None,
+                serde_flatten: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![
+            FunctionDef {
+                name: "extract_file".to_string(),
+                rust_path: "test_lib::extract_file".to_string(),
+                original_rust_path: String::new(),
+                params: vec![
+                    ParamDef {
+                        name: "path".to_string(),
+                        ty: TypeRef::Path,
+                        optional: false,
+                        default: None,
+                        sanitized: false,
+                        typed_default: None,
+                        is_ref: false,
+                        is_mut: false,
+                        newtype_wrapper: None,
+                        original_type: None,
+                    },
+                    ParamDef {
+                        name: "mime_type".to_string(),
+                        ty: TypeRef::String,
+                        optional: true,
+                        default: None,
+                        sanitized: false,
+                        typed_default: None,
+                        is_ref: false,
+                        is_mut: false,
+                        newtype_wrapper: None,
+                        original_type: None,
+                    },
+                ],
+                return_type: TypeRef::String,
+                is_async: false,
+                error_type: Some("Error".to_string()),
+                doc: String::new(),
+                cfg: None,
+                sanitized: false,
+                return_sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+            FunctionDef {
+                name: "find_user".to_string(),
+                rust_path: "test_lib::find_user".to_string(),
+                original_rust_path: String::new(),
+                params: vec![ParamDef {
+                    name: "id".to_string(),
+                    ty: TypeRef::Primitive(PrimitiveType::U64),
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                }],
+                return_type: TypeRef::Optional(Box::new(TypeRef::Named("User".to_string()))),
+                is_async: false,
+                error_type: Some("Error".to_string()),
+                doc: String::new(),
+                cfg: None,
+                sanitized: false,
+                return_sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+        ],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_test_config("dev.test");
+    let result = backend.generate_bindings(&api, &config);
+    assert!(result.is_ok(), "generation failed: {:?}", result.err());
+
+    let files = result.unwrap();
+
+    let facade = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("TestLibRs.java"))
+        .expect("TestLibRs.java facade should be generated");
+
+    let content = &facade.content;
+
+    // (1) extract_file has optional mime_type parameter — should be @Nullable String
+    assert!(
+        content.contains("@Nullable String mimeType"),
+        "Optional String parameter should be @Nullable. Got:\n{}",
+        content
+    );
+
+    // (2) extract_file has required path parameter — should NOT be @Nullable Path
+    assert!(
+        content.contains("final java.nio.file.Path path"),
+        "Non-optional Path parameter should not be annotated. Got:\n{}",
+        content
+    );
+    assert!(
+        !content.contains("@Nullable java.nio.file.Path path"),
+        "Non-optional Path should not have @Nullable. Got:\n{}",
+        content
+    );
+
+    // (3) find_user returns Option<User> — should be @Nullable User
+    assert!(
+        content.contains("public static @Nullable User findUser(final long id)"),
+        "Optional return type should be @Nullable. Got:\n{}",
+        content
+    );
+
+    // (4) Import should be present
+    assert!(
+        content.contains("import org.jspecify.annotations.Nullable;"),
+        "Should import @Nullable annotation. Got:\n{}",
+        content
+    );
+}

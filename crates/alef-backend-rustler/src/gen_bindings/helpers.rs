@@ -384,13 +384,12 @@ pub(super) fn gen_elixir_struct_module(
                 field.ty,
                 TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json
             );
-            let field_type_with_optional = if (field.optional || field_defaults_to_nil)
-                && !matches!(field.ty, TypeRef::Optional(_))
-            {
-                format!("{field_type} | nil")
-            } else {
-                field_type
-            };
+            let field_type_with_optional =
+                if (field.optional || field_defaults_to_nil) && !matches!(field.ty, TypeRef::Optional(_)) {
+                    format!("{field_type} | nil")
+                } else {
+                    field_type
+                };
 
             if i == fields.len() - 1 {
                 // Last field: no comma
@@ -707,11 +706,12 @@ pub(super) fn elixir_safe_param_name(name: &str) -> String {
 ///
 /// Data enums (one or more variants have fields) get a module with per-variant type aliases
 /// since Elixir has no single structural type for tagged union variants.
+#[allow(dead_code)]
 pub(super) fn gen_elixir_enum_module(enum_def: &alef_core::ir::EnumDef, app_module: &str) -> String {
     gen_elixir_enum_module_with_known_types(enum_def, app_module, &AHashSet::new())
 }
 
-fn gen_elixir_enum_module_with_known_types(
+pub(super) fn gen_elixir_enum_module_with_known_types(
     enum_def: &alef_core::ir::EnumDef,
     app_module: &str,
     known_types: &AHashSet<String>,
@@ -850,9 +850,20 @@ fn gen_elixir_enum_module_with_known_types(
                             elixir_field_name_with_type(&f.name, idx, type_name, &variant.name, variant.fields.len());
 
                         // Emit concrete type using elixir_typespec
-                        let opaque_types = AHashSet::new();
-                        let default_types = AHashSet::new();
-                        let field_type = elixir_typespec(&f.ty, &opaque_types, &default_types);
+                        // If the field type is a known API type, resolve to Module.t()
+                        let field_type = if let TypeRef::Named(n) = &f.ty {
+                            if known_types.contains(n) {
+                                format!("{app_module}.{}.t()", n)
+                            } else {
+                                let opaque_types = AHashSet::new();
+                                let default_types = AHashSet::new();
+                                elixir_typespec(&f.ty, &opaque_types, &default_types)
+                            }
+                        } else {
+                            let opaque_types = AHashSet::new();
+                            let default_types = AHashSet::new();
+                            elixir_typespec(&f.ty, &opaque_types, &default_types)
+                        };
 
                         format!("{field_name}: {field_type}")
                     })

@@ -966,11 +966,45 @@ fn run_post_build(
                 }
             }
             PostBuildStep::RunCommand { cmd, args } => {
-                // TODO: Wire up post-build command execution for Dart flutter_rust_bridge codegen.
-                // For now, this is unimplemented() to allow Phase 0 to compile.
-                debug!("Post-build command {} not yet executed: {:?}", cmd, args);
+                run_run_command(cmd, args, base_dir)
+                    .with_context(|| format!("post-build RunCommand '{cmd}' failed"))?;
             }
         }
+    }
+
+    Ok(())
+}
+
+/// Execute a `RunCommand` post-build step.
+///
+/// Spawns `cmd` with `args` in `base_dir`, captures stdout/stderr, and
+/// returns an error if the process exits with a non-zero status.
+fn run_run_command(cmd: &str, args: &[&str], base_dir: &Path) -> anyhow::Result<()> {
+    let output = std::process::Command::new(cmd)
+        .args(args)
+        .current_dir(base_dir)
+        .output()
+        .with_context(|| format!("failed to spawn '{cmd}'"))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    if output.status.success() {
+        if !stdout.trim().is_empty() {
+            info!("[{cmd}] {}", stdout.trim());
+        }
+        if !stderr.trim().is_empty() {
+            info!("[{cmd} stderr] {}", stderr.trim());
+        }
+    } else {
+        let code = output.status.code().unwrap_or(-1);
+        if !stdout.trim().is_empty() {
+            info!("[{cmd}] {}", stdout.trim());
+        }
+        if !stderr.trim().is_empty() {
+            info!("[{cmd} stderr] {}", stderr.trim());
+        }
+        anyhow::bail!("'{cmd}' exited with status {code}");
     }
 
     Ok(())
@@ -1100,5 +1134,29 @@ sources = ["src/lib.rs"]
         // Precondition is `false` → format step never runs, so the (otherwise
         // failing) `false` command isn't invoked. No panic, no propagation.
         fmt_post_generate(&cfg, &[Language::Python]);
+    }
+}
+
+#[cfg(all(test, unix))]
+mod run_command_tests {
+    use super::*;
+
+    #[test]
+    fn run_run_command_succeeds_for_echo() {
+        let dir = std::env::temp_dir();
+        let result = run_run_command("echo", &["alef-runcommand-ok"], &dir);
+        assert!(result.is_ok(), "echo should succeed: {result:?}");
+    }
+
+    #[test]
+    fn run_run_command_fails_for_false() {
+        let dir = std::env::temp_dir();
+        let result = run_run_command("false", &[], &dir);
+        assert!(result.is_err(), "false should return Err");
+        let msg = format!("{:?}", result.unwrap_err());
+        assert!(
+            msg.contains("exited with status"),
+            "error should mention exit status: {msg}"
+        );
     }
 }

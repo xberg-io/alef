@@ -1,3 +1,4 @@
+use alef_codegen::shared::binding_fields;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::ir::{EnumDef, TypeDef};
 use heck::ToLowerCamelCase;
@@ -21,7 +22,8 @@ pub(super) fn emit_type(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<S
             },
         ));
     }
-    if ty.fields.is_empty() {
+    let visible_fields: Vec<_> = binding_fields(&ty.fields).collect();
+    if visible_fields.is_empty() {
         out.push_str(&template_env::render(
             "class_empty.jinja",
             minijinja::context! {
@@ -36,7 +38,7 @@ pub(super) fn emit_type(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<S
             name => ty.name.as_str(),
         },
     ));
-    for field in &ty.fields {
+    for field in &visible_fields {
         let ty_str = if field.optional {
             format!("{}?", render_type(&field.ty, imports))
         } else {
@@ -62,12 +64,13 @@ pub(super) fn emit_type(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<S
         ));
     }
     // Constructor
-    if ty.fields.len() == 1 {
-        let name = dart_safe_ident(&ty.fields[0].name.to_lower_camel_case());
-        let ty_str = if ty.fields[0].optional {
-            format!("{}?", render_type(&ty.fields[0].ty, imports))
+    if visible_fields.len() == 1 {
+        let field = visible_fields[0];
+        let name = dart_safe_ident(&field.name.to_lower_camel_case());
+        let ty_str = if field.optional {
+            format!("{}?", render_type(&field.ty, imports))
         } else {
-            render_type(&ty.fields[0].ty, imports)
+            render_type(&field.ty, imports)
         };
         out.push_str(&template_env::render(
             "single_param_constructor.jinja",
@@ -84,7 +87,7 @@ pub(super) fn emit_type(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<S
                 name => ty.name.as_str(),
             },
         ));
-        for field in &ty.fields {
+        for field in &visible_fields {
             let name = dart_safe_ident(&field.name.to_lower_camel_case());
             out.push_str(&template_env::render(
                 "constructor_required_param.jinja",

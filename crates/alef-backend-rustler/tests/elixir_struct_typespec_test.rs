@@ -246,8 +246,8 @@ fn test_struct_module_defstruct_defaults_align_with_typespec() {
 
     // Verify proper defaults for required fields
     assert!(
-        content.contains("required_string: \"\""),
-        "required string field should default to \"\"; got:\n{content}"
+        content.contains("required_string: nil"),
+        "required string field should default to nil; got:\n{content}"
     );
     assert!(
         content.contains("required_number: 0"),
