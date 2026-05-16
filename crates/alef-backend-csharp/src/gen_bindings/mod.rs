@@ -2,6 +2,7 @@ use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, Ge
 use alef_core::config::{AdapterPattern, Language, ResolvedCrateConfig, resolve_output_dir};
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{ApiSurface, FieldDef, TypeRef};
+use alef_codegen::shared::binding_fields;
 use heck::ToPascalCase;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -430,8 +431,9 @@ impl Backend for CsharpBackend {
             if !typ.is_opaque {
                 // Skip types where all fields are unnamed tuple positions — they have no
                 // meaningful properties to expose in C#.
-                let has_named_fields = typ.fields.iter().any(|f| !is_tuple_field(f));
-                if !typ.fields.is_empty() && !has_named_fields {
+                let has_visible_fields = binding_fields(&typ.fields).next().is_some();
+                let has_named_fields = binding_fields(&typ.fields).any(|f| !is_tuple_field(f));
+                if has_visible_fields && !has_named_fields {
                     continue;
                 }
                 // Skip types that gen_visitor handles with richer visitor-specific versions

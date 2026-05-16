@@ -1380,3 +1380,44 @@ fn extract_fn_section(content: &str, symbol: &str) -> String {
     }
     rest[..end].to_string()
 }
+
+// ---------------------------------------------------------------------------
+// Panic-safety: run_or_throw helper and block_on wrapping
+// ---------------------------------------------------------------------------
+
+#[test]
+fn panic_safety_run_or_throw_replaces_bare_block_on() {
+    let api = make_demo_api();
+    let config = make_demo_config_with_streaming();
+    let files = JniBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    assert!(
+        content.contains("fn run_or_throw"),
+        "run_or_throw helper must be emitted"
+    );
+    assert!(
+        content.contains("std::panic::catch_unwind"),
+        "run_or_throw must use catch_unwind"
+    );
+    assert!(
+        content.contains("native panic:"),
+        "run_or_throw must prefix with 'native panic:'"
+    );
+
+    let bare_count = content.matches("= runtime().block_on(").count();
+    assert_eq!(bare_count, 0, "no bare block_on must remain; found {bare_count}");
+
+    let ctor = extract_fn_section(content, "nativeCreateClient");
+    assert!(ctor.contains("run_or_throw"), "constructor must use run_or_throw");
+    assert!(ctor.contains("return 0"), "constructor must return 0 sentinel on panic");
+
+    let do_thing = extract_fn_section(content, "nativeDemoClientDoThing");
+    assert!(do_thing.contains("run_or_throw"), "do_thing must use run_or_throw");
+
+    let start = extract_fn_section(content, "nativeDemoClientStreamDataStart");
+    assert!(start.contains("run_or_throw"), "streaming Start must use run_or_throw");
+
+    let next = extract_fn_section(content, "nativeDemoClientStreamDataNext");
+    assert!(next.contains("run_or_throw"), "streaming Next must use run_or_throw");
+}

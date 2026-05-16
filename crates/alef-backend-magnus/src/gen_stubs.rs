@@ -1,4 +1,5 @@
 use crate::type_map::rbs_type;
+use alef_codegen::shared::binding_fields;
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{ApiSurface, EnumDef, FunctionDef, MethodDef, TypeDef};
 
@@ -106,7 +107,7 @@ fn gen_type_stub(typ: &TypeDef) -> String {
     } else {
         "attr_reader"
     };
-    for f in &typ.fields {
+    for f in binding_fields(&typ.fields) {
         let mut field_type = rbs_type(&f.ty);
         // Builder types have optional fields (attr_accessor allows setting/getting nil)
         if typ.has_default && !field_type.ends_with('?') {
@@ -115,7 +116,7 @@ fn gen_type_stub(typ: &TypeDef) -> String {
         lines.push(format!(r#"    {accessor} {}: {field_type}"#, f.name));
     }
 
-    if !typ.fields.is_empty() {
+    if binding_fields(&typ.fields).next().is_some() {
         lines.push("".to_string());
     }
 
@@ -123,6 +124,7 @@ fn gen_type_stub(typ: &TypeDef) -> String {
     let init_params: Vec<String> = typ
         .fields
         .iter()
+        .filter(|f| !f.binding_excluded)
         .map(|f| {
             let field_type = rbs_type(&f.ty);
             if f.optional {

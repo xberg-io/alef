@@ -1,6 +1,7 @@
 use crate::type_map::{java_boxed_type, java_type};
 use ahash::AHashSet;
 use alef_codegen::naming::to_class_name;
+use alef_codegen::shared::binding_fields;
 use alef_core::config::{AdapterConfig, AdapterPattern};
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{DefaultValue, EnumDef, MethodDef, PrimitiveType, TypeDef, TypeRef};
@@ -25,10 +26,11 @@ pub(crate) fn gen_record_type(
     // `field_decls` keeps each individual decl so the multi-line emit path can put
     // each on its own line (annotations within a single decl may contain commas,
     // so we cannot split `fields_joined` by ", ").
-    let mut fields_joined = String::with_capacity(typ.fields.len().saturating_mul(42));
-    let mut field_decls: Vec<String> = Vec::with_capacity(typ.fields.len());
+    let visible_fields: Vec<_> = binding_fields(&typ.fields).collect();
+    let mut fields_joined = String::with_capacity(visible_fields.len().saturating_mul(42));
+    let mut field_decls: Vec<String> = Vec::with_capacity(visible_fields.len());
 
-    for (i, f) in typ.fields.iter().enumerate() {
+    for (i, f) in visible_fields.iter().enumerate() {
         // Complex enums (tagged unions with data) can't be simple Java enums.
         // Use Object for flexible Jackson deserialization.
         let is_complex = matches!(&f.ty, TypeRef::Named(n) if complex_enums.contains(n.as_str()));
@@ -205,7 +207,7 @@ pub(crate) fn gen_record_type(
         record_block.push_str(&typ.name);
         record_block.push_str("Builder.class)\n");
     }
-    if single_line_len > RECORD_LINE_WRAP_THRESHOLD && typ.fields.len() > 1 {
+    if single_line_len > RECORD_LINE_WRAP_THRESHOLD && visible_fields.len() > 1 {
         record_block.push_str("public record ");
         record_block.push_str(&typ.name);
         record_block.push_str("(\n");
@@ -1372,7 +1374,7 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
     body.push('\n');
 
     // Generate field declarations with defaults
-    for field in &typ.fields {
+    for field in binding_fields(&typ.fields) {
         let field_name = safe_java_field_name(&field.name);
 
         // Skip unnamed tuple fields (name is "_0", "_1", "0", "1", etc.) — Java requires named fields
@@ -1508,7 +1510,7 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
     body.push('\n');
 
     // Generate withXxx() methods
-    for field in &typ.fields {
+    for field in binding_fields(&typ.fields) {
         // Skip unnamed tuple fields (name is "_0", "_1", "0", "1", etc.) — Java requires named fields
         if field.name.starts_with('_') && field.name[1..].chars().all(|c| c.is_ascii_digit())
             || field.name.chars().next().is_none_or(|c| c.is_ascii_digit())

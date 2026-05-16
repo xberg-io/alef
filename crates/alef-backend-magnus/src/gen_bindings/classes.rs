@@ -3,7 +3,7 @@
 use ahash::AHashSet;
 use alef_codegen::builder::ImplBuilder;
 use alef_codegen::generators;
-use alef_codegen::shared::function_params;
+use alef_codegen::shared::{binding_fields, function_params};
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::ir::{EnumDef, FieldDef, MethodDef, ReceiverKind, TypeDef, TypeRef};
 
@@ -15,7 +15,7 @@ use super::functions::gen_magnus_unimplemented_body;
 /// When true, a `to_s` method should be generated so Ruby callers can use `result.to_s`
 /// to retrieve the primary markdown output without explicitly calling `.content`.
 pub(super) fn has_content_string_field(typ: &TypeDef) -> bool {
-    typ.fields.iter().any(|f| {
+    binding_fields(&typ.fields).any(|f| {
         if f.name != "content" {
             return false;
         }
@@ -350,6 +350,7 @@ pub(super) fn gen_struct(
     let filtered_fields: Vec<FieldDef> = typ
         .fields
         .iter()
+        .filter(|f| !f.binding_excluded)
         .filter(|f| !is_thread_unsafe_field(f))
         .cloned()
         .collect();
@@ -399,6 +400,7 @@ pub(super) fn gen_struct_methods(
         let filtered_fields: Vec<FieldDef> = typ
             .fields
             .iter()
+            .filter(|f| !f.binding_excluded)
             .filter(|f| !is_thread_unsafe_field(f))
             .cloned()
             .collect();
@@ -417,7 +419,7 @@ pub(super) fn gen_struct_methods(
         }
     }
 
-    for field in &typ.fields {
+    for field in binding_fields(&typ.fields) {
         // Skip thread-unsafe fields (e.g., VisitorHandle)
         if is_thread_unsafe_field(field) {
             continue;
@@ -444,7 +446,7 @@ pub(super) fn gen_struct_methods(
     // Generate to_s for structs that have a `content` field of type String or Option<String>.
     // This lets Ruby callers use `result.to_s` to get the primary markdown output directly.
     if has_content_string_field(typ) {
-        let content_field = typ.fields.iter().find(|f| f.name == "content").unwrap();
+        let content_field = binding_fields(&typ.fields).find(|f| f.name == "content").unwrap();
         let is_optional = matches!(&content_field.ty, TypeRef::Optional(_)) || content_field.optional;
         let body = if is_optional {
             "self.content.clone().unwrap_or_default()".to_string()
@@ -773,7 +775,7 @@ const THREAD_UNSAFE_BRIDGE_TYPES: &[&str] = &["VisitorHandle"];
 /// post-processing line filter broke when the IR's `cfg` was stripped for active
 /// features, leaving the field present and emitted into the From body.
 pub(super) fn gen_from_binding_to_core_filtered(typ: &TypeDef, core_import: &str) -> String {
-    if !typ.fields.iter().any(is_thread_unsafe_field) {
+    if !binding_fields(&typ.fields).any(is_thread_unsafe_field) {
         return alef_codegen::conversions::gen_from_binding_to_core(typ, core_import);
     }
 
@@ -792,7 +794,7 @@ pub(super) fn gen_from_core_to_binding_filtered(
     core_import: &str,
     opaque_types: &AHashSet<String>,
 ) -> String {
-    if !typ.fields.iter().any(is_thread_unsafe_field) {
+    if !binding_fields(&typ.fields).any(is_thread_unsafe_field) {
         return alef_codegen::conversions::gen_from_core_to_binding(typ, core_import, opaque_types);
     }
 

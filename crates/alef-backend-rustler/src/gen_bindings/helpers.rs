@@ -1,5 +1,6 @@
 use ahash::AHashSet;
 use alef_codegen::doc_emission::doc_first_paragraph_joined;
+use alef_codegen::shared::binding_fields;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::config::ResolvedCrateConfig;
 use alef_core::hash::{self, CommentStyle};
@@ -374,7 +375,7 @@ pub(super) fn gen_elixir_struct_module(
     let default_types: AHashSet<String> = enum_defaults.keys().cloned().collect();
     out.push_str("  @type t :: %__MODULE__{\n");
 
-    let fields: Vec<_> = typ.fields.iter().collect();
+    let fields: Vec<_> = binding_fields(&typ.fields).collect();
     if !fields.is_empty() {
         for (i, field) in fields.iter().enumerate() {
             let field_name = field.name.to_snake_case();

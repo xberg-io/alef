@@ -1,5 +1,6 @@
 use crate::builder::StructBuilder;
 use crate::generators::RustBindingConfig;
+use crate::shared::binding_fields;
 use crate::type_mapper::TypeMapper;
 use alef_core::ir::{CoreWrapper, TypeDef, TypeRef};
 
@@ -9,7 +10,7 @@ use alef_core::ir::{CoreWrapper, TypeDef, TypeRef};
 /// If any field is a Named type without `has_default`, returning true would generate
 /// code that calls `Default::default()` on a type that doesn't implement it.
 pub fn can_generate_default_impl(typ: &TypeDef, known_default_types: &std::collections::HashSet<&str>) -> bool {
-    for field in &typ.fields {
+    for field in binding_fields(&typ.fields) {
         if field.cfg.is_some() {
             continue; // Skip cfg-gated fields
         }
@@ -93,7 +94,10 @@ pub fn gen_struct_with_per_field_attrs(
     }
 
     // Check if struct has similar field names (e.g., sub_symbol and sup_symbol)
-    let field_names: Vec<_> = typ.fields.iter().filter(|f| f.cfg.is_none()).map(|f| &f.name).collect();
+    let field_names: Vec<_> = binding_fields(&typ.fields)
+        .filter(|f| f.cfg.is_none())
+        .map(|f| &f.name)
+        .collect();
     if has_similar_names(&field_names) {
         sb.add_attr("allow(clippy::similar_names)");
     }
@@ -105,6 +109,7 @@ pub fn gen_struct_with_per_field_attrs(
     let opaque_fields: Vec<&str> = typ
         .fields
         .iter()
+        .filter(|f| !f.binding_excluded)
         .filter(|f| {
             f.cfg.is_none()
                 && field_references_opaque_type(&f.ty, cfg.opaque_type_names)
@@ -119,7 +124,7 @@ pub fn gen_struct_with_per_field_attrs(
     sb.add_derive("serde::Serialize");
     sb.add_derive("serde::Deserialize");
     let has_serde = true;
-    for field in &typ.fields {
+    for field in binding_fields(&typ.fields) {
         let force_optional = cfg.option_duration_on_defaults
             && typ.has_default
             && !field.optional
@@ -179,7 +184,10 @@ pub fn gen_struct_with_rename(
         sb.add_attr(attr);
     }
 
-    let field_names: Vec<_> = typ.fields.iter().filter(|f| f.cfg.is_none()).map(|f| &f.name).collect();
+    let field_names: Vec<_> = binding_fields(&typ.fields)
+        .filter(|f| f.cfg.is_none())
+        .map(|f| &f.name)
+        .collect();
     if has_similar_names(&field_names) {
         sb.add_attr("allow(clippy::similar_names)");
     }
@@ -190,6 +198,7 @@ pub fn gen_struct_with_rename(
     let opaque_fields: Vec<&str> = typ
         .fields
         .iter()
+        .filter(|f| !f.binding_excluded)
         .filter(|f| {
             f.cfg.is_none()
                 && field_references_opaque_type(&f.ty, cfg.opaque_type_names)
@@ -201,7 +210,7 @@ pub fn gen_struct_with_rename(
     sb.add_derive("serde::Serialize");
     sb.add_derive("serde::Deserialize");
     let has_serde = true;
-    for field in &typ.fields {
+    for field in binding_fields(&typ.fields) {
         let force_optional = cfg.option_duration_on_defaults
             && typ.has_default
             && !field.optional
@@ -260,7 +269,10 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
     }
 
     // Check if struct has similar field names (e.g., sub_symbol and sup_symbol)
-    let field_names: Vec<_> = typ.fields.iter().filter(|f| f.cfg.is_none()).map(|f| &f.name).collect();
+    let field_names: Vec<_> = binding_fields(&typ.fields)
+        .filter(|f| f.cfg.is_none())
+        .map(|f| &f.name)
+        .collect();
     if has_similar_names(&field_names) {
         sb.add_attr("allow(clippy::similar_names)");
     }
@@ -271,6 +283,7 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
     let _opaque_fields: Vec<&str> = typ
         .fields
         .iter()
+        .filter(|f| !f.binding_excluded)
         .filter(|f| {
             f.cfg.is_none()
                 && field_references_opaque_type(&f.ty, cfg.opaque_type_names)
@@ -282,7 +295,7 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
     sb.add_derive("serde::Serialize");
     sb.add_derive("serde::Deserialize");
     let _has_serde = true;
-    for field in &typ.fields {
+    for field in binding_fields(&typ.fields) {
         // Skip cfg-gated fields — they depend on features that may not be enabled
         // for this binding crate. Including them would require the binding struct to
         // handle conditional compilation which struct literal initializers can't express.
@@ -328,6 +341,7 @@ pub fn gen_struct_default_impl(typ: &TypeDef, name_prefix: &str) -> String {
     let fields: Vec<_> = typ
         .fields
         .iter()
+        .filter(|field| !field.binding_excluded)
         .filter_map(|field| {
             if field.cfg.is_some() {
                 return None;

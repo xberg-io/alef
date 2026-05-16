@@ -68,6 +68,9 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
         let optionalized = config.optionalize_defaults && typ.has_default;
         let mut statements = Vec::new();
         for field in &typ.fields {
+            if field.binding_excluded {
+                continue;
+            }
             if field.sanitized && field.core_wrapper != CoreWrapper::Cow {
                 // sanitized fields keep the default value — skip
                 continue;
@@ -135,6 +138,10 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
     let mut statements = Vec::new();
 
     for field in &typ.fields {
+        if field.binding_excluded {
+            fields.push(format!("{}: Default::default()", field.name));
+            continue;
+        }
         // Cfg-gated fields: emit the assignment with `#[cfg(...)]` so it only applies when
         // the same feature is enabled on the binding crate. Force-restored (never_skip) fields
         // skip the gate — they're always emitted (used by trait-bridge bind_via = "options_field").

@@ -815,3 +815,86 @@ client_constructor_body.DefaultClient = "Self { inner: ::demo::DefaultClient::ne
         );
     }
 }
+
+/// Verifies that Option<T> fields stored as (ty: T, optional: true) in extractor-produced IR
+/// are emitted as T? in the Swift first-class struct -- not as bare T.
+///
+/// The extractor calls unwrap_optional which strips TypeRef::Optional(inner) into
+/// (inner, true), so field.ty = TypeRef::String and field.optional = true.
+/// Previously the emitter only checked matches!(&field.ty, TypeRef::Optional(_)) which
+/// was always false for extractor IR, causing optional fields to be emitted as non-optional.
+#[test]
+fn snapshot_first_class_struct_optional_field() {
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![TypeDef {
+            name: "SystemMessage".to_string(),
+            rust_path: "demo::SystemMessage".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                make_field("content", TypeRef::String, false),
+                // optional: true with unwrapped inner type -- what the extractor produces
+                make_field("name", TypeRef::String, true),
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            doc: "A system-role chat message.".to_string(),
+            cfg: None,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_basic_config();
+    let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
+
+    let swift_file = files
+        .iter()
+        .find(|f| f.path.extension().and_then(|e| e.to_str()) == Some("swift"))
+        .expect("Swift source file must be emitted");
+
+    assert!(
+        swift_file.content.contains("public let name: String?"),
+        "optional field must emit String?, got:\n{}",
+        swift_file.content
+    );
+    assert!(
+        swift_file.content.contains("name: String? = nil"),
+        "optional init param must include = nil, got:\n{}",
+        swift_file.content
+    );
+    assert!(
+        swift_file.content.contains("self.name = rb.name()?.toString()"),
+        "FFI bridge must chain through ?., got:\n{}",
+        swift_file.content
+    );
+    assert!(
+        swift_file.content.contains("public let content: String\n"),
+        "non-optional field must emit bare String, got:\n{}",
+        swift_file.content
+    );
+
+    for file in &files {
+        insta::assert_snapshot!(
+            format!(
+                "snapshot_optional_field__{}",
+                file.path.display().to_string().replace('/', "__")
+            ),
+            &file.content
+        );
+    }
+}

@@ -1,5 +1,6 @@
 use crate::type_map::{go_optional_type, go_type};
 use alef_codegen::naming::{go_type_name, to_go_name};
+use alef_codegen::shared::binding_fields;
 use alef_core::ir::{DefaultValue, EnumDef, FieldDef, TypeDef, TypeRef};
 use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use minijinja::context;
@@ -60,7 +61,7 @@ pub(super) fn needs_omitempty_pointer(field: &FieldDef) -> bool {
 /// Types with at least one non-zero default benefit from the NewX/WithX pattern to ensure
 /// proper initialization of non-zero defaults without requiring callers to remember every field.
 pub(super) fn has_non_zero_default(typ: &TypeDef) -> bool {
-    typ.fields.iter().any(|field| {
+    binding_fields(&typ.fields).any(|field| {
         // Duration fields always count as non-zero (zero duration is invalid).
         if matches!(field.ty, TypeRef::Duration) {
             return true;
@@ -875,7 +876,7 @@ pub(super) fn gen_struct_type(
         },
     ));
 
-    for field in &typ.fields {
+    for field in binding_fields(&typ.fields) {
         if is_tuple_field(field) {
             continue;
         }
@@ -977,6 +978,7 @@ pub(super) fn gen_struct_type(
     let bytes_fields: Vec<&alef_core::ir::FieldDef> = typ
         .fields
         .iter()
+        .filter(|f| !f.binding_excluded)
         .filter(|f| !is_tuple_field(f) && matches!(&f.ty, TypeRef::Bytes))
         .collect();
     if !bytes_fields.is_empty() {
@@ -987,7 +989,7 @@ pub(super) fn gen_struct_type(
                 go_name => &go_name,
             },
         ));
-        for field in &typ.fields {
+        for field in binding_fields(&typ.fields) {
             if is_tuple_field(field) {
                 continue;
             }
@@ -1033,7 +1035,7 @@ pub(super) fn gen_struct_type(
             "struct_marshal_aux_init.jinja",
             minijinja::Value::default(),
         ));
-        for field in &typ.fields {
+        for field in binding_fields(&typ.fields) {
             if is_tuple_field(field) {
                 continue;
             }
@@ -1301,7 +1303,7 @@ pub(super) fn gen_config_options(
     out.push('\n');
 
     // Generate WithFieldName constructors for each field
-    for field in &typ.fields {
+    for field in binding_fields(&typ.fields) {
         if is_tuple_field(field) {
             continue;
         }
@@ -1359,7 +1361,7 @@ pub(super) fn gen_config_options(
     ));
 
     // Set default values for fields
-    for field in &typ.fields {
+    for field in binding_fields(&typ.fields) {
         if is_tuple_field(field) {
             continue;
         }

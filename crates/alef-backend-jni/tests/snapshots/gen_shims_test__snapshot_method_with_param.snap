@@ -50,6 +50,22 @@ fn throw_jni_error(env: &mut JNIEnv, msg: &str) {
     let _ = env.throw_new(ERROR_CLASS, msg);
 }
 
+fn run_or_throw<T, F>(env: &mut JNIEnv, f: F) -> Option<T>
+where
+    F: FnOnce() -> T + std::panic::UnwindSafe,
+{
+    match std::panic::catch_unwind(f) {
+        Ok(v) => Some(v),
+        Err(payload) => {
+            let msg = payload.downcast_ref::<String>().cloned()
+                .or_else(|| payload.downcast_ref::<&str>().map(|s| (*s).to_string()))
+                .unwrap_or_else(|| "panic in native code".to_string());
+            throw_jni_error(env, &format!("native panic: {msg}"));
+            None
+        }
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "system" fn Java_dev_kreuzberg_demo_DemoBridge_nativeCreateClient(
     mut env: JNIEnv,
@@ -60,7 +76,9 @@ pub unsafe extern "system" fn Java_dev_kreuzberg_demo_DemoBridge_nativeCreateCli
         Ok(s) => s,
         Err(e) => { throw_jni_error(&mut env, &format!("{e}")); return 0; }
     };
-    let result = runtime().block_on(core_crate::create_client(api_key));
+    let Some(result) = run_or_throw(&mut env, std::panic::AssertUnwindSafe(|| runtime().block_on(core_crate::create_client(api_key)))) else {
+        return 0;
+    };
     match result {
         Err(e) => {
             throw_jni_error(&mut env, &format!("{e}"));
@@ -91,7 +109,9 @@ pub unsafe extern "system" fn Java_dev_kreuzberg_demo_DemoBridge_nativeDemoClien
         Ok(s) => s,
         Err(_) => req_str,
     };
-    let v = runtime().block_on(client.do_thing(input));
+    let Some(v) = run_or_throw(&mut env, std::panic::AssertUnwindSafe(|| runtime().block_on(client.do_thing(input)))) else {
+        return std::ptr::null_mut();
+    };
     let s = match serde_json::to_string(&v) {
         Ok(s) => s,
         Err(e) => { throw_jni_error(&mut env, &format!("serialize: {e}")); return std::ptr::null_mut(); }
@@ -109,7 +129,9 @@ pub unsafe extern "system" fn Java_dev_kreuzberg_demo_DemoBridge_nativeDemoClien
     // valid until nativeFree is called. The Kotlin AutoCloseable.close() guarantee
     // ensures the handle outlives this call.
     let client: &core_crate::DemoClient = unsafe { &*(handle as *const core_crate::DemoClient) };
-    let v = runtime().block_on(client.ping());
+    let Some(v) = run_or_throw(&mut env, std::panic::AssertUnwindSafe(|| runtime().block_on(client.ping()))) else {
+        return 0u8;
+    };
     v as jboolean
 }
 
@@ -123,7 +145,9 @@ pub unsafe extern "system" fn Java_dev_kreuzberg_demo_DemoBridge_nativeDemoClien
     // valid until nativeFree is called. The Kotlin AutoCloseable.close() guarantee
     // ensures the handle outlives this call.
     let client: &core_crate::DemoClient = unsafe { &*(handle as *const core_crate::DemoClient) };
-    let v = runtime().block_on(client.fetch_blob());
+    let Some(v) = run_or_throw(&mut env, std::panic::AssertUnwindSafe(|| runtime().block_on(client.fetch_blob()))) else {
+        return std::ptr::null_mut();
+    };
     match env.byte_array_from_slice(&v) {
         Ok(arr) => { use jni::objects::JObject; JObject::from(arr).into_raw() as jbyteArray }
         Err(_) => std::ptr::null_mut(),

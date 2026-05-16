@@ -3,7 +3,7 @@ use ahash::AHashSet;
 use alef_adapters::AdapterBodies;
 use alef_codegen::builder::ImplBuilder;
 use alef_codegen::generators::{self, RustBindingConfig};
-use alef_codegen::shared::partition_methods;
+use alef_codegen::shared::{binding_fields, partition_methods};
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::ir::{EnumDef, EnumVariant, FieldDef, TypeDef, TypeRef};
 
@@ -530,6 +530,7 @@ fn gen_struct_methods_impl(
                 let param_defs: Vec<alef_core::ir::ParamDef> = typ
                     .fields
                     .iter()
+                    .filter(|f| !f.binding_excluded)
                     // cfg-gated fields are absent from the binding struct.
                     .filter(|f| f.cfg.is_none())
                     .map(|f| alef_core::ir::ParamDef {
@@ -551,7 +552,7 @@ fn gen_struct_methods_impl(
 
                 // Generate let bindings for Vec<NonOpaqueCustomType> fields
                 let mut let_bindings = String::new();
-                for f in typ.fields.iter().filter(|f| f.cfg.is_none()) {
+                for f in binding_fields(&typ.fields).filter(|f| f.cfg.is_none()) {
                     if let TypeRef::Vec(inner) = &f.ty {
                         if let TypeRef::Named(name) = inner.as_ref() {
                             if !opaque_types.contains(name.as_str()) && !enum_names.contains(name.as_str()) {
@@ -583,6 +584,7 @@ fn gen_struct_methods_impl(
                 let param_init = typ
                     .fields
                     .iter()
+                    .filter(|f| !f.binding_excluded)
                     // Iterate every field — cfg-gated fields stay in the binding struct so
                     // the Self literal must initialize them too. The .map below emits
                     // `Default::default()` for cfg-gated fields.
@@ -622,7 +624,7 @@ fn gen_struct_methods_impl(
     // $obj->fieldName.  Scalar fields already have #[php(prop)] on the struct field itself.
     // Cfg-gated fields stay in the binding struct (gen_struct keeps them with #[serde(skip)])
     // so PHP also needs a getter to access them — do not skip them here.
-    for field in &typ.fields {
+    for field in binding_fields(&typ.fields) {
         let effective_ty = &field.ty;
         if !is_php_prop_scalar_with_enums(effective_ty, enum_names) {
             // ext-php-rs derives the PHP property name from the Rust method ident (stripping `get_`),

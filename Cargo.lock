@@ -69,6 +69,7 @@ dependencies = [
  "heck",
  "insta",
  "minijinja",
+ "regex",
  "toml",
 ]
 

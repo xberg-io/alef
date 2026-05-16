@@ -3189,3 +3189,121 @@ fn test_wasm_index_ts_exports_unprefixed_names() {
         "index.ts should NOT export prefixed name WasmStatus; actual content:\n{content}"
     );
 }
+
+/// Regression test: constructor params and struct-literal field inits must stay in sync.
+///
+/// Three cases:
+/// 1. Single-word optional field (`content: Option<String>`) — camelCase == snake_case, must work.
+/// 2. Multi-word optional field (`total_tokens: Option<u64>`) — param becomes `totalTokens`,
+///    struct-literal LHS stays `total_tokens`, RHS must be `totalTokens.unwrap_or_default()`.
+///    Previously emitted `total_tokens.unwrap_or_default()` (E0425 — ident not in scope).
+/// 3. Multi-word required field (`tool_call_id: String`) — param becomes `toolCallId`,
+///    struct-literal must be `tool_call_id: toolCallId`.
+#[test]
+fn test_constructor_camel_case_param_sync_with_snake_case_field_init() {
+    let backend = WasmBackend;
+
+    // has_default=true triggers config_constructor_parts_with_options, which wraps all fields
+    // as Option<T> with unwrap_or_default() in the assignments — the problematic path.
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Usage".to_string(),
+            rust_path: "test_lib::Usage".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                make_field("content", TypeRef::String, false),
+                make_field("total_tokens", TypeRef::Primitive(PrimitiveType::U64), false),
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: "Token usage counters".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config();
+    let result = backend.generate_bindings(&api, &config);
+    assert!(result.is_ok(), "Generation must succeed: {:?}", result.err());
+    let content = &result.unwrap()[0].content;
+
+    // Case 2: multi-word field — RHS must be `totalTokens.unwrap_or_default()`.
+    assert!(
+        content.contains("total_tokens: totalTokens.unwrap_or_default()"),
+        "multi-word optional field must emit 'total_tokens: totalTokens.unwrap_or_default()'; actual:\n{content}"
+    );
+    // The broken form must NOT appear.
+    assert!(
+        !content.contains("total_tokens: total_tokens.unwrap_or_default()"),
+        "broken form 'total_tokens: total_tokens.unwrap_or_default()' must NOT appear; actual:\n{content}"
+    );
+}
+
+/// Regression test: multi-word REQUIRED (non-has_default) field constructor.
+///
+/// `constructor_parts` emits the shorthand `tool_call_id` (no colon).
+/// `convert_constructor_params_to_camel_case` must expand it to `tool_call_id: toolCallId`.
+#[test]
+fn test_constructor_camel_case_required_multi_word_field() {
+    let backend = WasmBackend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "ToolCall".to_string(),
+            rust_path: "test_lib::ToolCall".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                make_field("tool_call_id", TypeRef::String, false),
+                make_field("name", TypeRef::String, false),
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: "A tool call with required fields".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config();
+    let result = backend.generate_bindings(&api, &config);
+    assert!(result.is_ok(), "Generation must succeed: {:?}", result.err());
+    let content = &result.unwrap()[0].content;
+
+    // Case 3: multi-word required field — struct-literal must use explicit form.
+    assert!(
+        content.contains("tool_call_id: toolCallId"),
+        "multi-word required field must emit 'tool_call_id: toolCallId'; actual:\n{content}"
+    );
+}

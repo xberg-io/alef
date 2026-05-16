@@ -3,6 +3,7 @@
 use ahash::{AHashMap, AHashSet};
 use alef_codegen::doc_emission::doc_first_paragraph_joined;
 use alef_codegen::generators;
+use alef_codegen::shared::binding_fields;
 use alef_core::config::{DtoConfig, PythonDtoStyle};
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::ApiSurface;
@@ -356,14 +357,14 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
                 minijinja::context! { doc => &class_doc },
             ));
 
-            if typ.fields.is_empty() {
+            if binding_fields(&typ.fields).next().is_none() {
                 // Empty class body — docstring already emitted, so no `pass` needed
                 // (the docstring itself serves as the class body). Avoids ruff PIE790.
                 out.push('\n');
                 continue;
             }
 
-            for field in &typ.fields {
+            for field in binding_fields(&typ.fields) {
                 // Determine Python type hint
                 let type_hint = python_field_type(
                     &field.ty,
@@ -617,7 +618,7 @@ fn gen_typeddict(
         "class_docstring.jinja",
         minijinja::context! { doc => &typeddict_doc },
     ));
-    for field in &typ.fields {
+    for field in binding_fields(&typ.fields) {
         let type_hint = python_field_type(
             &field.ty,
             field.optional,
