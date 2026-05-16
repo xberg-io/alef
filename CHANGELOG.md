@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **alef-backend-swift: emit `options_field` trait bridge — `HtmlVisitorProtocol` + `SwiftHtmlVisitorBox` + `makeHtmlVisitorHandle` + `conversionOptionsFromJsonWithVisitor`**: the swift backend previously only supported `bind_via = "function_param"` inbound trait bridges. This extends `gen_rust_crate/plugin_inbound.rs` with two new emitters (`emit_options_field_factory`, `emit_options_field_options_helper`) and wires both the `extern "Swift"` declaration and the Rust-side wrapper struct for all bridge modes. `gen_bindings.rs` gains `emit_inbound_protocols` which generates the Swift-side protocol, default extension, and box class from the IR. (`crates/alef-backend-swift/src/gen_rust_crate/plugin_inbound.rs`, `crates/alef-backend-swift/src/gen_rust_crate/mod.rs`, `crates/alef-backend-swift/src/gen_bindings.rs`)
+
+- **alef-e2e/swift: emit fixture-driven visitor test classes via `build_swift_visitor`**: visitor-bearing fixtures previously emitted `XCTSkipIf(true, ...)` stubs in the swift e2e output. A new `codegen/swift_visitors.rs` module generates `final class LocalVisitor_<id>: HtmlVisitorProtocol` classes with per-method overrides, and `codegen/swift.rs` threads the resulting handle through `conversionOptionsFromJsonWithVisitor(json, handle)` replacing the former skip stub. (`crates/alef-e2e/src/codegen/swift_visitors.rs`, `crates/alef-e2e/src/codegen/swift.rs`, `crates/alef-e2e/src/codegen/mod.rs`)
+
 ### Fixed
 
 - **alef-backend-wasm: preserve `Option<T>` fields in tagged data enum variants**:

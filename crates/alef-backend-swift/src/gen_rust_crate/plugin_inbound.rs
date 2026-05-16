@@ -32,7 +32,7 @@
 //! `Drop` impl releases the retained ARC reference.
 
 use alef_codegen::generators::trait_bridge::{TraitBridgeGenerator as _, TraitBridgeSpec};
-use alef_core::config::TraitBridgeConfig;
+use alef_core::config::{BridgeBinding, TraitBridgeConfig};
 use alef_core::ir::{ApiSurface, MethodDef, ParamDef, TypeDef, TypeRef};
 use heck::ToSnakeCase;
 
@@ -793,4 +793,147 @@ fn primitive_str(p: &alef_core::ir::PrimitiveType) -> &'static str {
         F32 => "f32",
         F64 => "f64",
     }
+}
+
+// ---------------------------------------------------------------------------
+// OptionsField-specific emitters
+// ---------------------------------------------------------------------------
+
+/// Emit the `extern "Rust"` declaration and `pub fn` body for the
+/// `make_{trait_snake}_handle` factory — the OptionsField analogue of the
+/// FunctionParam `register_*` entry point.
+///
+/// Called from `gen_rust_crate::mod` only when `bridge_cfg.bind_via == OptionsField`.
+/// The factory takes a `Swift{Trait}Box`, wraps it in the Rust-side wrapper struct,
+/// builds an `Arc<Mutex<...>>` matching the inner type alias path, and returns the
+/// local opaque newtype via its existing `From<inner>` impl.
+///
+/// Returns `(extern_decl, fn_body)`. Both are empty strings when a required field
+/// (`type_alias`) is not configured.
+pub(crate) fn emit_options_field_factory(
+    trait_def: &TypeDef,
+    bridge_config: &TraitBridgeConfig,
+    api: &ApiSurface,
+    source_crate: &str,
+) -> (String, String) {
+    debug_assert_eq!(bridge_config.bind_via, BridgeBinding::OptionsField);
+
+    let trait_name = &trait_def.name;
+    let trait_snake = heck::AsSnakeCase(trait_name.as_str()).to_string();
+    let box_name = format!("Swift{trait_name}Box");
+    let wrapper_name = format!("Swift{trait_name}Wrapper");
+
+    let type_alias = match bridge_config.type_alias.as_deref() {
+        Some(a) => a,
+        None => return (String::new(), String::new()),
+    };
+
+    // Locate the type alias definition to get its core Rust path.
+    let alias_def = api.types.iter().find(|t| t.name == type_alias);
+    let inner_path = match alias_def {
+        Some(td) if !td.rust_path.is_empty() => td.rust_path.replace('-', "_"),
+        _ => format!("{source_crate}::{type_alias}"),
+    };
+
+    let fn_name = format!("make_{trait_snake}_handle");
+    let swift_name = heck::AsLowerCamelCase(fn_name.as_str()).to_string();
+
+    // extern "Rust" declaration (goes inside the ffi module).
+    let extern_decl = format!(
+        "    extern \"Rust\" {{\n\
+         \n\
+         \x20\x20\x20\x20\x20\x20\x20\x20 #[swift_bridge(swift_name = \"{swift_name}\")]\n\
+         \x20\x20\x20\x20\x20\x20\x20\x20 fn {fn_name}(swift_box: {box_name}) -> {type_alias};\n\
+         \n\
+         \x20\x20\x20\x20}}\n\n"
+    );
+
+    // pub fn body (emitted at the crate root, outside the ffi module).
+    let fn_body = format!(
+        "/// Construct a `{type_alias}` from a Swift `{box_name}` handle.\n\
+         /// Called by Swift e2e tests via `{swift_name}(...)` to build a\n\
+         /// `{type_alias}` that can be passed to the options-with-visitor helper.\n\
+         pub fn {fn_name}(swift_box: ffi::{box_name}) -> {type_alias} {{\n\
+         \x20   let __wrapper = {wrapper_name}::new(swift_box);\n\
+         \x20   let __inner: {inner_path} = ::std::sync::Arc::new(::std::sync::Mutex::new(__wrapper));\n\
+         \x20   {type_alias}::from(__inner)\n\
+         }}\n"
+    );
+
+    (extern_decl, fn_body)
+}
+
+/// Emit the `extern "Rust"` declaration and `pub fn` body for the
+/// `{options_snake}_from_json_with_{field}` helper — mirrors the dart backend's
+/// `create_{options_snake}_from_json_with_{field}`.
+///
+/// Deserialises a core `{OptionsType}` from JSON, attaches the given
+/// `Option<{TypeAlias}>` visitor handle to the field, then converts to the mirror
+/// struct via its existing `From<core>` impl.
+///
+/// Returns `(extern_decl, fn_body)`. Both are empty strings when required fields
+/// (`type_alias`, `options_type`, or the resolved options field) are not configured.
+///
+/// Called from `gen_rust_crate::mod` only when `bridge_cfg.bind_via == OptionsField`.
+pub(crate) fn emit_options_field_options_helper(
+    bridge_config: &TraitBridgeConfig,
+    api: &ApiSurface,
+    source_crate: &str,
+) -> (String, String) {
+    debug_assert_eq!(bridge_config.bind_via, BridgeBinding::OptionsField);
+
+    let type_alias = match bridge_config.type_alias.as_deref() {
+        Some(a) => a,
+        None => return (String::new(), String::new()),
+    };
+    let options_type = match bridge_config.options_type.as_deref() {
+        Some(o) => o,
+        None => return (String::new(), String::new()),
+    };
+    let field = match bridge_config.resolved_options_field() {
+        Some(f) => f.to_string(),
+        None => return (String::new(), String::new()),
+    };
+
+    let options_snake = heck::AsSnakeCase(options_type).to_string();
+    let fn_name = format!("{options_snake}_from_json_with_{field}");
+    let swift_name = heck::AsLowerCamelCase(fn_name.as_str()).to_string();
+
+    // Locate the alias def to get the inner Rust path (same as factory).
+    let alias_def = api.types.iter().find(|t| t.name == type_alias);
+    let inner_path = match alias_def {
+        Some(td) if !td.rust_path.is_empty() => td.rust_path.replace('-', "_"),
+        _ => format!("{source_crate}::{type_alias}"),
+    };
+
+    // Locate the core options path from the IR.
+    let opts_def = api.types.iter().find(|t| t.name == options_type);
+    let core_options_path = match opts_def {
+        Some(td) if !td.rust_path.is_empty() => td.rust_path.replace('-', "_"),
+        _ => format!("{source_crate}::{options_type}"),
+    };
+
+    // extern "Rust" declaration (goes inside the ffi module).
+    let extern_decl = format!(
+        "    extern \"Rust\" {{\n\
+         \n\
+         \x20\x20\x20\x20\x20\x20\x20\x20 #[swift_bridge(swift_name = \"{swift_name}\")]\n\
+         \x20\x20\x20\x20\x20\x20\x20\x20 fn {fn_name}(json: String, {field}: Option<{type_alias}>) -> Result<{options_type}, String>;\n\
+         \n\
+         \x20\x20\x20\x20}}\n\n"
+    );
+
+    // pub fn body.
+    let fn_body = format!(
+        "/// Deserialise a `{options_type}` from JSON and attach a visitor handle to its\n\
+         /// `{field}` field. Used by Swift e2e tests to thread a `{type_alias}` into the\n\
+         /// conversion call without needing a mutable post-construction setter.\n\
+         pub fn {fn_name}(json: String, {field}: Option<{type_alias}>) -> Result<{options_type}, String> {{\n\
+         \x20   let mut __core: {core_options_path} = ::serde_json::from_str(&json).map_err(|e| e.to_string())?;\n\
+         \x20   __core.{field} = {field}.map(|h| <{inner_path}>::from(h));\n\
+         \x20   Ok({options_type}::from(__core))\n\
+         }}\n"
+    );
+
+    (extern_decl, fn_body)
 }
