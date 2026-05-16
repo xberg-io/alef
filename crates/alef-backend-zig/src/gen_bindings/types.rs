@@ -16,6 +16,10 @@ pub(crate) fn emit_type(ty: &TypeDef, out: &mut String) {
         },
     ));
     for field in binding_fields(&ty.fields) {
+        // Struct fields inherit `///` doc comments inside the struct body — the
+        // four-space indent matches the field declaration emitted by
+        // `type_field.jinja`.
+        emit_cleaned_zig_doc(out, &field.doc, "    ");
         let ty_str = zig_field_type(&field.ty, field.optional);
         out.push_str(&crate::template_env::render(
             "type_field.jinja",
@@ -39,6 +43,9 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String) {
             },
         ));
         for variant in &en.variants {
+            // Variant docstrings render as `///` comments immediately above the
+            // tag declaration. Empty docs no-op via `emit_cleaned_zig_doc`.
+            emit_cleaned_zig_doc(out, &variant.doc, "    ");
             let tag_value = variant
                 .serde_rename
                 .clone()
@@ -59,6 +66,8 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String) {
             },
         ));
         for variant in &en.variants {
+            // Tagged-union variants carry their rustdoc as `///` above the tag.
+            emit_cleaned_zig_doc(out, &variant.doc, "    ");
             let tag_value = variant
                 .serde_rename
                 .clone()

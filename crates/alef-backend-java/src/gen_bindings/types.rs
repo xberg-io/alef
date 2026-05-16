@@ -30,6 +30,11 @@ pub(crate) fn gen_record_type(
     let visible_fields: Vec<_> = binding_fields(&typ.fields).collect();
     let mut fields_joined = String::with_capacity(visible_fields.len().saturating_mul(42));
     let mut field_decls: Vec<String> = Vec::with_capacity(visible_fields.len());
+    // Per-field Javadoc captured at decl time so the multi-line emit path can
+    // attach `/** ... */` above each record component. The single-line path
+    // intentionally skips field docs — inlining `/** ... */` inside a
+    // comma-joined parameter list would produce invalid Java.
+    let mut field_docs: Vec<String> = Vec::with_capacity(visible_fields.len());
 
     for (i, f) in visible_fields.iter().enumerate() {
         // Complex enums (tagged unions with data) can't be simple Java enums.
@@ -179,6 +184,9 @@ pub(crate) fn gen_record_type(
         }
         fields_joined.push_str(&decl);
         field_decls.push(decl);
+        let mut doc_block = String::new();
+        emit_javadoc(&mut doc_block, &f.doc, "    ");
+        field_docs.push(doc_block);
     }
 
     // Build the single-line form to check length and scan for imports.
@@ -216,6 +224,12 @@ pub(crate) fn gen_record_type(
         record_block.push_str("(\n");
         for (i, decl) in field_decls.iter().enumerate() {
             let comma = if i < field_decls.len() - 1 { "," } else { "" };
+            // Field Javadoc lives above the component when present, indented to
+            // match the component declaration (4 spaces). Empty docs no-op via
+            // emit_javadoc's early return.
+            if let Some(doc) = field_docs.get(i) {
+                record_block.push_str(doc);
+            }
             record_block.push_str("    ");
             record_block.push_str(decl);
             record_block.push_str(comma);
@@ -1030,6 +1044,10 @@ fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner
         java_return_type(&method.return_type).to_string()
     };
 
+    // Emit Javadoc derived from the IR method.doc above the method declaration
+    // so opaque-handle instance methods carry their source-level rustdoc into
+    // the generated Java surface.
+    emit_javadoc(out, &method.doc, "    ");
     out.push_str("    public ");
     out.push_str(&return_type_java);
     out.push(' ');

@@ -60,6 +60,10 @@ pub(crate) fn emit_type_with_imports(ty: &TypeDef, out: &mut String, imports: &m
         },
     ));
     for (idx, field) in ty.fields.iter().enumerate() {
+        // Field-level KDoc renders above each `val name: T,` line inside the
+        // data-class primary constructor. Empty docs no-op via the early
+        // return in `emit_cleaned_kdoc`.
+        emit_cleaned_kdoc(out, &field.doc, "    ");
         let ty_str = kotlin_type_with_string_imports(&field.ty, field.optional, imports);
         let name = kotlin_field_name(&field.name, idx);
         let comma = if idx + 1 == ty.fields.len() { "" } else { "," };
@@ -87,6 +91,9 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str) {
         ));
         let names: Vec<String> = en.variants.iter().map(|v| to_screaming_snake(&v.name)).collect();
         for (idx, name) in names.iter().enumerate() {
+            // Emit per-variant KDoc above the enum constant. Indent matches
+            // the template's 4-space lead.
+            emit_cleaned_kdoc(out, &en.variants[idx].doc, "    ");
             let comma = if idx + 1 == names.len() { ";" } else { "," };
             out.push_str(&crate::template_env::render(
                 "enum_variant.jinja",
@@ -134,6 +141,9 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str) {
         let variant_names: std::collections::HashSet<&str> = en.variants.iter().map(|v| v.name.as_str()).collect();
 
         for variant in &en.variants {
+            // Sealed-class variants render their rustdoc above the nested
+            // object/data class declaration.
+            emit_cleaned_kdoc(out, &variant.doc, "    ");
             if variant.fields.is_empty() {
                 out.push_str(&crate::template_env::render(
                     "sealed_object_variant.jinja",

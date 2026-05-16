@@ -50,7 +50,9 @@ pub const Config = struct {
 
 /// Processing status.
 pub const Status = enum {
+    /// Active state.
     active,
+    /// Inactive state.
     inactive,
 };
 

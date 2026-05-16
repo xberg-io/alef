@@ -7,7 +7,7 @@ use alef_core::ir::{ApiSurface, FunctionDef, TypeRef};
 use heck::ToSnakeCase;
 use std::collections::HashSet;
 
-use super::helpers::is_bridge_param_java;
+use super::helpers::{emit_javadoc, is_bridge_param_java};
 use super::marshal::{
     ffi_param_args, gen_helper_methods, is_bytes_result, is_ffi_string_return, java_ffi_return_cast,
     marshal_param_to_ffi,
@@ -136,6 +136,9 @@ pub(crate) fn gen_sync_function_method(
 
     let return_type = java_return_type(&func.return_type);
     let exception_class_name = format!("{}Exception", class_name);
+    // Free-function rustdoc renders above the static-method signature so the
+    // raw-FFI class doubles as a documented public surface.
+    emit_javadoc(out, &func.doc, "    ");
     let method_sig = crate::template_env::render(
         "ffi_method_signature.jinja",
         minijinja::context! {

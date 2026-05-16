@@ -10,6 +10,12 @@ package dev.kreuzberg
  * Processing status.
  */
 enum class Status {
+    /**
+     * Active state.
+     */
     ACTIVE,
+    /**
+     * Inactive state.
+     */
     INACTIVE;
 }
