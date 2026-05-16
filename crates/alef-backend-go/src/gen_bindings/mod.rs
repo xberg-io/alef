@@ -567,6 +567,19 @@ fn gen_go_file(
     // (unless the type also appears as an opaque type in api.types) and are excluded.
     let ffi_enum_names: HashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
 
+    // Data enums (sealed interfaces): enums with named fields in at least one variant
+    let data_enum_names: std::collections::HashSet<&str> = api
+        .enums
+        .iter()
+        .filter(|e| {
+            !exclude_types.contains(&e.name)
+                && e.variants.iter().any(|v| {
+                    !v.fields.is_empty() && v.fields.iter().any(|f| !is_tuple_field(f))
+                })
+        })
+        .map(|e| e.name.as_str())
+        .collect();
+
     // Generate struct types
     for typ in api
         .types
@@ -585,7 +598,7 @@ fn gen_go_file(
                 out.push_str("\n\n");
             }
         } else {
-            out.push_str(&gen_struct_type(typ, &unit_enum_names));
+            out.push_str(&gen_struct_type(typ, &unit_enum_names, &data_enum_names));
             out.push_str("\n\n");
             // Generate functional options pattern if type has defaults.
             // Skip "Update" types (e.g., ConversionOptionsUpdate) — they are partial update

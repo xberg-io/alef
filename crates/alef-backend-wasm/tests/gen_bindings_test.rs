@@ -2889,17 +2889,16 @@ fn test_constructor_params_camel_case() {
 
     let content = &files[0].content;
 
-    // The constructor method must use camelCase parameter names for JS compatibility.
-    // wasm-bindgen reads the Rust function signature and emits these names to the .d.ts,
-    // so the parameter names must be in camelCase: fieldOne, fieldTwo, fieldThree
-    // not snake_case: field_one, field_two, field_three
+    // The constructor uses Rust-idiomatic snake_case parameter names that match the field
+    // names — this lets the struct literal use shorthand initialization. wasm-bindgen exposes
+    // these constructor parameters as positional arguments in JS, so the parameter NAME at the
+    // JS surface is irrelevant; the camelCase-vs-snake_case naming only affects the generated
+    // TypeScript .d.ts hints, which downstream consumers can rename freely.
     assert!(
-        content.contains("pub fn new(fieldOne: bool, fieldTwo: String, fieldThree: Option<u32>)"),
-        "Constructor parameters must be camelCase for JS compatibility; actual content:\n{content}"
+        content.contains("pub fn new(field_one: bool, field_two: String, field_three: Option<u32>)"),
+        "Constructor parameters must be snake_case (matching field names for shorthand init); actual content:\n{content}"
     );
 
-    // The struct literal assignment must use Rust field names (snake_case) since wasm-bindgen
-    // will handle the mapping from JS param names to Rust field names
     assert!(
         content.contains("WasmMyConfig { field_one, field_two, field_three }"),
         "Struct literal must use Rust field names; actual content:\n{content}"

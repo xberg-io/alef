@@ -682,3 +682,168 @@ fn optional_params_get_kotlin_default_values_in_facade() {
         "modelHint must default to \"\", got:\n{content}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Feature: payload-derived sealed variant param names
+// ---------------------------------------------------------------------------
+
+fn make_sealed_variants_config() -> ResolvedCrateConfig {
+    resolved_one(
+        r#"
+[workspace]
+languages = ["kotlin_android", "java", "ffi"]
+
+[[crates]]
+name = "demo"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "demo"
+
+[crates.java]
+package = "dev.kreuzberg"
+
+[crates.kotlin_android]
+package = "dev.kreuzberg.demo.android"
+namespace = "dev.kreuzberg.demo.android"
+artifact_id = "demo-android"
+group_id = "dev.kreuzberg"
+"#,
+    )
+}
+
+use alef_core::ir::{EnumDef, EnumVariant};
+
+fn make_sealed_variants_api() -> ApiSurface {
+    // Create an enum with tuple variants having different payload types:
+    // - Pdf(PdfMetadata): named type, derives "metadata"
+    // - Custom(String): primitive type, derives "value"
+    // - Multi(String, Int): multiple primitives, derives "value0", "value1"
+    let format_metadata_enum = EnumDef {
+        name: "FormatMetadata".into(),
+        variants: vec![
+            EnumVariant {
+                name: "Pdf".into(),
+                fields: vec![alef_core::ir::Field {
+                    name: "_0".into(), // Tuple variant positional field
+                    ty: TypeRef::Named("PdfMetadata".into()),
+                    optional: false,
+                    serde_rename: None,
+                }],
+                discriminant: None,
+                serde_rename: None,
+            },
+            EnumVariant {
+                name: "Custom".into(),
+                fields: vec![alef_core::ir::Field {
+                    name: "_0".into(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    serde_rename: None,
+                }],
+                discriminant: None,
+                serde_rename: None,
+            },
+            EnumVariant {
+                name: "Multi".into(),
+                fields: vec![
+                    alef_core::ir::Field {
+                        name: "_0".into(),
+                        ty: TypeRef::String,
+                        optional: false,
+                        serde_rename: None,
+                    },
+                    alef_core::ir::Field {
+                        name: "_1".into(),
+                        ty: TypeRef::Primitive(alef_core::ir::PrimitiveType::I32),
+                        optional: false,
+                        serde_rename: None,
+                    },
+                ],
+                discriminant: None,
+                serde_rename: None,
+            },
+            EnumVariant {
+                name: "Struct".into(),
+                fields: vec![alef_core::ir::Field {
+                    name: "reason".into(), // Named struct field
+                    ty: TypeRef::String,
+                    optional: false,
+                    serde_rename: None,
+                }],
+                discriminant: None,
+                serde_rename: None,
+            },
+        ],
+        doc: "Test enum with various payload types".into(),
+        serde_tag: None,
+        serde_untagged: false,
+    };
+
+    ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![format_metadata_enum],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    }
+}
+
+/// Test that sealed class tuple variants use payload-derived field names instead of `field0`.
+///
+/// Expected behavior:
+/// - `Pdf(PdfMetadata)` → `val metadata: PdfMetadata` (strip common prefix "Pdf")
+/// - `Custom(String)` → `val value: String` (generic name for primitive)
+/// - `Multi(String, Int)` → `val value0: String, val value1: Int` (generic names for multiple)
+/// - `Struct { reason: String }` → `val reason: String` (use field name directly)
+#[test]
+fn sealed_variant_tuple_params_use_payload_derived_names() {
+    let api = make_sealed_variants_api();
+    let config = make_sealed_variants_config();
+    let files = KotlinAndroidBackend.generate_bindings(&api, &config).unwrap();
+
+    let format_metadata_kt = files
+        .iter()
+        .find(|f| {
+            f.path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|s| s.ends_with("FormatMetadata.kt"))
+                .unwrap_or(false)
+        })
+        .expect("FormatMetadata.kt must be emitted");
+
+    let content = &format_metadata_kt.content;
+
+    // Pdf(PdfMetadata) should derive "metadata" by stripping "Pdf" prefix
+    assert!(
+        content.contains("data class Pdf(val metadata: PdfMetadata)"),
+        "Pdf variant should use payload-derived name 'metadata', got:\n{content}"
+    );
+
+    // Custom(String) should use generic "value" for primitive
+    assert!(
+        content.contains("data class Custom(val value: String)"),
+        "Custom variant should use generic name 'value' for primitive payload, got:\n{content}"
+    );
+
+    // Multi(String, Int) should use "value0" and "value1"
+    assert!(
+        content.contains("data class Multi(val value0: String, val value1: Int)"),
+        "Multi variant should use generic names 'value0', 'value1', got:\n{content}"
+    );
+
+    // Struct { reason: String } should use the original field name
+    assert!(
+        content.contains("data class Struct(val reason: String)"),
+        "Struct variant should preserve the field name 'reason', got:\n{content}"
+    );
+
+    // Should NOT use placeholder "field0" anywhere for tuple variants
+    assert!(
+        !content.contains("field0"),
+        "should not use placeholder 'field0', got:\n{content}"
+    );
+}

@@ -566,25 +566,6 @@ pub(super) fn gen_struct_methods(
     impl_builder.build()
 }
 
-/// Convert snake_case parameter names to camelCase for JS-facing constructor signatures.
-/// Input: "foo_bar: String, baz_qux: Option<u32>" → "fooBar: String, bazQux: Option<u32>"
-fn convert_param_names_to_camel_case(param_list: &str) -> String {
-    param_list
-        .split(", ")
-        .map(|param| {
-            if let Some((name, ty)) = param.split_once(':') {
-                let name_trimmed = name.trim();
-                let ty_trimmed = ty.trim();
-                let camel_name = to_node_name(name_trimmed);
-                format!("{}: {}", camel_name, ty_trimmed)
-            } else {
-                param.to_string()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
 /// Generate a constructor method.
 fn gen_new_method(
     typ: &TypeDef,
@@ -635,9 +616,6 @@ fn gen_new_method(
         constructor_parts(&filtered_fields, &map_fn)
     };
 
-    // Convert snake_case Rust parameter names to camelCase for JS compatibility
-    let param_list_camel = convert_param_names_to_camel_case(&param_list);
-
     // Suppress too_many_arguments when the constructor has >7 params
     let field_count = filtered_fields.iter().filter(|f| f.cfg.is_none()).count();
     let allow_attr = if field_count > 7 {
@@ -647,7 +625,7 @@ fn gen_new_method(
     };
 
     format!(
-        "{allow_attr}#[wasm_bindgen(constructor)]\npub fn new({param_list_camel}) -> {prefix}{} {{\n    {prefix}{} {{ {assignments} }}\n}}",
+        "{allow_attr}#[wasm_bindgen(constructor)]\npub fn new({param_list}) -> {prefix}{} {{\n    {prefix}{} {{ {assignments} }}\n}}",
         typ.name, typ.name
     )
 }
