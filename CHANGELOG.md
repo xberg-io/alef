@@ -40,6 +40,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-cli/alef-e2e: use `oxfmt` instead of Taplo for generated TOML normalization**:
+  the default post-generation formatters now call `pnpm dlx oxfmt` for WASM
+  manifests, FFI/workspace formatting, and Rust e2e `Cargo.toml` normalization,
+  aligning generated output with Kreuzberg's shared pre-commit hooks.
+  (`crates/alef-cli/src/pipeline/format.rs`, `crates/alef-e2e/src/format.rs`)
+
+- **alef-backend-ffi: escape generated `cbindgen.toml` `after_includes` safely**:
+  Doxygen blocks embedded in `after_includes` now render as escaped TOML
+  multiline strings, so backslash commands such as `\code` and rustdoc examples
+  containing triple quotes no longer make `cbindgen.toml` invalid.
+  (`crates/alef-backend-ffi/templates/cbindgen_toml.jinja`,
+  `crates/alef-backend-ffi/src/gen_bindings/helpers.rs`,
+  `crates/alef-backend-ffi/src/gen_bindings/mod.rs`)
+
 - **alef-backend-wasm: emit current `getrandom` for wasm target dependencies**:
   generated WASM `Cargo.toml` files now use `getrandom` `0.4` with `wasm_js`, so downstream
   aggressive dependency upgrades no longer make generated manifests stale.

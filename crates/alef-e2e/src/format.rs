@@ -21,7 +21,7 @@ use tracing::warn;
 ///   flag (it's an unstable cargo-fmt-only flag in nightly), so running cargo
 ///   fmt from the e2e crate's own directory is the portable way to format a
 ///   non-workspace-member crate. `Cargo.toml` normalisation is handled by the
-///   `normalize_rust_toml` post-pass (taplo fmt), not by cargo-sort: cargo-sort
+///   `normalize_rust_toml` post-pass (oxfmt), not by cargo-sort: cargo-sort
 ///   relocates leading top-level comments to the bottom of the file, which
 ///   pushes the alef header (and `# alef:hash:` line) past the 10-line
 ///   detection window and breaks `alef verify` silently.
@@ -46,8 +46,8 @@ fn default_formatter(lang: &str) -> Option<&'static str> {
 /// Run a best-effort TOML normalization pass on the rust e2e crate's
 /// `Cargo.toml` after the language formatter has finished.
 ///
-/// Runs `taplo fmt Cargo.toml` so that downstream `prek` setups that include
-/// a taplo hook produce no further changes after `alef e2e generate`. Without
+/// Runs `pnpm dlx oxfmt Cargo.toml` so that downstream `prek` setups that
+/// include the shared oxfmt hook produce no further changes after `alef e2e generate`. Without
 /// this pass, prek would rewrite the manifest (array wrapping, indentation)
 /// after `finalize_hashes` has captured the pre-prek content, causing
 /// `alef verify` to report the file as stale.
@@ -63,14 +63,14 @@ fn default_formatter(lang: &str) -> Option<&'static str> {
 /// header inside a `[package.metadata.alef]` section that cargo-sort
 /// preserves.
 ///
-/// Taplo is invoked via `sh -c` and is best-effort: a missing binary or
+/// oxfmt is invoked via `pnpm dlx` and is best-effort: a missing binary or
 /// non-zero exit is ignored. This is intentional — alef cannot assume a
 /// particular host toolchain, and the calling project's own CI is
-/// responsible for enforcing that taplo is present when they ship the
+/// responsible for enforcing that oxfmt is present when they ship the
 /// corresponding prek hook.
 fn normalize_rust_toml(dir: &str) {
-    let taplo_cmd = format!("(cd {dir} && taplo fmt Cargo.toml >/dev/null 2>&1) || true");
-    let _ = std::process::Command::new("sh").args(["-c", &taplo_cmd]).status();
+    let oxfmt_cmd = format!("(cd {dir} && pnpm dlx oxfmt Cargo.toml >/dev/null 2>&1) || true");
+    let _ = std::process::Command::new("sh").args(["-c", &oxfmt_cmd]).status();
 }
 
 /// Run per-language formatters for all languages that had files generated.
@@ -120,8 +120,8 @@ pub fn run_formatters(files: &[GeneratedFile], e2e_config: &E2eConfig) {
             }
         }
 
-        // Rust-only TOML normalization pass: run taplo on the e2e crate's
-        // Cargo.toml so that downstream prek hooks that include taplo produce
+        // Rust-only TOML normalization pass: run oxfmt on the e2e crate's
+        // Cargo.toml so that downstream prek hooks that include oxfmt produce
         // no further changes after generation. The user's
         // `e2e_config.format[rust]` override (if any) typically only covers
         // cargo fmt — which leaves `Cargo.toml` array wrapping at its raw
@@ -158,12 +158,12 @@ mod tests {
         // cargo-sort must NOT be in the default rust formatter: it relocates
         // the alef header comments to the bottom of the file, pushing the
         // `# alef:hash:` line past the 10-line detection window and silently
-        // breaking `alef verify`. TOML normalisation is delegated to taplo via
+        // breaking `alef verify`. TOML normalisation is delegated to oxfmt via
         // `normalize_rust_toml`.
         assert!(
             !cmd.contains("cargo sort"),
             "rust formatter must NOT run cargo sort — it scrambles the alef header \
-             location in Cargo.toml. Use taplo via normalize_rust_toml instead: {cmd}"
+             location in Cargo.toml. Use oxfmt via normalize_rust_toml instead: {cmd}"
         );
     }
 
@@ -217,7 +217,7 @@ mod tests {
     #[test]
     fn test_normalize_rust_toml_is_best_effort_on_missing_dir() {
         // Should return cleanly even though the dir does not exist; both
-        // cargo-sort and taplo invocations are wrapped in `|| true`.
+        // oxfmt invocation is wrapped in `|| true`.
         normalize_rust_toml("/nonexistent/alef-e2e-test/dir");
     }
 }
