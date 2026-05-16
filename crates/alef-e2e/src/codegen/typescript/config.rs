@@ -93,4 +93,12 @@ mod tests {
         let out = render_vitest_config(false, false);
         assert!(!out.contains("globalSetup"), "got: {out}");
     }
+
+    #[test]
+    fn render_global_setup_waits_for_mock_server_shutdown() {
+        let out = render_global_setup();
+        assert!(out.contains("await new Promise<void>"), "got: {out}");
+        assert!(out.contains("child.once('close'"), "got: {out}");
+        assert!(out.contains("child.kill('SIGKILL')"), "got: {out}");
+    }
 }

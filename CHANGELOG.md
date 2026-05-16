@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-e2e/typescript: wait for mock-server shutdown in Vitest global teardown**:
+  The generated TypeScript e2e `globalSetup.ts` now waits for the spawned mock-server process to
+  close after sending SIGTERM, with a bounded SIGKILL fallback. This prevents Vitest from printing
+  hanging-process warnings after otherwise successful generated e2e runs.
+  (`crates/alef-e2e/templates/typescript/globalSetup.ts.jinja`,
+  `crates/alef-e2e/src/codegen/typescript/config.rs`)
+
 - **alef-backend-jni: emit type aliases for streaming handle struct to avoid `clippy::type_complexity`**:
   The `<Type><Adapter>StreamHandle` struct was inlining the full
   `Mutex<Option<BoxStream<'static, Result<T, Box<dyn Error + Send + Sync + 'static>>>>>` type

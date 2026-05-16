@@ -56,8 +56,28 @@ export async function setup() {
 }
 
 export async function teardown() {
-  if (serverProcess) {
-    serverProcess.stdin.end();
-    serverProcess.kill();
-  }
+  if (!serverProcess) return;
+
+  const child = serverProcess;
+  serverProcess = undefined;
+
+  await new Promise<void>((resolve) => {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      resolve();
+      return;
+    }
+
+    const timeout = setTimeout(() => {
+      child.kill('SIGKILL');
+      resolve();
+    }, 5000);
+
+    child.once('close', () => {
+      clearTimeout(timeout);
+      resolve();
+    });
+
+    child.stdin.end();
+    child.kill('SIGTERM');
+  });
 }
