@@ -964,6 +964,15 @@ fn elixir_field_default(
 ) -> String {
     use alef_core::ir::DefaultValue;
 
+    // G7: Check if the field is nilable — if so, always default to nil.
+    // A field is nilable if: field.optional=true OR ty=TypeRef::Optional(...)
+    let is_nilable = field.optional || matches!(ty, TypeRef::Optional(_));
+    if is_nilable {
+        // Always default to nil for nilable fields, regardless of any typed_default.
+        // This ensures the defstruct default aligns with the @type spec (T | nil).
+        return "nil".to_string();
+    }
+
     if let Some(td) = &field.typed_default {
         return match td {
             DefaultValue::BoolLiteral(b) => (if *b { "true" } else { "false" }).to_string(),
@@ -976,14 +985,19 @@ fn elixir_field_default(
         };
     }
 
-    // No typed_default: use optional flag or type-appropriate zero
-    if field.optional {
-        return "nil".to_string();
-    }
+    // No typed_default: use type-appropriate zero
     elixir_zero_value(ty, enum_defaults)
 }
 
 /// Generate a type-appropriate zero/default value for Elixir.
+///
+/// G7: Defaults align with @type specs:
+/// - Non-nilable strings → `""`
+/// - Non-nilable numbers → `0` or `0.0`
+/// - Non-nilable booleans → `false`
+/// - Non-nilable lists → `[]`
+/// - Non-nilable maps → `%{}`
+/// - Struct/Named types → first variant default (enum) or `nil`
 fn elixir_zero_value(ty: &TypeRef, enum_defaults: &HashMap<String, String>) -> String {
     match ty {
         TypeRef::Primitive(p) => match p {
@@ -991,8 +1005,8 @@ fn elixir_zero_value(ty: &TypeRef, enum_defaults: &HashMap<String, String>) -> S
             alef_core::ir::PrimitiveType::F32 | alef_core::ir::PrimitiveType::F64 => "0.0".to_string(),
             _ => "0".to_string(),
         },
-        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => "nil".to_string(),
-        TypeRef::Bytes => "nil".to_string(),
+        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => "\"\"".to_string(),
+        TypeRef::Bytes => "<<>>".to_string(),
         TypeRef::Duration => "0".to_string(),
         TypeRef::Vec(_) => "[]".to_string(),
         TypeRef::Map(_, _) => "%{}".to_string(),

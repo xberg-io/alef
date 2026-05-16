@@ -151,6 +151,123 @@ fn test_struct_module_emits_type_t_typespec_with_correct_field_types() {
 }
 
 #[test]
+fn test_struct_module_defstruct_defaults_align_with_typespec() {
+    // G7: Test that defstruct field defaults align with @type specs.
+    // Nilable fields (X | nil) must default to nil, regardless of Rust default.
+    // Non-nilable strings default to "", numbers to 0, booleans to false, lists to [].
+    let struct_def = TypeDef {
+        name: "DefaultAlignmentTest".to_string(),
+        rust_path: "my_crate::DefaultAlignmentTest".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![
+            make_field("nullable_string", TypeRef::String, true),
+            make_field("required_string", TypeRef::String, false),
+            make_field("nullable_number", TypeRef::Primitive(PrimitiveType::U32), true),
+            make_field("required_number", TypeRef::Primitive(PrimitiveType::U32), false),
+            make_field("nullable_bool", TypeRef::Primitive(PrimitiveType::Bool), true),
+            make_field("required_bool", TypeRef::Primitive(PrimitiveType::Bool), false),
+            make_field("nullable_list", TypeRef::Vec(Box::new(TypeRef::String)), true),
+            make_field("required_list", TypeRef::Vec(Box::new(TypeRef::String)), false),
+            make_field(
+                "nullable_map",
+                TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+                true,
+            ),
+            make_field(
+                "required_map",
+                TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+                false,
+            ),
+        ],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: "Test struct for default alignment".to_string(),
+        cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+
+    let config = make_config("test_app");
+    let api = ApiSurface {
+        crate_name: "test-app".to_string(),
+        version: "1.0.0".to_string(),
+        functions: vec![],
+        types: vec![struct_def.clone()],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: std::collections::HashMap::new(),
+    };
+
+    let backend = RustlerBackend;
+    let generated = backend
+        .generate_public_api(&api, &config)
+        .expect("generation must succeed");
+
+    let struct_module = generated
+        .iter()
+        .find(|f| {
+            let path_str = f.path.to_string_lossy();
+            path_str.contains("default_alignment_test") && path_str.ends_with(".ex")
+        })
+        .expect("should generate DefaultAlignmentTest module");
+
+    let content = &struct_module.content;
+
+    // Verify nil defaults for nullable fields
+    assert!(
+        content.contains("nullable_string: nil"),
+        "nullable string field should default to nil; got:\n{content}"
+    );
+    assert!(
+        content.contains("nullable_number: nil"),
+        "nullable number field should default to nil; got:\n{content}"
+    );
+    assert!(
+        content.contains("nullable_bool: nil"),
+        "nullable bool field should default to nil; got:\n{content}"
+    );
+    assert!(
+        content.contains("nullable_list: nil"),
+        "nullable list field should default to nil; got:\n{content}"
+    );
+    assert!(
+        content.contains("nullable_map: nil"),
+        "nullable map field should default to nil; got:\n{content}"
+    );
+
+    // Verify proper defaults for required fields
+    assert!(
+        content.contains("required_string: \"\""),
+        "required string field should default to \"\"; got:\n{content}"
+    );
+    assert!(
+        content.contains("required_number: 0"),
+        "required number field should default to 0; got:\n{content}"
+    );
+    assert!(
+        content.contains("required_bool: false"),
+        "required bool field should default to false; got:\n{content}"
+    );
+    assert!(
+        content.contains("required_list: []"),
+        "required list field should default to []; got:\n{content}"
+    );
+    assert!(
+        content.contains("required_map: %{}"),
+        "required map field should default to empty map; got:\n{content}"
+    );
+}
+
+#[test]
 fn test_struct_module_with_named_type_field() {
     // Create a struct that references another struct type
     let struct_def = TypeDef {

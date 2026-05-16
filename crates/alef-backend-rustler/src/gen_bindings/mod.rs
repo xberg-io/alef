@@ -7,6 +7,7 @@ use crate::type_map::RustlerMapper;
 use ahash::AHashSet;
 use alef_codegen::builder::RustFileBuilder;
 use alef_codegen::generators;
+use alef_codegen::shared::binding_fields;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{BridgeBinding, Language, ResolvedCrateConfig, resolve_output_dir};
 use alef_core::ir::ApiSurface;
@@ -86,7 +87,7 @@ impl Backend for RustlerBackend {
             }
             // Also exclude from any other IR type that has this field with the trait alias type.
             for typ in api.types.iter() {
-                if typ.fields.iter().any(|f| {
+                if binding_fields(&typ.fields).any(|f| {
                     if f.name != field_name {
                         return false;
                     }
@@ -758,7 +759,10 @@ impl Backend for RustlerBackend {
             } else {
                 trailing_optional_count
             };
-            let use_keyword_opts = trailing_keyword_count > 0;
+            // Single trailing optional → arity overloads (`def f(req)` + `def f(req, opt)`),
+            // matching the e2e codegen's positional call shape. Collapse to `opts \\ []`
+            // keyword form only when 2+ optionals make the keyword form materially clearer.
+            let use_keyword_opts = trailing_keyword_count >= 2;
 
             // Emit one @spec/@doc per arity variant (shortest to longest).
             // The shortest arity fills optional params with nil.
