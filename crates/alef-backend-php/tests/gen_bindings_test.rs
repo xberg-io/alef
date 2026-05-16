@@ -2125,3 +2125,80 @@ fn test_vec_named_struct_parameter() {
         "Should NOT generate unimplemented stub for batch_process"
     );
 }
+
+#[test]
+fn test_dto_stubs_use_final_class_with_readonly_promoted_params() {
+    // PHP 8.3+ idiom: DTOs must be emitted as `final class` with constructor property
+    // promotion (`public readonly`) and no redundant getter methods.
+    let backend = PhpBackend;
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "SystemMessage".to_string(),
+            rust_path: "test_lib::SystemMessage".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                make_field("content", TypeRef::String, false),
+                make_field("name", TypeRef::String, true),
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config();
+    let files = backend.generate_type_stubs(&api, &config).unwrap();
+    let stubs = files.first().unwrap();
+    let content = &stubs.content;
+
+    // (a) DTOs must use `final class`, not bare `class`
+    assert!(
+        content.contains("final class SystemMessage"),
+        "DTO stub must use `final class`; content:\n{content}"
+    );
+
+    // (b) Constructor parameters must use `public readonly` promotion
+    assert!(
+        content.contains("public readonly string $content"),
+        "Required field must use `public readonly` promotion; content:\n{content}"
+    );
+    assert!(
+        content.contains("public readonly ?string $name"),
+        "Optional field must use `public readonly` promotion with nullable type; content:\n{content}"
+    );
+
+    // (c) No redundant getFoo() getter methods alongside public readonly properties
+    assert!(
+        !content.contains("getContent()"),
+        "Redundant getter `getContent()` must not be emitted; content:\n{content}"
+    );
+    assert!(
+        !content.contains("getName()"),
+        "Redundant getter `getName()` must not be emitted; content:\n{content}"
+    );
+
+    // (d) No separate property declarations (they are promoted into the constructor)
+    assert!(
+        !content.contains("    public string $content;"),
+        "Separate property declaration must not be emitted; content:\n{content}"
+    );
+}
