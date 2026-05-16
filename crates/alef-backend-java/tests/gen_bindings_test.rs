@@ -2278,12 +2278,11 @@ fn facade_unwraps_optional_string_return_via_or_else_null() {
     };
 
     let config = make_test_config("dev.test");
-    let files = backend.generate_bindings(&api, &config).expect("generation");
-    eprintln!("Files: {:?}", files.iter().map(|f| f.path.to_string_lossy().to_string()).collect::<Vec<_>>());
+    let files = backend.generate_public_api(&api, &config).expect("public api generation");
     let facade = files
         .iter()
         .find(|f| f.path.to_string_lossy().ends_with("TestLib.java"))
-        .expect("facade TestLib.java must be emitted");
+        .expect("facade TestLib.java must be emitted by generate_public_api");
     let content = &facade.content;
 
     assert!(
@@ -2385,12 +2384,23 @@ fn optional_named_method_body_wraps_via_optional_of() {
         content.contains("public Optional<DemoItem> maybeItem("),
         "maybeItem must declare Optional<DemoItem> return, got:\n{content}"
     );
+    // The emitter generates `java.util.Optional.of(...)` (fully qualified);
+    // accept either the qualified or unqualified spelling so we stay robust
+    // to future import-tidying in the line-wrapper.
+    let has_wrapped_of = content.contains("return java.util.Optional.of(STREAM_MAPPER.readValue(json, DemoItem.class));")
+        || content.contains("return Optional.of(STREAM_MAPPER.readValue(json, DemoItem.class));");
     assert!(
-        content.contains("return Optional.of(STREAM_MAPPER.readValue(json, DemoItem.class));"),
+        has_wrapped_of,
         "Optional<DemoItem> body must wrap readValue in Optional.of(...), got:\n{content}"
     );
     assert!(
         content.contains("return java.util.Optional.empty();") || content.contains("return Optional.empty();"),
         "null-handle branch must return Optional.empty() (not bare null), got:\n{content}"
+    );
+    // Regression boundary: the body must not return the bare `STREAM_MAPPER.readValue(...)`
+    // (which is what triggered the type-mismatch error pre-fix).
+    assert!(
+        !content.contains("return STREAM_MAPPER.readValue(json, DemoItem.class);"),
+        "Optional<DemoItem> body must not return a bare DemoItem, got:\n{content}"
     );
 }
