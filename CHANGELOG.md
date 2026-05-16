@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **alef-backend-magnus: omit binding-excluded fields from explicit `Default` impls**: Ruby DTOs with field-level defaults now filter `binding_excluded` fields consistently with struct and constructor generation, preventing hidden core fields from being emitted into binding-side `Self { ... }` defaults. (`crates/alef-backend-magnus/src/gen_bindings/classes.rs`)
 
+- **alef-codegen/rustler: keep binding-excluded fields out of config constructors and cfg-gated core literals**: shared default-constructor helpers now filter `binding_excluded` fields before emitting keyword/option constructors, and binding-to-core conversion skips cfg-gated hidden fields so internal implementation details like caches and DI containers do not leak into generated Elixir NIF code or fail when the core feature is disabled. (`crates/alef-codegen/src/config_gen.rs`, `crates/alef-codegen/src/conversions/binding_to_core.rs`)
+
 ## [0.16.14] - 2026-05-16
 
 ### Fixed

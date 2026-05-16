@@ -139,6 +139,12 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
 
     for field in &typ.fields {
         if field.binding_excluded {
+            if field.cfg.is_some()
+                && !config.never_skip_cfg_field_names.contains(&field.name)
+                && (typ.has_stripped_cfg_fields || config.strip_cfg_fields_from_binding_struct)
+            {
+                continue;
+            }
             fields.push(format!("{}: Default::default()", field.name));
             continue;
         }
@@ -1203,6 +1209,42 @@ mod tests {
 
         assert!(out.contains("language: val.language.into()"));
         assert!(!out.contains("language: Default::default()"));
+    }
+
+    #[test]
+    fn binding_excluded_cfg_field_is_not_emitted_into_core_literal() {
+        let field = FieldDef {
+            name: "di_container".to_string(),
+            ty: TypeRef::String,
+            optional: true,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: Some("feature = \"di\"".to_string()),
+            typed_default: None,
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
+            binding_excluded: true,
+            binding_exclusion_reason: Some("internal implementation detail".to_string()),
+        };
+        let mut typ = type_with_field(field);
+        typ.has_stripped_cfg_fields = true;
+
+        let out = gen_from_binding_to_core(&typ, "crate");
+
+        assert!(
+            !out.contains("di_container:"),
+            "cfg-gated binding-excluded fields may not exist in the core struct; got:\n{out}"
+        );
+        assert!(
+            out.contains("..Default::default()"),
+            "stripped cfg fields should be filled by the default update; got:\n{out}"
+        );
     }
 
     /// Trait-bridge OptionsField field with Arc wrapper: the binding→core From impl must

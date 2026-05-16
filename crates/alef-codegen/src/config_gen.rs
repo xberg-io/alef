@@ -22,18 +22,18 @@ fn use_unwrap_or_default(field: &FieldDef) -> bool {
     field.default.is_none() && !matches!(&field.ty, TypeRef::Named(_))
 }
 
+fn constructor_fields(typ: &TypeDef) -> impl Iterator<Item = &FieldDef> {
+    typ.fields.iter().filter(|field| !field.binding_excluded)
+}
+
 /// Generate a PyO3 `#[new]` constructor with kwargs for a type with `has_default`.
 /// All fields become keyword args with their defaults in `#[pyo3(signature = (...))]`.
 pub fn gen_pyo3_kwargs_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
-    let signature_defaults = typ
-        .fields
-        .iter()
+    let signature_defaults = constructor_fields(typ)
         .map(|field| format!("{}={}", field.name, default_value_for_field(field, "python")))
         .collect::<Vec<_>>()
         .join(", ");
-    let fields: Vec<_> = typ
-        .fields
-        .iter()
+    let fields: Vec<_> = constructor_fields(typ)
         .map(|field| {
             minijinja::context! {
                 name => field.name.clone(),
@@ -55,9 +55,7 @@ pub fn gen_pyo3_kwargs_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef)
 
 /// Generate NAPI constructor that applies defaults for missing optional fields.
 pub fn gen_napi_defaults_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
-    let fields: Vec<_> = typ
-        .fields
-        .iter()
+    let fields: Vec<_> = constructor_fields(typ)
         .map(|field| {
             minijinja::context! {
                 name => field.name.clone(),
@@ -80,9 +78,7 @@ pub fn gen_napi_defaults_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRe
 /// Generate Go functional options pattern for a type with `has_default`.
 /// Returns: type definition + Option type + WithField functions + NewConfig constructor
 pub fn gen_go_functional_options(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
-    let fields: Vec<_> = typ
-        .fields
-        .iter()
+    let fields: Vec<_> = constructor_fields(typ)
         .filter(|field| !is_tuple_field(field))
         .map(|field| {
             minijinja::context! {
@@ -136,9 +132,7 @@ pub fn gen_java_builder(typ: &TypeDef, package: &str, type_mapper: &dyn Fn(&Type
 
 /// Generate C# record with init properties for a type with `has_default`.
 pub fn gen_csharp_record(typ: &TypeDef, namespace: &str, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
-    let fields: Vec<_> = typ
-        .fields
-        .iter()
+    let fields: Vec<_> = constructor_fields(typ)
         .filter(|field| !is_tuple_field(field))
         .map(|field| {
             minijinja::context! {
@@ -513,9 +507,7 @@ fn as_type_path_prefix(type_str: &str) -> String {
 /// Generate a hash-based Magnus constructor for types with many fields.
 /// Accepts `(kwargs: RHash)` and extracts each field by symbol name, applying defaults.
 fn gen_magnus_hash_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
-    let fields: Vec<_> = typ
-        .fields
-        .iter()
+    let fields: Vec<_> = constructor_fields(typ)
         .map(|field| {
             let is_optional = field_is_optional_in_rust(field);
             // Use inner type for try_convert, since the hash value is T, not Option<T>.
@@ -659,9 +651,7 @@ fn gen_magnus_positional_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRe
 /// All fields become `Option<T>` parameters so PHP users can omit any field.
 /// Assignments wrap non-Optional fields in `Some()` and apply defaults.
 pub fn gen_php_kwargs_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
-    let fields: Vec<_> = typ
-        .fields
-        .iter()
+    let fields: Vec<_> = constructor_fields(typ)
         .map(|field| {
             let mapped = type_mapper(&field.ty);
             let is_optional_field = field.optional || matches!(&field.ty, TypeRef::Optional(_));
@@ -703,9 +693,7 @@ pub fn gen_rustler_kwargs_constructor_with_exclude(
     exclude_fields: &std::collections::HashSet<String>,
 ) -> String {
     // Pre-compute field assignments (same logic as gen_rustler_kwargs_constructor but with exclusion)
-    let fields: Vec<_> = typ
-        .fields
-        .iter()
+    let fields: Vec<_> = constructor_fields(typ)
         .filter(|f| !exclude_fields.contains(&f.name))
         .map(|field| {
             let assignment = if field.optional {
@@ -753,9 +741,7 @@ pub fn gen_rustler_kwargs_constructor_with_exclude(
 /// Accepts keyword list or map, applies defaults for missing fields.
 pub fn gen_rustler_kwargs_constructor(typ: &TypeDef, _type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
     // Pre-compute field assignments
-    let fields: Vec<_> = typ
-        .fields
-        .iter()
+    let fields: Vec<_> = constructor_fields(typ)
         .map(|field| {
             let assignment = if field.optional {
                 format!("opts.get(\"{}\").and_then(|t| t.decode().ok()),", field.name)
@@ -2130,6 +2116,37 @@ mod tests {
         assert!(
             output.contains("extra: opts.get(\"extra\").and_then(|t| t.decode().ok()),"),
             "optional field should decode without unwrap"
+        );
+    }
+
+    #[test]
+    fn test_gen_rustler_kwargs_constructor_skips_binding_excluded_fields() {
+        let mut typ = make_test_type();
+        typ.fields.push(FieldDef {
+            name: "internal_cache".to_string(),
+            ty: TypeRef::String,
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
+            binding_excluded: true,
+            binding_exclusion_reason: Some("internal implementation detail".to_string()),
+        });
+
+        let output = gen_rustler_kwargs_constructor(&typ, &simple_type_mapper);
+
+        assert!(
+            !output.contains("internal_cache"),
+            "binding-excluded fields must not be exposed in Rustler constructors; got:\n{output}"
         );
     }
 
