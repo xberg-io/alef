@@ -2202,3 +2202,165 @@ fn test_dto_stubs_use_final_class_with_readonly_promoted_params() {
         "Separate property declaration must not be emitted; content:\n{content}"
     );
 }
+
+#[test]
+fn test_dto_properties_use_camel_case_php_names() {
+    let backend = PhpBackend;
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Config".to_string(),
+            rust_path: "test_lib::Config".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                make_field("device_id", TypeRef::Primitive(PrimitiveType::U32), false),
+                make_field("include_headers", TypeRef::Primitive(PrimitiveType::Bool), false),
+                make_field("strip_text", TypeRef::String, true),
+                make_field("timeout_ms", TypeRef::Primitive(PrimitiveType::U64), true),
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: "Test config with snake_case fields".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config();
+    let stubs_result = backend.generate_type_stubs(&api, &config);
+    assert!(stubs_result.is_ok(), "Stub generation should succeed");
+
+    let stubs_files = stubs_result.unwrap();
+    let stubs = stubs_files.first().expect("Should generate stubs file");
+    let content = &stubs.content;
+
+    // Verify camelCase conversion in PHP stubs: snake_case Rust names → camelCase PHP names
+    assert!(
+        content.contains("$deviceId"),
+        "Property device_id should be converted to $deviceId (camelCase)\nContent:\n{content}"
+    );
+    assert!(
+        content.contains("$includeHeaders"),
+        "Property include_headers should be converted to $includeHeaders (camelCase)\nContent:\n{content}"
+    );
+    assert!(
+        content.contains("$stripText"),
+        "Property strip_text should be converted to $stripText (camelCase)\nContent:\n{content}"
+    );
+    assert!(
+        content.contains("$timeoutMs"),
+        "Property timeout_ms should be converted to $timeoutMs (camelCase)\nContent:\n{content}"
+    );
+
+    // Verify snake_case names are NOT present in stubs
+    assert!(
+        !content.contains("$device_id"),
+        "Property name should NOT be in snake_case: $device_id\nContent:\n{content}"
+    );
+    assert!(
+        !content.contains("$include_headers"),
+        "Property name should NOT be in snake_case: $include_headers\nContent:\n{content}"
+    );
+}
+
+#[test]
+fn test_unit_enums_emit_native_php_81_backed_enums() {
+    let backend = PhpBackend;
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "OutputFormat".to_string(),
+            rust_path: "test_lib::OutputFormat".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Text".to_string(),
+                    fields: vec![],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+                EnumVariant {
+                    name: "Markdown".to_string(),
+                    fields: vec![],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+                EnumVariant {
+                    name: "Html".to_string(),
+                    fields: vec![],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+            ],
+            doc: "Output format options".to_string(),
+            cfg: None,
+            is_copy: false,
+            has_serde: false,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config();
+    let stubs_result = backend.generate_type_stubs(&api, &config);
+    assert!(stubs_result.is_ok(), "Stub generation should succeed");
+
+    let stubs_files = stubs_result.unwrap();
+    let stubs = stubs_files.first().expect("Should generate stubs file");
+    let content = &stubs.content;
+
+    // Unit-variant enums should emit as native PHP 8.1+ backed enums
+    assert!(
+        content.contains("enum OutputFormat: string"),
+        "Unit-variant enum should be emitted as PHP 8.1+ native enum with string backing\nContent:\n{content}"
+    );
+    assert!(
+        content.contains("case Text = "),
+        "Enum case Text should be present with value\nContent:\n{content}"
+    );
+    assert!(
+        content.contains("case Markdown = "),
+        "Enum case Markdown should be present with value\nContent:\n{content}"
+    );
+    assert!(
+        content.contains("case Html = "),
+        "Enum case Html should be present with value\nContent:\n{content}"
+    );
+
+    // Should NOT emit as a class with constants
+    assert!(
+        !content.contains("final class OutputFormat") && !content.contains("public const Text"),
+        "Unit-variant enum should NOT be emitted as a class with constants\nContent:\n{content}"
+    );
+}
