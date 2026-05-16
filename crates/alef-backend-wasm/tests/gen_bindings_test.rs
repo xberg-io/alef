@@ -3307,3 +3307,78 @@ fn test_constructor_camel_case_required_multi_word_field() {
         "multi-word required field must emit 'tool_call_id: toolCallId'; actual:\n{content}"
     );
 }
+
+/// Regression test: From impl must use snake_case for struct field names on both sides.
+///
+/// The binding struct has snake_case field names (prompt_tokens, completion_tokens).
+/// The From<WasmStruct> → CoreStruct impl must reference these with snake_case
+/// (val.prompt_tokens, not val.promptTokens).
+/// Previously, if the WASM backend applied camelCase conversions to param names,
+/// it could leak into the From impl generation, causing E0425 "cannot find value".
+#[test]
+fn test_from_impl_uses_snake_case_field_names() {
+    let backend = WasmBackend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "TokenCount".to_string(),
+            rust_path: "test_lib::TokenCount".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                make_field("prompt_tokens", TypeRef::Primitive(PrimitiveType::U64), false),
+                make_field("completion_tokens", TypeRef::Primitive(PrimitiveType::U64), false),
+                make_field("chunks_processed", TypeRef::Primitive(PrimitiveType::Usize), false),
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: "Token counts with snake_case fields".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config();
+    let result = backend.generate_bindings(&api, &config);
+    assert!(result.is_ok(), "Generation must succeed: {:?}", result.err());
+    let content = &result.unwrap()[0].content;
+
+    // The From<core::TokenCount> → WasmTokenCount impl must use snake_case on the RHS.
+    // Pattern: `impl From<test_lib::TokenCount> for WasmTokenCount { fn from(val: ...) -> Self { Self { prompt_tokens: val.prompt_tokens, ... } } }`
+    assert!(
+        content.contains("impl From<test_lib::TokenCount> for WasmTokenCount"),
+        "From impl header must exist"
+    );
+    assert!(
+        content.contains("prompt_tokens: val.prompt_tokens"),
+        "From impl must use 'prompt_tokens: val.prompt_tokens' (snake_case on both sides); actual:\n{content}"
+    );
+    assert!(
+        content.contains("completion_tokens: val.completion_tokens"),
+        "From impl must use 'completion_tokens: val.completion_tokens' (snake_case on both sides); actual:\n{content}"
+    );
+    // The camelCase form must NOT appear in the From impl.
+    assert!(
+        !content.contains("prompt_tokens: val.promptTokens"),
+        "From impl must NOT use camelCase on RHS like 'prompt_tokens: val.promptTokens'; actual:\n{content}"
+    );
+    assert!(
+        !content.contains("completion_tokens: val.completionTokens"),
+        "From impl must NOT use camelCase on RHS like 'completion_tokens: val.completionTokens'; actual:\n{content}"
+    );
+}
