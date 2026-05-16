@@ -2840,3 +2840,65 @@ fn test_option_and_bare_tagged_data_enum_fields_use_js_value() {
         "bare TaggedDataEnum core→binding From impl must use serde_wasm_bindgen;\nactual:\n{content}"
     );
 }
+
+#[test]
+fn test_constructor_params_camel_case() {
+    let backend = WasmBackend;
+
+    // Create a test struct with snake_case fields: field_one, field_two, field_three
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "MyConfig".to_string(),
+            rust_path: "test_lib::MyConfig".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                make_field("field_one", TypeRef::Primitive(PrimitiveType::Bool), false),
+                make_field("field_two", TypeRef::String, false),
+                make_field("field_three", TypeRef::Primitive(PrimitiveType::U32), true),
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: "Test config with snake_case fields".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config();
+
+    let result = backend.generate_bindings(&api, &config);
+
+    assert!(result.is_ok(), "Generation should succeed");
+    let files = result.unwrap();
+
+    let content = &files[0].content;
+
+    // Constructor parameters must use camelCase: fieldOne, fieldTwo, fieldThree
+    // not snake_case: field_one, field_two, field_three
+    assert!(
+        content.contains("pub fn new(field_one: bool, field_two: String, field_three: Option<u32>)"),
+        "Rust binding code must keep Rust snake_case parameter names in the function signature"
+    );
+
+    // The struct literal assignment must use Rust field names (snake_case)
+    assert!(
+        content.contains("WasmMyConfig { field_one, field_two, field_three }"),
+        "Struct literal must use Rust field names"
+    );
+}

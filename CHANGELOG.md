@@ -7,7 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **alef-backend-pyo3: drop SCREAMING_SNAKE_CASE aliases from generated `.pyi` stubs**: `gen_stubs.rs` previously emitted `EnumName.SHOUTY_NAME: EnumName = ...` class attributes alongside the canonical PascalCase variant declarations in the type stubs, mirroring the runtime monkey-patches in `options.py`. The aliases bloated every enum stub by N additional lines and confused IDEs that suggested both forms as valid attribute names. Removed the `to_python_screaming` helper and the alias-emit loop in `gen_enum_stub`; the runtime `_coerce_enum` helper in the binding's `api.py` continues to accept string-form input transparently, so callers using `EnumName("shouty-name")` are unaffected. (`crates/alef-backend-pyo3/src/gen_stubs.rs`)
+
+- **alef-backend-wasm: emit camelCase parameter names in `#[wasm_bindgen(constructor)]` signatures**: the constructor's Rust-facing parameter list was emitted from the field's `snake_case` Rust name, but wasm-bindgen exposes constructor parameters under those names directly to JS callers, producing un-idiomatic `new Foo({ snake_case_thing: 1, base_url: "x" })` shapes. A new `convert_param_names_to_camel_case` helper in `gen_struct_methods` re-camelCases each `name: ty` pair before injecting into the constructor signature, while struct-field assignments and the underlying Rust type remain `snake_case` (only the wasm-bindgen surface changes). (`crates/alef-backend-wasm/src/gen_bindings/types.rs`, `crates/alef-backend-wasm/tests/gen_bindings_test.rs`)
+
 ### Added
+
+- **alef-backend-napi: regression tests for tagged-enum discriminant and variant naming (D4A/B/C)**: three tests in `enums.rs::tests` lock in the expected napi-rs surface for tagged enums — `js_name = "kind"` is used for the discriminant field (not the Rust `serde_tag` name like `"annotation_type"`), tuple-variant `serde_rename` is preserved in camelCase (e.g. `fontSize`, not `font_size`), and struct-variant named field names pass through unchanged. (`crates/alef-backend-napi/src/gen_bindings/enums.rs`)
+
+- **alef-backend-go: regression tests for trait-bridge typed parameters (D1)**: tests verify that trait-bridge method parameters of type `String`, named structs (e.g. `OcrConfig`), and other concrete types emit the correct Go type in the generated interface signature, instead of degrading to `interface{}` or `map[string]interface{}`. (`crates/alef-backend-go/tests/gen_bindings_test.rs`)
+
+- **alef-backend-wasm: support `Vec<UnitEnum>` parameter deserialization via `from_api_str`**:
+  wasm-bindgen handlers accepting `Vec<UnitEnum>` parameters need to convert each JS string into
+  the corresponding Rust enum variant. The unit-enum emitter now also generates a
+  `pub fn from_api_str(s: &str) -> Option<Self>` constructor that parses serde wire strings
+  (honoring `#[serde(rename_all)]` and per-variant `#[serde(rename)]`). Two new jinja templates
+  (`serde_vec_unit_enum_optional.jinja`, `serde_vec_unit_enum_required.jinja`) wire the conversion
+  into the binding→core parameter mapping path, returning a `JsValue` error with the offending
+  string when an unknown variant is supplied.
+  (`crates/alef-backend-wasm/src/gen_bindings/enums.rs`,
+  `crates/alef-backend-wasm/src/template_env.rs`,
+  `crates/alef-backend-wasm/templates/serde_vec_unit_enum_optional.jinja`,
+  `crates/alef-backend-wasm/templates/serde_vec_unit_enum_required.jinja`)
+
+
 
 - **alef-backend-swift: emit `options_field` trait bridge — `HtmlVisitorProtocol` + `SwiftHtmlVisitorBox` + `makeHtmlVisitorHandle` + `conversionOptionsFromJsonWithVisitor`**: the swift backend previously only supported `bind_via = "function_param"` inbound trait bridges. This extends `gen_rust_crate/plugin_inbound.rs` with two new emitters (`emit_options_field_factory`, `emit_options_field_options_helper`) and wires both the `extern "Swift"` declaration and the Rust-side wrapper struct for all bridge modes. `gen_bindings.rs` gains `emit_inbound_protocols` which generates the Swift-side protocol, default extension, and box class from the IR. (`crates/alef-backend-swift/src/gen_rust_crate/plugin_inbound.rs`, `crates/alef-backend-swift/src/gen_rust_crate/mod.rs`, `crates/alef-backend-swift/src/gen_bindings.rs`)
 

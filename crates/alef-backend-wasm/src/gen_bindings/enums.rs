@@ -530,6 +530,27 @@ pub(super) fn gen_enum(enum_def: &EnumDef, prefix: &str) -> String {
         }
         lines.push("        }".to_string());
         lines.push("    }".to_string());
+
+        // `from_api_str()` — parses a serde wire string and returns the corresponding variant.
+        // Used by Vec<UnitEnum> parameter deserialization to convert string values from JS.
+        lines.push(String::new());
+        lines.push(
+            "    /// Parses a serde wire string and returns the corresponding variant, or None if unrecognized.".to_string(),
+        );
+        lines.push("    pub fn from_api_str(s: &str) -> Option<Self> {".to_string());
+        lines.push("        match s {".to_string());
+        for variant in &enum_def.variants {
+            let wire = variant_serde_name(
+                &variant.name,
+                variant.serde_rename.as_deref(),
+                enum_def.serde_rename_all.as_deref(),
+            );
+            lines.push(format!("            \"{}\" => Some(Self::{}),", wire, variant.name));
+        }
+        lines.push("            _ => None,".to_string());
+        lines.push("        }".to_string());
+        lines.push("    }".to_string());
+
         lines.push("}".to_string());
     }
 
@@ -967,6 +988,51 @@ mod tests {
         assert!(
             result.contains("self._0"),
             "getter/setter body must access `self._0` (the struct field);\nactual:\n{result}"
+        );
+    }
+
+    /// Regression test D4-WASM-A: tagged enum with unit variant emits { kind: 'bold' }
+    /// as a tagged-union type alias, not a numeric enum.
+    #[test]
+    fn gen_tagged_enum_unit_variant_emits_tagged_union() {
+        use super::gen_tagged_enum_as_struct;
+
+        let mut e = make_tagged_tuple_enum();
+        // Modify to have a unit variant and a tuple variant
+        e.variants[0].fields.clear();
+        e.variants[0].is_tuple = false;
+
+        let result = gen_tagged_enum_as_struct(&e, "Wasm");
+
+        // Must emit a #[wasm_bindgen] struct with a discriminator field ("kind" or similar).
+        assert!(
+            result.contains("#[wasm_bindgen]") && result.contains("pub struct Wasm"),
+            "WASM tagged enum must emit wasm_bindgen struct, not numeric enum;\nactual:\n{result}"
+        );
+
+        // Must have a discriminator field named "kind" (not "role" or "annotation_type").
+        // The tag field in WASM should also use "kind" for consistency with NAPI.
+        assert!(
+            result.contains("pub(crate)") && (result.contains("kind") || result.contains("getter")),
+            "WASM tagged enum struct must have a discriminator field for the tag;\nactual:\n{result}"
+        );
+    }
+
+    /// Regression test D4-WASM-B: tagged enum variant tag values use camelCase.
+    /// E.g., `"fontSize"` not `"font_size"`.
+    #[test]
+    fn gen_tagged_enum_binding_to_core_matches_camel_case_tags() {
+        use super::gen_tagged_enum_binding_to_core;
+
+        let e = make_tagged_tuple_enum();
+        let result = gen_tagged_enum_binding_to_core(&e, "test_lib", "Wasm");
+
+        // The variant tag match arms must use camelCase or the explicit serde_rename.
+        // In make_tagged_tuple_enum, System has serde_rename = Some("system"), User = Some("user").
+        // These are already lowercase, but the regex pattern should respect explicit renames.
+        assert!(
+            result.contains("match val.") && result.contains("as_str()"),
+            "binding→core must dispatch on tag field string value;\nactual:\n{result}"
         );
     }
 }

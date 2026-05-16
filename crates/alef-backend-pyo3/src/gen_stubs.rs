@@ -13,23 +13,6 @@ fn python_safe_name(name: &str) -> String {
     alef_core::keywords::python_ident(name)
 }
 
-/// Convert a Rust variant name to SCREAMING_SNAKE_CASE for Python (str, Enum) members.
-///
-/// Handles acronym-style names correctly: names with 2+ leading uppercase characters
-/// followed only by lowercase (e.g. `RDFa`) are fully uppercased to `RDFA` rather than
-/// incorrectly split to `RD_FA` by pascal_to_snake.
-fn to_python_screaming(name: &str) -> String {
-    use heck::ToShoutySnakeCase;
-    let chars: Vec<char> = name.chars().collect();
-    let upper_prefix_len = chars.iter().take_while(|c| c.is_uppercase()).count();
-    // Acronym: 2+ leading uppercase chars with only lowercase (or empty) remainder
-    if upper_prefix_len >= 2 && chars[upper_prefix_len..].iter().all(|c| c.is_lowercase()) {
-        name.to_ascii_uppercase()
-    } else {
-        name.to_shouty_snake_case()
-    }
-}
-
 /// Check if a parameter name shadows a Python builtin (triggers ruff A002).
 pub fn is_python_builtin_name(name: &str) -> bool {
     const BUILTINS: &[&str] = &[
@@ -581,17 +564,6 @@ fn gen_enum_stub(enum_def: &EnumDef) -> String {
             ));
         }
         lines.push("    def __init__(self, value: int | str) -> None: ...".to_string());
-        // Emit SCREAMING_SNAKE_CASE aliases as class attributes (runtime monkey-patch compatibility).
-        // These match the runtime monkey-patches in options.py (e.g., CodeBlockStyle.INDENTED = CodeBlockStyle.Indented)
-        // Convert PascalCase variant names (e.g. AtxClosed) to SCREAMING_SNAKE_CASE (ATX_CLOSED)
-        for variant in &enum_def.variants {
-            let pascal = python_safe_name(&variant.name);
-            let screaming = to_python_screaming(&variant.name);
-            if pascal != screaming {
-                // Only emit the alias if it differs from the pascal_case name
-                lines.push(format!("    {}: {} = ...", screaming, enum_def.name));
-            }
-        }
     }
 
     lines.join("\n")

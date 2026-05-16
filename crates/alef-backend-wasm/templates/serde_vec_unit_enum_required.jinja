@@ -1,0 +1,3 @@
+let {{ param_name }}_core: Vec<{{ core_path }}> = {{ param_name }}.into_iter()
+    .map(|s| {{ core_path }}::from_api_str(&s).ok_or_else(|| wasm_bindgen::JsValue::from_str(&format!("invalid {{ core_path }} variant: {}", s))){{ err_conv }})
+    .collect::<Result<Vec<_>, _>>()?;
