@@ -292,7 +292,10 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
             minijinja::context! { doc => &enum_doc },
         ));
         for variant in &enum_def.variants {
-            let value = alef_codegen::naming::pascal_to_snake(&variant.name);
+            let value = variant
+                .serde_rename
+                .clone()
+                .unwrap_or_else(|| alef_codegen::naming::pascal_to_snake(&variant.name));
             out.push_str(&crate::template_env::render(
                 "enum_variant.jinja",
                 minijinja::context! {

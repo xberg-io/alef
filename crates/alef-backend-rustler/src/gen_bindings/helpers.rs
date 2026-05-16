@@ -738,7 +738,13 @@ pub(super) fn gen_elixir_enum_module_with_known_types(
         let atom_arms: Vec<String> = enum_def
             .variants
             .iter()
-            .map(|v| format!(":{}", v.name.to_snake_case()))
+            .map(|v| {
+                let atom = v
+                    .serde_rename
+                    .clone()
+                    .unwrap_or_else(|| alef_codegen::naming::pascal_to_snake(&v.name));
+                format!(":{atom}")
+            })
             .collect();
         // Emit multi-line @type when the single-line form exceeds 120 chars
         let single_line = format!("  @type t :: {}", atom_arms.join(" | "));
@@ -773,7 +779,10 @@ pub(super) fn gen_elixir_enum_module_with_known_types(
 
         // Module attributes for each variant value — convenient aliases
         for variant in &enum_def.variants {
-            let atom_name = alef_codegen::naming::pascal_to_snake(&variant.name);
+            let atom_name = variant
+                .serde_rename
+                .clone()
+                .unwrap_or_else(|| alef_codegen::naming::pascal_to_snake(&variant.name));
             let attr_name = elixir_safe_attr_name(&atom_name);
             out.push_str(&template_env::render(
                 "elixir_enum_attr.jinja",
@@ -786,7 +795,10 @@ pub(super) fn gen_elixir_enum_module_with_known_types(
         out.push('\n');
         // Export the values so callers can reference MyEnum.variant_name/0
         for variant in &enum_def.variants {
-            let atom_name = alef_codegen::naming::pascal_to_snake(&variant.name);
+            let atom_name = variant
+                .serde_rename
+                .clone()
+                .unwrap_or_else(|| alef_codegen::naming::pascal_to_snake(&variant.name));
             let attr_name = elixir_safe_attr_name(&atom_name);
             out.push_str(&template_env::render(
                 "elixir_enum_accessor.jinja",

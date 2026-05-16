@@ -39,10 +39,14 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String) {
             },
         ));
         for variant in &en.variants {
+            let tag_value = variant
+                .serde_rename
+                .clone()
+                .unwrap_or_else(|| to_snake_case(&variant.name));
             out.push_str(&crate::template_env::render(
                 "enum_unit_variant.jinja",
                 minijinja::context! {
-                    variant_name => zig_ident(&to_snake_case(&variant.name)),
+                    variant_name => zig_ident(&tag_value),
                 },
             ));
         }
@@ -55,7 +59,11 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String) {
             },
         ));
         for variant in &en.variants {
-            let tag = zig_ident(&to_snake_case(&variant.name));
+            let tag_value = variant
+                .serde_rename
+                .clone()
+                .unwrap_or_else(|| to_snake_case(&variant.name));
+            let tag = zig_ident(&tag_value);
             if variant.fields.is_empty() {
                 out.push_str(&crate::template_env::render(
                     "enum_variant_void.jinja",
