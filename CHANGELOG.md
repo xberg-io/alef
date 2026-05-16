@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-backend-swift: escape Swift reserved keywords with backticks in emitted Swift source**: enum cases, struct field names, function-parameter labels, and associated-value labels that collide with Swift reserved keywords are now wrapped in backticks (`` case `default` ``, `` public let `class`: String ``) — Swift's idiomatic escape — instead of suffixing a trailing underscore (`case default_`). Rust-side identifiers on the swift-bridge boundary continue to use the trailing-underscore form so the two sides agree at the FFI boundary. Adds `swift_case_safe_name` / `swift_case_ident` to `alef_core::keywords` for emitted-Swift escaping; `swift_safe_name` / `swift_ident` remain for Rust-side use. (`crates/alef-core/src/keywords.rs`, `crates/alef-backend-swift/src/gen_bindings.rs`, `crates/alef-backend-swift/tests/gen_bindings_test.rs`)
+
 - **alef-backend-zig: collapse error unions to single `KreuzbergError` set**: every emitted error set now includes `OutOfMemory` as a variant, so allocator failures can be propagated without a `||error{OutOfMemory}` concat. Return types for fallible functions are now `ErrorSet!T` instead of the verbose `(ErrorSet||error{OutOfMemory})!T`. (`crates/alef-backend-zig/src/gen_bindings/errors.rs`, `crates/alef-backend-zig/src/gen_bindings/functions.rs`)
 
 ### Added

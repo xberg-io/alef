@@ -8,13 +8,13 @@ use heck::ToPascalCase;
 
 /// Apply a serde `rename_all` strategy to a variant name.
 pub(super) fn apply_rename_all(name: &str, rename_all: Option<&str>) -> String {
-    use heck::{ToKebabCase, ToLowerCamelCase, ToPascalCase, ToSnakeCase};
+    use heck::{ToKebabCase, ToLowerCamelCase, ToPascalCase};
 
     match rename_all {
-        Some("snake_case") => name.to_snake_case(),
+        Some("snake_case") => alef_codegen::naming::pascal_to_snake(name),
         Some("camelCase") => name.to_lower_camel_case(),
         Some("PascalCase") => name.to_pascal_case(),
-        Some("SCREAMING_SNAKE_CASE") => name.to_snake_case().to_uppercase(),
+        Some("SCREAMING_SNAKE_CASE") => alef_codegen::naming::pascal_to_screaming_snake(name),
         Some("kebab-case") => name.to_kebab_case(),
         Some("SCREAMING-KEBAB-CASE") => name.to_kebab_case().to_uppercase(),
         Some("lowercase") => name.to_lowercase(),
