@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.23] - 2026-05-16
+
 ### Fixed
 
 - **alef-core: sanitize Zig enum tag identifiers**: `zig_ident` previously escaped reserved keywords only; serde-renamed tags such as `og:image` or `Content-Type` flowed through unchanged and emitted invalid Zig (`enum fields do not have types` at the colon). The helper now replaces every non-`[A-Za-z0-9_]` character with `_`, prefixes a leading digit with `_`, then runs the result through `zig_safe_name`. Affects every Zig enum variant whose serde rename contains punctuation. (`crates/alef-core/src/keywords.rs`)
