@@ -5,7 +5,6 @@
 
 use alef_codegen::generators::type_paths::resolve_type_path;
 use alef_core::ir::EnumDef;
-use heck::ToSnakeCase;
 use std::collections::HashMap;
 
 pub(crate) fn emit_enum_wrapper(en: &EnumDef, source_crate: &str, type_paths: &HashMap<String, String>) -> String {

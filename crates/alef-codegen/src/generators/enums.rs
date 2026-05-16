@@ -171,7 +171,7 @@ const RUST_KEYWORDS: &[&str] = &[
 /// For all other variants, returns the variant data as a Python dict, or None if not active.
 pub(crate) fn write_pyo3_variant_accessors(out: &mut String, enum_def: &EnumDef, core_path: &str) {
     use alef_core::ir::TypeRef;
-    use heck::ToSnakeCase;
+    
 
     for variant in &enum_def.variants {
         let variant_name_lower = crate::naming::pascal_to_snake(&variant.name);

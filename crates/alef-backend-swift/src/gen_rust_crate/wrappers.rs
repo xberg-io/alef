@@ -42,7 +42,7 @@ pub(crate) fn is_unbridgeable_getter(
 ) -> bool {
     let name = field.name.to_snake_case();
     let field_key = format!("{}.{}", ty.name, name);
-    if exclude_fields.contains(&field_key) {
+    if field.binding_excluded || exclude_fields.contains(&field_key) {
         return true;
     }
     if needs_json_bridge(&field.ty) {
@@ -116,7 +116,7 @@ pub(crate) fn emit_type_wrapper(
             .iter()
             .filter(|f| {
                 let field_key = format!("{}.{}", ty.name, f.name.to_snake_case());
-                !exclude_fields.contains(&field_key)
+                !f.binding_excluded && !exclude_fields.contains(&field_key)
             })
             .map(|f| {
                 let bridge_ty = bridge_type(&f.ty);

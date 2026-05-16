@@ -1,4 +1,5 @@
 use alef_codegen::keywords::{swift_case_ident, swift_ident};
+use alef_codegen::shared::binding_fields;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile, PostBuildStep};
 use alef_core::config::{
@@ -328,7 +329,8 @@ fn emit_first_class_struct(ty: &alef_core::ir::TypeDef, mapper: &SwiftMapper, ou
     // Swift-side identifier) so that fields named after Swift reserved keywords
     // are wrapped in backticks (`` `default` ``) rather than escaped with a
     // trailing underscore.
-    for field in &ty.fields {
+    let visible_fields: Vec<_> = binding_fields(&ty.fields).collect();
+    for field in &visible_fields {
         let camel = swift_case_ident(&field.name.to_lower_camel_case());
         let already_optional = matches!(&field.ty, TypeRef::Optional(_));
         let swift_ty = mapper.map_type(&field.ty);
@@ -340,8 +342,7 @@ fn emit_first_class_struct(ty: &alef_core::ir::TypeDef, mapper: &SwiftMapper, ou
     }
 
     // Memberwise init with default-nil for Optional fields.
-    let params: Vec<String> = ty
-        .fields
+    let params: Vec<String> = visible_fields
         .iter()
         .map(|field| {
             let camel = swift_case_ident(&field.name.to_lower_camel_case());
@@ -357,7 +358,7 @@ fn emit_first_class_struct(ty: &alef_core::ir::TypeDef, mapper: &SwiftMapper, ou
         })
         .collect();
     out.push_str(&format!("    public init({}) {{\n", params.join(", ")));
-    for field in &ty.fields {
+    for field in &visible_fields {
         let camel = swift_case_ident(&field.name.to_lower_camel_case());
         out.push_str(&format!("        self.{camel} = {camel}\n"));
     }
@@ -365,13 +366,13 @@ fn emit_first_class_struct(ty: &alef_core::ir::TypeDef, mapper: &SwiftMapper, ou
 
     // CodingKeys: emit only when at least one field's camelCase name differs from
     // the serde wire key. The wire key is the original Rust field name (snake_case).
-    let needs_coding_keys = ty.fields.iter().any(|field| {
+    let needs_coding_keys = visible_fields.iter().any(|field| {
         let camel = field.name.to_lower_camel_case();
         camel != field.name
     });
     if needs_coding_keys {
         out.push_str("    private enum CodingKeys: String, CodingKey {\n");
-        for field in &ty.fields {
+        for field in &visible_fields {
             let camel = swift_case_ident(&field.name.to_lower_camel_case());
             let wire_key = &field.name;
             out.push_str(&format!("        case {camel} = \"{wire_key}\"\n"));
@@ -392,7 +393,7 @@ fn emit_first_class_struct(ty: &alef_core::ir::TypeDef, mapper: &SwiftMapper, ou
     // (`swift_ident`) to match the swift-bridge-generated Rust method name —
     // see `gen_rust_crate::extern_block::emit_extern_block_for_type`.
     out.push_str(&format!("    init(_ rb: RustBridge.{type_name}) throws {{\n"));
-    for field in &ty.fields {
+    for field in &visible_fields {
         let swift_field = swift_case_ident(&field.name.to_lower_camel_case());
         let rust_accessor = swift_ident(&field.name.to_lower_camel_case());
         let is_optional = field.optional || matches!(&field.ty, TypeRef::Optional(_));
