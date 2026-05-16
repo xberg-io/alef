@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-backend-php: apply camelCase conversion to DTO property names in stubs**: PHP 8.2+ idiomatic style requires camelCase property names per PSR-12. The binding layer was correctly using `#[php(prop, name = "deviceId")]` for runtime, but the generated PHP stubs were emitting snake_case property names directly (e.g., `$device_id` instead of `$deviceId`). Applied `to_php_name()` conversion to property names when emitting readonly constructor parameters in DTO stubs. (`crates/alef-backend-php/src/gen_bindings/mod.rs`, `crates/alef-backend-php/tests/gen_bindings_test.rs`)
+
 - **alef-backend-pyo3: drop redundant `return` on void-returning function calls in `api.py`**: functions with `-> None` return type annotation were emitting `return _rust.init(...)`, where the `return` statement is redundant and causes type checkers to flag the function as returning `None` instead of `None` implicitly. Modified `gen_api_py` to detect `TypeRef::Unit` returns and emit a bare call without the `return` keyword. (`crates/alef-backend-pyo3/src/gen_bindings/functions.rs`, `crates/alef-backend-pyo3/tests/gen_bindings_test.rs`)
 
 - **alef-backend-pyo3: emit PEP 8 blank lines between consecutive top-level function definitions in `api.py`**: consecutive function definitions were jammed together with zero blank lines between them, violating PEP 8's requirement for two blank lines between top-level definitions. Modified the function emission loop to emit two additional newlines after each function body, ensuring proper spacing in generated `api.py`. (`crates/alef-backend-pyo3/src/gen_bindings/functions.rs`, `crates/alef-backend-pyo3/tests/gen_bindings_test.rs`)
