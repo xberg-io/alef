@@ -1,6 +1,7 @@
 use alef_core::config::TraitBridgeConfig;
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
+use crate::type_map::go_type;
 use heck::ToPascalCase;
 /// Generate Go trait bridge interface, CGo callback trampolines, and registration functions.
 ///
@@ -369,6 +370,8 @@ fn gen_trait_bridge(
 /// Generate a config-driven unregistration wrapper.
 ///
 /// Returns an empty string when `bridge_cfg.unregister_fn` is `None`.
+/// Also returns empty string if the configured name is just the snake_case version of
+/// the standard `Unregister{TraitName}` PascalCase function (to avoid duplicates).
 /// Otherwise emits a Go function whose name is `bridge_cfg.unregister_fn`,
 /// accepting a `name string` parameter and calling the C-exported
 /// `{ffi_prefix}_unregister_{trait_snake}` function via cgo.
@@ -377,6 +380,15 @@ fn gen_unregistration_fn(bridge_cfg: &TraitBridgeConfig, ffi_prefix: &str, trait
         return String::new();
     };
     let trait_snake = heck::AsSnakeCase(trait_name).to_string();
+    let standard_pascal_name = format!("Unregister{}", trait_name);
+    let standard_snake_name = heck::AsSnakeCase(&standard_pascal_name).to_string();
+
+    // Skip if the configured name is the snake_case version of the standard Unregister{TraitName}
+    // Go convention is PascalCase only; the PascalCase version is always emitted, so don't duplicate
+    if fn_name == standard_snake_name {
+        return String::new();
+    }
+
     let c_function = format!("{}_unregister_{}", ffi_prefix, trait_snake);
 
     let mut out = String::new();
@@ -790,38 +802,9 @@ fn rust_to_plain_c_type(ty: &TypeRef) -> String {
 }
 
 /// Convert a Rust TypeRef to a Go type string.
+/// Uses the type_map module for consistent type resolution, which handles Named types correctly.
 fn rust_to_go_type(ty: &TypeRef) -> String {
-    match ty {
-        TypeRef::Primitive(p) => {
-            use alef_core::ir::PrimitiveType::*;
-            match p {
-                Bool => "bool",
-                U8 => "uint8",
-                U16 => "uint16",
-                U32 => "uint32",
-                U64 => "uint64",
-                I8 => "int8",
-                I16 => "int16",
-                I32 => "int32",
-                I64 => "int64",
-                F32 => "float32",
-                F64 => "float64",
-                Usize => "uint",
-                Isize => "int",
-            }
-            .to_string()
-        }
-        TypeRef::String => "string".to_string(),
-        TypeRef::Char => "rune".to_string(),
-        TypeRef::Bytes => "[]byte".to_string(),
-        TypeRef::Optional(inner) => format!("*{}", rust_to_go_type(inner)),
-        TypeRef::Vec(inner) => format!("[]{}", rust_to_go_type(inner)),
-        TypeRef::Map(k, v) => format!("map[{}]{}", rust_to_go_type(k), rust_to_go_type(v)),
-        TypeRef::Unit => "error".to_string(), // void → error in Go
-        TypeRef::Duration => "time.Duration".to_string(),
-        TypeRef::Named(_) => "map[string]interface{}".to_string(), // JSON for complex types
-        _ => "interface{}".to_string(),
-    }
+    go_type(ty).into_owned()
 }
 
 /// Convert a Rust TypeRef to a C type string.

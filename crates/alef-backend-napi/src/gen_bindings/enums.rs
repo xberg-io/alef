@@ -131,13 +131,16 @@ pub(super) fn gen_untagged_data_enum_as_value_wrapper(enum_def: &EnumDef, prefix
 /// ```rust,ignore
 /// #[napi(object)]
 /// struct JsAuthConfig {
-///     #[napi(js_name = "type")]
-///     pub auth_type: String,
+///     #[napi(js_name = "kind")]
+///     pub kind_tag: String,
 ///     pub username: Option<String>,
 ///     pub password: Option<String>,
 ///     pub token: Option<String>,
 /// }
 /// ```
+///
+/// The discriminant field is always named "kind" in TypeScript (via js_name),
+/// regardless of the Rust serde tag attribute, for consistency across bindings.
 ///
 /// For tagged enums where every non-empty variant is a single-tuple field with a Named type
 /// (e.g. `FormatMetadata`), a `#[napi]` impl block is additionally emitted with per-variant
@@ -146,6 +149,9 @@ pub(super) fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str, has_se
     use alef_codegen::type_mapper::TypeMapper;
     let mapper = NapiMapper::new(prefix.to_string());
 
+    // Always use "kind" as the TypeScript discriminant field name for consistency.
+    // The Rust serde tag (if any) is used internally but not exposed to TypeScript.
+    let ts_discriminant = "kind";
     let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
 
     let derive = if has_serde {
@@ -157,7 +163,7 @@ pub(super) fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str, has_se
         derive.to_string(),
         "#[napi(object)]".to_string(),
         format!("pub struct {prefix}{} {{", enum_def.name),
-        format!("    #[napi(js_name = \"{tag_field}\")]"),
+        format!("    #[napi(js_name = \"{ts_discriminant}\")]"),
         format!("    pub {tag_field}_tag: String,"),
     ];
 
@@ -375,9 +381,59 @@ mod tests {
     /// and not { annotation_type: 'bold' }.
     #[test]
     fn gen_tagged_enum_unit_variant_uses_kind_discriminant() {
-        let mut e = make_simple_enum("AnnotationKind", &["Bold"]);
-        e.serde_tag = Some("annotation_type".to_string());
-        e.has_serde = true;
+        use alef_core::ir::{FieldDef, TypeRef};
+
+        // Create a tagged enum with both unit and tuple variants so it's treated as tagged
+        let mut e = EnumDef {
+            name: "AnnotationKind".to_string(),
+            rust_path: "test::AnnotationKind".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Bold".to_string(),
+                    fields: vec![],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: Some("bold".to_string()),
+                },
+                EnumVariant {
+                    name: "FontSize".to_string(),
+                    fields: vec![FieldDef {
+                        name: "_0".to_string(),
+                        ty: TypeRef::String,
+                        optional: false,
+                        default: None,
+                        doc: String::new(),
+                        sanitized: false,
+                        is_boxed: false,
+                        type_rust_path: None,
+                        cfg: None,
+                        typed_default: None,
+                        core_wrapper: alef_core::ir::CoreWrapper::None,
+                        vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                        newtype_wrapper: None,
+                        serde_rename: None,
+                        serde_flatten: false,
+                        binding_excluded: false,
+                        binding_exclusion_reason: None,
+                    }],
+                    is_tuple: true,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: Some("fontSize".to_string()),
+                },
+            ],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: true,
+            serde_tag: Some("annotation_type".to_string()),
+            serde_untagged: false,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
 
         let result = gen_enum(&e, "Js", true);
 

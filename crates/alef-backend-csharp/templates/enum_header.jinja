@@ -6,32 +6,28 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace {{ namespace }};
-{% if doc -%}
-
+{% if doc %}
 /// <summary>
 {%- for line in doc_lines %}
 /// {{ line }}
 {%- endfor %}
 /// </summary>
 {% endif -%}
-{% if needs_custom_converter -%}
-
+{% if needs_custom_converter %}
 [JsonConverter(typeof({{ enum_pascal }}JsonConverter))]
-{% else -%}
-
+{% else %}
 [JsonConverter(typeof(JsonStringEnumConverter))]
-{% endif -%}
-
+{% endif %}
 public enum {{ enum_pascal }}
 {
 {%- for variant in variants %}
-{% if variant.doc -%}
+{% if variant.doc %}
     /// <summary>
 {%- for line in variant.doc_lines %}
     /// {{ line }}
 {%- endfor %}
     /// </summary>
-{% endif -%}
+{% endif %}
     [JsonPropertyName("{{ variant.json_name }}")]
     {{ variant.pascal_name }},
 {%- endfor %}

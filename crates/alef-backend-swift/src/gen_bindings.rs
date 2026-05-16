@@ -1559,47 +1559,61 @@ fn emit_inbound_protocols(api: &ApiSurface, config: &ResolvedCrateConfig, out: &
 /// Types match what the Rust `extern "Swift"` shim expects after `inbound_bridge_type` transformation:
 /// Named → String, Optional<Named> → String? (i.e. Swift Optional<String>).
 /// bool stays Bool, u32 stays UInt32, usize stays Int (platform Int).
+///
+/// `ctx` is already the first element of `method.params` (the IR includes it), so
+/// no manual prepend is needed.
 fn swift_shim_params(method: &alef_core::ir::MethodDef) -> String {
-    let mut params: Vec<String> = vec!["_ ctx: String".to_string()];
-    for p in &method.params {
-        let name = p.name.to_snake_case();
-        let ty = swift_inbound_type(&p.ty, p.optional);
-        params.push(format!("_ {name}: {ty}"));
-    }
+    let params: Vec<String> = method
+        .params
+        .iter()
+        .map(|p| {
+            let name = p.name.to_snake_case();
+            let ty = swift_inbound_type(&p.ty, p.optional);
+            format!("_ {name}: {ty}")
+        })
+        .collect();
     params.join(", ")
 }
 
-/// Swift protocol parameter list (user-facing).  Same types as shim — the box
-/// just passes through to the inner protocol without conversion.
+/// Swift protocol parameter list (user-facing). Same types as shim, but parameter
+/// names are camelCase (idiomatic Swift).  `ctx` is the first element of
+/// `method.params` so it is included naturally.
 fn swift_protocol_params(method: &alef_core::ir::MethodDef) -> String {
-    let mut params: Vec<String> = vec!["_ ctx: String".to_string()];
-    for p in &method.params {
-        let name = p.name.to_snake_case();
-        let ty = swift_inbound_type(&p.ty, p.optional);
-        params.push(format!("_ {name}: {ty}"));
-    }
+    let params: Vec<String> = method
+        .params
+        .iter()
+        .map(|p| {
+            let name = p.name.to_lower_camel_case();
+            let ty = swift_inbound_type(&p.ty, p.optional);
+            format!("_ {name}: {ty}")
+        })
+        .collect();
     params.join(", ")
 }
 
-/// Protocol parameters with every argument replaced by `_` (for the default extension impl).
+/// Protocol parameters with every argument prefixed by `_` (for the default extension impl).
 fn swift_protocol_underscore_params(method: &alef_core::ir::MethodDef) -> String {
-    let mut params: Vec<String> = vec!["_ _ctx: String".to_string()];
-    for p in &method.params {
-        let name = p.name.to_snake_case();
-        let ty = swift_inbound_type(&p.ty, p.optional);
-        params.push(format!("_ _{name}: {ty}"));
-    }
+    let params: Vec<String> = method
+        .params
+        .iter()
+        .map(|p| {
+            let name = p.name.to_lower_camel_case();
+            let ty = swift_inbound_type(&p.ty, p.optional);
+            format!("_ _{name}: {ty}")
+        })
+        .collect();
     params.join(", ")
 }
 
 /// Argument list for the `inner.{methodCamel}(...)` delegation call.
+/// `ctx` is `method.params[0]` so it is included naturally.
 fn swift_shim_call_args(method: &alef_core::ir::MethodDef) -> String {
-    let mut args: Vec<String> = vec!["ctx".to_string()];
-    for p in &method.params {
-        let name = p.name.to_snake_case();
-        args.push(name);
-    }
-    args.join(", ")
+    method
+        .params
+        .iter()
+        .map(|p| p.name.to_snake_case())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Map a TypeRef to its Swift inbound bridge type string, mirroring `inbound_bridge_type`

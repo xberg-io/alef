@@ -2197,6 +2197,68 @@ fn test_trait_bridge_enum_return_type_emitted_as_concrete_type() {
 }
 
 // ---------------------------------------------------------------------------
+// Function deduplication (regression: D2 - snake_case + PascalCase duplicates)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_trait_bridge_dedup_snake_case_unregister_functions() {
+    // Regression test D2: when unregister_fn is set to snake_case version of Unregister{Trait},
+    // don't emit both versions — only emit the PascalCase standard function.
+    let trait_type = make_trait_type(
+        "OcrBackend",
+        vec![
+            make_trait_method(
+                "process_image",
+                vec![],
+                TypeRef::String,
+                true,
+            ),
+        ],
+    );
+    let bridge_cfg = TraitBridgeConfig {
+        trait_name: "OcrBackend".to_string(),
+        super_trait: None,
+        registry_getter: Some("my_lib::get_registry".to_string()),
+        register_fn: Some("register_ocr_backend".to_string()),
+        unregister_fn: Some("unregister_ocr_backend".to_string()),  // snake_case — should NOT emit
+        clear_fn: None,
+        type_alias: None,
+        param_name: None,
+        register_extra_args: None,
+        exclude_languages: Vec::new(),
+        ffi_skip_methods: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
+        context_type: None,
+        result_type: None,
+    };
+    let config = make_config_with_bridges(vec![bridge_cfg]);
+    let api = make_api_with_type(trait_type);
+
+    let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "../ffi", "..", "testlib");
+
+    // Must have the PascalCase function
+    assert!(
+        code.contains("func UnregisterOcrBackend(name string) error {"),
+        "Must emit PascalCase UnregisterOcrBackend function"
+    );
+
+    // Must NOT have the snake_case duplicate
+    assert!(
+        !code.contains("func unregister_ocr_backend(name string) error {"),
+        "Must NOT emit snake_case unregister_ocr_backend function — Go convention is PascalCase only"
+    );
+
+    // Count occurrences of unregister to ensure only one version is present
+    let unregister_count = code.matches("func Unregister").count();
+    assert_eq!(
+        unregister_count, 1,
+        "Must emit exactly one Unregister function (PascalCase), got {unregister_count}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // CFLAGS bundled include dir (regression: downstream go get compatibility)
 // ---------------------------------------------------------------------------
 

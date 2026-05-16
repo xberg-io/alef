@@ -619,23 +619,27 @@ fn gen_unit_enum_type(enum_def: &EnumDef) -> String {
     )
 }
 
-/// Generate a Go data enum as a flattened struct with JSON tags.
+/// Generate a Go data enum as sealed-interface with per-variant concrete structs.
 ///
-/// All fields from all variants are collected and deduplicated by name.
-/// Fields that don't appear in every variant are made optional (pointer type).
+/// For an externally-tagged enum (serde default with no `#[serde(tag)]`):
+/// - Emits an interface with unexported `is{EnumName}()` marker method
+/// - One concrete struct per variant with only its fields (no nullables)
+/// - MarshalJSON/UnmarshalJSON on each concrete struct type
+/// - An Unmarshal{EnumName}([]byte) helper to dispatch to the right variant
+///
+/// This pattern is type-safe: callers construct {EnumName}Variant{} directly,
+/// and invalid combinations are impossible (no nullable fields).
 fn gen_data_enum_type(enum_def: &EnumDef) -> String {
-    let mut out = String::with_capacity(1024);
-
-    // Collect variant names for the doc comment
-    let variant_names: Vec<&str> = enum_def.variants.iter().map(|v| v.name.as_str()).collect();
-    let total_variants = enum_def.variants.len();
+    let mut out = String::with_capacity(2048);
     let go_enum_name = go_type_name(&enum_def.name);
+    let variant_names: Vec<&str> = enum_def.variants.iter().map(|v| v.name.as_str()).collect();
 
+    // Emit the sealed interface
     emit_type_doc(
         &mut out,
         &go_enum_name,
         &enum_def.doc,
-        "is a tagged union type (discriminated by JSON tag).",
+        "is a tagged union type (discriminated by type field).",
     );
     out.push_str(&crate::template_env::render(
         "variant_comment.jinja",
@@ -643,103 +647,153 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
             variants => variant_names.join(", "),
         },
     ));
-    out.push_str(&crate::template_env::render(
-        "struct_type_decl.jinja",
-        minijinja::context! {
-            name => &go_enum_name,
-        },
+    out.push_str(&format!(
+        "// Sealed interface — use one of {}{}, {}{}.\n",
+        go_enum_name,
+        variant_names.first().unwrap_or(&""),
+        go_enum_name,
+        variant_names.get(1).unwrap_or(&"")
     ));
-    out.push_str("\tVariant string `json:\"-\"`\n");
+    out.push_str(&format!("type {go_enum_name} interface {{\n"));
+    out.push_str(&format!("\tis{go_enum_name}()\n"));
+    out.push_str(&format!("\tType() string\n"));
+    out.push_str("}\n\n");
 
-    // Emit the serde tag discriminator field first (e.g. `Type string \`json:"type"\``).
-    // This ensures round-trip JSON serialization preserves the variant discriminator,
-    // which Rust needs to deserialize the correct enum variant.
-    if let Some(tag_name) = &enum_def.serde_tag {
-        out.push_str(&crate::template_env::render(
-            "tag_field.jinja",
-            minijinja::context! {
-                tag_field => to_go_name(tag_name),
-                json_name => tag_name,
-            },
-        ));
-        out.push('\n');
-    }
-
-    // Collect and deduplicate fields across all variants.
-    // Track: field name -> (FieldDef, count of variants containing it)
-    let mut seen_fields: Vec<(String, FieldDef, usize)> = Vec::new();
-
+    // Emit one concrete struct per variant
     for variant in &enum_def.variants {
+        let variant_struct_name = format!("{go_enum_name}{}", to_go_name(&variant.name));
+
+        // Doc comment for the concrete struct
+        emit_type_doc(
+            &mut out,
+            &variant_struct_name,
+            &variant.doc,
+            &format!("is the {} variant of {}.", variant.name, enum_def.name),
+        );
+
+        // Struct definition with only this variant's fields
+        out.push_str(&format!("type {variant_struct_name} struct {{\n"));
         for field in &variant.fields {
             if is_tuple_field(field) {
                 continue;
             }
-            if let Some(entry) = seen_fields.iter_mut().find(|(name, _, _)| *name == field.name) {
-                entry.2 += 1;
+            let field_go_name = to_go_name(&field.name);
+            let field_type = go_type(&field.ty);
+            let json_name =
+                apply_serde_rename(&field.name, enum_def.serde_rename_all.as_deref());
+            let json_tag = format!("json:\"{}\"", json_name);
+
+            let doc_lines: Vec<&str> = if !field.doc.is_empty() {
+                field.doc.lines().map(|l| l.trim()).collect()
             } else {
-                seen_fields.push((field.name.clone(), field.clone(), 1));
-            }
+                vec![]
+            };
+            out.push_str(&crate::template_env::render(
+                "struct_field.jinja",
+                minijinja::context! {
+                    doc_lines => doc_lines,
+                    field_name => &field_go_name,
+                    field_type => &field_type,
+                    json_tag => &json_tag,
+                },
+            ));
         }
+        out.push_str("}\n\n");
+
+        // Implement the sealed marker method
+        out.push_str(&format!("func ({variant_struct_name}) is{go_enum_name}() {{}}\n\n"));
+
+        // Implement the Type() method
+        let wire_value = enum_variant_wire_value(variant, enum_def);
+        out.push_str(&format!(
+            "func ({variant_struct_name}) Type() string {{ return \"{}\" }}\n\n",
+            wire_value
+        ));
+
+        // Implement MarshalJSON for the concrete struct
+        out.push_str(&format!(
+            "func (v {variant_struct_name}) MarshalJSON() ([]byte, error) {{\n"
+        ));
+        out.push_str(&format!("\ttype aux struct {{\n"));
+        if let Some(tag_name) = &enum_def.serde_tag {
+            let tag_json_name = tag_name.as_str();
+            out.push_str(&format!(
+                "\t\t{} string `json:\"{}\"`\n",
+                to_go_name(tag_name), tag_json_name
+            ));
+        }
+        for field in &variant.fields {
+            if is_tuple_field(field) {
+                continue;
+            }
+            let field_go_name = to_go_name(&field.name);
+            let field_type = go_type(&field.ty);
+            let json_name =
+                apply_serde_rename(&field.name, enum_def.serde_rename_all.as_deref());
+            out.push_str(&format!("\t\t{field_go_name} {field_type} `json:\"{json_name}\"`\n"));
+        }
+        out.push_str("\t}\n");
+        out.push_str(&format!(
+            "\treturn json.Marshal(aux{{\n"
+        ));
+        if let Some(tag_name) = &enum_def.serde_tag {
+            out.push_str(&format!(
+                "\t\t{}: v.Type(),\n",
+                to_go_name(tag_name)
+            ));
+        }
+        for field in &variant.fields {
+            if is_tuple_field(field) {
+                continue;
+            }
+            let field_go_name = to_go_name(&field.name);
+            out.push_str(&format!("\t\t{field_go_name}: v.{field_go_name},\n"));
+        }
+        out.push_str("\t})\n");
+        out.push_str("}\n\n");
     }
 
-    for (field_name, field, count) in &seen_fields {
-        // A field is optional if it's already marked optional OR if it doesn't appear in all variants
-        let is_optional = field.optional || *count < total_variants;
-
-        let field_type = if is_optional {
-            go_optional_type(&field.ty)
-        } else {
-            go_type(&field.ty)
-        };
-
-        let json_tag = if is_optional {
-            format!("json:\"{},omitempty\"", field_name)
-        } else {
-            format!("json:\"{}\"", field_name)
-        };
-
-        let doc_lines: Vec<&str> = if !field.doc.is_empty() {
-            field.doc.lines().map(|l| l.trim()).collect()
-        } else {
-            vec![]
-        };
-        out.push_str(&crate::template_env::render(
-            "struct_field.jinja",
-            minijinja::context! {
-                doc_lines => doc_lines,
-                field_name => to_go_name(field_name),
-                field_type => &field_type,
-                json_tag => &json_tag,
-            },
+    // Emit the Unmarshal{EnumName} helper function
+    out.push_str(&format!(
+        "// Unmarshal{go_enum_name} decodes JSON data into the appropriate concrete {go_enum_name} variant.\n"
+    ));
+    out.push_str(&format!(
+        "func Unmarshal{go_enum_name}(data []byte) ({go_enum_name}, error) {{\n"
+    ));
+    out.push_str("\tvar wire struct {\n");
+    if let Some(tag_name) = &enum_def.serde_tag {
+        out.push_str(&format!(
+            "\t\t{} string `json:\"{}\"`\n",
+            to_go_name(tag_name), tag_name
         ));
     }
+    out.push_str("\t}\n");
+    out.push_str("\tif err := json.Unmarshal(data, &wire); err != nil {\n");
+    out.push_str("\t\treturn nil, err\n");
+    out.push_str("\t}\n\n");
 
-    out.push_str(&crate::template_env::render(
-        "struct_type_end.jinja",
-        minijinja::Value::default(),
-    ));
-    out.push('\n');
-    out.push_str(&crate::template_env::render(
-        "enum_string_method.jinja",
-        minijinja::context! {
-            enum_name => &go_enum_name,
-        },
-    ));
     let tag_field = enum_def.serde_tag.as_ref().map(|tn| to_go_name(tn));
-    out.push_str(&crate::template_env::render(
-        "enum_marshal_json.jinja",
-        minijinja::context! {
-            enum_name => &go_enum_name,
-            tag_field => tag_field.as_deref().unwrap_or(""),
-        },
+    let discriminator_field = tag_field.as_deref().unwrap_or("Type");
+
+    out.push_str(&format!(
+        "\tswitch wire.{discriminator_field} {{\n"
     ));
-    out.push_str(&crate::template_env::render(
-        "enum_unmarshal_json.jinja",
-        minijinja::context! {
-            enum_name => &go_enum_name,
-            tag_field => tag_field.as_deref().unwrap_or(""),
-        },
+    for variant in &enum_def.variants {
+        let wire_value = enum_variant_wire_value(variant, enum_def);
+        let variant_struct_name = format!("{go_enum_name}{}", to_go_name(&variant.name));
+        out.push_str(&format!("\tcase \"{}\":\n", wire_value));
+        out.push_str(&format!("\t\tvar v {variant_struct_name}\n"));
+        out.push_str("\t\tif err := json.Unmarshal(data, &v); err != nil {\n");
+        out.push_str("\t\t\treturn nil, err\n");
+        out.push_str("\t\t}\n");
+        out.push_str("\t\treturn v, nil\n");
+    }
+    out.push_str("\t}\n");
+    out.push_str(&format!(
+        "\treturn nil, fmt.Errorf(\"unknown {go_enum_name} type: %q\", wire.{discriminator_field})\n"
     ));
+    out.push_str("}\n");
+
     out
 }
 
@@ -1435,5 +1489,64 @@ mod tests {
         let out = gen_struct_type(&typ, &std::collections::HashSet::new());
         assert!(out.contains("type MyConfig struct"));
         assert!(out.contains("json:\"timeout\""));
+    }
+
+    #[test]
+    fn test_gen_data_enum_sealed_interface() {
+        // Test tagged-data enum (named fields): emits sealed interface pattern
+        let enum_def = EnumDef {
+            name: "AuthConfig".to_string(),
+            rust_path: String::new(),
+            original_rust_path: String::new(),
+            doc: "Authentication configuration.".to_string(),
+            cfg: None,
+            is_copy: false,
+            has_serde: true,
+            serde_tag: Some("type".to_string()),
+            serde_untagged: false,
+            serde_rename_all: None,
+            variants: vec![
+                EnumVariant {
+                    name: "Basic".to_string(),
+                    doc: "Basic auth variant.".to_string(),
+                    fields: vec![
+                        simple_field("username", TypeRef::String),
+                        simple_field("password", TypeRef::String),
+                    ],
+                    is_default: false,
+                    serde_rename: Some("basic".to_string()),
+                    is_tuple: false,
+                },
+                EnumVariant {
+                    name: "Bearer".to_string(),
+                    doc: "Bearer token variant.".to_string(),
+                    fields: vec![simple_field("token", TypeRef::String)],
+                    is_default: false,
+                    serde_rename: Some("bearer".to_string()),
+                    is_tuple: false,
+                },
+            ],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+        let out = gen_data_enum_type(&enum_def);
+        // Should emit sealed interface
+        assert!(out.contains("type AuthConfig interface"));
+        assert!(out.contains("isAuthConfig()"));
+        assert!(out.contains("Type() string"));
+        // Should emit concrete structs per variant, not flat struct with all nullables
+        assert!(out.contains("type AuthConfigBasic struct"));
+        assert!(out.contains("type AuthConfigBearer struct"));
+        // Basic variant should have username/password non-null fields
+        assert!(out.contains("Username string"));
+        assert!(out.contains("Password string"));
+        // Bearer variant should have token field
+        assert!(out.contains("Token string"));
+        // No nullable fields — each struct has only its own fields
+        assert!(!out.contains("*string `json:\"username,omitempty\""));
+        // Should emit Unmarshal helper
+        assert!(out.contains("func UnmarshalAuthConfig(data []byte)"));
+        assert!(out.contains("case \"basic\""));
+        assert!(out.contains("case \"bearer\""));
     }
 }
