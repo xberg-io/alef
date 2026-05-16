@@ -3821,12 +3821,17 @@ fn test_pyclass_enum_variants_use_upper_snake_case_pyo3_name() {
         version: "0.1.0".to_string(),
         types: vec![],
         functions: vec![],
-        enums: vec![make_unit_enum_def("BatchStatus", &["Validating", "InProgress", "Complete"])],
+        enums: vec![make_unit_enum_def(
+            "BatchStatus",
+            &["Validating", "InProgress", "Complete"],
+        )],
         errors: vec![],
         excluded_type_paths: HashMap::new(),
     };
     let config = make_config();
-    let files = backend.generate_bindings(&api, &config).expect("generate_bindings must succeed");
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generate_bindings must succeed");
     let rust_src = files
         .iter()
         .find(|f| f.path.extension().is_some_and(|e| e == "rs"))
@@ -3887,7 +3892,9 @@ fn test_options_py_does_not_emit_screaming_alias_lines() {
         excluded_type_paths: HashMap::new(),
     };
     let config = make_config();
-    let files = backend.generate_bindings(&api, &config).expect("generate_bindings must succeed");
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generate_bindings must succeed");
     let options_py = files
         .iter()
         .find(|f| f.path.file_name().is_some_and(|n| n == "options.py"))
@@ -3963,7 +3970,9 @@ fn test_api_py_void_function_no_redundant_return() {
         extra_init_imports: std::collections::BTreeMap::new(),
     });
 
-    let files = backend.generate_public_api(&api, &config).expect("generate_public_api failed");
+    let files = backend
+        .generate_public_api(&api, &config)
+        .expect("generate_public_api failed");
     let api_py = files
         .iter()
         .find(|f| f.path.ends_with("api.py"))
@@ -3987,10 +3996,7 @@ fn test_api_py_void_function_no_redundant_return() {
             rest
         };
         // The body should have the docstring and the call
-        assert!(
-            fn_body.contains("_rust.init()"),
-            "Function should call _rust.init()"
-        );
+        assert!(fn_body.contains("_rust.init()"), "Function should call _rust.init()");
         // But it should NOT have "return _rust.init()"
         let without_docstring = fn_body.split("\"\"\"").last().unwrap_or(fn_body);
         assert!(
@@ -4094,16 +4100,27 @@ fn test_api_py_pep8_blank_lines_between_functions() {
         extra_init_imports: std::collections::BTreeMap::new(),
     });
 
-    let files = backend.generate_public_api(&api, &config).expect("generate_public_api failed");
+    let files = backend
+        .generate_public_api(&api, &config)
+        .expect("generate_public_api failed");
     let api_py = files
         .iter()
         .find(|f| f.path.ends_with("api.py"))
         .expect("api.py not found");
 
     // Find the three function definitions and verify spacing
-    let first_pos = api_py.content.find("def first_function").expect("first_function not found");
-    let second_pos = api_py.content.find("def second_function").expect("second_function not found");
-    let third_pos = api_py.content.find("def third_function").expect("third_function not found");
+    let first_pos = api_py
+        .content
+        .find("def first_function")
+        .expect("first_function not found");
+    let second_pos = api_py
+        .content
+        .find("def second_function")
+        .expect("second_function not found");
+    let third_pos = api_py
+        .content
+        .find("def third_function")
+        .expect("third_function not found");
 
     // Between first and second function
     let between_1_2 = &api_py.content[first_pos..second_pos];

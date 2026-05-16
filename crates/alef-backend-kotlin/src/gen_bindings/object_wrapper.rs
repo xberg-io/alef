@@ -354,7 +354,9 @@ fn emit_kotlin_tagged_serializer(out: &mut String, en: &EnumDef, tag_field: &str
                 1,
             );
             out.push_str("                @Suppress(\"UNCHECKED_CAST\")\n");
-            out.push_str("                val n = mapper.valueToTree<com.fasterxml.jackson.databind.node.ObjectNode>(value.");
+            out.push_str(
+                "                val n = mapper.valueToTree<com.fasterxml.jackson.databind.node.ObjectNode>(value.",
+            );
             out.push_str(&field_name);
             out.push_str(") as com.fasterxml.jackson.databind.node.ObjectNode\n");
             out.push_str("                n.put(\"");
@@ -661,6 +663,42 @@ fn emit_kotlin_untagged_serializer(out: &mut String, en: &EnumDef) {
     out.push_str("}\n");
 }
 
+/// Interpolate `{N}` placeholder tokens in an error message template with
+/// Kotlin string-template syntax.
+///
+/// Rust error message templates use `{0}`, `{1}`, … to reference the Nth
+/// positional field. Kotlin error variant fields are named `field0`, `field1`,
+/// … by the `kotlin_field_name` helper. This function replaces each `{N}` with
+/// `${fieldN}` (brace form is always safe regardless of the character following
+/// the interpolation) so the generated Kotlin constructor argument is a proper
+/// string template rather than a literal placeholder token.
+fn interpolate_error_message_template(template: &str) -> String {
+    // Replace `{N}` → `${fieldN}` for any non-negative integer N.
+    // Build a new string left-to-right so byte offsets remain valid.
+    let mut out = String::with_capacity(template.len());
+    let mut remaining = template;
+    while let Some(open) = remaining.find('{') {
+        let after_open = &remaining[open + 1..];
+        if let Some(close) = after_open.find('}') {
+            let token = &after_open[..close];
+            if token.chars().all(|c| c.is_ascii_digit()) && !token.is_empty() {
+                // Valid `{N}` placeholder — flush prefix, emit `${fieldN}`.
+                out.push_str(&remaining[..open]);
+                out.push_str("${field");
+                out.push_str(token);
+                out.push('}');
+                remaining = &remaining[open + 1 + close + 1..];
+                continue;
+            }
+        }
+        // Not a valid `{N}` token — emit up to and including `{` literally.
+        out.push_str(&remaining[..open + 1]);
+        remaining = &remaining[open + 1..];
+    }
+    out.push_str(remaining);
+    out
+}
+
 pub(crate) fn emit_error_type_with_imports(
     error: &alef_core::ir::ErrorDef,
     out: &mut String,
@@ -675,12 +713,17 @@ pub(crate) fn emit_error_type_with_imports(
     ));
     for variant in &error.variants {
         if variant.is_unit {
+            let raw_msg = variant.message_template.as_deref().unwrap_or(&variant.name);
+            // Unit variants have no fields so {N} tokens would be invalid in
+            // practice, but run through the interpolator for consistency and
+            // to avoid emitting literal placeholder tokens if they appear.
+            let message = interpolate_error_message_template(raw_msg);
             out.push_str(&crate::template_env::render(
                 "error_object_variant.jinja",
                 minijinja::context! {
                     name => &variant.name,
                     parent_name => &error.name,
-                    message => variant.message_template.as_deref().unwrap_or(&variant.name),
+                    message => message,
                 },
             ));
         } else {
@@ -707,12 +750,13 @@ pub(crate) fn emit_error_type_with_imports(
                     },
                 ));
             }
-            let message_template = variant.message_template.as_deref().unwrap_or(&variant.name);
+            let raw_msg = variant.message_template.as_deref().unwrap_or(&variant.name);
+            let message = interpolate_error_message_template(raw_msg);
             out.push_str(&crate::template_env::render(
                 "error_variant_close.jinja",
                 minijinja::context! {
                     parent_name => &error.name,
-                    message => message_template,
+                    message => message,
                 },
             ));
         }

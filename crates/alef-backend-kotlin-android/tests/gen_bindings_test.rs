@@ -771,11 +771,7 @@ fn make_sealed_variants_api() -> ApiSurface {
                 ],
                 true,
             ),
-            make_sealed_variant(
-                "Struct",
-                vec![make_sealed_field("reason", TypeRef::String)],
-                false,
-            ),
+            make_sealed_variant("Struct", vec![make_sealed_field("reason", TypeRef::String)], false),
         ],
         doc: "Test enum with various payload types".into(),
         cfg: None,
@@ -853,5 +849,339 @@ fn sealed_variant_tuple_params_use_payload_derived_names() {
     assert!(
         !content.contains("field0"),
         "should not use placeholder 'field0', got:\n{content}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Track 2.1 — Error message template interpolation
+// ---------------------------------------------------------------------------
+
+fn make_tuple_error_api() -> ApiSurface {
+    use alef_core::ir::{ErrorDef, ErrorVariant, FieldDef};
+    ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![ErrorDef {
+            name: "ConversionError".to_string(),
+            rust_path: "demo::ConversionError".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                // Single-field tuple variant with `{0}` in the template.
+                ErrorVariant {
+                    name: "ParseError".to_string(),
+                    message_template: Some("HTML parsing error: {0}".to_string()),
+                    fields: vec![FieldDef {
+                        name: "_0".to_string(),
+                        ty: TypeRef::String,
+                        optional: false,
+                        default: None,
+                        doc: String::new(),
+                        sanitized: false,
+                        is_boxed: false,
+                        type_rust_path: None,
+                        cfg: None,
+                        typed_default: None,
+                        core_wrapper: alef_core::ir::CoreWrapper::None,
+                        vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                        newtype_wrapper: None,
+                        serde_rename: None,
+                        serde_flatten: false,
+                        binding_excluded: false,
+                        binding_exclusion_reason: None,
+                    }],
+                    has_source: false,
+                    has_from: false,
+                    is_unit: false,
+                    doc: String::new(),
+                },
+                // Multi-field variant with `{0}` and `{1}`.
+                ErrorVariant {
+                    name: "Located".to_string(),
+                    message_template: Some("Error at {0}:{1}".to_string()),
+                    fields: vec![
+                        FieldDef {
+                            name: "_0".to_string(),
+                            ty: TypeRef::String,
+                            optional: false,
+                            default: None,
+                            doc: String::new(),
+                            sanitized: false,
+                            is_boxed: false,
+                            type_rust_path: None,
+                            cfg: None,
+                            typed_default: None,
+                            core_wrapper: alef_core::ir::CoreWrapper::None,
+                            vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                            newtype_wrapper: None,
+                            serde_rename: None,
+                            serde_flatten: false,
+                            binding_excluded: false,
+                            binding_exclusion_reason: None,
+                        },
+                        FieldDef {
+                            name: "_1".to_string(),
+                            ty: TypeRef::Primitive(PrimitiveType::U32),
+                            optional: false,
+                            default: None,
+                            doc: String::new(),
+                            sanitized: false,
+                            is_boxed: false,
+                            type_rust_path: None,
+                            cfg: None,
+                            typed_default: None,
+                            core_wrapper: alef_core::ir::CoreWrapper::None,
+                            vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                            newtype_wrapper: None,
+                            serde_rename: None,
+                            serde_flatten: false,
+                            binding_excluded: false,
+                            binding_exclusion_reason: None,
+                        },
+                    ],
+                    has_source: false,
+                    has_from: false,
+                    is_unit: false,
+                    doc: String::new(),
+                },
+                // Unit variant (no fields) — template must not emit `{0}`.
+                ErrorVariant {
+                    name: "Unknown".to_string(),
+                    message_template: Some("unknown error".to_string()),
+                    fields: vec![],
+                    has_source: false,
+                    has_from: false,
+                    is_unit: true,
+                    doc: String::new(),
+                },
+            ],
+            doc: "Conversion errors.".to_string(),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    }
+}
+
+/// Track 2.1 regression: `{N}` placeholder tokens in error message templates
+/// must be interpolated as Kotlin string-template references (`${fieldN}`), not
+/// emitted literally.
+#[test]
+fn error_tuple_variant_message_template_interpolates_field_refs() {
+    let api = make_tuple_error_api();
+    let config = make_opaque_factory_config();
+    let files = KotlinAndroidBackend.generate_bindings(&api, &config).unwrap();
+
+    let error_kt = files
+        .iter()
+        .find(|f| {
+            f.path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|s| s == "ConversionError.kt")
+                .unwrap_or(false)
+        })
+        .expect("ConversionError.kt must be emitted");
+
+    let content = &error_kt.content;
+
+    // Single-field variant: `{0}` → `${field0}`.
+    assert!(
+        content.contains(r#"ConversionError("HTML parsing error: ${field0}")"#),
+        "ParseError must interpolate field0, got:\n{content}"
+    );
+
+    // Multi-field variant: `{0}` → `${field0}`, `{1}` → `${field1}`.
+    assert!(
+        content.contains(r#"ConversionError("Error at ${field0}:${field1}")"#),
+        "Located must interpolate field0 and field1, got:\n{content}"
+    );
+
+    // Unit variant: no fields, no interpolation — literal message only.
+    assert!(
+        content.contains(r#"object Unknown : ConversionError("unknown error")"#),
+        "Unknown unit variant must emit literal message, got:\n{content}"
+    );
+
+    // Must NOT contain any literal `{0}` or `{1}` placeholder tokens.
+    assert!(
+        !content.contains("{0}"),
+        "content must not contain literal {{0}} token, got:\n{content}"
+    );
+    assert!(
+        !content.contains("{1}"),
+        "content must not contain literal {{1}} token, got:\n{content}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Track 2.2 — High-level convert() wrapper with Jackson deserialization
+// ---------------------------------------------------------------------------
+
+fn make_convert_api() -> ApiSurface {
+    // Simulate h2m's convert(html: String, options: Option<ConversionOptions>) ->
+    // ConversionResult shape where ConversionOptions and ConversionResult are
+    // non-opaque named types (DTOs).
+    ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![
+            TypeDef {
+                name: "ConversionOptions".into(),
+                rust_path: "demo::ConversionOptions".into(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                doc: String::new(),
+                cfg: None,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: true,
+                super_traits: vec![],
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+            TypeDef {
+                name: "ConversionResult".into(),
+                rust_path: "demo::ConversionResult".into(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                doc: String::new(),
+                cfg: None,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: true,
+                serde_rename_all: None,
+                has_serde: true,
+                super_traits: vec![],
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+        ],
+        functions: vec![FunctionDef {
+            name: "convert".into(),
+            rust_path: "demo::convert".into(),
+            original_rust_path: String::new(),
+            params: vec![
+                ParamDef {
+                    name: "html".into(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                },
+                ParamDef {
+                    name: "options".into(),
+                    ty: TypeRef::Named("ConversionOptions".into()),
+                    optional: true,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                },
+            ],
+            return_type: TypeRef::Named("ConversionResult".into()),
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    }
+}
+
+/// Track 2.2 regression: when the API surface has functions returning non-opaque
+/// Named types (DTOs like `ConversionResult`), the facade object must:
+/// - Accept typed options (`ConversionOptions? = null`) not raw JSON strings.
+/// - Deserialize the result JSON via Jackson into the typed return class.
+/// - Emit a `suspend fun convertAsync` companion via `withContext(Dispatchers.IO)`.
+/// - Import `jacksonObjectMapper`, `Dispatchers`, and `withContext`.
+#[test]
+fn typed_dto_return_emits_jackson_wrapper_and_suspend_async() {
+    let api = make_convert_api();
+    let config = make_opaque_factory_config();
+    let files = KotlinAndroidBackend.generate_bindings(&api, &config).unwrap();
+
+    let module_kt = files
+        .iter()
+        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("Demo.kt"))
+        .expect("Demo.kt must be emitted");
+
+    let content = &module_kt.content;
+
+    // Options param must be typed, not raw String.
+    assert!(
+        content.contains("options: ConversionOptions? = null"),
+        "options param must be typed ConversionOptions? = null, got:\n{content}"
+    );
+
+    // Return type must be the named DTO, not String.
+    assert!(
+        content.contains("): ConversionResult {"),
+        "convert must return ConversionResult, got:\n{content}"
+    );
+
+    // Jackson deserialization must be present.
+    assert!(
+        content.contains("mapper.readValue(resultJson, ConversionResult::class.java)"),
+        "must deserialize result via Jackson, got:\n{content}"
+    );
+
+    // Options must be serialized when non-null.
+    assert!(
+        content.contains("mapper.writeValueAsString"),
+        "must serialize options via Jackson, got:\n{content}"
+    );
+
+    // Suspend async companion must be emitted.
+    assert!(
+        content.contains("suspend fun convertAsync("),
+        "must emit suspend fun convertAsync, got:\n{content}"
+    );
+    assert!(
+        content.contains("withContext(Dispatchers.IO)"),
+        "convertAsync must use withContext(Dispatchers.IO), got:\n{content}"
+    );
+
+    // Jackson import must be present.
+    assert!(
+        content.contains("import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper"),
+        "must import jacksonObjectMapper, got:\n{content}"
+    );
+
+    // Must NOT use raw String for options in bridge call.
+    assert!(
+        !content.contains("options: String"),
+        "options param must not be raw String, got:\n{content}"
     );
 }

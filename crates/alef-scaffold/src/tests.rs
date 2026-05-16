@@ -1653,7 +1653,7 @@ fn test_scaffold_zig() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Zig]).unwrap();
     let files = language_files(&all_files);
-    // build.zig + build.zig.zon + .gitignore + .editorconfig + README.md + example.zig + main.zig
+    // build.zig + build.zig.zon + .gitignore + .editorconfig + README.md + example.zig + main.zig (re-export stub)
     assert_eq!(files.len(), 7, "Expected 7 files for Zig scaffold");
 
     let build_zig = &files[0];
@@ -1682,8 +1682,8 @@ fn test_scaffold_zig() {
 
     let main = &files[6];
     assert_eq!(main.path, PathBuf::from("packages/zig/src/main.zig"));
-    assert!(main.content.contains("test"));
-    assert!(main.content.contains("pub fn add"));
+    assert!(main.content.contains("pub usingnamespace"));
+    assert!(main.content.contains(".zig"));
     assert!(
         files.iter().all(|f| !f.path.starts_with(".github/workflows")),
         "Zig scaffold must not emit GitHub workflows"

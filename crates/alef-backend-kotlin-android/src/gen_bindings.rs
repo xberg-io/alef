@@ -234,49 +234,99 @@ fn emit_module_kt(
         return;
     }
 
-    // Helper to resolve the wrapper Kotlin type for a TypeRef appearing in the
-    // facade signature.  Opaque types become their wrapper class; everything
-    // else uses the existing primitive/JSON mapping.
+    // Helper: return true when the TypeRef is a non-opaque named type, i.e. a
+    // data-class DTO that crosses the JNI boundary as JSON and should be
+    // serialized/deserialized by Jackson in the high-level facade.
+    let is_dto_named = |ty: &alef_core::ir::TypeRef| -> bool {
+        match ty {
+            alef_core::ir::TypeRef::Named(n) => !opaque_type_names.contains(n.as_str()),
+            _ => false,
+        }
+    };
+
+    // Helper to resolve the facade Kotlin type for a return TypeRef.
+    // Opaque types become their wrapper class; non-opaque Named types are
+    // exposed as-is (Jackson deserialization makes them real Kotlin objects);
+    // everything else uses the JNI primitive/JSON mapping.
     let facade_return_type = |ty: &alef_core::ir::TypeRef| -> String {
         if let alef_core::ir::TypeRef::Named(n) = ty {
             if opaque_type_names.contains(n.as_str()) {
                 return n.clone();
             }
+            // Non-opaque Named: expose the real Kotlin type.
+            return n.clone();
         }
         jni_return_type_str(ty).to_string()
     };
+
+    // Helper to resolve the facade Kotlin type for a parameter TypeRef.
+    // Non-opaque Named types (optionally wrapped) become their Kotlin class so
+    // callers pass typed objects rather than raw JSON strings.
     let facade_param_type = |ty: &alef_core::ir::TypeRef| -> String {
-        if let alef_core::ir::TypeRef::Named(n) = unwrap_optional(ty) {
+        let inner = unwrap_optional(ty);
+        if let alef_core::ir::TypeRef::Named(n) = inner {
             if opaque_type_names.contains(n.as_str()) {
                 return n.clone();
             }
+            // Non-opaque Named: expose the real Kotlin type.
+            return n.clone();
         }
         jni_param_type_str(ty).to_string()
     };
 
-    let imports: BTreeSet<String> = BTreeSet::new();
+    // Determine whether any function needs Jackson serialization/deserialization.
+    // If so, emit a private mapper field and add the necessary imports.
+    let needs_jackson = visible_functions.iter().any(|f| {
+        is_dto_named(&f.return_type)
+            || f.params.iter().any(|p| is_dto_named(unwrap_optional(&p.ty)))
+    });
+
+    let mut imports: BTreeSet<String> = BTreeSet::new();
+    if needs_jackson {
+        imports.insert("import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper".to_string());
+        imports.insert("import kotlinx.coroutines.Dispatchers".to_string());
+        imports.insert("import kotlinx.coroutines.withContext".to_string());
+    }
+
     let mut body = String::new();
 
     body.push_str(&format!("object {module_name} {{\n"));
+    if needs_jackson {
+        body.push_str("    private val mapper = jacksonObjectMapper()\n\n");
+    }
+
     for f in &visible_functions {
         let method_name = to_lower_camel(&f.name);
         let native_name = format!("native{}", to_pascal_case(&f.name));
-
         let return_ty = facade_return_type(&f.return_type);
+        let returns_dto = is_dto_named(&f.return_type);
 
+        // Build the public param list. Optional non-opaque Named params become
+        // `TypeName? = null`; required ones become `TypeName`.
         let params: Vec<String> = f
             .params
             .iter()
             .map(|p| {
                 let name = to_lower_camel(&p.name);
+                let inner = unwrap_optional(&p.ty);
+                let is_dto = is_dto_named(inner);
                 if p.optional {
-                    // Use nullable Kotlin type with null default so callers
-                    // that only pass required params still compile (e.g. e2e
-                    // codegen omits optional timeout_secs / max_retries /
-                    // model_hint).  Nullable is idiomatic Kotlin and avoids
-                    // sentinel zero-value collisions.
-                    let ty = kotlin_nullable_type_for_optional(&p.ty);
-                    format!("{name}: {ty} = null")
+                    if is_dto {
+                        // TypeName? = null — typed nullable with null default.
+                        let ty_name = match inner {
+                            alef_core::ir::TypeRef::Named(n) => n.clone(),
+                            _ => unreachable!(),
+                        };
+                        format!("{name}: {ty_name}? = null")
+                    } else if opaque_type_names.contains(match inner {
+                        alef_core::ir::TypeRef::Named(n) => n.as_str(),
+                        _ => "",
+                    }) {
+                        format!("{name}: {} = null", facade_param_type(&p.ty))
+                    } else {
+                        let ty = kotlin_nullable_type_for_optional(&p.ty);
+                        format!("{name}: {ty} = null")
+                    }
                 } else {
                     let ty = facade_param_type(&p.ty);
                     format!("{name}: {ty}")
@@ -284,17 +334,26 @@ fn emit_module_kt(
             })
             .collect();
 
-        // Bridge args: opaque params are unwrapped to `.handle`, everything
-        // else is passed through unchanged.
+        // Build the bridge argument list. DTO params are serialized to JSON;
+        // opaque params are unwrapped to `.handle`; everything else passes
+        // through.
         let bridge_args: Vec<String> = f
             .params
             .iter()
             .map(|p| {
                 let name = to_lower_camel(&p.name);
-                if let alef_core::ir::TypeRef::Named(n) = unwrap_optional(&p.ty) {
+                let inner = unwrap_optional(&p.ty);
+                // Opaque handle: unwrap to `.handle`.
+                if let alef_core::ir::TypeRef::Named(n) = inner {
                     if opaque_type_names.contains(n.as_str()) {
                         return format!("{name}.handle");
                     }
+                    // Non-opaque DTO: serialize to JSON.
+                    if p.optional {
+                        // Serialize if non-null, fall back to empty string.
+                        return format!("{name}?.let {{ mapper.writeValueAsString(it) }} ?: \"\"");
+                    }
+                    return format!("mapper.writeValueAsString({name})");
                 }
                 name
             })
@@ -302,22 +361,60 @@ fn emit_module_kt(
 
         let bridge_call = format!("{bridge_name}.{native_name}({})", bridge_args.join(", "));
 
-        // Wrap the bridge return in the appropriate Kotlin wrapper class when
-        // the function returns an opaque handle.
-        let body_expr = if let alef_core::ir::TypeRef::Named(n) = &f.return_type {
-            if opaque_type_names.contains(n.as_str()) {
-                format!("{n}({bridge_call})")
+        // Determine body expression: deserialize from JSON when the return type
+        // is a DTO, wrap in opaque class when it is a handle, pass through
+        // otherwise.
+        let returns_opaque = matches!(&f.return_type, alef_core::ir::TypeRef::Named(n) if opaque_type_names.contains(n.as_str()));
+
+        if returns_dto || returns_opaque || needs_jackson {
+            // Emit a block body so we can introduce local vars for clarity.
+            if returns_dto {
+                let return_class = match &f.return_type {
+                    alef_core::ir::TypeRef::Named(n) => n.clone(),
+                    _ => unreachable!(),
+                };
+                body.push_str(&format!(
+                    "    fun {method_name}({}): {return_ty} {{\n",
+                    params.join(", ")
+                ));
+                body.push_str(&format!(
+                    "        val resultJson = {bridge_call}\n"
+                ));
+                body.push_str(&format!(
+                    "        return mapper.readValue(resultJson, {return_class}::class.java)\n"
+                ));
+                body.push_str("    }\n\n");
+                // Emit the suspend companion variant.
+                body.push_str(&format!(
+                    "    suspend fun {method_name}Async({}): {return_ty} =\n",
+                    params.join(", ")
+                ));
+                body.push_str(&format!(
+                    "        withContext(Dispatchers.IO) {{ {method_name}({}) }}\n",
+                    f.params.iter().map(|p| to_lower_camel(&p.name)).collect::<Vec<_>>().join(", ")
+                ));
+                body.push('\n');
+            } else if returns_opaque {
+                let opaque_class = match &f.return_type {
+                    alef_core::ir::TypeRef::Named(n) => n.clone(),
+                    _ => unreachable!(),
+                };
+                body.push_str(&format!(
+                    "    fun {method_name}({}): {return_ty} = {opaque_class}({bridge_call})\n",
+                    params.join(", ")
+                ));
             } else {
-                bridge_call
+                body.push_str(&format!(
+                    "    fun {method_name}({}): {return_ty} = {bridge_call}\n",
+                    params.join(", ")
+                ));
             }
         } else {
-            bridge_call
-        };
-
-        body.push_str(&format!(
-            "    fun {method_name}({}): {return_ty} = {body_expr}\n",
-            params.join(", "),
-        ));
+            body.push_str(&format!(
+                "    fun {method_name}({}): {return_ty} = {bridge_call}\n",
+                params.join(", "),
+            ));
+        }
     }
     body.push_str("}\n");
 
@@ -369,10 +466,7 @@ fn kotlin_nullable_type_for_optional(ty: &alef_core::ir::TypeRef) -> String {
             PrimitiveType::I8 | PrimitiveType::U8 => "Byte",
             PrimitiveType::I16 | PrimitiveType::U16 => "Short",
             PrimitiveType::I32 | PrimitiveType::U32 => "Int",
-            PrimitiveType::I64
-            | PrimitiveType::U64
-            | PrimitiveType::Usize
-            | PrimitiveType::Isize => "Long",
+            PrimitiveType::I64 | PrimitiveType::U64 | PrimitiveType::Usize | PrimitiveType::Isize => "Long",
             PrimitiveType::F32 => "Float",
             PrimitiveType::F64 => "Double",
         },

@@ -326,7 +326,10 @@ mod tests {
         let en = make_enum(
             "Shape",
             vec![
-                make_variant("Circle", vec![make_field("radius", TypeRef::Primitive(PrimitiveType::F64))]),
+                make_variant(
+                    "Circle",
+                    vec![make_field("radius", TypeRef::Primitive(PrimitiveType::F64))],
+                ),
                 make_variant("Rect", vec![]),
             ],
         );
@@ -419,10 +422,7 @@ mod tests {
     fn tagged_enum_data_variant_emits_const_constructor() {
         let en = make_enum(
             "Cmd",
-            vec![make_variant(
-                "Quit",
-                vec![make_field("reason", TypeRef::String)],
-            )],
+            vec![make_variant("Quit", vec![make_field("reason", TypeRef::String)])],
         );
         let mut out = String::new();
         emit_enum(&en, &mut out);

@@ -186,8 +186,6 @@ pub(super) fn gen_struct(
         struct_builder.add_field(&field.name, &field_type, attrs);
     }
 
-    
-
     struct_builder.build()
 }
 

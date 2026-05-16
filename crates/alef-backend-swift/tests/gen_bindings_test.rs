@@ -1221,7 +1221,9 @@ client_constructor_body.DefaultClient = "Self { inner: ::demo_crate::DefaultClie
     // Streaming item types with has_serde + fields now emit as first-class Codable structs.
     // The streaming wrapper uses JSONDecoder directly, not the RustBridge shim.
     assert!(
-        swift.content.contains("public struct ChatCompletionChunk: Codable, Sendable, Hashable"),
+        swift
+            .content
+            .contains("public struct ChatCompletionChunk: Codable, Sendable, Hashable"),
         "streaming item type must be emitted as a first-class Codable struct; got:\n{}",
         swift.content
     );

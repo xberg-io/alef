@@ -135,7 +135,14 @@ impl Backend for SwiftBackend {
                 && (t.is_opaque || !t.has_serde)
                 && client_constructor_types.contains(t.name.as_str())
         }) {
-            emit_client_class(ty.name.as_str(), &ty.methods, &mapper, config, &first_class_types, &mut body);
+            emit_client_class(
+                ty.name.as_str(),
+                &ty.methods,
+                &mapper,
+                config,
+                &first_class_types,
+                &mut body,
+            );
             body.push('\n');
             // Emit `@unchecked Sendable` conformance for every StreamHandle owned by this
             // client type.  swift-bridge emits opaque types as plain Swift classes without
@@ -293,7 +300,6 @@ impl Backend for SwiftBackend {
         })
     }
 }
-
 
 /// Emits a first-class Swift struct (`public struct Foo: Codable, Sendable, Hashable`)
 /// for a non-opaque DTO that has serde derives and at least one field.
@@ -1688,14 +1694,15 @@ fn emit_inbound_protocols(api: &ApiSurface, config: &ResolvedCrateConfig, out: &
             let method_camel = method_snake.to_lower_camel_case();
             let delegate_params = swift_box_params(method); // RustString-typed
             let (conversion_lines, call_args) = swift_adapter_conversions(method);
-            out.push_str(&format!(
-                "    func {method_snake}({delegate_params}) -> String {{\n"
-            ));
+            out.push_str(&format!("    func {method_snake}({delegate_params}) -> String {{\n"));
             for line in &conversion_lines {
                 out.push_str(&format!("        {line}\n"));
             }
             let result_json = if let Some(_en) = result_enum {
-                format!("        return {}_toJson(inner.{method_camel}({call_args}))\n", result_type_name.to_snake_case())
+                format!(
+                    "        return {}_toJson(inner.{method_camel}({call_args}))\n",
+                    result_type_name.to_snake_case()
+                )
             } else {
                 "        return \"{}\"\n".to_string()
             };
@@ -1719,8 +1726,7 @@ fn emit_inbound_protocols(api: &ApiSurface, config: &ResolvedCrateConfig, out: &
                 let swift_case = swift_ident(&variant_name.to_lower_camel_case());
                 if variant.fields.is_empty() {
                     // Unit variant: serialises to `"VariantName"` (a JSON string).
-                    out.push_str(&format!("    case .{swift_case}: return \"\\\"{}\\\"\"",
-                        variant_name));
+                    out.push_str(&format!("    case .{swift_case}: return \"\\\"{}\\\"\"", variant_name));
                 } else if variant.is_tuple && variant.fields.len() == 1 {
                     // Newtype variant: serialises to `{\"VariantName\":\"value\"}`.
                     let _field_swift = if variant.fields[0].name.starts_with("field") {
@@ -1730,8 +1736,9 @@ fn emit_inbound_protocols(api: &ApiSurface, config: &ResolvedCrateConfig, out: &
                     };
                     // The associated value label in Swift for a tuple variant is `field0:`.
                     out.push_str(&format!(
-                        "    case .{swift_case}(let v): return \"{{\\\"{}\\\":\\\"\\(jsonEscapeStr(v))\\\"}}\""
-                        , variant_name));
+                        "    case .{swift_case}(let v): return \"{{\\\"{}\\\":\\\"\\(jsonEscapeStr(v))\\\"}}\"",
+                        variant_name
+                    ));
                 }
                 out.push('\n');
             }
@@ -1745,7 +1752,7 @@ fn emit_inbound_protocols(api: &ApiSurface, config: &ResolvedCrateConfig, out: &
                  \x20    .replacingOccurrences(of: \"\\n\", with: \"\\\\n\")\n\
                  \x20    .replacingOccurrences(of: \"\\r\", with: \"\\\\r\")\n\
                  \x20    .replacingOccurrences(of: \"\\t\", with: \"\\\\t\")\n\
-                 }\n\n"
+                 }\n\n",
             );
         }
 
@@ -1855,88 +1862,62 @@ fn emit_inbound_box_files(
     files
 }
 
-/// Swift shim parameter list for the `alef_{method}` method on `Swift{Trait}Box`.
-/// Types match what the Rust `extern "Swift"` shim expects after `inbound_bridge_type` transformation:
-/// Named → String, Optional<Named> → String? (i.e. Swift Optional<String>).
-/// bool stays Bool, u32 stays UInt32, usize stays Int (platform Int).
+/// Map a TypeRef to the FFI type used by the `Swift{Trait}Box` class and its delegate protocol.
 ///
-/// `ctx` is already the first element of `method.params` (the IR includes it), so
-/// no manual prepend is needed.
-fn swift_shim_params(method: &alef_core::ir::MethodDef) -> String {
+/// These types match exactly what swift-bridge `@_cdecl` shims pass into box methods:
+/// - Rust `String` / `Named` → Swift `RustString`
+/// - Rust `Option<String>` / `Option<Named>` → Swift `RustString?`
+/// - Rust `Vec<String>` → Swift `RustVec<RustString>`
+/// - Rust `usize` → Swift `UInt` (swift-bridge maps usize → UInt, not Int)
+/// - Other primitives and booleans pass through unchanged.
+fn swift_box_ffi_type(ty: &TypeRef, optional: bool) -> String {
+    use alef_core::ir::PrimitiveType;
+    let inner = match ty {
+        TypeRef::String | TypeRef::Named(_) | TypeRef::Path | TypeRef::Json | TypeRef::Map(_, _) => {
+            "RustString".to_string()
+        }
+        TypeRef::Optional(inner) => return format!("{}?", swift_box_ffi_type(inner, false)),
+        TypeRef::Vec(inner) => format!("RustVec<{}>", swift_box_ffi_type(inner, false)),
+        TypeRef::Primitive(PrimitiveType::Usize) | TypeRef::Primitive(PrimitiveType::Isize) => {
+            "UInt".to_string()
+        }
+        TypeRef::Primitive(PrimitiveType::Bool) => "Bool".to_string(),
+        TypeRef::Primitive(PrimitiveType::U32) => "UInt32".to_string(),
+        TypeRef::Primitive(PrimitiveType::U64) => "UInt64".to_string(),
+        TypeRef::Primitive(PrimitiveType::I32) => "Int32".to_string(),
+        TypeRef::Primitive(PrimitiveType::I64) => "Int64".to_string(),
+        TypeRef::Primitive(PrimitiveType::F32) => "Float".to_string(),
+        TypeRef::Primitive(PrimitiveType::F64) => "Double".to_string(),
+        TypeRef::Primitive(PrimitiveType::U8) => "UInt8".to_string(),
+        TypeRef::Primitive(PrimitiveType::I8) => "Int8".to_string(),
+        TypeRef::Primitive(PrimitiveType::U16) => "UInt16".to_string(),
+        TypeRef::Primitive(PrimitiveType::I16) => "Int16".to_string(),
+        TypeRef::Bytes => "RustVec<UInt8>".to_string(),
+        TypeRef::Char => "Character".to_string(),
+        TypeRef::Duration => "Double".to_string(),
+        TypeRef::Unit => "Void".to_string(),
+    };
+    if optional { format!("{inner}?") } else { inner }
+}
+
+/// Delegate protocol method params — positional (`_ name: FFIType`).
+/// Types match `swift_box_ffi_type`: `RustString` for strings/named, `UInt` for usize.
+/// Used in both the `Swift{Trait}BoxDelegate` protocol and the private adapter class
+/// (which implements the delegate and converts to user-friendly types before delegation).
+fn swift_box_params(method: &alef_core::ir::MethodDef) -> String {
     let params: Vec<String> = method
         .params
         .iter()
         .map(|p| {
             let name = p.name.to_snake_case();
-            let ty = swift_inbound_type(&p.ty, p.optional);
+            let ty = swift_box_ffi_type(&p.ty, p.optional);
             format!("_ {name}: {ty}")
         })
         .collect();
     params.join(", ")
 }
 
-
-/// Generate conversion lines and call args for the adapter class delegate method.
-///
-/// The adapter receives `String`-typed params (from swift-bridge via the box protocol)
-/// and must convert `Named` types from their JSON representation back to the Swift type
-/// before calling the user-facing protocol method.
-///
-/// Returns: (conversion_lines, call_args_for_protocol_call)
-fn swift_adapter_conversions(method: &alef_core::ir::MethodDef) -> (Vec<String>, String) {
-    use alef_core::ir::TypeRef;
-    let mut conversion_lines: Vec<String> = Vec::new();
-    let call_args: Vec<String> = method
-        .params
-        .iter()
-        .map(|p| {
-            let snake = p.name.to_snake_case();
-            let camel = p.name.to_lower_camel_case();
-            match &p.ty {
-                TypeRef::Named(type_name) => {
-                    // Named types arrive as JSON-encoded String; decode to Swift type.
-                    let local = format!("{camel}Decoded");
-                    if p.optional {
-                        conversion_lines.push(format!(
-                            "let {local}: {type_name}? = {snake}.flatMap {{ s in try? JSONDecoder().decode({type_name}.self, from: s.data(using: .utf8) ?? Data()) }}"
-                        ));
-                    } else {
-                        conversion_lines.push(format!(
-                            "let {local} = (try? JSONDecoder().decode({type_name}.self, from: {snake}.data(using: .utf8) ?? Data())) ?? {type_name}()"
-                        ));
-                    }
-                    local
-                }
-                TypeRef::Optional(inner) => {
-                    if matches!(inner.as_ref(), TypeRef::Named(_)) {
-                        // Optional Named arrives as String?; decode if present.
-                        let TypeRef::Named(type_name) = inner.as_ref() else { unreachable!() };
-                        let local = format!("{camel}Decoded");
-                        conversion_lines.push(format!(
-                            "let {local}: {type_name}? = {snake}.flatMap {{ s in try? JSONDecoder().decode({type_name}.self, from: s.data(using: .utf8) ?? Data()) }}"
-                        ));
-                        local
-                    } else {
-                        snake
-                    }
-                }
-                _ => snake,
-            }
-        })
-        .collect();
-    (conversion_lines, call_args.join(", "))
-}
-
-/// Swift protocol parameter list (user-facing). Same types as shim, but parameter
-/// names are camelCase (idiomatic Swift).  `ctx` is the first element of
-/// `method.params` so it is included naturally.
-/// Box/delegate protocol method params — positional (`_ name: Type`).
-/// Alias for `swift_shim_params` used in delegate protocol and adapter class emit.
-fn swift_box_params(method: &alef_core::ir::MethodDef) -> String {
-    swift_shim_params(method)
-}
-
-/// Box class method params with keyword argument labels (`name: Type`), no leading `_`.
+/// Box class method params with keyword argument labels (`name: FFIType`), no leading `_`.
 /// Used by the `public final class {Box}` methods exposed via `@_cdecl` shims.
 fn swift_box_params_keyword(method: &alef_core::ir::MethodDef) -> String {
     let params: Vec<String> = method
@@ -1944,11 +1925,59 @@ fn swift_box_params_keyword(method: &alef_core::ir::MethodDef) -> String {
         .iter()
         .map(|p| {
             let name = p.name.to_snake_case();
-            let ty = swift_inbound_type(&p.ty, p.optional);
+            let ty = swift_box_ffi_type(&p.ty, p.optional);
             format!("{name}: {ty}")
         })
         .collect();
     params.join(", ")
+}
+
+/// Generate the argument string for `inner.{methodCamel}(...)` inside the adapter class.
+///
+/// The adapter receives box FFI types (`RustString`, `UInt`, `RustVec<RustString>`) and
+/// must produce call args matching the user-facing protocol types (`String`, `Int`,
+/// `RustVec<RustString>`).  Conversions are inlined into the call expression:
+///
+/// - `RustString` (String / Named) → `{name}.toString()`
+/// - `RustString?` (Optional String / Named) → `{name}?.toString()`
+/// - `UInt` (usize) → `Int({name})`
+/// - `RustVec<...>`, `Bool`, `UInt32`, etc. → `{name}` (passed through)
+///
+/// Returns `(Vec::new(), call_args)` — the empty Vec is kept for API compatibility.
+fn swift_adapter_conversions(method: &alef_core::ir::MethodDef) -> (Vec<String>, String) {
+    use alef_core::ir::PrimitiveType;
+    let call_args: Vec<String> = method
+        .params
+        .iter()
+        .map(|p| {
+            let snake = p.name.to_snake_case();
+            match &p.ty {
+                TypeRef::String
+                | TypeRef::Named(_)
+                | TypeRef::Path
+                | TypeRef::Json
+                | TypeRef::Map(_, _) => {
+                    if p.optional {
+                        format!("{snake}?.toString()")
+                    } else {
+                        format!("{snake}.toString()")
+                    }
+                }
+                TypeRef::Optional(inner) => match inner.as_ref() {
+                    TypeRef::String
+                    | TypeRef::Named(_)
+                    | TypeRef::Path
+                    | TypeRef::Json
+                    | TypeRef::Map(_, _) => format!("{snake}?.toString()"),
+                    _ => snake,
+                },
+                TypeRef::Primitive(PrimitiveType::Usize)
+                | TypeRef::Primitive(PrimitiveType::Isize) => format!("Int({snake})"),
+                _ => snake,
+            }
+        })
+        .collect();
+    (Vec::new(), call_args.join(", "))
 }
 
 /// Argument list for forwarding from box class to delegate protocol method.
@@ -2027,7 +2056,9 @@ fn swift_inbound_type(ty: &TypeRef, optional: bool) -> String {
         TypeRef::Primitive(PrimitiveType::I8) => "Int8".to_string(),
         TypeRef::Primitive(PrimitiveType::U16) => "UInt16".to_string(),
         TypeRef::Primitive(PrimitiveType::I16) => "Int16".to_string(),
-        TypeRef::Vec(inner) => format!("RustVec<{}>", swift_inbound_type(inner, false)),
+        // Vec elements use the FFI type (RustString not String) because swift-bridge
+        // sends RustVec<RustString> from the @_cdecl shim — the protocol must match.
+        TypeRef::Vec(inner) => format!("RustVec<{}>", swift_box_ffi_type(inner, false)),
         TypeRef::Optional(inner) => return format!("{}?", swift_inbound_type(inner, false)),
         TypeRef::Unit => "Void".to_string(),
         TypeRef::Bytes => "RustVec<UInt8>".to_string(),

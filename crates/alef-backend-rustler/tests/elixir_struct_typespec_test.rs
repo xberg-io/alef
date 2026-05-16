@@ -1,9 +1,7 @@
 use alef_backend_rustler::RustlerBackend;
 use alef_core::backend::Backend;
 use alef_core::config::{ResolvedCrateConfig, new_config::NewAlefConfig};
-use alef_core::ir::{
-    ApiSurface, CoreWrapper, FieldDef, PrimitiveType, TypeDef, TypeRef,
-};
+use alef_core::ir::{ApiSurface, CoreWrapper, FieldDef, PrimitiveType, TypeDef, TypeRef};
 
 /// Build a minimal ResolvedCrateConfig for elixir tests.
 fn make_config(app_name: &str) -> ResolvedCrateConfig {
@@ -60,7 +58,11 @@ fn test_struct_module_emits_type_t_typespec_with_correct_field_types() {
             make_field("start_byte", TypeRef::Primitive(PrimitiveType::U64), false),
             make_field("end_byte", TypeRef::Primitive(PrimitiveType::U64), false),
             make_field("is_valid", TypeRef::Primitive(PrimitiveType::Bool), false),
-            make_field("metadata", TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)), true),
+            make_field(
+                "metadata",
+                TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+                true,
+            ),
         ],
         methods: vec![],
         is_opaque: false,
@@ -91,7 +93,9 @@ fn test_struct_module_emits_type_t_typespec_with_correct_field_types() {
     };
 
     let backend = RustlerBackend;
-    let generated = backend.generate_public_api(&api, &config).expect("generation must succeed");
+    let generated = backend
+        .generate_public_api(&api, &config)
+        .expect("generation must succeed");
 
     // Find the generated struct module file
     let struct_module = generated
@@ -117,16 +121,9 @@ fn test_struct_module_emits_type_t_typespec_with_correct_field_types() {
     );
 
     // Verify @type t comes before defstruct
-    let type_pos = content
-        .find("@type t ::")
-        .expect("@type t must be present");
-    let defstruct_pos = content
-        .find("defstruct")
-        .expect("defstruct must be present");
-    assert!(
-        type_pos < defstruct_pos,
-        "@type t must appear before defstruct"
-    );
+    let type_pos = content.find("@type t ::").expect("@type t must be present");
+    let defstruct_pos = content.find("defstruct").expect("defstruct must be present");
+    assert!(type_pos < defstruct_pos, "@type t must appear before defstruct");
 
     // Verify field types are correctly mapped
     assert!(
@@ -193,7 +190,9 @@ fn test_struct_module_with_named_type_field() {
     };
 
     let backend = RustlerBackend;
-    let generated = backend.generate_public_api(&api, &config).expect("generation must succeed");
+    let generated = backend
+        .generate_public_api(&api, &config)
+        .expect("generation must succeed");
 
     let struct_module = generated
         .iter()
@@ -225,8 +224,16 @@ fn test_struct_module_with_vec_fields() {
         original_rust_path: String::new(),
         fields: vec![
             make_field("strings", TypeRef::Vec(Box::new(TypeRef::String)), false),
-            make_field("numbers", TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::I32))), false),
-            make_field("optional_items", TypeRef::Vec(Box::new(TypeRef::Named("Item".to_string()))), true),
+            make_field(
+                "numbers",
+                TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::I32))),
+                false,
+            ),
+            make_field(
+                "optional_items",
+                TypeRef::Vec(Box::new(TypeRef::Named("Item".to_string()))),
+                true,
+            ),
         ],
         methods: vec![],
         is_opaque: false,
@@ -257,7 +264,9 @@ fn test_struct_module_with_vec_fields() {
     };
 
     let backend = RustlerBackend;
-    let generated = backend.generate_public_api(&api, &config).expect("generation must succeed");
+    let generated = backend
+        .generate_public_api(&api, &config)
+        .expect("generation must succeed");
 
     let struct_module = generated
         .iter()
