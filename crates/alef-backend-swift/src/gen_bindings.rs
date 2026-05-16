@@ -90,7 +90,7 @@ impl Backend for SwiftBackend {
             .filter(|t| t.methods.is_empty() || !t.is_opaque && t.has_serde)
         {
             emit_doc_comment(&ty.doc, "", &mut body);
-            if can_emit_first_class_struct(ty) {
+            if can_emit_first_class_struct(ty, &mapper, &exclude_fields) {
                 emit_first_class_struct(ty, &mapper, &exclude_fields, &mut body);
             } else {
                 body.push_str(&crate::template_env::render(
@@ -215,7 +215,7 @@ impl Backend for SwiftBackend {
         // free function accessible via `RustBridge.{swiftName}(json)`. Without a
         // forwarding wrapper in this module, callers would need the `RustBridge.`
         // prefix, which the generated e2e test layer doesn't use.
-        emit_from_json_forwarders(api, &exclude_types, &mut body);
+        emit_from_json_forwarders(api, &exclude_types, &mapper, &exclude_fields, &mut body);
 
         // Emit Swift protocol + adapter class for OptionsField inbound trait bridges.
         // Each bridge in `config.trait_bridges` where `bind_via = "options_field"` gets:
@@ -311,11 +311,16 @@ impl Backend for SwiftBackend {
     }
 }
 
-fn can_emit_first_class_struct(ty: &alef_core::ir::TypeDef) -> bool {
+fn can_emit_first_class_struct(
+    ty: &alef_core::ir::TypeDef,
+    mapper: &SwiftMapper,
+    exclude_fields: &std::collections::HashSet<String>,
+) -> bool {
     !ty.is_opaque
         && ty.has_serde
         && !ty.fields.is_empty()
         && binding_fields(&ty.fields).all(|field| first_class_field_supported(&field.ty))
+        && emit_into_rust_direct_call(ty, mapper, exclude_fields, &ty.name).is_some()
 }
 
 fn first_class_field_supported(ty: &TypeRef) -> bool {
@@ -1177,7 +1182,13 @@ fn emit_convenience_wrappers(api: &ApiSurface, out: &mut String) {
 /// These forwarders re-export them as `public func chatCompletionRequestFromJson(_ json: String)
 /// throws -> TypeName` in the main `LiterLlm` module so generated e2e tests work without
 /// the `RustBridge.` prefix.
-fn emit_from_json_forwarders(api: &ApiSurface, exclude_types: &std::collections::HashSet<String>, out: &mut String) {
+fn emit_from_json_forwarders(
+    api: &ApiSurface,
+    exclude_types: &std::collections::HashSet<String>,
+    mapper: &SwiftMapper,
+    exclude_fields: &std::collections::HashSet<String>,
+    out: &mut String,
+) {
     use heck::AsSnakeCase;
 
     // Mirror the filter used by `gen_rust_crate::collect_serde_param_types`:
@@ -1220,7 +1231,7 @@ fn emit_from_json_forwarders(api: &ApiSurface, exclude_types: &std::collections:
     let first_class_set: std::collections::HashSet<&str> = api
         .types
         .iter()
-        .filter(|t| !t.is_trait && can_emit_first_class_struct(t))
+        .filter(|t| !t.is_trait && can_emit_first_class_struct(t, mapper, exclude_fields))
         .map(|t| t.name.as_str())
         .collect();
 
