@@ -835,7 +835,7 @@ pub(super) fn gen_struct_default_impl_explicit(
     let filtered_fields: Vec<FieldDef> = typ
         .fields
         .iter()
-        .filter(|f| !is_thread_unsafe_field(f))
+        .filter(|f| !f.binding_excluded && !is_thread_unsafe_field(f))
         .cloned()
         .collect();
 

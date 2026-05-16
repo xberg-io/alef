@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **alef-e2e/elixir: emit version dependencies for registry test apps**: Elixir registry-mode `mix.exs` now uses the package version from `[e2e.registry.packages.elixir]` or the resolved crate version instead of carrying the local `../../packages/elixir` path into standalone `test_apps`. (`crates/alef-e2e/src/codegen/elixir.rs`)
 
+- **alef-backend-magnus: omit binding-excluded fields from explicit `Default` impls**: Ruby DTOs with field-level defaults now filter `binding_excluded` fields consistently with struct and constructor generation, preventing hidden core fields from being emitted into binding-side `Self { ... }` defaults. (`crates/alef-backend-magnus/src/gen_bindings/classes.rs`)
+
 ## [0.16.14] - 2026-05-16
 
 ### Fixed
