@@ -99,13 +99,14 @@ fn test_error_method_uses_value_receiver() {
     let content = &binding.content;
 
     // Check that Error() uses value receiver (not pointer receiver)
+    // The actual type name is TestError, not Error
     assert!(
-        content.contains("func (e Error) Error() string"),
-        "Error() method should use value receiver 'func (e Error) Error()', not pointer receiver"
+        content.contains("func (e TestError) Error() string"),
+        "Error() method should use value receiver 'func (e TestError) Error()', not pointer receiver"
     );
     assert!(
-        !content.contains("func (e *Error) Error() string"),
-        "Error() method must not use pointer receiver 'func (e *Error) Error()'"
+        !content.contains("func (e *TestError) Error() string"),
+        "Error() method must not use pointer receiver 'func (e *TestError) Error()'"
     );
 }
 

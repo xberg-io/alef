@@ -41,11 +41,7 @@ fn is_option_of_tagged_data_enum(ty: &TypeRef, tagged_data_enum_names: &AHashSet
 /// the setter must convert via `from_api_str` and the getter must emit `to_api_str` so the
 /// JS surface is symmetric. wasm-bindgen does not transparently bridge `Vec<UnitEnum>` with
 /// `Vec<String>` — we have to emit explicit conversions on both sides.
-fn is_vec_of_unit_enum(
-    ty: &TypeRef,
-    enum_names: &AHashSet<String>,
-    tagged_data_enum_names: &AHashSet<String>,
-) -> bool {
+fn is_vec_of_unit_enum(ty: &TypeRef, enum_names: &AHashSet<String>, tagged_data_enum_names: &AHashSet<String>) -> bool {
     matches!(
         ty,
         TypeRef::Vec(inner)
@@ -616,7 +612,11 @@ pub(super) fn gen_struct_methods(
 /// Also converts the assignments list to use explicit field: param syntax.
 /// Input: ("foo_bar: String, baz_qux: Option<u32>", "foo_bar: String, baz_qux")
 /// Output: (camel_params, camel_assignments) where assignments use explicit syntax mapping renamed params to original field names.
-fn convert_constructor_params_to_camel_case(param_list: &str, assignments: &str, field_names: &[String]) -> (String, String) {
+fn convert_constructor_params_to_camel_case(
+    param_list: &str,
+    assignments: &str,
+    field_names: &[String],
+) -> (String, String) {
     // Build a map from snake_case field names to their camelCase equivalents.
     let field_to_camel: std::collections::HashMap<String, String> = field_names
         .iter()
@@ -730,7 +730,8 @@ fn gen_new_method(
     };
 
     // Convert parameter and assignment names to camelCase for JS consumers.
-    let (param_list_camel, assignments_camel) = convert_constructor_params_to_camel_case(&param_list, &assignments, &field_names);
+    let (param_list_camel, assignments_camel) =
+        convert_constructor_params_to_camel_case(&param_list, &assignments, &field_names);
 
     // Suppress too_many_arguments when the constructor has >7 params
     let field_count = filtered_fields.iter().filter(|f| f.cfg.is_none()).count();
