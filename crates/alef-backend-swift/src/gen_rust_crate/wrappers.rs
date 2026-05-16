@@ -993,8 +993,9 @@ pub(crate) fn emit_type_method_shims(
             format!("    {}", wrap_return(method_call))
         };
 
+        let return_clause = if return_ty == "()" { String::new() } else { format!(" -> {return_ty}") };
         out.push_str(&format!(
-            "pub fn {fn_name}({params_str}) -> {return_ty} {{\n{body}\n}}\n"
+            "pub fn {fn_name}({params_str}){return_clause} {{\n{body}\n}}\n"
         ));
     }
     out
