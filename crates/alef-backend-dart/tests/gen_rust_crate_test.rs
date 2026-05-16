@@ -1531,3 +1531,229 @@ fn sanitized_string_non_cow_field_falls_back_to_default_in_from_mirror_to_core_i
         "sanitized String field with core_wrapper=None must NOT emit .into(): {lib}"
     );
 }
+
+// ── rustdoc emission on FRB mirror types (so FRB propagates docs to Dart) ────
+
+fn make_field_with_doc(name: &str, ty: TypeRef, optional: bool, doc: &str) -> FieldDef {
+    let mut f = make_field(name, ty, optional);
+    f.doc = doc.to_string();
+    f
+}
+
+#[test]
+fn mirror_struct_field_with_rustdoc_emits_triple_slash_above_field() {
+    let mut ty = make_type(
+        "Article",
+        vec![make_field_with_doc(
+            "title",
+            TypeRef::String,
+            false,
+            "Headline of the article.",
+        )],
+    );
+    ty.doc = String::new();
+
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![ty],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
+    let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
+
+    assert!(
+        lib.contains("    /// Headline of the article.\n    pub title:"),
+        "field rustdoc must sit directly above its `pub title:` line: {lib}"
+    );
+}
+
+#[test]
+fn mirror_struct_with_rustdoc_emits_triple_slash_above_attribute() {
+    let mut ty = make_type("Article", vec![make_field("title", TypeRef::String, false)]);
+    ty.doc = "Top-level news article.\nUsed by the article extractor.".to_string();
+
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![ty],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
+    let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
+
+    assert!(
+        lib.contains("/// Top-level news article.\n/// Used by the article extractor.\n#[frb(mirror(Article))]"),
+        "type-level rustdoc must precede #[frb(mirror(...))] attribute, one line per source line: {lib}"
+    );
+}
+
+#[test]
+fn mirror_struct_without_rustdoc_omits_doc_comments() {
+    let ty = make_type("Plain", vec![make_field("value", TypeRef::String, false)]);
+
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![ty],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
+    let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
+
+    // No rustdoc anywhere on the mirror declaration or its only field.
+    let mirror_start = lib.find("#[frb(mirror(Plain))]").expect("mirror attr missing");
+    let mirror_end = lib[mirror_start..].find('}').unwrap() + mirror_start;
+    let mirror_block = &lib[mirror_start..mirror_end];
+    assert!(
+        !mirror_block.contains("///"),
+        "Plain mirror block must contain no `///` lines when no rustdoc is present: {mirror_block}"
+    );
+}
+
+#[test]
+fn mirror_enum_unit_variants_emit_rustdoc_per_variant() {
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "AssetCategory".into(),
+            rust_path: "demo::AssetCategory".into(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Document".into(),
+                    fields: vec![],
+                    doc: "PDF, Word, and similar document files.".to_string(),
+                    is_default: false,
+                    serde_rename: None,
+                    is_tuple: false,
+                },
+                EnumVariant {
+                    name: "Image".into(),
+                    fields: vec![],
+                    doc: "Raster or vector image files.".to_string(),
+                    is_default: false,
+                    serde_rename: None,
+                    is_tuple: false,
+                },
+            ],
+            doc: "Classification of downloaded assets.".to_string(),
+            cfg: None,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: None,
+            is_copy: false,
+            has_serde: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
+    let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
+
+    assert!(
+        lib.contains("/// Classification of downloaded assets.\n#[frb(mirror(AssetCategory))]"),
+        "enum-level rustdoc must precede #[frb(mirror(AssetCategory))]: {lib}"
+    );
+    assert!(
+        lib.contains("    /// PDF, Word, and similar document files.\n    Document,"),
+        "unit-variant rustdoc must sit directly above the variant: {lib}"
+    );
+    assert!(
+        lib.contains("    /// Raster or vector image files.\n    Image,"),
+        "unit-variant rustdoc must sit directly above the variant: {lib}"
+    );
+}
+
+#[test]
+fn mirror_enum_data_variant_field_emits_rustdoc() {
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "AuthConfig".into(),
+            rust_path: "demo::AuthConfig".into(),
+            original_rust_path: String::new(),
+            variants: vec![EnumVariant {
+                name: "Bearer".into(),
+                fields: vec![make_field_with_doc(
+                    "token",
+                    TypeRef::String,
+                    false,
+                    "OAuth bearer token.",
+                )],
+                doc: "Bearer-token authentication.".to_string(),
+                is_default: false,
+                serde_rename: None,
+                is_tuple: false,
+            }],
+            doc: String::new(),
+            cfg: None,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: None,
+            is_copy: false,
+            has_serde: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
+    let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
+
+    assert!(
+        lib.contains("    /// Bearer-token authentication.\n    Bearer {"),
+        "data-variant rustdoc must sit directly above the variant header: {lib}"
+    );
+    assert!(
+        lib.contains("        /// OAuth bearer token.\n        token:"),
+        "data-variant field rustdoc must sit directly above the field: {lib}"
+    );
+}
+
+#[test]
+fn mirror_multi_line_rustdoc_emits_one_triple_slash_per_line() {
+    let mut ty = make_type("MultiDoc", vec![make_field("v", TypeRef::String, false)]);
+    ty.doc = "First line.\n\nSecond line after a blank.".to_string();
+
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![ty],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
+    let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
+
+    assert!(
+        lib.contains("/// First line.\n///\n/// Second line after a blank.\n#[frb(mirror(MultiDoc))]"),
+        "blank lines in rustdoc must round-trip as `///` (no trailing space): {lib}"
+    );
+}

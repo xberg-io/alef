@@ -3,6 +3,28 @@ use alef_core::ir::{EnumDef, TypeDef};
 
 use super::conversions::{frb_rust_type, frb_rust_type_inner};
 
+/// Emit rustdoc `///` lines above the next item.
+///
+/// `flutter_rust_bridge` propagates Rust doc comments to the generated Dart
+/// classes, so attaching `///` lines to mirror structs, mirror enums, their
+/// fields, and their variants makes the doc text reach the Dart side without
+/// any post-processing.
+fn emit_rust_doc(doc: &str, indent: &str, out: &mut String) {
+    if doc.is_empty() {
+        return;
+    }
+    for line in doc.lines() {
+        out.push_str(indent);
+        if line.is_empty() {
+            out.push_str("///\n");
+        } else {
+            out.push_str("/// ");
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+}
+
 pub(crate) fn emit_mirror_struct(out: &mut String, ty: &TypeDef, source_crate_name: &str) {
     use crate::template_env;
 
@@ -21,6 +43,7 @@ pub(crate) fn emit_mirror_struct(out: &mut String, ty: &TypeDef, source_crate_na
         } else {
             ty.rust_path.replace('-', "_")
         };
+        emit_rust_doc(&ty.doc, "", out);
         out.push_str(&template_env::render(
             "rust_opaque_wrapper_struct.jinja",
             minijinja::context! {
@@ -34,6 +57,7 @@ pub(crate) fn emit_mirror_struct(out: &mut String, ty: &TypeDef, source_crate_na
     // FRB v2 mirror convention: the mirror struct keeps the same name as the
     // original; the `mirror` attribute argument tells FRB which type this
     // declaration shadows for codegen purposes.
+    emit_rust_doc(&ty.doc, "", out);
     out.push_str(&template_env::render(
         "rust_mirror_struct_attribute.jinja",
         minijinja::context! {
@@ -48,6 +72,7 @@ pub(crate) fn emit_mirror_struct(out: &mut String, ty: &TypeDef, source_crate_na
     ));
     for field in binding_fields(&ty.fields) {
         let rust_ty = frb_rust_type(&field.ty, field.optional);
+        emit_rust_doc(&field.doc, "    ", out);
         out.push_str(&template_env::render(
             "rust_mirror_struct_field.jinja",
             minijinja::context! {
@@ -65,6 +90,7 @@ pub(crate) fn emit_mirror_struct(out: &mut String, ty: &TypeDef, source_crate_na
 pub(crate) fn emit_mirror_enum(out: &mut String, en: &EnumDef) {
     use crate::template_env;
     let all_unit = en.variants.iter().all(|v| v.fields.is_empty());
+    emit_rust_doc(&en.doc, "", out);
     out.push_str(&template_env::render(
         "rust_mirror_enum_attribute.jinja",
         minijinja::context! {
@@ -79,6 +105,7 @@ pub(crate) fn emit_mirror_enum(out: &mut String, en: &EnumDef) {
             },
         ));
         for variant in &en.variants {
+            emit_rust_doc(&variant.doc, "    ", out);
             out.push_str(&template_env::render(
                 "rust_mirror_enum_unit_variant.jinja",
                 minijinja::context! {
@@ -96,6 +123,7 @@ pub(crate) fn emit_mirror_enum(out: &mut String, en: &EnumDef) {
         ));
         for variant in &en.variants {
             if variant.fields.is_empty() {
+                emit_rust_doc(&variant.doc, "    ", out);
                 out.push_str(&template_env::render(
                     "rust_mirror_enum_unit_variant.jinja",
                     minijinja::context! {
@@ -103,6 +131,7 @@ pub(crate) fn emit_mirror_enum(out: &mut String, en: &EnumDef) {
                     },
                 ));
             } else {
+                emit_rust_doc(&variant.doc, "    ", out);
                 out.push_str(&template_env::render(
                     "rust_mirror_enum_data_variant_open.jinja",
                     minijinja::context! {
@@ -120,6 +149,7 @@ pub(crate) fn emit_mirror_enum(out: &mut String, en: &EnumDef) {
                         f.name.clone()
                     };
                     let rust_ty = frb_rust_type_inner(&f.ty);
+                    emit_rust_doc(&f.doc, "        ", out);
                     out.push_str(&template_env::render(
                         "rust_mirror_enum_data_variant_field.jinja",
                         minijinja::context! {
