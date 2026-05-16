@@ -1497,6 +1497,215 @@ client_constructor_body.Client = "Self { inner: ::demo::Client::new(api_key, bas
     );
 }
 
+// ── first-class DTO call-site conversion tests ───────────────────────────────
+
+/// When a method on an opaque client class takes a first-class Swift DTO as a
+/// parameter, the generated call site must apply `.intoRust()` to convert the
+/// Swift wrapper into the `RustBridge.T` raw type that the bridge function
+/// expects.  Without this conversion the Swift compiler rejects the call with
+/// "cannot convert value of type 'LiterLlm.T' to expected argument type
+/// 'RustBridge.T'".
+///
+/// The method signature must also carry `throws` because `intoRust()` is itself
+/// a throwing function.
+#[test]
+fn method_with_first_class_dto_param_calls_into_rust_at_call_site() {
+    use alef_core::ir::{MethodDef, ReceiverKind};
+
+    // CreateImageRequest: first-class DTO with has_serde + has_default + string fields.
+    let mut request_type = make_type(
+        "CreateImageRequest",
+        vec![
+            make_field("prompt", TypeRef::String, false),
+            make_field("model", TypeRef::Optional(Box::new(TypeRef::String)), true),
+        ],
+    );
+    request_type.has_serde = true;
+    request_type.has_default = true;
+
+    // ImageClient: opaque type with `generateImage(_ request: CreateImageRequest)`.
+    let client_type = TypeDef {
+        name: "ImageClient".to_string(),
+        rust_path: "demo::ImageClient".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![MethodDef {
+            name: "generate_image".to_string(),
+            params: vec![make_param("request", TypeRef::Named("CreateImageRequest".into()))],
+            return_type: TypeRef::String,
+            is_async: true,
+            is_static: false,
+            error_type: Some("DemoError".to_string()),
+            doc: String::new(),
+            sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            receiver: Some(ReceiverKind::Ref),
+            trait_source: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        is_opaque: true,
+        is_clone: false,
+        is_copy: false,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![client_type, request_type],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let toml = r#"
+[workspace]
+languages = ["swift"]
+
+[[crates]]
+name = "demo"
+sources = ["src/lib.rs"]
+
+[crates.swift]
+client_constructor_body.ImageClient = "Self { inner: ::demo::ImageClient::new(api_key, base_url) }"
+"#;
+    let cfg: alef_core::config::new_config::NewAlefConfig = toml::from_str(toml).expect("test config must parse");
+    let config = cfg.resolve().expect("test config must resolve").remove(0);
+    let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
+    let swift = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with(".swift"))
+        .unwrap();
+
+    // The call site must apply `.intoRust()` to convert the Swift DTO wrapper
+    // into the RustBridge raw type.
+    assert!(
+        swift.content.contains("try request.intoRust()"),
+        "call site must apply try request.intoRust() for first-class DTO params; got:\n{}",
+        swift.content
+    );
+    // The method signature must carry `throws` (both from error_type and intoRust).
+    assert!(
+        swift.content.contains("public func generateImage(_ request: CreateImageRequest) async throws -> String"),
+        "method signature must include throws when param is a first-class DTO; got:\n{}",
+        swift.content
+    );
+    // Must NOT pass the raw Swift wrapper directly to the bridge.
+    assert!(
+        !swift.content.contains(", request)"),
+        "must not forward the Swift wrapper directly to the bridge without .intoRust(); got:\n{}",
+        swift.content
+    );
+}
+
+/// When only DTO params are present (no `error_type`), the method must still
+/// emit `throws` on its signature because `intoRust()` is throwing.
+#[test]
+fn method_with_dto_param_only_adds_throws_even_without_error_type() {
+    use alef_core::ir::{MethodDef, ReceiverKind};
+
+    let mut req_type = make_type(
+        "SpeechRequest",
+        vec![make_field("text", TypeRef::String, false)],
+    );
+    req_type.has_serde = true;
+    req_type.has_default = true;
+
+    let client_type = TypeDef {
+        name: "SpeechClient".to_string(),
+        rust_path: "demo::SpeechClient".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![MethodDef {
+            name: "create_speech".to_string(),
+            params: vec![make_param("req", TypeRef::Named("SpeechRequest".into()))],
+            return_type: TypeRef::Bytes,
+            is_async: false,
+            is_static: false,
+            error_type: None, // no error_type — throws must still come from intoRust()
+            doc: String::new(),
+            sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            receiver: Some(ReceiverKind::Ref),
+            trait_source: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        is_opaque: true,
+        is_clone: false,
+        is_copy: false,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![client_type, req_type],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let toml = r#"
+[workspace]
+languages = ["swift"]
+
+[[crates]]
+name = "demo"
+sources = ["src/lib.rs"]
+
+[crates.swift]
+client_constructor_body.SpeechClient = "Self { inner: ::demo::SpeechClient::new(api_key, base_url) }"
+"#;
+    let cfg: alef_core::config::new_config::NewAlefConfig = toml::from_str(toml).expect("test config must parse");
+    let config = cfg.resolve().expect("test config must resolve").remove(0);
+    let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
+    let swift = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with(".swift"))
+        .unwrap();
+
+    assert!(
+        swift.content.contains("public func createSpeech(_ req: SpeechRequest) throws"),
+        "method with only DTO params must still emit throws; got:\n{}",
+        swift.content
+    );
+    assert!(
+        swift.content.contains("try req.intoRust()"),
+        "call site must apply try req.intoRust(); got:\n{}",
+        swift.content
+    );
+}
+
 /// First-class struct fields must emit their rustdoc as `///` lines immediately
 /// above the `public let` declaration, mirroring how type/enum docs are surfaced.
 #[test]

@@ -854,10 +854,27 @@ fn emit_client_class(
         let params_str = params.join(", ");
 
         // Build argument list for forwarding to the bridge function.
+        // When a parameter type is a first-class Swift DTO (i.e. has `intoRust()`
+        // emitted), the bridge function expects the raw `RustBridge.T` type, not
+        // the Swift wrapper `T`.  Apply `.intoRust()` at the call site.
+        // `intoRust()` is `throws`, so track whether any conversion is needed so we
+        // can add `throws` to the method signature even when `error_type` is `None`.
+        let has_dto_param = method
+            .params
+            .iter()
+            .any(|p| matches!(&p.ty, TypeRef::Named(n) if first_class_types.contains(n)));
         let args: Vec<String> = method
             .params
             .iter()
-            .map(|p| swift_ident(&p.name.to_lower_camel_case()))
+            .map(|p| {
+                let swift_name = swift_ident(&p.name.to_lower_camel_case());
+                match &p.ty {
+                    TypeRef::Named(n) if first_class_types.contains(n) => {
+                        format!("try {swift_name}.intoRust()")
+                    }
+                    _ => swift_name,
+                }
+            })
             .collect();
         let args_str = if args.is_empty() {
             String::new()
@@ -866,7 +883,8 @@ fn emit_client_class(
         };
 
         let return_ty = mapper.map_type(&method.return_type);
-        let throws_clause = if method.error_type.is_some() { " throws" } else { "" };
+        let needs_throws = method.error_type.is_some() || has_dto_param;
+        let throws_clause = if needs_throws { " throws" } else { "" };
         let async_clause = if method.is_async { " async" } else { "" };
         let return_clause = if matches!(method.return_type, TypeRef::Unit) {
             String::new()
@@ -883,11 +901,11 @@ fn emit_client_class(
         if matches!(method.return_type, TypeRef::Unit) {
             out.push_str(&format!(
                 "        {throws_kw}RustBridge.{bridge_fn_camel}(self.inner{args_str})\n",
-                throws_kw = if method.error_type.is_some() { "try " } else { "" }
+                throws_kw = if needs_throws { "try " } else { "" }
             ));
         } else {
             let await_kw = if method.is_async { "await " } else { "" };
-            let try_kw = if method.error_type.is_some() { "try " } else { "" };
+            let try_kw = if needs_throws { "try " } else { "" };
             // swift-bridge bridges `Vec<u8>` as `RustVec<UInt8>` on the Swift side.
             // The host wrapper exposes `Data` (per `SwiftMapper::bytes()`) — convert
             // by iterating the RustVec into a Swift array, then wrapping in `Data`.
