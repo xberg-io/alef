@@ -5,12 +5,16 @@ use alef_core::ir::*;
 use std::collections::HashMap;
 
 fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
+    make_field_with_doc(name, ty, optional, "")
+}
+
+fn make_field_with_doc(name: &str, ty: TypeRef, optional: bool, doc: &str) -> FieldDef {
     FieldDef {
         name: name.to_string(),
         ty,
         optional,
         default: None,
-        doc: String::new(),
+        doc: doc.to_string(),
         sanitized: false,
         is_boxed: false,
         type_rust_path: None,
@@ -2484,4 +2488,206 @@ fn test_optional_return_types_emit_null_not_undefined() {
             );
         }
     }
+}
+
+/// A struct with a rustdoc summary and per-field docs must emit `///` rustdoc
+/// above the generated `#[napi(object)]` struct and each field, so napi-derive
+/// propagates them as `/** … */` JSDoc blocks in the generated `.d.ts`.
+#[test]
+fn struct_doc_and_field_docs_emitted_as_rustdoc() {
+    let backend = NapiBackend;
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "ArticleMetadata".to_string(),
+            rust_path: "test_lib::ArticleMetadata".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                make_field_with_doc(
+                    "published_time",
+                    TypeRef::Optional(Box::new(TypeRef::String)),
+                    true,
+                    "The article publication time.",
+                ),
+                make_field_with_doc("author", TypeRef::Optional(Box::new(TypeRef::String)), true, ""),
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: "Article metadata extracted from `article:*` tags.".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+    let config = make_config();
+    let files = backend.generate_bindings(&api, &config).expect("should succeed");
+    let content = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("lib.rs"))
+        .expect("lib.rs")
+        .content
+        .clone();
+
+    assert!(
+        content.contains("/// Article metadata extracted from `article:*` tags."),
+        "struct-level rustdoc must precede the napi struct attribute; content:\n{content}"
+    );
+    assert!(
+        content.contains("/// The article publication time."),
+        "field-level rustdoc must precede the corresponding struct field; content:\n{content}"
+    );
+}
+
+/// Enum-level rustdoc and per-variant rustdoc must be emitted on the generated
+/// `#[napi(string_enum)]` so napi-derive forwards them to JSDoc on the
+/// `export declare enum` and its members in the `.d.ts`.
+#[test]
+fn enum_and_variant_docs_emitted_as_rustdoc() {
+    let backend = NapiBackend;
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "AssetCategory".to_string(),
+            rust_path: "test_lib::AssetCategory".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Document".to_string(),
+                    fields: vec![],
+                    is_tuple: false,
+                    doc: "A textual document (HTML, PDF, …).".to_string(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+                EnumVariant {
+                    name: "Image".to_string(),
+                    fields: vec![],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+            ],
+            doc: "The category of a downloaded asset.".to_string(),
+            cfg: None,
+            is_copy: false,
+            has_serde: false,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+    let config = make_config();
+    let files = backend.generate_bindings(&api, &config).expect("should succeed");
+    let content = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("lib.rs"))
+        .expect("lib.rs")
+        .content
+        .clone();
+
+    assert!(
+        content.contains("/// The category of a downloaded asset."),
+        "enum-level rustdoc must precede the napi enum attribute; content:\n{content}"
+    );
+    assert!(
+        content.contains("/// A textual document (HTML, PDF, …)."),
+        "variant-level rustdoc must precede the variant declaration; content:\n{content}"
+    );
+}
+
+/// A function with a single-line rustdoc must emit a single `///` line above
+/// the `#[napi]` attribute. A function with a multi-line rustdoc must emit
+/// one `///` line per source line.
+#[test]
+fn function_doc_emitted_as_rustdoc_single_and_multiline() {
+    let backend = NapiBackend;
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![
+            FunctionDef {
+                name: "scrape_one".to_string(),
+                rust_path: "test_lib::scrape_one".to_string(),
+                original_rust_path: String::new(),
+                params: vec![],
+                return_type: TypeRef::String,
+                is_async: false,
+                error_type: None,
+                doc: "Scrape a single URL.".to_string(),
+                cfg: None,
+                sanitized: false,
+                return_sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+            FunctionDef {
+                name: "crawl".to_string(),
+                rust_path: "test_lib::crawl".to_string(),
+                original_rust_path: String::new(),
+                params: vec![],
+                return_type: TypeRef::String,
+                is_async: false,
+                error_type: None,
+                doc: "Crawl a site recursively.\n\nFollows links up to a configured depth.".to_string(),
+                cfg: None,
+                sanitized: false,
+                return_sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+        ],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+    let config = make_config();
+    let files = backend.generate_bindings(&api, &config).expect("should succeed");
+    let content = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("lib.rs"))
+        .expect("lib.rs")
+        .content
+        .clone();
+
+    assert!(
+        content.contains("/// Scrape a single URL."),
+        "single-line function rustdoc must be emitted as one `///` line; content:\n{content}"
+    );
+    assert!(
+        content.contains("/// Crawl a site recursively."),
+        "multi-line function rustdoc must emit first line; content:\n{content}"
+    );
+    assert!(
+        content.contains("/// Follows links up to a configured depth."),
+        "multi-line function rustdoc must emit each line; content:\n{content}"
+    );
 }

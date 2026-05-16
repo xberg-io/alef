@@ -108,13 +108,25 @@ pub(super) fn gen_enum(enum_def: &EnumDef, prefix: &str, has_serde: bool) -> Str
     } else {
         "#[derive(Clone)]".to_string()
     };
-    let mut lines = vec![
-        string_enum_attr,
-        derives,
-        format!("pub enum {prefix}{} {{", enum_def.name),
-    ];
+    // Emit rustdoc on the enum so napi-derive forwards it to JSDoc in the .d.ts.
+    let mut enum_doc = String::new();
+    alef_codegen::doc_emission::emit_rustdoc(&mut enum_doc, &enum_def.doc, "");
+    let mut lines: Vec<String> = Vec::new();
+    if !enum_doc.is_empty() {
+        // Strip the trailing newline emit_rustdoc appends so the lines join doesn't double up.
+        lines.push(enum_doc.trim_end_matches('\n').to_string());
+    }
+    lines.push(string_enum_attr);
+    lines.push(derives);
+    lines.push(format!("pub enum {prefix}{} {{", enum_def.name));
 
     for variant in &enum_def.variants {
+        // Variant-level rustdoc → JSDoc on the corresponding TS enum member.
+        let mut variant_doc = String::new();
+        alef_codegen::doc_emission::emit_rustdoc(&mut variant_doc, &variant.doc, "    ");
+        if !variant_doc.is_empty() {
+            lines.push(variant_doc.trim_end_matches('\n').to_string());
+        }
         if let Some(rename) = variant.serde_rename.as_deref() {
             lines.push(format!("    #[napi(value = \"{rename}\")]"));
         }
@@ -206,13 +218,18 @@ pub(super) fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str, has_se
     };
     // Include js_name so NAPI-RS exports the unprefixed name to TypeScript.
     let js_name = &enum_def.name;
-    let mut lines = vec![
-        derive.to_string(),
-        format!("#[napi(object, js_name = \"{js_name}\")]"),
-        format!("pub struct {prefix}{} {{", enum_def.name),
-        format!("    #[napi(js_name = \"{ts_discriminant}\")]"),
-        format!("    pub {tag_field}_tag: String,"),
-    ];
+    let mut lines: Vec<String> = Vec::new();
+    // Emit rustdoc on the flattened struct so napi-derive forwards it to JSDoc.
+    let mut enum_doc = String::new();
+    alef_codegen::doc_emission::emit_rustdoc(&mut enum_doc, &enum_def.doc, "");
+    if !enum_doc.is_empty() {
+        lines.push(enum_doc.trim_end_matches('\n').to_string());
+    }
+    lines.push(derive.to_string());
+    lines.push(format!("#[napi(object, js_name = \"{js_name}\")]"));
+    lines.push(format!("pub struct {prefix}{} {{", enum_def.name));
+    lines.push(format!("    #[napi(js_name = \"{ts_discriminant}\")]"));
+    lines.push(format!("    pub {tag_field}_tag: String,"));
 
     // Fields that appear in multiple variants with different Named types cannot be represented
     // as a single concrete JsXxx type. Store them as String (JSON) instead, and convert
