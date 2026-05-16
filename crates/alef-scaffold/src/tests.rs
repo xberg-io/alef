@@ -1515,7 +1515,7 @@ fn test_scaffold_kotlin() {
     assert!(files[5].content.contains("gradle build"));
     assert_eq!(
         files[6].path,
-        PathBuf::from("packages/kotlin/src/main/kotlin/dev/kreuzberg/sample/Sample.kt")
+        PathBuf::from("packages/kotlin/src/main/kotlin/com/github/test/sample/Sample.kt")
     );
     assert!(files[6].content.contains("object"));
     assert!(

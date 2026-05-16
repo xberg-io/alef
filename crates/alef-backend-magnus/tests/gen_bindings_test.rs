@@ -2536,3 +2536,98 @@ fn test_enum_yard_doc_emission() {
         "second variant should also have YARD doc:\n{content}"
     );
 }
+
+#[test]
+fn test_enum_variant_method_yard_docs() {
+    let backend = MagnusBackend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "Result".to_string(),
+            rust_path: "test_lib::Result".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![EnumVariant {
+                name: "Ok".to_string(),
+                fields: vec![FieldDef {
+                    name: "value".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    doc: "The success value.".to_string(),
+                    sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    typed_default: None,
+                    core_wrapper: CoreWrapper::None,
+                    vec_inner_core_wrapper: CoreWrapper::None,
+                    newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                    original_type: None,
+                }],
+                is_tuple: false,
+                doc: "A successful result.".to_string(),
+                is_default: false,
+                serde_rename: None,
+            }],
+            doc: "A result enum.".to_string(),
+            cfg: None,
+            is_copy: false,
+            has_serde: false,
+            serde_tag: Some("type".to_string()),
+            serde_untagged: false,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config();
+    let files = backend.generate_public_api(&api, &config).unwrap();
+    let native_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("native.rb"))
+        .unwrap();
+    let content = &native_file.content;
+
+    // attr_reader field with doc should emit the doc as YARD
+    assert!(
+        content.contains("# The success value."),
+        "attr_reader with doc must emit YARD comment:\n{content}"
+    );
+
+    // initialize must have @param and @return [void]
+    assert!(
+        content.contains("# @param value"),
+        "initialize must have @param YARD tag:\n{content}"
+    );
+    assert!(
+        content.contains("# @return [void]"),
+        "initialize must have @return [void] YARD tag:\n{content}"
+    );
+
+    // predicate must have @return [Boolean]
+    assert!(
+        content.contains("# @return [Boolean]"),
+        "predicate method must have @return [Boolean] YARD tag:\n{content}"
+    );
+
+    // from_hash must have @param and @return [self]
+    assert!(
+        content.contains("# @param hash"),
+        "from_hash must have @param hash YARD tag:\n{content}"
+    );
+    assert!(
+        content.contains("# @return [self]"),
+        "from_hash must have @return [self] YARD tag:\n{content}"
+    );
+}

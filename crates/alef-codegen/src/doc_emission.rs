@@ -513,11 +513,13 @@ pub fn render_yard_sections(sections: &RustdocSections) -> String {
         out.push_str(err.trim());
     }
     if let Some(example) = sections.example.as_deref() {
-        if !out.is_empty() {
-            out.push('\n');
+        if let Some(body) = example_for_target(example, "ruby") {
+            if !out.is_empty() {
+                out.push('\n');
+            }
+            out.push_str("@example\n");
+            out.push_str(&body);
         }
-        out.push_str("@example\n");
-        out.push_str(&replace_fence_lang(example.trim(), "ruby"));
     }
     out
 }
@@ -759,6 +761,41 @@ pub fn parse_arguments_bullets(body: &str) -> Vec<(String, String)> {
     out
 }
 
+/// Detect the language tag on the first code fence in `body`.
+///
+/// Scans `body` for the first line that starts with ` ``` ` and returns the
+/// tag that follows (e.g. `"rust"`, `"php"`, `"typescript"`). A bare ` ``` `
+/// with no tag returns `"rust"` because rustdoc treats unlabelled fences as
+/// Rust by default. Returns `"rust"` when no fence is found at all.
+fn detect_first_fence_lang(body: &str) -> &str {
+    for line in body.lines() {
+        let trimmed = line.trim_start();
+        if let Some(rest) = trimmed.strip_prefix("```") {
+            let tag = rest.split(',').next().unwrap_or("").trim();
+            return if tag.is_empty() { "rust" } else { tag };
+        }
+    }
+    "rust"
+}
+
+/// Return `Some(transformed_example)` if the example should be emitted for
+/// `target_lang`, or `None` when the example is Rust source that would be
+/// meaningless in the foreign language.
+///
+/// When the original fence language is `rust` (including bare ` ``` ` which
+/// rustdoc defaults to Rust) and the target is not `rust`, the example is
+/// suppressed entirely — better absent than misleading. Cross-language
+/// transliteration of example bodies is intentionally out of scope.
+pub fn example_for_target(example: &str, target_lang: &str) -> Option<String> {
+    let trimmed = example.trim();
+    let source_lang = detect_first_fence_lang(trimmed);
+    if source_lang == "rust" && target_lang != "rust" {
+        None
+    } else {
+        Some(replace_fence_lang(trimmed, target_lang))
+    }
+}
+
 /// Strip a single ` ```lang ` fence pair from `body`, returning the inner
 /// code lines. Replaces the leading ` ```rust ` (or any other tag) with
 /// `lang_replacement`, leaving the rest of the body unchanged.
@@ -842,11 +879,13 @@ pub fn render_jsdoc_sections(sections: &RustdocSections) -> String {
         ));
     }
     if let Some(example) = sections.example.as_deref() {
-        if !out.is_empty() {
-            out.push('\n');
+        if let Some(body) = example_for_target(example, "typescript") {
+            if !out.is_empty() {
+                out.push('\n');
+            }
+            out.push_str("@example\n");
+            out.push_str(&body);
         }
-        out.push_str("@example\n");
-        out.push_str(&replace_fence_lang(example.trim(), "typescript"));
     }
     out
 }
@@ -1023,10 +1062,12 @@ pub fn render_phpdoc_sections(sections: &RustdocSections, throws_class: &str) ->
         ));
     }
     if let Some(example) = sections.example.as_deref() {
-        if !out.is_empty() {
-            out.push('\n');
+        if let Some(body) = example_for_target(example, "php") {
+            if !out.is_empty() {
+                out.push('\n');
+            }
+            out.push_str(&body);
         }
-        out.push_str(&replace_fence_lang(example.trim(), "php"));
     }
     out
 }
@@ -1345,9 +1386,19 @@ mod tests {
         assert!(out.contains("@param config - Optional configuration."));
         assert!(out.contains("@returns The extracted text and metadata."));
         assert!(out.contains("@throws Returns an error when the file is unreadable."));
-        assert!(out.contains("@example"));
-        assert!(out.contains("```typescript"));
+        // fixture example is ```rust — stripped when target is TypeScript
+        assert!(!out.contains("@example"), "Rust example must not appear in TSDoc");
+        assert!(!out.contains("```typescript"));
         assert!(!out.contains("```rust"));
+    }
+
+    #[test]
+    fn test_render_jsdoc_sections_preserves_typescript_example() {
+        let doc = "Do something.\n\n# Example\n\n```typescript\nconst x = doSomething();\n```";
+        let sections = parse_rustdoc_sections(doc);
+        let out = render_jsdoc_sections(&sections);
+        assert!(out.contains("@example"), "TypeScript example must be preserved");
+        assert!(out.contains("```typescript"));
     }
 
     #[test]
@@ -1381,7 +1432,17 @@ mod tests {
         assert!(out.contains("@param mixed $path The file path."));
         assert!(out.contains("@return The extracted text and metadata."));
         assert!(out.contains("@throws KreuzbergException"));
-        assert!(out.contains("```php"));
+        // fixture example is ```rust — stripped when target is PHP
+        assert!(!out.contains("```php"), "Rust example must not appear in PHPDoc");
+        assert!(!out.contains("```rust"));
+    }
+
+    #[test]
+    fn test_render_phpdoc_sections_preserves_php_example() {
+        let doc = "Do something.\n\n# Example\n\n```php\n$x = doSomething();\n```";
+        let sections = parse_rustdoc_sections(doc);
+        let out = render_phpdoc_sections(&sections, "MyException");
+        assert!(out.contains("```php"), "PHP example must be preserved");
     }
 
     #[test]
@@ -1503,8 +1564,66 @@ mod tests {
         assert!(out.contains("@param path The file path."));
         assert!(out.contains("@return The extracted text and metadata."));
         assert!(out.contains("@raise Returns an error when the file is unreadable."));
-        assert!(out.contains("@example"));
-        assert!(out.contains("```ruby"));
+        // fixture example is ```rust — stripped when target is Ruby
+        assert!(!out.contains("@example"), "Rust example must not appear in YARD");
+        assert!(!out.contains("```ruby"));
         assert!(!out.contains("```rust"));
+    }
+
+    #[test]
+    fn test_render_yard_sections_preserves_ruby_example() {
+        let doc = "Do something.\n\n# Example\n\n```ruby\nputs :hi\n```";
+        let sections = parse_rustdoc_sections(doc);
+        let out = render_yard_sections(&sections);
+        assert!(out.contains("@example"), "Ruby example must be preserved");
+        assert!(out.contains("```ruby"));
+    }
+
+    // --- M1: example_for_target unit tests ---
+
+    #[test]
+    fn example_for_target_rust_fenced_suppressed_for_php() {
+        let example = "```rust\nlet x = 1;\n```";
+        assert_eq!(
+            example_for_target(example, "php"),
+            None,
+            "rust-fenced example must be omitted for PHP target"
+        );
+    }
+
+    #[test]
+    fn example_for_target_bare_fence_defaults_to_rust_suppressed_for_ruby() {
+        let example = "```\nlet x = 1;\n```";
+        assert_eq!(
+            example_for_target(example, "ruby"),
+            None,
+            "bare fence is treated as Rust and must be omitted for Ruby target"
+        );
+    }
+
+    #[test]
+    fn example_for_target_php_example_preserved_for_php() {
+        let example = "```php\n$x = 1;\n```";
+        let result = example_for_target(example, "php");
+        assert!(result.is_some(), "PHP example must be preserved for PHP target");
+        assert!(result.unwrap().contains("```php"));
+    }
+
+    #[test]
+    fn example_for_target_ruby_example_preserved_for_ruby() {
+        let example = "```ruby\nputs :hi\n```";
+        let result = example_for_target(example, "ruby");
+        assert!(result.is_some(), "Ruby example must be preserved for Ruby target");
+        assert!(result.unwrap().contains("```ruby"));
+    }
+
+    #[test]
+    fn render_phpdoc_sections_with_rust_example_emits_no_at_example_block() {
+        let doc = "Convert HTML.\n\n# Arguments\n\n* `html` - The HTML input.\n\n# Example\n\n```rust\nlet result = convert(html, None)?;\n```";
+        let sections = parse_rustdoc_sections(doc);
+        let out = render_phpdoc_sections(&sections, "HtmlToMarkdownException");
+        assert!(!out.contains("```php"), "no PHP @example block for Rust source");
+        assert!(!out.contains("```rust"), "raw Rust must not leak into PHPDoc");
+        assert!(out.contains("@param"), "other sections must still be emitted");
     }
 }

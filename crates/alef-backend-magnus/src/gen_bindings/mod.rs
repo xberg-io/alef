@@ -733,7 +733,7 @@ fn gen_tagged_enum_ruby_classes(enum_def: &alef_core::ir::EnumDef, module_name: 
         out.push_str(&format!("  class {variant_class} < {class_name}\n"));
         out.push_str("    extend T::Sig\n\n");
 
-        // attr_reader declarations with Sorbet sigs
+        // attr_reader declarations with Sorbet sigs and YARD @return
         for field in &variant.fields {
             let attr_name = if field.name == "_0" {
                 "value"
@@ -741,6 +741,11 @@ fn gen_tagged_enum_ruby_classes(enum_def: &alef_core::ir::EnumDef, module_name: 
                 field.name.as_str()
             };
             let sorbet_t = sorbet_type_for_field(&field.ty, field.optional);
+            if !field.doc.is_empty() {
+                emit_yard_doc(&mut out, &field.doc, "    ");
+            } else {
+                out.push_str(&format!("    # @return [{sorbet_t}]\n"));
+            }
             out.push_str(&format!("    sig {{ returns({sorbet_t}) }}\n"));
             out.push_str(&format!("    attr_reader :{attr_name}\n\n"));
         }
@@ -775,6 +780,13 @@ fn gen_tagged_enum_ruby_classes(enum_def: &alef_core::ir::EnumDef, module_name: 
             })
             .collect();
 
+        // YARD @param / @return for initialize
+        for f in &variant.fields {
+            let param_name = if f.name == "_0" { "value" } else { f.name.as_str() };
+            let sorbet_t = sorbet_type_for_field(&f.ty, f.optional);
+            out.push_str(&format!("    # @param {param_name} [{sorbet_t}]\n"));
+        }
+        out.push_str("    # @return [void]\n");
         if init_sig_params.is_empty() {
             out.push_str("    sig { void }\n");
         } else {
@@ -793,10 +805,13 @@ fn gen_tagged_enum_ruby_classes(enum_def: &alef_core::ir::EnumDef, module_name: 
         out.push_str("    end\n\n");
 
         // Predicate override
+        out.push_str(&format!("    # @return [Boolean] true when this variant is {snake}\n"));
         out.push_str("    sig { returns(T::Boolean) }\n");
         out.push_str(&format!("    def {snake}? = true\n\n"));
 
         // Class-level `from_hash` factory
+        out.push_str("    # @param hash [Hash] a Hash deserialized from the native extension\n");
+        out.push_str("    # @return [self]\n");
         out.push_str("    sig { params(hash: T::Hash[T.untyped, T.untyped]).returns(T.attached_class) }\n");
         out.push_str("    def self.from_hash(hash)\n");
         let field_args: Vec<String> = variant

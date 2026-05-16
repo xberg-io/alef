@@ -1249,3 +1249,53 @@ fn test_native_ex_separates_consecutive_docced_stubs_with_blank_line() {
         "Consecutive docced stubs must have a blank line separator; content:\n{content}"
     );
 }
+
+/// Regression test for M2: the wrapper Elixir module must emit the full first-paragraph
+/// summary (physical lines joined with a space) rather than only the first physical line.
+#[test]
+fn test_wrapper_module_doc_uses_full_first_paragraph_summary() {
+    let backend = RustlerBackend;
+    // Two-line summary that wraps across physical lines (rustdoc convention).
+    let doc = "Convert HTML to Markdown, returning\na ConversionResult.\n\n# Arguments\n\n* `html` - Input.";
+    let api = ApiSurface {
+        crate_name: "my-lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "convert".to_string(),
+            rust_path: "my_lib::convert".to_string(),
+            original_rust_path: String::new(),
+            params: vec![],
+            return_type: TypeRef::String,
+            is_async: false,
+            error_type: None,
+            doc: doc.to_string(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+    let config = make_config("my_lib");
+    let files = backend.generate_public_api(&api, &config).unwrap();
+    let wrapper = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("my_lib.ex"))
+        .expect("my_lib.ex must be generated");
+    let content = &wrapper.content;
+    assert!(
+        content.contains("Convert HTML to Markdown, returning a ConversionResult."),
+        "wrapper @doc must join wrapped summary lines; content:\n{content}"
+    );
+    assert!(
+        !content.contains("Convert HTML to Markdown, returning\n"),
+        "wrapper @doc must not retain the physical newline mid-paragraph; content:\n{content}"
+    );
+}

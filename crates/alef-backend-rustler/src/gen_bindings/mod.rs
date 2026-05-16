@@ -679,7 +679,11 @@ impl Backend for RustlerBackend {
             } else {
                 func.name.to_snake_case()
             };
-            let doc_line_raw = func.doc.lines().next().unwrap_or("Function");
+            let doc_line_raw = if func.doc.is_empty() {
+                "Function".to_string()
+            } else {
+                alef_codegen::doc_emission::doc_first_paragraph_joined(&func.doc)
+            };
             // Elixir @doc strings use double-quote delimiters; escape any embedded quotes.
             let doc_line = doc_line_raw.replace('"', "\\\"");
             let doc_line = doc_line.as_str();
@@ -1169,7 +1173,11 @@ impl Backend for RustlerBackend {
                     format!("{}_{}", typ.name.to_lowercase(), method.name)
                 };
 
-                let doc_line_raw = method.doc.lines().next().unwrap_or("Method");
+                let doc_line_raw = if method.doc.is_empty() {
+                    "Method".to_string()
+                } else {
+                    alef_codegen::doc_emission::doc_first_paragraph_joined(&method.doc)
+                };
                 let doc_line_escaped = doc_line_raw.replace('"', "\\\"");
                 content.push_str(&template_env::render(
                     "elixir_doc_line.jinja",

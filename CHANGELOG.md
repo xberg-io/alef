@@ -38,6 +38,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `crates/alef-backend-rustler/src/gen_bindings/helpers.rs`,
   `crates/alef-backend-rustler/tests/elixir_module_doc_test.rs`)
 
+- **alef-codegen: language-aware example filtering (`example_for_target`)**: rustdoc `# Example` blocks fenced as ` ```rust ` (and bare-fenced ` ``` ` which rustdoc treats as Rust) are now suppressed from non-Rust doc renderers — YARD (`render_yard_sections`), JSDoc (`render_jsdoc_sections`), and PHPDoc (`render_phpdoc_sections`). Examples fenced with the target language (` ```php `, ` ```ruby `, ` ```typescript `) flow through verbatim. The prior behavior produced misleading Rust source bodies inside Ruby/PHP/TS doc tooltips. 5 new unit tests plus updated assertions in the existing renderer tests. (`crates/alef-codegen/src/doc_emission.rs`)
+
+- **alef-backend-rustler: full multi-line `@doc` on functions + methods**: `@doc` strings for NIF functions and methods previously truncated to the first line via `func.doc.lines().next()`, dropping all subsequent paragraphs. The emitter now calls `doc_first_paragraph_joined` to preserve the complete first paragraph (joining wrapped lines) and falls back to `"Function"`/`"Method"` only when rustdoc is empty. Closes the gap left by the v0.16.20 single-line truncation noted in the audit. (`crates/alef-backend-rustler/src/gen_bindings/mod.rs:682,1172`)
+
+- **alef-backend-magnus: YARD `@param`/`@return` on tagged-enum variant classes**: generated Ruby variant subclasses (`class TextContent < ContentPart`) now carry YARD tags on every site that consumers see in IDE tooltips: each `attr_reader` field, the variant `initialize` parameter list, the predicate method (`def text? = true`), and the class-level `from_hash` factory. The variant's fields use either upstream rustdoc (via `emit_yard_doc`) or a synthesized `# @return [SorbetType]` line so `solargraph` and `yard server` always resolve the type. (`crates/alef-backend-magnus/src/gen_bindings/mod.rs:gen_tagged_enum_ruby_classes`)
+
 ### Fixed
 
 - **alef-cli/alef-e2e: use `oxfmt` instead of Taplo for generated TOML normalization**:
