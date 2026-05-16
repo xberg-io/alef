@@ -1637,3 +1637,174 @@ fn test_opaque_handle_wrapper_has_internal_handle() {
         doc_file.content
     );
 }
+
+/// B5: Every generated file must use file-scoped namespace syntax (`namespace Foo;`),
+/// not block-scoped (`namespace Foo { ... }`).
+#[test]
+fn test_file_scoped_namespace_emitted() {
+    let backend = CsharpBackend;
+    let api = ApiSurface {
+        crate_name: "test".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+    let config = make_config("test", Some("MyNs"), false);
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    for file in &files {
+        assert!(
+            file.content.contains("namespace MyNs;"),
+            "File {} must use file-scoped namespace 'namespace MyNs;'; got:\n{}",
+            file.path.display(),
+            file.content
+        );
+        assert!(
+            !file.content.contains("namespace MyNs {"),
+            "File {} must NOT use block-scoped namespace; got:\n{}",
+            file.path.display(),
+            file.content
+        );
+    }
+}
+
+/// B5: Streaming method on an opaque handle must return `IAsyncEnumerable<T>`,
+/// not `Task<List<T>>` or `IEnumerable<T>`.
+#[test]
+fn test_streaming_method_returns_iasync_enumerable() {
+    let backend = CsharpBackend;
+    let config = minimal_csharp_config("test");
+    let api = ApiSurface {
+        crate_name: "test".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "StreamClient".to_string(),
+            rust_path: "test::StreamClient".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![MethodDef {
+                name: "chat_stream".to_string(),
+                params: vec![],
+                return_type: TypeRef::Vec(Box::new(TypeRef::Named("ChatChunk".to_string()))),
+                is_async: true,
+                is_static: false,
+                error_type: Some("TestError".to_string()),
+                doc: "Stream chat completions.".to_string(),
+                receiver: Some(ReceiverKind::Ref),
+                sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                trait_source: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            is_opaque: true,
+            is_clone: false,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: "Streaming client handle.".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let client_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("StreamClient.cs"))
+        .expect("StreamClient.cs should be generated");
+    assert!(
+        client_file.content.contains("IAsyncEnumerable<"),
+        "Streaming method must return IAsyncEnumerable<T>; got:\n{}",
+        client_file.content
+    );
+    assert!(
+        !client_file.content.contains("Task<List<"),
+        "Streaming method must NOT return Task<List<T>>; got:\n{}",
+        client_file.content
+    );
+}
+
+/// B5: `byte[]` fields without an explicit default should use the C# 12 collection
+/// expression `= []` instead of `= Array.Empty<byte>()`.
+#[test]
+fn test_bytes_field_default_uses_collection_expression() {
+    let backend = CsharpBackend;
+    let config = minimal_csharp_config("test");
+    let api = ApiSurface {
+        crate_name: "test".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "BlobPayload".to_string(),
+            rust_path: "test::BlobPayload".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![FieldDef {
+                name: "data".to_string(),
+                ty: TypeRef::Bytes,
+                optional: false,
+                default: None,
+                typed_default: None,
+                doc: String::new(),
+                sanitized: false,
+                is_boxed: false,
+                type_rust_path: None,
+                cfg: None,
+                core_wrapper: alef_core::ir::CoreWrapper::None,
+                vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                newtype_wrapper: None,
+                serde_rename: None,
+                serde_flatten: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let cs_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("BlobPayload.cs"))
+        .expect("BlobPayload.cs should be generated");
+    assert!(
+        !cs_file.content.contains("Array.Empty<byte>()"),
+        "byte[] default must NOT use Array.Empty<byte>(); got:\n{}",
+        cs_file.content
+    );
+    assert!(
+        cs_file.content.contains("= []"),
+        "byte[] default must use collection expression '= []'; got:\n{}",
+        cs_file.content
+    );
+}

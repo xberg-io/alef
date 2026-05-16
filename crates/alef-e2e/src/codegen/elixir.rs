@@ -1221,9 +1221,8 @@ fn build_args_and_setup(
         };
         match val {
             None | Some(serde_json::Value::Null) if arg.optional => {
-                // Elixir functions have fixed positional arity — pass nil for optional args
-                // rather than skipping them, so the call site has the correct arity.
-                parts.push("nil".to_string());
+                // Optional params map to the keyword-opts `opts \\ []` argument.
+                // When the value is absent, omit the keyword entirely — the default `[]` applies.
                 continue;
             }
             None | Some(serde_json::Value::Null) => {
@@ -1335,7 +1334,13 @@ fn build_args_and_setup(
                         continue;
                     }
                 }
-                parts.push(json_to_elixir(v));
+                // Optional args use keyword-opts form: `name: value`.
+                let elixir_val = json_to_elixir(v);
+                if arg.optional {
+                    parts.push(format!("{}: {elixir_val}", arg.name));
+                } else {
+                    parts.push(elixir_val);
+                }
             }
         }
     }

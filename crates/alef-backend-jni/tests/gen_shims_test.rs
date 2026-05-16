@@ -1314,6 +1314,47 @@ fn streaming_handle_struct_uses_type_aliases_to_avoid_type_complexity() {
 }
 
 // ---------------------------------------------------------------------------
+// C1: no unwrap_or_default() on JSON serialization paths
+// ---------------------------------------------------------------------------
+
+/// Regression: the emitted JNI shim must NOT use `.unwrap_or_default()` on
+/// any `serde_json::to_string(...)` call.  Silent serialization failures
+/// previously caused Kotlin to receive an empty string and throw
+/// `LiterLlmBridgeException at LiterLlmBridge.kt:-2`.  Every serialization
+/// failure must route through `throw_jni_error` with the actual message.
+#[test]
+fn no_unwrap_or_default_on_json_serialization_path() {
+    let api = make_demo_api();
+    let config = make_demo_config_with_streaming();
+    let files = JniBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    // The only `unwrap_or_default` that may appear is on the `exclude_functions`
+    // HashSet collection — NOT on any serialization path.  Verify none appear
+    // adjacent to `serde_json::to_string`.
+    for line in content.lines() {
+        if line.contains("unwrap_or_default") {
+            assert!(
+                !line.contains("serde_json::to_string"),
+                "serde_json::to_string must not use .unwrap_or_default(); found:\n{line}"
+            );
+        }
+        if line.contains("serde_json::to_string") {
+            assert!(
+                !line.contains("unwrap_or_default"),
+                "serde_json::to_string must not use .unwrap_or_default(); found:\n{line}"
+            );
+        }
+    }
+
+    // Confirm that explicit error handling IS present instead.
+    assert!(
+        content.contains("serialize: {e}"),
+        "serialization errors must propagate via throw_jni_error with message; got:\n{content}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Helper: extract the function body section for a named symbol
 // ---------------------------------------------------------------------------
 

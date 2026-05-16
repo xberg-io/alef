@@ -686,7 +686,7 @@ fn emit_method_shim(
             out.push_str("                Some(inner) => Box::into_raw(Box::new(inner)) as jlong,\n");
             out.push_str("            }\n");
         } else {
-            emit_return_marshal(out, return_type);
+            emit_return_marshal(out, return_type, ret_null);
         }
         out.push_str("        }\n");
         out.push_str("    }\n");
@@ -705,7 +705,7 @@ fn emit_method_shim(
             out.push_str("        Some(inner) => Box::into_raw(Box::new(inner)) as jlong,\n");
             out.push_str("    }\n");
         } else {
-            emit_return_marshal_with_indent(out, return_type, "    ");
+            emit_return_marshal_with_indent(out, return_type, "    ", ret_null);
         }
     }
 

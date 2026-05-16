@@ -1361,12 +1361,59 @@ fn rewrite_capsule_methods(
     result
 }
 
+/// Returns true when `line` (trimmed) consists entirely of `#[…]` attribute patterns and
+/// intervening whitespace — i.e. it contains no non-attribute tokens such as `impl Foo {`.
+///
+/// This correctly handles:
+/// - A single attribute: `#[pyo3(signature = (name))]`  → true
+/// - Multiple attributes on one line: `#[allow(dead_code)]  #[pyo3(get)]`  → true
+/// - A block-attr + impl opener on one line: `#[pymethods]impl Foo {`  → false
+fn is_method_attr_line(line: &str) -> bool {
+    let mut rest = line.trim();
+    if rest.is_empty() {
+        return false; // handled by the blank-line branch; don't treat blank as attr
+    }
+    loop {
+        rest = rest.trim_start();
+        if rest.is_empty() {
+            return true;
+        }
+        if !rest.starts_with("#[") {
+            return false;
+        }
+        // Consume the `#[…]` span, respecting nested brackets.
+        let mut depth = 0usize;
+        let mut consumed = 0usize;
+        let mut found_close = false;
+        for (i, ch) in rest.char_indices() {
+            match ch {
+                '[' => depth += 1,
+                ']' => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        consumed = i + 1;
+                        found_close = true;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        if !found_close {
+            return false;
+        }
+        rest = &rest[consumed..];
+    }
+}
+
 /// Find the byte index of the start of the attribute block that precedes the `pub fn` at
-/// `fn_idx`.  Walks backward line-by-line past `#[…]` and blank lines.  Returns the byte index
-/// of the first character of the first attribute line (or `fn_idx` when there are none).
+/// `fn_idx`.  Walks backward line-by-line past `#[…]` attribute lines and blank lines.
+/// Stops as soon as it encounters a line that is not purely made of `#[…]` attributes
+/// (e.g. `#[pymethods]impl Foo {`).  Returns the byte index of the first character of the
+/// first method-attribute line (or `fn_idx` when there are none).
 fn find_method_attrs_start(code: &str, fn_idx: usize) -> usize {
     let before = &code[..fn_idx];
-    // Collect line (start_byte, content) pairs so we can walk backward.
+    // Collect line-start byte offsets so we can walk backward.
     let line_starts: Vec<usize> = std::iter::once(0)
         .chain(before.match_indices('\n').map(|(i, _)| i + 1))
         .collect();
@@ -1376,7 +1423,9 @@ fn find_method_attrs_start(code: &str, fn_idx: usize) -> usize {
     for &line_byte_start in line_starts.iter().rev() {
         let line = &before[line_byte_start..before.len().min(attr_start_byte)];
         let trimmed = line.trim_end_matches('\n').trim();
-        if trimmed.starts_with("#[") || trimmed.is_empty() {
+        if trimmed.is_empty() {
+            attr_start_byte = line_byte_start;
+        } else if is_method_attr_line(trimmed) {
             attr_start_byte = line_byte_start;
         } else {
             break;

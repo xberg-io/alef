@@ -654,6 +654,178 @@ impl Backend for MagnusBackend {
     }
 }
 
+/// Map a field TypeRef to a Sorbet type string for use in `sig` blocks emitted in `.rb` files.
+fn sorbet_type_for_field(ty: &alef_core::ir::TypeRef, optional: bool) -> String {
+    use alef_core::ir::{PrimitiveType, TypeRef};
+    let base = match ty {
+        TypeRef::Primitive(prim) => match prim {
+            PrimitiveType::Bool => "T::Boolean".to_string(),
+            PrimitiveType::F32 | PrimitiveType::F64 => "Float".to_string(),
+            _ => "Integer".to_string(),
+        },
+        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Bytes => "String".to_string(),
+        TypeRef::Vec(inner) => format!("T::Array[{}]", sorbet_type_for_field(inner, false)),
+        TypeRef::Map(k, v) => format!(
+            "T::Hash[{}, {}]",
+            sorbet_type_for_field(k, false),
+            sorbet_type_for_field(v, false)
+        ),
+        TypeRef::Named(name) => name.clone(),
+        TypeRef::Optional(inner) => return format!("T.nilable({})", sorbet_type_for_field(inner, false)),
+        TypeRef::Duration => "Integer".to_string(),
+        TypeRef::Json | TypeRef::Unit => "T.untyped".to_string(),
+    };
+    if optional {
+        format!("T.nilable({base})")
+    } else {
+        base
+    }
+}
+
+/// Generate a Ruby class hierarchy for an internally-tagged enum.
+///
+/// Emits:
+/// - A sealed abstract base class with `extend T::Sig` and per-variant predicate methods
+///   returning `false` by default.
+/// - A concrete subclass per variant with Sorbet-typed `attr_reader` fields, an
+///   `initialize` with keyword args, an overridden predicate, and a `from_hash` factory.
+///
+/// This replaces the Hash `method_missing` monkey-patch that was previously emitted in
+/// `native.rb`. It is a BREAKING change for callers that relied on the Hash interface.
+fn gen_tagged_enum_ruby_classes(enum_def: &alef_core::ir::EnumDef, module_name: &str) -> String {
+    use alef_core::ir::TypeRef;
+    let mut out = String::new();
+
+    let class_name = &enum_def.name;
+    let variant_names: Vec<&str> = enum_def.variants.iter().map(|v| v.name.as_str()).collect();
+
+    // --- Base class ---
+    out.push_str(&format!("module {module_name}\n"));
+    out.push_str(&format!(
+        "  # Sealed base class for the {class_name} tagged enum.\n"
+    ));
+    out.push_str("  # Do not instantiate directly — use the variant subclasses.\n");
+    out.push_str(&format!("  class {class_name}\n"));
+    out.push_str("    extend T::Sig\n");
+    out.push_str("    extend T::Helpers\n\n");
+
+    for variant_name in &variant_names {
+        let snake = classes::pascal_to_snake(variant_name);
+        out.push_str("    sig { returns(T::Boolean) }\n");
+        out.push_str(&format!("    def {snake}? = false\n\n"));
+    }
+
+    out.push_str("  end\n\n");
+
+    // --- Per-variant subclasses ---
+    for variant in &enum_def.variants {
+        let variant_class = format!("{}{}", class_name, &variant.name);
+        let snake = classes::pascal_to_snake(&variant.name);
+
+        out.push_str(&format!(
+            "  # Variant {variant_class} of the {class_name} tagged enum.\n"
+        ));
+        out.push_str(&format!("  class {variant_class} < {class_name}\n"));
+        out.push_str("    extend T::Sig\n\n");
+
+        // attr_reader declarations with Sorbet sigs
+        for field in &variant.fields {
+            let attr_name = if field.name == "_0" { "value" } else { field.name.as_str() };
+            let sorbet_t = sorbet_type_for_field(&field.ty, field.optional);
+            out.push_str(&format!("    sig {{ returns({sorbet_t}) }}\n"));
+            out.push_str(&format!("    attr_reader :{attr_name}\n\n"));
+        }
+
+        // initialize with keyword args
+        let init_params: Vec<String> = variant
+            .fields
+            .iter()
+            .map(|f| {
+                if f.name == "_0" {
+                    "value".to_string()
+                } else {
+                    f.name.clone()
+                }
+            })
+            .collect();
+        let init_sig_params: Vec<String> = variant
+            .fields
+            .iter()
+            .map(|f| {
+                let sorbet_t = sorbet_type_for_field(&f.ty, f.optional);
+                let param_name = if f.name == "_0" { "value" } else { f.name.as_str() };
+                format!("{param_name}: {sorbet_t}")
+            })
+            .collect();
+        let init_assigns: Vec<String> = variant
+            .fields
+            .iter()
+            .map(|f| {
+                let param_name = if f.name == "_0" { "value" } else { f.name.as_str() };
+                format!("@{param_name} = {param_name}")
+            })
+            .collect();
+
+        if init_sig_params.is_empty() {
+            out.push_str("    sig { void }\n");
+        } else {
+            out.push_str(&format!(
+                "    sig {{ params({}).void }}\n",
+                init_sig_params.join(", ")
+            ));
+        }
+        let kwarg_list = init_params
+            .iter()
+            .map(|p| format!("{p}:"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        out.push_str(&format!("    def initialize({kwarg_list})\n"));
+        for assign in &init_assigns {
+            out.push_str(&format!("      {assign}\n"));
+        }
+        out.push_str("    end\n\n");
+
+        // Predicate override
+        out.push_str("    sig { returns(T::Boolean) }\n");
+        out.push_str(&format!("    def {snake}? = true\n\n"));
+
+        // Class-level `from_hash` factory
+        out.push_str(
+            "    sig { params(hash: T::Hash[T.untyped, T.untyped]).returns(T.attached_class) }\n",
+        );
+        out.push_str("    def self.from_hash(hash)\n");
+        let field_args: Vec<String> = variant
+            .fields
+            .iter()
+            .map(|f| {
+                let key_sym = if f.name == "_0" {
+                    ":_0".to_string()
+                } else {
+                    format!(":{}", f.name)
+                };
+                let param_name = if f.name == "_0" { "value".to_string() } else { f.name.clone() };
+                // Try both symbol (Magnus default) and string key
+                let val_expr = match &f.ty {
+                    TypeRef::Optional(_) => format!("hash[{key_sym}] || hash[{key_sym}.to_s]"),
+                    _ => format!("hash[{key_sym}] || hash[{key_sym}.to_s]"),
+                };
+                format!("{param_name}: {val_expr}")
+            })
+            .collect();
+        if field_args.is_empty() {
+            out.push_str("      new\n");
+        } else {
+            out.push_str(&format!("      new({})\n", field_args.join(", ")));
+        }
+        out.push_str("    end\n\n");
+
+        out.push_str("  end\n\n");
+    }
+
+    out.push_str("end\n");
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

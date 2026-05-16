@@ -1218,3 +1218,97 @@ fn test_async_method_stub_uses_async_def() {
         content
     );
 }
+
+// ==============================================================================
+// Regression tests: UPPER_SNAKE_CASE pyclass enum variants (iter35 wave-1 W2)
+// ==============================================================================
+
+fn make_batch_status_enum_def() -> EnumDef {
+    EnumDef {
+        name: "BatchStatus".to_string(),
+        rust_path: "test_lib::BatchStatus".to_string(),
+        original_rust_path: String::new(),
+        variants: vec![
+            EnumVariant {
+                name: "Validating".to_string(),
+                fields: vec![],
+                is_tuple: false,
+                doc: String::new(),
+                is_default: true,
+                serde_rename: None,
+            },
+            EnumVariant {
+                name: "InProgress".to_string(),
+                fields: vec![],
+                is_tuple: false,
+                doc: String::new(),
+                is_default: false,
+                serde_rename: None,
+            },
+            EnumVariant {
+                name: "Complete".to_string(),
+                fields: vec![],
+                is_tuple: false,
+                doc: String::new(),
+                is_default: false,
+                serde_rename: None,
+            },
+        ],
+        doc: String::new(),
+        cfg: None,
+        is_copy: false,
+        has_serde: false,
+        serde_tag: None,
+        serde_untagged: false,
+        serde_rename_all: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    }
+}
+
+/// `.pyi` stub emits UPPER_SNAKE_CASE attribute names (not PascalCase) for pyclass enum variants.
+#[test]
+fn test_pyi_stub_emits_upper_snake_case_enum_variants() {
+    let backend = Pyo3Backend;
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![make_batch_status_enum_def()],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+    let config = make_config_with_stubs();
+    let result = backend.generate_type_stubs(&api, &config).unwrap();
+    let content = result.into_iter().next().unwrap().content;
+
+    // UPPER_SNAKE_CASE names must be present
+    assert!(
+        content.contains("VALIDATING: BatchStatus = ..."),
+        "stub must declare VALIDATING in UPPER_SNAKE_CASE, got:\n{}",
+        content
+    );
+    assert!(
+        content.contains("IN_PROGRESS: BatchStatus = ..."),
+        "stub must declare IN_PROGRESS in UPPER_SNAKE_CASE, got:\n{}",
+        content
+    );
+    assert!(
+        content.contains("COMPLETE: BatchStatus = ..."),
+        "stub must declare COMPLETE in UPPER_SNAKE_CASE, got:\n{}",
+        content
+    );
+
+    // PascalCase names must NOT appear as attribute declarations
+    assert!(
+        !content.contains("Validating: BatchStatus"),
+        "stub must NOT emit PascalCase variant Validating, got:\n{}",
+        content
+    );
+    assert!(
+        !content.contains("InProgress: BatchStatus"),
+        "stub must NOT emit PascalCase variant InProgress, got:\n{}",
+        content
+    );
+}
