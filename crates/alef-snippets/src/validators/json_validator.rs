@@ -53,14 +53,18 @@ mod tests {
     #[test]
     fn syntax_ok() {
         let v = JsonValidator;
-        let (status, _) = v.validate(&snippet(r#"{"key": "value"}"#), ValidationLevel::Syntax, 30).unwrap();
+        let (status, _) = v
+            .validate(&snippet(r#"{"key": "value"}"#), ValidationLevel::Syntax, 30)
+            .unwrap();
         assert_eq!(status, SnippetStatus::Pass);
     }
 
     #[test]
     fn syntax_fail() {
         let v = JsonValidator;
-        let (status, _) = v.validate(&snippet(r#"{"key": "value""#), ValidationLevel::Syntax, 30).unwrap();
+        let (status, _) = v
+            .validate(&snippet(r#"{"key": "value""#), ValidationLevel::Syntax, 30)
+            .unwrap();
         assert_eq!(status, SnippetStatus::Fail);
     }
 }

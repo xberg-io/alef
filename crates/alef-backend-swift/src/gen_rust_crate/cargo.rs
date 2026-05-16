@@ -71,6 +71,13 @@ ignored = ["async-trait", "serde"]
 
 [lib]
 crate-type = ["cdylib", "staticlib"]
+# The `extern "Swift"` block emits linker references that are only resolvable
+# when the crate is linked into a Swift target. `cargo test --workspace` on
+# pure-Rust runners (e.g. windows-latest) would otherwise fail with
+# undefined `__swift_bridge__$*$alef_visit_*` symbols.
+test = false
+doctest = false
+bench = false
 
 [dependencies]
 {source_crate_name} = {{ path = "{core_path}"{features_block}{package_rename_block} }}

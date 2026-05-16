@@ -49,7 +49,7 @@ impl GoValidator {
                 continue;
             }
             if trimmed.starts_with("import (") {
-                while let Some(import_line) = lines.next() {
+                for import_line in lines.by_ref() {
                     imports.push(import_line);
                     if import_line.trim() == ")" {
                         break;
@@ -103,7 +103,9 @@ impl SnippetValidator for GoValidator {
             ValidationLevel::Compile => {
                 std::fs::write(dir.path().join("go.mod"), "module snippet\n\ngo 1.21\n")?;
                 let mut command = std::process::Command::new("go");
-                command.args(["build", "-o", "/dev/null", "./..."]).current_dir(dir.path());
+                command
+                    .args(["build", "-o", "/dev/null", "./..."])
+                    .current_dir(dir.path());
                 command
             }
             ValidationLevel::Run => {
@@ -115,9 +117,7 @@ impl SnippetValidator for GoValidator {
         };
 
         let (success, output) = run_command(&mut command, timeout_secs)?;
-        if success && output.trim().is_empty() {
-            Ok((SnippetStatus::Pass, None))
-        } else if success {
+        if success {
             Ok((SnippetStatus::Pass, None))
         } else {
             Ok((SnippetStatus::Fail, Some(output)))

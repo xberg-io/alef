@@ -116,7 +116,9 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
     // Unsafe extern "C" functions generated here do not have `# Safety` sections in their
     // rustdoc because the safety contract is documented at the C header level (cbindgen output).
     // Doc list indentation reflects the source format and is intentional in generated code.
-    builder.add_inner_attribute("allow(clippy::missing_safety_doc, clippy::doc_lazy_continuation, clippy::doc_overindented_list_items)");
+    builder.add_inner_attribute(
+        "allow(clippy::missing_safety_doc, clippy::doc_lazy_continuation, clippy::doc_overindented_list_items)",
+    );
 
     // Imports
     builder.add_import("std::ffi::{c_char, CStr, CString}");

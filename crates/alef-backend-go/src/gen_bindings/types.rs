@@ -1125,8 +1125,7 @@ pub(super) fn gen_struct_type(
         // they must never be wrapped in a pointer. `*AuthConfig` is "pointer to interface",
         // not "interface", and the two are not assignable. Emit the bare interface name
         // for both optional and non-optional positions.
-        let is_sealed_interface =
-            matches!(&field.ty, TypeRef::Named(n) if data_enum_names.contains(n.as_str()));
+        let is_sealed_interface = matches!(&field.ty, TypeRef::Named(n) if data_enum_names.contains(n.as_str()));
 
         let field_type = if is_sealed_interface {
             go_type(&field.ty)
@@ -1681,8 +1680,7 @@ pub(super) fn gen_config_options(
         // Sealed-interface (data enum) fields are also already-nullable interface values; their
         // struct field is `T` (not `*T`), so the assignment must not take the address.
         let is_slice_or_map = matches!(&field.ty, TypeRef::Vec(_) | TypeRef::Map(_, _));
-        let is_sealed_interface =
-            matches!(&field.ty, TypeRef::Named(n) if data_enum_names.contains(n.as_str()));
+        let is_sealed_interface = matches!(&field.ty, TypeRef::Named(n) if data_enum_names.contains(n.as_str()));
         let use_ptr = !is_visitor_field
             && (field.optional || needs_omitempty_pointer(field))
             && !is_slice_or_map

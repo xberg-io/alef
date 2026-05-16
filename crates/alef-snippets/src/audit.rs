@@ -202,9 +202,7 @@ fn audit_fences(path: &Path, content: &str) -> Vec<AuditIssue> {
                     index + 1,
                     "fenced code block is missing a language tag".to_string(),
                 ));
-            } else if Language::from_fence_tag(&tag) == Language::Unknown
-                && !is_known_display_tag(&tag)
-            {
+            } else if Language::from_fence_tag(&tag) == Language::Unknown && !is_known_display_tag(&tag) {
                 issues.push(issue(
                     AuditIssueKind::UnknownLanguage,
                     path,

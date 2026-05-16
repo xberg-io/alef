@@ -989,27 +989,30 @@ fn sealed_variant_tuple_params_use_payload_derived_names() {
 
     let content = &format_metadata_kt.content;
 
-    // Pdf(PdfMetadata) should derive "metadata" by stripping "Pdf" prefix
+    // Pdf(PdfMetadata) should derive "metadata" by stripping "Pdf" prefix.
+    // Per the ktfmt 100-char heuristic introduced in v0.16.22, short
+    // declarations are emitted single-line; the assertions below check the
+    // single-line shape (the long multi-line form is exercised elsewhere).
     assert!(
-        content.contains("data class Pdf(\n        val metadata: PdfMetadata\n    )"),
+        content.contains("data class Pdf(val metadata: PdfMetadata)"),
         "Pdf variant should use payload-derived name 'metadata', got:\n{content}"
     );
 
     // Custom(String) should use generic "value" for primitive
     assert!(
-        content.contains("data class Custom(\n        val value: String\n    )"),
+        content.contains("data class Custom(val value: String)"),
         "Custom variant should use generic name 'value' for primitive payload, got:\n{content}"
     );
 
     // Multi(String, Int) should use "value0" and "value1"
     assert!(
-        content.contains("data class Multi(\n        val value0: String,\n        val value1: Int\n    )"),
+        content.contains("data class Multi(val value0: String, val value1: Int)"),
         "Multi variant should use generic names 'value0', 'value1', got:\n{content}"
     );
 
     // Struct { reason: String } should use the original field name
     assert!(
-        content.contains("data class Struct(\n        val reason: String\n    )"),
+        content.contains("data class Struct(val reason: String)"),
         "Struct variant should preserve the field name 'reason', got:\n{content}"
     );
 
