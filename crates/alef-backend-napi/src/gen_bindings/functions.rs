@@ -236,6 +236,9 @@ pub(super) fn gen_function(
     };
 
     let mut attrs = String::new();
+    // Doc comments on the function become JSDoc on the corresponding `export
+    // declare function` in the generated .d.ts via napi-derive's typegen.
+    alef_codegen::doc_emission::emit_rustdoc(&mut attrs, &func.doc, "");
     // Per-item clippy suppression: too_many_arguments when >7 params
     if func.params.len() > 7 {
         attrs.push_str("#[allow(clippy::too_many_arguments)]\n");

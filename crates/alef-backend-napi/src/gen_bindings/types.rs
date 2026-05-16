@@ -183,10 +183,16 @@ pub(super) fn gen_struct(
         if has_serde && (is_opaque_field || skip_cfg_bridge_field) {
             attrs.push("serde(skip)".to_string());
         }
-        struct_builder.add_field(&field.name, &field_type, attrs);
+        struct_builder.add_field_with_doc(&field.name, &field_type, attrs, &field.doc);
     }
 
-    struct_builder.build()
+    let body = struct_builder.build();
+    // Prepend rustdoc on the struct so napi-derive picks it up and writes
+    // a `/** … */` JSDoc block above the `export interface` in index.d.ts.
+    let mut out = String::new();
+    alef_codegen::doc_emission::emit_rustdoc(&mut out, &typ.doc, "");
+    out.push_str(&body);
+    out
 }
 
 /// Generate NAPI methods for an opaque struct (delegates to self.inner).
@@ -480,6 +486,9 @@ pub(super) fn gen_opaque_instance_method(
     };
 
     let mut attrs = String::new();
+    // Doc comments on the method become JSDoc on the corresponding class method
+    // in the generated .d.ts via napi-derive's typegen.
+    alef_codegen::doc_emission::emit_rustdoc(&mut attrs, &method.doc, "");
     // Per-item clippy suppression: too_many_arguments when >7 params (including &self)
     if method.params.len() + 1 > 7 {
         attrs.push_str("#[allow(clippy::too_many_arguments)]\n");
@@ -592,6 +601,9 @@ pub(super) fn gen_static_method(
     };
 
     let mut attrs = String::new();
+    // Doc comments on the static method become JSDoc on the class's static
+    // method in the generated .d.ts via napi-derive's typegen.
+    alef_codegen::doc_emission::emit_rustdoc(&mut attrs, &method.doc, "");
     // Per-item clippy suppression: too_many_arguments when >7 params
     if method.params.len() > 7 {
         attrs.push_str("#[allow(clippy::too_many_arguments)]\n");
