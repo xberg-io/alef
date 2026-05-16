@@ -19,6 +19,21 @@ fn is_vec_of_tagged_data_enum(ty: &TypeRef, tagged_data_enum_names: &AHashSet<St
     matches!(ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if tagged_data_enum_names.contains(n)))
 }
 
+/// Returns `true` when `ty` is a bare `Named` that is a tagged-data enum (not wrapped in Option or Vec).
+///
+/// Bare tagged-data enum fields are stored as `JsValue` in the wasm binding struct so that plain
+/// JS object literals can be assigned without constructing an explicit wasm-bindgen class instance.
+fn is_bare_tagged_data_enum(ty: &TypeRef, tagged_data_enum_names: &AHashSet<String>) -> bool {
+    matches!(ty, TypeRef::Named(n) if tagged_data_enum_names.contains(n))
+}
+
+/// Returns `true` when `ty` is `Option<Named>` where `Named` is a tagged-data enum.
+///
+/// Optional tagged-data enum fields are stored as `Option<JsValue>` in the wasm binding struct.
+fn is_option_of_tagged_data_enum(ty: &TypeRef, tagged_data_enum_names: &AHashSet<String>) -> bool {
+    matches!(ty, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if tagged_data_enum_names.contains(n)))
+}
+
 /// Check if a TypeRef is a Copy type that shouldn't be cloned.
 /// `enum_names` contains the set of enum type names that derive Copy.
 pub(super) fn is_copy_type(ty: &TypeRef, enum_names: &AHashSet<String>) -> bool {
@@ -402,16 +417,36 @@ pub(super) fn gen_struct(
         // On has_default types, non-optional Duration fields are stored as Option<u64> so the
         // wasm constructor can omit them and the From conversion falls back to the core default.
         let force_optional = typ.has_default && !field.optional && matches!(field.ty, TypeRef::Duration);
-        // Vec<TaggedDataEnum> must be stored as JsValue so that plain JS object literals
-        // (e.g. `{ role: "user", content: "..." }`) can be assigned directly without
+        // Tagged-data enum fields (Vec<T>, Option<T>, or bare T) must be stored as JsValue /
+        // Option<JsValue> so that plain JS object literals can be assigned directly without
         // constructing explicit wasm-bindgen class instances (wasm-bindgen would reject plain
-        // objects in a `Vec<WasmEnum>` setter with "array contains a value of the wrong type").
+        // objects with "expected instance of WasmFoo").
+        //
+        // IR shape variants for a tagged-data enum T:
+        //   - required bare:    field.optional=false, ty=Named(T)  → JsValue
+        //   - optional bare:    field.optional=true,  ty=Named(T)  → Option<JsValue>
+        //   - explicit optional: field.optional=true, ty=Optional(Named(T)) → Option<JsValue>
+        //   - required Vec:     field.optional=false, ty=Vec(Named(T)) → JsValue
         let is_vec_tagged_enum = is_vec_of_tagged_data_enum(&field.ty, tagged_data_enum_names);
+        // Optional via the ty=Optional(Named) IR form.
+        let is_option_tagged_enum =
+            !is_vec_tagged_enum && is_option_of_tagged_data_enum(&field.ty, tagged_data_enum_names);
+        // Bare Named that is a tagged-data enum — may be optional or required via field.optional.
+        let is_bare_tagged_enum = !is_vec_tagged_enum
+            && !is_option_tagged_enum
+            && is_bare_tagged_data_enum(&field.ty, tagged_data_enum_names);
         let field_type = if force_optional {
             // Duration field forced to Option<u64>: map_type returns "u64", wrap in Option<>.
             mapper.optional(&mapper.map_type(&field.ty))
         } else if is_vec_tagged_enum {
             // Vec<TaggedDataEnum>: use JsValue for the field so JS callers can pass plain objects.
+            "JsValue".to_string()
+        } else if is_option_tagged_enum || (is_bare_tagged_enum && field.optional) {
+            // Option<TaggedDataEnum> (either via ty=Optional(Named) or field.optional=true with ty=Named):
+            // use Option<JsValue> so JS callers can pass plain objects or null.
+            "Option<JsValue>".to_string()
+        } else if is_bare_tagged_enum {
+            // Required bare TaggedDataEnum: use JsValue so JS callers can pass plain objects.
             "JsValue".to_string()
         } else if field.optional && matches!(field.ty, TypeRef::Optional(_)) {
             // Field is already Optional in the IR: map_type returns "Option<X>". Using
@@ -542,11 +577,20 @@ fn gen_new_method(
     use super::field_references_excluded_type;
     use alef_codegen::shared::constructor_parts;
 
-    // Vec<TaggedDataEnum> fields are stored as JsValue in the struct; the constructor must accept
-    // JsValue for those parameters so callers can pass plain JS object arrays directly.
+    // Tagged-data enum fields (Vec<T>, Option<T>, bare T) are stored as JsValue / Option<JsValue>
+    // in the struct; the constructor must accept the same types so callers can pass plain JS
+    // object literals directly.
+    // Note: for optional bare tagged enums (field.optional=true, ty=Named), the constructor
+    // parameter type is determined by `config_constructor_parts_with_options` / `constructor_parts`
+    // which wraps optional fields via `mapper.optional()`. Since `map_fn` maps the ty (Named) to
+    // JsValue, the optional wrapper produces Option<JsValue> automatically.
     let map_fn = |ty: &alef_core::ir::TypeRef| {
-        if is_vec_of_tagged_data_enum(ty, tagged_data_enum_names) {
+        if is_vec_of_tagged_data_enum(ty, tagged_data_enum_names)
+            || is_bare_tagged_data_enum(ty, tagged_data_enum_names)
+        {
             "JsValue".to_string()
+        } else if is_option_of_tagged_data_enum(ty, tagged_data_enum_names) {
+            "Option<JsValue>".to_string()
         } else {
             mapper.map_type(ty)
         }
@@ -657,6 +701,13 @@ fn gen_getter(
         && matches!(field.ty, TypeRef::Named(ref n) if enum_names.contains(n) && !tagged_data_enum_names.contains(n));
     // Vec<TaggedDataEnum> is stored as JsValue — return it directly by clone.
     let is_required_vec_tagged_enum = !field.optional && is_vec_of_tagged_data_enum(&field.ty, tagged_data_enum_names);
+    // Bare TaggedDataEnum (required, field.optional=false) is also stored as JsValue.
+    let is_required_bare_tagged_enum = !field.optional && is_bare_tagged_data_enum(&field.ty, tagged_data_enum_names);
+    // Option<TaggedDataEnum> — either via ty=Optional(Named) or field.optional=true with ty=Named.
+    // Both cases are stored as Option<JsValue>.
+    let is_optional_tagged_enum = field.optional
+        && (is_option_of_tagged_data_enum(&field.ty, tagged_data_enum_names)
+            || is_bare_tagged_data_enum(&field.ty, tagged_data_enum_names));
     let is_optional_vec_of_struct = field.optional
         && matches!(
             inner_ty,
@@ -666,9 +717,12 @@ fn gen_getter(
         // JsValue and must be returned as JsValue (not reconstructed element-by-element).
         && !is_vec_of_tagged_data_enum(inner_ty, tagged_data_enum_names);
 
-    let (field_type, return_expr) = if is_required_vec_tagged_enum {
-        // Vec<TaggedDataEnum> stored as JsValue: return the JsValue directly.
+    let (field_type, return_expr) = if is_required_vec_tagged_enum || is_required_bare_tagged_enum {
+        // Vec<TaggedDataEnum> or bare TaggedDataEnum stored as JsValue: return the JsValue directly.
         ("JsValue".to_string(), format!("self.{}.clone()", field.name))
+    } else if is_optional_tagged_enum {
+        // Option<TaggedDataEnum> stored as Option<JsValue>: return it directly by clone.
+        ("Option<JsValue>".to_string(), format!("self.{}.clone()", field.name))
     } else if is_optional_enum {
         // Return Option<String> using the generated to_api_str() method.
         let expr = format!("self.{}.map(|v| v.to_api_str().to_owned())", field.name);
@@ -721,12 +775,21 @@ fn gen_setter(
 ) -> String {
     // On has_default types, non-optional Duration fields are stored as Option<u64>.
     let force_optional = has_default && !field.optional && matches!(field.ty, TypeRef::Duration);
-    // Vec<TaggedDataEnum> is stored as JsValue so plain JS object literals can be assigned.
+    // Tagged-data enum fields (Vec<T>, Option<T>, bare T) are stored as JsValue / Option<JsValue>
+    // so plain JS object literals can be assigned without explicit wasm-bindgen class instances.
+    // IR shape: field.optional=true with ty=Named is an optional bare enum → Option<JsValue>.
     let is_vec_tagged_enum = is_vec_of_tagged_data_enum(&field.ty, tagged_data_enum_names);
+    let is_option_tagged_enum = !is_vec_tagged_enum
+        && (is_option_of_tagged_data_enum(&field.ty, tagged_data_enum_names)
+            || (field.optional && is_bare_tagged_data_enum(&field.ty, tagged_data_enum_names)));
+    let is_bare_tagged_enum =
+        !is_vec_tagged_enum && !is_option_tagged_enum && is_bare_tagged_data_enum(&field.ty, tagged_data_enum_names);
     let field_type = if force_optional {
         mapper.optional(&mapper.map_type(&field.ty))
-    } else if is_vec_tagged_enum {
+    } else if is_vec_tagged_enum || is_bare_tagged_enum {
         "JsValue".to_string()
+    } else if is_option_tagged_enum {
+        "Option<JsValue>".to_string()
     } else if field.optional && matches!(field.ty, TypeRef::Optional(_)) {
         // Already Optional in IR: map_type returns "Option<X>". Don't double-wrap.
         mapper.map_type(&field.ty)

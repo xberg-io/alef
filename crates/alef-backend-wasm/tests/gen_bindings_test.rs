@@ -2634,3 +2634,209 @@ fn test_vec_of_tagged_data_enum_field_uses_js_value() {
         "core→binding From impl must serialize Vec<Message> via serde_wasm_bindgen;\nactual content:\n{content}"
     );
 }
+
+/// Regression: `Option<TaggedDataEnum>` and bare `TaggedDataEnum` scalar fields must use
+/// `Option<JsValue>` / `JsValue` storage (not `Option<WasmFoo>` / `WasmFoo`) so that plain JS
+/// object literals can be assigned without constructing explicit wasm-bindgen class instances.
+///
+/// Before this fix the error was: `Error: expected instance of WasmResponseFormat`.
+#[test]
+fn test_option_and_bare_tagged_data_enum_fields_use_js_value() {
+    let backend = WasmBackend;
+
+    // Build a tagged-data enum: ResponseFormat with at least one data variant.
+    let format_enum = EnumDef {
+        name: "ResponseFormat".to_string(),
+        rust_path: "test_lib::ResponseFormat".to_string(),
+        original_rust_path: String::new(),
+        variants: vec![
+            EnumVariant {
+                name: "Text".to_string(),
+                fields: vec![FieldDef {
+                    name: "_0".to_string(),
+                    ty: TypeRef::Named("TextFormat".to_string()),
+                    optional: false,
+                    default: None,
+                    doc: String::new(),
+                    sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    typed_default: None,
+                    core_wrapper: alef_core::ir::CoreWrapper::None,
+                    vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                    newtype_wrapper: None,
+                    serde_rename: Some("text".to_string()),
+                    serde_flatten: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                }],
+                is_tuple: true,
+                doc: String::new(),
+                is_default: false,
+                serde_rename: Some("text".to_string()),
+            },
+            EnumVariant {
+                name: "JsonObject".to_string(),
+                fields: vec![],
+                is_tuple: false,
+                doc: String::new(),
+                is_default: false,
+                serde_rename: Some("json_object".to_string()),
+            },
+        ],
+        doc: String::new(),
+        cfg: None,
+        is_copy: false,
+        has_serde: true,
+        serde_tag: Some("type".to_string()),
+        serde_untagged: false,
+        serde_rename_all: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+
+    // Build a struct with:
+    //   - an optional tagged-data enum field:  response_format: Option<ResponseFormat>
+    //     (IR shape: optional=true, ty=Named — the mapper wraps it in Option<>)
+    //   - a bare (required) tagged-data enum field:  format: ResponseFormat
+    //     (IR shape: optional=false, ty=Named)
+    let request_type = make_type_def(
+        "ChatRequest",
+        vec![
+            make_field(
+                "response_format",
+                TypeRef::Named("ResponseFormat".to_string()),
+                true, // optional=true: the mapper adds Option<> wrapping
+            ),
+            make_field(
+                "format",
+                TypeRef::Named("ResponseFormat".to_string()),
+                false, // required
+            ),
+        ],
+    );
+
+    // Add a function that accepts ChatRequest so binding→core From impl is generated.
+    let chat_fn = FunctionDef {
+        name: "chat".to_string(),
+        rust_path: "test_lib::chat".to_string(),
+        original_rust_path: String::new(),
+        params: vec![ParamDef {
+            name: "request".to_string(),
+            ty: TypeRef::Named("ChatRequest".to_string()),
+            optional: false,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: false,
+            is_mut: false,
+            newtype_wrapper: None,
+            original_type: None,
+        }],
+        return_type: TypeRef::String,
+        is_async: false,
+        error_type: None,
+        doc: String::new(),
+        cfg: None,
+        sanitized: false,
+        return_sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![request_type],
+        functions: vec![chat_fn],
+        enums: vec![format_enum],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config();
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generate_bindings should succeed");
+    let content = &files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap().content;
+
+    // --- Option<TaggedDataEnum> checks ---
+
+    // The struct field must be Option<JsValue>, not Option<WasmResponseFormat>.
+    assert!(
+        content.contains("response_format: Option<JsValue>"),
+        "Option<TaggedDataEnum> struct field must be stored as Option<JsValue>;\nactual:\n{content}"
+    );
+    assert!(
+        !content.contains("response_format: Option<WasmResponseFormat>"),
+        "Option<TaggedDataEnum> must NOT be Option<WasmResponseFormat>;\nactual:\n{content}"
+    );
+
+    // The getter must return Option<JsValue>.
+    assert!(
+        content.contains("pub fn response_format(&self) -> Option<JsValue>"),
+        "Option<TaggedDataEnum> getter must return Option<JsValue>;\nactual:\n{content}"
+    );
+
+    // The setter must accept Option<JsValue>.
+    assert!(
+        content.contains("fn set_response_format(&mut self, value: Option<JsValue>)"),
+        "Option<TaggedDataEnum> setter must accept Option<JsValue>;\nactual:\n{content}"
+    );
+
+    // The binding→core From impl must use serde_wasm_bindgen for the optional field.
+    assert!(
+        content.contains(
+            "response_format: val.response_format.as_ref().and_then(|v| serde_wasm_bindgen::from_value(v.clone()).ok())"
+        ),
+        "Option<TaggedDataEnum> binding→core From impl must use serde_wasm_bindgen;\nactual:\n{content}"
+    );
+
+    // The core→binding From impl must serialize via serde_wasm_bindgen.
+    assert!(
+        content.contains(
+            "response_format: val.response_format.as_ref().and_then(|v| serde_wasm_bindgen::to_value(v).ok())"
+        ),
+        "Option<TaggedDataEnum> core→binding From impl must use serde_wasm_bindgen;\nactual:\n{content}"
+    );
+
+    // --- Bare TaggedDataEnum (required) checks ---
+
+    // The struct field must be JsValue, not WasmResponseFormat.
+    assert!(
+        content.contains("format: JsValue"),
+        "bare TaggedDataEnum struct field must be stored as JsValue;\nactual:\n{content}"
+    );
+    assert!(
+        !content.contains("format: WasmResponseFormat"),
+        "bare TaggedDataEnum must NOT be WasmResponseFormat;\nactual:\n{content}"
+    );
+
+    // The getter must return JsValue.
+    assert!(
+        content.contains("pub fn format(&self) -> JsValue"),
+        "bare TaggedDataEnum getter must return JsValue;\nactual:\n{content}"
+    );
+
+    // The setter must accept JsValue.
+    assert!(
+        content.contains("fn set_format(&mut self, value: JsValue)"),
+        "bare TaggedDataEnum setter must accept JsValue;\nactual:\n{content}"
+    );
+
+    // The binding→core From impl must use serde_wasm_bindgen for the bare field.
+    assert!(
+        content.contains("format: serde_wasm_bindgen::from_value(val.format.clone()).unwrap_or_default()"),
+        "bare TaggedDataEnum binding→core From impl must use serde_wasm_bindgen;\nactual:\n{content}"
+    );
+
+    // The core→binding From impl must serialize via serde_wasm_bindgen.
+    assert!(
+        content.contains("format: serde_wasm_bindgen::to_value(&val.format).unwrap_or(JsValue::NULL)"),
+        "bare TaggedDataEnum core→binding From impl must use serde_wasm_bindgen;\nactual:\n{content}"
+    );
+}

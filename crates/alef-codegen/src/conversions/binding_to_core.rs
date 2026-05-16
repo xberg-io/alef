@@ -721,16 +721,37 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
             }
         }
     }
-    // Tagged-data enum field (WASM only; binding holds JsValue, core holds the typed enum).
-    // Vec<TaggedDataEnum> is stored as JsValue (a plain JS array) so callers can pass
-    // plain objects without constructing explicit binding-class instances.
+    // Tagged-data enum field (WASM only; binding holds JsValue / Option<JsValue>, core holds the
+    // typed enum). Handles bare Named, Option<Named>, Vec<Named>, and Option<Vec<Named>> shapes.
+    // All four shapes are stored as JsValue or Option<JsValue> in the binding struct so that
+    // callers can pass plain JS objects without constructing explicit wasm-bindgen class instances.
     if config.map_uses_jsvalue {
         if let Some(tagged_names) = config.tagged_data_enum_names {
+            let bare_named = matches!(ty, TypeRef::Named(n) if tagged_names.contains(n));
+            let optional_named = matches!(ty, TypeRef::Optional(inner)
+                if matches!(inner.as_ref(), TypeRef::Named(n) if tagged_names.contains(n)));
             let vec_named = matches!(ty, TypeRef::Vec(inner)
                 if matches!(inner.as_ref(), TypeRef::Named(n) if tagged_names.contains(n)));
             let optional_vec_named = matches!(ty, TypeRef::Optional(outer)
                 if matches!(outer.as_ref(), TypeRef::Vec(inner)
                     if matches!(inner.as_ref(), TypeRef::Named(n) if tagged_names.contains(n))));
+            if bare_named {
+                if optional {
+                    // Optional bare TaggedDataEnum (field.optional=true, ty=Named): binding holds
+                    // Option<JsValue>; core expects Option<T>.
+                    return format!(
+                        "{name}: val.{name}.as_ref().and_then(|v| serde_wasm_bindgen::from_value(v.clone()).ok())"
+                    );
+                }
+                // Required bare TaggedDataEnum stored as JsValue: deserialize directly.
+                return format!("{name}: serde_wasm_bindgen::from_value(val.{name}.clone()).unwrap_or_default()");
+            }
+            if optional_named {
+                // Option<TaggedDataEnum> (ty=Optional(Named)) stored as Option<JsValue>: deserialize when Some.
+                return format!(
+                    "{name}: val.{name}.as_ref().and_then(|v| serde_wasm_bindgen::from_value(v.clone()).ok())"
+                );
+            }
             if vec_named {
                 return format!("{name}: serde_wasm_bindgen::from_value(val.{name}.clone()).unwrap_or_default()");
             }
