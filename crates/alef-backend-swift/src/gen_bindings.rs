@@ -67,26 +67,36 @@ impl Backend for SwiftBackend {
 
         let mut body = String::new();
 
-        // Emit typealiases for all struct types exposed by swift-bridge.
-        // swift-bridge exposes types that are declared in the extern "Rust" block,
-        // so we generate typealiases for all non-excluded types to provide a
-        // stable Swift API that references RustBridge types.
-        // Skip opaque handle types with methods — those get a full class wrapper below
-        // instead of a typealias.
+        // Emit first-class Swift structs (Codable + Sendable + Hashable) for non-opaque,
+        // non-trait DTO types that have serde derives and at least one field.  These become
+        // proper Swift value types with stored `let` properties, memberwise initialisers,
+        // and CodingKeys so Codable works out-of-the-box.  An internal `// MARK: - FFI`
+        // extension is also emitted with `init(_ rb: RustBridge.X)` and `func intoRust()`
+        // so the DefaultClient façade can marshal at every public method boundary.
+        //
+        // Types that don't qualify for a first-class struct (no serde, empty fields, or
+        // opaque handle types) fall back to a `public typealias Foo = RustBridge.Foo`.
+        // Opaque handle types with methods get a full class wrapper below.
         for ty in api
             .types
             .iter()
             .filter(|t| !t.is_trait && !exclude_types.contains(&t.name))
             .filter(|t| t.methods.is_empty() || !t.is_opaque && t.has_serde)
         {
-            emit_doc_comment(&ty.doc, "", &mut body);
-            body.push_str(&crate::template_env::render(
-                "typealias.jinja",
-                minijinja::context! {
-                    name => &ty.name,
-                },
-            ));
-            body.push('\n');
+            if !ty.is_opaque && ty.has_serde && !ty.fields.is_empty() {
+                emit_doc_comment(&ty.doc, "", &mut body);
+                emit_first_class_struct(ty, &mapper, &mut body);
+                body.push('\n');
+            } else {
+                emit_doc_comment(&ty.doc, "", &mut body);
+                body.push_str(&crate::template_env::render(
+                    "typealias.jinja",
+                    minijinja::context! {
+                        name => &ty.name,
+                    },
+                ));
+                body.push('\n');
+            }
         }
 
         // Enums are emitted as native Swift enums with unit variants only.

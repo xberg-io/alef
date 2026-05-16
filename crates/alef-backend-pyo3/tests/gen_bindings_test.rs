@@ -3697,7 +3697,11 @@ fn test_capsule_types_in_methods() {
     if let Some(pos) = content.find("impl LanguageRegistry") {
         let start = pos.saturating_sub(50);
         let end = (pos + 200).min(content.len());
-        eprintln!("=== FOUND impl LanguageRegistry at {} ===\n{:?}\n===", pos, &content[start..end]);
+        eprintln!(
+            "=== FOUND impl LanguageRegistry at {} ===\n{:?}\n===",
+            pos,
+            &content[start..end]
+        );
     } else {
         eprintln!("=== impl LanguageRegistry NOT FOUND ===");
         // Print the struct area

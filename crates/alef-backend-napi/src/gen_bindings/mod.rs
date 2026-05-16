@@ -379,9 +379,18 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
                 continue;
             }
             if typ.is_opaque {
-                builder.add_item(&alef_codegen::generators::gen_opaque_struct_prefixed(
-                    typ, &cfg, &prefix,
-                ));
+                // gen_opaque_struct_prefixed emits `#[napi]` from cfg.struct_attrs.
+                // Replace with `#[napi(js_name = "Foo")]` so NAPI-RS exports the
+                // unprefixed name while the Rust struct stays JsFoo internally.
+                let opaque_struct_code = {
+                    let raw = alef_codegen::generators::gen_opaque_struct_prefixed(typ, &cfg, &prefix);
+                    let struct_name = format!("{prefix}{}", typ.name);
+                    raw.replace(
+                        &format!("#[napi]\npub struct {struct_name}"),
+                        &format!("#[napi(js_name = \"{}\")]\npub struct {struct_name}", typ.name),
+                    )
+                };
+                builder.add_item(&opaque_struct_code);
                 let capsule_type_names: AHashSet<String> = capsule_types.keys().cloned().collect();
                 builder.add_item(&types::gen_opaque_struct_methods(
                     typ,

@@ -148,10 +148,11 @@ pub(super) fn gen_dts(
                     //   3. The parent type has `has_default = true` — the NAPI binding wraps every
                     //      field in Option<T> so callers can omit fields and rely on defaults.
                     let is_optional = matches!(field.ty, TypeRef::Optional(_)) || field.optional || typ.has_default;
+                    // DTO fields are readonly — callers construct new objects rather than mutating.
                     if is_optional {
-                        lines.push(format!("  {js_name}?: {ts_ty}"));
+                        lines.push(format!("  readonly {js_name}?: {ts_ty}"));
                     } else {
-                        lines.push(format!("  {js_name}: {ts_ty}"));
+                        lines.push(format!("  readonly {js_name}: {ts_ty}"));
                     }
                 }
                 lines.push("}".to_string());

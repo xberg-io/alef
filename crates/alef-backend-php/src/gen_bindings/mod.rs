@@ -998,43 +998,8 @@ impl Backend for PhpBackend {
                 context! { class_name => &typ.name },
             ));
 
-            // Public property declarations (ext-php-rs exposes struct fields as properties)
-            for field in &typ.fields {
-                let is_array = matches!(&field.ty, TypeRef::Vec(_) | TypeRef::Map(_, _));
-                let prop_type = if field.optional {
-                    let inner = php_type(&field.ty);
-                    if inner.starts_with('?') {
-                        inner
-                    } else {
-                        format!("?{inner}")
-                    }
-                } else {
-                    php_type(&field.ty)
-                };
-                if is_array {
-                    let phpdoc = php_phpdoc_type(&field.ty);
-                    let nullable_prefix = if field.optional { "?" } else { "" };
-                    content.push_str(&crate::template_env::render(
-                        "php_property_type_annotation.jinja",
-                        context! {
-                            nullable_prefix => nullable_prefix,
-                            phpdoc => &phpdoc,
-                        },
-                    ));
-                }
-                content.push_str(&crate::template_env::render(
-                    "php_property_stub.jinja",
-                    context! {
-                        prop_type => &prop_type,
-                        field_name => &field.name,
-                    },
-                ));
-            }
-            content.push('\n');
-
-            // Constructor with typed parameters.
-            // PHP requires required parameters to come before optional ones, so sort
-            // the fields: required first, then optional (preserving relative order within each group).
+            // PHP 8.3+ constructor property promotion with `public readonly`.
+            // Required parameters come before optional ones (PHP syntax requirement).
             let mut sorted_fields: Vec<&alef_core::ir::FieldDef> = typ.fields.iter().collect();
             sorted_fields.sort_by_key(|f| f.optional);
 
@@ -1062,6 +1027,8 @@ impl Backend for PhpBackend {
                 content.push_str("     */\n");
             }
 
+            // Promoted readonly parameters replace both separate property declarations
+            // and redundant getter methods — direct property access is the PHP 8.3+ idiom.
             let params: Vec<String> = sorted_fields
                 .iter()
                 .map(|f| {
@@ -1072,52 +1039,13 @@ impl Backend for PhpBackend {
                         ptype
                     };
                     let default = if f.optional { " = null" } else { "" };
-                    format!("        {} ${}{}", nullable, f.name, default)
+                    format!("        public readonly {} ${}{}", nullable, f.name, default)
                 })
                 .collect();
             content.push_str(&crate::template_env::render(
                 "php_constructor_method.jinja",
                 context! { params => &params.join(",\n") },
             ));
-
-            // Getter methods for each field
-            for field in &typ.fields {
-                let is_array = matches!(&field.ty, TypeRef::Vec(_) | TypeRef::Map(_, _));
-                let return_type = if field.optional {
-                    let inner = php_type(&field.ty);
-                    if inner.starts_with('?') {
-                        inner
-                    } else {
-                        format!("?{inner}")
-                    }
-                } else {
-                    php_type(&field.ty)
-                };
-                let getter_name = field.name.to_lower_camel_case();
-                // Emit PHPDoc for array return types so PHPStan knows the element type.
-                if is_array {
-                    let phpdoc = php_phpdoc_type(&field.ty);
-                    let nullable_prefix = if field.optional { "?" } else { "" };
-                    content.push_str(&crate::template_env::render(
-                        "php_constructor_doc_return.jinja",
-                        context! { return_type => &format!("{nullable_prefix}{phpdoc}") },
-                    ));
-                }
-                let is_void_getter = return_type == "void";
-                let getter_body = if is_void_getter {
-                    "{ }".to_string()
-                } else {
-                    "{ throw new \\RuntimeException('Not implemented.'); }".to_string()
-                };
-                content.push_str(&crate::template_env::render(
-                    "php_getter_stub.jinja",
-                    context! {
-                        getter_name => &format!("get{}", getter_name.to_pascal_case()),
-                        return_type => &return_type,
-                        getter_body => &getter_body,
-                    },
-                ));
-            }
 
             content.push_str("}\n\n");
         }

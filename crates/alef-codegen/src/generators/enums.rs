@@ -1,6 +1,5 @@
 use crate::generators::RustBindingConfig;
 use alef_core::ir::EnumDef;
-use alef_core::keywords::PYTHON_KEYWORDS;
 
 /// Returns true if any variant of the enum has data fields.
 /// These enums cannot be represented as flat integer enums in bindings.
@@ -66,6 +65,25 @@ pub fn gen_pyo3_data_enum(enum_def: &EnumDef, core_import: &str) -> String {
     )
 }
 
+/// Convert a Rust PascalCase variant name to `UPPER_SNAKE_CASE` for PyO3 `#[pyo3(name = "...")]`.
+///
+/// Handles acronym-style names where 2+ leading uppercase characters are followed only by
+/// lowercase letters (e.g. `RDFa` → `RDFA` instead of `RD_FA`). For Python-keyword variants
+/// whose Rust identifier was appended with `_` (e.g. `None_`), the screaming form preserves
+/// the trailing underscore (`NONE_`) so `setattr`-based aliases in `options.py` continue to
+/// work correctly.
+fn to_pyo3_screaming(name: &str) -> String {
+    use heck::ToShoutySnakeCase;
+    let chars: Vec<char> = name.chars().collect();
+    let upper_prefix_len = chars.iter().take_while(|c| c.is_uppercase()).count();
+    // Acronym: 2+ leading uppercase chars with only lowercase (or empty) remainder
+    if upper_prefix_len >= 2 && chars[upper_prefix_len..].iter().all(|c| c.is_lowercase() || *c == '_') {
+        name.to_ascii_uppercase()
+    } else {
+        name.to_shouty_snake_case()
+    }
+}
+
 /// Generate an enum.
 pub fn gen_enum(enum_def: &EnumDef, cfg: &RustBindingConfig) -> String {
     // All enums are generated as unit-variant-only in the binding layer.
@@ -79,8 +97,9 @@ pub fn gen_enum(enum_def: &EnumDef, cfg: &RustBindingConfig) -> String {
     derives.push("serde::Serialize");
     derives.push("serde::Deserialize");
 
-    // Detect PyO3 context so we can rename Python keyword variants via #[pyo3(name = "...")].
-    // The Rust identifier stays unchanged; only the Python-exposed attribute name gets the suffix.
+    // Detect PyO3 context so we can rename all variants via #[pyo3(name = "UPPER_SNAKE_CASE")].
+    // PEP 8 mandates UPPER_SNAKE_CASE for enum members; pyclass variants must carry this
+    // rename so Python callers see `BatchStatus.VALIDATING` rather than `BatchStatus.Validating`.
     let is_pyo3 = cfg.enum_attrs.iter().any(|a| a.contains("pyclass"));
 
     // Determine which variant carries #[default].
@@ -93,11 +112,21 @@ pub fn gen_enum(enum_def: &EnumDef, cfg: &RustBindingConfig) -> String {
         .iter()
         .enumerate()
         .map(|(idx, v)| {
+            // In pyo3 context every variant gets #[pyo3(name = "UPPER_SNAKE_CASE")] so the
+            // Python-exposed name is PEP 8-compliant. For Python-keyword variants the
+            // Rust identifier is already escaped (None → None_) so we produce "NONE_" as
+            // the screaming form of that escaped name — callers use BatchStatus.NONE.
+            let pyo3_name = if is_pyo3 {
+                to_pyo3_screaming(&v.name)
+            } else {
+                String::new()
+            };
             minijinja::context! {
                 name => v.name.clone(),
                 idx => idx,
                 is_default => idx == default_idx,
-                has_pyo3_rename => is_pyo3 && PYTHON_KEYWORDS.contains(&v.name.as_str()),
+                has_pyo3_rename => is_pyo3,
+                pyo3_name => pyo3_name,
                 serde_rename => v.serde_rename.clone().unwrap_or_default(),
             }
         })

@@ -185,15 +185,15 @@ fn test_basic_stubs() {
         "Should have process function stub with multi-line signature (input is a builtin)"
     );
 
-    // Assert enum stub
+    // Assert enum stub — variants are emitted as UPPER_SNAKE_CASE (PEP 8)
     assert!(content.contains("class Mode:"), "Should define Mode enum class stub");
     assert!(
-        content.contains("Fast: Mode = ..."),
-        "Should have Fast variant typed as Mode"
+        content.contains("FAST: Mode = ..."),
+        "Should have FAST variant typed as Mode (PEP 8 UPPER_SNAKE_CASE)"
     );
     assert!(
-        content.contains("Accurate: Mode = ..."),
-        "Should have Accurate variant typed as Mode"
+        content.contains("ACCURATE: Mode = ..."),
+        "Should have ACCURATE variant typed as Mode (PEP 8 UPPER_SNAKE_CASE)"
     );
     assert!(
         content.contains("def __init__(self, value: int | str) -> None:"),
@@ -351,18 +351,18 @@ fn test_enum_stubs() {
     // Assert enum class definition
     assert!(content.contains("class Status:"), "Should define Status enum class");
 
-    // Assert enum variants typed as the enum class itself
+    // Assert enum variants typed as the enum class itself — UPPER_SNAKE_CASE (PEP 8)
     assert!(
-        content.contains("Pending: Status = ..."),
-        "Should have Pending variant typed as Status"
+        content.contains("PENDING: Status = ..."),
+        "Should have PENDING variant typed as Status (PEP 8 UPPER_SNAKE_CASE)"
     );
     assert!(
-        content.contains("Active: Status = ..."),
-        "Should have Active variant typed as Status"
+        content.contains("ACTIVE: Status = ..."),
+        "Should have ACTIVE variant typed as Status (PEP 8 UPPER_SNAKE_CASE)"
     );
     assert!(
-        content.contains("Complete: Status = ..."),
-        "Should have Complete variant typed as Status"
+        content.contains("COMPLETE: Status = ..."),
+        "Should have COMPLETE variant typed as Status (PEP 8 UPPER_SNAKE_CASE)"
     );
 
     // Assert enum __init__ signature
@@ -1029,12 +1029,12 @@ fn test_multiple_types_and_functions() {
     // Assert enum is defined
     assert!(content.contains("class SortOrder:"), "Should define SortOrder enum");
     assert!(
-        content.contains("Asc: SortOrder = ..."),
-        "Should have Asc variant typed as SortOrder"
+        content.contains("ASC: SortOrder = ..."),
+        "Should have ASC variant typed as SortOrder (PEP 8 UPPER_SNAKE_CASE)"
     );
     assert!(
-        content.contains("Desc: SortOrder = ..."),
-        "Should have Desc variant typed as SortOrder"
+        content.contains("DESC: SortOrder = ..."),
+        "Should have DESC variant typed as SortOrder (PEP 8 UPPER_SNAKE_CASE)"
     );
 }
 

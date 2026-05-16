@@ -7,13 +7,36 @@
 //! - `emit_error_type_with_imports` — emits a `sealed class` hierarchy for an error type
 //! - Kotlin type-string helpers (with import collection)
 
-use alef_core::ir::{EnumDef, FunctionDef, ParamDef, TypeDef, TypeRef};
+use alef_core::ir::{EnumDef, FunctionDef, ParamDef, PrimitiveType, TypeDef, TypeRef};
 use std::collections::BTreeSet;
 
 use super::helpers::emit_cleaned_kdoc;
 use super::shared::{kotlin_field_name, to_lower_camel, to_screaming_snake};
 use crate::type_map::KotlinMapper;
 use alef_codegen::type_mapper::TypeMapper;
+
+// ---------------------------------------------------------------------------
+// Helper for type name extraction
+// ---------------------------------------------------------------------------
+
+/// Get the Kotlin type name for a PrimitiveType.
+fn primitive_type_name(pt: &PrimitiveType) -> &'static str {
+    use alef_core::ir::PrimitiveType;
+    match pt {
+        PrimitiveType::Bool => "Boolean",
+        PrimitiveType::I8 => "Byte",
+        PrimitiveType::I16 => "Short",
+        PrimitiveType::I32 => "Int",
+        PrimitiveType::I64 => "Long",
+        PrimitiveType::U8 => "Byte",
+        PrimitiveType::U16 => "Short",
+        PrimitiveType::U32 => "Int",
+        PrimitiveType::U64 => "Long",
+        PrimitiveType::F32 => "Float",
+        PrimitiveType::F64 => "Double",
+        PrimitiveType::Usize | PrimitiveType::Isize => "Long",
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Type/enum/error emitters (re-exported for gen_mpp)
@@ -153,7 +176,20 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str) {
                 ));
                 for (idx, f) in variant.fields.iter().enumerate() {
                     let ty_str = kotlin_type_disambiguated(&f.ty, f.optional, &variant_names, package);
-                    let name = kotlin_field_name(&f.name, idx);
+                    // Extract the simple type name from TypeRef for payload-derived naming.
+                    let field_type_name = match &f.ty {
+                        TypeRef::Named(name) => Some(name.as_str()),
+                        TypeRef::String => Some("String"),
+                        TypeRef::Primitive(p) => Some(primitive_type_name(p)),
+                        _ => None,
+                    };
+                    let name = super::shared::kotlin_field_name_with_type(
+                        &f.name,
+                        idx,
+                        field_type_name,
+                        &variant.name,
+                        variant.fields.len(),
+                    );
                     let comma = if idx + 1 == variant.fields.len() { "" } else { "," };
                     out.push_str(&crate::template_env::render(
                         "variant_class_field.jinja",
@@ -304,8 +340,23 @@ fn emit_kotlin_tagged_serializer(out: &mut String, en: &EnumDef, tag_field: &str
         } else if variant.fields.len() == 1 && is_tuple_field_name(&variant.fields[0].name) {
             // Newtype/tuple variant: serialize the inner value as a tree then
             // inject the tag field so the output matches the tagged serde format.
+            let field = &variant.fields[0];
+            let field_name = super::shared::kotlin_field_name_with_type(
+                &field.name,
+                0,
+                match &field.ty {
+                    TypeRef::Named(n) => Some(n.as_str()),
+                    TypeRef::String => Some("String"),
+                    TypeRef::Primitive(p) => Some(primitive_type_name(p)),
+                    _ => None,
+                },
+                &variant.name,
+                1,
+            );
             out.push_str("                @Suppress(\"UNCHECKED_CAST\")\n");
-            out.push_str("                val n = mapper.valueToTree<com.fasterxml.jackson.databind.node.ObjectNode>(value.field0) as com.fasterxml.jackson.databind.node.ObjectNode\n");
+            out.push_str("                val n = mapper.valueToTree<com.fasterxml.jackson.databind.node.ObjectNode>(value.");
+            out.push_str(&field_name);
+            out.push_str(") as com.fasterxml.jackson.databind.node.ObjectNode\n");
             out.push_str("                n.put(\"");
             out.push_str(tag_field);
             out.push_str("\", \"");

@@ -696,7 +696,7 @@ pub(super) fn gen_record_type(
                     TypeRef::Map(k, v) => format!("new Dictionary<{}, {}>()", csharp_type(k), csharp_type(v)),
                     TypeRef::String | TypeRef::Char | TypeRef::Path => "\"\"".to_string(),
                     TypeRef::Json => "null".to_string(),
-                    TypeRef::Bytes => "Array.Empty<byte>()".to_string(),
+                    TypeRef::Bytes => "[]".to_string(),
                     TypeRef::Primitive(p) => match p {
                         PrimitiveType::Bool => "false".to_string(),
                         PrimitiveType::F32 => "0.0f".to_string(),

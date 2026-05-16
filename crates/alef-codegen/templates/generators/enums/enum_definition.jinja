@@ -8,7 +8,7 @@
 pub enum {{ enum_name }} {
 {%- for variant in variants %}
 {%- if variant.has_pyo3_rename %}
-    #[pyo3(name = "{{ variant.name }}_")]
+    #[pyo3(name = "{{ variant.pyo3_name }}")]
 {%- endif %}
 {%- if variant.is_default %}
     #[default]

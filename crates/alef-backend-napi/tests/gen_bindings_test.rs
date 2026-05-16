@@ -198,6 +198,67 @@ fn test_basic_generation() {
 }
 
 #[test]
+fn test_bytes_struct_fields_use_jsbytes_and_modern_ts_types() {
+    let backend = NapiBackend;
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "UploadFile".to_string(),
+            rust_path: "test_lib::UploadFile".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                make_field("content", TypeRef::Bytes, false),
+                make_field("maybe_content", TypeRef::Optional(Box::new(TypeRef::Bytes)), true),
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+            doc: "Upload file.".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: HashMap::new(),
+    };
+
+    let files = backend.generate_bindings(&api, &make_config()).unwrap();
+    let lib_rs = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("lib.rs"))
+        .unwrap();
+    let content = lib_rs.content.as_str();
+
+    assert!(content.contains("pub struct JsBytes(pub Vec<u8>);"), "{content}");
+    assert!(content.contains("pub content: JsBytes,"), "{content}");
+    assert!(content.contains("pub maybe_content: Option<JsBytes>,"), "{content}");
+    assert!(
+        content.contains(r#"#[napi(ts_type = "Uint8Array | Buffer | Array<number>")]"#),
+        "{content}"
+    );
+    assert!(
+        content.contains(r#"ts_type = "Uint8Array | Buffer | Array<number> | null | undefined""#),
+        "{content}"
+    );
+    assert!(
+        !content.contains("serde_bytes"),
+        "bare/optional bytes fields should use JsBytes, not serde_bytes attrs:\n{content}"
+    );
+}
+
+#[test]
 fn test_type_mapping() {
     let backend = NapiBackend;
 

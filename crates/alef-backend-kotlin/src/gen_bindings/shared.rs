@@ -101,3 +101,80 @@ pub fn kotlin_field_name(raw: &str, idx: usize) -> String {
     }
     escape_kotlin_keyword(&to_lower_camel(raw))
 }
+
+/// Derive a payload-informed field name for sealed-class tuple variants.
+///
+/// For tuple variants with a single payload, this function derives smarter names:
+/// - If the field name is positional (like `_0`), infer from the type:
+///   - Named type `Pdf Metadata` with variant name `Pdf` → strip prefix "Pdf" → `metadata`
+///   - Primitive type (String, Int, etc.) → use generic `value`
+/// - If the field name is a struct field name (like `reason`), use it directly.
+/// - For multiple tuple fields, use generic names: `value0`, `value1`, etc.
+///
+/// # Arguments
+///
+/// * `field_name` - Raw field name from IR (`_0`, `_1`, or named like `reason`)
+/// * `field_idx` - Position in the variant's field list
+/// * `field_type_name` - The simple type name (e.g., `PdfMetadata` from `TypeRef::Named`)
+/// * `variant_name` - The variant name (e.g., `Pdf`)
+/// * `total_fields` - Total number of fields in the variant
+pub fn kotlin_field_name_with_type(
+    field_name: &str,
+    field_idx: usize,
+    field_type_name: Option<&str>,
+    variant_name: &str,
+    total_fields: usize,
+) -> String {
+    let stripped = field_name.trim_start_matches('_');
+
+    // If field name is non-positional (not `_N`), use it directly (struct variant).
+    if !stripped.is_empty() && !stripped.chars().all(|c| c.is_ascii_digit()) {
+        return escape_kotlin_keyword(&to_lower_camel(field_name));
+    }
+
+    // For positional fields, derive from type if available and single field.
+    if total_fields == 1 {
+        if let Some(type_name) = field_type_name {
+            // Try to strip variant name as prefix. E.g., `Pdf` variant with `PdfMetadata` type.
+            if let Some(remainder) = type_name.strip_prefix(variant_name) {
+                // Convert `Metadata` to `metadata`
+                let derived = to_lower_camel(remainder);
+                if !derived.is_empty() {
+                    return escape_kotlin_keyword(&derived);
+                }
+            }
+
+            // For primitive types (String, Int, Long, etc.), use generic `value`.
+            if is_primitive_or_stdlib_type(type_name) {
+                return "value".to_string();
+            }
+        }
+    }
+
+    // For multiple fields or when inference fails, use generic names.
+    if total_fields > 1 {
+        return format!("value{}", field_idx);
+    }
+
+    // Fallback: use `value` for single non-inferred field.
+    "value".to_string()
+}
+
+/// Check if a type name is a primitive or stdlib type (String, Int, Long, etc.).
+fn is_primitive_or_stdlib_type(type_name: &str) -> bool {
+    matches!(
+        type_name,
+        "String"
+            | "Byte"
+            | "Short"
+            | "Int"
+            | "Long"
+            | "Float"
+            | "Double"
+            | "Boolean"
+            | "Unit"
+            | "Char"
+            | "Any"
+            | "Nothing"
+    )
+}

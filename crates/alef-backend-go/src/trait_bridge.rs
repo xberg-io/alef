@@ -1,7 +1,7 @@
+use crate::type_map::go_type;
 use alef_core::config::TraitBridgeConfig;
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
-use crate::type_map::go_type;
 use heck::ToPascalCase;
 /// Generate Go trait bridge interface, CGo callback trampolines, and registration functions.
 ///

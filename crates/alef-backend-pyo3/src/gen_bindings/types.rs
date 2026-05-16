@@ -249,56 +249,12 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
         })
         .collect();
 
-    // Unit enums (needed_enums) live as #[pyclass] in the native module under their Rust
-    // variant names (PascalCase, e.g. NewlineStyle.Backslash). Emit SCREAMING_SNAKE_CASE
-    // aliases on the native class so callers can use NewlineStyle.BACKSLASH as they would
-    // with a regular Python (str, Enum). The values are the native enum instances, so
-    // passing them to native-typed constructor parameters works without a TypeError.
+    // Unit enums (needed_enums) live as #[pyclass] in the native module. Each variant is
+    // already exposed as UPPER_SNAKE_CASE via #[pyo3(name = "UPPER_SNAKE_CASE")] in the
+    // generated Rust binding (see alef-codegen::generators::enums::gen_enum), so no
+    // runtime monkey-patching aliases are needed here.
     let mut sorted_needed_enums: Vec<&String> = needed_enums.iter().collect();
     sorted_needed_enums.sort();
-    for enum_name in &sorted_needed_enums {
-        if let Some(enum_def) = api.enums.iter().find(|e| &e.name == *enum_name) {
-            if data_enum_names.contains(enum_def.name.as_str()) {
-                continue;
-            }
-            // Add SCREAMING_SNAKE_CASE class-level attributes to the native pyclass.
-            // When the Rust variant name is a Python keyword (e.g. `None`), bare
-            // attribute access `HighlightStyle.None` is a SyntaxError, so use
-            // `setattr` + `getattr` to bridge the keyword.
-            for variant in &enum_def.variants {
-                let rust_name = &variant.name;
-                let py_name = to_python_screaming(rust_name);
-                // PyO3 escapes Python-keyword variant names by appending `_`
-                // (matching `python_safe_name`), so `None` becomes `None_` on
-                // the runtime class. We must `getattr` from the escaped form.
-                let runtime_name = alef_core::keywords::python_ident(rust_name);
-                let needs_setattr = runtime_name.as_str() != rust_name.as_str()
-                    || alef_core::keywords::PYTHON_KEYWORDS.contains(&py_name.as_str());
-                if needs_setattr {
-                    out.push_str(&crate::template_env::render(
-                        "enum_setattr.jinja",
-                        minijinja::context! {
-                            enum_name => &enum_def.name,
-                            py_name => &py_name,
-                            runtime_name => runtime_name,
-                        },
-                    ));
-                    out.push('\n');
-                } else {
-                    out.push_str(&crate::template_env::render(
-                        "enum_direct_assign.jinja",
-                        minijinja::context! {
-                            enum_name => &enum_def.name,
-                            py_name => &py_name,
-                            rust_name => rust_name,
-                        },
-                    ));
-                    out.push('\n');
-                }
-            }
-            out.push('\n');
-        }
-    }
 
     for enum_def in &api.enums {
         // Unit enums are handled above — do not emit a duplicate (str, Enum) subclass.

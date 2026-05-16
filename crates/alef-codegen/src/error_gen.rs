@@ -1255,6 +1255,10 @@ mod tests {
             "expected acronym-preserving Io sentinel, got:\n{output}"
         );
         assert!(
+            output.contains("var (\n\t// ErrIo is returned when IO error.\n\tErrIo = errors.New(\"IO error\")\n"),
+            "Go sentinel comments must be emitted on separate lines, got:\n{output}"
+        );
+        assert!(
             output.contains("ErrOcr = errors.New(\"OCR error\")"),
             "expected acronym-preserving Ocr sentinel, got:\n{output}"
         );

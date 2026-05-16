@@ -797,9 +797,9 @@ fn test_output_path_no_doubling() {
 /// pattern = "streaming" and owner_type = an opaque handle, the Java backend
 /// must emit (a) the three FFI iterator-handle MethodHandles in NativeLib and
 /// (b) a public `chatStream(req)` instance method on the opaque handle that
-/// returns `Iterator<ChatCompletionChunk>` driven by those handles.
+/// returns `Stream<ChatCompletionChunk>` driven by those handles.
 #[test]
-fn test_streaming_adapter_emits_iterator_method_on_opaque_handle() {
+fn test_streaming_adapter_emits_stream_method_on_opaque_handle() {
     use alef_core::ir::{MethodDef, ReceiverKind};
 
     let config = resolved_one(
@@ -948,7 +948,7 @@ type = "ChatCompletionRequest"
         );
     }
 
-    // 2. DefaultClient.java must expose a public `chatStream(...)` returning Iterator<ChatCompletionChunk>.
+    // 2. DefaultClient.java must expose a public `chatStream(...)` returning Stream<ChatCompletionChunk>.
     let client = files
         .iter()
         .find(|f| f.path.ends_with("DefaultClient.java"))
@@ -956,17 +956,21 @@ type = "ChatCompletionRequest"
     assert!(
         client
             .content
-            .contains("public Iterator<ChatCompletionChunk> chatStream(final ChatCompletionRequest"),
-        "DefaultClient must emit `chatStream` returning Iterator<ChatCompletionChunk>. Got:\n{}",
+            .contains("public java.util.stream.Stream<ChatCompletionChunk> chatStream(final ChatCompletionRequest"),
+        "DefaultClient must emit `chatStream` returning Stream<ChatCompletionChunk>. Got:\n{}",
         client.content
     );
     assert!(
-        client.content.contains("import java.util.Iterator;"),
-        "DefaultClient must import java.util.Iterator"
+        !client.content.contains("public Iterator<ChatCompletionChunk>"),
+        "DefaultClient must NOT use bare Iterator<> return type for streaming methods"
     );
     assert!(
-        client.content.contains("import java.util.NoSuchElementException;"),
-        "DefaultClient must import NoSuchElementException for the iterator hasNext/next contract"
+        client.content.contains("import java.util.stream.Stream;"),
+        "DefaultClient must import java.util.stream.Stream"
+    );
+    assert!(
+        client.content.contains("StreamSupport.stream("),
+        "DefaultClient must bridge via StreamSupport.stream(...)"
     );
     // Iteration body must call all three FFI handles.
     for needle in [
@@ -1238,7 +1242,8 @@ fn test_opaque_handle_type_remains_class() {
 
     // Opaque handles should emit as classes (not records), with AutoCloseable for resource management
     assert!(
-        handle_file.content.contains("public class OpaqueHandle") && handle_file.content.contains("implements AutoCloseable"),
+        handle_file.content.contains("public class OpaqueHandle")
+            && handle_file.content.contains("implements AutoCloseable"),
         "Opaque handle type should be emitted as class implementing AutoCloseable. Got:\n{}",
         handle_file.content
     );
@@ -1307,27 +1312,25 @@ fn test_sum_type_sealed_interface_with_record_variants() {
                 },
                 EnumVariant {
                     name: "Bearer".to_string(),
-                    fields: vec![
-                        FieldDef {
-                            name: "token".to_string(),
-                            ty: TypeRef::String,
-                            optional: false,
-                            default: None,
-                            doc: String::new(),
-                            sanitized: false,
-                            is_boxed: false,
-                            type_rust_path: None,
-                            cfg: None,
-                            typed_default: None,
-                            core_wrapper: alef_core::ir::CoreWrapper::None,
-                            vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
-                            newtype_wrapper: None,
-                            serde_rename: None,
-                            serde_flatten: false,
-                            binding_excluded: false,
-                            binding_exclusion_reason: None,
-                        },
-                    ],
+                    fields: vec![FieldDef {
+                        name: "token".to_string(),
+                        ty: TypeRef::String,
+                        optional: false,
+                        default: None,
+                        doc: String::new(),
+                        sanitized: false,
+                        is_boxed: false,
+                        type_rust_path: None,
+                        cfg: None,
+                        typed_default: None,
+                        core_wrapper: alef_core::ir::CoreWrapper::None,
+                        vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                        newtype_wrapper: None,
+                        serde_rename: None,
+                        serde_flatten: false,
+                        binding_excluded: false,
+                        binding_exclusion_reason: None,
+                    }],
                     is_tuple: false,
                     doc: "Bearer token auth".to_string(),
                     is_default: false,

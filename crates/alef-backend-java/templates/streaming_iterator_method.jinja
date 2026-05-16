@@ -1,4 +1,4 @@
-    public Iterator<{{ item_type }}> {{ method_name }}(final {{ request_type }} {{ request_param }}) throws {{ exception_class }} {
+    public java.util.stream.Stream<{{ item_type }}> {{ method_name }}(final {{ request_type }} {{ request_param }}) throws {{ exception_class }} {
         java.util.Objects.requireNonNull({{ request_param }}, "{{ request_param }} must not be null");
         final MemorySegment streamHandle;
         try (var arena = Arena.ofShared()) {
@@ -23,7 +23,7 @@
             throw new {{ exception_class }}("{{ method_name }}: stream handle was null", (Throwable) null);
         }
         final MemorySegment finalStreamHandle = streamHandle;
-        return new Iterator<{{ item_type }}>() {
+        java.util.Iterator<{{ item_type }}> underlyingIterator = new java.util.Iterator<{{ item_type }}>() {
             private {{ item_type }} pending = pull();
             private boolean closed = false;
 
@@ -90,11 +90,18 @@
             @Override
             public {{ item_type }} next() {
                 if (pending == null) {
-                    throw new NoSuchElementException();
+                    throw new java.util.NoSuchElementException();
                 }
                 {{ item_type }} current = pending;
                 pending = pull();
                 return current;
             }
         };
+        return java.util.stream.StreamSupport.stream(
+            java.util.Spliterators.spliteratorUnknownSize(
+                underlyingIterator,
+                java.util.Spliterator.ORDERED | java.util.Spliterator.NONNULL
+            ),
+            false
+        );
     }

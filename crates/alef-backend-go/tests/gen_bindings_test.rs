@@ -1996,14 +1996,12 @@ fn test_trait_bridge_string_param_emitted_as_string_not_interface() {
     // Regression test D1: path: String should emit "path string", not "path interface{}"
     let trait_type = make_trait_type(
         "Backend",
-        vec![
-            make_trait_method(
-                "process_file",
-                vec![make_trait_param("path", TypeRef::String)],
-                TypeRef::String,
-                true,
-            ),
-        ],
+        vec![make_trait_method(
+            "process_file",
+            vec![make_trait_param("path", TypeRef::String)],
+            TypeRef::String,
+            true,
+        )],
     );
     let bridge_cfg = TraitBridgeConfig {
         trait_name: "Backend".to_string(),
@@ -2040,17 +2038,15 @@ fn test_trait_bridge_named_config_param_emitted_as_concrete_type() {
     // Regression test D1: config: OcrConfig should emit "config OcrConfig", not "config map[string]interface{}"
     let trait_type = make_trait_type(
         "OcrBackend",
-        vec![
-            make_trait_method(
-                "process_image",
-                vec![
-                    make_trait_param("image_bytes", TypeRef::Bytes),
-                    make_trait_param("config", TypeRef::Named("OcrConfig".to_string())),
-                ],
-                TypeRef::Named("OcrResult".to_string()),
-                true,
-            ),
-        ],
+        vec![make_trait_method(
+            "process_image",
+            vec![
+                make_trait_param("image_bytes", TypeRef::Bytes),
+                make_trait_param("config", TypeRef::Named("OcrConfig".to_string())),
+            ],
+            TypeRef::Named("OcrResult".to_string()),
+            true,
+        )],
     );
     let bridge_cfg = TraitBridgeConfig {
         trait_name: "OcrBackend".to_string(),
@@ -2131,14 +2127,12 @@ fn test_trait_bridge_enum_return_type_emitted_as_concrete_type() {
     // Regression test D1: return BackendType should emit "OcrBackendType", not "map[string]interface{}"
     let trait_type = make_trait_type(
         "OcrBackend",
-        vec![
-            make_trait_method(
-                "backend_type",
-                vec![],
-                TypeRef::Named("OcrBackendType".to_string()),
-                false,
-            ),
-        ],
+        vec![make_trait_method(
+            "backend_type",
+            vec![],
+            TypeRef::Named("OcrBackendType".to_string()),
+            false,
+        )],
     );
     let bridge_cfg = TraitBridgeConfig {
         trait_name: "OcrBackend".to_string(),
@@ -2166,16 +2160,14 @@ fn test_trait_bridge_enum_return_type_emitted_as_concrete_type() {
         name: "OcrBackendType".to_string(),
         rust_path: "my_lib::OcrBackendType".to_string(),
         original_rust_path: String::new(),
-        variants: vec![
-            EnumVariant {
-                name: "Tesseract".to_string(),
-                fields: vec![],
-                is_tuple: false,
-                doc: String::new(),
-                is_default: false,
-                serde_rename: None,
-            },
-        ],
+        variants: vec![EnumVariant {
+            name: "Tesseract".to_string(),
+            fields: vec![],
+            is_tuple: false,
+            doc: String::new(),
+            is_default: false,
+            serde_rename: None,
+        }],
         doc: String::new(),
         cfg: None,
         is_copy: false,
@@ -2206,21 +2198,14 @@ fn test_trait_bridge_dedup_snake_case_unregister_functions() {
     // don't emit both versions — only emit the PascalCase standard function.
     let trait_type = make_trait_type(
         "OcrBackend",
-        vec![
-            make_trait_method(
-                "process_image",
-                vec![],
-                TypeRef::String,
-                true,
-            ),
-        ],
+        vec![make_trait_method("process_image", vec![], TypeRef::String, true)],
     );
     let bridge_cfg = TraitBridgeConfig {
         trait_name: "OcrBackend".to_string(),
         super_trait: None,
         registry_getter: Some("my_lib::get_registry".to_string()),
         register_fn: Some("register_ocr_backend".to_string()),
-        unregister_fn: Some("unregister_ocr_backend".to_string()),  // snake_case — should NOT emit
+        unregister_fn: Some("unregister_ocr_backend".to_string()), // snake_case — should NOT emit
         clear_fn: None,
         type_alias: None,
         param_name: None,

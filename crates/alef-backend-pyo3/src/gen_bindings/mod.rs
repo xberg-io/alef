@@ -1348,6 +1348,10 @@ fn rewrite_capsule_methods(
         let method_start_marker = format!("pub fn {method_name}(");
         if let Some(start_idx) = result.find(&method_start_marker) {
             let attr_start = find_method_attrs_start(&result, start_idx);
+            eprintln!(
+                "[rewrite_capsule] method={method_name} start_idx={start_idx} attr_start={attr_start} prefix={:?}",
+                &result[..attr_start.min(200)]
+            );
             if let Some(end_idx) = find_method_end(&result, start_idx) {
                 result = format!("{}{}{}", &result[..attr_start], new_body, &result[end_idx..]);
             }

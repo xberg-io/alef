@@ -12,14 +12,11 @@ use alef_core::ir::{MethodDef, TypeDef, TypeRef};
 use super::functions::{napi_apply_primitive_casts_to_call_args, napi_gen_call_args, napi_wrap_return};
 
 /// Map a struct-field `TypeRef` containing `TypeRef::Bytes` (Rust `Vec<u8>`) to the TS
-/// type napi-rs v3 actually accepts at runtime. The macro-generated `FromNapiValue`
-/// for `Vec<u8>` only reads JS Arrays (it calls `napi_get_array_length`), but napi-rs's
-/// default d.ts emitter declares `Uint8Array`. Returning `Some("...")` triggers a
-/// `#[napi(ts_type = "...")]` override that aligns the published types with runtime.
+/// type the generated `JsBytes` wrapper accepts at runtime.
 fn ts_type_for_bytes_field(ty: &TypeRef) -> Option<String> {
     fn inner(ty: &TypeRef) -> Option<String> {
         match ty {
-            TypeRef::Bytes => Some("Array<number>".to_string()),
+            TypeRef::Bytes => Some("Uint8Array | Buffer | Array<number>".to_string()),
             TypeRef::Optional(i) => inner(i).map(|s| format!("{s} | null | undefined")),
             TypeRef::Vec(i) => inner(i).map(|s| format!("Array<{s}>")),
             TypeRef::Map(_k, v) => inner(v).map(|s| format!("Record<string, {s}>")),
@@ -37,11 +34,6 @@ pub(super) fn gen_struct(
     opaque_types: &ahash::AHashSet<String>,
     never_skip_cfg_field_names: &[String],
 ) -> String {
-    // Check if any field is Vec<u8> (which requires custom FromNapiValue handling).
-    // Vec<u8> fields in #[napi(object)] structs need manual deserialization because
-    // NAPI can't auto-convert a JS Buffer to Vec<u8> in serde context.
-    let has_bytes_field = false; // No longer used (napi::Buffer replaced with Vec<u8>)
-
     // Pre-check if any field uses serde_with (HashMap<_, Vec<u8>>) so we can add struct-level attr.
     // The IR represents `Vec<u8>` as TypeRef::Bytes (not Vec(Bytes)); accept both wrappers for safety.
     let has_serde_with_field = has_serde
@@ -57,14 +49,13 @@ pub(super) fn gen_struct(
         });
 
     let mut struct_builder = StructBuilder::new(&format!("{prefix}{}", typ.name));
-    // Use napi(object) so the struct can be used as function/method parameters (FromNapiValue)
-    struct_builder.add_attr("napi(object)");
+    // Use napi(object, js_name = "Foo") so NAPI-RS exports the unprefixed name in the
+    // generated .d.ts while the Rust struct retains its JsFoo identifier internally.
+    struct_builder.add_attr(&format!("napi(object, js_name = \"{}\")", typ.name));
     if has_serde && has_serde_with_field {
         struct_builder.add_attr("serde_with::serde_as");
     }
-    if !has_bytes_field {
-        struct_builder.add_derive("Clone");
-    }
+    struct_builder.add_derive("Clone");
     // Binding types always derive Default, Serialize, and Deserialize.
     // Default: enables using unwrap_or_default() in constructors for types with has_default.
     // Serialize/Deserialize: required for FFI/type conversion across binding boundaries.
@@ -88,17 +79,13 @@ pub(super) fn gen_struct(
         // Returns (base_type, already_optional) where already_optional means the base_type
         // already includes the Option<> wrapper (either from TypeRef::Optional or opaque handling).
         //
-        // IMPORTANT: For struct fields, `Bytes` must be mapped to `Vec<u8>` rather than
-        // `napi::bindgen_prelude::Buffer`. `Buffer` does not implement Clone, Serialize, or
-        // Deserialize, which causes derive failures on the containing struct. `Buffer` is only
-        // appropriate as a function parameter/return type where NAPI handles JS interop directly.
-        // Any container type (Map, Vec) whose value type is Bytes also uses `Vec<u8>` for the
-        // same reason.
+        // IMPORTANT: For struct fields, `Bytes` maps to `JsBytes` rather than raw `Vec<u8>`.
+        // `JsBytes` provides custom NAPI conversion for Buffer, Uint8Array, and Array<number>
+        // while still deriving Clone/serde traits for object structs.
         let map_bytes_field_type = |ty: &TypeRef| -> String {
-            // Recursively replace Bytes with Vec<u8> in type positions that end up in struct fields.
             fn replace_bytes(ty: &TypeRef, mapper: &NapiMapper) -> String {
                 match ty {
-                    TypeRef::Bytes => "Vec<u8>".to_string(),
+                    TypeRef::Bytes => "JsBytes".to_string(),
                     TypeRef::Optional(inner) => format!("Option<{}>", replace_bytes(inner, mapper)),
                     TypeRef::Map(k, v) => {
                         format!("HashMap<{}, {}>", replace_bytes(k, mapper), replace_bytes(v, mapper))
@@ -137,12 +124,8 @@ pub(super) fn gen_struct(
         // Honor `#[serde(rename = "...")]` on the core field so JS callers see the wire
         // name (e.g. core `tool_type` with rename `"type"` is exposed to JS as `type`).
         let js_name = field.serde_rename.clone().unwrap_or_else(|| to_node_name(&field.name));
-        // For `Vec<u8>` fields in `#[napi(object)]` structs, napi-rs v3's macro-generated
-        // FromNapiValue only accepts a JS `Array<number>` at runtime (it calls
-        // `napi_get_array_length`), but its default d.ts emitter declares `Uint8Array`.
-        // Override the d.ts type to match the runtime contract so callers know to pass
-        // `[1, 2, 3]` rather than `Buffer.from(...)`. The override covers Option/Map/Vec
-        // wrappers that ultimately bottom out at `Vec<u8>`.
+        // Override the d.ts type to match the runtime contract. The override covers Option,
+        // Map, and Vec wrappers that ultimately bottom out at bytes.
         let ts_type_override = ts_type_for_bytes_field(&field.ty);
         let napi_attr_inner: Vec<String> = {
             let mut v = vec![];
@@ -160,11 +143,8 @@ pub(super) fn gen_struct(
             vec![]
         };
 
-        // For Vec<u8> fields (bare, nested in Option, or HashMap values),
-        // add serde_bytes attributes to deserialize Buffer correctly.
-        // Helper: detect if a type contains Vec<u8> at any depth.
-        // The alef IR represents `Vec<u8>` directly as TypeRef::Bytes (not Vec(Bytes));
-        // match that at the top level and recurse through Option/Map wrappers.
+        // For HashMap<_, Vec<u8>>, keep serde_with's Bytes helper for map values.
+        // Bare/optional byte fields use JsBytes and do not need serde_bytes attributes.
         fn contains_vec_u8(ty: &TypeRef) -> bool {
             match ty {
                 TypeRef::Bytes => true,
@@ -176,13 +156,7 @@ pub(super) fn gen_struct(
         }
         let has_vec_u8 = contains_vec_u8(&field.ty);
         if has_serde && has_vec_u8 {
-            // For Option<Vec<u8>>, use #[serde(default, with = "serde_bytes")].
-            // For bare Vec<u8> (TypeRef::Bytes), use #[serde(with = "serde_bytes")].
-            // For HashMap<_, Vec<u8>>, use serde_with + custom handling.
             match &field.ty {
-                TypeRef::Optional(_) => {
-                    attrs.push("serde(default, with = \"serde_bytes\")".to_string());
-                }
                 TypeRef::Map(_k, v)
                     if matches!(v.as_ref(), TypeRef::Bytes)
                         || matches!(v.as_ref(), TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Bytes)) =>
@@ -190,9 +164,7 @@ pub(super) fn gen_struct(
                     // HashMap<K, Vec<u8>>: use serde_with's Bytes helper for map values.
                     attrs.push("serde_as(as = \"HashMap<_, serde_with::Bytes>\")".to_string());
                 }
-                _ => {
-                    attrs.push("serde(with = \"serde_bytes\")".to_string());
-                }
+                _ => {}
             }
         }
 
@@ -214,57 +186,9 @@ pub(super) fn gen_struct(
         struct_builder.add_field(&field.name, &field_type, attrs);
     }
 
-    let mut out = struct_builder.build();
+    
 
-    // `napi::bindgen_prelude::Buffer` does not impl Clone. Emit a manual Clone
-    // impl that copies the underlying byte payload via `.to_vec().into()`.
-    if has_bytes_field {
-        let struct_name = format!("{prefix}{}", typ.name);
-        out.push('\n');
-        out.push_str(&crate::template_env::render(
-            "clone_impl_header.jinja",
-            minijinja::context! {
-                struct_name => struct_name,
-            },
-        ));
-        for field in &typ.fields {
-            let is_bytes_field = matches!(&field.ty, TypeRef::Bytes);
-            let is_opt_bytes =
-                matches!(&field.ty, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Bytes));
-            // Whether the field is wrapped in Option<> in the binding struct: either
-            // because it's TypeRef::Optional, or because typ.has_default makes all
-            // fields optional in the struct, or because of opaque-class Option-wrap.
-            let is_opaque_named = matches!(&field.ty, TypeRef::Named(name) if opaque_types.contains(name));
-            let is_opt_opaque_named = matches!(&field.ty, TypeRef::Optional(inner)
-                if matches!(inner.as_ref(), TypeRef::Named(name) if opaque_types.contains(name)));
-            let field_is_optional_in_struct = field.optional
-                || typ.has_default
-                || is_opt_bytes
-                || is_opt_opaque_named
-                || matches!(&field.ty, TypeRef::Optional(_));
-            let _ = is_opaque_named;
-            let expr = if is_bytes_field && field_is_optional_in_struct {
-                // Option<Buffer>: clone via map to Vec<u8>→Buffer
-                format!("self.{}.as_ref().map(|b| b.to_vec().into())", field.name)
-            } else if is_bytes_field {
-                format!("self.{}.to_vec().into()", field.name)
-            } else if is_opt_bytes {
-                format!("self.{}.as_ref().map(|b| b.to_vec().into())", field.name)
-            } else {
-                format!("self.{}.clone()", field.name)
-            };
-            out.push_str(&crate::template_env::render(
-                "clone_impl_field.jinja",
-                minijinja::context! {
-                    field_name => &field.name,
-                    expr => expr,
-                },
-            ));
-        }
-        out.push_str("        }\n    }\n}\n");
-    }
-
-    out
+    struct_builder.build()
 }
 
 /// Generate NAPI methods for an opaque struct (delegates to self.inner).

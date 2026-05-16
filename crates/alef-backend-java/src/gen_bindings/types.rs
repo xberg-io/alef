@@ -947,8 +947,7 @@ pub(crate) fn gen_opaque_handle_class(
         }
     }
     if has_streaming {
-        imports.push("java.util.Iterator");
-        imports.push("java.util.NoSuchElementException");
+        imports.push("java.util.stream.Stream");
     }
     if has_list_return {
         imports.push("java.util.List");

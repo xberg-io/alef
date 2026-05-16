@@ -2663,10 +2663,12 @@ fn test_gen_enum_discriminant_increments_correctly() {
 }
 
 #[test]
-fn test_gen_enum_with_pyo3_pyclass_attr_renames_python_keywords() {
+fn test_gen_enum_with_pyo3_pyclass_attr_emits_upper_snake_case_for_all_variants() {
+    // Every variant in a pyo3 pyclass enum gets #[pyo3(name = "UPPER_SNAKE_CASE")] so that
+    // the Python-exposed name is PEP 8-compliant regardless of whether it is a keyword.
     let enum_def = EnumDef {
-        name: "PythonKeywords".to_string(),
-        rust_path: "my_crate::PythonKeywords".to_string(),
+        name: "BatchStatus".to_string(),
+        rust_path: "my_crate::BatchStatus".to_string(),
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
@@ -2678,7 +2680,7 @@ fn test_gen_enum_with_pyo3_pyclass_attr_renames_python_keywords() {
                 serde_rename: None,
             },
             EnumVariant {
-                name: "True".to_string(),
+                name: "Validating".to_string(),
                 fields: vec![],
                 is_tuple: false,
                 doc: String::new(),
@@ -2686,7 +2688,7 @@ fn test_gen_enum_with_pyo3_pyclass_attr_renames_python_keywords() {
                 serde_rename: None,
             },
             EnumVariant {
-                name: "Normal".to_string(),
+                name: "InProgress".to_string(),
                 fields: vec![],
                 is_tuple: false,
                 doc: String::new(),
@@ -2711,16 +2713,17 @@ fn test_gen_enum_with_pyo3_pyclass_attr_renames_python_keywords() {
     let result = gen_enum(&enum_def, &cfg);
 
     assert!(
-        result.contains("#[pyo3(name = \"None_\")]"),
-        "Python keyword 'None' should be renamed"
+        result.contains("#[pyo3(name = \"NONE\")]"),
+        "Python keyword 'None' should be emitted as NONE, got: {}",
+        result
     );
     assert!(
-        result.contains("#[pyo3(name = \"True_\")]"),
-        "Python keyword 'True' should be renamed"
+        result.contains("#[pyo3(name = \"VALIDATING\")]"),
+        "variant 'Validating' should be emitted as VALIDATING"
     );
     assert!(
-        !result.contains("#[pyo3(name = \"Normal_\")]"),
-        "non-keyword 'Normal' should not be renamed"
+        result.contains("#[pyo3(name = \"IN_PROGRESS\")]"),
+        "variant 'InProgress' should be emitted as IN_PROGRESS"
     );
 }
 
@@ -2753,8 +2756,8 @@ fn test_gen_enum_without_pyclass_does_not_rename_python_keywords() {
     let result = gen_enum(&enum_def, &cfg);
 
     assert!(
-        !result.contains("#[pyo3(name = \"None_\")]"),
-        "without pyclass, should not emit pyo3 rename"
+        !result.contains("#[pyo3(name ="),
+        "without pyclass, should not emit any pyo3 rename"
     );
     assert!(result.contains("None = 0"), "variant should still appear");
 }

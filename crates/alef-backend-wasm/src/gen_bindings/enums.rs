@@ -535,7 +535,8 @@ pub(super) fn gen_enum(enum_def: &EnumDef, prefix: &str) -> String {
         // Used by Vec<UnitEnum> parameter deserialization to convert string values from JS.
         lines.push(String::new());
         lines.push(
-            "    /// Parses a serde wire string and returns the corresponding variant, or None if unrecognized.".to_string(),
+            "    /// Parses a serde wire string and returns the corresponding variant, or None if unrecognized."
+                .to_string(),
         );
         lines.push("    pub fn from_api_str(s: &str) -> Option<Self> {".to_string());
         lines.push("        match s {".to_string());

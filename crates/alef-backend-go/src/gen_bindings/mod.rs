@@ -573,9 +573,9 @@ fn gen_go_file(
         .iter()
         .filter(|e| {
             !exclude_types.contains(&e.name)
-                && e.variants.iter().any(|v| {
-                    !v.fields.is_empty() && v.fields.iter().any(|f| !is_tuple_field(f))
-                })
+                && e.variants
+                    .iter()
+                    .any(|v| !v.fields.is_empty() && v.fields.iter().any(|f| !is_tuple_field(f)))
         })
         .map(|e| e.name.as_str())
         .collect();

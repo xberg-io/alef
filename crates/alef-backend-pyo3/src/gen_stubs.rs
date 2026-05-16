@@ -546,6 +546,22 @@ fn gen_method_stub(method: &MethodDef, is_static: bool, capsule_names: &std::col
     }
 }
 
+/// Convert a Rust PascalCase variant name to `UPPER_SNAKE_CASE` for Python enum stubs.
+///
+/// Mirrors the logic in `alef-codegen::generators::enums::to_pyo3_screaming` so that
+/// `.pyi` stub attribute names match the `#[pyo3(name = "...")]` rename emitted on the
+/// Rust pyclass variant.  Handles leading-acronym names (e.g. `RDFa` → `RDFA`).
+fn to_python_screaming(name: &str) -> String {
+    use heck::ToShoutySnakeCase;
+    let chars: Vec<char> = name.chars().collect();
+    let upper_prefix_len = chars.iter().take_while(|c| c.is_uppercase()).count();
+    if upper_prefix_len >= 2 && chars[upper_prefix_len..].iter().all(|c| c.is_lowercase() || *c == '_') {
+        name.to_ascii_uppercase()
+    } else {
+        name.to_shouty_snake_case()
+    }
+}
+
 /// Generate a Python enum stub.
 fn gen_enum_stub(enum_def: &EnumDef) -> String {
     use alef_codegen::generators::enum_has_data_variants;
@@ -557,9 +573,11 @@ fn gen_enum_stub(enum_def: &EnumDef) -> String {
     } else {
         lines.push(format!("class {}:", enum_def.name));
         for variant in &enum_def.variants {
+            // Emit UPPER_SNAKE_CASE attribute names to match the #[pyo3(name = "...")] rename
+            // on the Rust pyclass variant (PEP 8: enum members are UPPER_SNAKE_CASE).
             lines.push(format!(
                 "    {}: {} = ...",
-                python_safe_name(&variant.name),
+                to_python_screaming(&variant.name),
                 enum_def.name
             ));
         }

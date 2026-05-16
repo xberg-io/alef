@@ -468,7 +468,12 @@ fn emit_function_shim(
         } else if matches!(return_type, TypeRef::Unit) {
             out.push_str("            string_to_jstring(&mut env, \"null\")\n");
         } else {
-            out.push_str("            let s = serde_json::to_string(&v).unwrap_or_default();\n");
+            out.push_str("            let s = match serde_json::to_string(&v) {\n");
+            out.push_str("                Ok(s) => s,\n");
+            out.push_str(&format!(
+                "                Err(e) => {{ throw_jni_error(&mut env, &format!(\"serialize: {{e}}\")); return {err_null}; }}\n"
+            ));
+            out.push_str("            };\n");
             out.push_str("            string_to_jstring(&mut env, &s)\n");
         }
         out.push_str("        }\n");
@@ -481,7 +486,12 @@ fn emit_function_shim(
         } else if matches!(return_type, TypeRef::Unit) {
             out.push_str("    string_to_jstring(&mut env, \"null\")\n");
         } else {
-            out.push_str("    let s = serde_json::to_string(&v).unwrap_or_default();\n");
+            out.push_str("    let s = match serde_json::to_string(&v) {\n");
+            out.push_str("        Ok(s) => s,\n");
+            out.push_str(&format!(
+                "        Err(e) => {{ throw_jni_error(&mut env, &format!(\"serialize: {{e}}\")); return {err_null}; }}\n"
+            ));
+            out.push_str("    };\n");
             out.push_str("    string_to_jstring(&mut env, &s)\n");
         }
     }
@@ -806,15 +816,18 @@ fn emit_single_param_unmarshal(out: &mut String, rust_name: &str, ty: &TypeRef, 
 }
 
 /// Emit the return marshalling code inside the `Ok(v) =>` arm.
-fn emit_return_marshal(out: &mut String, return_type: &TypeRef) {
-    emit_return_marshal_with_indent(out, return_type, "            ");
+fn emit_return_marshal(out: &mut String, return_type: &TypeRef, ret_null: &str) {
+    emit_return_marshal_with_indent(out, return_type, "            ", ret_null);
 }
 
 /// Emit the return marshalling code with a configurable leading indent.
 ///
 /// Use the 12-space variant from inside an `Ok(v) =>` match arm; pass a
 /// 4-space indent for the no-error code path that binds `v` directly.
-fn emit_return_marshal_with_indent(out: &mut String, return_type: &TypeRef, indent: &str) {
+///
+/// `ret_null` is the sentinel value emitted on serialization failure so the
+/// caller can distinguish an error return from a legitimate zero/null result.
+fn emit_return_marshal_with_indent(out: &mut String, return_type: &TypeRef, indent: &str, ret_null: &str) {
     match return_type {
         TypeRef::Unit => {
             // No return value.
@@ -847,9 +860,12 @@ fn emit_return_marshal_with_indent(out: &mut String, return_type: &TypeRef, inde
             out.push_str(&format!("{indent}v as {jni_ty}\n"));
         }
         _ => {
+            out.push_str(&format!("{indent}let s = match serde_json::to_string(&v) {{\n"));
+            out.push_str(&format!("{indent}    Ok(s) => s,\n"));
             out.push_str(&format!(
-                "{indent}let s = serde_json::to_string(&v).unwrap_or_default();\n"
+                "{indent}    Err(e) => {{ throw_jni_error(&mut env, &format!(\"serialize: {{e}}\")); return {ret_null}; }}\n"
             ));
+            out.push_str(&format!("{indent}}};\n"));
             out.push_str(&format!("{indent}string_to_jstring(&mut env, &s)\n"));
         }
     }

@@ -53,9 +53,12 @@ pub(super) fn gen_enum(enum_def: &EnumDef, prefix: &str, has_serde: bool) -> Str
         _ => None,
     });
 
+    // Include js_name so NAPI-RS exports the unprefixed name to TypeScript
+    // while the Rust enum retains its JsFoo identifier internally.
+    let js_name = &enum_def.name;
     let string_enum_attr = match napi_case {
-        Some(case) => format!("#[napi(string_enum = \"{case}\")]"),
-        None => "#[napi(string_enum)]".to_string(),
+        Some(case) => format!("#[napi(string_enum = \"{case}\", js_name = \"{js_name}\")]"),
+        None => format!("#[napi(string_enum, js_name = \"{js_name}\")]"),
     };
 
     let derives = if has_serde {
@@ -159,9 +162,11 @@ pub(super) fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str, has_se
     } else {
         "#[derive(Clone)]"
     };
+    // Include js_name so NAPI-RS exports the unprefixed name to TypeScript.
+    let js_name = &enum_def.name;
     let mut lines = vec![
         derive.to_string(),
-        "#[napi(object)]".to_string(),
+        format!("#[napi(object, js_name = \"{js_name}\")]"),
         format!("pub struct {prefix}{} {{", enum_def.name),
         format!("    #[napi(js_name = \"{ts_discriminant}\")]"),
         format!("    pub {tag_field}_tag: String,"),
@@ -384,7 +389,7 @@ mod tests {
         use alef_core::ir::{FieldDef, TypeRef};
 
         // Create a tagged enum with both unit and tuple variants so it's treated as tagged
-        let mut e = EnumDef {
+        let e = EnumDef {
             name: "AnnotationKind".to_string(),
             rust_path: "test::AnnotationKind".to_string(),
             original_rust_path: String::new(),
@@ -451,38 +456,36 @@ mod tests {
     fn gen_tagged_enum_tuple_variant_uses_camel_case_value() {
         use alef_core::ir::{FieldDef, TypeRef};
 
-        let mut e = EnumDef {
+        let e = EnumDef {
             name: "AnnotationKind".to_string(),
             rust_path: "test::AnnotationKind".to_string(),
             original_rust_path: String::new(),
-            variants: vec![
-                EnumVariant {
-                    name: "FontSize".to_string(),
-                    fields: vec![FieldDef {
-                        name: "_0".to_string(),
-                        ty: TypeRef::String,
-                        optional: false,
-                        default: None,
-                        doc: String::new(),
-                        sanitized: false,
-                        is_boxed: false,
-                        type_rust_path: None,
-                        cfg: None,
-                        typed_default: None,
-                        core_wrapper: alef_core::ir::CoreWrapper::None,
-                        vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
-                        newtype_wrapper: None,
-                        serde_rename: Some("fontSize".to_string()),
-                        serde_flatten: false,
-                        binding_excluded: false,
-                        binding_exclusion_reason: None,
-                    }],
-                    is_tuple: true,
+            variants: vec![EnumVariant {
+                name: "FontSize".to_string(),
+                fields: vec![FieldDef {
+                    name: "_0".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
                     doc: String::new(),
-                    is_default: false,
+                    sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    typed_default: None,
+                    core_wrapper: alef_core::ir::CoreWrapper::None,
+                    vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                    newtype_wrapper: None,
                     serde_rename: Some("fontSize".to_string()),
-                },
-            ],
+                    serde_flatten: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                }],
+                is_tuple: true,
+                doc: String::new(),
+                is_default: false,
+                serde_rename: Some("fontSize".to_string()),
+            }],
             doc: String::new(),
             cfg: None,
             is_copy: false,
@@ -510,38 +513,36 @@ mod tests {
     fn gen_tagged_enum_struct_variant_emits_field_names() {
         use alef_core::ir::{FieldDef, TypeRef};
 
-        let mut e = EnumDef {
+        let e = EnumDef {
             name: "AnnotationKind".to_string(),
             rust_path: "test::AnnotationKind".to_string(),
             original_rust_path: String::new(),
-            variants: vec![
-                EnumVariant {
-                    name: "Custom".to_string(),
-                    fields: vec![FieldDef {
-                        name: "reason".to_string(),
-                        ty: TypeRef::String,
-                        optional: false,
-                        default: None,
-                        doc: String::new(),
-                        sanitized: false,
-                        is_boxed: false,
-                        type_rust_path: None,
-                        cfg: None,
-                        typed_default: None,
-                        core_wrapper: alef_core::ir::CoreWrapper::None,
-                        vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
-                        newtype_wrapper: None,
-                        serde_rename: None,
-                        serde_flatten: false,
-                        binding_excluded: false,
-                        binding_exclusion_reason: None,
-                    }],
-                    is_tuple: false,
+            variants: vec![EnumVariant {
+                name: "Custom".to_string(),
+                fields: vec![FieldDef {
+                    name: "reason".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
                     doc: String::new(),
-                    is_default: false,
-                    serde_rename: Some("custom".to_string()),
-                },
-            ],
+                    sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    typed_default: None,
+                    core_wrapper: alef_core::ir::CoreWrapper::None,
+                    vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                    newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                }],
+                is_tuple: false,
+                doc: String::new(),
+                is_default: false,
+                serde_rename: Some("custom".to_string()),
+            }],
             doc: String::new(),
             cfg: None,
             is_copy: false,

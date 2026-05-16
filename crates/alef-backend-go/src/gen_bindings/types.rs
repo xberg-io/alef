@@ -656,7 +656,7 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
     ));
     out.push_str(&format!("type {go_enum_name} interface {{\n"));
     out.push_str(&format!("\tis{go_enum_name}()\n"));
-    out.push_str(&format!("\tType() string\n"));
+    out.push_str(&"\tType() string\n".to_string());
     out.push_str("}\n\n");
 
     // Emit one concrete struct per variant
@@ -679,8 +679,7 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
             }
             let field_go_name = to_go_name(&field.name);
             let field_type = go_type(&field.ty);
-            let json_name =
-                apply_serde_rename(&field.name, enum_def.serde_rename_all.as_deref());
+            let json_name = apply_serde_rename(&field.name, enum_def.serde_rename_all.as_deref());
             let json_tag = format!("json:\"{}\"", json_name);
 
             let doc_lines: Vec<&str> = if !field.doc.is_empty() {
@@ -714,12 +713,13 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
         out.push_str(&format!(
             "func (v {variant_struct_name}) MarshalJSON() ([]byte, error) {{\n"
         ));
-        out.push_str(&format!("\ttype aux struct {{\n"));
+        out.push_str(&"\ttype aux struct {\n".to_string());
         if let Some(tag_name) = &enum_def.serde_tag {
             let tag_json_name = tag_name.as_str();
             out.push_str(&format!(
                 "\t\t{} string `json:\"{}\"`\n",
-                to_go_name(tag_name), tag_json_name
+                to_go_name(tag_name),
+                tag_json_name
             ));
         }
         for field in &variant.fields {
@@ -728,19 +728,13 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
             }
             let field_go_name = to_go_name(&field.name);
             let field_type = go_type(&field.ty);
-            let json_name =
-                apply_serde_rename(&field.name, enum_def.serde_rename_all.as_deref());
+            let json_name = apply_serde_rename(&field.name, enum_def.serde_rename_all.as_deref());
             out.push_str(&format!("\t\t{field_go_name} {field_type} `json:\"{json_name}\"`\n"));
         }
         out.push_str("\t}\n");
-        out.push_str(&format!(
-            "\treturn json.Marshal(aux{{\n"
-        ));
+        out.push_str(&"\treturn json.Marshal(aux{\n".to_string());
         if let Some(tag_name) = &enum_def.serde_tag {
-            out.push_str(&format!(
-                "\t\t{}: v.Type(),\n",
-                to_go_name(tag_name)
-            ));
+            out.push_str(&format!("\t\t{}: v.Type(),\n", to_go_name(tag_name)));
         }
         for field in &variant.fields {
             if is_tuple_field(field) {
@@ -764,7 +758,8 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
     if let Some(tag_name) = &enum_def.serde_tag {
         out.push_str(&format!(
             "\t\t{} string `json:\"{}\"`\n",
-            to_go_name(tag_name), tag_name
+            to_go_name(tag_name),
+            tag_name
         ));
     }
     out.push_str("\t}\n");
@@ -775,9 +770,7 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
     let tag_field = enum_def.serde_tag.as_ref().map(|tn| to_go_name(tn));
     let discriminator_field = tag_field.as_deref().unwrap_or("Type");
 
-    out.push_str(&format!(
-        "\tswitch wire.{discriminator_field} {{\n"
-    ));
+    out.push_str(&format!("\tswitch wire.{discriminator_field} {{\n"));
     for variant in &enum_def.variants {
         let wire_value = enum_variant_wire_value(variant, enum_def);
         let variant_struct_name = format!("{go_enum_name}{}", to_go_name(&variant.name));
@@ -845,7 +838,7 @@ pub(super) fn gen_opaque_type_free_only(typ: &TypeDef, _ffi_prefix: &str) -> Str
 pub(super) fn gen_struct_type(
     typ: &TypeDef,
     enum_names: &std::collections::HashSet<&str>,
-    data_enum_names: &std::collections::HashSet<&str>,
+    _data_enum_names: &std::collections::HashSet<&str>,
 ) -> String {
     let mut out = String::with_capacity(1024);
 
@@ -1492,7 +1485,11 @@ mod tests {
             binding_excluded: false,
             binding_exclusion_reason: None,
         };
-        let out = gen_struct_type(&typ, &std::collections::HashSet::new(), &std::collections::HashSet::new());
+        let out = gen_struct_type(
+            &typ,
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
+        );
         assert!(out.contains("type MyConfig struct"));
         assert!(out.contains("json:\"timeout\""));
     }
