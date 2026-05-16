@@ -7,11 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-backend-kotlin: drop redundant `${...}` braces in error-message interpolation when the next char is not an identifier continuation**: `interpolate_error_message_template` previously always emitted `${fieldN}` for `{N}` placeholders, producing `"HTML parsing error: ${field0}"` for the common single-field `thiserror`-style template. ktlint's `standard:string-template` rule flags this as redundant when the brace is unnecessary (the next character — `"`, `:`, ` `, `)`, etc. — cannot extend the identifier), and the rule is a CI gate in the polyglot host repos. The helper now peeks at the character following the closing brace and emits `$fieldN` when it would be unambiguous, falling back to `${fieldN}` only when the next char is `[A-Za-z0-9_]`. Test expectations in `gen_bindings_test` (kotlin + kotlin-android) updated accordingly. (`crates/alef-backend-kotlin/src/gen_bindings/object_wrapper.rs`)
+
+## [0.16.24] - 2026-05-16
+
 ### Changed
 
 - **chore: drop taplo entirely from alef tooling**: CI no longer installs taplo-cli or runs `taplo fmt --check`; `.taplo.toml` is removed. TOML formatting in alef now relies on `cargo-sort` (Cargo.toml ordering) and `cargo-fmt` (inline TOML literals in Rust code) only. (`.github/workflows/ci.yml`, `.taplo.toml`, `.github/copilot-instructions.md`)
 
 ### Fixed
+
+- **alef-backend-ffi: allow `clippy::missing_safety_doc` in the generated C-FFI lib.rs**: every `pub unsafe extern "C" fn` emitted by the FFI backend lacks a `# Safety` rustdoc section (the safety contract is documented at the C-header / cbindgen layer instead). Downstream consumers running `cargo clippy -- -D warnings` on the FFI crate therefore tripped 13+ `missing_safety_doc` errors per polyglot library. The crate header now includes `#![allow(clippy::missing_safety_doc, clippy::doc_lazy_continuation, clippy::doc_overindented_list_items)]` alongside the existing allow blocks. Surfaced first on kreuzcrawl CI Rust @ `74021aa7`. (`crates/alef-backend-ffi/src/gen_bindings/mod.rs`)
 
 - **alef-backend-swift: disable `cargo test`/`doctest`/`bench` for the generated `*-swift` crate**: the `[swift_bridge::bridge]` `extern "Swift" { ... }` block emits Rust-to-Swift call sites whose symbols (`__swift_bridge__$<Type>$<method>`) are only resolved when the static/cdylib output is linked into a Swift target. `cargo test --workspace` on a pure-Rust runner (windows-latest, ubuntu-latest without swift-toolchain) would therefore fail with `rust-lld: error: undefined symbol: __swift_bridge__$SwiftHtmlVisitorBox$alef_visit_*` (and ~30 more) during the test-harness link step. The generated `Cargo.toml`'s `[lib]` now sets `test = false`, `doctest = false`, `bench = false` — the cdylib/staticlib build path is unaffected, and the swift package's own `swift test` suite remains the authoritative test surface for this crate. (`crates/alef-backend-swift/src/gen_rust_crate/cargo.rs`)
 

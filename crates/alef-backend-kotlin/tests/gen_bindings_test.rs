@@ -957,7 +957,7 @@ fn short_error_variant_emits_single_line() {
     let mut imports = std::collections::BTreeSet::new();
     emit_error_type_pub(&err, &mut out, &mut imports);
     assert!(
-        out.contains("    data class NotFound(val code: Int) : ApiError(\"not found ${field0}\")"),
+        out.contains("    data class NotFound(val code: Int) : ApiError(\"not found $field0\")"),
         "short error variant must be single-line: {out:?}"
     );
 }
