@@ -1,4 +1,6 @@
+use alef_snippets::audit::{AuditConfig, AuditSeverity, audit};
 use alef_snippets::discovery;
+use alef_snippets::gaps::{GapConfig, detect_gaps};
 use alef_snippets::output;
 use alef_snippets::runner::{RunnerConfig, run_validation};
 use alef_snippets::types::{Language, ValidationLevel};
@@ -57,6 +59,28 @@ enum Commands {
     Parse {
         file: PathBuf,
     },
+
+    Audit {
+        #[arg(short, long, required = true, num_args = 1..)]
+        snippets: Vec<PathBuf>,
+
+        #[arg(short, long, num_args = 0..)]
+        docs: Vec<PathBuf>,
+
+        #[arg(long)]
+        require_frontmatter: bool,
+    },
+
+    Gaps {
+        #[arg(short, long, required = true, num_args = 1..)]
+        snippets: Vec<PathBuf>,
+
+        #[arg(short, long, num_args = 0..)]
+        docs: Vec<PathBuf>,
+
+        #[arg(short = 'L', long, value_delimiter = ',')]
+        required_languages: Option<Vec<String>>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -86,7 +110,125 @@ fn main() -> ExitCode {
             show_code,
         ),
         Commands::Parse { file } => run_parse_command(&file),
+        Commands::Audit {
+            snippets,
+            docs,
+            require_frontmatter,
+        } => run_audit_command(&snippets, &docs, require_frontmatter),
+        Commands::Gaps {
+            snippets,
+            docs,
+            required_languages,
+        } => run_gaps_command(&snippets, &docs, required_languages.as_ref()),
     }
+}
+
+fn run_audit_command(snippet_dirs: &[PathBuf], docs_dirs: &[PathBuf], require_frontmatter: bool) -> ExitCode {
+    let config = AuditConfig {
+        docs_dirs: docs_dirs.to_vec(),
+        snippet_dirs: snippet_dirs.to_vec(),
+        require_frontmatter,
+    };
+    let report = audit(&config);
+    if report.issues.is_empty() {
+        println!("Audit clean: no issues found.");
+        return ExitCode::SUCCESS;
+    }
+    println!("Audit found {} issue(s):", report.issues.len());
+    for issue in &report.issues {
+        let severity = match issue.severity {
+            AuditSeverity::Error => "ERROR",
+            AuditSeverity::Warning => "WARN",
+        };
+        println!(
+            "  [{severity}] {}:{} ({:?}) {}",
+            issue.path.display(),
+            issue.line,
+            issue.kind,
+            issue.message
+        );
+    }
+    if report.has_errors() {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
+fn run_gaps_command(
+    snippet_dirs: &[PathBuf],
+    docs_dirs: &[PathBuf],
+    required_languages: Option<&Vec<String>>,
+) -> ExitCode {
+    let required = required_languages
+        .map(|languages| {
+            languages
+                .iter()
+                .map(|language| Language::from_fence_tag(language))
+                .filter(|language| *language != Language::Unknown)
+                .collect()
+        })
+        .unwrap_or_default();
+    let config = GapConfig {
+        docs_dirs: docs_dirs.to_vec(),
+        snippet_dirs: snippet_dirs.to_vec(),
+        required_languages: required,
+    };
+    let report = match detect_gaps(&config) {
+        Ok(report) => report,
+        Err(err) => {
+            eprintln!("Error detecting gaps: {err}");
+            return ExitCode::FAILURE;
+        }
+    };
+    if !report.has_gaps() {
+        println!("No gaps found.");
+        return ExitCode::SUCCESS;
+    }
+    if !report.missing_references.is_empty() {
+        println!("Missing include targets ({}):", report.missing_references.len());
+        for reference in &report.missing_references {
+            println!(
+                "  {}:{} → {}",
+                reference.source.display(),
+                reference.line,
+                reference.target.display()
+            );
+        }
+    }
+    if !report.unreferenced_snippets.is_empty() {
+        println!("Unreferenced snippets ({}):", report.unreferenced_snippets.len());
+        for path in &report.unreferenced_snippets {
+            println!("  {}", path.display());
+        }
+    }
+    if !report.missing_language_variants.is_empty() {
+        println!(
+            "Missing language variants ({}):",
+            report.missing_language_variants.len()
+        );
+        for variant in &report.missing_language_variants {
+            println!("  {} — {}", variant.group.display(), variant.language);
+        }
+    }
+    if !report.skips_without_reason.is_empty() {
+        println!("Skips without reason ({}):", report.skips_without_reason.len());
+        for location in &report.skips_without_reason {
+            println!(
+                "  {}:{} (block {})",
+                location.path.display(),
+                location.line,
+                location.block_index
+            );
+        }
+    }
+    if !report.unknown_languages.is_empty() {
+        println!("Unknown languages ({}):", report.unknown_languages.len());
+        for unknown in &report.unknown_languages {
+            println!("  {}:{} tag={}", unknown.path.display(), unknown.line, unknown.tag);
+        }
+    }
+    ExitCode::FAILURE
 }
 
 fn parse_language_filter(languages: Option<&[String]>) -> Option<Vec<Language>> {

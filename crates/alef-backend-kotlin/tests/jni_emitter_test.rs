@@ -231,7 +231,9 @@ fn snapshot_jni_bridge_object() {
         "@Throws annotation missing from Bridge.kt: {content}"
     );
     // Destructors are infallible — they must NOT carry @Throws.
-    let free_idx = content.find("nativeFreeDefaultClient").expect("destructor must be present");
+    let free_idx = content
+        .find("nativeFreeDefaultClient")
+        .expect("destructor must be present");
     let throws_before_free = content[..free_idx].rfind("@Throws");
     let external_before_free = content[..free_idx].rfind("external fun native");
     // @Throws must not appear between the last non-destructor external fun and nativeFree.

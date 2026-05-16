@@ -9,6 +9,15 @@ homepage.workspace = true
 description = "Reusable documentation snippet discovery and validation for Alef"
 readme = "README.md"
 
+[[bin]]
+name = "alef-snippets"
+path = "src/main.rs"
+required-features = ["cli"]
+
+[features]
+default = []
+cli = ["dep:clap"]
+
 [dependencies]
 clap = { workspace = true, optional = true }
 rayon = { workspace = true }
@@ -20,12 +29,3 @@ thiserror = { workspace = true }
 toml = { workspace = true }
 walkdir = { workspace = true }
 which = { workspace = true }
-
-[features]
-default = []
-cli = ["dep:clap"]
-
-[[bin]]
-name = "alef-snippets"
-path = "src/main.rs"
-required-features = ["cli"]
