@@ -73,9 +73,14 @@ If any of those fail, stop. Fix first, release second.
 ### 2. Set the version via Taskfile
 
 ```bash
-task --list | grep -i version       # discover the right target
-# typical: task version:bump VERSION=X.Y.Z   or   task release:set X.Y.Z
+task set-version -- X.Y.Z           # bumps workspace.package.version + every inter-crate dep
 ```
+
+The `set-version` task is the **only** sanctioned way to bump versions in this
+repo. It rewrites both `Cargo.toml` (workspace.package.version) and every
+inter-crate dependency declaration so workspace members stay in lockstep. Never
+hand-edit `version = "..."` in `Cargo.toml` — the dep lines (`alef-adapters = {
+version = "X.Y.Z", ... }`) will silently drift out of sync and break publish.
 
 After the task finishes, **verify**:
 
