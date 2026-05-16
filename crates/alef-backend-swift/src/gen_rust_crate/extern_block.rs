@@ -37,31 +37,33 @@ pub(crate) fn emit_extern_block_for_type(
     // implement Default, wrappers.rs omits the impl entirely. We mirror that here by
     // also skipping the extern declaration — swift-bridge must not declare `fn new()`
     // without a corresponding Rust impl or linking will fail with E0599.
-    let has_vec_non_primitive = ty.fields.iter().any(
+    let constructor_fields: Vec<_> = ty
+        .fields
+        .iter()
+        .filter(|f| {
+            let field_key = format!("{}.{}", ty.name, f.name.to_snake_case());
+            !f.binding_excluded && !exclude_fields.contains(&field_key)
+        })
+        .collect();
+    let has_vec_non_primitive = constructor_fields.iter().any(
         |f| matches!(&f.ty, TypeRef::Vec(inner) if !matches!(inner.as_ref(), TypeRef::Primitive(_) | TypeRef::Bytes)),
     );
     let has_non_serde_string_field = !ty.has_serde
-        && ty
-            .fields
+        && constructor_fields
             .iter()
             .any(|f| matches!(f.ty, TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Char));
     let needs_default_construction = ty.has_serde
         || has_vec_non_primitive
         || has_non_serde_string_field
-        || ty
-            .fields
+        || ty.has_stripped_cfg_fields
+        || constructor_fields
             .iter()
             .any(|f| needs_json_bridge(&f.ty) || matches!(f.ty, TypeRef::Named(_)));
-    let emit_constructor = !ty.fields.is_empty() && (!needs_default_construction || ty.has_default);
+    let emit_constructor = !constructor_fields.is_empty() && (!needs_default_construction || ty.has_default);
 
     if emit_constructor {
-        let params: Vec<String> = ty
-            .fields
+        let params: Vec<String> = constructor_fields
             .iter()
-            .filter(|f| {
-                let field_key = format!("{}.{}", ty.name, f.name.to_snake_case());
-                !exclude_fields.contains(&field_key)
-            })
             .map(|f| {
                 let bridge_ty = bridge_type(&f.ty);
                 let bridge_ty = if f.optional && !needs_json_bridge(&f.ty) {

@@ -111,13 +111,16 @@ pub(crate) fn emit_type_wrapper(
         // and Option<bridge_ty> when the field is optional.
         // Excluded fields (via exclude_fields config) are omitted from params
         // and left at Default::default() in the field initializers.
-        let params: Vec<String> = ty
+        let constructor_fields: Vec<_> = ty
             .fields
             .iter()
             .filter(|f| {
                 let field_key = format!("{}.{}", ty.name, f.name.to_snake_case());
                 !f.binding_excluded && !exclude_fields.contains(&field_key)
             })
+            .collect();
+        let params: Vec<String> = constructor_fields
+            .iter()
             .map(|f| {
                 let bridge_ty = bridge_type(&f.ty);
                 let bridge_ty = if f.optional && !needs_json_bridge(&f.ty) {
@@ -136,19 +139,18 @@ pub(crate) fn emit_type_wrapper(
 
         // Determine construction strategy (see default_construction.rs for details):
         // when any field requires Default-based assignment, we cannot emit a direct struct literal.
-        let has_vec_non_primitive = ty.fields.iter().any(|f| {
+        let has_vec_non_primitive = constructor_fields.iter().any(|f| {
             matches!(&f.ty, TypeRef::Vec(inner) if !matches!(inner.as_ref(), TypeRef::Primitive(_) | TypeRef::Bytes))
         });
         let has_non_serde_string_field = !ty.has_serde
-            && ty
-                .fields
+            && constructor_fields
                 .iter()
                 .any(|f| matches!(f.ty, TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Char));
         let needs_default_construction = ty.has_serde
             || has_vec_non_primitive
             || has_non_serde_string_field
-            || ty
-                .fields
+            || ty.has_stripped_cfg_fields
+            || constructor_fields
                 .iter()
                 .any(|f| needs_json_bridge(&f.ty) || matches!(f.ty, TypeRef::Named(_)));
 

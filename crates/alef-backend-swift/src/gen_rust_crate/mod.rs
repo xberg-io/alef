@@ -583,9 +583,24 @@ fn emit_lib_rs(
     }
     // OptionsField: emit factory fn + options-helper fn bodies (the extern "Rust"
     // declarations were already pushed into extern_blocks above, inside the ffi module).
+    // Also emit bidirectional From impls so the factory and helper bodies compile:
+    //   - From<inner_path> for type_alias  (factory: VisitorHandle::from(__inner))
+    //   - From<type_alias> for inner_path  (helper: <inner_path>::from(h))
+    //   - From<core_options_path> for options_type  (helper: ConversionOptions::from(__core))
+    let mut options_field_from_emitted: std::collections::HashSet<String> = std::collections::HashSet::new();
     for (bridge_cfg, trait_def) in &active_bridges {
         if bridge_cfg.bind_via != BridgeBinding::OptionsField {
             continue;
+        }
+        let from_impls = plugin_inbound::emit_options_field_from_impls(
+            bridge_cfg,
+            api,
+            &source_crate,
+            &mut options_field_from_emitted,
+        );
+        if !from_impls.is_empty() {
+            out.push_str(&from_impls);
+            out.push('\n');
         }
         let (_factory_extern, factory_body) =
             plugin_inbound::emit_options_field_factory(trait_def, bridge_cfg, api, &source_crate);

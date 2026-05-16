@@ -233,7 +233,11 @@ impl Backend for DartBackend {
             build_dep: BuildDependency::None,
             post_build: vec![PostBuildStep::RunCommand {
                 cmd: "flutter_rust_bridge_codegen",
-                args: vec!["generate", "--config-file", "packages/dart/rust/flutter_rust_bridge.yaml"],
+                args: vec![
+                    "generate",
+                    "--config-file",
+                    "packages/dart/rust/flutter_rust_bridge.yaml",
+                ],
             }],
         })
     }
@@ -270,7 +274,11 @@ impl DartBackend {
                     post_build: vec![
                         PostBuildStep::RunCommand {
                             cmd: "flutter_rust_bridge_codegen",
-                            args: vec!["generate", "--config-file", "packages/dart/rust/flutter_rust_bridge.yaml"],
+                            args: vec![
+                                "generate",
+                                "--config-file",
+                                "packages/dart/rust/flutter_rust_bridge.yaml",
+                            ],
                         },
                         PostBuildStep::PostProcessFile {
                             path: lib_dart_path,

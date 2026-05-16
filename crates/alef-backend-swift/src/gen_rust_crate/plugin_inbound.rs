@@ -863,6 +863,86 @@ pub(crate) fn emit_options_field_factory(
     (extern_decl, fn_body)
 }
 
+/// Emit bidirectional `From` impls required by the `OptionsField` factory and options-helper.
+///
+/// The factory (`make_{trait_snake}_handle`) calls `{type_alias}::from(__inner)` where
+/// `__inner: {inner_path}` — requires `impl From<inner_path> for type_alias`.
+///
+/// The options-helper (`{options_snake}_from_json_with_{field}`) calls:
+/// - `<{inner_path}>::from(h)` where `h: type_alias` — requires `impl From<type_alias> for inner_path`
+/// - `{options_type}::from(__core)` where `__core: core_options_path` — requires
+///   `impl From<core_options_path> for options_type`
+///
+/// These are newtype-struct From impls (`.0` field access), not enum match-arm impls.
+/// The guard `already_emitted` prevents duplicate emission when multiple bridges share
+/// the same type alias or options type.
+///
+/// Returns an empty string when required config fields are absent.
+///
+/// Called from `gen_rust_crate::mod` only when `bridge_cfg.bind_via == OptionsField`.
+pub(crate) fn emit_options_field_from_impls(
+    bridge_config: &TraitBridgeConfig,
+    api: &ApiSurface,
+    source_crate: &str,
+    already_emitted: &mut std::collections::HashSet<String>,
+) -> String {
+    debug_assert_eq!(bridge_config.bind_via, BridgeBinding::OptionsField);
+
+    let type_alias = match bridge_config.type_alias.as_deref() {
+        Some(a) => a,
+        None => return String::new(),
+    };
+    let options_type = match bridge_config.options_type.as_deref() {
+        Some(o) => o,
+        None => return String::new(),
+    };
+
+    // Locate the alias definition to get its core Rust path.
+    let alias_def = api.types.iter().find(|t| t.name == type_alias);
+    let inner_path = match alias_def {
+        Some(td) if !td.rust_path.is_empty() => td.rust_path.replace('-', "_"),
+        _ => format!("{source_crate}::{type_alias}"),
+    };
+
+    // Locate the core options path from the IR.
+    let opts_def = api.types.iter().find(|t| t.name == options_type);
+    let core_options_path = match opts_def {
+        Some(td) if !td.rust_path.is_empty() => td.rust_path.replace('-', "_"),
+        _ => format!("{source_crate}::{options_type}"),
+    };
+
+    let mut out = String::new();
+
+    // Bidirectional From impls for the type alias (newtype wrapping inner_path).
+    // Guard: emit once per (type_alias, inner_path) pair.
+    let alias_key = format!("alias::{type_alias}::{inner_path}");
+    if !already_emitted.contains(&alias_key) {
+        already_emitted.insert(alias_key);
+        out.push_str(&format!(
+            "impl From<{inner_path}> for {type_alias} {{\n    \
+             fn from(v: {inner_path}) -> Self {{ Self(v) }}\n\
+             }}\n\
+             impl From<{type_alias}> for {inner_path} {{\n    \
+             fn from(v: {type_alias}) -> Self {{ v.0 }}\n\
+             }}\n"
+        ));
+    }
+
+    // Forward From impl for the options type (newtype wrapping core_options_path).
+    // Guard: emit once per (options_type, core_options_path) pair.
+    let opts_key = format!("opts::{options_type}::{core_options_path}");
+    if !already_emitted.contains(&opts_key) {
+        already_emitted.insert(opts_key);
+        out.push_str(&format!(
+            "impl From<{core_options_path}> for {options_type} {{\n    \
+             fn from(v: {core_options_path}) -> Self {{ Self(v) }}\n\
+             }}\n"
+        ));
+    }
+
+    out
+}
+
 /// Emit the `extern "Rust"` declaration and `pub fn` body for the
 /// `{options_snake}_from_json_with_{field}` helper — mirrors the dart backend's
 /// `create_{options_snake}_from_json_with_{field}`.

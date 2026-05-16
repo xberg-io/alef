@@ -1388,7 +1388,11 @@ fn build_config_for_frb_run_command_uses_config_file() {
     assert_eq!(run_command.0, "flutter_rust_bridge_codegen");
     assert_eq!(
         run_command.1,
-        &vec!["generate", "--config-file", "packages/dart/rust/flutter_rust_bridge.yaml"],
+        &vec![
+            "generate",
+            "--config-file",
+            "packages/dart/rust/flutter_rust_bridge.yaml"
+        ],
         "flutter_rust_bridge_codegen must read the generated config file"
     );
 }

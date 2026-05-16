@@ -5,9 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.16.15] - 2026-05-16
 
 ### Fixed
+
+- **alef-cli: resolve `PostBuildStep::RunCommand` working directory from `base_dir.join(crate_dir)`**: the dispatcher previously ran every backend-emitted `RunCommand` from the workspace `base_dir`, but commands like `flutter_rust_bridge_codegen generate` expect the binding crate root (where `flutter_rust_bridge.yaml` lives, relative to `crate_dir`). The Dart FRB step now runs in the correct directory and finds its config file. Also adds `crates/alef-backend-dart/examples/rewrite_lib_dart.rs` so the post-frb sealed-variant rewriter can be applied as a one-shot when callers bypass alef's build pipeline (e.g. running `task dart:codegen` directly). (`crates/alef-cli/src/pipeline/commands.rs`, `crates/alef-backend-dart/examples/rewrite_lib_dart.rs`)
 
 - **alef-backend-java: nest Jackson POJO builders inside their owning record**: every DTO record now embeds its `Builder` as `public static final class Builder` rather than emitting `FooBuilder.java` as a sibling top-level class. Cuts the generated file count for the Java package by ~32% (54 fewer `.java` files in liter-llm) and matches idiomatic Java conventions (`Foo.Builder` pattern, mirroring `ImmutableList.Builder`, `LocalDate.Builder`, etc.). The `@JsonDeserialize(builder = ...)` annotation now references `Foo.Builder.class`. (`crates/alef-backend-java/src/gen_bindings/types.rs`, snapshot tests refreshed)
 

@@ -699,6 +699,46 @@ pub(super) fn elixir_safe_param_name(name: &str) -> String {
     }
 }
 
+/// Return an Elixir atom value (without leading `:`, as the template adds it).
+/// If the atom contains non-identifier characters, it is quoted as `"atom:value"`.
+///
+/// Valid Elixir identifiers are: `[a-zA-Z_][a-zA-Z_0-9]*[?!]?`.
+/// Atoms containing colons, dashes, or other special chars are wrapped as `"atom:value"`.
+/// This is used for enum variant atom values that may contain `#[serde(rename)]` strings.
+pub(super) fn elixir_safe_atom(atom_value: &str) -> String {
+    // Check if atom is a valid Elixir identifier: [a-zA-Z_][a-zA-Z0-9_]*[?!]?
+    fn is_valid_identifier(s: &str) -> bool {
+        if s.is_empty() {
+            return false;
+        }
+        let mut chars = s.chars();
+        let first = chars.next().unwrap();
+        if !first.is_ascii_alphabetic() && first != '_' {
+            return false;
+        }
+        loop {
+            match chars.next() {
+                None => return true,
+                Some(c) => {
+                    if !c.is_ascii_alphanumeric() && c != '_' && c != '?' && c != '!' {
+                        return false;
+                    }
+                    // ? and ! must be at the end
+                    if (c == '?' || c == '!') && chars.as_str() != "" {
+                        return false;
+                    }
+                }
+            }
+        }
+    }
+
+    if is_valid_identifier(atom_value) {
+        atom_value.to_string()
+    } else {
+        format!(r#""{atom_value}""#)
+    }
+}
+
 /// Generate a `defmodule {AppModule}.{EnumName}` file for an enum.
 ///
 /// Simple enums (all variants have no fields) get a `@type t :: :variant1 | :variant2 | ...`
@@ -743,7 +783,7 @@ pub(super) fn gen_elixir_enum_module_with_known_types(
                     .serde_rename
                     .clone()
                     .unwrap_or_else(|| alef_codegen::naming::pascal_to_snake(&v.name));
-                format!(":{atom}")
+                format!(":{}", elixir_safe_atom(&atom))
             })
             .collect();
         // Emit multi-line @type when the single-line form exceeds 120 chars
@@ -779,31 +819,32 @@ pub(super) fn gen_elixir_enum_module_with_known_types(
 
         // Module attributes for each variant value — convenient aliases
         for variant in &enum_def.variants {
-            let atom_name = variant
+            // Use original variant name (snake_cased) as the identifier, not serde_rename.
+            let attr_name = elixir_safe_attr_name(&alef_codegen::naming::pascal_to_snake(&variant.name));
+            // But the atom value should use serde_rename if available, properly quoted if needed.
+            let atom_value = variant
                 .serde_rename
                 .clone()
                 .unwrap_or_else(|| alef_codegen::naming::pascal_to_snake(&variant.name));
-            let attr_name = elixir_safe_attr_name(&atom_name);
+            let atom_literal = elixir_safe_atom(&atom_value);
             out.push_str(&template_env::render(
                 "elixir_enum_attr.jinja",
                 minijinja::context! {
                     attr_name => &attr_name,
-                    atom_name => &atom_name,
+                    atom_name => &atom_literal,
                 },
             ));
         }
         out.push('\n');
         // Export the values so callers can reference MyEnum.variant_name/0
         for variant in &enum_def.variants {
-            let atom_name = variant
-                .serde_rename
-                .clone()
-                .unwrap_or_else(|| alef_codegen::naming::pascal_to_snake(&variant.name));
-            let attr_name = elixir_safe_attr_name(&atom_name);
+            // Use original variant name (snake_cased) as the function identifier.
+            let fn_name = alef_codegen::naming::pascal_to_snake(&variant.name);
+            let attr_name = elixir_safe_attr_name(&fn_name);
             out.push_str(&template_env::render(
                 "elixir_enum_accessor.jinja",
                 minijinja::context! {
-                    atom_name => &atom_name,
+                    atom_name => &fn_name,
                     attr_name => &attr_name,
                 },
             ));
@@ -1261,6 +1302,107 @@ mod tests {
         assert!(
             !result.contains("value_0: term()"),
             "should not use generic value_0 field name with term() type; got:\n{result}"
+        );
+    }
+
+    #[test]
+    fn test_elixir_safe_atom_valid_identifier() {
+        // Returns value without leading :, since template adds it
+        assert_eq!(elixir_safe_atom("img"), "img");
+        assert_eq!(elixir_safe_atom("picture_source"), "picture_source");
+        assert_eq!(elixir_safe_atom("valid?"), "valid?");
+        assert_eq!(elixir_safe_atom("valid!"), "valid!");
+    }
+
+    #[test]
+    fn test_elixir_safe_atom_with_special_chars() {
+        // Atoms with colons must be quoted (without leading :, template adds it)
+        assert_eq!(elixir_safe_atom("og:image"), r#""og:image""#);
+        assert_eq!(elixir_safe_atom("twitter:image"), r#""twitter:image""#);
+        // Atoms with dashes must be quoted
+        assert_eq!(elixir_safe_atom("some-value"), r#""some-value""#);
+    }
+
+    #[test]
+    fn test_gen_elixir_enum_module_with_serde_rename_special_chars() {
+        // Create ImageSource enum with serde_rename containing colons
+        let image_source_enum = EnumDef {
+            name: "ImageSource".to_string(),
+            rust_path: "my_crate::ImageSource".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Img".into(),
+                    fields: vec![],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+                EnumVariant {
+                    name: "OgImage".into(),
+                    fields: vec![],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: Some("og:image".to_string()),
+                },
+                EnumVariant {
+                    name: "TwitterImage".into(),
+                    fields: vec![],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: Some("twitter:image".to_string()),
+                },
+            ],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: false,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+
+        let result = gen_elixir_enum_module(&image_source_enum, "Kreuzcrawl");
+
+        // @type should contain quoted atoms for special chars
+        assert!(
+            result.contains(":img | :\"og:image\" | :\"twitter:image\""),
+            "should emit quoted atoms in @type for serde_rename with colons; got:\n{result}"
+        );
+
+        // Attributes should use snake_case identifiers, not the serde_rename value
+        assert!(
+            result.contains("@og_image "),
+            "should use @og_image attribute name (from variant OgImage), not @og:image; got:\n{result}"
+        );
+        assert!(
+            result.contains("@twitter_image "),
+            "should use @twitter_image attribute name (from variant TwitterImage), not @twitter:image; got:\n{result}"
+        );
+
+        // Accessors (functions) should also use snake_case names
+        assert!(
+            result.contains("def og_image, do: @og_image"),
+            "should emit def og_image() function name, not def og:image(); got:\n{result}"
+        );
+        assert!(
+            result.contains("def twitter_image, do: @twitter_image"),
+            "should emit def twitter_image() function name, not def twitter:image(); got:\n{result}"
+        );
+
+        // Ensure the attribute values are properly quoted atoms
+        assert!(
+            result.contains(r#"@og_image :"og:image""#),
+            "should emit @og_image with quoted atom value; got:\n{result}"
+        );
+        assert!(
+            result.contains(r#"@twitter_image :"twitter:image""#),
+            "should emit @twitter_image with quoted atom value; got:\n{result}"
         );
     }
 

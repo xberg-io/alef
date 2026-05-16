@@ -898,3 +898,150 @@ fn snapshot_first_class_struct_optional_field() {
         );
     }
 }
+
+/// Snapshot the OptionsField bind_via path: a trait bridge where Swift implements a Rust trait
+/// and the resulting handle is threaded into a struct field on an options type.
+///
+/// This exercises the bidirectional `From` impl emission:
+///   - `From<inner_path> for VisitorHandle`  (factory: `VisitorHandle::from(__inner)`)
+///   - `From<VisitorHandle> for inner_path`  (helper: `<inner_path>::from(h)`)
+///   - `From<core_options_path> for ConversionOptions`  (helper: `ConversionOptions::from(__core)`)
+///
+/// Without these three impls the generated lib.rs does not compile (E0308 / E0277).
+#[test]
+fn snapshot_trait_bridge_inbound_options_field() {
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![
+            // The type alias — a newtype wrapping the inner Arc<Mutex<dyn Trait + Send>> path.
+            TypeDef {
+                name: "VisitorHandle".to_string(),
+                rust_path: "demo::visitor::VisitorHandle".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: true,
+                is_clone: true,
+                is_copy: false,
+                doc: "Visitor handle type alias.".to_string(),
+                cfg: None,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+            // The options type that receives the visitor via a field.
+            TypeDef {
+                name: "ConversionOptions".to_string(),
+                rust_path: "demo::options::ConversionOptions".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![make_field("timeout_ms", TypeRef::Primitive(PrimitiveType::U32), false)],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                doc: "Options for conversion.".to_string(),
+                cfg: None,
+                is_trait: false,
+                has_default: true,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: true,
+                super_traits: vec![],
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+            // The visitor trait implemented by Swift.
+            TypeDef {
+                name: "HtmlVisitor".to_string(),
+                rust_path: "demo::visitor::HtmlVisitor".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![make_method(
+                    "visit_node",
+                    vec![make_param("tag", TypeRef::String)],
+                    TypeRef::Unit,
+                    false,
+                    false,
+                )],
+                is_opaque: false,
+                is_clone: false,
+                is_copy: false,
+                doc: "Visitor trait for HTML nodes.".to_string(),
+                cfg: None,
+                is_trait: true,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+        ],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let toml = r#"
+[workspace]
+languages = ["swift"]
+
+[[crates]]
+name = "demo"
+sources = ["src/lib.rs"]
+
+[[crates.trait_bridges]]
+trait_name = "HtmlVisitor"
+type_alias = "VisitorHandle"
+param_name = "visitor"
+bind_via = "options_field"
+options_type = "ConversionOptions"
+"#;
+    let cfg: NewAlefConfig = toml::from_str(toml).expect("test config must parse");
+    let config = cfg.resolve().expect("test config must resolve").remove(0);
+
+    let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
+
+    // Verify the three required From impls are present in the generated lib.rs.
+    let lib_rs = files
+        .iter()
+        .find(|f| f.path.to_str().is_some_and(|p| p.ends_with("lib.rs")))
+        .expect("lib.rs must be generated");
+
+    assert!(
+        lib_rs.content.contains("impl From<demo::visitor::VisitorHandle> for VisitorHandle"),
+        "forward From impl (core→wrapper) must be emitted for VisitorHandle:\n{}",
+        lib_rs.content
+    );
+    assert!(
+        lib_rs.content.contains("impl From<VisitorHandle> for demo::visitor::VisitorHandle"),
+        "reverse From impl (wrapper→core) must be emitted for VisitorHandle:\n{}",
+        lib_rs.content
+    );
+    assert!(
+        lib_rs.content.contains("impl From<demo::options::ConversionOptions> for ConversionOptions"),
+        "forward From impl (core→wrapper) must be emitted for ConversionOptions:\n{}",
+        lib_rs.content
+    );
+
+    for file in &files {
+        insta::assert_snapshot!(
+            format!(
+                "snapshot_trait_bridge_inbound_options_field__{}",
+                file.path.display().to_string().replace('/', "__")
+            ),
+            &file.content
+        );
+    }
+}
