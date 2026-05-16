@@ -130,11 +130,11 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
   }},
   "scripts": {{
     "phpstan": "php -d detect_unicode=0 vendor/bin/phpstan --configuration=phpstan.neon --memory-limit=512M",
-    "format": "php vendor/bin/php-cs-fixer fix",
-    "format:check": "php vendor/bin/php-cs-fixer fix --dry-run",
+    "format": "php vendor/bin/php-cs-fixer fix --quiet",
+    "format:check": "php vendor/bin/php-cs-fixer fix --dry-run --quiet",
     "test": "php vendor/bin/phpunit",
     "lint": "@phpstan",
-    "lint:fix": "php vendor/bin/php-cs-fixer fix && php -d detect_unicode=0 vendor/bin/phpstan --configuration=phpstan.neon --memory-limit=512M"
+    "lint:fix": "php vendor/bin/php-cs-fixer fix --quiet && php -d detect_unicode=0 vendor/bin/phpstan --configuration=phpstan.neon --memory-limit=512M"
   }},
   "php-ext": {{
     "extension-name": "{ext_name}",
