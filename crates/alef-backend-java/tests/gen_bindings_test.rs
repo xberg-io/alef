@@ -1093,3 +1093,282 @@ package = "com.test"
         main_class.content
     );
 }
+
+#[test]
+fn test_dto_emits_as_record_with_fields_only() {
+    let backend = JavaBackend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "SimpleDto".to_string(),
+            rust_path: "test_lib::SimpleDto".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                FieldDef {
+                    name: "name".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    doc: "Name field".to_string(),
+                    sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    typed_default: None,
+                    core_wrapper: alef_core::ir::CoreWrapper::None,
+                    vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                    newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                },
+                FieldDef {
+                    name: "count".to_string(),
+                    ty: TypeRef::Primitive(PrimitiveType::I32),
+                    optional: false,
+                    default: None,
+                    doc: "Count field".to_string(),
+                    sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    typed_default: None,
+                    core_wrapper: alef_core::ir::CoreWrapper::None,
+                    vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                    newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                },
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: "A simple DTO".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_test_config("com.test");
+    let result = backend.generate_bindings(&api, &config);
+    assert!(result.is_ok());
+    let files = result.unwrap();
+
+    let dto_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("SimpleDto.java"))
+        .expect("SimpleDto.java should be generated");
+
+    // Verify it's emitted as a record, not a sealed class
+    assert!(
+        dto_file.content.contains("public record SimpleDto("),
+        "Fields-only DTO should be emitted as record, not sealed class. Got:\n{}",
+        dto_file.content
+    );
+
+    // Verify record parameters are present
+    assert!(
+        dto_file.content.contains("String name") && dto_file.content.contains("int count"),
+        "Record should contain field parameters. Got:\n{}",
+        dto_file.content
+    );
+}
+
+#[test]
+fn test_opaque_handle_type_remains_class() {
+    let backend = JavaBackend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "OpaqueHandle".to_string(),
+            rust_path: "test_lib::OpaqueHandle".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![],
+            is_opaque: true,
+            is_clone: false,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: "An opaque FFI handle".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_test_config("com.test");
+    let result = backend.generate_bindings(&api, &config);
+    assert!(result.is_ok());
+    let files = result.unwrap();
+
+    let handle_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("OpaqueHandle.java"))
+        .expect("OpaqueHandle.java should be generated");
+
+    // Opaque handles should emit as classes (not records), with AutoCloseable for resource management
+    assert!(
+        handle_file.content.contains("public class OpaqueHandle") && handle_file.content.contains("implements AutoCloseable"),
+        "Opaque handle type should be emitted as class implementing AutoCloseable. Got:\n{}",
+        handle_file.content
+    );
+}
+
+#[test]
+fn test_sum_type_sealed_interface_with_record_variants() {
+    let backend = JavaBackend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "AuthConfig".to_string(),
+            rust_path: "test_lib::AuthConfig".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Basic".to_string(),
+                    fields: vec![
+                        FieldDef {
+                            name: "username".to_string(),
+                            ty: TypeRef::String,
+                            optional: false,
+                            default: None,
+                            doc: String::new(),
+                            sanitized: false,
+                            is_boxed: false,
+                            type_rust_path: None,
+                            cfg: None,
+                            typed_default: None,
+                            core_wrapper: alef_core::ir::CoreWrapper::None,
+                            vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                            newtype_wrapper: None,
+                            serde_rename: None,
+                            serde_flatten: false,
+                            binding_excluded: false,
+                            binding_exclusion_reason: None,
+                        },
+                        FieldDef {
+                            name: "password".to_string(),
+                            ty: TypeRef::String,
+                            optional: false,
+                            default: None,
+                            doc: String::new(),
+                            sanitized: false,
+                            is_boxed: false,
+                            type_rust_path: None,
+                            cfg: None,
+                            typed_default: None,
+                            core_wrapper: alef_core::ir::CoreWrapper::None,
+                            vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                            newtype_wrapper: None,
+                            serde_rename: None,
+                            serde_flatten: false,
+                            binding_excluded: false,
+                            binding_exclusion_reason: None,
+                        },
+                    ],
+                    is_tuple: false,
+                    doc: "Basic auth".to_string(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+                EnumVariant {
+                    name: "Bearer".to_string(),
+                    fields: vec![
+                        FieldDef {
+                            name: "token".to_string(),
+                            ty: TypeRef::String,
+                            optional: false,
+                            default: None,
+                            doc: String::new(),
+                            sanitized: false,
+                            is_boxed: false,
+                            type_rust_path: None,
+                            cfg: None,
+                            typed_default: None,
+                            core_wrapper: alef_core::ir::CoreWrapper::None,
+                            vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                            newtype_wrapper: None,
+                            serde_rename: None,
+                            serde_flatten: false,
+                            binding_excluded: false,
+                            binding_exclusion_reason: None,
+                        },
+                    ],
+                    is_tuple: false,
+                    doc: "Bearer token auth".to_string(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+            ],
+            doc: "Authentication configuration".to_string(),
+            cfg: None,
+            is_copy: false,
+            has_serde: false,
+            serde_tag: Some("type".to_string()),
+            serde_untagged: false,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_test_config("com.test");
+    let result = backend.generate_bindings(&api, &config);
+    assert!(result.is_ok());
+    let files = result.unwrap();
+
+    let enum_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("AuthConfig.java"))
+        .expect("AuthConfig.java should be generated");
+
+    // Sum types should emit as sealed interface
+    assert!(
+        enum_file.content.contains("public sealed interface AuthConfig"),
+        "Sum type should emit as sealed interface. Got:\n{}",
+        enum_file.content
+    );
+
+    // Variant records should use record syntax
+    assert!(
+        enum_file.content.contains("record Basic(") || enum_file.content.contains("record Bearer("),
+        "Sealed interface variants should be emitted as records. Got:\n{}",
+        enum_file.content
+    );
+}
