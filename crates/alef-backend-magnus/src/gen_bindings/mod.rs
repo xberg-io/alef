@@ -775,6 +775,7 @@ fn gen_tagged_enum_ruby_classes(enum_def: &alef_core::ir::EnumDef, module_name: 
             .collect::<Vec<_>>()
             .join(", ");
         out.push_str(&format!("    def initialize({kwarg_list})\n"));
+        out.push_str("      super()\n");
         for assign in &init_assigns {
             out.push_str(&format!("      {assign}\n"));
         }
@@ -802,9 +803,10 @@ fn gen_tagged_enum_ruby_classes(enum_def: &alef_core::ir::EnumDef, module_name: 
                     f.name.clone()
                 };
                 // Try both symbol (Magnus default) and string key
+                let key_string = if f.name == "_0" { "_0" } else { f.name.as_str() };
                 let val_expr = match &f.ty {
-                    TypeRef::Optional(_) => format!("hash[{key_sym}] || hash[{key_sym}.to_s]"),
-                    _ => format!("hash[{key_sym}] || hash[{key_sym}.to_s]"),
+                    TypeRef::Optional(_) => format!("hash[{key_sym}] || hash[\"{key_string}\"]"),
+                    _ => format!("hash[{key_sym}] || hash[\"{key_string}\"]"),
                 };
                 format!("{param_name}: {val_expr}")
             })

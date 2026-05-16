@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'json'
+require 'sorbet-runtime'
 require '{{ ext_name }}'
 {% if module_name != native_module_name %}
 module {{ module_name }}

@@ -1682,7 +1682,7 @@ fn test_scaffold_zig() {
 
     let main = &files[6];
     assert_eq!(main.path, PathBuf::from("packages/zig/src/main.zig"));
-    assert!(main.content.contains("pub usingnamespace"));
+    assert!(main.content.contains("pub const api"));
     assert!(main.content.contains(".zig"));
     assert!(
         files.iter().all(|f| !f.path.starts_with(".github/workflows")),

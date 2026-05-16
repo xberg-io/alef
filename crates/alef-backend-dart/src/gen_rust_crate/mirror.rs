@@ -1,3 +1,4 @@
+use alef_codegen::shared::binding_fields;
 use alef_core::ir::{EnumDef, TypeDef};
 
 use super::conversions::{frb_rust_type, frb_rust_type_inner};
@@ -45,7 +46,7 @@ pub(crate) fn emit_mirror_struct(out: &mut String, ty: &TypeDef, source_crate_na
             name => ty.name.as_str(),
         },
     ));
-    for field in &ty.fields {
+    for field in binding_fields(&ty.fields) {
         let rust_ty = frb_rust_type(&field.ty, field.optional);
         out.push_str(&template_env::render(
             "rust_mirror_struct_field.jinja",
