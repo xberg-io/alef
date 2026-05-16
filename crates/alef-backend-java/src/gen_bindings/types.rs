@@ -963,9 +963,11 @@ pub(crate) fn gen_opaque_handle_class(
             imports.push("com.fasterxml.jackson.databind.ObjectMapper");
         }
     }
-    if has_streaming {
-        imports.push("java.util.stream.Stream");
-    }
+    // Streaming method bodies reference java.util.stream.Stream<T> and
+    // java.util.stream.StreamSupport via fully-qualified names in the template,
+    // so no short-form import is needed. Adding one would trigger Checkstyle's
+    // UnusedImports rule (confirmed in liter-llm DefaultClient.java:12).
+    let _ = has_streaming;
     if has_list_return {
         imports.push("java.util.List");
     }
@@ -1902,6 +1904,7 @@ mod tests {
                 serde_flatten: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                original_type: None,
             }],
             methods: vec![],
             is_opaque: false,
@@ -1945,6 +1948,7 @@ mod tests {
                     serde_flatten: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    original_type: None,
                 },
                 FieldDef {
                     name: "max_tokens".to_string(),
@@ -1964,6 +1968,7 @@ mod tests {
                     serde_flatten: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    original_type: None,
                 },
                 FieldDef {
                     name: "top_p".to_string(),
@@ -1983,6 +1988,7 @@ mod tests {
                     serde_flatten: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    original_type: None,
                 },
             ],
             methods: vec![],

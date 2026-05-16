@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **alef-backend-swift: emit bidirectional `From` impls for `OptionsField` newtype wrappers**: the `OptionsField` bind_via path generates a factory (`make_{trait}_handle`) and options-helper (`{opts}_from_json_with_{field}`) that call `TypeAlias::from(inner)`, `<inner>::from(handle)`, and `OptionsType::from(core_opts)`. These three `From` impls were missing — only enums emitted one-direction `From` via match arms. `emit_options_field_from_impls` now emits all three bidirectional newtype-struct impls (`.0` field access) with a deduplication guard so multiple bridges sharing the same alias or options type don't produce duplicate `impl` blocks. Fixes E0308 and E0277 in every consumer using `bind_via = "options_field"` (e.g. html-to-markdown's `HtmlVisitor` bridge). (`crates/alef-backend-swift/src/gen_rust_crate/plugin_inbound.rs`, `crates/alef-backend-swift/src/gen_rust_crate/mod.rs`)
 
+## [0.16.16] - 2026-05-16
+
+### Fixed
+
+- **alef-backend-java: drop redundant `import java.util.stream.Stream;` from streaming opaque-handle classes**: the streaming method body template (`streaming_iterator_method.jinja`) uses fully-qualified names (`java.util.stream.Stream<T>` in the method signature, `java.util.stream.StreamSupport.stream(...)` in the bridge body), so the unconditional `imports.push("java.util.stream.Stream")` emitted an import that never resolved to a short-form identifier in the file body. Checkstyle's `UnusedImports` rule rejected `DefaultClient.java:12` in liter-llm after regeneration against v0.16.15. Drop the import push; rely on FQNs in the template throughout. Adds a regression test asserting the import is absent in generated opaque-handle facades with streaming adapters. (`crates/alef-backend-java/src/gen_bindings/types.rs`, `crates/alef-backend-java/tests/gen_bindings_test.rs`)
+
 ## [0.16.15] - 2026-05-16
 
 ### Fixed

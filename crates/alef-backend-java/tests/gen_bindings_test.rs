@@ -49,6 +49,7 @@ fn make_newtype_field(ty: TypeRef) -> FieldDef {
         serde_flatten: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        original_type: None,
     }
 }
 
@@ -81,6 +82,7 @@ fn test_basic_generation() {
                 serde_flatten: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                original_type: None,
             }],
             methods: vec![],
             is_opaque: false,
@@ -487,6 +489,7 @@ fn test_optional_field_defaults_in_builder() {
                     serde_flatten: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    original_type: None,
                 },
                 FieldDef {
                     name: "bullets".to_string(),
@@ -506,6 +509,7 @@ fn test_optional_field_defaults_in_builder() {
                     serde_flatten: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    original_type: None,
                 },
                 FieldDef {
                     name: "escape_asterisks".to_string(),
@@ -525,6 +529,7 @@ fn test_optional_field_defaults_in_builder() {
                     serde_flatten: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    original_type: None,
                 },
                 FieldDef {
                     name: "timeout_ms".to_string(),
@@ -544,6 +549,7 @@ fn test_optional_field_defaults_in_builder() {
                     serde_flatten: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    original_type: None,
                 },
             ],
             methods: vec![],
@@ -695,6 +701,7 @@ fn test_no_standalone_builder_java_file_emitted() {
                 serde_flatten: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                original_type: None,
             }],
             methods: vec![],
             is_opaque: false,
@@ -1085,12 +1092,14 @@ type = "ChatCompletionRequest"
         "DefaultClient must NOT use bare Iterator<> return type for streaming methods"
     );
     assert!(
-        client.content.contains("import java.util.stream.Stream;"),
-        "DefaultClient must import java.util.stream.Stream"
+        !client.content.contains("import java.util.stream.Stream;"),
+        "DefaultClient must NOT import java.util.stream.Stream (template uses FQN; bare import triggers Checkstyle UnusedImports). Got:\n{}",
+        client.content
     );
     assert!(
-        client.content.contains("StreamSupport.stream("),
-        "DefaultClient must bridge via StreamSupport.stream(...)"
+        client.content.contains("java.util.stream.StreamSupport.stream("),
+        "DefaultClient must bridge via fully-qualified java.util.stream.StreamSupport.stream(...). Got:\n{}",
+        client.content
     );
     // Iteration body must call all three FFI handles.
     for needle in [
@@ -1248,6 +1257,7 @@ fn test_dto_emits_as_record_with_fields_only() {
                     serde_flatten: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    original_type: None,
                 },
                 FieldDef {
                     name: "count".to_string(),
@@ -1267,6 +1277,7 @@ fn test_dto_emits_as_record_with_fields_only() {
                     serde_flatten: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    original_type: None,
                 },
             ],
             methods: vec![],
@@ -1404,6 +1415,7 @@ fn test_sum_type_sealed_interface_with_record_variants() {
                             serde_flatten: false,
                             binding_excluded: false,
                             binding_exclusion_reason: None,
+                            original_type: None,
                         },
                         FieldDef {
                             name: "password".to_string(),
@@ -1423,6 +1435,7 @@ fn test_sum_type_sealed_interface_with_record_variants() {
                             serde_flatten: false,
                             binding_excluded: false,
                             binding_exclusion_reason: None,
+                            original_type: None,
                         },
                     ],
                     is_tuple: false,
@@ -1450,6 +1463,7 @@ fn test_sum_type_sealed_interface_with_record_variants() {
                         serde_flatten: false,
                         binding_excluded: false,
                         binding_exclusion_reason: None,
+                        original_type: None,
                     }],
                     is_tuple: false,
                     doc: "Bearer token auth".to_string(),
@@ -1611,10 +1625,10 @@ type = "EventRequest"
         .find(|f| f.path.ends_with("EventSource.java"))
         .expect("EventSource.java must be generated");
 
-    // (a) Stream< appears in streaming method signature; no bare Iterator< return type
+    // (a) Stream< appears in streaming method signature (as FQN); no bare Iterator< return type
     assert!(
-        source.content.contains("Stream<"),
-        "streaming method must return Stream<T>. Got:\n{}",
+        source.content.contains("java.util.stream.Stream<"),
+        "streaming method must return java.util.stream.Stream<T> (FQN). Got:\n{}",
         source.content
     );
     assert!(
@@ -1623,17 +1637,18 @@ type = "EventRequest"
         source.content
     );
 
-    // StreamSupport bridge is present
+    // StreamSupport bridge is present via FQN
     assert!(
-        source.content.contains("StreamSupport.stream("),
-        "streaming bridge must use StreamSupport.stream(). Got:\n{}",
+        source.content.contains("java.util.stream.StreamSupport.stream("),
+        "streaming bridge must use java.util.stream.StreamSupport.stream(). Got:\n{}",
         source.content
     );
 
-    // Stream is imported
+    // Stream must NOT be imported — template uses fully-qualified names throughout,
+    // so a bare import would trigger Checkstyle's UnusedImports rule.
     assert!(
-        source.content.contains("import java.util.stream.Stream;"),
-        "must import java.util.stream.Stream. Got:\n{}",
+        !source.content.contains("import java.util.stream.Stream;"),
+        "must NOT import java.util.stream.Stream (template uses FQN). Got:\n{}",
         source.content
     );
 }
@@ -1662,6 +1677,7 @@ fn test_tagged_enum_emits_sealed_interface_with_record_variants() {
         serde_flatten: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        original_type: None,
     };
 
     let api = ApiSurface {
@@ -1775,6 +1791,7 @@ fn test_plain_dto_emits_as_record_not_sealed_class() {
                     serde_flatten: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    original_type: None,
                 },
                 FieldDef {
                     name: "context_length".to_string(),
@@ -1794,6 +1811,7 @@ fn test_plain_dto_emits_as_record_not_sealed_class() {
                     serde_flatten: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    original_type: None,
                 },
             ],
             methods: vec![],
@@ -1869,6 +1887,7 @@ fn test_option_params_and_returns_emit_nullable_annotations() {
                 serde_flatten: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                original_type: None,
             }],
             methods: vec![],
             is_opaque: false,
@@ -2009,5 +2028,146 @@ fn test_option_params_and_returns_emit_nullable_annotations() {
         content.contains("import org.jspecify.annotations.Nullable;"),
         "Should import @Nullable annotation. Got:\n{}",
         content
+    );
+}
+
+/// Regression: streaming method template uses fully-qualified `java.util.stream.Stream<T>` and
+/// `java.util.stream.StreamSupport.stream(...)` in the method body. Adding
+/// `import java.util.stream.Stream;` is therefore redundant and triggers Checkstyle's
+/// `UnusedImports` rule (observed in liter-llm DefaultClient.java:12 after regeneration).
+/// This test asserts the import is absent for opaque-handle classes that own streaming adapters.
+#[test]
+fn test_no_stream_import_emitted_for_streaming_opaque_handle() {
+    let config = resolved_one(
+        r#"
+[workspace]
+languages = ["java", "ffi"]
+
+[[crates]]
+name = "stream_lib"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "sl"
+
+[crates.java]
+package = "com.example.streamfix"
+
+[[crates.adapters]]
+name = "events"
+pattern = "streaming"
+core_path = "events"
+owner_type = "EventSource"
+item_type = "Event"
+error_type = "StreamError"
+request_type = "stream_lib::EventRequest"
+
+[[crates.adapters.params]]
+name = "req"
+type = "EventRequest"
+"#,
+    );
+
+    let api = ApiSurface {
+        crate_name: "stream_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![
+            TypeDef {
+                name: "EventSource".to_string(),
+                rust_path: "stream_lib::EventSource".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: true,
+                is_clone: false,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+            TypeDef {
+                name: "EventRequest".to_string(),
+                rust_path: "stream_lib::EventRequest".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: true,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: true,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+            TypeDef {
+                name: "Event".to_string(),
+                rust_path: "stream_lib::Event".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: true,
+                has_stripped_cfg_fields: false,
+                is_return_type: true,
+                serde_rename_all: None,
+                has_serde: true,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+        ],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let backend = JavaBackend;
+    let files = backend.generate_bindings(&api, &config).unwrap();
+
+    let source = files
+        .iter()
+        .find(|f| f.path.ends_with("EventSource.java"))
+        .expect("EventSource.java must be generated");
+
+    // The streaming body template uses java.util.stream.Stream<T> as a FQN, so
+    // a bare `import java.util.stream.Stream;` would be unused and Checkstyle-flagged.
+    assert!(
+        !source.content.contains("import java.util.stream.Stream;"),
+        "EventSource.java must NOT import java.util.stream.Stream; \
+         template uses FQN — bare import triggers Checkstyle UnusedImports. Got:\n{}",
+        source.content
+    );
+
+    // The streaming body must still emit the FQN return type and StreamSupport bridge.
+    assert!(
+        source.content.contains("java.util.stream.Stream<"),
+        "Streaming method must use java.util.stream.Stream<T> FQN in signature. Got:\n{}",
+        source.content
+    );
+    assert!(
+        source.content.contains("java.util.stream.StreamSupport.stream("),
+        "Streaming bridge must use java.util.stream.StreamSupport.stream() FQN. Got:\n{}",
+        source.content
     );
 }
