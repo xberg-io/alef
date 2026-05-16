@@ -190,13 +190,12 @@ fn missing_language_variants(snippets: &[Snippet], required_languages: &[Languag
 }
 
 fn language_group(path: &Path, language: Language) -> Option<PathBuf> {
-    let language_name = language.to_string();
     let mut group = PathBuf::new();
     let mut replaced = false;
 
     for component in path.components() {
         let text = component.as_os_str().to_str()?;
-        if !replaced && text == language_name {
+        if !replaced && Language::from_dir_name(text) == language {
             group.push("{language}");
             replaced = true;
         } else {

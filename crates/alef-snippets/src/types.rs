@@ -88,7 +88,7 @@ impl Language {
             "elixir" => Self::Elixir,
             "go" | "golang" => Self::Go,
             "java" => Self::Java,
-            "kotlin" => Self::Kotlin,
+            "kotlin" | "kotlin_android" | "kotlin-android" => Self::Kotlin,
             "php" => Self::Php,
             "python" => Self::Python,
             "r" => Self::R,
