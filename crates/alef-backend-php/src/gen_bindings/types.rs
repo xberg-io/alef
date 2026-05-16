@@ -783,9 +783,8 @@ pub(crate) fn ty_references_untagged_data_enum(ty: &TypeRef, untagged_data_enum_
 ///
 /// For struct variants (named fields), the field's own name is used unchanged.
 fn flat_field_name(variant: &EnumVariant, field_index: usize) -> String {
-    use heck::ToSnakeCase as _;
     if alef_codegen::conversions::is_tuple_variant(&variant.fields) {
-        let base = variant.name.to_snake_case();
+        let base = alef_codegen::naming::pascal_to_snake(&variant.name);
         if variant.fields.len() == 1 {
             base
         } else {
