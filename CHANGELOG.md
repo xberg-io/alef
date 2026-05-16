@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-cli: per-language setup workdir for swift/kotlin-android/dart/zig**: setup install commands now run from each binding's manifest directory (`packages/swift`, `packages/kotlin-android`, `packages/dart`, `packages/zig`) instead of the repo root. Closes "Could not find Package.swift" timeouts during `alef setup` invocations for languages whose manifest does not live at the workspace root. Other languages (python, node, ruby, php, go, java, csharp, elixir, wasm, ffi) retain current behavior of running from repo root. (`crates/alef-core/src/config/setup_defaults.rs`, `crates/alef-cli/src/pipeline/commands.rs`, `crates/alef-core/tests/setup_config_test.rs` (new))
+
+- **alef-backend-php: promote static stub parameters after the first optional argument**:
+  PHP stubs for static API methods now mark parameters after the first optional
+  argument as nullable with `= null`, matching the generated PHP facade and
+  keeping PHPStan/PHP syntax valid for Rust functions whose required parameters
+  follow optional ones. (`crates/alef-backend-php/src/gen_bindings/mod.rs`,
+  `crates/alef-backend-php/tests/gen_bindings_test.rs`)
+
+- **alef-scaffold: place Kotlin sample sources under their declared package path**:
+  JVM scaffold now writes `Sample.kt` beneath
+  `src/main/kotlin/<package>/sample/`, so Detekt package/path validation passes
+  for generated Kotlin package names. (`crates/alef-scaffold/src/languages/kotlin.rs`,
+  `crates/alef-scaffold/src/tests.rs`)
+
 ## [0.16.18] - 2026-05-16
 
 ### Fixed

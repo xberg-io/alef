@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use alef_core::config::Language;
 use alef_core::config::output::StringOrVec;
 use anyhow::Context as _;
@@ -118,33 +120,45 @@ fn pump_lines<R: std::io::Read>(reader: R, prefix: &str) {
     }
 }
 
-/// Streamed variant of `run_command_captured_with_timeout`. Output is piped to
-/// the parent's stderr live (line-prefixed when `label` is set), and the child
-/// is killed if the deadline elapses.
-pub(crate) fn run_command_streamed_with_timeout(
+/// Streamed variant with an optional working directory and timeout.
+///
+/// `cwd` is the directory the child shell inherits as its working directory. Used
+/// by `setup` so install commands run from each binding's manifest directory
+/// (e.g. `packages/swift` for `swift package resolve`). Output is piped to the
+/// parent's stderr live (line-prefixed when `label` is set), and the child is
+/// killed if the deadline elapses.
+pub(crate) fn run_command_streamed_with_cwd_and_timeout(
     cmd: &str,
     label: Option<&str>,
     timeout_secs: Option<u64>,
+    cwd: Option<&Path>,
 ) -> anyhow::Result<()> {
-    run_command_streamed_with_timeout_and_env(cmd, label, timeout_secs, &[])
+    run_command_streamed_full(cmd, label, timeout_secs, &[], cwd)
 }
 
-/// Streamed variant with optional environment variables.
-pub(crate) fn run_command_streamed_with_timeout_and_env(
+fn run_command_streamed_full(
     cmd: &str,
     label: Option<&str>,
     timeout_secs: Option<u64>,
     env_vars: &[(&str, String)],
+    cwd: Option<&Path>,
 ) -> anyhow::Result<()> {
     let Some(secs) = timeout_secs else {
         return run_command_streamed_with_env(cmd, label, env_vars);
     };
     let cmd_with_env = inline_env_in_shell_cmd(cmd, env_vars);
-    info!("Running (timeout {secs}s): {cmd_with_env}");
+    if let Some(dir) = cwd {
+        info!("Running (timeout {secs}s, cwd={}): {cmd_with_env}", dir.display());
+    } else {
+        info!("Running (timeout {secs}s): {cmd_with_env}");
+    }
     let prefix = label.map(|l| format!("[{l}] "));
 
     let mut command = std::process::Command::new("sh");
     command.args(["-c", &cmd_with_env]);
+    if let Some(dir) = cwd {
+        command.current_dir(dir);
+    }
 
     // Also apply via Command::env for non-DYLD vars (covers shells that don't strip).
     for (key, value) in env_vars {

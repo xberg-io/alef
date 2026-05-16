@@ -1,6 +1,38 @@
+use std::path::PathBuf;
+
 use super::extras::Language;
 use super::output::{SetupConfig, StringOrVec};
 use super::tools::{LangContext, require_tool};
+
+/// Return the default working directory (relative to repo root) for a language's
+/// setup commands. Languages whose manifest file lives outside the repo root
+/// (Swift's `Package.swift`, Kotlin-Android's `gradlew`, Dart's `pubspec.yaml`,
+/// Zig's `build.zig`) need install commands run from their package directory or
+/// the underlying tool will not find the manifest.
+pub fn default_setup_workdir(lang: Language) -> Option<PathBuf> {
+    match lang {
+        Language::Swift => Some(PathBuf::from("packages/swift")),
+        Language::KotlinAndroid => Some(PathBuf::from("packages/kotlin-android")),
+        Language::Dart => Some(PathBuf::from("packages/dart")),
+        Language::Zig => Some(PathBuf::from("packages/zig")),
+        _ => None,
+    }
+}
+
+/// Stand-alone factory matching the spec's `setup_config_for_language(lang)`
+/// signature: returns a setup config with only the `workdir` field populated
+/// (per-language default). Used by tests and callers that only need the workdir
+/// default without resolving the full command pipeline (which requires
+/// `output_dir` and `LangContext`).
+pub fn setup_config_for_language(lang: Language) -> SetupConfig {
+    SetupConfig {
+        precondition: None,
+        before: None,
+        install: None,
+        timeout_seconds: 600,
+        workdir: default_setup_workdir(lang),
+    }
+}
 
 /// Return the default setup configuration for a language.
 ///
@@ -23,6 +55,7 @@ pub(crate) fn default_setup_config(lang: Language, output_dir: &str, ctx: &LangC
                 before: None,
                 install: Some(StringOrVec::Multiple(commands)),
                 timeout_seconds: 600,
+                workdir: default_setup_workdir(lang),
             }
         }
         Language::Python => {
@@ -37,6 +70,7 @@ pub(crate) fn default_setup_config(lang: Language, output_dir: &str, ctx: &LangC
                 before: None,
                 install: Some(StringOrVec::Single(install_cmd)),
                 timeout_seconds: 600,
+                workdir: default_setup_workdir(lang),
             }
         }
         Language::Node | Language::Wasm => {
@@ -51,6 +85,7 @@ pub(crate) fn default_setup_config(lang: Language, output_dir: &str, ctx: &LangC
                 before: None,
                 install: Some(StringOrVec::Single(install_cmd)),
                 timeout_seconds: 600,
+                workdir: default_setup_workdir(lang),
             }
         }
         Language::Go => SetupConfig {
@@ -60,18 +95,21 @@ pub(crate) fn default_setup_config(lang: Language, output_dir: &str, ctx: &LangC
                 "cd {output_dir} && GOWORK=off go mod download"
             ))),
             timeout_seconds: 600,
+            workdir: default_setup_workdir(lang),
         },
         Language::Ruby => SetupConfig {
             precondition: Some(require_tool("bundle")),
             before: None,
             install: Some(StringOrVec::Single(format!("cd {output_dir} && bundle install"))),
             timeout_seconds: 600,
+            workdir: default_setup_workdir(lang),
         },
         Language::Php => SetupConfig {
             precondition: Some(require_tool("composer")),
             before: None,
             install: Some(StringOrVec::Single(format!("cd {output_dir} && composer install"))),
             timeout_seconds: 600,
+            workdir: default_setup_workdir(lang),
         },
         Language::Java => SetupConfig {
             precondition: Some(require_tool("mvn")),
@@ -80,6 +118,7 @@ pub(crate) fn default_setup_config(lang: Language, output_dir: &str, ctx: &LangC
                 "mvn -f {output_dir}/pom.xml dependency:resolve -q"
             ))),
             timeout_seconds: 600,
+            workdir: default_setup_workdir(lang),
         },
         Language::Csharp => SetupConfig {
             // Both `dotnet` AND a discoverable .sln/.csproj must exist under output_dir, or
@@ -96,12 +135,14 @@ pub(crate) fn default_setup_config(lang: Language, output_dir: &str, ctx: &LangC
                 "dotnet restore $(find {output_dir} -maxdepth 3 \\( -name '*.sln' -o -name '*.csproj' \\) 2>/dev/null | head -1)"
             ))),
             timeout_seconds: 600,
+            workdir: default_setup_workdir(lang),
         },
         Language::Elixir => SetupConfig {
             precondition: Some(require_tool("mix")),
             before: None,
             install: Some(StringOrVec::Single(format!("cd {output_dir} && mix deps.get"))),
             timeout_seconds: 600,
+            workdir: default_setup_workdir(lang),
         },
         Language::R => SetupConfig {
             precondition: Some(require_tool("Rscript")),
@@ -110,6 +151,7 @@ pub(crate) fn default_setup_config(lang: Language, output_dir: &str, ctx: &LangC
                 "cd {output_dir} && Rscript -e \"remotes::install_deps()\""
             ))),
             timeout_seconds: 600,
+            workdir: default_setup_workdir(lang),
         },
         Language::Ffi => SetupConfig {
             // FFI shares cargo with the parent Rust crate; there is no
@@ -118,48 +160,56 @@ pub(crate) fn default_setup_config(lang: Language, output_dir: &str, ctx: &LangC
             before: None,
             install: None,
             timeout_seconds: 600,
+            workdir: default_setup_workdir(lang),
         },
         Language::C => SetupConfig {
             precondition: None,
             before: None,
             install: None,
             timeout_seconds: 600,
+            workdir: default_setup_workdir(lang),
         },
         Language::Kotlin | Language::KotlinAndroid => SetupConfig {
             precondition: Some(require_tool("gradle")),
             before: None,
             install: Some(StringOrVec::Single("gradle build --refresh-dependencies".to_string())),
             timeout_seconds: 600,
+            workdir: default_setup_workdir(lang),
         },
         Language::Swift => SetupConfig {
             precondition: Some(require_tool("swift")),
             before: None,
             install: Some(StringOrVec::Single("swift package resolve".to_string())),
             timeout_seconds: 600,
+            workdir: default_setup_workdir(lang),
         },
         Language::Dart => SetupConfig {
             precondition: Some(require_tool("dart")),
             before: None,
             install: Some(StringOrVec::Single("dart pub get".to_string())),
             timeout_seconds: 600,
+            workdir: default_setup_workdir(lang),
         },
         Language::Zig => SetupConfig {
             precondition: Some(require_tool("zig")),
             before: None,
             install: Some(StringOrVec::Single("zig build --fetch".to_string())),
             timeout_seconds: 600,
+            workdir: default_setup_workdir(lang),
         },
         Language::Gleam => SetupConfig {
             precondition: Some(require_tool("gleam")),
             before: None,
             install: Some(StringOrVec::Single(format!("cd {output_dir} && gleam deps download"))),
             timeout_seconds: 600,
+            workdir: default_setup_workdir(lang),
         },
         Language::Jni => SetupConfig {
             precondition: None,
             before: None,
             install: None,
             timeout_seconds: 600,
+            workdir: default_setup_workdir(lang),
         },
     }
 }

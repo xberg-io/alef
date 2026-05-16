@@ -931,6 +931,78 @@ fn is_tagged_data_enum(type_name: &str, enums: &[EnumDef]) -> bool {
         .any(|e| e.name == stripped && e.serde_tag.is_some() && e.variants.iter().any(|v| !v.fields.is_empty()))
 }
 
+/// Pre-process a JSON value so that napi-rs (node) binding can deserialize it.
+///
+/// The napi-rs backend always emits `#[napi(js_name = "kind")]` for the
+/// discriminant field of every tagged-data enum, regardless of the original
+/// Rust `#[serde(tag = "...")]` attribute. For example, `Message` has
+/// `#[serde(tag = "role")]`, but `JsMessage.role_tag` is exposed to
+/// TypeScript as `"kind"`. A fixture that sends `{ role: "user" }` causes
+/// napi-rs to return `Error: Missing field 'kind'`.
+///
+/// This function walks the JSON tree and renames any serde_tag key to
+/// `"kind"` when the key's value is a string that matches a known variant
+/// of the corresponding tagged-data enum. Renaming is limited to exact
+/// variant matches so that plain struct fields that happen to share the
+/// same key name as a serde_tag (e.g. `type: "function"` on
+/// `ChatCompletionTool` where "function" is not a `ContentPart` variant)
+/// are left unchanged.
+fn rename_napi_serde_tags_to_kind(value: &serde_json::Value, enums: &[EnumDef]) -> serde_json::Value {
+    // Build map: serde_tag_key → set of allowed variant serde-names.
+    // Only include tagged-data enums (serde_tag present AND at least one
+    // variant with fields so the binding is a flattened struct, not a plain
+    // string enum).
+    let mut tag_map: std::collections::HashMap<&str, std::collections::HashSet<String>> =
+        std::collections::HashMap::new();
+    for e in enums {
+        if let Some(tag) = e.serde_tag.as_deref() {
+            if e.variants.iter().any(|v| !v.fields.is_empty()) {
+                let variants: std::collections::HashSet<String> = e
+                    .variants
+                    .iter()
+                    .map(|v| v.serde_rename.as_deref().unwrap_or(&v.name).to_string())
+                    .collect();
+                tag_map.entry(tag).or_default().extend(variants);
+            }
+        }
+    }
+
+    rename_napi_serde_tags_recursive(value, &tag_map)
+}
+
+fn rename_napi_serde_tags_recursive(
+    value: &serde_json::Value,
+    tag_map: &std::collections::HashMap<&str, std::collections::HashSet<String>>,
+) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) => {
+            let mut new_map = serde_json::Map::new();
+            for (key, val) in map {
+                // Rename the key to "kind" when:
+                //  1. the key is a known serde_tag name, AND
+                //  2. the value is a string that matches a known variant of that enum.
+                let new_key = if let Some(variants) = tag_map.get(key.as_str()) {
+                    if val.as_str().is_some_and(|s| variants.contains(s)) {
+                        "kind".to_string()
+                    } else {
+                        key.clone()
+                    }
+                } else {
+                    key.clone()
+                };
+                new_map.insert(new_key, rename_napi_serde_tags_recursive(val, tag_map));
+            }
+            serde_json::Value::Object(new_map)
+        }
+        serde_json::Value::Array(arr) => serde_json::Value::Array(
+            arr.iter()
+                .map(|item| rename_napi_serde_tags_recursive(item, tag_map))
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
 /// Convert a JS numeric literal expression to a BigInt-compatible literal
 /// (`123n`, `-7n`) for wasm-bindgen `u64`/`i64` setters which reject Number.
 /// Non-integer or non-numeric expressions are wrapped in `BigInt(...)` so the
@@ -1057,14 +1129,49 @@ fn ts_builder_expression_inner(
     enums: &[EnumDef],
 ) -> String {
     if lang == "node" || (lang == "wasm" && is_tagged_data_enum(type_name, enums)) {
+        // For node: if this type itself is a tagged-data enum, rename its serde_tag
+        // key to "kind". The napi-rs backend hardcodes `#[napi(js_name = "kind")]`
+        // for every tagged-data enum discriminant, regardless of the original
+        // `#[serde(tag = "...")]` attribute. For wasm tagged-data enums the plain
+        // JS object is deserialized via serde_wasm_bindgen which reads the original
+        // serde_tag name, so the rename only applies to the node language path.
+        let serde_tag_for_this_type = if lang == "node" {
+            let ir_name = type_name.strip_prefix("Wasm").unwrap_or(type_name);
+            enums
+                .iter()
+                .find(|e| e.name == ir_name && e.serde_tag.is_some() && e.variants.iter().any(|v| !v.fields.is_empty()))
+                .and_then(|e| e.serde_tag.as_deref())
+        } else {
+            None
+        };
+
         let mut fields = Vec::new();
         for (key, val) in obj {
-            let camel_key = snake_to_camel(key);
-            let field_expr = match val {
-                serde_json::Value::Object(_) => json_to_js_camel(val),
-                _ => json_to_js(val),
+            // Rename serde_tag key → "kind" for node-bound tagged-data enum objects.
+            let js_key = if lang == "node" {
+                match serde_tag_for_this_type {
+                    Some(tag) if key == tag => "kind".to_string(),
+                    _ => snake_to_camel(key),
+                }
+            } else {
+                snake_to_camel(key)
             };
-            fields.push(format!("{camel_key}: {field_expr}"));
+            let field_expr = if lang == "node" {
+                // Apply the napi serde_tag rename recursively into nested objects
+                // and arrays so that tagged-enum elements inside arrays also get
+                // their discriminant renamed to "kind".
+                let preprocessed = rename_napi_serde_tags_to_kind(val, enums);
+                match val {
+                    serde_json::Value::Object(_) => json_to_js_camel(&preprocessed),
+                    _ => json_to_js(&preprocessed),
+                }
+            } else {
+                match val {
+                    serde_json::Value::Object(_) => json_to_js_camel(val),
+                    _ => json_to_js(val),
+                }
+            };
+            fields.push(format!("{js_key}: {field_expr}"));
         }
         let obj_literal = format!("{{ {} }}", fields.join(", "));
         return format!("{obj_literal} as {type_name}");
@@ -1383,6 +1490,14 @@ fn build_args_and_setup(
                         } else {
                             parts.push(format!("{} as {opts_type}", json_to_js_camel(v)));
                         }
+                    } else if lang == "node" {
+                        // For node (napi-rs), tagged-data enum discriminants are
+                        // always exposed as `"kind"` in TypeScript, regardless of the
+                        // original Rust serde_tag attribute. Pre-process the JSON to
+                        // rename serde_tag keys (e.g. `role`, `type`) to `"kind"` when
+                        // the value matches a known enum variant, then convert to JS.
+                        let preprocessed = rename_napi_serde_tags_to_kind(v, enums);
+                        parts.push(json_to_js_camel(&preprocessed));
                     } else {
                         parts.push(json_to_js_camel(v));
                     }

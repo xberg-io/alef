@@ -251,6 +251,15 @@ pub struct SetupConfig {
     /// Timeout in seconds for the complete setup (precondition + before + install).
     #[serde(default = "default_setup_timeout")]
     pub timeout_seconds: u64,
+    /// Optional working directory (relative to repo root) for setup commands.
+    ///
+    /// When set, install commands run from `base_dir.join(workdir)` instead of
+    /// `base_dir`. Required for languages whose manifest does not live at the
+    /// workspace root (Swift's `Package.swift`, Kotlin-Android's `gradlew`,
+    /// Dart's `pubspec.yaml`, Zig's `build.zig`). Defaults to `None` (run from
+    /// repo root).
+    #[serde(default)]
+    pub workdir: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

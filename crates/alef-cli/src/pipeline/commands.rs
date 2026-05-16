@@ -348,6 +348,7 @@ pub fn setup(
     languages: &[Language],
     timeout_override: Option<u64>,
 ) -> anyhow::Result<()> {
+    let base_dir = std::env::current_dir()?;
     let results: Vec<(Language, anyhow::Result<()>)> = languages
         .par_iter()
         .map(|lang| {
@@ -358,12 +359,36 @@ pub fn setup(
             if !check_precondition(*lang, setup_cfg.precondition.as_deref()) {
                 return (*lang, Ok(()));
             }
+            // Resolve the per-language working directory. Languages whose
+            // manifest does not live at the repo root (swift / kotlin-android /
+            // dart / zig) declare a `workdir` so install commands like
+            // `swift package resolve` and `gradle build` find their manifest.
+            // Skip the cwd if the directory does not exist yet — the binding
+            // may not have been initialized, in which case the install command
+            // would have failed anyway from the repo root.
+            let cwd: Option<std::path::PathBuf> = setup_cfg.workdir.as_ref().and_then(|w| {
+                let joined = base_dir.join(w);
+                if joined.exists() {
+                    Some(joined)
+                } else {
+                    warn!(
+                        "setup workdir {} for {lang} does not exist; running from repo root",
+                        joined.display()
+                    );
+                    None
+                }
+            });
             let result: anyhow::Result<()> = (|| {
                 run_before_with_timeout(*lang, setup_cfg.before.as_ref(), timeout_secs)?;
                 if let Some(cmd_list) = &setup_cfg.install {
                     for cmd in cmd_list.commands() {
-                        super::helpers::run_command_streamed_with_timeout(cmd, Some(&label), Some(timeout_secs))
-                            .with_context(|| format!("setup for {lang} timed out after {timeout_secs}s"))?;
+                        super::helpers::run_command_streamed_with_cwd_and_timeout(
+                            cmd,
+                            Some(&label),
+                            Some(timeout_secs),
+                            cwd.as_deref(),
+                        )
+                        .with_context(|| format!("setup for {lang} timed out after {timeout_secs}s"))?;
                     }
                 }
                 Ok(())
