@@ -37,6 +37,7 @@ fn scaffold_kotlin_jvm(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow
     let meta = scaffold_meta(config);
     let version = &api.version;
     let kotlin_package = config.kotlin_package();
+    let kotlin_package_path = kotlin_package.replace('.', "/");
     let project_name = config.name.replace('-', "_");
 
     let kotlin_plugin = maven::KOTLIN_JVM_PLUGIN;
@@ -273,7 +274,9 @@ object Sample {{
             generated_header: false,
         },
         GeneratedFile {
-            path: PathBuf::from("packages/kotlin/src/main/kotlin/sample/Sample.kt"),
+            path: PathBuf::from(format!(
+                "packages/kotlin/src/main/kotlin/{kotlin_package_path}/sample/Sample.kt"
+            )),
             content: sample_kotlin,
             generated_header: false,
         },

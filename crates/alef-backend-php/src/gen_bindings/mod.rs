@@ -1130,11 +1130,16 @@ impl Backend for PhpBackend {
                     .any(|p| matches!(&p.ty, TypeRef::Vec(_) | TypeRef::Map(_, _)));
                 let has_array_return = matches!(&func.return_type, TypeRef::Vec(_) | TypeRef::Map(_, _))
                     || matches!(&func.return_type, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Vec(_) | TypeRef::Map(_, _)));
+                let first_optional_idx = visible_params.iter().position(|p| p.optional);
                 if has_array_params || has_array_return {
                     content.push_str("    /**\n");
-                    for p in &visible_params {
+                    for (idx, p) in visible_params.iter().enumerate() {
                         let ptype = php_phpdoc_type_fq(&p.ty, &namespace);
-                        let nullable_prefix = if p.optional { "?" } else { "" };
+                        let nullable_prefix = if p.optional || first_optional_idx.is_some_and(|first| idx >= first) {
+                            "?"
+                        } else {
+                            ""
+                        };
                         content.push_str(&crate::template_env::render(
                             "php_phpdoc_static_param.jinja",
                             context! {
@@ -1152,10 +1157,16 @@ impl Backend for PhpBackend {
                 }
                 let params: Vec<String> = visible_params
                     .iter()
-                    .map(|p| {
+                    .enumerate()
+                    .map(|(idx, p)| {
                         let ptype = php_type_fq(&p.ty, &namespace);
-                        if p.optional {
-                            format!("?{} ${} = null", ptype, p.name)
+                        if p.optional || first_optional_idx.is_some_and(|first| idx >= first) {
+                            let nullable_ptype = if ptype.starts_with('?') {
+                                ptype
+                            } else {
+                                format!("?{ptype}")
+                            };
+                            format!("{} ${} = null", nullable_ptype, p.name)
                         } else {
                             format!("{} ${}", ptype, p.name)
                         }
