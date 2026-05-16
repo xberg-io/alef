@@ -689,10 +689,16 @@ fn test_parent_struct_with_optional_data_enum_field_emits_custom_unmarshal_json(
         "must call UnmarshalResponseFormat to decode the optional field; got:\n{content}"
     );
 
-    // Optional: must assign &v (pointer to decoded interface) since field is *ResponseFormat
+    // Optional sealed-interface fields are stored as the bare interface (no pointer):
+    // Go interfaces are already nullable, and `*Iface` is "pointer to interface", which
+    // is not assignable from the interface. Assignment must be `s.X = v`, not `&v`.
     assert!(
-        content.contains("s.ResponseFormat = &v"),
-        "optional data-enum field must be assigned as &v; got:\n{content}"
+        content.contains("s.ResponseFormat = v"),
+        "optional data-enum field must be assigned as v (not &v); got:\n{content}"
+    );
+    assert!(
+        !content.contains("s.ResponseFormat = &v"),
+        "optional data-enum field must not be assigned as &v (pointer-to-interface); got:\n{content}"
     );
 
     // Non-enum fields must be copied directly

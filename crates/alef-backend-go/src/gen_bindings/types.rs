@@ -1121,7 +1121,16 @@ pub(super) fn gen_struct_type(
             && typ.has_default
             && matches!(&field.ty, TypeRef::Named(n) if enum_names.contains(n.as_str()));
 
-        let field_type = if field.optional {
+        // Sealed-interface enums are already nullable in Go (interface zero value is nil) —
+        // they must never be wrapped in a pointer. `*AuthConfig` is "pointer to interface",
+        // not "interface", and the two are not assignable. Emit the bare interface name
+        // for both optional and non-optional positions.
+        let is_sealed_interface =
+            matches!(&field.ty, TypeRef::Named(n) if data_enum_names.contains(n.as_str()));
+
+        let field_type = if is_sealed_interface {
+            go_type(&field.ty)
+        } else if field.optional {
             go_optional_type(&field.ty)
         } else if use_default_pointer {
             // Emit as pointer so that an unset field serializes as absent (omitempty),
@@ -1385,12 +1394,14 @@ pub(super) fn gen_struct_type(
             let unmarshal_fn = format!("Unmarshal{}", def.enum_go_name);
             if def.is_optional {
                 // Optional field: only decode when the raw bytes are non-nil/non-empty.
+                // The struct field type is the bare sealed-interface (no `*`), since
+                // Go interfaces are already nullable — so assign `v` directly.
                 out.push_str(&format!("\tif len(raw.{}) > 0 {{\n", def.go_name));
                 out.push_str(&format!("\t\tv, err := {unmarshal_fn}(raw.{})\n", def.go_name));
                 out.push_str("\t\tif err != nil {\n");
                 out.push_str("\t\t\treturn err\n");
                 out.push_str("\t\t}\n");
-                out.push_str(&format!("\t\ts.{} = &v\n", def.go_name));
+                out.push_str(&format!("\t\ts.{} = v\n", def.go_name));
                 out.push_str("\t}\n");
             } else {
                 // Required field: always decode (raw is guaranteed non-nil by the struct unmarshal above).
@@ -1618,6 +1629,7 @@ pub(super) fn gen_config_options(
     typ: &TypeDef,
     enum_names: &std::collections::HashSet<&str>,
     passthrough_enum_names: &std::collections::HashSet<&str>,
+    data_enum_names: &std::collections::HashSet<&str>,
 ) -> String {
     let mut out = String::with_capacity(2048);
 
@@ -1666,8 +1678,15 @@ pub(super) fn gen_config_options(
         // store pointer types in the struct, so we must take the address of v when assigning.
         // Exception: slice (Vec) and map types are reference types in Go — go_optional_type
         // returns []T and map[K]V (not *[]T / *map[K]V), so no address-of is needed.
+        // Sealed-interface (data enum) fields are also already-nullable interface values; their
+        // struct field is `T` (not `*T`), so the assignment must not take the address.
         let is_slice_or_map = matches!(&field.ty, TypeRef::Vec(_) | TypeRef::Map(_, _));
-        let use_ptr = !is_visitor_field && (field.optional || needs_omitempty_pointer(field)) && !is_slice_or_map;
+        let is_sealed_interface =
+            matches!(&field.ty, TypeRef::Named(n) if data_enum_names.contains(n.as_str()));
+        let use_ptr = !is_visitor_field
+            && (field.optional || needs_omitempty_pointer(field))
+            && !is_slice_or_map
+            && !is_sealed_interface;
         let assign_val = if use_ptr { "&v" } else { "v" };
         out.push_str(&crate::template_env::render(
             "config_with_option_signature.jinja",

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-backend-go: emit sealed-interface fields as bare interface, not pointer-to-interface**: struct fields whose type is a tagged-data (sealed-interface) enum were being emitted as `*AuthConfig` for both optional and `has_default` positions, producing `cannot use v (variable of interface type AuthConfig) as *AuthConfig value in assignment: AuthConfig does not implement *AuthConfig (type *AuthConfig is pointer to interface, not interface)` at compile time. Go interfaces are already nullable — the interface zero value is `nil` — so taking a pointer to one is never the right shape. `gen_struct_type` detects sealed-interface fields via `data_enum_names` and emits the bare type for both struct declarations and builder option setters; the custom `UnmarshalJSON` emitter also drops the `&` when assigning the decoded variant. `gen_config_options` now takes `data_enum_names` and skips the `&v` address-of path for these fields. Test `test_parent_struct_with_optional_data_enum_field_emits_custom_unmarshal_json` updated to assert the new shape. (`crates/alef-backend-go/src/gen_bindings/{types.rs,mod.rs}`, `crates/alef-backend-go/tests/bug_fixes_test.rs`)
+
 ### Changed
 
 - **alef-snippets: parser tolerates malformed YAML frontmatter**: `parse_frontmatter` previously returned `Error::Parse` when a snippet file opened with `---\n` but had no closing `\n---\n` delimiter, or when the YAML between delimiters failed to deserialize. Snippet collections that include partial templates or human-edited drafts would short-circuit the entire run. The parser now treats these cases as "no frontmatter": `SnippetMetadata::default()` plus the original `content` are returned, and validation continues against the body. Strict structural reporting still lives in `frontmatter_status`, which downstream `audit` consumers can opt into. (`crates/alef-snippets/src/parser.rs`)
