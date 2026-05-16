@@ -589,49 +589,169 @@ package = "com.example"
     assert!(result.is_ok());
     let files = result.unwrap();
 
-    // Find the builder class
-    let builder_file = files
+    // The builder is now a nested static class inside the record file —
+    // no separate *Builder.java file should exist.
+    assert!(
+        !files
+            .iter()
+            .any(|f| f.path.to_string_lossy().contains("ConfigWithDefaultsBuilder")),
+        "No standalone *Builder.java file should be generated; builder is nested inside the record"
+    );
+
+    // The record file itself must contain the nested Builder class.
+    let record_file = files
         .iter()
-        .find(|f| f.path.to_string_lossy().contains("ConfigWithDefaultsBuilder"))
-        .expect("Builder class should be generated");
+        .find(|f| f.path.to_string_lossy().ends_with("ConfigWithDefaults.java"))
+        .expect("Record file ConfigWithDefaults.java should be generated");
 
-    let builder_content = &builder_file.content;
+    let content = &record_file.content;
+
+    // Verify the nested builder class header
+    assert!(
+        content.contains("public static final class Builder"),
+        "Record should contain nested 'public static final class Builder', got:\n{}",
+        content
+    );
+
+    // @JsonDeserialize must reference the nested class, not a sibling top-level class
+    assert!(
+        content.contains("@JsonDeserialize(builder = ConfigWithDefaults.Builder.class)"),
+        "@JsonDeserialize should reference ConfigWithDefaults.Builder.class, got:\n{}",
+        content
+    );
+
+    // builder() factory must return Builder (not ConfigWithDefaultsBuilder)
+    assert!(
+        content.contains("public static Builder builder()"),
+        "factory method should return Builder, got:\n{}",
+        content
+    );
 
     assert!(
-        builder_content.contains("Optional<Long> listIndentWidth = Optional.of(0L)"),
+        content.contains("Optional<Long> listIndentWidth = Optional.of(0L)"),
         "Optional Long field with default should use Optional.of(0L), got:\n{}",
-        builder_content
+        content
     );
 
     assert!(
-        builder_content.contains("Optional<String> bullets = Optional.of(\"*\")"),
+        content.contains("Optional<String> bullets = Optional.of(\"*\")"),
         "Optional String field with default should use Optional.of(\"*\"), got:\n{}",
-        builder_content
+        content
     );
 
     assert!(
-        builder_content.contains("Optional<Boolean> escapeAsterisks = Optional.of(true)"),
+        content.contains("Optional<Boolean> escapeAsterisks = Optional.of(true)"),
         "Optional Boolean field with default should use Optional.of(true), got:\n{}",
-        builder_content
+        content
     );
 
     assert!(
-        builder_content.contains("Optional<Long> timeoutMs = Optional.empty()"),
+        content.contains("Optional<Long> timeoutMs = Optional.empty()"),
         "Optional field without default should use Optional.empty(), got:\n{}",
-        builder_content
+        content
     );
 
     assert!(
-        !builder_content.contains("Optional<Long> listIndentWidth = 0;"),
+        !content.contains("Optional<Long> listIndentWidth = 0;"),
         "Should not have raw value in Optional field"
     );
     assert!(
-        !builder_content.contains("Optional<String> bullets = \"\";"),
+        !content.contains("Optional<String> bullets = \"\";"),
         "Should not have raw value in Optional field"
     );
     assert!(
-        !builder_content.contains("Optional<Boolean> escapeAsterisks = false;"),
+        !content.contains("Optional<Boolean> escapeAsterisks = false;"),
         "Should not have raw value in Optional field"
+    );
+}
+
+/// Regression: builder is inlined as a nested class — no `*Builder.java` file should be emitted.
+#[test]
+fn test_no_standalone_builder_java_file_emitted() {
+    let backend = JavaBackend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "MyOptions".to_string(),
+            rust_path: "test_lib::MyOptions".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![FieldDef {
+                name: "enabled".to_string(),
+                ty: TypeRef::Primitive(PrimitiveType::Bool),
+                optional: false,
+                default: Some("true".to_string()),
+                doc: String::new(),
+                sanitized: false,
+                is_boxed: false,
+                type_rust_path: None,
+                cfg: None,
+                typed_default: Some(alef_core::ir::DefaultValue::BoolLiteral(true)),
+                core_wrapper: alef_core::ir::CoreWrapper::None,
+                vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                newtype_wrapper: None,
+                serde_rename: None,
+                serde_flatten: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_test_config("com.example");
+    let files = backend.generate_bindings(&api, &config).unwrap();
+
+    // No standalone MyOptionsBuilder.java must exist
+    assert!(
+        !files
+            .iter()
+            .any(|f| f.path.to_string_lossy().contains("MyOptionsBuilder")),
+        "No standalone MyOptionsBuilder.java should be emitted; builder is nested inside MyOptions.java"
+    );
+
+    // The record file must exist and contain the nested Builder
+    let record = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("MyOptions.java"))
+        .expect("MyOptions.java must be generated");
+
+    assert!(
+        record.content.contains("public static final class Builder"),
+        "MyOptions.java must contain nested Builder class"
+    );
+    assert!(
+        record
+            .content
+            .contains("@JsonDeserialize(builder = MyOptions.Builder.class)"),
+        "@JsonDeserialize must reference MyOptions.Builder.class"
+    );
+    assert!(
+        record.content.contains("public static Builder builder()"),
+        "factory must return Builder (not MyOptionsBuilder)"
+    );
+    assert!(
+        record.content.contains("@JsonPOJOBuilder(withPrefix = \"with\")"),
+        "nested Builder must carry @JsonPOJOBuilder"
     );
 }
 

@@ -203,10 +203,12 @@ pub(crate) fn gen_record_type(
     // When a builder is available, configure Jackson to use it during deserialization.
     // This ensures that fields with serde defaults (e.g., `enabled = true`) use the
     // builder's defaults instead of Java primitive defaults (false for bool).
+    // The builder is emitted as a nested static class `Builder` inside this record,
+    // so the reference is `<TypeName>.Builder.class` (not `<TypeName>Builder.class`).
     if typ.has_default {
         record_block.push_str("@JsonDeserialize(builder = ");
         record_block.push_str(&typ.name);
-        record_block.push_str("Builder.class)\n");
+        record_block.push_str(".Builder.class)\n");
     }
     if single_line_len > RECORD_LINE_WRAP_THRESHOLD && visible_fields.len() > 1 {
         record_block.push_str("public record ");
@@ -229,14 +231,11 @@ pub(crate) fn gen_record_type(
         record_block.push_str(") {\n");
     }
 
-    // Add builder() factory method if type has defaults
+    // Add builder() factory method if type has defaults.
+    // Returns the nested `Builder` class rather than a sibling top-level `FooBuilder`.
     if typ.has_default {
-        record_block.push_str("    public static ");
-        record_block.push_str(&typ.name);
-        record_block.push_str("Builder builder() {\n");
-        record_block.push_str("        return new ");
-        record_block.push_str(&typ.name);
-        record_block.push_str("Builder();\n");
+        record_block.push_str("    public static Builder builder() {\n");
+        record_block.push_str("        return new Builder();\n");
         record_block.push_str("    }\n");
     }
 
@@ -342,6 +341,15 @@ pub(crate) fn gen_record_type(
     // `Optional.ofNullable(record.content())` at the call site, or the e2e
     // codegen emits a null-safe pattern.
 
+    // When the type has defaults, inline the Jackson POJO builder as a nested
+    // static class instead of emitting a sibling top-level `FooBuilder.java`.
+    // Idiomatic Java pattern: `Foo.Builder`, mirroring `ImmutableList.Builder`.
+    if typ.has_default {
+        record_block.push('\n');
+        let nested = gen_builder_nested_class(typ, has_visitor_pattern);
+        record_block.push_str(&nested);
+    }
+
     record_block.push_str("}\n");
 
     // Scan fields_joined (the joined field declarations) to determine which imports are needed.
@@ -358,19 +366,21 @@ pub(crate) fn gen_record_type(
     // and field-level @Transient is not valid on record components. Keeping the detection
     // for reference in case of future pattern changes.
     let _needs_transient = fields_joined.contains("@Transient");
-    // Optional is needed if fields have Optional<T> in declaration
-    let needs_optional = fields_joined.contains("Optional<");
+    // Optional is needed if fields have Optional<T> in the record's field declarations OR
+    // if the nested Builder class uses Optional (for optional fields stored as Optional<T>).
+    let needs_optional = fields_joined.contains("Optional<") || (typ.has_default && record_block.contains("Optional<"));
     let mut imports: Vec<&str> = vec![];
-    if fields_joined.contains("List<") {
+    if fields_joined.contains("List<") || (typ.has_default && record_block.contains("List<")) {
         imports.push("java.util.List");
     }
-    if fields_joined.contains("Map<") {
+    if fields_joined.contains("Map<") || (typ.has_default && record_block.contains("Map<")) {
         imports.push("java.util.Map");
     }
     if needs_optional {
         imports.push("java.util.Optional");
     }
-    if needs_json_property {
+    // @JsonProperty is needed if the record's fields use it OR the nested builder uses it.
+    if needs_json_property || (typ.has_default && record_block.contains("@JsonProperty(")) {
         imports.push("com.fasterxml.jackson.annotation.JsonProperty");
     }
     if fields_joined.contains("@JsonAlias(") {
@@ -384,6 +394,10 @@ pub(crate) fn gen_record_type(
     }
     if needs_json_serialize {
         imports.push("com.fasterxml.jackson.databind.annotation.JsonSerialize");
+    }
+    // @JsonPOJOBuilder is needed when the nested Builder class is emitted inside the record.
+    if typ.has_default {
+        imports.push("com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder");
     }
     // No `import java.beans.Transient;` is needed: records have no fields to mark
     // `transient` and the `@Transient` annotation is meaningful only on JavaBean
@@ -1393,19 +1407,22 @@ fn gen_streaming_helpers(out: &mut String, prefix: &str, main_class: &str) {
 /// `indent` is the leading whitespace prepended to each line (e.g. `""` for
 /// top-level declarations, `"    "` for class members).  Does nothing when
 /// `doc` is empty.
-pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_pattern: bool) -> String {
+/// Generate the Jackson POJO builder as a nested static class body, indented with 4 spaces.
+///
+/// The returned string is meant to be inlined inside the owning record class body — it does NOT
+/// include a file header or import block.  All imports required by the builder body (e.g.
+/// `@JsonPOJOBuilder`, `@JsonProperty`, `Optional`) must be added by the caller
+/// (`gen_record_type`) to the combined file's import block.
+fn gen_builder_nested_class(typ: &TypeDef, has_visitor_pattern: bool) -> String {
     let mut body = String::with_capacity(2048);
 
-    emit_javadoc(&mut body, &typ.doc, "");
     // Annotation tells Jackson to use this builder when deserializing the record.
     // Builder defaults (e.g., enabled=true) are applied during deserialization.
-    body.push_str("@JsonPOJOBuilder(withPrefix = \"with\")\n");
-    body.push_str("public class ");
-    body.push_str(&typ.name);
-    body.push_str("Builder {\n");
+    body.push_str("    @JsonPOJOBuilder(withPrefix = \"with\")\n");
+    body.push_str("    public static final class Builder {\n");
     body.push('\n');
 
-    // Generate field declarations with defaults
+    // Generate field declarations with defaults (8-space indent — nested inside record)
     for field in binding_fields(&typ.fields) {
         let field_name = safe_java_field_name(&field.name);
 
@@ -1526,11 +1543,11 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
             Some(field.serde_rename.clone().unwrap_or_else(|| field.name.clone()))
         };
         if let Some(wire) = wire_name {
-            body.push_str("    @JsonProperty(\"");
+            body.push_str("        @JsonProperty(\"");
             body.push_str(&wire);
             body.push_str("\")\n");
         }
-        body.push_str("    private ");
+        body.push_str("        private ");
         body.push_str(&field_type);
         body.push(' ');
         body.push_str(&field_name);
@@ -1541,7 +1558,7 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
 
     body.push('\n');
 
-    // Generate withXxx() methods
+    // Generate withXxx() methods (8-space indent for method body, 12 for the body statements)
     for field in binding_fields(&typ.fields) {
         // Skip unnamed tuple fields (name is "_0", "_1", "0", "1", etc.) — Java requires named fields
         if field.name.starts_with('_') && field.name[1..].chars().all(|c| c.is_ascii_digit())
@@ -1569,7 +1586,7 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
             java_type(&field.ty).to_string()
         };
 
-        body.push_str("    /** Sets the ");
+        body.push_str("        /** Sets the ");
         body.push_str(&field_name);
         body.push_str(" field. */\n");
         let setter_wire_name: Option<String> = if is_flattened_json {
@@ -1583,34 +1600,32 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
             // would be miscast as a `Map`). `@JsonIgnore` prevents Jackson
             // from picking it up; the matching `@JsonAnySetter` below
             // intercepts every flattened sibling field instead.
-            body.push_str("    @com.fasterxml.jackson.annotation.JsonIgnore\n");
+            body.push_str("        @com.fasterxml.jackson.annotation.JsonIgnore\n");
         } else if let Some(wire) = &setter_wire_name {
             // Jackson's BuilderBasedDeserializer reads property names from the `with*`
             // setter methods, not the private fields — always emit @JsonProperty so the
             // wire key maps deterministically regardless of Jackson's naming strategy
             // quirks (e.g. `withXRobotsTag` → `xrobots_tag` instead of `x_robots_tag`).
-            body.push_str("    @JsonProperty(\"");
+            body.push_str("        @JsonProperty(\"");
             body.push_str(wire);
             body.push_str("\")\n");
         }
-        body.push_str("    public ");
-        body.push_str(&typ.name);
-        body.push_str("Builder with");
+        body.push_str("        public Builder with");
         body.push_str(&field_name_pascal);
         body.push_str("(final ");
         body.push_str(&field_type);
         body.push_str(" value) {\n");
         if is_visitor_field {
-            body.push_str("        this.");
+            body.push_str("            this.");
             body.push_str(&field_name);
             body.push_str(" = Optional.ofNullable(value);\n");
         } else {
-            body.push_str("        this.");
+            body.push_str("            this.");
             body.push_str(&field_name);
             body.push_str(" = value;\n");
         }
-        body.push_str("        return this;\n");
-        body.push_str("    }\n");
+        body.push_str("            return this;\n");
+        body.push_str("        }\n");
         body.push('\n');
 
         // Flatten field: emit `@JsonAnySetter` so Jackson absorbs unknown
@@ -1618,30 +1633,28 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
         // any field not declared on the builder triggers
         // `Unrecognized field "<name>" not marked as ignorable`.
         if is_flattened_json {
-            body.push_str("    /** Absorbs unknown sibling fields (serde flatten). */\n");
-            body.push_str("    @com.fasterxml.jackson.annotation.JsonAnySetter\n");
-            body.push_str("    public ");
-            body.push_str(&typ.name);
-            body.push_str("Builder ");
+            body.push_str("        /** Absorbs unknown sibling fields (serde flatten). */\n");
+            body.push_str("        @com.fasterxml.jackson.annotation.JsonAnySetter\n");
+            body.push_str("        public Builder ");
             body.push_str(&field_name);
             body.push_str("Entry(final String key, final Object value) {\n");
-            body.push_str("        this.");
+            body.push_str("            this.");
             body.push_str(&field_name);
             body.push_str(".put(key, value);\n");
-            body.push_str("        return this;\n");
-            body.push_str("    }\n");
+            body.push_str("            return this;\n");
+            body.push_str("        }\n");
             body.push('\n');
         }
     }
 
     // Generate build() method
-    body.push_str("    /** Builds the ");
+    body.push_str("        /** Builds the ");
     body.push_str(&typ.name);
     body.push_str(" instance. */\n");
-    body.push_str("    public ");
+    body.push_str("        public ");
     body.push_str(&typ.name);
     body.push_str(" build() {\n");
-    body.push_str("        return new ");
+    body.push_str("            return new ");
     body.push_str(&typ.name);
     body.push_str("(\n");
     let non_tuple_fields: Vec<_> = binding_fields(&typ.fields)
@@ -1655,52 +1668,24 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
         let comma = if i < non_tuple_fields.len() - 1 { "," } else { "" };
         let is_visitor_field = has_visitor_pattern && typ.name == "ConversionOptions" && field.name == "visitor";
         if field.optional || is_visitor_field {
-            body.push_str("            ");
+            body.push_str("                ");
             body.push_str(&field_name);
             body.push_str(".orElse(null)");
             body.push_str(comma);
             body.push('\n');
         } else {
-            body.push_str("            ");
+            body.push_str("                ");
             body.push_str(&field_name);
             body.push_str(comma);
             body.push('\n');
         }
     }
-    body.push_str("        );\n");
+    body.push_str("            );\n");
+    body.push_str("        }\n");
+
     body.push_str("    }\n");
 
-    body.push_str("}\n");
-
-    // Assemble with conditional imports based on what's actually used in the body
-    let mut imports: Vec<&str> = vec![];
-    if body.contains("List<") {
-        imports.push("java.util.List");
-    }
-    if body.contains("Map<") {
-        imports.push("java.util.Map");
-    }
-    if body.contains("Optional<") {
-        imports.push("java.util.Optional");
-    }
-    // Builder classes with @JsonPOJOBuilder annotation need Jackson imports
-    if body.contains("@JsonPOJOBuilder") {
-        imports.push("com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder");
-    }
-    if body.contains("@JsonProperty(") {
-        imports.push("com.fasterxml.jackson.annotation.JsonProperty");
-    }
-    if body.contains("@JsonAlias(") {
-        imports.push("com.fasterxml.jackson.annotation.JsonAlias");
-    }
-    let header = hash::header(CommentStyle::DoubleSlash);
-    let mut out = crate::template_env::render(
-        "java_file_header.jinja",
-        minijinja::context! { header => header, package => package, imports => &imports },
-    );
-    out.push('\n');
-    out.push_str(&body);
-    out
+    body
 }
 
 /// Generate a custom deserializer for sealed interfaces with tuple/newtype variants.
