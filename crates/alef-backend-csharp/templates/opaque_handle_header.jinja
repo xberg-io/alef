@@ -4,20 +4,20 @@
 using System;
 using Microsoft.Win32.SafeHandles;
 using System.Runtime.InteropServices;
-{%- if has_methods %}
+{% if has_methods %}
 using System.Text.Json;
 using System.Text.Json.Serialization;
-{%- endif %}
-{%- if needs_list %}
+{% endif %}
+{% if needs_list %}
 using System.Collections.Generic;
-{%- endif %}
-{%- if needs_async %}
+{% endif %}
+{% if needs_async %}
 using System.Threading.Tasks;
-{%- endif %}
-{%- if needs_streaming %}
+{% endif %}
+{% if needs_streaming %}
 using System.Threading;
 using System.Runtime.CompilerServices;
-{%- endif %}
+{% endif %}
 
 namespace {{ namespace }};
 

@@ -1857,3 +1857,82 @@ fn test_bytes_field_default_uses_collection_expression() {
         cs_file.content
     );
 }
+
+/// B6: Consecutive using directives must each be on their own line, not concatenated.
+/// Regression test for issue where `using System.Runtime.InteropServices;using System.Text.Json;`
+/// appeared on a single line instead of separate lines.
+#[test]
+fn test_using_directives_each_on_own_line() {
+    let backend = CsharpBackend;
+    let config = minimal_csharp_config("test");
+    let api = ApiSurface {
+        crate_name: "test".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Parser".to_string(),
+            rust_path: "test::Parser".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![MethodDef {
+                name: "parse".to_string(),
+                params: vec![],
+                return_type: TypeRef::String,
+                is_async: false,
+                is_static: false,
+                error_type: None,
+                doc: String::new(),
+                receiver: Some(ReceiverKind::Ref),
+                sanitized: false,
+                trait_source: None,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            is_opaque: true,
+            is_clone: false,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let parser_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("Parser.cs"))
+        .expect("Parser.cs should be generated");
+
+    // Extract the using directives section (before namespace declaration)
+    let content = &parser_file.content;
+    let using_section = content
+        .lines()
+        .take_while(|line| !line.contains("namespace"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    // Check that no two using directives are concatenated on a single line
+    for line in using_section.lines() {
+        let using_count = line.matches("using ").count();
+        assert!(
+            using_count <= 1,
+            "Each line must contain at most one 'using' directive, but found {} in: {}",
+            using_count,
+            line
+        );
+    }
+}
