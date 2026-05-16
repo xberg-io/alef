@@ -109,6 +109,10 @@ pub(super) fn gen_native_ex(
             .iter()
             .map(|p| format!("_{}", p.name.to_snake_case()))
             .collect();
+        if write_nif_doc(&mut out, &func.doc, last_was_multiline) {
+            // @doc attaches to the next def with no blank line between them.
+            last_was_multiline = true;
+        }
         last_was_multiline = write_nif_stub(&mut out, &fn_name, &underscored_params, last_was_multiline);
 
         // For functions that have a visitor bridge (FunctionParam pattern), also emit the
@@ -267,6 +271,9 @@ pub(super) fn gen_native_ex(
                 underscored_params.push(format!("_{}", elixir_safe_param_name(&p.name)));
             }
 
+            if write_nif_doc(&mut out, &method.doc, last_was_multiline) {
+                last_was_multiline = true;
+            }
             last_was_multiline = write_nif_stub(&mut out, &nif_fn_name, &underscored_params, last_was_multiline);
         }
     }
@@ -288,6 +295,18 @@ pub(super) fn gen_native_ex(
         for p in &adapter.params {
             start_params.push(format!("_{}", elixir_safe_param_name(&p.name)));
         }
+        // Look up the matching method on the owner type so the streaming NIF stubs
+        // inherit the source rustdoc rather than being completely undocumented.
+        let adapter_doc = api
+            .types
+            .iter()
+            .find(|t| t.name == owner)
+            .and_then(|t| t.methods.iter().find(|m| m.name == adapter.name))
+            .map(|m| m.doc.as_str())
+            .unwrap_or("");
+        if write_nif_doc(&mut out, adapter_doc, last_was_multiline) {
+            last_was_multiline = true;
+        }
         last_was_multiline = write_nif_stub(&mut out, &start_fn, &start_params, last_was_multiline);
         last_was_multiline = write_nif_stub(&mut out, &next_fn, &["_handle".to_string()], last_was_multiline);
     }
@@ -307,6 +326,58 @@ pub(super) fn gen_native_ex(
         minijinja::context! {},
     ));
     out
+}
+
+/// Write an Elixir `@doc` attribute at the given two-space indent above a NIF stub.
+///
+/// - Empty `doc` → emits nothing (the next stub stays undocumented; this matches the
+///   alef policy of omitting `@doc` rather than emitting `@doc false` for stubs without
+///   propagated rustdoc — ExDoc will fall back to the `@moduledoc false` parent module).
+/// - Single-line `doc` (no embedded newline) → `  @doc "text"` form, with embedded
+///   double-quotes and backslashes escaped.
+/// - Multi-line `doc` → `  @doc """` heredoc with each line indented by two spaces; any
+///   `"""` sequence inside the body is broken up to avoid closing the heredoc early.
+///
+/// Mix-format compliance: an `@doc` attribute must attach directly to the next `def`
+/// (no blank line between them) but the whole `@doc`/`def` block needs to be separated
+/// from the previous stub by a blank line. The helper inspects the existing output to
+/// add a leading blank line only when one isn't already present.
+///
+/// Returns `true` when a doc was emitted (so the caller can force the following stub
+/// to be treated as "previous was multiline" for spacing purposes).
+fn write_nif_doc(out: &mut String, doc: &str, _prev_was_multiline: bool) -> bool {
+    if doc.is_empty() {
+        return false;
+    }
+    // Ensure a blank line separates this @doc/def block from preceding content. If the
+    // previous stub was multi-line the template already pushed a trailing blank line
+    // (output ends with "\n\n"); otherwise we add one here.
+    if !out.is_empty() && !out.ends_with("\n\n") {
+        out.push('\n');
+    }
+    if !doc.contains('\n') {
+        // Single-line form: @doc "..." — escape backslashes then quotes.
+        let escaped = doc.replace('\\', "\\\\").replace('"', "\\\"");
+        out.push_str("  @doc \"");
+        out.push_str(&escaped);
+        out.push_str("\"\n");
+    } else {
+        // Multi-line heredoc form. Break up any embedded `"""` sequences so they don't
+        // close the heredoc early (mirrors `emit_elixir_doc` in alef-codegen).
+        out.push_str("  @doc \"\"\"\n");
+        for line in doc.lines() {
+            let safe = line.replace("\"\"\"", "\"\" \"");
+            if safe.is_empty() {
+                out.push('\n');
+            } else {
+                out.push_str("  ");
+                out.push_str(&safe);
+                out.push('\n');
+            }
+        }
+        out.push_str("  \"\"\"\n");
+    }
+    true
 }
 
 /// Write a NIF stub line, splitting onto two lines when the single-line form exceeds 120 chars.

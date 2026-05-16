@@ -1129,3 +1129,123 @@ fn test_defstruct_string_fields_default_to_nil() {
         "defstruct String field must default to nil; content:\n{content}"
     );
 }
+
+/// Build a FunctionDef with no params and an explicit `doc`.
+fn make_function_with_doc(name: &str, doc: &str) -> FunctionDef {
+    FunctionDef {
+        name: name.to_string(),
+        rust_path: format!("my_lib::{name}"),
+        original_rust_path: String::new(),
+        params: vec![],
+        return_type: TypeRef::String,
+        is_async: false,
+        error_type: None,
+        doc: doc.to_string(),
+        cfg: None,
+        sanitized: false,
+        return_sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    }
+}
+
+fn render_native_ex(functions: Vec<FunctionDef>) -> String {
+    let backend = RustlerBackend;
+    let api = ApiSurface {
+        crate_name: "my-lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![],
+        functions,
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+    let config = make_config("my_lib");
+    let files = backend
+        .generate_public_api(&api, &config)
+        .expect("generate_public_api should succeed");
+    files
+        .into_iter()
+        .find(|f| f.path.to_string_lossy().ends_with("my_lib/native.ex"))
+        .expect("native.ex should be generated")
+        .content
+}
+
+#[test]
+fn test_native_ex_emits_single_line_doc_above_nif_stub() {
+    let content = render_native_ex(vec![make_function_with_doc("convert", "Convert HTML to Markdown.")]);
+    // Single-line doc → `@doc "..."` directly above the def, no blank between them.
+    assert!(
+        content.contains("  @doc \"Convert HTML to Markdown.\"\n  def convert"),
+        "Single-line @doc must attach directly to its def; content:\n{content}"
+    );
+}
+
+#[test]
+fn test_native_ex_emits_multiline_doc_heredoc_above_nif_stub() {
+    let doc = "Convert HTML to Markdown.\n\nSupports nested lists and tables.";
+    let content = render_native_ex(vec![make_function_with_doc("convert", doc)]);
+    assert!(
+        content.contains(
+            "  @doc \"\"\"\n  Convert HTML to Markdown.\n\n  Supports nested lists and tables.\n  \"\"\"\n  def convert"
+        ),
+        "Multi-line @doc must emit an indented heredoc attached to its def; content:\n{content}"
+    );
+}
+
+#[test]
+fn test_native_ex_omits_doc_when_function_has_no_rustdoc() {
+    let content = render_native_ex(vec![make_function_with_doc("convert", "")]);
+    // No @doc anywhere in the Native module when the function has no doc.
+    assert!(
+        !content.contains("@doc"),
+        "Native module must not emit @doc when the source has no rustdoc; content:\n{content}"
+    );
+    // Stub itself is still emitted.
+    assert!(
+        content.contains("  def convert"),
+        "Stub must still be present; content:\n{content}"
+    );
+}
+
+#[test]
+fn test_native_ex_escapes_quotes_in_single_line_doc() {
+    let content = render_native_ex(vec![make_function_with_doc("convert", "Quote: \"hi\" and slash: \\.")]);
+    // Both double-quotes and backslashes must be escaped inside the "..." form.
+    assert!(
+        content.contains("  @doc \"Quote: \\\"hi\\\" and slash: \\\\.\"\n"),
+        "Embedded \" and \\ must be escaped in single-line @doc; content:\n{content}"
+    );
+}
+
+#[test]
+fn test_native_ex_breaks_triple_quote_in_multiline_doc() {
+    let doc = "Example:\n\"\"\"\ncode\n\"\"\"";
+    let content = render_native_ex(vec![make_function_with_doc("convert", doc)]);
+    // Triple-quote sequences inside the body must be broken so they don't close the heredoc.
+    assert!(
+        !content.contains("\n  \"\"\"\n  code"),
+        "Embedded \\\"\\\"\\\" must not survive verbatim and close the heredoc early; content:\n{content}"
+    );
+    assert!(
+        content.contains("\"\" \""),
+        "Embedded \\\"\\\"\\\" must be split into `\"\" \"`; content:\n{content}"
+    );
+}
+
+#[test]
+fn test_native_ex_separates_consecutive_docced_stubs_with_blank_line() {
+    let content = render_native_ex(vec![
+        make_function_with_doc("first", "First."),
+        make_function_with_doc("second", "Second."),
+    ]);
+    // Two single-line def blocks with @doc must be separated by exactly one blank line
+    // (mix format requires the @doc-block to be visually distinct).
+    assert!(
+        content.contains("  def first, do: :erlang.nif_error(:nif_not_loaded)\n\n  @doc \"Second.\"\n  def second"),
+        "Consecutive docced stubs must have a blank line separator; content:\n{content}"
+    );
+}
