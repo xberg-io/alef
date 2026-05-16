@@ -120,6 +120,14 @@ impl Backend for SwiftBackend {
             .as_ref()
             .map(|c| c.client_constructor_body.keys().map(String::as_str).collect())
             .unwrap_or_default();
+        // Collect first-class struct type names for streaming chunk decode dispatch.
+        let first_class_types: std::collections::HashSet<String> = api
+            .types
+            .iter()
+            .filter(|t| !t.is_trait && !t.is_opaque && t.has_serde && !t.fields.is_empty())
+            .filter(|t| !exclude_types.contains(&t.name))
+            .map(|t| t.name.clone())
+            .collect();
         for ty in api.types.iter().filter(|t| {
             !t.is_trait
                 && !exclude_types.contains(&t.name)
@@ -127,7 +135,7 @@ impl Backend for SwiftBackend {
                 && (t.is_opaque || !t.has_serde)
                 && client_constructor_types.contains(t.name.as_str())
         }) {
-            emit_client_class(ty.name.as_str(), &ty.methods, &mapper, config, &mut body);
+            emit_client_class(ty.name.as_str(), &ty.methods, &mapper, config, &first_class_types, &mut body);
             body.push('\n');
             // Emit `@unchecked Sendable` conformance for every StreamHandle owned by this
             // client type.  swift-bridge emits opaque types as plain Swift classes without
@@ -560,6 +568,7 @@ fn emit_client_class(
     methods: &[MethodDef],
     mapper: &impl TypeMapper,
     config: &ResolvedCrateConfig,
+    first_class_types: &std::collections::HashSet<String>,
     out: &mut String,
 ) {
     use heck::ToSnakeCase;
@@ -679,7 +688,7 @@ fn emit_client_class(
         .filter(|a| matches!(a.pattern, AdapterPattern::Streaming))
         .filter(|a| a.owner_type.as_deref() == Some(type_name))
     {
-        emit_streaming_client_method(adapter, &snake_name, out);
+        emit_streaming_client_method(adapter, &snake_name, first_class_types, out);
     }
 
     out.push_str("}\n");
@@ -710,7 +719,12 @@ fn emit_client_class(
 /// - Empty-string response from `next()` finishes the stream cleanly.
 /// - `continuation.onTermination` cancels the drain task so the handle's `deinit`
 ///   runs promptly when a Swift consumer early-breaks out of the for-await loop.
-fn emit_streaming_client_method(adapter: &AdapterConfig, owner_snake: &str, out: &mut String) {
+fn emit_streaming_client_method(
+    adapter: &AdapterConfig,
+    owner_snake: &str,
+    first_class_types: &std::collections::HashSet<String>,
+    out: &mut String,
+) {
     use heck::{AsSnakeCase, ToLowerCamelCase};
     let method_camel = swift_ident(&adapter.name.to_lower_camel_case());
     let start_fn_snake = format!("{owner_snake}_{}_start", adapter.name);
@@ -770,9 +784,17 @@ fn emit_streaming_client_method(adapter: &AdapterConfig, owner_snake: &str, out:
     out.push_str("                    while !Task.isCancelled {\n");
     out.push_str("                        let json = try handle.next().toString()\n");
     out.push_str("                        if json.isEmpty { break }\n");
-    out.push_str(&format!(
-        "                        let chunk = try RustBridge.{item_type_from_json}(json)\n"
-    ));
+    if first_class_types.contains(item_type) {
+        // First-class struct: decode with JSONDecoder directly — no RustBridge shim.
+        out.push_str("                        let chunkData = json.data(using: .utf8) ?? Data()\n");
+        out.push_str(&format!(
+            "                        let chunk = try JSONDecoder().decode({item_type}.self, from: chunkData)\n"
+        ));
+    } else {
+        out.push_str(&format!(
+            "                        let chunk = try RustBridge.{item_type_from_json}(json)\n"
+        ));
+    }
     out.push_str("                        continuation.yield(chunk)\n");
     out.push_str("                    }\n");
     out.push_str("                    continuation.finish()\n");
@@ -974,7 +996,7 @@ fn emit_from_json_forwarders(api: &ApiSurface, exclude_types: &std::collections:
         let swift_name = format!("{type_snake}_from_json").to_lower_camel_case();
         if first_class_set.contains(type_name) {
             out.push_str(&format!(
-                "public func {swift_name}(_ json: String) throws -> {type_name} {{\n                     let data = json.data(using: .utf8) ?? Data()\n                     return try JSONDecoder().decode({type_name}.self, from: data)\n}}\n\n"
+                "public func {swift_name}(_ json: String) throws -> {type_name} {{\n    let data = json.data(using: .utf8) ?? Data()\n    return try JSONDecoder().decode({type_name}.self, from: data)\n}}\n\n"
             ));
         } else {
             out.push_str(&format!(

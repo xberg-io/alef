@@ -207,7 +207,12 @@ pub unsafe extern "system" fn Java_dev_kreuzberg_demo_DemoBridge_nativeDemoClien
             std::ptr::null_mut()
         }
         Some(Ok(chunk)) => {
-            let s = serde_json::to_string(&chunk).unwrap_or_default();
+            let s = match serde_json::to_string(&chunk) {
+                Ok(s) => s,
+                Err(e) => {
+                    throw_jni_error(&mut env, &format!("serialize: {e}")); return std::ptr::null_mut();
+                }
+            };
             string_to_jstring(&mut env, &s)
         }
     }

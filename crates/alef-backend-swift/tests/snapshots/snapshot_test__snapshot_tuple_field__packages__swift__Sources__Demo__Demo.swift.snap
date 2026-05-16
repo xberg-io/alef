@@ -8,7 +8,31 @@ import Foundation
 import RustBridge
 
 /// Keyword extraction configuration.
-public typealias KeywordConfig = RustBridge.KeywordConfig
+public struct KeywordConfig: Codable, Sendable, Hashable {
+    public let maxKeywords: UInt
+    public let ngramRange: [UInt]
+    public init(maxKeywords: UInt, ngramRange: [UInt]) {
+        self.maxKeywords = maxKeywords
+        self.ngramRange = ngramRange
+    }
+    private enum CodingKeys: String, CodingKey {
+        case maxKeywords = "max_keywords"
+        case ngramRange = "ngram_range"
+    }
+}
+
+// MARK: - Internal FFI conversions for KeywordConfig
+internal extension KeywordConfig {
+    init(_ rb: RustBridge.KeywordConfig) throws {
+        self.maxKeywords = rb.maxKeywords()
+        self.ngramRange = rb.ngramRange()
+    }
+    func intoRust() throws -> RustBridge.KeywordConfig {
+        let data = try JSONEncoder().encode(self)
+        let json = String(data: data, encoding: .utf8) ?? "{}"
+        return try RustBridge.keywordConfigFromJson(json)
+    }
+}
 
 /// Errors emitted by keyword extraction.
 public enum DemoError: Swift.Error {
@@ -17,9 +41,11 @@ public enum DemoError: Swift.Error {
 }
 
 // MARK: - From-JSON Helpers
-// Public wrappers forwarding RustBridge's swift_bridge-generated
-// `{TypeName}FromJson` helpers into this module's namespace.
+// Public helpers that decode JSON into first-class Swift types.
+// First-class struct types (Codable) use JSONDecoder directly.
+// Opaque RustBridge types forward to RustBridge.
 
 public func keywordConfigFromJson(_ json: String) throws -> KeywordConfig {
-    return try RustBridge.keywordConfigFromJson(json)
+    let data = json.data(using: .utf8) ?? Data()
+    return try JSONDecoder().decode(KeywordConfig.self, from: data)
 }

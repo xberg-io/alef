@@ -996,7 +996,14 @@ fn emit_streaming_shims(
     out.push_str("            std::ptr::null_mut()\n");
     out.push_str("        }\n");
     out.push_str("        Some(Ok(chunk)) => {\n");
-    out.push_str("            let s = serde_json::to_string(&chunk).unwrap_or_default();\n");
+    out.push_str("            let s = match serde_json::to_string(&chunk) {\n");
+    out.push_str("                Ok(s) => s,\n");
+    out.push_str("                Err(e) => {\n");
+    out.push_str(
+        "                    throw_jni_error(&mut env, &format!(\"serialize: {e}\")); return std::ptr::null_mut();\n",
+    );
+    out.push_str("                }\n");
+    out.push_str("            };\n");
     out.push_str("            string_to_jstring(&mut env, &s)\n");
     out.push_str("        }\n");
     out.push_str("    }\n");
