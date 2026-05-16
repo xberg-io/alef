@@ -1,7 +1,7 @@
 use ahash::{AHashMap, AHashSet};
 use alef_core::config::ResolvedCrateConfig;
 use alef_core::ir::{ApiSurface, TypeDef, TypeRef};
-use anyhow::{Context as _, bail};
+use anyhow::Context as _;
 use std::collections::HashMap;
 use std::path::Path;
 use tracing::{debug, info};
@@ -433,8 +433,9 @@ fn strip_binding_excluded(api: &mut ApiSurface) -> anyhow::Result<()> {
     }
 
     // --- Field-level exclusions ---
-    for typ in &mut api.types {
-        let before = typ.fields.len();
+    // Keep excluded fields in IR so conversion generators can still initialize the
+    // core field (usually with Default::default()) while public binding DTOs hide it.
+    for typ in &api.types {
         let excluded: Vec<_> = typ
             .fields
             .iter()
@@ -447,16 +448,8 @@ fn strip_binding_excluded(api: &mut ApiSurface) -> anyhow::Result<()> {
                 format!("{}.{} ({reason})", typ.name, field.name)
             })
             .collect();
-        if !excluded.is_empty() && !typ.has_default {
-            bail!(
-                "cannot exclude binding fields from non-Default type {}: {}",
-                typ.name,
-                excluded.join(", ")
-            );
-        }
-        typ.fields.retain(|field| !field.binding_excluded);
-        if typ.fields.len() != before {
-            typ.has_stripped_cfg_fields = true;
+        if !excluded.is_empty() {
+            info!("Hiding binding-excluded fields: {}", excluded.join(", "));
         }
     }
 
