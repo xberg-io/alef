@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.14] - 2026-05-16
+
 ### Fixed
+
+- **alef-backend-rustler: emit positional arity overloads for single-trailing-optional Elixir facade fns**: facade emission for functions with exactly one trailing optional parameter (e.g. `create_engine(config: Option<String>)`) previously collapsed to a single `def create_engine(opts \\ [])` body that called `Keyword.get(opts, :config)` — but the alef-e2e Elixir codegen always emits positional calls (`Kreuzcrawl.create_engine(engine_config)`), passing a string into a function expecting a `keyword()` list. The mismatch surfaced as `FunctionClauseError` on every e2e test that constructed an engine. The keyword-opts collapse threshold in `gen_bindings/mod.rs` is now `trailing_keyword_count >= 2` (was `> 0`): single trailing optional falls through to the existing arity-variants path (`def create_engine()` + `def create_engine(config)` with `nil` filled for the shortest arity), matching the e2e call shape. Functions with 2+ trailing optionals still collapse to the `opts \\ []` keyword form. (`crates/alef-backend-rustler/src/gen_bindings/mod.rs`)
 
 - **alef-cli: implement `PostBuildStep::RunCommand` dispatcher**: the runtime arm at `crates/alef-cli/src/pipeline/commands.rs` was previously a TODO debug-log that silently skipped every emitted `RunCommand` step (notably the Dart flutter_rust_bridge codegen invocation). Now spawns `std::process::Command::new(cmd).args(args).current_dir(base_dir)`, captures stdout/stderr, and propagates non-zero exit status as an `anyhow::Error` so the pipeline aborts. The dart backend's `RunCommand` step (`flutter_rust_bridge_codegen generate`) now executes automatically during `alef generate`. (`crates/alef-cli/src/pipeline/commands.rs`)
 
