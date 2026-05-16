@@ -691,24 +691,44 @@ target = "jvm"
         rust_path: "demo::GraphQLRouteConfig".into(),
         original_rust_path: String::new(),
         fields: vec![],
-        methods: vec![MethodDef {
-            name: "path".into(),
-            params: vec![make_param("path", TypeRef::String)],
-            return_type: TypeRef::Named("GraphQLRouteConfig".into()),
-            is_async: false,
-            is_static: false,
-            error_type: None,
-            doc: String::new(),
-            receiver: None,
-            sanitized: false,
-            trait_source: None,
-            returns_ref: false,
-            returns_cow: false,
-            return_newtype_wrapper: None,
-            has_default_impl: false,
-            binding_excluded: false,
-            binding_exclusion_reason: None,
-        }],
+        methods: vec![
+            MethodDef {
+                name: "path".into(),
+                params: vec![make_param("path", TypeRef::String)],
+                return_type: TypeRef::Named("GraphQLRouteConfig".into()),
+                is_async: false,
+                is_static: false,
+                error_type: None,
+                doc: String::new(),
+                receiver: None,
+                sanitized: false,
+                trait_source: None,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+            MethodDef {
+                name: "get_description".into(),
+                params: vec![],
+                return_type: TypeRef::Optional(Box::new(TypeRef::String)),
+                is_async: false,
+                is_static: false,
+                error_type: None,
+                doc: String::new(),
+                receiver: None,
+                sanitized: false,
+                trait_source: None,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+        ],
         is_opaque: true,
         is_clone: false,
         is_copy: false,
@@ -747,5 +767,16 @@ target = "jvm"
             .iter()
             .any(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("DefaultClient.kt")),
         "non-DefaultClient wrapper must not be emitted to DefaultClient.kt: {files:#?}"
+    );
+    let wrapper = files
+        .iter()
+        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("GraphQLRouteConfig.kt"))
+        .expect("GraphQLRouteConfig.kt should be generated");
+    assert!(
+        wrapper
+            .content
+            .contains("fun getDescription(): String? {\n        return inner.getDescription().orElse(null)\n    }"),
+        "optional Java method returns must be unwrapped for Kotlin nullable APIs:\n{}",
+        wrapper.content
     );
 }

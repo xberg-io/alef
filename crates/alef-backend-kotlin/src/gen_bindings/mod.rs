@@ -377,14 +377,19 @@ fn emit_client_method(m: &MethodDef, out: &mut String, imports: &mut BTreeSet<St
         "    {async_kw}fun {method_name}({}): {return_ty} {{\n",
         params_with_types.join(", ")
     ));
+    let optional_suffix = if matches!(m.return_type, TypeRef::Optional(_)) {
+        ".orElse(null)"
+    } else {
+        ""
+    };
     if m.is_async {
         out.push_str(&format!(
-            "        return withContext(Dispatchers.IO) {{ inner.{method_name}({call_args}) }}\n"
+            "        return withContext(Dispatchers.IO) {{ inner.{method_name}({call_args}){optional_suffix} }}\n"
         ));
     } else if matches!(m.return_type, TypeRef::Unit) {
         out.push_str(&format!("        inner.{method_name}({call_args})\n"));
     } else {
-        out.push_str(&format!("        return inner.{method_name}({call_args})\n"));
+        out.push_str(&format!("        return inner.{method_name}({call_args}){optional_suffix}\n"));
     }
     out.push_str("    }\n\n");
 }

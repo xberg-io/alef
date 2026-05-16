@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **alef-backend-java: import `Optional` for opaque optional method returns**: the opaque-handle import scanner now uses the same public return-type mapper as the generated method signature, so `Option<T>` methods emit both `Optional<T>` and the required `java.util.Optional` import. (`crates/alef-backend-java/src/gen_bindings/types.rs`, `crates/alef-backend-java/tests/gen_bindings_test.rs`)
 
+- **alef-backend-kotlin: unwrap Java `Optional` in opaque method wrappers**: Kotlin JVM wrapper classes now append `.orElse(null)` when delegating opaque methods that return Rust `Option<T>`, matching the public Kotlin `T?` signature. (`crates/alef-backend-kotlin/src/gen_bindings/mod.rs`, `crates/alef-backend-kotlin/tests/gen_bindings_test.rs`)
+
 ## [0.16.17] - 2026-05-16
 
 ### Added
