@@ -461,3 +461,243 @@ fn test_untagged_enum_with_object_variants_uses_shape_discriminated_unmarshal() 
         "Error message must say 'shape' for untagged enums"
     );
 }
+
+/// Bug E (this fix): parent struct with a required data-enum field must emit
+/// custom UnmarshalJSON that delegates to UnmarshalX().
+///
+/// Without the fix, `json.Unmarshal` tries to unmarshal directly into the
+/// sealed interface type and fails at runtime:
+///   json: cannot unmarshal object into Go struct field OcrRequest.document of type literllm.OcrDocument
+#[test]
+fn test_parent_struct_with_required_data_enum_field_emits_custom_unmarshal_json() {
+    let backend = GoBackend;
+    let config = make_config();
+
+    // Mirrors OcrDocument: internally-tagged data enum
+    let ocr_document_enum = EnumDef {
+        name: "OcrDocument".to_string(),
+        rust_path: "test_lib::OcrDocument".to_string(),
+        original_rust_path: String::new(),
+        variants: vec![
+            EnumVariant {
+                name: "Url".to_string(),
+                fields: vec![make_field("url", TypeRef::String, false)],
+                is_tuple: false,
+                doc: String::new(),
+                is_default: false,
+                serde_rename: None,
+            },
+            EnumVariant {
+                name: "Base64".to_string(),
+                fields: vec![
+                    make_field("data", TypeRef::String, false),
+                    make_field("mime_type", TypeRef::String, false),
+                ],
+                is_tuple: false,
+                doc: String::new(),
+                is_default: false,
+                serde_rename: None,
+            },
+        ],
+        doc: String::new(),
+        cfg: None,
+        is_copy: false,
+        has_serde: true,
+        serde_tag: Some("type".to_string()),
+        serde_untagged: false,
+        serde_rename_all: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+
+    // OcrRequest has a required field `document: OcrDocument`
+    let ocr_request_type = TypeDef {
+        name: "OcrRequest".to_string(),
+        rust_path: "test_lib::OcrRequest".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![
+            make_field("model", TypeRef::String, false),
+            make_field("document", TypeRef::Named("OcrDocument".to_string()), false),
+        ],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: true,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![ocr_request_type],
+        functions: vec![],
+        enums: vec![ocr_document_enum],
+        errors: vec![],
+        excluded_type_paths: std::collections::HashMap::new(),
+    };
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let binding = files.iter().find(|f| f.path.ends_with("binding.go")).unwrap();
+    let content = &binding.content;
+
+    // Must emit a custom UnmarshalJSON on OcrRequest
+    assert!(
+        content.contains("func (s *OcrRequest) UnmarshalJSON(data []byte) error"),
+        "OcrRequest must have custom UnmarshalJSON; got:\n{content}"
+    );
+
+    // The helper struct must use json.RawMessage for the document field
+    assert!(
+        content.contains("Document json.RawMessage"),
+        "document field in helper struct must be json.RawMessage; got:\n{content}"
+    );
+
+    // Must call UnmarshalOcrDocument to decode the document field
+    assert!(
+        content.contains("UnmarshalOcrDocument(raw.Document)"),
+        "must call UnmarshalOcrDocument to decode the document field; got:\n{content}"
+    );
+
+    // Non-enum fields must be copied directly
+    assert!(
+        content.contains("s.Model = raw.Model"),
+        "non-enum field Model must be copied directly; got:\n{content}"
+    );
+}
+
+/// Bug E (optional variant): parent struct with an optional data-enum field
+/// (e.g. `response_format: Option<ResponseFormat>`) must also get custom UnmarshalJSON.
+///
+/// The optional field is emitted as `*ResponseFormat` in Go, which is still an
+/// interface pointer and equally non-unmarshalable by default json.Unmarshal.
+#[test]
+fn test_parent_struct_with_optional_data_enum_field_emits_custom_unmarshal_json() {
+    let backend = GoBackend;
+    let config = make_config();
+
+    // Mirrors ResponseFormat: internally-tagged data enum
+    let response_format_enum = EnumDef {
+        name: "ResponseFormat".to_string(),
+        rust_path: "test_lib::ResponseFormat".to_string(),
+        original_rust_path: String::new(),
+        variants: vec![
+            EnumVariant {
+                name: "Text".to_string(),
+                fields: vec![],
+                is_tuple: false,
+                doc: String::new(),
+                is_default: false,
+                serde_rename: None,
+            },
+            EnumVariant {
+                name: "JsonObject".to_string(),
+                fields: vec![],
+                is_tuple: false,
+                doc: String::new(),
+                is_default: false,
+                serde_rename: None,
+            },
+            EnumVariant {
+                name: "JsonSchema".to_string(),
+                fields: vec![make_field("json_schema", TypeRef::String, false)],
+                is_tuple: false,
+                doc: String::new(),
+                is_default: false,
+                serde_rename: None,
+            },
+        ],
+        doc: String::new(),
+        cfg: None,
+        is_copy: false,
+        has_serde: true,
+        serde_tag: Some("type".to_string()),
+        serde_untagged: false,
+        serde_rename_all: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+
+    // ChatRequest has an optional field `response_format: Option<ResponseFormat>`
+    let chat_request_type = TypeDef {
+        name: "ChatRequest".to_string(),
+        rust_path: "test_lib::ChatRequest".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![
+            make_field("model", TypeRef::String, false),
+            make_field(
+                "response_format",
+                TypeRef::Optional(Box::new(TypeRef::Named("ResponseFormat".to_string()))),
+                true,
+            ),
+        ],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: true,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![chat_request_type],
+        functions: vec![],
+        enums: vec![response_format_enum],
+        errors: vec![],
+        excluded_type_paths: std::collections::HashMap::new(),
+    };
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let binding = files.iter().find(|f| f.path.ends_with("binding.go")).unwrap();
+    let content = &binding.content;
+
+    // Must emit custom UnmarshalJSON on ChatRequest
+    assert!(
+        content.contains("func (s *ChatRequest) UnmarshalJSON(data []byte) error"),
+        "ChatRequest must have custom UnmarshalJSON; got:\n{content}"
+    );
+
+    // The helper struct must use json.RawMessage for the response_format field
+    assert!(
+        content.contains("ResponseFormat json.RawMessage"),
+        "response_format field in helper struct must be json.RawMessage; got:\n{content}"
+    );
+
+    // Must call UnmarshalResponseFormat
+    assert!(
+        content.contains("UnmarshalResponseFormat(raw.ResponseFormat)"),
+        "must call UnmarshalResponseFormat to decode the optional field; got:\n{content}"
+    );
+
+    // Optional: must assign &v (pointer to decoded interface) since field is *ResponseFormat
+    assert!(
+        content.contains("s.ResponseFormat = &v"),
+        "optional data-enum field must be assigned as &v; got:\n{content}"
+    );
+
+    // Non-enum fields must be copied directly
+    assert!(
+        content.contains("s.Model = raw.Model"),
+        "non-enum field Model must be copied directly; got:\n{content}"
+    );
+}
