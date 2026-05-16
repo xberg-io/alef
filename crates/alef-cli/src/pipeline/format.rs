@@ -139,9 +139,8 @@ fn get_default_formatter(config: &ResolvedCrateConfig, lang: Language) -> Option
         // `cargo sort` normalises the generated Cargo.toml so prek's cargo-sort hook
         // is a no-op; without it, cargo-sort reformats feature indentation after the
         // hash is finalised, making alef verify report the file as stale.
-        // `taplo fmt` then re-flows array/inline-table whitespace per the consumer's
-        // `.taplo.toml` so prek's taplo hook is likewise a no-op (best-effort: missing
-        // taplo is skipped silently via `is_tool_available`).
+        // `oxfmt` then re-flows array/inline-table whitespace consistently with
+        // the shared Kreuzberg pre-commit hook.
         Language::Wasm => {
             let crate_dir = config
                 .output_for("wasm")
@@ -160,8 +159,8 @@ fn get_default_formatter(config: &ResolvedCrateConfig, lang: Language) -> Option
                         args: vec!["sort".to_owned(), crate_dir_str],
                     },
                     FormatterCommand {
-                        command: "taplo".to_owned(),
-                        args: vec!["fmt".to_owned(), manifest_path],
+                        command: "pnpm".to_owned(),
+                        args: vec!["dlx".to_owned(), "oxfmt".to_owned(), manifest_path],
                     },
                 ],
                 work_dir: String::new(),
@@ -175,9 +174,8 @@ fn get_default_formatter(config: &ResolvedCrateConfig, lang: Language) -> Option
         // `cargo sort -w` normalises all workspace Cargo.toml files so prek's
         // cargo-sort hook is a no-op; without it the hook reformats feature
         // indentation after finalize_hashes, making alef verify report stale files.
-        // `taplo fmt` then re-flows whitespace across all workspace TOML files so
-        // prek's taplo hook is similarly a no-op (best-effort: missing taplo is
-        // skipped silently via `is_tool_available`).
+        // `oxfmt` then re-flows whitespace across workspace TOML/JSON/JS/TS
+        // files consistently with the shared Kreuzberg pre-commit hook.
         Language::Ffi => Some(FormatterSpec {
             commands: vec![
                 FormatterCommand {
@@ -189,8 +187,8 @@ fn get_default_formatter(config: &ResolvedCrateConfig, lang: Language) -> Option
                     args: vec!["sort".to_owned(), "-w".to_owned()],
                 },
                 FormatterCommand {
-                    command: "taplo".to_owned(),
-                    args: vec!["fmt".to_owned()],
+                    command: "pnpm".to_owned(),
+                    args: vec!["dlx".to_owned(), "oxfmt".to_owned(), ".".to_owned()],
                 },
             ],
             work_dir: String::new(),
@@ -541,11 +539,11 @@ project_file = "{project_file}"
         let config = make_config("liter-llm");
         let spec = get_default_formatter(&config, Language::Wasm).expect("should have formatter");
         // Three commands: cargo fmt (rs files), cargo sort (Cargo.toml table order),
-        // then taplo fmt (Cargo.toml whitespace/array wrapping).
+        // then oxfmt (Cargo.toml whitespace/array wrapping).
         assert_eq!(
             spec.commands.len(),
             3,
-            "WASM must have cargo fmt + cargo sort + taplo fmt steps"
+            "WASM must have cargo fmt + cargo sort + oxfmt steps"
         );
         let fmt_cmd = &spec.commands[0];
         assert_eq!(fmt_cmd.command, "cargo");
@@ -560,12 +558,12 @@ project_file = "{project_file}"
             vec!["sort", "crates/liter-llm-wasm"],
             "cargo sort arg must be the crate directory, not the manifest path"
         );
-        let taplo_cmd = &spec.commands[2];
-        assert_eq!(taplo_cmd.command, "taplo");
+        let oxfmt_cmd = &spec.commands[2];
+        assert_eq!(oxfmt_cmd.command, "pnpm");
         assert_eq!(
-            taplo_cmd.args,
-            vec!["fmt", "crates/liter-llm-wasm/Cargo.toml"],
-            "taplo fmt must target the Cargo.toml manifest path so prek's taplo hook is a no-op"
+            oxfmt_cmd.args,
+            vec!["dlx", "oxfmt", "crates/liter-llm-wasm/Cargo.toml"],
+            "oxfmt must target the Cargo.toml manifest path"
         );
         assert!(spec.work_dir.is_empty(), "WASM formatter must run at workspace root");
     }
@@ -604,11 +602,11 @@ wasm = "crates/ts-pack-core-wasm/src/"
         let config = make_config("liter-llm");
         let spec = get_default_formatter(&config, Language::Ffi).expect("should have formatter");
         // Three commands: cargo fmt --all (rs files), cargo sort -w (Cargo.toml table
-        // order across the workspace), then taplo fmt (Cargo.toml whitespace).
+        // order across the workspace), then oxfmt (workspace TOML/JSON/JS/TS whitespace).
         assert_eq!(
             spec.commands.len(),
             3,
-            "FFI must have cargo fmt + cargo sort + taplo fmt steps"
+            "FFI must have cargo fmt + cargo sort + oxfmt steps"
         );
         let fmt_cmd = &spec.commands[0];
         assert_eq!(fmt_cmd.command, "cargo");
@@ -620,12 +618,12 @@ wasm = "crates/ts-pack-core-wasm/src/"
             vec!["sort", "-w"],
             "cargo sort must run workspace-wide so all binding crate Cargo.toml files are normalised"
         );
-        let taplo_cmd = &spec.commands[2];
-        assert_eq!(taplo_cmd.command, "taplo");
+        let oxfmt_cmd = &spec.commands[2];
+        assert_eq!(oxfmt_cmd.command, "pnpm");
         assert_eq!(
-            taplo_cmd.args,
-            vec!["fmt"],
-            "taplo fmt (no path) walks the workspace per .taplo.toml so prek's taplo hook is a no-op"
+            oxfmt_cmd.args,
+            vec!["dlx", "oxfmt", "."],
+            "oxfmt must walk the workspace like the shared pre-commit hook"
         );
         assert!(spec.work_dir.is_empty(), "FFI formatter must run at workspace root");
     }

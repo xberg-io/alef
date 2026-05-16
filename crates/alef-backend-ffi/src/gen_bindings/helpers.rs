@@ -393,14 +393,28 @@ pub(super) fn gen_cbindgen_toml(prefix: &str, api: &alef_core::ir::ApiSurface) -
         })
         .collect::<Vec<_>>()
         .join("\n");
+    let after_includes = if forward_decls.is_empty() {
+        String::new()
+    } else {
+        toml_multiline_basic_string(&format!("/* Opaque type forward declarations */\n{forward_decls}\n"))
+    };
 
     crate::template_env::render(
         "cbindgen_toml.jinja",
         minijinja::context! {
             prefix_upper => &prefix_upper,
-            forward_decls => &forward_decls,
+            after_includes => &after_includes,
         },
     )
+}
+
+fn toml_multiline_basic_string(value: &str) -> String {
+    let escaped = value
+        .replace('\\', "\\\\")
+        .replace("\"\"\"", "\\\"\\\"\\\"")
+        .replace('\u{8}', "\\b")
+        .replace('\u{c}', "\\f");
+    format!("\"\"\"\n{escaped}\"\"\"")
 }
 
 // ---------------------------------------------------------------------------

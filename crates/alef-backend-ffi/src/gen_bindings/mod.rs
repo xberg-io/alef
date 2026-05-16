@@ -1583,6 +1583,7 @@ sources = ["src/lib.rs"]
 
         let files = backend.generate_bindings(&api, &config).unwrap();
         let cbindgen = files.iter().find(|f| f.path.ends_with("cbindgen.toml")).unwrap();
+        toml::from_str::<toml::Value>(&cbindgen.content).expect("cbindgen.toml must be valid TOML");
 
         // Doxygen block precedes the typedef in `forward_decls`. The doc text
         // is lifted from `TypeDef.doc` and rendered as `/** * ... */`.
@@ -1602,6 +1603,38 @@ sources = ["src/lib.rs"]
             cbindgen.content.contains("typedef struct MY_LIBHandle MY_LIBHandle;"),
             "expected prefixed typedef, got:\n{}",
             cbindgen.content
+        );
+    }
+
+    #[test]
+    fn test_cbindgen_toml_escapes_doxygen_backslashes() {
+        let mut api = doxygen_sample_api();
+        api.types[0].doc = r##"Has an example.
+
+# Example
+
+```rust
+let value = "triple """ quote";
+```"##
+            .to_string();
+        let config = sample_config();
+        let backend = FfiBackend;
+
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let cbindgen = files.iter().find(|f| f.path.ends_with("cbindgen.toml")).unwrap();
+        let parsed = toml::from_str::<toml::Value>(&cbindgen.content).expect("cbindgen.toml must parse");
+        let after_includes = parsed
+            .get("after_includes")
+            .and_then(toml::Value::as_str)
+            .expect("after_includes must be a string");
+
+        assert!(
+            after_includes.contains("\\code") && after_includes.contains("\\endcode"),
+            "Doxygen markers must survive TOML parsing: {after_includes}"
+        );
+        assert!(
+            after_includes.contains("triple \"\"\" quote"),
+            "triple quotes must round-trip through TOML parsing: {after_includes}"
         );
     }
 
