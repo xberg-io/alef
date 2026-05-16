@@ -2240,12 +2240,12 @@ type = "EventRequest"
 fn facade_unwraps_optional_string_return_via_or_else_null() {
     let backend = JavaBackend;
     let api = ApiSurface {
-        crate_name: "demo".to_string(),
+        crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
         functions: vec![FunctionDef {
             name: "detect_language".to_string(),
-            rust_path: "demo::detect_language".to_string(),
+            rust_path: "test_lib::detect_language".to_string(),
             original_rust_path: String::new(),
             params: vec![ParamDef {
                 name: "path".to_string(),
@@ -2281,8 +2281,8 @@ fn facade_unwraps_optional_string_return_via_or_else_null() {
     let files = backend.generate_bindings(&api, &config).expect("generation");
     let facade = files
         .iter()
-        .find(|f| f.path.to_string_lossy().ends_with("Demo.java"))
-        .expect("facade Demo.java must be emitted");
+        .find(|f| f.path.to_string_lossy().ends_with("TestLib.java"))
+        .expect("facade TestLib.java must be emitted");
     let content = &facade.content;
 
     assert!(
