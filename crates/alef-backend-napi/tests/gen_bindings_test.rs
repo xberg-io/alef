@@ -2310,3 +2310,86 @@ fn test_dts_dto_fields_are_readonly() {
         ".d.ts must not contain JsConfig; content:\n{content}"
     );
 }
+
+#[test]
+fn test_optional_return_types_emit_null_not_undefined() {
+    let backend = NapiBackend;
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![
+            FunctionDef {
+                name: "get_name".to_string(),
+                rust_path: "test_lib::get_name".to_string(),
+                original_rust_path: String::new(),
+                params: vec![],
+                return_type: TypeRef::Optional(Box::new(TypeRef::String)),
+                is_async: false,
+                error_type: None,
+                doc: "Get optional name".to_string(),
+                cfg: None,
+                sanitized: false,
+                return_sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+            FunctionDef {
+                name: "get_id".to_string(),
+                rust_path: "test_lib::get_id".to_string(),
+                original_rust_path: String::new(),
+                params: vec![],
+                return_type: TypeRef::Optional(Box::new(TypeRef::Primitive(PrimitiveType::U32))),
+                is_async: false,
+                error_type: None,
+                doc: "Get optional ID".to_string(),
+                cfg: None,
+                sanitized: false,
+                return_sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+        ],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config();
+    let files = backend
+        .generate_type_stubs(&api, &config)
+        .expect("generate_type_stubs should succeed");
+
+    assert_eq!(files.len(), 1);
+    let content = &files[0].content;
+
+    // Optional string return type should be "string | null", NOT "string | undefined | null"
+    assert!(
+        content.contains("function getName(): string | null"),
+        "optional string return type must be 'string | null', not 'string | undefined | null'; content:\n{content}"
+    );
+
+    // Optional number return type should be "number | null", NOT "number | undefined | null"
+    assert!(
+        content.contains("function getId(): number | null"),
+        "optional number return type must be 'number | null', not 'number | undefined | null'; content:\n{content}"
+    );
+
+    // Sanity check: make sure we don't emit "undefined" in return types
+    let lines: Vec<&str> = content.lines().collect();
+    for (i, line) in lines.iter().enumerate() {
+        if line.contains("function getName()") || line.contains("function getId()") {
+            assert!(
+                !line.contains("undefined"),
+                "function return type should not contain 'undefined' at line {}: {}", i + 1, line
+            );
+        }
+    }
+}

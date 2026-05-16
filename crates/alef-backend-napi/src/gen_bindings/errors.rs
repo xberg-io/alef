@@ -314,7 +314,7 @@ pub(super) fn dts_type(ty: &TypeRef, prefix: &str) -> String {
         TypeRef::Json => "unknown".to_string(),
         TypeRef::Duration => "number".to_string(),
         TypeRef::Unit => "void".to_string(),
-        TypeRef::Optional(inner) => format!("{} | undefined | null", dts_type(inner, prefix)),
+        TypeRef::Optional(inner) => format!("{} | null", dts_type(inner, prefix)),
         TypeRef::Vec(inner) => {
             // Special case: Vec<u8> → Uint8Array | Buffer for Node.js compatibility
             if matches!(inner.as_ref(), TypeRef::Bytes) {
