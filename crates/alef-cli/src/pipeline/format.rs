@@ -81,12 +81,8 @@ fn get_default_formatter(config: &ResolvedCrateConfig, lang: Language) -> Option
         }),
         Language::Php => Some(FormatterSpec {
             commands: vec![FormatterCommand {
-                command: "env".to_owned(),
-                args: vec![
-                    "PHP_CS_FIXER_IGNORE_ENV=1".to_owned(),
-                    "php-cs-fixer".to_owned(),
-                    "fix".to_owned(),
-                ],
+                command: "php-cs-fixer".to_owned(),
+                args: vec!["fix".to_owned()],
             }],
             work_dir: "packages/php/".to_owned(),
         }),

@@ -130,11 +130,11 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
   }},
   "scripts": {{
     "phpstan": "php -d detect_unicode=0 vendor/bin/phpstan --configuration=phpstan.neon --memory-limit=512M",
-    "format": "PHP_CS_FIXER_IGNORE_ENV=1 php vendor/bin/php-cs-fixer fix",
-    "format:check": "PHP_CS_FIXER_IGNORE_ENV=1 php vendor/bin/php-cs-fixer fix --dry-run",
+    "format": "php vendor/bin/php-cs-fixer fix",
+    "format:check": "php vendor/bin/php-cs-fixer fix --dry-run",
     "test": "php vendor/bin/phpunit",
     "lint": "@phpstan",
-    "lint:fix": "PHP_CS_FIXER_IGNORE_ENV=1 php vendor/bin/php-cs-fixer fix && php -d detect_unicode=0 vendor/bin/phpstan --configuration=phpstan.neon --memory-limit=512M"
+    "lint:fix": "php vendor/bin/php-cs-fixer fix && php -d detect_unicode=0 vendor/bin/phpstan --configuration=phpstan.neon --memory-limit=512M"
   }},
   "php-ext": {{
     "extension-name": "{ext_name}",
@@ -209,6 +209,7 @@ $finder = (new PhpCsFixer\Finder())
     ->notPath('stubs');
 
 return (new PhpCsFixer\Config())
+    ->setUnsupportedPhpVersionAllowed(true)
     ->setRules([
         '@PSR12' => true,
         '@PHP82Migration' => true,

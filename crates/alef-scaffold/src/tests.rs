@@ -950,6 +950,11 @@ fn test_scaffold_php_cs_fixer_handles_missing_tests_dir() {
         "php-cs-fixer config must not require a tests directory; content:\n{}",
         fixer.content
     );
+    assert!(
+        fixer.content.contains("setUnsupportedPhpVersionAllowed(true)"),
+        "php-cs-fixer config must suppress unsupported-runtime advisory in config; content:\n{}",
+        fixer.content
+    );
 }
 
 #[test]
