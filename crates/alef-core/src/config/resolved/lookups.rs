@@ -29,6 +29,7 @@ impl ResolvedCrateConfig {
                 Language::Ruby => "packages/ruby".to_string(),
                 Language::Php => "packages/php".to_string(),
                 Language::Elixir => "packages/elixir".to_string(),
+                Language::KotlinAndroid => "packages/kotlin-android".to_string(),
                 _ => format!("packages/{lang}"),
             }
         }
@@ -451,5 +452,6 @@ tokio = "1"
         assert_eq!(r.package_dir(Language::Ruby), "packages/ruby");
         assert_eq!(r.package_dir(Language::Go), "packages/go");
         assert_eq!(r.package_dir(Language::Java), "packages/java");
+        assert_eq!(r.package_dir(Language::KotlinAndroid), "packages/kotlin-android");
     }
 }
