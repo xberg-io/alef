@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **alef-snippets: wire `audit` and `gaps` CLI subcommands**: the `alef-snippets` binary previously exposed only `list`, `validate`, and `parse`. The `audit` (structural integrity report — frontmatter, fences, includes) and `gaps` (coverage gaps — missing includes, unreferenced snippets, missing language variants, unannotated skips, unknown languages) library entry points are now reachable from the CLI. `--snippets <dir>... --docs <dir>... [--require-frontmatter | --required-languages <list>]`. Both commands exit with a non-zero status when issues are found, so they slot into pre-commit / CI gates. (`crates/alef-snippets/src/main.rs`)
+
+- **workspace: register `alef-snippets` crate + add missing workspace deps**: `crates/alef-snippets` is now a `[workspace.members]` entry and a `[workspace.dependencies]` alias, fixing the prior cargo error `cannot specify features for packages outside of workspace`. Added `tempfile = "3"`, `walkdir = "2"`, and `which = "8"` as workspace dependencies — the alef-snippets crate referenced them via `workspace = true` before any workspace-level declaration existed. (`Cargo.toml`)
+
 ## [0.16.22] - 2026-05-16
 
 ### Fixed
