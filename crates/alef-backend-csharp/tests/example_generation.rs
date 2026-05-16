@@ -216,7 +216,7 @@ fn test_generated_code_example() {
         .find(|f| f.path.to_string_lossy().contains("ExtractionConfig.cs"))
         .unwrap();
 
-    assert!(config_type.content.contains("public sealed class ExtractionConfig"));
+    assert!(config_type.content.contains("public sealed record ExtractionConfig"));
     assert!(config_type.content.contains("string? OcrBackend"));
     assert!(config_type.content.contains("ulong? Timeout"));
     assert!(config_type.content.contains("Configuration for text extraction"));

@@ -221,8 +221,8 @@ fn test_basic_generation() {
         .find(|f| f.path.to_string_lossy().contains("Config.cs"))
         .unwrap();
     assert!(
-        config_type.content.contains("public sealed class Config"),
-        "Should define Config sealed class"
+        config_type.content.contains("public sealed record Config"),
+        "Should define Config sealed record"
     );
 
     let enum_type = files
