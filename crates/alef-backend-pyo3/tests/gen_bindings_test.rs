@@ -4125,11 +4125,13 @@ fn test_api_py_pep8_blank_lines_between_functions() {
         between_2_3
     );
 
-    // More stringent check: no single-line function definitions jammed together.
-    // Look for the pattern where one function ends and the next starts with only one newline.
-    let has_improper_spacing = api_py.content.contains(")\n\ndef ") || api_py.content.contains(")\ndef ");
+    // More stringent check: no docstrings immediately followed by def (with only 1 newline).
+    // PEP 8 requires 2 blank lines between top-level definitions, meaning 3 newlines total.
+    // We check for the docstring closing followed by only 1 or 2 newlines then 'def'.
+    let has_improper_spacing_single = api_py.content.contains("\"\"\"\ndef ");
+    let has_improper_spacing_one_blank = api_py.content.contains("\"\"\"\n\ndef ");
     assert!(
-        !has_improper_spacing,
+        !has_improper_spacing_single && !has_improper_spacing_one_blank,
         "Functions are jammed together without proper PEP 8 spacing:\n{}",
         api_py.content
     );

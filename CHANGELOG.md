@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **alef-backend-rustler: emit `@type t` typespec above every DTO `defstruct`**: all generated Elixir DTO modules now emit a `@type t :: %__MODULE__{ field: Type, ... }` type specification immediately above the `defstruct` declaration. This enables Dialyzer static type checking on DTO instances and improves IDE autocomplete and type inference in Elixir code that manipulates DTOs. Field types are mapped from Rust types: `String` → `String.t()`, `u64`/`usize` → `non_neg_integer()`, `bool` → `boolean()`, `Vec<T>` → `[T]`, `Option<T>` → `T | nil`, `Map` → `map()`, and named struct types → `map()`. (`crates/alef-backend-rustler/src/gen_bindings/helpers.rs`, `crates/alef-backend-rustler/tests/elixir_struct_typespec_test.rs`)
+
 ### Fixed
 
 - **alef-backend-napi: drop unnecessary 'undefined' from nullable `.d.ts` return types**: Optional return types in TypeScript declaration files were emitted as `T | undefined | null` when FFI returns can only be `T | null` (either the value or null, never undefined). Changed `dts_type` for `TypeRef::Optional` to emit `T | null` instead. (`crates/alef-backend-napi/src/gen_bindings/errors.rs`, `crates/alef-backend-napi/tests/gen_bindings_test.rs`)
