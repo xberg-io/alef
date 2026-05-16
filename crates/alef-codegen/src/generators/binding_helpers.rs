@@ -1175,6 +1175,15 @@ fn gen_lossy_binding_to_core_fields_inner(
     };
     let mut out = format!("{allow}let {mut_kw}core_self = {core_path} {{\n");
     for field in &typ.fields {
+        if field.binding_excluded {
+            out.push_str(&crate::template_env::render(
+                "binding_helpers/struct_field_default.jinja",
+                minijinja::context! {
+                    name => &field.name,
+                },
+            ));
+            continue;
+        }
         // Skip cfg-gated fields — they are absent from the binding struct.
         // The ..Default::default() spread below fills them when the feature is enabled.
         if field.cfg.is_some() {

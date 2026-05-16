@@ -39,6 +39,17 @@ pub(crate) fn emit_error_set(error: &ErrorDef, out: &mut String) {
             },
         ));
     }
+    // OutOfMemory is always included so allocator failures can be propagated
+    // without a `||error{OutOfMemory}` concat on every return type.
+    // Only emit if not already present as a user-defined variant.
+    if !error.variants.iter().any(|v| to_pascal_case(&v.name) == "OutOfMemory") {
+        out.push_str(&crate::template_env::render(
+            "error_set_variant.jinja",
+            minijinja::context! {
+                variant_name => "OutOfMemory",
+            },
+        ));
+    }
     out.push_str("};\n");
 }
 

@@ -402,6 +402,96 @@ fn test_enum_generation() {
 }
 
 #[test]
+fn test_binding_excluded_field_is_hidden_from_napi_api() {
+    let backend = NapiBackend;
+    let mut hidden = make_field("cursor", TypeRef::String, false);
+    hidden.binding_excluded = true;
+    hidden.binding_exclusion_reason = Some("marked with #[alef(skip)]".to_string());
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "UploadFile".to_string(),
+            rust_path: "test_lib::UploadFile".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![make_field("filename", TypeRef::String, false), hidden],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![FunctionDef {
+            name: "accept_upload".to_string(),
+            rust_path: "test_lib::accept_upload".to_string(),
+            original_rust_path: String::new(),
+            params: vec![ParamDef {
+                name: "file".to_string(),
+                ty: TypeRef::Named("UploadFile".to_string()),
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            }],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config();
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let rust = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("lib.rs"))
+        .unwrap()
+        .content
+        .as_str();
+    let stub_files = backend.generate_type_stubs(&api, &config).unwrap();
+    let dts = stub_files[0].content.as_str();
+
+    assert!(
+        !rust.contains("pub cursor:"),
+        "binding-excluded fields must not be public NAPI object fields"
+    );
+    assert!(
+        !dts.contains("cursor"),
+        "binding-excluded fields must not appear in TypeScript declarations"
+    );
+    assert!(
+        rust.contains("cursor: Default::default()"),
+        "binding→core conversion must default hidden core fields"
+    );
+}
+
+#[test]
 fn test_generated_header() {
     let backend = NapiBackend;
 
@@ -1192,21 +1282,19 @@ fn test_tagged_enum_different_named_types_per_variant_uses_into_not_serde_json()
         .content
         .as_str();
 
-    // When variants share the same positional field name (_0) with DIFFERENT Named types
-    // (SystemMessage vs UserMessage), the field cannot be a single concrete JsXxx type.
-    // It must be stored as String (JSON) and converted via serde_json per variant.
+    // Single-tuple Named variants get variant-specific properties (`system`, `user`) so each
+    // payload can keep its concrete binding type instead of falling back to JSON strings.
     assert!(
-        content.contains("serde_json::from_str"),
-        "binding→core conversion must use serde_json::from_str for mixed-type Named fields"
+        !content.contains("serde_json::from_str"),
+        "binding→core conversion should use typed .into() conversion for single-tuple Named variants"
     );
     assert!(
-        content.contains("serde_json::to_string"),
-        "core→binding conversion must use serde_json::to_string for mixed-type Named fields"
+        !content.contains("serde_json::to_string"),
+        "core→binding conversion should use typed .into() conversion for single-tuple Named variants"
     );
-    // The flattened struct field for mixed Named types must be Option<String>, not Option<JsXxx>
     assert!(
-        content.contains("_0: Option<String>"),
-        "_0 field with mixed Named types must be typed as Option<String> in the flattened struct"
+        content.contains("system: Option<JsSystemMessage>") && content.contains("user: Option<JsUserMessage>"),
+        "variant-specific fields must retain concrete binding payload types"
     );
 }
 

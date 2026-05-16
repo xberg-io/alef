@@ -11,6 +11,7 @@ use crate::type_map::Pyo3Mapper;
 use ahash::AHashSet;
 use alef_codegen::builder::RustFileBuilder;
 use alef_codegen::generators::{self, AsyncPattern, RustBindingConfig};
+use alef_codegen::shared::binding_fields;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{AdapterPattern, Language, ResolvedCrateConfig, detect_serde_available, resolve_output_dir};
 use alef_core::ir::ApiSurface;
@@ -280,7 +281,7 @@ impl Backend for Pyo3Backend {
             })
             .collect();
         for typ in api.types.iter().filter(|t| t.has_default && !t.is_trait) {
-            for field in &typ.fields {
+            for field in binding_fields(&typ.fields) {
                 if field.cfg.is_some() && !never_skip_cfg_field_names.contains(&field.name) {
                     never_skip_cfg_field_names.push(field.name.clone());
                 }
@@ -785,7 +786,7 @@ mod alef_json_str_opt {
         // use the correct binding struct field names (e.g. `class_` not `class`).
         let mut py_field_renames = std::collections::HashMap::new();
         for typ in api.types.iter().filter(|t| !t.is_trait) {
-            for field in &typ.fields {
+            for field in binding_fields(&typ.fields) {
                 if let Some(escaped) =
                     config.resolve_field_name(alef_core::config::Language::Python, &typ.name, &field.name)
                 {

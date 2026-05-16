@@ -3,6 +3,7 @@
 use ahash::AHashSet;
 use alef_codegen::doc_emission::doc_first_paragraph_joined;
 use alef_codegen::generators;
+use alef_codegen::shared::binding_fields;
 use alef_core::config::{DtoConfig, PythonDtoStyle};
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::ApiSurface;
@@ -111,7 +112,7 @@ pub(super) fn gen_init_py(
             }
             // Collect enum references regardless of whether the type is a return type or config
             // type — some enums are shared across both categories.
-            for field in &typ.fields {
+            for field in binding_fields(&typ.fields) {
                 let inner_name = match &field.ty {
                     TypeRef::Named(n) => Some(n.as_str()),
                     TypeRef::Optional(inner) => {

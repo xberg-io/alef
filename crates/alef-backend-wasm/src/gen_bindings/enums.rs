@@ -594,7 +594,7 @@ mod tests {
     fn gen_enum_produces_wasm_bindgen_attribute() {
         let e = make_enum("Color", &["Red", "Green", "Blue"]);
         let result = gen_enum(&e, "Wasm");
-        assert!(result.contains("#[wasm_bindgen]"));
+        assert!(result.contains("#[wasm_bindgen(js_name = \"Color\")]"));
         assert!(result.contains("pub enum WasmColor"));
         assert!(result.contains("Red = 0,"));
         assert!(result.contains("Green = 1,"));

@@ -64,13 +64,13 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
         .types
         .iter()
         .filter(|t| !t.is_trait && t.has_default)
-        .any(|t| t.fields.iter().any(|f| type_contains_json(&f.ty)));
+        .any(|t| binding_fields(&t.fields).any(|f| type_contains_json(&f.ty)));
 
     // Collect all Named types referenced by has_default types (including inside Vec/Optional).
     let mut referenced_types: AHashSet<String> = AHashSet::new();
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         if typ.has_default {
-            for field in &typ.fields {
+            for field in binding_fields(&typ.fields) {
                 collect_named_types(&field.ty, &mut referenced_types);
             }
         }
@@ -83,7 +83,7 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
     let mut needed_enums: AHashSet<String> = AHashSet::new();
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         if typ.has_default || typ.is_return_type {
-            for field in &typ.fields {
+            for field in binding_fields(&typ.fields) {
                 collect_named_types_filtered(&field.ty, &enum_names, &mut needed_enums);
             }
         }

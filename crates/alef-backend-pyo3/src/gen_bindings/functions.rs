@@ -3,6 +3,7 @@
 use ahash::{AHashMap, AHashSet};
 use alef_codegen::doc_emission::doc_first_paragraph_joined;
 use alef_codegen::generators;
+use alef_codegen::shared::binding_fields;
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::ApiSurface;
 
@@ -85,7 +86,7 @@ pub(super) fn gen_api_py(
             // First collect nested types so they appear before the parent converter.
             // `classify_param_type` recursively unwraps Optional/Vec layers so a
             // `Vec<HasDefault>` field still discovers the leaf converter.
-            for field in &typ.fields {
+            for field in binding_fields(&typ.fields) {
                 if let Some((name, _)) = classify_param_type(&field.ty) {
                     if default_types.contains_key(name) {
                         collect_needed(name, default_types, needed, visited);
@@ -201,7 +202,7 @@ pub(super) fn gen_api_py(
             .iter()
             .filter(|t| t.has_default && !t.name.ends_with("Update"))
         {
-            for field in &typ.fields {
+            for field in binding_fields(&typ.fields) {
                 let inner_name = match &field.ty {
                     TypeRef::Named(n) => Some(n.as_str()),
                     TypeRef::Optional(inner) => {
@@ -585,7 +586,7 @@ pub(super) fn gen_api_py(
             },
         ));
 
-        for field in &typ.fields {
+        for field in binding_fields(&typ.fields) {
             // Check if the field's type is itself a has_default Named type (needs nested conversion)
             let inner_named = match &field.ty {
                 TypeRef::Named(n) => Some(n.as_str()),

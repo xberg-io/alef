@@ -124,11 +124,10 @@ pub(crate) fn emit_function(
         || matches!(&f.return_type, TypeRef::Named(name) if struct_names.contains(name));
 
     let return_ty = if let Some(error_type) = &zig_error_type {
-        format!(
-            "({}||error{{OutOfMemory}})!{}",
-            error_type,
-            zig_return_type(&f.return_type, struct_names)
-        )
+        // OutOfMemory is already a member of every declared error set, so we can
+        // use the single error set directly instead of the verbose double union concat
+        // `(ErrorSet||error{OutOfMemory})!T`.
+        format!("{}!{}", error_type, zig_return_type(&f.return_type, struct_names))
     } else if body_needs_try {
         format!("error{{OutOfMemory}}!{}", zig_return_type(&f.return_type, struct_names))
     } else {

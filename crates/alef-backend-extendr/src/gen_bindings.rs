@@ -2239,6 +2239,147 @@ package_name = "testlib"
     }
 
     #[test]
+    fn extendr_wrappers_emits_roxygen_doc_block_for_free_functions() {
+        // Regression: prior to roxygen2 doc emission, every free function in
+        // extendr-wrappers.R carried only `#' @export` — `?<fn>` in an R REPL
+        // returned an empty .Rd. The wrapper emitter must now derive a title
+        // line + description from the Rust doc comment and emit `@param` /
+        // `@return` lines from the IR's type information.
+        let backend = ExtendrBackend;
+        let config = make_config();
+        let api = ApiSurface {
+            crate_name: "test_lib".to_string(),
+            version: "0.1.0".to_string(),
+            types: vec![],
+            functions: vec![FunctionDef {
+                name: "extract_bytes".to_string(),
+                rust_path: "test_lib::extract_bytes".to_string(),
+                original_rust_path: String::new(),
+                params: vec![
+                    ParamDef {
+                        name: "bytes".to_string(),
+                        ty: TypeRef::Bytes,
+                        optional: false,
+                        default: None,
+                        sanitized: false,
+                        typed_default: None,
+                        is_ref: false,
+                        is_mut: false,
+                        newtype_wrapper: None,
+                        original_type: None,
+                    },
+                    ParamDef {
+                        name: "mime_type".to_string(),
+                        ty: TypeRef::Optional(Box::new(TypeRef::String)),
+                        optional: true,
+                        default: None,
+                        sanitized: false,
+                        typed_default: None,
+                        is_ref: false,
+                        is_mut: false,
+                        newtype_wrapper: None,
+                        original_type: None,
+                    },
+                    ParamDef {
+                        name: "config".to_string(),
+                        ty: TypeRef::Optional(Box::new(TypeRef::Named("ExtractionConfig".to_string()))),
+                        optional: true,
+                        default: None,
+                        sanitized: false,
+                        typed_default: None,
+                        is_ref: false,
+                        is_mut: false,
+                        newtype_wrapper: None,
+                        original_type: None,
+                    },
+                ],
+                return_type: TypeRef::Named("ExtractionResult".to_string()),
+                is_async: false,
+                error_type: None,
+                doc: "Extract text from raw bytes.\n\nDetect the MIME type of the input bytes\nand run the appropriate extractor.".to_string(),
+                cfg: None,
+                sanitized: false,
+                return_sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            enums: vec![],
+            errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
+        };
+        let files = backend.generate_public_api(&api, &config).unwrap();
+        let wrappers = files
+            .iter()
+            .find(|f| f.path.to_string_lossy().ends_with("extendr-wrappers.R"))
+            .expect("extendr-wrappers.R must be generated");
+        let content = &wrappers.content;
+
+        assert!(
+            content.contains("#' Extract text from raw bytes"),
+            "title line derived from Rust doc comment must be emitted:\n{content}"
+        );
+        assert!(
+            content.contains("#' Detect the MIME type of the input bytes"),
+            "description from Rust doc comment must be emitted:\n{content}"
+        );
+        assert!(
+            content.contains("#' @param bytes Raw vector of bytes."),
+            "@param for bytes must describe the type:\n{content}"
+        );
+        assert!(
+            content.contains("#' @param mime_type Optional character string."),
+            "@param for optional string must include `Optional` qualifier:\n{content}"
+        );
+        assert!(
+            content.contains("#' @param config Optional ExtractionConfig object"),
+            "@param for named optional type must reference the named type:\n{content}"
+        );
+        assert!(
+            content.contains("#' @return ExtractionResult object"),
+            "@return must describe the return type:\n{content}"
+        );
+        assert!(content.contains("#' @export"), "@export tag must be preserved:\n{content}");
+        for line in content.lines() {
+            if let Some(rest) = line.strip_prefix("#' @param ") {
+                let mut parts = rest.splitn(2, ' ');
+                let _name = parts.next();
+                let description = parts.next().unwrap_or("").trim();
+                assert!(
+                    !description.is_empty(),
+                    "@param line must include a description, got: {line:?}\nfull content:\n{content}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn extendr_wrappers_emits_placeholder_title_when_doc_is_empty() {
+        // Functions with no Rust doc comment must still produce a complete
+        // roxygen block — title falls back to the function name, description
+        // is omitted, @param/@return lines are still emitted.
+        let backend = ExtendrBackend;
+        let config = make_config();
+        let api = make_api_surface();
+        let files = backend.generate_public_api(&api, &config).unwrap();
+        let wrappers = files
+            .iter()
+            .find(|f| f.path.to_string_lossy().ends_with("extendr-wrappers.R"))
+            .expect("extendr-wrappers.R must be generated");
+        let content = &wrappers.content;
+        assert!(
+            content.contains("#' process"),
+            "fallback title (function name) must be emitted when doc is empty:\n{content}"
+        );
+        assert!(
+            content.contains("#' @return Character string."),
+            "@return must be emitted even without a doc comment:\n{content}"
+        );
+    }
+
+    #[test]
     fn namespace_exports_functions_and_classes() {
         let backend = ExtendrBackend;
         let config = make_config();

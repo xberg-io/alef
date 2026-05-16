@@ -821,6 +821,74 @@ fn string_param_infallible_defers_free_after_c_call() {
     );
 }
 
+/// Error set must include `OutOfMemory` as a variant so allocator failures can be
+/// propagated without requiring a `||error{OutOfMemory}` concat on every return type.
+/// Return types for fallible functions must be `ErrorSet!T`, not `(ErrorSet||error{OutOfMemory})!T`.
+#[test]
+fn error_set_includes_out_of_memory_and_return_type_is_single_error_set() {
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "extract_bytes".into(),
+            rust_path: "demo::extract_bytes".into(),
+            original_rust_path: String::new(),
+            params: vec![make_param("bytes", TypeRef::Bytes)],
+            return_type: TypeRef::Bytes,
+            is_async: false,
+            error_type: Some("DemoError".into()),
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![ErrorDef {
+            name: "DemoError".into(),
+            rust_path: "demo::DemoError".into(),
+            original_rust_path: String::new(),
+            variants: vec![ErrorVariant {
+                name: "Extraction".into(),
+                message_template: None,
+                fields: vec![],
+                has_source: false,
+                has_from: false,
+                is_unit: true,
+                doc: String::new(),
+            }],
+            doc: String::new(),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+
+    // Return type must be the single error set, not a double union concat.
+    assert!(
+        content.contains("DemoError![]u8"),
+        "return type must be single error set DemoError![]u8, got: {content}"
+    );
+    // Must NOT contain the verbose double error union concat.
+    assert!(
+        !content.contains("||error{OutOfMemory}"),
+        "must NOT emit ||error{{OutOfMemory}} concat: {content}"
+    );
+    // OutOfMemory must be present as a variant in the DemoError set definition.
+    assert!(
+        content.contains("OutOfMemory,"),
+        "DemoError must include OutOfMemory variant: {content}"
+    );
+}
+
 /// A fallible function with a String parameter must also defer the free, so
 /// the sentinel buffer is alive across the C call AND the error-code check.
 #[test]

@@ -755,6 +755,33 @@ mod tests {
     }
 
     #[test]
+    fn swift_case_ident_backtick_escapes_reserved_keywords() {
+        // Backtick escape is the Swift-idiomatic form for keyword-collision
+        // identifiers in *emitted Swift code* (enum cases, struct fields,
+        // function parameter labels). Distinct from `swift_ident`, which
+        // emits a trailing-underscore form suitable for the Rust side of the
+        // bridge.
+        assert_eq!(swift_case_ident("default"), "`default`");
+        assert_eq!(swift_case_ident("protocol"), "`protocol`");
+        assert_eq!(swift_case_ident("init"), "`init`");
+        assert_eq!(swift_case_ident("Self"), "`Self`");
+        assert_eq!(swift_case_ident("Any"), "`Any`");
+        assert_eq!(swift_case_ident("class"), "`class`");
+        assert_eq!(swift_case_ident("inout"), "`inout`");
+        assert_eq!(swift_case_ident("rethrows"), "`rethrows`");
+        // Non-reserved identifiers pass through unchanged.
+        assert_eq!(swift_case_ident("gitHub"), "gitHub");
+        assert_eq!(swift_case_ident("normal"), "normal");
+        assert_eq!(swift_case_ident("dracula"), "dracula");
+    }
+
+    #[test]
+    fn swift_case_safe_name_returns_some_for_reserved() {
+        assert_eq!(swift_case_safe_name("default"), Some("`default`".to_string()));
+        assert_eq!(swift_case_safe_name("normal"), None);
+    }
+
+    #[test]
     fn dart_async_is_reserved() {
         assert_eq!(dart_safe_name("async"), Some("async_".to_string()));
         assert_eq!(dart_safe_name("late"), Some("late_".to_string()));
