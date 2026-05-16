@@ -747,13 +747,88 @@ impl Backend for RustlerBackend {
                 })
             });
 
+            // Determine whether trailing optional params should be collapsed into a single
+            // `opts \\ []` keyword argument (Elixir idiom) rather than N arity overloads.
+            // Visitor-bridge params keep their positional form (handled below).
+            let visitor_bridge_idx = visitor_bridge_param_idx
+                .or_else(|| options_field_bridge.as_ref().map(|(idx, _)| *idx));
+            let trailing_keyword_count = if visitor_bridge_idx.is_some() {
+                // Visitor bridge present — no keyword collapsing for safety.
+                0
+            } else {
+                trailing_optional_count
+            };
+            let use_keyword_opts = trailing_keyword_count > 0;
+
             // Emit one @spec/@doc per arity variant (shortest to longest).
             // The shortest arity fills optional params with nil.
-            let arity_variants: Vec<usize> = if trailing_optional_count > 0 {
+            let arity_variants: Vec<usize> = if !use_keyword_opts && trailing_optional_count > 0 {
                 ((all_params.len() - trailing_optional_count)..=all_params.len()).collect()
+            } else if use_keyword_opts {
+                // Keyword-opts path: single arity (required params + opts).
+                vec![]
             } else {
                 vec![all_params.len()]
             };
+
+            // Keyword-opts path: emit a single `def f(required, opts \\ []) do` with
+            // `Keyword.get(opts, :param)` for each trailing optional param.
+            if use_keyword_opts {
+                let required_count = all_params.len() - trailing_keyword_count;
+                let required_params = &all_params[..required_count];
+                let required_types = &param_types[..required_count];
+                let optional_ir_params = &func.params[required_count..];
+
+                content.push_str(&template_env::render(
+                    "elixir_doc_line.jinja",
+                    minijinja::context! { doc_line => doc_line },
+                ));
+
+                // @spec: required types + keyword()
+                let mut spec_types: Vec<String> = required_types.to_vec();
+                spec_types.push("keyword()".to_string());
+                let spec_inline = format!("  @spec {nif_fn_name}({}) :: {return_spec}", spec_types.join(", "));
+                if spec_inline.len() > 98 {
+                    let spec_broken =
+                        format!("  @spec {nif_fn_name}({}) ::\n          {return_spec}", spec_types.join(", "));
+                    if spec_broken.lines().all(|l| l.len() <= 98) {
+                        content.push_str(&spec_broken);
+                        content.push('\n');
+                    } else {
+                        content.push_str(&template_env::render(
+                            "elixir_spec_multiline.jinja",
+                            minijinja::context! {
+                                func_name => &nif_fn_name,
+                                param_types => &spec_types,
+                                return_spec => &return_spec,
+                            },
+                        ));
+                    }
+                } else {
+                    content.push_str(&spec_inline);
+                    content.push('\n');
+                }
+
+                // def fn_name(req_param, opts \\ []) do
+                let mut def_parts: Vec<String> = required_params.to_vec();
+                def_parts.push("opts \\\\ []".to_string());
+                if def_parts.len() == 1 && def_parts[0] == "opts \\\\ []" {
+                    // zero required params
+                    content.push_str(&format!("  def {nif_fn_name}(opts \\\\ []) do\n"));
+                } else {
+                    content.push_str(&format!("  def {nif_fn_name}({}) do\n", def_parts.join(", ")));
+                }
+
+                // NIF call args: required positionally, optional via Keyword.get
+                let mut nif_call_parts: Vec<String> = required_params.to_vec();
+                for opt_p in optional_ir_params {
+                    let safe_name = elixir_safe_param_name(&opt_p.name);
+                    nif_call_parts.push(format!("Keyword.get(opts, :{safe_name})"));
+                }
+                let nif_call_str = nif_call_parts.join(",\n      ");
+                content.push_str(&format!("    {native_mod}.{nif_fn_name}(\n      {nif_call_str}\n    )\n"));
+                content.push_str("  end\n\n");
+            }
 
             for arity in &arity_variants {
                 let arity_params = &all_params[..*arity];
