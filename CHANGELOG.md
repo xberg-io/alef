@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **alef-backend-ffi: emit `*_len()` companion for `c_char` returns**: every `pub unsafe extern "C" fn` returning `*mut c_char` now has a sibling `_len() -> usize` that returns the same string's byte length without allocating. Enables safe slice construction in Zig (drops `[:0]const u8` in favour of `[]const u8`) and Java FFM Panama bindings. (`crates/alef-backend-ffi/src/gen_bindings/functions.rs`, `crates/alef-backend-ffi/src/gen_bindings/mod.rs`)
+
+### Changed
+
+- **[BREAKING] alef-backend-swift: eliminate JSON roundtrip in DTO `intoRust()`**: Swift DTOs no longer serialize through `JSONEncoder` + Rust-side `from_json` shim. The Swift binding now calls a Rust-side bulk constructor extern via swift-bridge (`#[swift_bridge(init)] fn new(...)`), mirroring the existing direct-field-access pattern in `init(_ rb:) throws`. Internal bridge architecture change; public Swift API unchanged. Affects all DTOs that previously emitted `JSONEncoder().encode(self)` in `intoRust()` — primitive-only, nested-struct (`try self.field.intoRust()`), `Vec<Primitive | String | Named>` (materialised as `RustVec<T>`), and `Option<Primitive | String>` fields all take the direct path. DTOs whose constructor extern is not emitted (no `Default` impl, JSON-bridged Map/Json fields, or fields excluded via `[crates.<crate>.swift] exclude_fields`) keep the JSON fallback. (`crates/alef-backend-swift/src/gen_bindings.rs`, `crates/alef-backend-swift/src/gen_rust_crate/extern_block.rs`, tests in `crates/alef-backend-swift/tests/snapshot_test.rs`)
+
 ### Fixed
 
 - **alef-backend-swift: emit bidirectional `From` impls for `OptionsField` newtype wrappers**: the `OptionsField` bind_via path generates a factory (`make_{trait}_handle`) and options-helper (`{opts}_from_json_with_{field}`) that call `TypeAlias::from(inner)`, `<inner>::from(handle)`, and `OptionsType::from(core_opts)`. These three `From` impls were missing — only enums emitted one-direction `From` via match arms. `emit_options_field_from_impls` now emits all three bidirectional newtype-struct impls (`.0` field access) with a deduplication guard so multiple bridges sharing the same alias or options type don't produce duplicate `impl` blocks. Fixes E0308 and E0277 in every consumer using `bind_via = "options_field"` (e.g. html-to-markdown's `HtmlVisitor` bridge). (`crates/alef-backend-swift/src/gen_rust_crate/plugin_inbound.rs`, `crates/alef-backend-swift/src/gen_rust_crate/mod.rs`)

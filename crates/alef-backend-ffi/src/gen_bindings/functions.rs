@@ -53,6 +53,295 @@ use crate::type_map::{c_param_type_with_paths, c_return_type_with_paths, is_pass
 use super::helpers::{gen_ffi_unimplemented_body, gen_owned_value_to_c, null_return_value};
 
 // ---------------------------------------------------------------------------
+// _len() companion helpers
+// ---------------------------------------------------------------------------
+
+/// Returns true when a TypeRef maps to `*mut c_char` in return position — meaning the
+/// FFI consumer must NUL-scan to find the byte length.  A `_len()` companion is emitted
+/// for every free function whose return type satisfies this predicate.
+pub(super) fn returns_c_char(ty: &TypeRef) -> bool {
+    match ty {
+        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => true,
+        TypeRef::Vec(_) | TypeRef::Map(_, _) => true,
+        TypeRef::Optional(inner) => matches!(
+            inner.as_ref(),
+            TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _)
+        ),
+        _ => false,
+    }
+}
+
+/// Generate a `len()` expression for an owned Rust value whose type maps to `*mut c_char`.
+///
+/// `expr` is the Rust expression for the owned value and `indent` is the leading whitespace.
+fn gen_len_from_c_char_return(expr: &str, ty: &TypeRef, indent: &str) -> String {
+    match ty {
+        TypeRef::String | TypeRef::Char => format!("{indent}{expr}.len()"),
+        TypeRef::Path => format!("{indent}{expr}.to_string_lossy().len()"),
+        TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+            format!("{indent}serde_json::to_string(&{expr}).map_or(0, |s| s.len())")
+        }
+        TypeRef::Optional(inner) => {
+            let inner_expr = match inner.as_ref() {
+                TypeRef::String | TypeRef::Char => format!("{expr}.as_deref().map_or(0, |s| s.len())"),
+                TypeRef::Path => format!("{expr}.as_ref().map_or(0, |p| p.to_string_lossy().len())"),
+                TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+                    format!("{expr}.as_ref().and_then(|v| serde_json::to_string(v).ok()).map_or(0, |s| s.len())")
+                }
+                _ => format!("{expr}.map_or(0, |_| 0)"),
+            };
+            format!("{indent}{inner_expr}")
+        }
+        _ => format!("{indent}0_usize"),
+    }
+}
+
+/// Generate a `{ffi_name}_len(same params) -> usize` companion for a free function whose
+/// return type maps to `*mut c_char`.  The companion re-executes the same call and returns
+/// the byte length of the resulting string (0 on None / error).
+///
+/// Enables safe `[]const u8` slice construction in Zig and `MemorySegment` slicing in Java
+/// FFM Panama without a NUL-scan.  Double work is acceptable because these functions return
+/// cheap static-string or deterministic lookups.
+pub(super) fn gen_free_function_len_companion(
+    func: &FunctionDef,
+    prefix: &str,
+    core_import: &str,
+    path_map: &AHashMap<String, String>,
+) -> String {
+    let fn_name_snake = func.name.to_snake_case();
+    let ffi_name = format!("{prefix}_{fn_name_snake}_len");
+    let core_fn_path = {
+        let path = func.rust_path.replace('-', "_");
+        if path.starts_with(core_import) {
+            path
+        } else {
+            format!("{core_import}::{}", func.name)
+        }
+    };
+
+    let has_error = func.error_type.is_some();
+
+    let ffi_param_count = func.params.len()
+        + func.params.iter().filter(|p| matches!(p.ty, TypeRef::Bytes)).count();
+    let allow_clippy = if ffi_param_count > 7 {
+        Some("clippy::too_many_arguments".to_string())
+    } else {
+        None
+    };
+
+    let will_be_unimplemented = func.sanitized && !sanitized_recoverable(func);
+    let mut params = Vec::new();
+    for p in &func.params {
+        let param_name = if will_be_unimplemented {
+            format!("_{}", p.name)
+        } else {
+            p.name.clone()
+        };
+        params.push(format!(
+            "    {}: {}",
+            param_name,
+            c_param_type_with_paths(&p.ty, core_import, path_map)
+        ));
+        if matches!(p.ty, TypeRef::Bytes) {
+            let len_param_name = if will_be_unimplemented {
+                format!("_{}_len", p.name)
+            } else {
+                format!("{}_len", p.name)
+            };
+            params.push(format!("    {}: usize", len_param_name));
+        }
+    }
+
+    let doc_comment = format!(
+        "/// Return the byte length of the C string that `{prefix}_{fn_name_snake}` would return\n\
+         /// for the same arguments, without allocating.  Returns 0 when the underlying value is\n\
+         /// None or an error occurs.  Enables safe slice construction in Zig and Java FFM Panama\n\
+         /// without a NUL-scan.\n\
+         ///\n\
+         /// # Safety\n\
+         /// All pointer parameters obey the same validity rules as `{prefix}_{fn_name_snake}`.",
+    );
+
+    let mut out = String::with_capacity(2048);
+    out.push_str(&doc_comment);
+    out.push('\n');
+    if let Some(ref clippy) = allow_clippy {
+        out.push_str(&format!("#[allow({clippy})]\n"));
+    }
+    out.push_str("#[unsafe(no_mangle)]\n");
+    out.push_str("pub unsafe extern \"C\" fn ");
+    out.push_str(&ffi_name);
+    out.push_str("(\n");
+    for (i, p) in params.iter().enumerate() {
+        out.push_str(p);
+        if i + 1 < params.len() {
+            out.push(',');
+        }
+        out.push('\n');
+    }
+    out.push_str(") -> usize {\n");
+    out.push_str("    clear_last_error();\n");
+
+    if will_be_unimplemented {
+        out.push_str("    0\n}");
+        return out;
+    }
+
+    // Parameter conversions — identical to the primary function
+    for p in &func.params {
+        out.push_str(&crate::template_env::render(
+            "emitted_code_block.jinja",
+            context! {
+                content => gen_param_conversion(p, has_error, false, &func.return_type, core_import),
+            },
+        ));
+    }
+
+    // Vec<&str> intermediate bindings for Vec<String> params with is_ref=true
+    for p in &func.params {
+        if p.is_ref && !p.optional {
+            if let TypeRef::Vec(inner) = &p.ty {
+                if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) {
+                    let rs = format!("{}_rs", p.name);
+                    out.push_str(&crate::template_env::render(
+                        "vec_string_refs.jinja",
+                        context! { rs_name => rs.clone() },
+                    ));
+                }
+            }
+        }
+    }
+
+    // Build call args — identical arg-passing logic as gen_free_function
+    let arg_names: Vec<String> = func
+        .params
+        .iter()
+        .map(|p| {
+            let rs = format!("{}_rs", p.name);
+            match &p.ty {
+                TypeRef::Path if !p.optional => {
+                    if p.is_ref { format!("{rs}.as_path()") } else { rs }
+                }
+                TypeRef::String | TypeRef::Char if !p.optional => {
+                    if p.is_ref { format!("&{rs}") } else { rs }
+                }
+                TypeRef::Bytes if !p.optional => {
+                    if p.is_ref { format!("&{rs}") } else { rs }
+                }
+                TypeRef::Named(_) if !p.optional => {
+                    if p.is_ref { format!("&{rs}") } else { rs }
+                }
+                TypeRef::String | TypeRef::Char | TypeRef::Bytes if p.optional => {
+                    if p.is_ref { format!("{rs}.as_deref()") } else { rs }
+                }
+                TypeRef::Path if p.optional => {
+                    if p.is_ref {
+                        format!("{rs}.as_ref().map(|s| std::path::Path::new(s.as_str()))")
+                    } else {
+                        rs
+                    }
+                }
+                TypeRef::Named(_) if p.optional => {
+                    if p.is_ref { format!("{rs}.as_ref()") } else { rs }
+                }
+                TypeRef::Json if !p.optional => {
+                    if p.is_ref { format!("&{rs}") } else { rs }
+                }
+                TypeRef::Json if p.optional => {
+                    if p.is_ref { format!("{rs}.as_ref()") } else { rs }
+                }
+                TypeRef::Vec(inner) if !p.optional => {
+                    if p.is_ref && matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) {
+                        format!("&{rs}_refs")
+                    } else if p.is_mut {
+                        format!("&mut {rs}")
+                    } else if p.is_ref {
+                        format!("&{rs}")
+                    } else {
+                        rs
+                    }
+                }
+                TypeRef::Map(_, _) if !p.optional => {
+                    if p.is_mut {
+                        format!("&mut {rs}")
+                    } else if p.is_ref {
+                        format!("&{rs}")
+                    } else {
+                        rs
+                    }
+                }
+                TypeRef::Vec(_) | TypeRef::Map(_, _) if p.optional => {
+                    if p.is_mut {
+                        format!("{rs}.as_deref_mut()")
+                    } else if p.is_ref {
+                        format!("{rs}.as_deref()")
+                    } else {
+                        rs
+                    }
+                }
+                _ => rs,
+            }
+        })
+        .collect();
+    let call_args = arg_names.join(", ");
+
+    let call_expr = if func.is_async {
+        format!("get_ffi_runtime().block_on(async {{ {core_fn_path}({call_args}).await }})")
+    } else {
+        format!("{core_fn_path}({call_args})")
+    };
+    out.push_str(&format!("    let result = {call_expr};\n"));
+
+    // Handle ref/cow ownership conversions — mirror the primary function
+    if func.returns_ref && !has_error {
+        match &func.return_type {
+            TypeRef::String | TypeRef::Char => {
+                out.push_str("    let result = result.to_owned();\n");
+            }
+            TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+                out.push_str("    let result = result.to_vec();\n");
+            }
+            TypeRef::Optional(inner) => match inner.as_ref() {
+                TypeRef::String | TypeRef::Char => {
+                    out.push_str("    let result = result.map(str::to_owned);\n");
+                }
+                TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+                    out.push_str("    let result = result.map(|v| v.to_vec());\n");
+                }
+                TypeRef::Named(_) => {
+                    out.push_str("    let result = result.cloned();\n");
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+    if func.returns_cow && !has_error {
+        out.push_str("    let result = result.into_owned();\n");
+    }
+
+    // Emit the length return expression
+    if has_error {
+        let ok_len = gen_len_from_c_char_return("val", &func.return_type, "        ");
+        out.push_str("    match result {\n");
+        out.push_str("        Ok(val) => {\n");
+        out.push_str(&ok_len);
+        out.push('\n');
+        out.push_str("        }\n");
+        out.push_str("        Err(_) => 0,\n");
+        out.push_str("    }\n");
+    } else {
+        let len_expr = gen_len_from_c_char_return("result", &func.return_type, "    ");
+        out.push_str(&len_expr);
+        out.push('\n');
+    }
+
+    out.push_str("\n}");
+    out
+}
+
+// ---------------------------------------------------------------------------
 // Streaming method wrapper (callback-based, for Streaming adapters)
 // ---------------------------------------------------------------------------
 

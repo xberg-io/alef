@@ -820,3 +820,102 @@ ffi = "crates/mylib-ffi/src/"
         "build.rs must not copy header when Go is not configured"
     );
 }
+
+// ---------------------------------------------------------------------------
+// _len() companion generation
+// ---------------------------------------------------------------------------
+
+/// A function returning `Option<&'static str>` (Optional<String> + returns_ref=true) must
+/// emit both the primary `*mut c_char` wrapper AND a sibling `_len() -> usize` companion.
+#[test]
+fn test_c_char_returning_function_emits_len_companion() {
+    let config = resolved_one(
+        r#"
+[workspace]
+languages = ["ffi"]
+
+[[crates]]
+name = "mylib"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "ml"
+
+[crates.output]
+ffi = "crates/mylib-ffi/src/"
+"#,
+    );
+
+    let api = ApiSurface {
+        crate_name: "mylib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "detect_language".to_string(),
+            rust_path: "mylib::detect_language".to_string(),
+            original_rust_path: String::new(),
+            params: vec![make_param("extension", TypeRef::String, true)],
+            return_type: TypeRef::Optional(Box::new(TypeRef::String)),
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: true,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let backend = FfiBackend;
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let lib_rs = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+    let code = &lib_rs.content;
+
+    // Primary function must be present and return *mut c_char
+    assert!(
+        code.contains("pub unsafe extern \"C\" fn ml_detect_language("),
+        "primary ml_detect_language function must be emitted"
+    );
+
+    // _len companion must be present
+    assert!(
+        code.contains("pub unsafe extern \"C\" fn ml_detect_language_len("),
+        "_len companion ml_detect_language_len must be emitted"
+    );
+
+    // Locate and inspect the _len companion body
+    let len_fn_start = code
+        .find("pub unsafe extern \"C\" fn ml_detect_language_len(")
+        .expect("_len companion not found");
+    let len_fn_end = code[len_fn_start..]
+        .find("\n}")
+        .map(|i| len_fn_start + i + 2)
+        .unwrap_or(code.len().min(len_fn_start + 1200));
+    let len_fn_snippet = &code[len_fn_start..len_fn_end];
+
+    assert!(
+        len_fn_snippet.contains("-> usize"),
+        "_len companion signature must declare usize return type"
+    );
+    assert!(
+        len_fn_snippet.contains("*const std::ffi::c_char"),
+        "_len companion must accept the same *const c_char extension param"
+    );
+    // Body must not allocate a CString
+    assert!(
+        !len_fn_snippet.contains("CString::new"),
+        "_len companion must not allocate a CString"
+    );
+    // Body must compute string length
+    assert!(
+        len_fn_snippet.contains(".len()") || len_fn_snippet.contains("map_or(0"),
+        "_len companion must compute length via .len() or map_or(0, ...)"
+    );
+}

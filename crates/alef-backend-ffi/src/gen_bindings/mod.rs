@@ -13,7 +13,10 @@ use std::path::PathBuf;
 use alef_adapters::AdapterBodies;
 use alef_core::config::AdapterPattern;
 
-use functions::{gen_free_function, gen_method_wrapper, gen_streaming_method_wrapper};
+use functions::{
+    gen_free_function, gen_free_function_len_companion, gen_method_wrapper, gen_streaming_method_wrapper,
+    returns_c_char,
+};
 use helpers::{
     gen_build_rs, gen_cbindgen_toml, gen_ffi_tokio_runtime, gen_free_bytes, gen_free_string, gen_last_error,
     gen_version,
@@ -523,6 +526,11 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
             continue;
         }
         builder.add_item(&gen_free_function(func, prefix, &core_import, &path_map, &enum_names));
+        // Emit a _len() companion for every function whose return type maps to *mut c_char
+        // so that Zig and Java FFM Panama consumers get byte length without a NUL-scan.
+        if returns_c_char(&func.return_type) {
+            builder.add_item(&gen_free_function_len_companion(func, prefix, &core_import, &path_map));
+        }
     }
 
     // Visitor/callback FFI support.
