@@ -29,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **alef-backend-swift: only emit first-class Swift DTOs for directly bridgeable field shapes**: complex serde DTOs with maps, vectors, nested wrappers, paths, bytes, JSON, or duration fields now remain RustBridge typealiases instead of generating uncompilable Codable/Hashable wrappers that called missing bridge accessors or JSON factory shims. Simple primitive/string DTOs keep first-class Codable wrappers and call snake_case RustBridge accessors. (`crates/alef-backend-swift/src/gen_bindings.rs`)
 
+- **alef-backend-swift: require direct RustBridge constructors for first-class DTOs**: Swift first-class DTO emission now uses the same constructor/direct-conversion eligibility as `intoRust()`, so serde DTOs without a generated `#[swift_bridge(init)]` constructor remain RustBridge typealiases instead of calling missing `{type}FromJson` shims. (`crates/alef-backend-swift/src/gen_bindings.rs`, `crates/alef-backend-swift/tests/gen_bindings_test.rs`)
+
 ## [0.16.16] - 2026-05-16
 
 ### Fixed

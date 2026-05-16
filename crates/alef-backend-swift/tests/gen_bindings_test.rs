@@ -217,6 +217,7 @@ fn struct_with_serde_derives_codable() {
         vec![make_field("value", TypeRef::Primitive(PrimitiveType::I32), false)],
     );
     ty.has_serde = true;
+    ty.has_default = true;
 
     let api = ApiSurface {
         crate_name: "demo".into(),
@@ -244,6 +245,37 @@ fn struct_with_serde_derives_codable() {
     assert!(
         !content.contains("public typealias Config = RustBridge.Config"),
         "must not emit typealias for first-class struct: {content}"
+    );
+}
+
+#[test]
+fn serde_struct_without_bridge_constructor_stays_rust_bridge_typealias() {
+    let mut ty = make_type(
+        "Config",
+        vec![make_field("value", TypeRef::Primitive(PrimitiveType::I32), false)],
+    );
+    ty.has_serde = true;
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![ty],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+
+    assert!(
+        content.contains("public typealias Config = RustBridge.Config"),
+        "structs without RustBridge constructors must remain typealiases: {content}"
+    );
+    assert!(
+        !content.contains("public struct Config: Codable, Sendable, Hashable"),
+        "must not emit first-class Swift DTOs that would need missing JSON factory shims: {content}"
     );
 }
 
@@ -1240,7 +1272,7 @@ fn streaming_chunk_type_with_serde_and_fields_emits_codable_struct() {
 
     // Build an API surface with:
     // - DefaultClient (opaque, has_serde: false) — the streaming owner
-    // - ChatCompletionChunk (non-opaque, has_serde: true, with fields) — the item type
+    // - ChatCompletionChunk (non-opaque, has_serde/default, with fields) — the item type
     let api = ApiSurface {
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
@@ -1296,7 +1328,7 @@ fn streaming_chunk_type_with_serde_and_fields_emits_codable_struct() {
                 is_clone: true,
                 is_copy: false,
                 is_trait: false,
-                has_default: false,
+                has_default: true,
                 has_stripped_cfg_fields: false,
                 is_return_type: true,
                 serde_rename_all: None,
