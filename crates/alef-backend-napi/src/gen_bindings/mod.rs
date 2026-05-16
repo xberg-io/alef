@@ -386,7 +386,7 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
                     let raw = alef_codegen::generators::gen_opaque_struct_prefixed(typ, &cfg, &prefix);
                     let struct_name = format!("{prefix}{}", typ.name);
                     raw.replace(
-                        &format!("#[napi]\npub struct {struct_name}"),
+                        &format!("#[napi]pub struct {struct_name}"),
                         &format!("#[napi(js_name = \"{}\")]\npub struct {struct_name}", typ.name),
                     )
                 };
@@ -757,13 +757,16 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
         let mut type_exports = vec![];
         let mut function_exports = vec![];
 
-        // Collect all types (exported with prefix from native module) - export type.
+        // Collect all types as type exports. Types are exported with their unprefixed
+        // TS name because the Rust structs carry `#[napi(js_name = "Foo")]`, so the
+        // NAPI-RS runtime already maps JsFoo → Foo in the generated .d.ts.
         // Skip trait definitions (e.g. HtmlVisitor): the NAPI binding exposes opaque
         // *Handle classes for trait bridges, not the trait types themselves, so
         // re-exporting `JsHtmlVisitor` produces a TS2305 'has no exported member'
         // error against the generated index.d.ts.
         // Skip capsule types — they are not emitted as napi classes and therefore
         // do not exist in the native module's exports.
+        let _ = &prefix; // prefix is not used for public TS export names
         for typ in api.types.iter() {
             if typ.is_trait {
                 continue;
@@ -771,14 +774,14 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
             if capsule_types_pub.contains_key(&typ.name) {
                 continue;
             }
-            type_exports.push(format!("{prefix}{}", typ.name));
+            type_exports.push(typ.name.clone());
         }
 
-        // Collect all enums as type exports.
+        // Collect all enums as type exports (unprefixed, matching the js_name attribute).
         // With verbatimModuleSyntax enabled, re-exporting const enums as values causes
         // TS2748/TS1205; using `export type` avoids both errors.
         for enum_def in &api.enums {
-            type_exports.push(format!("{prefix}{}", enum_def.name));
+            type_exports.push(enum_def.name.clone());
         }
 
         // NAPI errors are thrown as native JS Error objects, not exported as TS types.

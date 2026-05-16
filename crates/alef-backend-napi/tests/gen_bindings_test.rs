@@ -396,8 +396,8 @@ fn test_enum_generation() {
     assert!(content.contains("Active"), "Should contain Active variant");
     assert!(content.contains("Complete"), "Should contain Complete variant");
     assert!(
-        content.contains("napi(string_enum)"),
-        "Should use napi(string_enum) attribute"
+        content.contains("napi(string_enum, js_name"),
+        "Should use napi(string_enum, js_name = ...) attribute"
     );
 }
 
@@ -845,10 +845,10 @@ fn test_optional_and_default_fields() {
         content.contains("Option<") || content.contains("timeout"),
         "Fields should be wrapped in Option for types with defaults"
     );
-    // Verify napi(object) attribute
+    // Verify napi(object, js_name = ...) attribute
     assert!(
-        content.contains("napi(object)"),
-        "Non-opaque struct should use napi(object)"
+        content.contains("napi(object, js_name"),
+        "Non-opaque struct should use napi(object, js_name = ...)"
     );
     // Verify Default derive is added
     assert!(
@@ -1995,10 +1995,12 @@ fn test_capsule_types_method_on_opaque_dts() {
         "index.d.ts must not emit standalone export declare class JsLanguage; content:\n{content}"
     );
 
-    // The registry class must be present.
+    // The registry class must be present with its unprefixed TS name.
+    // The Rust struct is JsLanguageRegistry internally, but #[napi(js_name = "LanguageRegistry")]
+    // causes NAPI-RS to export it as LanguageRegistry in the .d.ts.
     assert!(
-        content.contains("export declare class JsLanguageRegistry"),
-        "index.d.ts must emit JsLanguageRegistry class; content:\n{content}"
+        content.contains("export declare class LanguageRegistry"),
+        "index.d.ts must emit LanguageRegistry class (unprefixed); content:\n{content}"
     );
 
     // The method must use the ecosystem type, not the undeclared opaque handle.
@@ -2012,5 +2014,299 @@ fn test_capsule_types_method_on_opaque_dts() {
     assert!(
         !bare_js_language_method,
         "index.d.ts must not contain ): JsLanguage; content:\n{content}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// W3 regression tests: js_name, readonly, no Js-prefix on TS surface
+// ---------------------------------------------------------------------------
+
+/// Non-opaque structs must carry `#[napi(object, js_name = "Foo")]` so NAPI-RS
+/// exports the type as `Foo` rather than `JsFoo` in the generated .d.ts.
+/// The public index.ts re-export must also use the unprefixed name.
+#[test]
+fn test_napi_js_name_on_non_opaque_struct() {
+    let backend = NapiBackend;
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Options".to_string(),
+            rust_path: "test_lib::Options".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![make_field("timeout", TypeRef::Primitive(PrimitiveType::U32), false)],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config();
+
+    // (a) js_name must appear in the napi attribute on the Rust struct
+    let bindings = backend
+        .generate_bindings(&api, &config)
+        .expect("generate_bindings should succeed");
+    let lib_rs = bindings
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("lib.rs"))
+        .expect("lib.rs must be present");
+    assert!(
+        lib_rs.content.contains("napi(object, js_name = \"Options\")"),
+        "non-opaque struct must carry napi(object, js_name = \"Options\"); content:\n{}",
+        lib_rs.content
+    );
+
+    // (c) The public TS surface (index.ts) must export `Options`, not `JsOptions`.
+    let public_api = backend
+        .generate_public_api(&api, &config)
+        .expect("generate_public_api should succeed");
+    let index_ts = public_api
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("index.ts"))
+        .expect("index.ts must be present");
+    assert!(
+        index_ts.content.contains("Options"),
+        "index.ts must export Options (unprefixed); content:\n{}",
+        index_ts.content
+    );
+    assert!(
+        !index_ts.content.contains("JsOptions"),
+        "index.ts must not export JsOptions; content:\n{}",
+        index_ts.content
+    );
+}
+
+/// Opaque structs must carry `#[napi(js_name = "Foo")]` so NAPI-RS exports
+/// the type as `Foo` rather than `JsFoo` in the generated .d.ts.
+/// The public index.ts re-export must also use the unprefixed name.
+#[test]
+fn test_napi_js_name_on_opaque_struct() {
+    let backend = NapiBackend;
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Engine".to_string(),
+            rust_path: "test_lib::Engine".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![],
+            is_opaque: true,
+            is_clone: false,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config();
+
+    // (a) js_name must appear on opaque struct
+    let bindings = backend
+        .generate_bindings(&api, &config)
+        .expect("generate_bindings should succeed");
+    let lib_rs = bindings
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("lib.rs"))
+        .expect("lib.rs must be present");
+    assert!(
+        lib_rs.content.contains("napi(js_name = \"Engine\")"),
+        "opaque struct must carry napi(js_name = \"Engine\"); content:\n{}",
+        lib_rs.content
+    );
+
+    // (c) index.ts must export Engine, not JsEngine
+    let public_api = backend
+        .generate_public_api(&api, &config)
+        .expect("generate_public_api should succeed");
+    let index_ts = public_api
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("index.ts"))
+        .expect("index.ts must be present");
+    assert!(
+        !index_ts.content.contains("JsEngine"),
+        "index.ts must not export JsEngine; content:\n{}",
+        index_ts.content
+    );
+}
+
+/// String enums must carry `#[napi(string_enum, js_name = "Foo")]` so NAPI-RS
+/// exports the enum as `Foo` rather than `JsFoo` in the generated .d.ts.
+/// The public index.ts re-export must also use the unprefixed name.
+#[test]
+fn test_napi_js_name_on_string_enum() {
+    let backend = NapiBackend;
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "Status".to_string(),
+            rust_path: "test_lib::Status".to_string(),
+            original_rust_path: String::new(),
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: None,
+            doc: String::new(),
+            cfg: None,
+            variants: vec![
+                EnumVariant {
+                    name: "Active".to_string(),
+                    fields: vec![],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+                EnumVariant {
+                    name: "Inactive".to_string(),
+                    fields: vec![],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+            ],
+            is_copy: true,
+            has_serde: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config();
+
+    // (a) js_name must appear on string enum
+    let bindings = backend
+        .generate_bindings(&api, &config)
+        .expect("generate_bindings should succeed");
+    let lib_rs = bindings
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("lib.rs"))
+        .expect("lib.rs must be present");
+    assert!(
+        lib_rs.content.contains("napi(string_enum, js_name = \"Status\")"),
+        "string enum must carry napi(string_enum, js_name = \"Status\"); content:\n{}",
+        lib_rs.content
+    );
+
+    // (c) index.ts must export Status, not JsStatus
+    let public_api = backend
+        .generate_public_api(&api, &config)
+        .expect("generate_public_api should succeed");
+    let index_ts = public_api
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("index.ts"))
+        .expect("index.ts must be present");
+    assert!(
+        index_ts.content.contains("Status"),
+        "index.ts must export Status (unprefixed); content:\n{}",
+        index_ts.content
+    );
+    assert!(
+        !index_ts.content.contains("JsStatus"),
+        "index.ts must not export JsStatus; content:\n{}",
+        index_ts.content
+    );
+}
+
+/// DTO interface fields in .d.ts must be declared `readonly`.
+#[test]
+fn test_dts_dto_fields_are_readonly() {
+    let backend = NapiBackend;
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Config".to_string(),
+            rust_path: "test_lib::Config".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                make_field("timeout", TypeRef::Primitive(PrimitiveType::U32), false),
+                make_field("name", TypeRef::String, true),
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config();
+    let stubs = backend
+        .generate_type_stubs(&api, &config)
+        .expect("generate_type_stubs should succeed");
+    assert_eq!(stubs.len(), 1);
+    let content = &stubs[0].content;
+
+    // (b) readonly must appear on all DTO field declarations
+    assert!(
+        content.contains("readonly timeout: number"),
+        "required field must be emitted as `readonly timeout: number`; content:\n{content}"
+    );
+    assert!(
+        content.contains("readonly name?: string"),
+        "optional field must be emitted as `readonly name?: string`; content:\n{content}"
+    );
+    // (c) The interface name must be unprefixed
+    assert!(
+        content.contains("export interface Config {"),
+        "interface must be emitted as `Config` (unprefixed); content:\n{content}"
+    );
+    assert!(
+        !content.contains("JsConfig"),
+        ".d.ts must not contain JsConfig; content:\n{content}"
     );
 }
