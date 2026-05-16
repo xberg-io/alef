@@ -8,6 +8,7 @@ use alef_codegen::builder::RustFileBuilder;
 use alef_codegen::conversions::ConversionConfig;
 use alef_codegen::generators::RustBindingConfig;
 use alef_codegen::generators::{self, AsyncPattern};
+use alef_codegen::naming::to_php_name;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{Language, ResolvedCrateConfig, detect_serde_available, resolve_output_dir};
 use alef_core::hash::{self, CommentStyle};
@@ -1039,7 +1040,8 @@ impl Backend for PhpBackend {
                         ptype
                     };
                     let default = if f.optional { " = null" } else { "" };
-                    format!("        public readonly {} ${}{}", nullable, f.name, default)
+                    let php_name = to_php_name(&f.name);
+                    format!("        public readonly {} ${}{}", nullable, php_name, default)
                 })
                 .collect();
             content.push_str(&crate::template_env::render(
