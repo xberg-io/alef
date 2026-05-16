@@ -919,7 +919,7 @@ fn build_command_for(
                 found.unwrap_or_else(|| dir.to_string())
             };
             let dotnet_config = if release { "Release" } else { "Debug" };
-            format!("cd {build_dir} && dotnet build --configuration {dotnet_config} -q")
+            format!("cd {build_dir} && dotnet build --configuration {dotnet_config} --verbosity quiet")
         }
         "go" => {
             let dir = config
@@ -1039,6 +1039,7 @@ fn run_run_command(cmd: &str, args: &[&str], base_dir: &Path) -> anyhow::Result<
 #[cfg(test)]
 mod dedupe_tests {
     use super::*;
+    use alef_core::backend::{BuildConfig, BuildDependency};
 
     #[test]
     fn dedupe_plans_removes_duplicate_commands_across_languages() {
@@ -1089,6 +1090,39 @@ mod dedupe_tests {
         let result = dedupe_plans(plans);
         assert_eq!(result[0].1, vec!["uv sync --upgrade"]);
         assert_eq!(result[1].1, vec!["bundle update --all"]);
+    }
+
+    #[test]
+    fn csharp_build_command_uses_verbosity_flag_not_query_mode() {
+        let alef_cfg: alef_core::config::NewAlefConfig = toml::from_str(
+            r#"
+[workspace]
+languages = ["csharp"]
+
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
+"#,
+        )
+        .unwrap();
+        let config = alef_cfg.resolve().unwrap().remove(0);
+        let build_config = BuildConfig {
+            tool: "dotnet",
+            crate_suffix: "",
+            build_dep: BuildDependency::Ffi,
+            post_build: Vec::new(),
+        };
+
+        let command = build_command_for(Language::Csharp, &build_config, &config, false);
+
+        assert!(
+            command.contains("--verbosity quiet"),
+            "C# build must use explicit quiet verbosity: {command}"
+        );
+        assert!(
+            !command.contains(" -q"),
+            "C# build must not use dotnet query mode shorthand: {command}"
+        );
     }
 }
 
