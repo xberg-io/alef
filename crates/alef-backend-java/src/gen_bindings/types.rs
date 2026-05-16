@@ -1,4 +1,4 @@
-use crate::type_map::{java_boxed_type, java_type};
+use crate::type_map::{java_boxed_type, java_return_type, java_type};
 use ahash::AHashSet;
 use alef_codegen::naming::to_class_name;
 use alef_codegen::shared::binding_fields;
@@ -1026,7 +1026,7 @@ fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner
         }
         .to_string()
     } else {
-        java_type(&method.return_type).to_string()
+        java_return_type(&method.return_type).to_string()
     };
 
     out.push_str("    public ");

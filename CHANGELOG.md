@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-backend-java: preserve `Optional<T>` in opaque method return signatures**: Java opaque-handle methods now use the public return-type mapper instead of the FFI boundary mapper, so methods returning `Option<String>` emit `Optional<String>` signatures to match their generated `Optional.empty()` / `Optional.of(...)` bodies. (`crates/alef-backend-java/src/gen_bindings/types.rs`, `crates/alef-backend-java/tests/gen_bindings_test.rs`)
+
 - **alef-backend-go: keep byte-slice returns as `[]byte` in fallible methods**: Go methods that return `TypeRef::Bytes` but can fail while marshaling a non-opaque receiver now return `([]byte, error)` instead of `(*[]byte, error)`, matching the generated `unmarshalBytes` helper and idiomatic Go slice semantics. (`crates/alef-backend-go/src/type_map.rs`, `crates/alef-backend-go/tests/bug_fixes_test.rs`)
 
 - **alef-cli: make post-generation formatter warnings actionable**: formatter failures now include both stdout and stderr instead of dropping stdout-only diagnostics. Python package formatting is scoped to the generated stub package when configured, avoiding unrelated hand-written package tests. (`crates/alef-cli/src/pipeline/format.rs`)
