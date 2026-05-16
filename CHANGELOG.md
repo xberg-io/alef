@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-backend-dart: pass generated config to flutter_rust_bridge post-build command**: the Dart backend's post-build `RunCommand` now invokes `flutter_rust_bridge_codegen generate --config-file packages/dart/rust/flutter_rust_bridge.yaml`, matching the root-relative post-build working directory and ensuring FRB reads the emitted `rust_input`/`dart_output` settings instead of failing with "Please provide `rust_input`" or "Cannot find config_file". (`crates/alef-backend-dart/src/gen_bindings/mod.rs`)
+
 ## [0.16.14] - 2026-05-16
 
 ### Fixed

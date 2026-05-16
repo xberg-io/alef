@@ -233,7 +233,7 @@ impl Backend for DartBackend {
             build_dep: BuildDependency::None,
             post_build: vec![PostBuildStep::RunCommand {
                 cmd: "flutter_rust_bridge_codegen",
-                args: vec!["generate"],
+                args: vec!["generate", "--config-file", "packages/dart/rust/flutter_rust_bridge.yaml"],
             }],
         })
     }
@@ -259,9 +259,8 @@ impl DartBackend {
                 // `../lib/src/{module_name}_bridge_generated` relative to the rust
                 // crate root.  Post-processing rewrites positional field names
                 // (`field0`) to payload-derived names so callers get an ergonomic API.
-                let lib_dart_path = PathBuf::from("..")
-                    .join("lib")
-                    .join("src")
+                let lib_dart_dir = resolve_output_dir(None, &config.name, "packages/dart/lib/src");
+                let lib_dart_path = PathBuf::from(lib_dart_dir)
                     .join(format!("{module_name}_bridge_generated"))
                     .join("lib.dart");
                 Some(BuildConfig {
@@ -271,7 +270,7 @@ impl DartBackend {
                     post_build: vec![
                         PostBuildStep::RunCommand {
                             cmd: "flutter_rust_bridge_codegen",
-                            args: vec!["generate"],
+                            args: vec!["generate", "--config-file", "packages/dart/rust/flutter_rust_bridge.yaml"],
                         },
                         PostBuildStep::PostProcessFile {
                             path: lib_dart_path,

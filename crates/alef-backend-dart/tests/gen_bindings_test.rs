@@ -1326,7 +1326,8 @@ fn build_config_for_frb_emits_post_process_file_step() {
             PostProcessor::FrbDartSealedVariants,
             "PostProcessFile must use FrbDartSealedVariants processor"
         );
-        let expected_path = PathBuf::from("..")
+        let expected_path = PathBuf::from("packages")
+            .join("dart")
             .join("lib")
             .join("src")
             .join("demo_crate_bridge_generated")
@@ -1363,5 +1364,31 @@ fn build_config_for_frb_run_command_precedes_post_process_file() {
         steps,
         vec!["RunCommand", "PostProcessFile"],
         "RunCommand must come before PostProcessFile in post_build steps"
+    );
+}
+
+#[test]
+fn build_config_for_frb_run_command_uses_config_file() {
+    use alef_core::backend::PostBuildStep;
+
+    let config = make_config();
+    let bc = DartBackend
+        .build_config_for(&config)
+        .expect("FRB style must yield a BuildConfig");
+
+    let run_command = bc
+        .post_build
+        .iter()
+        .find_map(|step| match step {
+            PostBuildStep::RunCommand { cmd, args } => Some((*cmd, args)),
+            _ => None,
+        })
+        .expect("FRB config must run flutter_rust_bridge_codegen");
+
+    assert_eq!(run_command.0, "flutter_rust_bridge_codegen");
+    assert_eq!(
+        run_command.1,
+        &vec!["generate", "--config-file", "packages/dart/rust/flutter_rust_bridge.yaml"],
+        "flutter_rust_bridge_codegen must read the generated config file"
     );
 }
