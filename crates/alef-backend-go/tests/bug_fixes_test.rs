@@ -355,10 +355,7 @@ fn test_untagged_enum_unmarshal_does_not_access_wire_type() {
     );
 
     // Must try both variants
-    assert!(
-        content.contains("var v InputDocText"),
-        "Must try InputDocText variant"
-    );
+    assert!(content.contains("var v InputDocText"), "Must try InputDocText variant");
     assert!(
         content.contains("var v InputDocObject"),
         "Must try InputDocObject variant"

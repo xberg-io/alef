@@ -122,8 +122,7 @@ pub(super) fn gen_free_function_len_companion(
 
     let has_error = func.error_type.is_some();
 
-    let ffi_param_count = func.params.len()
-        + func.params.iter().filter(|p| matches!(p.ty, TypeRef::Bytes)).count();
+    let ffi_param_count = func.params.len() + func.params.iter().filter(|p| matches!(p.ty, TypeRef::Bytes)).count();
     let allow_clippy = if ffi_param_count > 7 {
         Some("clippy::too_many_arguments".to_string())
     } else {
@@ -225,19 +224,39 @@ pub(super) fn gen_free_function_len_companion(
             let rs = format!("{}_rs", p.name);
             match &p.ty {
                 TypeRef::Path if !p.optional => {
-                    if p.is_ref { format!("{rs}.as_path()") } else { rs }
+                    if p.is_ref {
+                        format!("{rs}.as_path()")
+                    } else {
+                        rs
+                    }
                 }
                 TypeRef::String | TypeRef::Char if !p.optional => {
-                    if p.is_ref { format!("&{rs}") } else { rs }
+                    if p.is_ref {
+                        format!("&{rs}")
+                    } else {
+                        rs
+                    }
                 }
                 TypeRef::Bytes if !p.optional => {
-                    if p.is_ref { format!("&{rs}") } else { rs }
+                    if p.is_ref {
+                        format!("&{rs}")
+                    } else {
+                        rs
+                    }
                 }
                 TypeRef::Named(_) if !p.optional => {
-                    if p.is_ref { format!("&{rs}") } else { rs }
+                    if p.is_ref {
+                        format!("&{rs}")
+                    } else {
+                        rs
+                    }
                 }
                 TypeRef::String | TypeRef::Char | TypeRef::Bytes if p.optional => {
-                    if p.is_ref { format!("{rs}.as_deref()") } else { rs }
+                    if p.is_ref {
+                        format!("{rs}.as_deref()")
+                    } else {
+                        rs
+                    }
                 }
                 TypeRef::Path if p.optional => {
                     if p.is_ref {
@@ -247,13 +266,25 @@ pub(super) fn gen_free_function_len_companion(
                     }
                 }
                 TypeRef::Named(_) if p.optional => {
-                    if p.is_ref { format!("{rs}.as_ref()") } else { rs }
+                    if p.is_ref {
+                        format!("{rs}.as_ref()")
+                    } else {
+                        rs
+                    }
                 }
                 TypeRef::Json if !p.optional => {
-                    if p.is_ref { format!("&{rs}") } else { rs }
+                    if p.is_ref {
+                        format!("&{rs}")
+                    } else {
+                        rs
+                    }
                 }
                 TypeRef::Json if p.optional => {
-                    if p.is_ref { format!("{rs}.as_ref()") } else { rs }
+                    if p.is_ref {
+                        format!("{rs}.as_ref()")
+                    } else {
+                        rs
+                    }
                 }
                 TypeRef::Vec(inner) if !p.optional => {
                     if p.is_ref && matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) {
