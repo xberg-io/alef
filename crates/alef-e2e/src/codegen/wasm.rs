@@ -31,6 +31,7 @@ impl E2eCodegen for WasmCodegen {
         e2e_config: &E2eConfig,
         config: &ResolvedCrateConfig,
         type_defs: &[alef_core::ir::TypeDef],
+        enums: &[alef_core::ir::EnumDef],
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
         let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
@@ -243,6 +244,7 @@ impl E2eCodegen for WasmCodegen {
                 client_factory,
                 e2e_config,
                 type_defs,
+                enums,
             );
 
             // The local `pkg/` directory produced by `wasm-pack build --target nodejs`

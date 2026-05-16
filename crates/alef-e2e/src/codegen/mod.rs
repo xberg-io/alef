@@ -125,12 +125,17 @@ pub trait E2eCodegen: Send + Sync {
     /// It is used by backends that need to introspect struct field types at
     /// codegen time (e.g. the TypeScript/WASM generator uses it to
     /// auto-derive `nested_types` mappings for wasm-bindgen class wrapping).
+    ///
+    /// `enums` is the IR enum registry extracted from the source crate.
+    /// For WASM, it is used to identify tagged-data enums so they are emitted
+    /// as plain JS object literals instead of wrapper factories.
     fn generate(
         &self,
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
         config: &ResolvedCrateConfig,
         type_defs: &[TypeDef],
+        enums: &[alef_core::ir::EnumDef],
     ) -> Result<Vec<GeneratedFile>>;
 
     /// Language name for display and directory naming.

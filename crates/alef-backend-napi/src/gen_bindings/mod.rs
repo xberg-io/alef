@@ -387,7 +387,7 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
                     let struct_name = format!("{prefix}{}", typ.name);
                     raw.replace(
                         &format!("#[napi]pub struct {struct_name}"),
-                        &format!("#[napi(js_name = \"{}\")]\npub struct {struct_name}", typ.name),
+                        &format!("#[napi(js_name = \"{}\")]pub struct {struct_name}", typ.name),
                     )
                 };
                 builder.add_item(&opaque_struct_code);

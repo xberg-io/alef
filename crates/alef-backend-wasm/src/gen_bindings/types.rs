@@ -610,6 +610,70 @@ pub(super) fn gen_struct_methods(
     impl_builder.build()
 }
 
+/// Convert snake_case parameter names to camelCase for JS-facing constructor signatures.
+/// Also converts the assignments list to use explicit field: param syntax.
+/// Input: ("foo_bar: String, baz_qux: Option<u32>", "foo_bar: String, baz_qux")
+/// Output: (camel_params, camel_assignments) where assignments use explicit syntax mapping renamed params to original field names.
+fn convert_constructor_params_to_camel_case(param_list: &str, assignments: &str, field_names: &[String]) -> (String, String) {
+    // Build a map from snake_case field names to their camelCase equivalents.
+    let field_to_camel: std::collections::HashMap<String, String> = field_names
+        .iter()
+        .map(|name| (name.clone(), to_node_name(name)))
+        .collect();
+
+    // Rename parameter declarations: "foo_bar: String" → "fooBar: String"
+    let camel_params = param_list
+        .split(", ")
+        .map(|param| {
+            if let Some((name, ty)) = param.split_once(':') {
+                let name_trimmed = name.trim();
+                let ty_trimmed = ty.trim();
+                let camel_name = to_node_name(name_trimmed);
+                format!("{}: {}", camel_name, ty_trimmed)
+            } else {
+                param.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    // Rewrite assignments to use explicit field: param syntax.
+    // E.g. "foo_bar, baz_qux" becomes "foo_bar: foo_bar, baz_qux: baz_qux"
+    // (where the RHS is now the camelCase parameter name).
+    let camel_assignments = assignments
+        .split(", ")
+        .map(|assignment| {
+            // Check if this is already an explicit assignment (e.g. "field: Default::default()")
+            if assignment.contains(':') {
+                // Already explicit: keep it, but if RHS is a field name, apply camelCase rename
+                if let Some((field_name, rhs)) = assignment.split_once(':') {
+                    let field_trimmed = field_name.trim();
+                    let rhs_trimmed = rhs.trim();
+                    // If the RHS matches a field name, rename it to camelCase
+                    if let Some(camel_rhs) = field_to_camel.get(rhs_trimmed) {
+                        format!("{}: {}", field_trimmed, camel_rhs)
+                    } else {
+                        assignment.to_string()
+                    }
+                } else {
+                    assignment.to_string()
+                }
+            } else {
+                // Shorthand: "foo_bar" → "foo_bar: foo_bar" (where RHS is camelCase param)
+                let field_name = assignment.trim();
+                if let Some(camel_name) = field_to_camel.get(field_name) {
+                    format!("{}: {}", field_name, camel_name)
+                } else {
+                    assignment.to_string()
+                }
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    (camel_params, camel_assignments)
+}
+
 /// Generate a constructor method.
 fn gen_new_method(
     typ: &TypeDef,
@@ -651,6 +715,9 @@ fn gen_new_method(
         .cloned()
         .collect();
 
+    // Collect field names for camelCase conversion.
+    let field_names: Vec<String> = filtered_fields.iter().map(|f| f.name.clone()).collect();
+
     // For types with has_default, generate optional kwargs-style constructor.
     // Pass option_duration_on_defaults=true so Duration fields are Option<u64> params,
     // matching the Option<u64> field type emitted by gen_struct for has_default types.
@@ -659,6 +726,9 @@ fn gen_new_method(
     } else {
         constructor_parts(&filtered_fields, &map_fn)
     };
+
+    // Convert parameter and assignment names to camelCase for JS consumers.
+    let (param_list_camel, assignments_camel) = convert_constructor_params_to_camel_case(&param_list, &assignments, &field_names);
 
     // Suppress too_many_arguments when the constructor has >7 params
     let field_count = filtered_fields.iter().filter(|f| f.cfg.is_none()).count();
@@ -669,7 +739,7 @@ fn gen_new_method(
     };
 
     format!(
-        "{allow_attr}#[wasm_bindgen(constructor)]\npub fn new({param_list}) -> {prefix}{} {{\n    {prefix}{} {{ {assignments} }}\n}}",
+        "{allow_attr}#[wasm_bindgen(constructor)]\npub fn new({param_list_camel}) -> {prefix}{} {{\n    {prefix}{} {{ {assignments_camel} }}\n}}",
         typ.name, typ.name
     )
 }

@@ -32,6 +32,7 @@ impl E2eCodegen for KotlinAndroidE2eCodegen {
         e2e_config: &E2eConfig,
         config: &ResolvedCrateConfig,
         type_defs: &[alef_core::ir::TypeDef],
+        enums: &[alef_core::ir::EnumDef],
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
         let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
@@ -280,7 +281,8 @@ fn render_build_gradle_kotlin_android(
     };
 
     format!(
-        r#"import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+        r#"import com.android.build.api.dsl.ManagedVirtualDevice
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {{
     kotlin("jvm") version "{kotlin_plugin}"
@@ -354,8 +356,71 @@ tasks.test {{
     // Resolve fixture paths (e.g. "docx/fake.docx") against test_documents/
     workingDir = file("${{rootDir}}/../../test_documents")
 }}
+
+// Gradle Managed Virtual Devices for on-device instrumented tests.
+// Run: ./gradlew pixel6api34DebugAndroidTest
+android {{
+    testOptions {{
+        managedDevices {{
+            devices {{
+                create<ManagedVirtualDevice>("pixel6api34") {{
+                    device = "Pixel 6"
+                    apiLevel = 34
+                    systemImageSource = "aosp"
+                }}
+            }}
+        }}
+    }}
+}}
 "#
     )
+}
+
+/// Render an Android instrumented test class for a fixture group.
+///
+/// The generated class uses `@RunWith(AndroidJUnit4::class)` and loads the
+/// native library via `System.loadLibrary` so tests can run on-device via the
+/// Android emulator.
+fn render_android_instrumented_test(
+    category: &str,
+    fixtures: &[&crate::fixture::Fixture],
+    class_name: &str,
+    function_name: &str,
+    kotlin_pkg_id: &str,
+    result_var: &str,
+    lib_name: &str,
+) -> String {
+    let test_class = format!("{}Test", category.to_upper_camel_case());
+    let lib_snake = lib_name.replace('-', "_");
+    let mut out = String::new();
+    out.push_str(&format!("package {kotlin_pkg_id}.e2e\n\n"));
+    out.push_str("import androidx.test.ext.junit.runners.AndroidJUnit4\n");
+    out.push_str("import org.junit.BeforeClass\n");
+    out.push_str("import org.junit.Test\n");
+    out.push_str("import org.junit.runner.RunWith\n\n");
+    out.push_str("@RunWith(AndroidJUnit4::class)\n");
+    out.push_str(&format!("class {test_class} {{\n\n"));
+    out.push_str("    companion object {\n");
+    out.push_str("        @BeforeClass\n");
+    out.push_str("        @JvmStatic\n");
+    out.push_str("        fun loadNativeLibrary() {\n");
+    out.push_str(&format!("            System.loadLibrary(\"{lib_snake}_jni\")\n"));
+    out.push_str("        }\n");
+    out.push_str("    }\n\n");
+    for fixture in fixtures {
+        let test_name = fixture.id.replace(['-', '.', ' '], "_");
+        out.push_str("    @Test\n");
+        out.push_str(&format!("    fun test_{test_name}() {{\n"));
+        out.push_str(&format!("        val client = {class_name}()\n"));
+        out.push_str(&format!(
+            "        val {result_var} = client.{function_name}(/* fixture: {} */)\n",
+            fixture.id
+        ));
+        out.push_str(&format!("        // TODO: assert {result_var} is not an error\n"));
+        out.push_str("    }\n\n");
+    }
+    out.push_str("}\n");
+    out
 }
 
 #[cfg(test)]

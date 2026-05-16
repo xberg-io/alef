@@ -29,6 +29,7 @@ impl E2eCodegen for TypeScriptCodegen {
         e2e_config: &E2eConfig,
         _config: &ResolvedCrateConfig,
         type_defs: &[alef_core::ir::TypeDef],
+        enums: &[alef_core::ir::EnumDef],
     ) -> Result<Vec<GeneratedFile>> {
         let output_base = PathBuf::from(e2e_config.effective_output()).join(self.language_name());
         let tests_base = output_base.join("tests");
@@ -161,6 +162,7 @@ impl E2eCodegen for TypeScriptCodegen {
                 client_factory,
                 e2e_config,
                 type_defs,
+                enums,
             );
             files.push(GeneratedFile {
                 path: tests_base.join(filename),

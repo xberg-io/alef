@@ -5,7 +5,7 @@ use alef_core::config::{
     AdapterConfig, AdapterPattern, BridgeBinding, Language, ResolvedCrateConfig, resolve_output_dir,
 };
 use alef_core::ir::{ApiSurface, EnumDef, EnumVariant, ErrorDef, FunctionDef, MethodDef, ParamDef, TypeRef};
-use heck::{ToLowerCamelCase, ToSnakeCase, ToUpperCamelCase};
+use heck::{AsSnakeCase, ToLowerCamelCase, ToSnakeCase, ToUpperCamelCase};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
@@ -80,12 +80,16 @@ impl Backend for SwiftBackend {
             .filter(|t| t.methods.is_empty() || !t.is_opaque && t.has_serde)
         {
             emit_doc_comment(&ty.doc, "", &mut body);
-            body.push_str(&crate::template_env::render(
-                "typealias.jinja",
-                minijinja::context! {
-                    name => &ty.name,
-                },
-            ));
+            if !ty.is_opaque && ty.has_serde && !ty.fields.is_empty() {
+                emit_first_class_struct(ty, &mapper, &mut body);
+            } else {
+                body.push_str(&crate::template_env::render(
+                    "typealias.jinja",
+                    minijinja::context! {
+                        name => &ty.name,
+                    },
+                ));
+            }
             body.push('\n');
         }
 
@@ -269,6 +273,113 @@ impl Backend for SwiftBackend {
                 args: vec!["build", "--release"],
             }],
         })
+    }
+}
+
+
+/// Emits a first-class Swift struct (`public struct Foo: Codable, Sendable, Hashable`)
+/// for a non-opaque DTO that has serde derives and at least one field.
+///
+/// Layer 1: public struct declaration with `public let` stored properties,
+///          memberwise `public init` with default-nil optionals, and `CodingKeys`
+///          when field names differ from their wire (serde snake_case) keys.
+/// Layer 2: `internal extension Foo` with `init(_ rb: RustBridge.Foo) throws` and
+///          `func intoRust() throws -> RustBridge.Foo` for FFI marshaling.
+fn emit_first_class_struct(ty: &alef_core::ir::TypeDef, mapper: &SwiftMapper, out: &mut String) {
+    use alef_codegen::type_mapper::TypeMapper;
+    use alef_core::ir::TypeRef;
+    use heck::ToLowerCamelCase;
+
+    let type_name = &ty.name;
+    let type_snake = AsSnakeCase(type_name.as_str()).to_string();
+
+    // ── Layer 1: public struct declaration ───────────────────────────────────
+    out.push_str(&format!("public struct {type_name}: Codable, Sendable, Hashable {{\n"));
+
+    // Emit `public let` stored properties.
+    for field in &ty.fields {
+        let camel = swift_ident(&field.name.to_lower_camel_case());
+        let swift_ty = mapper.map_type(&field.ty);
+        out.push_str(&format!("    public let {camel}: {swift_ty}\n"));
+    }
+
+    // Memberwise init with default-nil for Optional fields.
+    let params: Vec<String> = ty
+        .fields
+        .iter()
+        .map(|field| {
+            let camel = swift_ident(&field.name.to_lower_camel_case());
+            let swift_ty = mapper.map_type(&field.ty);
+            if matches!(&field.ty, TypeRef::Optional(_)) {
+                format!("{camel}: {swift_ty} = nil")
+            } else {
+                format!("{camel}: {swift_ty}")
+            }
+        })
+        .collect();
+    out.push_str(&format!("    public init({}) {{\n", params.join(", ")));
+    for field in &ty.fields {
+        let camel = swift_ident(&field.name.to_lower_camel_case());
+        out.push_str(&format!("        self.{camel} = {camel}\n"));
+    }
+    out.push_str("    }\n");
+
+    // CodingKeys: emit only when at least one field's camelCase name differs from
+    // the serde wire key. The wire key is the original Rust field name (snake_case).
+    let needs_coding_keys = ty.fields.iter().any(|field| {
+        let camel = field.name.to_lower_camel_case();
+        camel != field.name
+    });
+    if needs_coding_keys {
+        out.push_str("    private enum CodingKeys: String, CodingKey {\n");
+        for field in &ty.fields {
+            let camel = swift_ident(&field.name.to_lower_camel_case());
+            let wire_key = &field.name;
+            out.push_str(&format!("        case {camel} = \"{wire_key}\"\n"));
+        }
+        out.push_str("    }\n");
+    }
+
+    out.push_str("}\n");
+
+    // ── Layer 2: internal FFI conversion extension ────────────────────────────
+    out.push_str(&format!("\n// MARK: - Internal FFI conversions for {type_name}\n"));
+    out.push_str(&format!("internal extension {type_name} {{\n"));
+
+    // init(_ rb: RustBridge.Foo) throws
+    out.push_str(&format!("    init(_ rb: RustBridge.{type_name}) throws {{\n"));
+    for field in &ty.fields {
+        let camel = swift_ident(&field.name.to_lower_camel_case());
+        let expr = swift_ffi_read_expr(&field.ty, false, &camel);
+        out.push_str(&format!("        self.{camel} = {expr}\n"));
+    }
+    out.push_str("    }\n");
+
+    // func intoRust() — encode via JSON round-trip using the RustBridge from_json shim.
+    let from_json_fn = format!("{type_snake}_from_json").to_lower_camel_case();
+    out.push_str(&format!("    func intoRust() throws -> RustBridge.{type_name} {{\n"));
+    out.push_str("        let data = try JSONEncoder().encode(self)\n");
+    out.push_str("        let json = String(data: data, encoding: .utf8) ?? \"{}\"\n");
+    out.push_str(&format!("        return try RustBridge.{from_json_fn}(json)\n"));
+    out.push_str("    }\n");
+
+    out.push_str("}\n");
+}
+
+/// Returns the Swift expression to read a field value from a `RustBridge` accessor call.
+///
+/// swift-bridge exposes Rust struct fields as method calls: `.field_name()`.
+/// For `String` fields the return type is `RustString`, so `.toString()` is needed.
+/// `Optional<String>` accessors return `Optional<RustString>`, so `?.toString()` is used.
+fn swift_ffi_read_expr(ty: &alef_core::ir::TypeRef, _field_optional: bool, accessor: &str) -> String {
+    use alef_core::ir::TypeRef;
+    match ty {
+        TypeRef::String => format!("rb.{accessor}().toString()"),
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::String => format!("rb.{accessor}()?.toString()"),
+            _ => format!("rb.{accessor}()"),
+        },
+        _ => format!("rb.{accessor}()"),
     }
 }
 
