@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-readme: skip `Language::C` and `Language::Jni` by default — they were silently overwriting the Zig README**: the hardcoded fallback used `Language::C | Language::Jni | Language::Zig => packages/zig/README.md` for all three, so when a consumer's `languages = [..., zig, jni, ...]` list included both, the second one to run (Jni) clobbered the Zig template-rendered README with a 30-line hardcoded "Zig Bindings" stub. C and JNI are FFI glue layers, not publishable bindings; their public surface is the host language's README (kotlin-android, ffi). They now skip silently like Rust does, unless a consumer opts in via `[readme.languages.c]` / `[readme.languages.jni]`. (`crates/alef-readme/src/lib.rs`)
+
 - **alef-backend-kotlin jni client emitter: prepend `import ` to the `TypeReference` import insert**: when the generated `DefaultClient.kt` instance-method wrapper needed Jackson's `TypeReference<T>` for a generic-container return type, the `imports` BTreeSet received a bare `"com.fasterxml.jackson.core.type.TypeReference"` entry instead of `"import com.fasterxml.jackson.core.type.TypeReference"`. The assembler that rendered the imports concatenated each entry verbatim, producing a top-level expression `com.fasterxml.jackson.core.type.TypeReference` in `DefaultClient.kt` that ktlint rejected with "Expecting a top level declaration" and broke kotlin-android post-generation formatting. Aligned with the eleven sibling `imports.insert(...)` sites in the same file that already use the `import ` prefix. (`crates/alef-backend-kotlin/src/gen_bindings/jni_emitter.rs`)
 
 ## [0.16.32] - 2026-05-17
