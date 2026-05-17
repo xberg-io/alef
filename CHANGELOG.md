@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **alef-backend-napi: drop `Backend::generate_public_api` (`packages/typescript/src/index.ts` shim)**: the NAPI backend's `generate_public_api` impl emitted a re-export TS module at `packages/typescript/src/index.ts` that no consumer imported from — the real TS types are produced by `napi build` directly into `crates/{name}-node/index.d.ts` next to the published npm package. The shim was dead weight that had to be hand-deleted on every regen. The `generate_public_api` impl is removed (falling back to the default empty impl from `Backend`), the now-orphaned `to_node_name` import is dropped, and the three `test_napi_js_name_*` tests have their `index.ts` assertions removed while retaining the `lib.rs`-side `js_name` assertions. (`crates/alef-backend-napi/src/gen_bindings/mod.rs`)
+
 ## [0.16.31] - 2026-05-17
 
 ### Fixed

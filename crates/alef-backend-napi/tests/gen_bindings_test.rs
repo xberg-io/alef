@@ -2137,7 +2137,6 @@ fn test_capsule_types_method_on_opaque_dts() {
 
 /// Non-opaque structs must carry `#[napi(object, js_name = "Foo")]` so NAPI-RS
 /// exports the type as `Foo` rather than `JsFoo` in the generated .d.ts.
-/// The public index.ts re-export must also use the unprefixed name.
 #[test]
 fn test_napi_js_name_on_non_opaque_struct() {
     let backend = NapiBackend;
@@ -2188,30 +2187,10 @@ fn test_napi_js_name_on_non_opaque_struct() {
         "non-opaque struct must carry napi(object, js_name = \"Options\"); content:\n{}",
         lib_rs.content
     );
-
-    // (c) The public TS surface (index.ts) must export `Options`, not `JsOptions`.
-    let public_api = backend
-        .generate_public_api(&api, &config)
-        .expect("generate_public_api should succeed");
-    let index_ts = public_api
-        .iter()
-        .find(|f| f.path.to_string_lossy().ends_with("index.ts"))
-        .expect("index.ts must be present");
-    assert!(
-        index_ts.content.contains("Options"),
-        "index.ts must export Options (unprefixed); content:\n{}",
-        index_ts.content
-    );
-    assert!(
-        !index_ts.content.contains("JsOptions"),
-        "index.ts must not export JsOptions; content:\n{}",
-        index_ts.content
-    );
 }
 
 /// Opaque structs must carry `#[napi(js_name = "Foo")]` so NAPI-RS exports
 /// the type as `Foo` rather than `JsFoo` in the generated .d.ts.
-/// The public index.ts re-export must also use the unprefixed name.
 #[test]
 fn test_napi_js_name_on_opaque_struct() {
     let backend = NapiBackend;
@@ -2262,25 +2241,10 @@ fn test_napi_js_name_on_opaque_struct() {
         "opaque struct must carry napi(js_name = \"Engine\"); content:\n{}",
         lib_rs.content
     );
-
-    // (c) index.ts must export Engine, not JsEngine
-    let public_api = backend
-        .generate_public_api(&api, &config)
-        .expect("generate_public_api should succeed");
-    let index_ts = public_api
-        .iter()
-        .find(|f| f.path.to_string_lossy().ends_with("index.ts"))
-        .expect("index.ts must be present");
-    assert!(
-        !index_ts.content.contains("JsEngine"),
-        "index.ts must not export JsEngine; content:\n{}",
-        index_ts.content
-    );
 }
 
 /// String enums must carry `#[napi(string_enum, js_name = "Foo")]` so NAPI-RS
 /// exports the enum as `Foo` rather than `JsFoo` in the generated .d.ts.
-/// The public index.ts re-export must also use the unprefixed name.
 #[test]
 fn test_napi_js_name_on_string_enum() {
     let backend = NapiBackend;
@@ -2341,25 +2305,6 @@ fn test_napi_js_name_on_string_enum() {
         lib_rs.content.contains("napi(string_enum, js_name = \"Status\")"),
         "string enum must carry napi(string_enum, js_name = \"Status\"); content:\n{}",
         lib_rs.content
-    );
-
-    // (c) index.ts must export Status, not JsStatus
-    let public_api = backend
-        .generate_public_api(&api, &config)
-        .expect("generate_public_api should succeed");
-    let index_ts = public_api
-        .iter()
-        .find(|f| f.path.to_string_lossy().ends_with("index.ts"))
-        .expect("index.ts must be present");
-    assert!(
-        index_ts.content.contains("Status"),
-        "index.ts must export Status (unprefixed); content:\n{}",
-        index_ts.content
-    );
-    assert!(
-        !index_ts.content.contains("JsStatus"),
-        "index.ts must not export JsStatus; content:\n{}",
-        index_ts.content
     );
 }
 
