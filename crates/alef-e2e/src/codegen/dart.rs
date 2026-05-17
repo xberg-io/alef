@@ -560,24 +560,21 @@ fn render_test_case(
                 }
             }
             "string" => {
-                // The dart wrapper emits all params as named (`{required ...}` for
-                // required, `{optional ...}` for optional). Emit `paramName: 'value'`
-                // for both forms.
+                // The alef-generated Dart facade (e.g. `KreuzbergBridge`) emits required
+                // params as positional and optional params inside a `{...}` named block
+                // (see alef-backend-dart/src/gen_bindings/functions.rs).  Mirror that
+                // calling convention here: required string args → positional literal;
+                // optional string args → `name: 'value'` named-argument syntax.
                 //
                 // Special case: when dart remaps `extractFile*` → `extractBytes*`
                 // (because dart cannot pass OS file paths through the FFI bridge), the
-                // underlying wrapper signature requires `mime_type` positionally even
-                // though the source IR marks it as optional for `extractFile*`. Force
-                // mime_type to positional in that case. The remap may have been performed
-                // either implicitly by this codegen (no caller override) or explicitly by
-                // a per-call dart override that sets `function = "extract_bytes"`. Detect
-                // by inspecting the resolved Dart function name — `extractBytes` always
-                // requires `mimeType` as a positional argument in the Dart wrapper.
+                // wrapper requires `mime_type` positionally even though the source IR
+                // marks it as optional on `extractFile*`. Force positional in that case.
                 let dart_param_name = snake_to_camel(&arg_def.name);
                 let mime_required_due_to_remap = has_file_path_arg
                     && arg_def.name == "mime_type"
                     && (function_name == "extractBytes" || function_name == "extractBytesSync");
-                let use_positional = mime_required_due_to_remap;
+                let use_positional = mime_required_due_to_remap || !arg_def.optional;
                 match arg_value {
                     serde_json::Value::String(s) => {
                         let literal = format!("'{}'", escape_dart(s));
