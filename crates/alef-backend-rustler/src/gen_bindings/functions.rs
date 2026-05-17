@@ -757,8 +757,13 @@ pub(super) fn gen_nif_method(
     let can_delegate = shared::can_auto_delegate(method, opaque_types) || has_default_params;
 
     // Build deserialization preamble for default-typed (JSON-string) params.
-    let deser_preamble =
-        build_default_deser_preamble(&method.params, default_types, core_import, method.error_type.is_some(), types_by_name);
+    let deser_preamble = build_default_deser_preamble(
+        &method.params,
+        default_types,
+        core_import,
+        method.error_type.is_some(),
+        types_by_name,
+    );
 
     let body = if can_delegate {
         let call_args = gen_rustler_method_call_args(&method.params, opaque_types, default_types);
@@ -985,8 +990,13 @@ pub(super) fn gen_nif_async_method(
     let can_delegate = shared::can_auto_delegate(method, opaque_types) || has_default_params;
 
     // Build deserialization preamble for default-typed (JSON-string) params.
-    let deser_preamble =
-        build_default_deser_preamble(&method.params, default_types, core_import, method.error_type.is_some(), types_by_name);
+    let deser_preamble = build_default_deser_preamble(
+        &method.params,
+        default_types,
+        core_import,
+        method.error_type.is_some(),
+        types_by_name,
+    );
 
     let body = if can_delegate {
         let call_args = gen_rustler_method_call_args(&method.params, opaque_types, default_types);
