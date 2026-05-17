@@ -82,28 +82,22 @@ fn test_scaffold_node() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Node]).unwrap();
     let files = language_files(&all_files);
-    // scaffold_node: pkg package.json + crate package.json + crate index.js + src/index.d.ts + index.d.ts + index.js + tsconfig.json + .oxfmtrc.json + .oxlintrc.json; scaffold_node_cargo: Cargo.toml
-    assert_eq!(files.len(), 10);
-    assert_eq!(files[0].path, PathBuf::from("packages/node/package.json"));
+    // scaffold_node: crate package.json + crate index.js; scaffold_node_cargo: Cargo.toml.
+    // The dead `packages/node/` scaffold (parallel unscoped npm package) was removed —
+    // the real publish target is `crates/<crate>-node/` built by NAPI-RS.
+    assert_eq!(files.len(), 3);
+    assert_eq!(files[0].path, PathBuf::from("crates/my-lib-node/package.json"));
     assert!(files[0].content.contains("napi"));
-    assert!(files[0].content.contains("oxfmt"));
-    assert_eq!(files[1].path, PathBuf::from("crates/my-lib-node/package.json"));
-    assert_eq!(files[2].path, PathBuf::from("crates/my-lib-node/index.js"));
+    assert_eq!(files[1].path, PathBuf::from("crates/my-lib-node/index.js"));
     // Verify platform dispatch index contains expected platforms and binary name
-    assert!(files[2].content.contains("const { platform, arch } = process"));
-    assert!(files[2].content.contains("darwin"));
-    assert!(files[2].content.contains("linux"));
-    assert!(files[2].content.contains("win32"));
-    assert!(files[2].content.contains("my-lib-node.darwin-arm64.node"));
-    assert!(files[2].content.contains("tryLoadBinding"));
-    assert_eq!(files[3].path, PathBuf::from("packages/node/src/index.d.ts"));
-    assert_eq!(files[4].path, PathBuf::from("packages/node/index.d.ts"));
-    assert_eq!(files[5].path, PathBuf::from("packages/node/index.js"));
-    assert_eq!(files[6].path, PathBuf::from("packages/node/tsconfig.json"));
-    assert_eq!(files[7].path, PathBuf::from("packages/node/.oxfmtrc.json"));
-    assert_eq!(files[8].path, PathBuf::from("packages/node/.oxlintrc.json"));
-    assert_eq!(files[9].path, PathBuf::from("crates/my-lib-node/Cargo.toml"));
-    assert!(files[9].content.contains("napi-derive"));
+    assert!(files[1].content.contains("const { platform, arch } = process"));
+    assert!(files[1].content.contains("darwin"));
+    assert!(files[1].content.contains("linux"));
+    assert!(files[1].content.contains("win32"));
+    assert!(files[1].content.contains("my-lib-node.darwin-arm64.node"));
+    assert!(files[1].content.contains("tryLoadBinding"));
+    assert_eq!(files[2].path, PathBuf::from("crates/my-lib-node/Cargo.toml"));
+    assert!(files[2].content.contains("napi-derive"));
 }
 
 #[test]
@@ -112,8 +106,10 @@ fn test_scaffold_multiple() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Python, Language::Node]).unwrap();
     let files = language_files(&all_files);
-    // Python: 3 files (pyproject.toml + py.typed + Cargo.toml); Node: 10 files (2 package.json + crate index.js + src/index.d.ts + index.d.ts + index.js + tsconfig.json + .oxfmtrc.json + .oxlintrc.json + Cargo.toml)
-    assert_eq!(files.len(), 13);
+    // Python: 3 files (pyproject.toml + py.typed + Cargo.toml); Node: 3 files
+    // (crate package.json + crate index.js + Cargo.toml — the dead `packages/node/`
+    // scaffold was removed).
+    assert_eq!(files.len(), 6);
 }
 
 #[test]
@@ -133,13 +129,15 @@ fn test_scaffold_node_production_features() {
     let config = test_config();
     let api = test_api();
     let files = scaffold(&api, &config, &[Language::Node]).unwrap();
+    // files[0] is the crate-level package.json (the real NAPI-RS publish target).
     let content = &files[0].content;
     assert!(content.contains("\"scripts\""));
     assert!(content.contains("\"build\""));
     assert!(content.contains("\"files\""));
     assert!(content.contains("\"devDependencies\""));
     assert!(content.contains("@napi-rs/cli"));
-    assert!(content.contains("\"triples\""));
+    // Crate-level NAPI package.json uses `targets` (modern NAPI-RS field), not `triples`.
+    assert!(content.contains("\"targets\""));
 }
 
 #[test]
@@ -436,50 +434,12 @@ fn test_node_scaffold_no_biome_references() {
     }
 }
 
-#[test]
-fn test_node_scaffold_oxfmt_config_content() {
-    let config = test_config();
-    let api = test_api();
-    let all_files = scaffold(&api, &config, &[Language::Node]).unwrap();
-    let files = language_files(&all_files);
-    let oxfmtrc = files.iter().find(|f| f.path.ends_with(".oxfmtrc.json")).unwrap();
-    assert!(oxfmtrc.content.contains("\"printWidth\": 120"));
-    assert!(oxfmtrc.content.contains("\"useTabs\": true"));
-    assert!(oxfmtrc.content.contains("\"tabWidth\": 4"));
-    assert!(oxfmtrc.content.contains("\"singleQuote\": false"));
-    assert!(oxfmtrc.content.contains("\"trailingComma\": \"all\""));
-    assert!(oxfmtrc.content.contains("\"sortImports\": true"));
-}
-
-#[test]
-fn test_node_scaffold_oxlint_config_content() {
-    let config = test_config();
-    let api = test_api();
-    let all_files = scaffold(&api, &config, &[Language::Node]).unwrap();
-    let files = language_files(&all_files);
-    let oxlintrc = files.iter().find(|f| f.path.ends_with(".oxlintrc.json")).unwrap();
-    assert!(oxlintrc.content.contains("\"correctness\": \"error\""));
-    assert!(oxlintrc.content.contains("\"suspicious\": \"warn\""));
-    assert!(oxlintrc.content.contains("\"style\": \"off\""));
-    assert!(oxlintrc.content.contains("\"typescript\""));
-    assert!(oxlintrc.content.contains("overrides"));
-    assert!(oxlintrc.content.contains("**/*.test.ts"));
-}
-
-#[test]
-fn test_node_package_json_uses_oxc() {
-    let config = test_config();
-    let api = test_api();
-    let all_files = scaffold(&api, &config, &[Language::Node]).unwrap();
-    let files = language_files(&all_files);
-    let pkg = &files[0];
-    assert!(pkg.content.contains("\"oxfmt\""));
-    assert!(pkg.content.contains("\"oxlint\""));
-    assert!(pkg.content.contains("\"format\": \"oxfmt\""));
-    assert!(pkg.content.contains("\"lint\": \"oxlint\""));
-    assert!(pkg.content.contains("\"lint:fix\": \"oxlint --fix\""));
-    assert!(!pkg.content.contains("biome"));
-}
+// The dead `packages/node/` scaffold previously emitted `.oxfmtrc.json`,
+// `.oxlintrc.json`, and a top-level `package.json` with `oxfmt`/`oxlint`
+// dev-deps. With that scaffold removed, the only `package.json` we emit is
+// the crate-level NAPI-RS manifest at `crates/<crate>-node/`, which doesn't
+// run formatting/linting (those are managed at the workspace root). The
+// previous tests asserting on those files are intentionally removed.
 
 #[test]
 fn test_precommit_no_biome_with_node() {
