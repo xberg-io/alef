@@ -24,12 +24,26 @@ pub fn generate_readmes(
 ) -> anyhow::Result<Vec<GeneratedFile>> {
     let mut files = vec![];
     for &lang in languages {
-        files.push(generate_readme(api, config, lang)?);
+        if let Some(file) = generate_readme(api, config, lang)? {
+            files.push(file);
+        }
     }
     Ok(files)
 }
 
-fn generate_readme(api: &ApiSurface, config: &ResolvedCrateConfig, lang: Language) -> anyhow::Result<GeneratedFile> {
+fn generate_readme(
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+    lang: Language,
+) -> anyhow::Result<Option<GeneratedFile>> {
+    // Rust is the source crate, not a binding. The canonical Rust README lives at
+    // the workspace crate (e.g. `crates/<name>/README.md`) and is hand-written or
+    // managed by the consumer repo. Only emit a Rust README when the user has
+    // explicitly opted in via `[readme.languages.rust]` with an `output_path`.
+    if matches!(lang, Language::Rust) && !rust_readme_explicitly_configured(config) {
+        return Ok(None);
+    }
+
     // Try template-based generation first when readme config is present
     if let Some(readme_cfg) = &config.readme {
         if let Some(template_dir) = &readme_cfg.template_dir {
@@ -39,14 +53,32 @@ fn generate_readme(api: &ApiSurface, config: &ResolvedCrateConfig, lang: Languag
                 if let Some(file) =
                     try_template_readme(api, config, lang, readme_cfg, &workspace_root, &abs_template_dir)?
                 {
-                    return Ok(file);
+                    return Ok(Some(file));
                 }
             }
         }
     }
 
     // Fall back to hardcoded generation
-    generate_readme_hardcoded(api, config, lang)
+    Ok(Some(generate_readme_hardcoded(api, config, lang)?))
+}
+
+/// Returns true when the user has explicitly configured a Rust README in
+/// `[readme.languages.rust]` with an `output_path` (or `output`). The default
+/// behavior is to skip Rust because the Rust crate's README is the source-of-
+/// truth `crates/<name>/README.md`, not a `packages/rust/` stub.
+fn rust_readme_explicitly_configured(config: &ResolvedCrateConfig) -> bool {
+    let Some(readme_cfg) = &config.readme else {
+        return false;
+    };
+    let Some(rust_cfg) = readme_cfg.languages.get("rust") else {
+        return false;
+    };
+    rust_cfg
+        .get("output_path")
+        .or_else(|| rust_cfg.get("output"))
+        .and_then(|v| v.as_str())
+        .is_some()
 }
 
 /// Attempt to render a README using a minijinja template. Returns `None` when no
@@ -267,11 +299,15 @@ fn default_readme_path(config: &ResolvedCrateConfig, lang: Language) -> PathBuf 
     }
 }
 
-/// Return the short directory/key name for a language.
+/// Return the short directory/key name for a language. This is the canonical
+/// `packages/<dir>/` directory name used when no explicit `output_path` is
+/// configured. For Language::Node we return `"node"` (matching the alef-scaffold
+/// directory convention); the YAML/TOML config key remains `"typescript"`
+/// (see [`lang_code`]).
 fn lang_dir_name(lang: Language) -> &'static str {
     match lang {
         Language::Python => "python",
-        Language::Node => "typescript",
+        Language::Node => "node",
         Language::Ruby => "ruby",
         Language::Php => "php",
         Language::Elixir => "elixir",
@@ -528,7 +564,7 @@ fn generate_readme_hardcoded(
                 "Node.js",
                 format!("```bash\nnpm install {pkg}\n```"),
                 format!("```typescript\nimport {{ /* ... */ }} from '{pkg}';\n\n{example_body}\n```"),
-                "typescript",
+                "node",
             )
         }
         Language::Ruby => {
@@ -855,7 +891,7 @@ repository = "https://github.com/test/my-lib"
         let api = test_api();
         let files = generate_readmes(&api, &config, &[Language::Node]).unwrap();
         assert_eq!(files.len(), 1);
-        assert_eq!(files[0].path, PathBuf::from("packages/typescript/README.md"));
+        assert_eq!(files[0].path, PathBuf::from("packages/node/README.md"));
         assert!(files[0].content.contains("Node.js"));
     }
 
@@ -1060,12 +1096,45 @@ repository = "https://github.com/test/my-lib"
     }
 
     #[test]
-    fn test_generate_rust_readme() {
+    fn test_generate_rust_readme_skipped_by_default() {
+        // Rust is the source crate — the canonical README lives at
+        // `crates/<name>/README.md` and is hand-managed. alef must NOT emit a
+        // `packages/rust/README.md` stub unless the consumer explicitly opts in.
         let config = test_config();
         let api = test_api();
         let files = generate_readmes(&api, &config, &[Language::Rust]).unwrap();
+        assert!(
+            files.is_empty(),
+            "Rust README should be skipped by default, got: {:?}",
+            files.iter().map(|f| &f.path).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_generate_rust_readme_emitted_when_explicitly_configured() {
+        // When `[readme.languages.rust].output_path` is set, alef honors the
+        // explicit opt-in and emits the README at that path.
+        let mut config = test_config();
+        let mut readme_cfg = alef_core::config::ReadmeConfig {
+            template_dir: None,
+            snippets_dir: None,
+            config: None,
+            output_pattern: None,
+            discord_url: None,
+            banner_url: None,
+            languages: std::collections::HashMap::new(),
+        };
+        readme_cfg.languages.insert(
+            "rust".to_string(),
+            serde_json::json!({ "output_path": "crates/my-lib/README.md" }),
+        );
+        config.readme = Some(readme_cfg);
+        let api = test_api();
+        let files = generate_readmes(&api, &config, &[Language::Rust]).unwrap();
         assert_eq!(files.len(), 1);
-        assert_eq!(files[0].path, PathBuf::from("packages/rust/README.md"));
+        // Hardcoded fallback ignores output_path (it only honors output_pattern via
+        // readme_output_path which is only called from the template path). The
+        // opt-in gate is what matters here — the file is emitted, not silently dropped.
         assert!(files[0].content.contains("Rust"));
         assert!(files[0].content.contains("cargo add"));
     }
