@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-e2e swift: emit e2e package at `e2e/swift/` with explicit `name:` on `.package(path:)`**: the Swift e2e codegen was emitting under `e2e/swift_e2e/` to avoid a SwiftPM identity collision between the consumer (`e2e/swift/`) and the dep (`packages/swift/`) — both reduce to the path-last identifier `swift`. The stale `e2e/swift/Package.swift` left over from the original layout still declared a `.testTarget` with no source directory, so `cd e2e/swift && swift test` (the canonical CI command, matching every other language) failed with `error: The package does not contain a buildable target.` The emitter now writes back to `e2e/swift/` for consistency with every other language and disambiguates the dep via `.package(name: "{module}", path: "{pkg_path}")`, which SwiftPM honors as the dep's identity for `.product(name:package:)` resolution. (`crates/alef-e2e/src/codegen/swift.rs`)
+
 ## [0.16.25] - 2026-05-17
 
 ### Changed

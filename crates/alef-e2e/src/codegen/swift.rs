@@ -41,13 +41,12 @@ impl E2eCodegen for SwiftE2eCodegen {
         _enums: &[alef_core::ir::EnumDef],
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
-        // SwiftPM identifies path-based deps by the path's last component. When the
-        // e2e consumer's path-last collides with the dep's path-last (e.g. both
-        // `e2e/swift/` and `packages/swift/` → identifier "swift"), SwiftPM resolves
-        // .product(package:) against the consumer itself and fails to find the dep's
-        // products. Emit the e2e package under `<output>/swift_e2e/` so the consumer
-        // has a distinct identity ("swift_e2e") regardless of where the dep lives.
-        let output_base = PathBuf::from(e2e_config.effective_output()).join("swift_e2e");
+        // Emit under `<output>/swift/` for consistency with every other language's e2e
+        // layout. SwiftPM identifies path-based deps by the path's last component,
+        // which would collide with the dep at `packages/swift/`; we disambiguate by
+        // passing an explicit `name:` to `.package(path:)` in the consumer manifest
+        // (see render_package_swift below).
+        let output_base = PathBuf::from(e2e_config.effective_output()).join("swift");
 
         let mut files = Vec::new();
 
@@ -104,9 +103,10 @@ impl E2eCodegen for SwiftE2eCodegen {
 
         // Swift e2e tests live in the standalone e2e/swift package (same as
         // every other language). The generated Package.swift uses an explicit
-        // `.package(name: "Kreuzberg", path: "../../packages/swift")` dep so
+        // `.package(name: "{module}", path: "../../packages/swift")` dep so
         // SwiftPM resolves the binding library by its declared identity, not
-        // the path tail.
+        // the path tail (avoids collision when both this package and the dep
+        // share the path-last component `swift`).
         let tests_base = output_base.clone();
 
         let field_resolver = FieldResolver::new(
@@ -196,16 +196,12 @@ fn render_package_swift(
         }
         crate::config::DependencyMode::Local => {
             // SwiftPM identifies path-based deps by the path's last component.
-            // The e2e consumer is emitted at `<output>/swift_e2e/` (see output_base
-            // above) to avoid identifier collisions, so a plain `.package(path:)`
-            // works here and the `.product(package:)` reference uses the dep's
-            // path-last as the identifier.
-            let pkg_id = pkg_path
-                .trim_end_matches('/')
-                .split('/')
-                .next_back()
-                .unwrap_or(module_name);
-            let dep = format!(r#"        .package(path: "{pkg_path}")"#);
+            // Because this e2e consumer and the dep both live in directories
+            // named `swift/`, declare an explicit `name:` on `.package(path:)`
+            // to give the dep a distinct identity (matches the module name).
+            // The `.product(package:)` reference uses that identity.
+            let pkg_id = module_name;
+            let dep = format!(r#"        .package(name: "{pkg_id}", path: "{pkg_path}")"#);
             let prod = format!(r#".product(name: "{module_name}", package: "{pkg_id}")"#);
             (dep, prod)
         }
