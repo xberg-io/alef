@@ -21,7 +21,7 @@ use std::sync::OnceLock;
 use std::sync::Mutex;
 use futures_util::stream::BoxStream;
 use futures_util::StreamExt;
-use jni::JNIEnv;
+use jni::{Env, JNIEnv};
 use jni::objects::{JClass, JObject, JString};
 use jni::sys::{jboolean, jbyteArray, jlong, jstring};
 use tokio::runtime::Runtime;
@@ -36,19 +36,19 @@ fn runtime() -> &'static Runtime {
     RT.get_or_init(|| Runtime::new().expect("create tokio runtime"))
 }
 
-fn jstring_to_string(env: &mut JNIEnv, s: JString) -> std::result::Result<String, jni::errors::Error> {
+fn jstring_to_string(env: &mut Env<'_>, s: JString) -> std::result::Result<String, jni::errors::Error> {
     let jstr = env.get_string(&s)?;
     Ok(jstr.into())
 }
 
-fn string_to_jstring(env: &mut JNIEnv, s: &str) -> jstring {
+fn string_to_jstring(env: &mut Env<'_>, s: &str) -> jstring {
     match env.new_string(s) {
         Ok(o) => o.into_raw(),
         Err(_) => std::ptr::null_mut(),
     }
 }
 
-fn throw_jni_error(env: &mut JNIEnv, msg: &str) {
+fn throw_jni_error(env: &mut Env<'_>, msg: &str) {
     // If the error class cannot be found (misconfigured AAR), fall back to a
     // generic RuntimeException so the caller always gets *some* exception rather
     // than a silent null/zero return that looks like a valid result.
@@ -57,7 +57,7 @@ fn throw_jni_error(env: &mut JNIEnv, msg: &str) {
     }
 }
 
-fn run_or_throw<T, F>(env: &mut JNIEnv, f: F) -> Option<T>
+fn run_or_throw<T, F>(env: &mut Env<'_>, f: F) -> Option<T>
 where
     F: FnOnce() -> T + std::panic::UnwindSafe,
 {
@@ -79,22 +79,24 @@ pub unsafe extern "system" fn Java_dev_kreuzberg_demo_DemoBridge_nativeCreateCli
     _class: JClass,
     api_key: JString,
 ) -> jlong {
-    let api_key = match jstring_to_string(&mut env, api_key) {
+    env.with_env(|env| -> jlong {
+    let api_key = match jstring_to_string(env, api_key) {
         Ok(s) => s,
-        Err(e) => { throw_jni_error(&mut env, &format!("{e}")); return 0; }
+        Err(e) => { throw_jni_error(env, &format!("{e}")); return 0; }
     };
-    let Some(result) = run_or_throw(&mut env, std::panic::AssertUnwindSafe(|| runtime().block_on(core_crate::create_client(api_key)))) else {
+    let Some(result) = run_or_throw(env, std::panic::AssertUnwindSafe(|| runtime().block_on(core_crate::create_client(api_key)))) else {
         return 0;
     };
     match result {
         Err(e) => {
-            throw_jni_error(&mut env, &format!("{e}"));
+            throw_jni_error(env, &format!("{e}"));
             0
         }
         Ok(v) => {
             Box::into_raw(Box::new(v)) as jlong
         }
     }
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -104,26 +106,28 @@ pub unsafe extern "system" fn Java_dev_kreuzberg_demo_DemoBridge_nativeDemoClien
     handle: jlong,
     request_json: JString,
 ) -> jstring {
+    env.with_env(|env| -> jstring {
     // SAFETY: handle was allocated by the matching constructor shim and remains
     // valid until nativeFree is called. The Kotlin AutoCloseable.close() guarantee
     // ensures the handle outlives this call.
     let client: &core_crate::DemoClient = unsafe { &*(handle as *const core_crate::DemoClient) };
-    let req_str = match jstring_to_string(&mut env, request_json) {
+    let req_str = match jstring_to_string(env, request_json) {
         Ok(s) => s,
-        Err(e) => { throw_jni_error(&mut env, &format!("{e}")); return std::ptr::null_mut(); }
+        Err(e) => { throw_jni_error(env, &format!("{e}")); return std::ptr::null_mut(); }
     };
     let input: String = match serde_json::from_str(&req_str) {
         Ok(s) => s,
         Err(_) => req_str,
     };
-    let Some(v) = run_or_throw(&mut env, std::panic::AssertUnwindSafe(|| runtime().block_on(client.do_thing(input)))) else {
+    let Some(v) = run_or_throw(env, std::panic::AssertUnwindSafe(|| runtime().block_on(client.do_thing(input)))) else {
         return std::ptr::null_mut();
     };
     let s = match serde_json::to_string(&v) {
         Ok(s) => s,
-        Err(e) => { throw_jni_error(&mut env, &format!("serialize: {e}")); return std::ptr::null_mut(); }
+        Err(e) => { throw_jni_error(env, &format!("serialize: {e}")); return std::ptr::null_mut(); }
     };
-    string_to_jstring(&mut env, &s)
+    string_to_jstring(env, &s)
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -132,14 +136,16 @@ pub unsafe extern "system" fn Java_dev_kreuzberg_demo_DemoBridge_nativeDemoClien
     _class: JClass,
     handle: jlong,
 ) -> jboolean {
+    env.with_env(|env| -> jboolean {
     // SAFETY: handle was allocated by the matching constructor shim and remains
     // valid until nativeFree is called. The Kotlin AutoCloseable.close() guarantee
     // ensures the handle outlives this call.
     let client: &core_crate::DemoClient = unsafe { &*(handle as *const core_crate::DemoClient) };
-    let Some(v) = run_or_throw(&mut env, std::panic::AssertUnwindSafe(|| runtime().block_on(client.ping()))) else {
+    let Some(v) = run_or_throw(env, std::panic::AssertUnwindSafe(|| runtime().block_on(client.ping()))) else {
         return 0u8;
     };
     v as jboolean
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -148,17 +154,19 @@ pub unsafe extern "system" fn Java_dev_kreuzberg_demo_DemoBridge_nativeDemoClien
     _class: JClass,
     handle: jlong,
 ) -> jbyteArray {
+    env.with_env(|env| -> jbyteArray {
     // SAFETY: handle was allocated by the matching constructor shim and remains
     // valid until nativeFree is called. The Kotlin AutoCloseable.close() guarantee
     // ensures the handle outlives this call.
     let client: &core_crate::DemoClient = unsafe { &*(handle as *const core_crate::DemoClient) };
-    let Some(v) = run_or_throw(&mut env, std::panic::AssertUnwindSafe(|| runtime().block_on(client.fetch_blob()))) else {
+    let Some(v) = run_or_throw(env, std::panic::AssertUnwindSafe(|| runtime().block_on(client.fetch_blob()))) else {
         return std::ptr::null_mut();
     };
     match env.byte_array_from_slice(&v) {
         Ok(arr) => { use jni::objects::JObject; JObject::from(arr).into_raw() as jbyteArray }
         Err(_) => std::ptr::null_mut(),
     }
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -188,22 +196,23 @@ pub unsafe extern "system" fn Java_dev_kreuzberg_demo_DemoBridge_nativeDemoClien
     client_handle: jlong,
     request_json: JString,
 ) -> jlong {
+    env.with_env(|env| -> jlong {
     // SAFETY: client_handle was produced by the matching constructor shim.
     let client: &core_crate::DemoClient = unsafe { &*(client_handle as *const core_crate::DemoClient) };
-    let req_str = match jstring_to_string(&mut env, request_json) {
+    let req_str = match jstring_to_string(env, request_json) {
         Ok(s) => s,
-        Err(e) => { throw_jni_error(&mut env, &format!("{e}")); return 0; }
+        Err(e) => { throw_jni_error(env, &format!("{e}")); return 0; }
     };
     let request: core_crate::StreamRequest = match serde_json::from_str(&req_str) {
         Ok(v) => v,
-        Err(e) => { throw_jni_error(&mut env, &format!("{e}")); return 0; }
+        Err(e) => { throw_jni_error(env, &format!("{e}")); return 0; }
     };
-    let Some(stream_result) = run_or_throw(&mut env, std::panic::AssertUnwindSafe(|| runtime().block_on(async { client.stream_data(request).await }))) else {
+    let Some(stream_result) = run_or_throw(env, std::panic::AssertUnwindSafe(|| runtime().block_on(async { client.stream_data(request).await }))) else {
         return 0;
     };
     let stream = match stream_result {
         Ok(s) => s,
-        Err(e) => { throw_jni_error(&mut env, &format!("{e}")); return 0; }
+        Err(e) => { throw_jni_error(env, &format!("{e}")); return 0; }
     };
     // Map the concrete error type to Box<dyn Error> so the handle type is
     // independent of the stream's error associated type.
@@ -216,6 +225,7 @@ pub unsafe extern "system" fn Java_dev_kreuzberg_demo_DemoBridge_nativeDemoClien
         stream: Mutex::new(Some(mapped)),
     });
     Box::into_raw(handle) as jlong
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -224,6 +234,7 @@ pub unsafe extern "system" fn Java_dev_kreuzberg_demo_DemoBridge_nativeDemoClien
     _class: JClass,
     stream_handle: jlong,
 ) -> jstring {
+    env.with_env(|env| -> jstring {
     if stream_handle == 0 { return std::ptr::null_mut(); }
     // SAFETY: stream_handle was produced by the matching Start shim.
     let h = unsafe { &*(stream_handle as *const DemoClientStreamDataStreamHandle) };
@@ -232,25 +243,26 @@ pub unsafe extern "system" fn Java_dev_kreuzberg_demo_DemoBridge_nativeDemoClien
         Err(_) => return std::ptr::null_mut(),
     };
     let Some(stream) = guard.as_mut() else { return std::ptr::null_mut(); };
-    let Some(next) = run_or_throw(&mut env, std::panic::AssertUnwindSafe(|| h.rt.block_on(stream.next()))) else {
+    let Some(next) = run_or_throw(env, std::panic::AssertUnwindSafe(|| h.rt.block_on(stream.next()))) else {
         return std::ptr::null_mut();
     };
     match next {
         None => std::ptr::null_mut(),
         Some(Err(e)) => {
-            throw_jni_error(&mut env, &format!("{e}"));
+            throw_jni_error(env, &format!("{e}"));
             std::ptr::null_mut()
         }
         Some(Ok(chunk)) => {
             let s = match serde_json::to_string(&chunk) {
                 Ok(s) => s,
                 Err(e) => {
-                    throw_jni_error(&mut env, &format!("serialize: {e}")); return std::ptr::null_mut();
+                    throw_jni_error(env, &format!("serialize: {e}")); return std::ptr::null_mut();
                 }
             };
-            string_to_jstring(&mut env, &s)
+            string_to_jstring(env, &s)
         }
     }
+    })
 }
 
 #[unsafe(no_mangle)]

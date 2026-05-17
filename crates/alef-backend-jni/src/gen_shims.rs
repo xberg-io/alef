@@ -120,7 +120,14 @@ pub(crate) fn emit_lib_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> Str
     out.push_str("use std::sync::Mutex;\n");
     out.push_str("use futures_util::stream::BoxStream;\n");
     out.push_str("use futures_util::StreamExt;\n");
-    out.push_str("use jni::JNIEnv;\n");
+    // jni 0.22 split `JNIEnv` into FFI-safe `EnvUnowned<'frame>` (kept under
+    // the `JNIEnv` alias for `extern "system"` signature compatibility) and
+    // `Env<'_>`, which carries the real API surface (`get_string`,
+    // `new_string`, `throw_new`, `convert_byte_array`, `byte_array_from_slice`,
+    // …). Extern shims capture `JNIEnv` then immediately upgrade via
+    // `unowned.with_env(|env| { ... })` so the inner `env: &mut Env<'_>` can
+    // use the full API. Helpers therefore take `&mut Env<'_>`.
+    out.push_str("use jni::{Env, JNIEnv};\n");
     out.push_str("use jni::objects::{JClass, JObject, JString};\n");
     out.push_str("use jni::sys::{jboolean, jbyteArray, jlong, jstring};\n");
     out.push_str("use tokio::runtime::Runtime;\n");
@@ -229,14 +236,14 @@ fn emit_runtime_helpers(out: &mut String) {
     out.push('\n');
 
     out.push_str(
-        "fn jstring_to_string(env: &mut JNIEnv, s: JString) -> std::result::Result<String, jni::errors::Error> {\n",
+        "fn jstring_to_string(env: &mut Env<'_>, s: JString) -> std::result::Result<String, jni::errors::Error> {\n",
     );
     out.push_str("    let jstr = env.get_string(&s)?;\n");
     out.push_str("    Ok(jstr.into())\n");
     out.push_str("}\n");
     out.push('\n');
 
-    out.push_str("fn string_to_jstring(env: &mut JNIEnv, s: &str) -> jstring {\n");
+    out.push_str("fn string_to_jstring(env: &mut Env<'_>, s: &str) -> jstring {\n");
     out.push_str("    match env.new_string(s) {\n");
     out.push_str("        Ok(o) => o.into_raw(),\n");
     out.push_str("        Err(_) => std::ptr::null_mut(),\n");
@@ -244,7 +251,7 @@ fn emit_runtime_helpers(out: &mut String) {
     out.push_str("}\n");
     out.push('\n');
 
-    out.push_str("fn throw_jni_error(env: &mut JNIEnv, msg: &str) {\n");
+    out.push_str("fn throw_jni_error(env: &mut Env<'_>, msg: &str) {\n");
     out.push_str("    // If the error class cannot be found (misconfigured AAR), fall back to a\n");
     out.push_str("    // generic RuntimeException so the caller always gets *some* exception rather\n");
     out.push_str("    // than a silent null/zero return that looks like a valid result.\n");
@@ -254,7 +261,7 @@ fn emit_runtime_helpers(out: &mut String) {
     out.push_str("}\n");
     out.push('\n');
 
-    out.push_str("fn run_or_throw<T, F>(env: &mut JNIEnv, f: F) -> Option<T>\n");
+    out.push_str("fn run_or_throw<T, F>(env: &mut Env<'_>, f: F) -> Option<T>\n");
     out.push_str("where\n");
     out.push_str("    F: FnOnce() -> T + std::panic::UnwindSafe,\n");
     out.push_str("{\n");
@@ -380,11 +387,11 @@ fn emit_function_shim(
             TypeRef::String => {
                 param_sigs.push_str(&format!("    {rust_name}: JString,\n"));
                 unmarshal.push_str(&format!(
-                    "    let {rust_name} = match jstring_to_string(&mut env, {rust_name}) {{\n"
+                    "    let {rust_name} = match jstring_to_string(env, {rust_name}) {{\n"
                 ));
                 unmarshal.push_str("        Ok(s) => s,\n");
                 unmarshal.push_str(&format!(
-                    "        Err(e) => {{ throw_jni_error(&mut env, &format!(\"{{e}}\")); return {err_null}; }}\n"
+                    "        Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {err_null}; }}\n"
                 ));
                 unmarshal.push_str("    };\n");
                 // Build call-site expression: optional → Some(name), is_ref → &name, else name.
@@ -431,11 +438,11 @@ fn emit_function_shim(
                 // Complex types passed as JSON string from Kotlin side.
                 param_sigs.push_str(&format!("    {rust_name}: JString,\n"));
                 unmarshal.push_str(&format!(
-                    "    let {rust_name}_str = match jstring_to_string(&mut env, {rust_name}) {{\n"
+                    "    let {rust_name}_str = match jstring_to_string(env, {rust_name}) {{\n"
                 ));
                 unmarshal.push_str("        Ok(s) => s,\n");
                 unmarshal.push_str(&format!(
-                    "        Err(e) => {{ throw_jni_error(&mut env, &format!(\"{{e}}\")); return {err_null}; }}\n"
+                    "        Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {err_null}; }}\n"
                 ));
                 unmarshal.push_str("    };\n");
                 let type_path = type_ref_to_core_path(base_ty, "core_crate");
@@ -443,7 +450,7 @@ fn emit_function_shim(
                     "    let {rust_name}: {type_path} = match serde_json::from_str(&{rust_name}_str) {{\n"
                 ));
                 unmarshal.push_str("        Ok(v) => v,\n");
-                unmarshal.push_str(&format!("        Err(e) => {{ throw_jni_error(&mut env, &format!(\"deserialize: {{e}}\")); return {err_null}; }}\n"));
+                unmarshal.push_str(&format!("        Err(e) => {{ throw_jni_error(env, &format!(\"deserialize: {{e}}\")); return {err_null}; }}\n"));
                 unmarshal.push_str("    };\n");
                 if p.optional {
                     call_args.push_str(&format!("Some({rust_name})"));
@@ -461,8 +468,12 @@ fn emit_function_shim(
         call_args.truncate(call_args.len() - 2);
     }
 
+    // Open the extern shim and upgrade EnvUnowned -> Env via with_env so the
+    // body can call get_string / new_string / throw_new etc. The closure's
+    // return type mirrors the fn's so `return <sentinel>` inside unmarshal /
+    // match arms still surfaces from with_env.
     out.push_str(&format!(
-        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {symbol}(\n    mut env: JNIEnv,\n    _class: JClass,\n{param_sigs}){ret_decl} {{\n"
+        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {symbol}(\n    mut env: JNIEnv,\n    _class: JClass,\n{param_sigs}){ret_decl} {{\n    env.with_env(|env|{ret_decl} {{\n"
     ));
 
     out.push_str(&unmarshal);
@@ -478,7 +489,7 @@ fn emit_function_shim(
         // Function returns Result<T, E>: match on Ok/Err.
         if is_async {
             out.push_str(&format!(
-                "    let Some(result) = run_or_throw(&mut env, std::panic::AssertUnwindSafe(|| runtime().block_on({raw_call}))) else {{\n"
+                "    let Some(result) = run_or_throw(env, std::panic::AssertUnwindSafe(|| runtime().block_on({raw_call}))) else {{\n"
             ));
             out.push_str(&format!("        return {err_null};\n"));
             out.push_str("    };\n");
@@ -487,22 +498,22 @@ fn emit_function_shim(
         }
         out.push_str("    match result {\n");
         out.push_str("        Err(e) => {\n");
-        out.push_str("            throw_jni_error(&mut env, &format!(\"{e}\"));\n");
+        out.push_str("            throw_jni_error(env, &format!(\"{e}\"));\n");
         out.push_str(&format!("            {err_null}\n"));
         out.push_str("        }\n");
         out.push_str("        Ok(v) => {\n");
         if is_opaque_return {
             out.push_str("            Box::into_raw(Box::new(v)) as jlong\n");
         } else if matches!(return_type, TypeRef::Unit) {
-            out.push_str("            string_to_jstring(&mut env, \"null\")\n");
+            out.push_str("            string_to_jstring(env, \"null\")\n");
         } else {
             out.push_str("            let s = match serde_json::to_string(&v) {\n");
             out.push_str("                Ok(s) => s,\n");
             out.push_str(&format!(
-                "                Err(e) => {{ throw_jni_error(&mut env, &format!(\"serialize: {{e}}\")); return {err_null}; }}\n"
+                "                Err(e) => {{ throw_jni_error(env, &format!(\"serialize: {{e}}\")); return {err_null}; }}\n"
             ));
             out.push_str("            };\n");
-            out.push_str("            string_to_jstring(&mut env, &s)\n");
+            out.push_str("            string_to_jstring(env, &s)\n");
         }
         out.push_str("        }\n");
         out.push_str("    }\n");
@@ -510,7 +521,7 @@ fn emit_function_shim(
         // Function returns T directly (no Result wrapping).
         if is_async {
             out.push_str(&format!(
-                "    let Some(v) = run_or_throw(&mut env, std::panic::AssertUnwindSafe(|| runtime().block_on({raw_call}))) else {{\n"
+                "    let Some(v) = run_or_throw(env, std::panic::AssertUnwindSafe(|| runtime().block_on({raw_call}))) else {{\n"
             ));
             out.push_str(&format!("        return {err_null};\n"));
             out.push_str("    };\n");
@@ -520,19 +531,20 @@ fn emit_function_shim(
         if is_opaque_return {
             out.push_str("    Box::into_raw(Box::new(v)) as jlong\n");
         } else if matches!(return_type, TypeRef::Unit) {
-            out.push_str("    string_to_jstring(&mut env, \"null\")\n");
+            out.push_str("    string_to_jstring(env, \"null\")\n");
         } else {
             out.push_str("    let s = match serde_json::to_string(&v) {\n");
             out.push_str("        Ok(s) => s,\n");
             out.push_str(&format!(
-                "        Err(e) => {{ throw_jni_error(&mut env, &format!(\"serialize: {{e}}\")); return {err_null}; }}\n"
+                "        Err(e) => {{ throw_jni_error(env, &format!(\"serialize: {{e}}\")); return {err_null}; }}\n"
             ));
             out.push_str("    };\n");
-            out.push_str("    string_to_jstring(&mut env, &s)\n");
+            out.push_str("    string_to_jstring(env, &s)\n");
         }
     }
 
-    out.push_str("}\n\n");
+    // Close the with_env closure and the extern fn.
+    out.push_str("    })\n}\n\n");
 }
 
 /// Emit a shim for an instance method on an opaque client type.
@@ -599,8 +611,12 @@ fn emit_method_shim(
         "    request_json: JString,\n".to_string()
     };
 
+    // Open the extern shim and upgrade EnvUnowned -> Env via with_env so the
+    // body can call get_string / new_string / throw_new etc. The closure's
+    // return type mirrors the fn's (empty string for unit). `return <sentinel>`
+    // inside arms therefore returns the right value from the closure / fn.
     out.push_str(&format!(
-        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {symbol}(\n    mut env: JNIEnv,\n    _class: JClass,\n    handle: jlong,\n{request_param}){ret_decl} {{\n"
+        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {symbol}(\n    mut env: JNIEnv,\n    _class: JClass,\n    handle: jlong,\n{request_param}){ret_decl} {{\n    env.with_env(|env|{ret_decl} {{\n"
     ));
 
     // Dereference handle.
@@ -656,15 +672,17 @@ fn emit_method_shim(
         }
     } else {
         // Multi-param: decode JSON map.
-        out.push_str("    let req_str = match jstring_to_string(&mut env, request_json) {\n");
+        out.push_str("    let req_str = match jstring_to_string(env, request_json) {\n");
         out.push_str("        Ok(s) => s,\n");
-        out.push_str(&format!("        Err(e) => {{ throw_jni_error(&mut env, &format!(\"invalid request_json: {{e}}\")); return {ret_null}; }}\n"));
+        out.push_str(&format!("        Err(e) => {{ throw_jni_error(env, &format!(\"invalid request_json: {{e}}\")); return {ret_null}; }}\n"));
         out.push_str("    };\n");
         out.push_str(
             "    let req_map: serde_json::Map<String, serde_json::Value> = match serde_json::from_str(&req_str) {\n",
         );
         out.push_str("        Ok(m) => m,\n");
-        out.push_str(&format!("        Err(e) => {{ throw_jni_error(&mut env, &format!(\"param deserialize: {{e}}\")); return {ret_null}; }}\n"));
+        out.push_str(&format!(
+            "        Err(e) => {{ throw_jni_error(env, &format!(\"param deserialize: {{e}}\")); return {ret_null}; }}\n"
+        ));
         out.push_str("    };\n");
         let mut args = Vec::new();
         for p in params {
@@ -680,7 +698,7 @@ fn emit_method_shim(
             ));
             out.push_str("        Some(v) => v,\n");
             out.push_str(&format!(
-                "        None => {{ throw_jni_error(&mut env, \"missing param: {rust_name}\"); return {ret_null}; }}\n"
+                "        None => {{ throw_jni_error(env, \"missing param: {rust_name}\"); return {ret_null}; }}\n"
             ));
             out.push_str("    };\n");
             let call_arg = if p.optional {
@@ -705,7 +723,7 @@ fn emit_method_shim(
     if has_error {
         if is_async {
             out.push_str(&format!(
-                "    let Some(result) = run_or_throw(&mut env, std::panic::AssertUnwindSafe(|| runtime().block_on({call_expr}))) else {{\n"
+                "    let Some(result) = run_or_throw(env, std::panic::AssertUnwindSafe(|| runtime().block_on({call_expr}))) else {{\n"
             ));
             out.push_str(&format!("        return {ret_null};\n"));
             out.push_str("    };\n");
@@ -714,7 +732,7 @@ fn emit_method_shim(
         }
         out.push_str("    match result {\n");
         out.push_str("        Err(e) => {\n");
-        out.push_str("            throw_jni_error(&mut env, &format!(\"{e}\"));\n");
+        out.push_str("            throw_jni_error(env, &format!(\"{e}\"));\n");
         out.push_str(&format!("            {ret_null}\n"));
         out.push_str("        }\n");
         out.push_str("        Ok(v) => {\n");
@@ -734,7 +752,7 @@ fn emit_method_shim(
         // Method returns T directly (no Result wrapping).
         if is_async {
             out.push_str(&format!(
-                "    let Some(v) = run_or_throw(&mut env, std::panic::AssertUnwindSafe(|| runtime().block_on({call_expr}))) else {{\n"
+                "    let Some(v) = run_or_throw(env, std::panic::AssertUnwindSafe(|| runtime().block_on({call_expr}))) else {{\n"
             ));
             out.push_str(&format!("        return {ret_null};\n"));
             out.push_str("    };\n");
@@ -753,7 +771,8 @@ fn emit_method_shim(
         }
     }
 
-    out.push_str("}\n\n");
+    // Close the with_env closure and the extern fn.
+    out.push_str("    })\n}\n\n");
 }
 
 /// Emit unmarshal code for a single param.
@@ -777,7 +796,7 @@ fn emit_single_param_unmarshal(out: &mut String, rust_name: &str, ty: &TypeRef, 
             ));
             out.push_str("        Ok(v) => v,\n");
             out.push_str(&format!(
-                "        Err(e) => {{ throw_jni_error(&mut env, &format!(\"{{e}}\")); return {ret_null}; }}\n"
+                "        Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {ret_null}; }}\n"
             ));
             out.push_str("    };\n");
         }
@@ -794,16 +813,16 @@ fn emit_single_param_unmarshal(out: &mut String, rust_name: &str, ty: &TypeRef, 
             ));
             out.push_str("        Ok(v) => v,\n");
             out.push_str(&format!(
-                "        Err(e) => {{ throw_jni_error(&mut env, &format!(\"{{e}}\")); return {ret_null}; }}\n"
+                "        Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {ret_null}; }}\n"
             ));
             out.push_str("    };\n");
         }
         TypeRef::Path => {
             // JString → PathBuf via raw string (no JSON decode).
-            out.push_str("    let req_str = match jstring_to_string(&mut env, request_json) {\n");
+            out.push_str("    let req_str = match jstring_to_string(env, request_json) {\n");
             out.push_str("        Ok(s) => s,\n");
             out.push_str(&format!(
-                "        Err(e) => {{ throw_jni_error(&mut env, &format!(\"{{e}}\")); return {ret_null}; }}\n"
+                "        Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {ret_null}; }}\n"
             ));
             out.push_str("    };\n");
             out.push_str(&format!("    let {rust_name} = std::path::PathBuf::from(req_str);\n"));
@@ -811,26 +830,26 @@ fn emit_single_param_unmarshal(out: &mut String, rust_name: &str, ty: &TypeRef, 
         TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String) => {
             // Vec<String> — deserialize into `<name>_vec` so the caller can optionally
             // produce `<name>_refs: Vec<&str>` for `&[&str]` call sites.
-            out.push_str("    let req_str = match jstring_to_string(&mut env, request_json) {\n");
+            out.push_str("    let req_str = match jstring_to_string(env, request_json) {\n");
             out.push_str("        Ok(s) => s,\n");
             out.push_str(&format!(
-                "        Err(e) => {{ throw_jni_error(&mut env, &format!(\"{{e}}\")); return {ret_null}; }}\n"
+                "        Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {ret_null}; }}\n"
             ));
             out.push_str("    };\n");
             out.push_str(&format!(
                 "    let {rust_name}_vec: Vec<String> = match serde_json::from_str(&req_str) {{\n"
             ));
             out.push_str("        Ok(v) => v,\n");
-            out.push_str(&format!("        Err(e) => {{ throw_jni_error(&mut env, &format!(\"request deserialize: {{e}}\")); return {ret_null}; }}\n"));
+            out.push_str(&format!("        Err(e) => {{ throw_jni_error(env, &format!(\"request deserialize: {{e}}\")); return {ret_null}; }}\n"));
             out.push_str("    };\n");
             // Bind the non-ref call site alias so it's usable when is_ref=false.
             out.push_str(&format!("    let {rust_name} = {rust_name}_vec.clone();\n"));
         }
         TypeRef::String => {
-            out.push_str("    let req_str = match jstring_to_string(&mut env, request_json) {\n");
+            out.push_str("    let req_str = match jstring_to_string(env, request_json) {\n");
             out.push_str("        Ok(s) => s,\n");
             out.push_str(&format!(
-                "        Err(e) => {{ throw_jni_error(&mut env, &format!(\"{{e}}\")); return {ret_null}; }}\n"
+                "        Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {ret_null}; }}\n"
             ));
             out.push_str("    };\n");
             // A JSON-encoded string from Kotlin: `MAPPER.writeValueAsString(strParam)` → `"\"hello\""`
@@ -842,10 +861,10 @@ fn emit_single_param_unmarshal(out: &mut String, rust_name: &str, ty: &TypeRef, 
             out.push_str("    };\n");
         }
         _ => {
-            out.push_str("    let req_str = match jstring_to_string(&mut env, request_json) {\n");
+            out.push_str("    let req_str = match jstring_to_string(env, request_json) {\n");
             out.push_str("        Ok(s) => s,\n");
             out.push_str(&format!(
-                "        Err(e) => {{ throw_jni_error(&mut env, &format!(\"{{e}}\")); return {ret_null}; }}\n"
+                "        Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {ret_null}; }}\n"
             ));
             out.push_str("    };\n");
             let type_path = type_ref_to_core_path(ty, "core_crate");
@@ -853,7 +872,7 @@ fn emit_single_param_unmarshal(out: &mut String, rust_name: &str, ty: &TypeRef, 
                 "    let {rust_name}: {type_path} = match serde_json::from_str(&req_str) {{\n"
             ));
             out.push_str("        Ok(v) => v,\n");
-            out.push_str(&format!("        Err(e) => {{ throw_jni_error(&mut env, &format!(\"request deserialize: {{e}}\")); return {ret_null}; }}\n"));
+            out.push_str(&format!("        Err(e) => {{ throw_jni_error(env, &format!(\"request deserialize: {{e}}\")); return {ret_null}; }}\n"));
             out.push_str("    };\n");
         }
     }
@@ -907,10 +926,10 @@ fn emit_return_marshal_with_indent(out: &mut String, return_type: &TypeRef, inde
             out.push_str(&format!("{indent}let s = match serde_json::to_string(&v) {{\n"));
             out.push_str(&format!("{indent}    Ok(s) => s,\n"));
             out.push_str(&format!(
-                "{indent}    Err(e) => {{ throw_jni_error(&mut env, &format!(\"serialize: {{e}}\")); return {ret_null}; }}\n"
+                "{indent}    Err(e) => {{ throw_jni_error(env, &format!(\"serialize: {{e}}\")); return {ret_null}; }}\n"
             ));
             out.push_str(&format!("{indent}}};\n"));
-            out.push_str(&format!("{indent}string_to_jstring(&mut env, &s)\n"));
+            out.push_str(&format!("{indent}string_to_jstring(env, &s)\n"));
         }
     }
 }
@@ -973,16 +992,17 @@ fn emit_streaming_shims(
     out.push_str("}\n\n");
 
     // Start shim: (clientHandle: Long, requestJson: String) -> Long
+    // Upgrade EnvUnowned -> Env via with_env (jni 0.22+); closure returns jlong.
     out.push_str(&format!(
-        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {start_sym}(\n    mut env: JNIEnv,\n    _class: JClass,\n    client_handle: jlong,\n    request_json: JString,\n) -> jlong {{\n"
+        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {start_sym}(\n    mut env: JNIEnv,\n    _class: JClass,\n    client_handle: jlong,\n    request_json: JString,\n) -> jlong {{\n    env.with_env(|env| -> jlong {{\n"
     ));
     out.push_str("    // SAFETY: client_handle was produced by the matching constructor shim.\n");
     out.push_str(&format!(
         "    let client: &core_crate::{type_name} = unsafe {{ &*(client_handle as *const core_crate::{type_name}) }};\n"
     ));
-    out.push_str("    let req_str = match jstring_to_string(&mut env, request_json) {\n");
+    out.push_str("    let req_str = match jstring_to_string(env, request_json) {\n");
     out.push_str("        Ok(s) => s,\n");
-    out.push_str("        Err(e) => { throw_jni_error(&mut env, &format!(\"{e}\")); return 0; }\n");
+    out.push_str("        Err(e) => { throw_jni_error(env, &format!(\"{e}\")); return 0; }\n");
     out.push_str("    };\n");
     // Build request arg.
     if let Some(first_param) = adapter.params.first() {
@@ -991,23 +1011,23 @@ fn emit_streaming_shims(
             "    let request: core_crate::{param_type} = match serde_json::from_str(&req_str) {{\n"
         ));
         out.push_str("        Ok(v) => v,\n");
-        out.push_str("        Err(e) => { throw_jni_error(&mut env, &format!(\"{e}\")); return 0; }\n");
+        out.push_str("        Err(e) => { throw_jni_error(env, &format!(\"{e}\")); return 0; }\n");
         out.push_str("    };\n");
         out.push_str(&format!(
-            "    let Some(stream_result) = run_or_throw(&mut env, std::panic::AssertUnwindSafe(|| runtime().block_on(async {{ client.{adapter_method}(request).await }}))) else {{\n"
+            "    let Some(stream_result) = run_or_throw(env, std::panic::AssertUnwindSafe(|| runtime().block_on(async {{ client.{adapter_method}(request).await }}))) else {{\n"
         ));
         out.push_str("        return 0;\n");
         out.push_str("    };\n");
     } else {
         out.push_str(&format!(
-            "    let Some(stream_result) = run_or_throw(&mut env, std::panic::AssertUnwindSafe(|| runtime().block_on(async {{ client.{adapter_method}().await }}))) else {{\n"
+            "    let Some(stream_result) = run_or_throw(env, std::panic::AssertUnwindSafe(|| runtime().block_on(async {{ client.{adapter_method}().await }}))) else {{\n"
         ));
         out.push_str("        return 0;\n");
         out.push_str("    };\n");
     }
     out.push_str("    let stream = match stream_result {\n");
     out.push_str("        Ok(s) => s,\n");
-    out.push_str("        Err(e) => { throw_jni_error(&mut env, &format!(\"{e}\")); return 0; }\n");
+    out.push_str("        Err(e) => { throw_jni_error(env, &format!(\"{e}\")); return 0; }\n");
     out.push_str("    };\n");
     out.push_str("    // Map the concrete error type to Box<dyn Error> so the handle type is\n");
     out.push_str("    // independent of the stream's error associated type.\n");
@@ -1020,11 +1040,13 @@ fn emit_streaming_shims(
     out.push_str("        stream: Mutex::new(Some(mapped)),\n");
     out.push_str("    });\n");
     out.push_str("    Box::into_raw(handle) as jlong\n");
-    out.push_str("}\n\n");
+    // Close with_env closure and extern fn.
+    out.push_str("    })\n}\n\n");
 
     // Next shim: (streamHandle: Long) -> jstring (null = end / error)
+    // Upgrade EnvUnowned -> Env via with_env (jni 0.22+); closure returns jstring.
     out.push_str(&format!(
-        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {next_sym}(\n    mut env: JNIEnv,\n    _class: JClass,\n    stream_handle: jlong,\n) -> jstring {{\n"
+        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {next_sym}(\n    mut env: JNIEnv,\n    _class: JClass,\n    stream_handle: jlong,\n) -> jstring {{\n    env.with_env(|env| -> jstring {{\n"
     ));
     out.push_str("    if stream_handle == 0 { return std::ptr::null_mut(); }\n");
     out.push_str("    // SAFETY: stream_handle was produced by the matching Start shim.\n");
@@ -1036,13 +1058,13 @@ fn emit_streaming_shims(
     out.push_str("        Err(_) => return std::ptr::null_mut(),\n");
     out.push_str("    };\n");
     out.push_str("    let Some(stream) = guard.as_mut() else { return std::ptr::null_mut(); };\n");
-    out.push_str("    let Some(next) = run_or_throw(&mut env, std::panic::AssertUnwindSafe(|| h.rt.block_on(stream.next()))) else {\n");
+    out.push_str("    let Some(next) = run_or_throw(env, std::panic::AssertUnwindSafe(|| h.rt.block_on(stream.next()))) else {\n");
     out.push_str("        return std::ptr::null_mut();\n");
     out.push_str("    };\n");
     out.push_str("    match next {\n");
     out.push_str("        None => std::ptr::null_mut(),\n");
     out.push_str("        Some(Err(e)) => {\n");
-    out.push_str("            throw_jni_error(&mut env, &format!(\"{e}\"));\n");
+    out.push_str("            throw_jni_error(env, &format!(\"{e}\"));\n");
     out.push_str("            std::ptr::null_mut()\n");
     out.push_str("        }\n");
     out.push_str("        Some(Ok(chunk)) => {\n");
@@ -1050,14 +1072,15 @@ fn emit_streaming_shims(
     out.push_str("                Ok(s) => s,\n");
     out.push_str("                Err(e) => {\n");
     out.push_str(
-        "                    throw_jni_error(&mut env, &format!(\"serialize: {e}\")); return std::ptr::null_mut();\n",
+        "                    throw_jni_error(env, &format!(\"serialize: {e}\")); return std::ptr::null_mut();\n",
     );
     out.push_str("                }\n");
     out.push_str("            };\n");
-    out.push_str("            string_to_jstring(&mut env, &s)\n");
+    out.push_str("            string_to_jstring(env, &s)\n");
     out.push_str("        }\n");
     out.push_str("    }\n");
-    out.push_str("}\n\n");
+    // Close with_env closure and extern fn.
+    out.push_str("    })\n}\n\n");
 
     // Free shim: (streamHandle: Long)
     out.push_str(&format!(
