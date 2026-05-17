@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-e2e ruby: honor `returns_void` on calls returning `()` / `Result<(), E>`**: the Ruby codegen emitted `result = TreeSitterLanguagePack.clean_cache()` followed by an unconditional `expect(result).not_to be_nil` fallback whenever `has_usable` was false (the only assertion in the fixture was `not_error`). For unit-returning functions (Rust `()` → Ruby `nil`) that fallback always failed. Threaded `returns_void` from `CallConfig` through `render_example` into the `ruby/test_function.jinja` template, dropped the result-variable assignment, and gated the nil-check fallback on `!returns_void`. Surfaced on tree-sitter-language-pack's `download_clean_cache`, `download_init_default`, `download_configure_custom_dir` fixtures whose calls (`init`, `configure`, `clean_cache`) all return `Result<(), Error>`. (`crates/alef-e2e/src/codegen/ruby.rs`, `crates/alef-e2e/templates/ruby/test_function.jinja`)
+
+- **alef-e2e ruby: stop coercing simple-result equality to `String` for numeric/bool expected values**: when `result_is_simple = true` the codegen wrapped the result in `.to_s.strip` so `equals "foo\n"` would absorb trailing-newline drift, but the same wrapper applied for `equals 0` / `equals true`, producing `expect(result.to_s.strip).to eq(0)` (Ruby `String "0" != Integer 0`). The strip wrapper is now gated on the expected value being a JSON string; numeric and bool comparisons use the raw expression and stay typed. Surfaced on tree-sitter-language-pack's `download_empty_list` fixture (`download([])` returns `usize 0`). (`crates/alef-e2e/src/codegen/ruby.rs`)
+
 ## [0.16.34] - 2026-05-17
 
 ### Fixed

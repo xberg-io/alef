@@ -424,6 +424,7 @@ fn render_spec_file(
                         fixture_options_type,
                         fixture_enum_fields,
                         fixture_result_is_simple,
+                        fixture_call.returns_void,
                         e2e_config,
                         fixture_client_factory,
                         &fixture_extra_args,
@@ -1004,6 +1005,7 @@ fn render_example(
     options_type: Option<&str>,
     enum_fields: &HashMap<String, String>,
     result_is_simple: bool,
+    returns_void: bool,
     e2e_config: &E2eConfig,
     client_factory: Option<&str>,
     extra_args: &[String],
@@ -1086,6 +1088,7 @@ fn render_example(
             result_var => result_var,
             assertions_rendered => assertions_rendered,
             has_usable => has_usable,
+            returns_void => returns_void,
             client_factory => client_factory,
             fixture_id => fixture_id,
             call_receiver => call_receiver,
@@ -1596,7 +1599,13 @@ fn render_assertion(
             || per_call_enum_fields.contains_key(f)
             || per_call_enum_fields.contains_key(resolved)
     });
-    let stripped_field_expr = if result_is_simple {
+    // For string equality on simple-result calls we want `.to_s.strip` to absorb
+    // trailing whitespace, but for numeric/bool simple results that coercion turns
+    // `0` into `"0"` and the `eq(0)` Integer comparison fails. Only fold `.to_s.strip`
+    // into the simple-result path when the expected value is a string; otherwise
+    // keep the raw expression so numeric/bool comparisons stay typed.
+    let expected_is_string = assertion.value.as_ref().is_some_and(|v| v.is_string());
+    let stripped_field_expr = if result_is_simple && expected_is_string {
         format!("{field_expr}.to_s.strip")
     } else if field_is_enum {
         format!("{field_expr}.to_s")
