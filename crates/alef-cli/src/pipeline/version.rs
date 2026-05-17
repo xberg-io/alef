@@ -1177,7 +1177,10 @@ fn render_citation_cff(citation: &CitationConfig, version: &str, fallback_licens
     for author in &citation.authors {
         out.push_str(&render_citation_author(author));
     }
-    out.push_str(&format!("repository-code: {}\n", yaml_scalar(&citation.repository_code)));
+    out.push_str(&format!(
+        "repository-code: {}\n",
+        yaml_scalar(&citation.repository_code)
+    ));
     if let Some(url) = &citation.url {
         out.push_str(&format!("url: {}\n", yaml_scalar(url)));
     }
