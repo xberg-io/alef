@@ -58,7 +58,7 @@ crate-type = ["cdylib"]
 [dependencies]
 {umbrella_dep_name} = {{ path = "../{core_crate_dir}"{features_str} }}
 futures-util = "0.3"
-jni = "0.21"
+jni = "0.22"
 serde_json = "1"
 tokio = {{ version = "1", features = ["rt-multi-thread", "macros", "sync"] }}
 "#,
