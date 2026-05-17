@@ -329,6 +329,7 @@ jobs:
             alef-readme
             alef-scaffold
             alef-publish
+            alef-snippets
             alef-cli
           version: ${{ needs.prepare.outputs.version }}
           dry-run: ${{ needs.prepare.outputs.dry_run }}
