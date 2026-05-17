@@ -44,6 +44,15 @@ fn generate_readme(
         return Ok(None);
     }
 
+    // Language::Jni and Language::C are FFI shim glue layers, not publishable
+    // bindings — they share their public surface with the host language (kotlin-android,
+    // ffi). The hardcoded fallback used to emit them at `packages/zig/README.md`,
+    // which collided with the actual Zig README. Skip silently — consumers that
+    // want a C/JNI README can opt in via `[readme.languages.c]` / `.jni`.
+    if matches!(lang, Language::C | Language::Jni) {
+        return Ok(None);
+    }
+
     // Try template-based generation first when readme config is present
     if let Some(readme_cfg) = &config.readme {
         if let Some(template_dir) = &readme_cfg.template_dir {
@@ -798,10 +807,13 @@ See the [LICENSE]({repository}/blob/main/LICENSE) file in the root repository.
         repository = repository,
     );
 
-    // Use the readme config output pattern if provided, otherwise default
+    // Use the readme config output pattern if provided, otherwise default.
+    // Node and Rust publish from their crate directories, not packages/ stubs.
     let path = match lang {
         Language::Ffi => PathBuf::from(format!("crates/{}-ffi/README.md", name)),
         Language::Wasm => PathBuf::from(format!("crates/{}-wasm/README.md", name)),
+        Language::Node => PathBuf::from(format!("crates/{}-node/README.md", name)),
+        Language::Rust => PathBuf::from(format!("crates/{}/README.md", name)),
         _ => PathBuf::from(format!("packages/{}/README.md", dir_name)),
     };
 
