@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **packaging: workspace now ships two binaries (`alef-cli` and `alef-snippets`), so consumers of `cargo install --git https://github.com/kreuzberg-dev/alef ...` must pass `--package alef-cli --bin alef` (or the matching `alef-snippets` selector) to disambiguate. The shared `kreuzberg-dev/actions/install-alef@v1` composite was updated in `kreuzberg-dev/actions@5cc39f3` to add the required selector to both the main-branch install path (`scripts/unix.sh`, `scripts/windows.ps1`) and the release-tag source-fallback path. Polyglot host repos that pinned to `install-alef@v1` automatically pick up the fix; repos pinned to an older SHA must repin. The release-binary fastpath is unaffected — it downloads platform tarballs from the GitHub release page rather than building from source. (`kreuzberg-dev/actions` install-alef composite)
+
 ### Fixed
 
 - **alef-backend-kotlin: drop redundant `${...}` braces in error-message interpolation when the next char is not an identifier continuation**: `interpolate_error_message_template` previously always emitted `${fieldN}` for `{N}` placeholders, producing `"HTML parsing error: ${field0}"` for the common single-field `thiserror`-style template. ktlint's `standard:string-template` rule flags this as redundant when the brace is unnecessary (the next character — `"`, `:`, ` `, `)`, etc. — cannot extend the identifier), and the rule is a CI gate in the polyglot host repos. The helper now peeks at the character following the closing brace and emits `$fieldN` when it would be unambiguous, falling back to `${fieldN}` only when the next char is `[A-Za-z0-9_]`. Test expectations in `gen_bindings_test` (kotlin + kotlin-android) updated accordingly. (`crates/alef-backend-kotlin/src/gen_bindings/object_wrapper.rs`)
