@@ -31,8 +31,8 @@ use crate::config::languages::{
     RubyConfig, SwiftConfig, WasmConfig, ZigConfig,
 };
 use crate::config::output::{
-    BuildCommandConfig, CleanConfig, ExcludeConfig, IncludeConfig, LintConfig, OutputConfig, ReadmeConfig,
-    ScaffoldConfig, SetupConfig, SyncConfig, TestConfig, UpdateConfig,
+    BuildCommandConfig, CitationConfig, CleanConfig, ExcludeConfig, IncludeConfig, LintConfig, OutputConfig,
+    ReadmeConfig, ScaffoldConfig, SetupConfig, SyncConfig, TestConfig, UpdateConfig,
 };
 use crate::config::publish::PublishConfig;
 use crate::config::tools::ToolsConfig;
@@ -137,6 +137,7 @@ pub struct ResolvedCrateConfig {
     pub tools: ToolsConfig,
     pub opaque_types: HashMap<String, String>,
     pub sync: Option<SyncConfig>,
+    pub citation: Option<CitationConfig>,
 
     // -----------------------------------------------------------------
     // Packaging, e2e, extensibility

@@ -41,9 +41,10 @@ pub use languages::{
 pub use legacy::{LegacyConfigError, LegacyKey, detect_legacy_keys};
 pub use new_config::{NewAlefConfig, ResolveError};
 pub use output::{
-    BuildCommandConfig, CleanConfig, ExcludeConfig, GeneratedHeaderConfig, IncludeConfig, LintConfig, OutputConfig,
-    OutputTemplate, PrecommitConfig, ReadmeConfig, ScaffoldCargo, ScaffoldCargoEnvValue, ScaffoldCargoTargets,
-    ScaffoldConfig, SetupConfig, SyncConfig, TestConfig, TextReplacement, UpdateConfig,
+    BuildCommandConfig, CitationAuthor, CitationConfig, CleanConfig, ExcludeConfig, GeneratedHeaderConfig,
+    IncludeConfig, LintConfig, OutputConfig, OutputTemplate, PrecommitConfig, ReadmeConfig, ScaffoldCargo,
+    ScaffoldCargoEnvValue, ScaffoldCargoTargets, ScaffoldConfig, SetupConfig, SyncConfig, TestConfig, TextReplacement,
+    UpdateConfig,
 };
 pub use publish::{PublishConfig, PublishLanguageConfig, VendorMode};
 pub use raw_crate::RawCrateConfig;

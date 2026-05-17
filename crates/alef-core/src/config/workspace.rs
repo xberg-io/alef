@@ -16,8 +16,8 @@ use std::collections::HashMap;
 use super::dto::DtoConfig;
 use super::extras::Language;
 use super::output::{
-    BuildCommandConfig, CleanConfig, GeneratedHeaderConfig, LintConfig, OutputTemplate, PrecommitConfig,
-    ScaffoldConfig, SetupConfig, SyncConfig, TestConfig, UpdateConfig,
+    BuildCommandConfig, CitationConfig, CleanConfig, GeneratedHeaderConfig, LintConfig, OutputTemplate,
+    PrecommitConfig, ScaffoldConfig, SetupConfig, SyncConfig, TestConfig, UpdateConfig,
 };
 use super::tools::ToolsConfig;
 use super::{FormatConfig, GenerateConfig};
@@ -136,6 +136,13 @@ pub struct WorkspaceConfig {
     /// independently per crate; sync rules in this section apply globally.
     #[serde(default)]
     pub sync: Option<SyncConfig>,
+
+    /// Optional CITATION.cff metadata. When present, `alef sync-versions` writes
+    /// a fully rendered `CITATION.cff` at the repo root using these fields plus
+    /// the canonical workspace version. When absent, a hand-authored
+    /// CITATION.cff (if any) only has its `version:` line updated.
+    #[serde(default)]
+    pub citation: Option<CitationConfig>,
 }
 
 #[cfg(test)]

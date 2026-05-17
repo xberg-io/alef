@@ -220,6 +220,7 @@ impl NewAlefConfig {
             tools: ws.tools.clone(),
             opaque_types: ws.opaque_types.clone(),
             sync: ws.sync.clone(),
+            citation: ws.citation.clone(),
             publish: krate.publish.clone(),
             e2e: krate.e2e.clone(),
             adapters: krate.adapters.clone(),
