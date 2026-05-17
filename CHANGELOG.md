@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.26] - 2026-05-17
+
 ### Fixed
 
 - **alef-scaffold: include conditional deps in `cargo-machete` ignored lists for FFI/Node/PHP/Python umbrellas**: when the umbrella crate declares `trait_bridges` or streaming `adapters`, the scaffold conditionally adds `async-trait` / `futures-util` / `tokio` to `[dependencies]` for manifest stability across regens — but the static `[package.metadata.cargo-machete]` block only listed the *unconditional* deps (`serde_json` and, for FFI/PHP/Python, `tokio`/`pyo3-async-runtimes`). For umbrella crates whose actual API surface doesn't exercise async-trait or streaming codepaths in the generated binding (e.g. html-to-markdown's HtmlVisitor is sync, no streaming adapters), cargo-machete flagged the conditional deps as unused and broke `prek run --all-files`. The ignored list is now built dynamically from `has_trait_bridges` / `has_streaming`, mirroring the dep emission logic exactly so machete stays quiet whenever a dep is emitted unconditionally for codegen stability. (`crates/alef-scaffold/src/languages/{ffi.rs,node.rs,php.rs,python.rs}`)
