@@ -585,13 +585,15 @@ fn render_test_file(
     // or references streaming-virtual fields like `chunks`/`stream_content`).
     // The collect_snippet emits `new ArrayList<ChatCompletionChunk>()` so the
     // class must be importable for type inference and method resolution.
+    //
+    // Use `resolve_is_streaming` so per-call `streaming = false` opt-outs are
+    // honoured: consumers like tree-sitter-language-pack ship a real `chunks`
+    // result field on their non-streaming process result, and would otherwise
+    // get a spurious `import …ChatCompletionChunk` plus virtual-aggregator
+    // accessor expansion on `chunks`-shaped assertions.
     let has_streaming_fixture = fixtures.iter().any(|f| {
-        f.is_streaming_mock()
-            || f.assertions.iter().any(|a| {
-                a.field.as_deref().is_some_and(|fld| {
-                    !fld.is_empty() && crate::codegen::streaming_assertions::is_streaming_virtual_field(fld)
-                })
-            })
+        let call_cfg = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
+        crate::codegen::streaming_assertions::resolve_is_streaming(f, call_cfg.streaming)
     });
     if has_streaming_fixture && !binding_pkg_for_imports.is_empty() {
         imports.push(format!("import {binding_pkg_for_imports}.ChatCompletionChunk;"));
@@ -1193,6 +1195,12 @@ fn render_test_method(
         }
     }
 
+    // Streaming detection (call-level `streaming` opt-out is honored). Computed
+    // here so `render_assertion` can suppress the streaming-virtual-field path
+    // for non-streaming fixtures whose real result struct has a literal `chunks`
+    // field that would otherwise collide with the virtual aggregator name.
+    let is_streaming = crate::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming);
+
     for assertion in &fixture.assertions {
         render_assertion(
             &mut assertions_body,
@@ -1203,6 +1211,7 @@ fn render_test_method(
             effective_result_is_simple,
             effective_result_is_bytes,
             effective_result_is_option,
+            is_streaming,
             &effective_enum_fields,
         );
     }
@@ -1260,8 +1269,7 @@ fn render_test_method(
 
     let call_expr = format!("{call_target}.{function_name}({final_args})");
 
-    // Streaming detection (call-level `streaming` opt-out is honored).
-    let is_streaming = crate::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming);
+    // `is_streaming` was computed earlier (before the assertion render loop).
     let collect_snippet = if is_streaming && !expects_error {
         crate::codegen::streaming_assertions::StreamingFieldResolver::collect_snippet("java", result_var, "chunks")
             .unwrap_or_default()
@@ -1425,6 +1433,7 @@ fn build_args_and_setup(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 fn render_assertion(
     out: &mut String,
     assertion: &Assertion,
@@ -1434,6 +1443,7 @@ fn render_assertion(
     result_is_simple: bool,
     result_is_bytes: bool,
     result_is_option: bool,
+    is_streaming: bool,
     enum_fields: &std::collections::HashSet<String>,
 ) {
     // Bare-result is_empty / not_empty on Option<T> returns: the Java facade exposes
@@ -1666,8 +1676,11 @@ fn render_assertion(
 
     // Streaming virtual fields: intercept before is_valid_for_result so they are
     // never skipped.  These fields resolve against the `chunks` collected-list variable.
+    // Gate on `is_streaming` so non-streaming fixtures (e.g. consumers whose real
+    // result struct has a literal `chunks` field) don't divert into the virtual
+    // accessor path — they should fall through to the normal field resolver.
     if let Some(f) = &assertion.field {
-        if !f.is_empty() && crate::codegen::streaming_assertions::is_streaming_virtual_field(f) {
+        if is_streaming && !f.is_empty() && crate::codegen::streaming_assertions::is_streaming_virtual_field(f) {
             if let Some(expr) =
                 crate::codegen::streaming_assertions::StreamingFieldResolver::accessor(f, "java", "chunks")
             {
