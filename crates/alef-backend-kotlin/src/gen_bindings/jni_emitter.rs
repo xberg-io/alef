@@ -141,6 +141,7 @@ pub fn emit_jni_bridge_object(api: &ApiSurface, config: &ResolvedCrateConfig) ->
          \"ktlint:standard:max-line-length\",\n    \
          \"ktlint:standard:trailing-comma-on-declaration-site\",\n    \
          \"ktlint:standard:trailing-comma-on-call-site\",\n    \
+         \"ktlint:standard:annotation\",\n    \
          \"MaxLineLength\",\n    \
          \"TooManyFunctions\",\n    \
          \"LongParameterList\",\n\
@@ -416,6 +417,7 @@ pub fn emit_jni_client_class(
          \"ktlint:standard:max-line-length\",\n    \
          \"ktlint:standard:trailing-comma-on-declaration-site\",\n    \
          \"ktlint:standard:trailing-comma-on-call-site\",\n    \
+         \"ktlint:standard:annotation\",\n    \
          \"MaxLineLength\",\n    \
          \"TooManyFunctions\",\n    \
          \"LongParameterList\",\n    \
