@@ -389,9 +389,10 @@ fn snapshot_method_no_params_bool() {
         content.contains("-> jboolean"),
         "ping must return jboolean; got:\n{content}"
     );
+    // jni 0.22's `jboolean` is `bool`, so no cast is emitted — the value is returned as-is.
     assert!(
-        content.contains("v as jboolean"),
-        "ping must cast bool to jboolean; got:\n{content}"
+        ping_section.contains("\n    v\n"),
+        "ping must return bool as-is (no cast under jni 0.22); section:\n{ping_section}"
     );
     insta::assert_snapshot!("snapshot_method_no_params_bool", content);
 }
