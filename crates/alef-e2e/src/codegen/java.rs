@@ -1056,6 +1056,13 @@ fn render_test_method(
     let effective_result_is_simple =
         call_overrides.is_some_and(|o| o.result_is_simple) || call_config.result_is_simple || result_is_simple;
     let effective_result_is_bytes = call_overrides.is_some_and(|o| o.result_is_bytes);
+    // Resolve result_is_option: when the Rust function returns `Option<T>`, the Java
+    // facade typically returns `@Nullable T` (via `.orElse(null)`).  Bare-result
+    // is_empty/not_empty assertions must use `assertNull/assertNotNull` rather than
+    // calling `.isEmpty()` on the nullable reference, which is undefined for record
+    // types (mirrors the Kotlin / Zig codegen behaviour).
+    let effective_result_is_option =
+        call_overrides.is_some_and(|o| o.result_is_option) || call_config.result_is_option;
 
     // Check if this test needs ObjectMapper deserialization for json_object args.
     let needs_deser = effective_options_type.is_some()
@@ -1196,6 +1203,7 @@ fn render_test_method(
             field_resolver,
             effective_result_is_simple,
             effective_result_is_bytes,
+            effective_result_is_option,
             &effective_enum_fields,
         );
     }
@@ -1426,8 +1434,32 @@ fn render_assertion(
     field_resolver: &FieldResolver,
     result_is_simple: bool,
     result_is_bytes: bool,
+    result_is_option: bool,
     enum_fields: &std::collections::HashSet<String>,
 ) {
+    // Bare-result is_empty / not_empty on Option<T> returns: the Java facade exposes
+    // these as `@Nullable T` (via `.orElse(null)`) rather than `Optional<T>`, so the
+    // template's `.isEmpty()` call would not compile for record types. Emit a
+    // null-check instead — mirrors the kotlin / zig codegen behaviour.
+    let bare_field = assertion.field.as_deref().is_none_or(str::is_empty);
+    if result_is_option && bare_field {
+        match assertion.assertion_type.as_str() {
+            "is_empty" => {
+                out.push_str(&format!(
+                    "        assertNull({result_var}, \"expected empty value\");\n"
+                ));
+                return;
+            }
+            "not_empty" => {
+                out.push_str(&format!(
+                    "        assertNotNull({result_var}, \"expected non-empty value\");\n"
+                ));
+                return;
+            }
+            _ => {}
+        }
+    }
+
     // Byte-buffer returns: emit length-based assertions instead of struct-field
     // accessors. The result is `byte[]`, which has no `isEmpty()`/struct-field methods.
     // Field paths on byte-buffer results (e.g. `audio`, `content`) are pseudo-fields
@@ -1771,20 +1803,26 @@ fn render_assertion(
                             "count_min" | "count_equals" => {
                                 format!("{optional_expr}.orElse(java.util.List.of())")
                             }
-                            // For numeric comparisons on Optional<Long/Integer> fields, use 0L.
+                            // For numeric comparisons on Optional<Long/Integer> fields, coerce
+                            // the boxed numeric type to `long` via Number::longValue so the same
+                            // code path compiles for both `Optional<Integer>` (e.g. mapped from
+                            // Rust `Option<u32>`) and `Optional<Long>` fields.  Using a bare
+                            // `.orElse(0L)` would fail for `Optional<Integer>` because the
+                            // fallback type would not match the element type.
                             "greater_than" | "less_than" | "greater_than_or_equal" | "less_than_or_equal" => {
                                 if field_resolver.is_array(resolved) {
                                     format!("{optional_expr}.orElse(java.util.List.of())")
                                 } else {
-                                    format!("{optional_expr}.orElse(0L)")
+                                    format!("{optional_expr}.map(Number::longValue).orElse(0L)")
                                 }
                             }
                             // For equals on Optional fields, determine fallback based on whether value is numeric.
-                            // If the fixture value is a number, use 0L; otherwise use "".
+                            // If the fixture value is a number, coerce via Number::longValue so the
+                            // comparison compiles for both Optional<Integer> and Optional<Long>.
                             "equals" => {
                                 if let Some(expected) = &assertion.value {
                                     if expected.is_number() {
-                                        format!("{optional_expr}.orElse(0L)")
+                                        format!("{optional_expr}.map(Number::longValue).orElse(0L)")
                                     } else {
                                         format!("{optional_expr}.orElse(\"\")")
                                     }

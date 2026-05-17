@@ -1,11 +1,11 @@
 {%- if assertion_type == "equals" -%}
 {%- if java_val == "" -%}
 {#- value: null in fixture; the Optional wrapper should be empty (underlying @Nullable was null) -#}
-        assertTrue({{ field_expr|replace(".orElse(\"\")", "")|replace(".orElse(0L)", "") }}.isEmpty(), "expected null");
+        assertTrue({{ field_expr|replace(".orElse(\"\")", "")|replace(".map(Number::longValue).orElse(0L)", "")|replace(".orElse(0L)", "") }}.isEmpty(), "expected null");
 {%- elif is_string_val -%}
         assertEquals({{ java_val }}, {{ string_expr }}.trim());
 {%- elif is_numeric_val and ".orElse(\"\")" in field_expr -%}
-        assertEquals({{ java_val }}, {{ field_expr|replace(".orElse(\"\")", ".orElse(0L)") }});
+        assertEquals({{ java_val }}, {{ field_expr|replace(".orElse(\"\")", ".map(Number::longValue).orElse(0L)") }});
 {%- else -%}
         assertEquals({{ java_val }}, {{ field_expr }});
 {%- endif -%}
