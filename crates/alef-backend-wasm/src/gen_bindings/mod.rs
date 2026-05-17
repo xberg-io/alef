@@ -10,7 +10,6 @@ use crate::type_map::WasmMapper;
 use ahash::AHashSet;
 use alef_codegen::builder::RustFileBuilder;
 use alef_codegen::generators;
-use alef_codegen::naming::to_node_name;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{Language, ResolvedCrateConfig, resolve_output_dir};
 use alef_core::hash::{self, CommentStyle};
@@ -666,110 +665,6 @@ impl Backend for WasmBackend {
                 generated_header: true,
             },
         ])
-    }
-
-    fn generate_public_api(
-        &self,
-        api: &ApiSurface,
-        config: &ResolvedCrateConfig,
-    ) -> anyhow::Result<Vec<GeneratedFile>> {
-        let wasm_config = config.wasm.as_ref();
-        let exclude_functions = wasm_config.map(|c| c.exclude_functions.clone()).unwrap_or_default();
-        let exclude_types = wasm_config.map(|c| c.exclude_types.clone()).unwrap_or_default();
-        let exclude_reexports = wasm_config.map(|c| c.exclude_reexports.clone()).unwrap_or_default();
-
-        // Collect all exported names from the API
-        let mut exports = vec![];
-
-        // Collect all types (exported with unprefixed names via js_name = "Foo")
-        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
-            if !exclude_types.contains(&typ.name) {
-                exports.push(typ.name.clone());
-            }
-        }
-
-        // Collect all enums (exported with unprefixed names via js_name = "Foo")
-        for enum_def in &api.enums {
-            if !exclude_types.contains(&enum_def.name) {
-                exports.push(enum_def.name.clone());
-            }
-        }
-
-        // Collect all functions (exported from WASM module)
-        for func in &api.functions {
-            if !exclude_functions.contains(&func.name) {
-                // Convert snake_case to camelCase for JavaScript naming
-                let js_name = to_node_name(&func.name);
-                exports.push(js_name);
-            }
-        }
-
-        // Collect trait-bridge register/unregister/clear functions. They are
-        // emitted as `#[wasm_bindgen(js_name = "registerOcrBackend")]` etc. in
-        // the trait-bridge code path and are NOT part of `api.functions`, so
-        // they need to be added to `index.ts` re-exports explicitly.
-        for bridge in &config.trait_bridges {
-            if let Some(register_fn) = bridge.register_fn.as_deref()
-                && !exclude_functions.contains(&register_fn.to_string())
-            {
-                exports.push(to_node_name(register_fn));
-            }
-            if let Some(unregister_fn) = bridge.unregister_fn.as_deref()
-                && !exclude_functions.contains(&unregister_fn.to_string())
-            {
-                exports.push(to_node_name(unregister_fn));
-            }
-            if let Some(clear_fn) = bridge.clear_fn.as_deref()
-                && !exclude_functions.contains(&clear_fn.to_string())
-            {
-                exports.push(to_node_name(clear_fn));
-            }
-        }
-
-        // Collect all error types (exported from WASM module), skipping excluded
-        for error in &api.errors {
-            if exclude_types.contains(&error.name) {
-                continue;
-            }
-            exports.push(error.name.clone());
-        }
-
-        // Remove any exports that should be provided by custom modules instead
-        exports.retain(|name| !exclude_reexports.contains(name));
-
-        // Sort for consistent output
-        exports.sort();
-
-        // Generate the index.ts re-export file
-        let header = hash::header(CommentStyle::DoubleSlash);
-        let mut lines: Vec<String> = header.lines().map(str::to_string).collect();
-        lines.push("".to_string());
-
-        if !exports.is_empty() {
-            lines.push("export {".to_string());
-            for (i, name) in exports.iter().enumerate() {
-                let comma = if i < exports.len() - 1 { "," } else { "" };
-                lines.push(format!("  {}{}", name, comma));
-            }
-            lines.push("} from './wasm';".to_string());
-        }
-
-        // Append re-exports for custom modules (from [custom_modules] wasm = [...])
-        let custom_mods = config.custom_modules.for_language(Language::Wasm);
-        for module_name in custom_mods {
-            lines.push(format!("export * from './{module_name}';"));
-        }
-
-        let content = lines.join("\n");
-
-        // Output path: packages/wasm/src/index.ts
-        let output_path = PathBuf::from("packages/wasm/src/index.ts");
-
-        Ok(vec![GeneratedFile {
-            path: output_path,
-            content,
-            generated_header: false,
-        }])
     }
 
     fn build_config(&self) -> Option<BuildConfig> {

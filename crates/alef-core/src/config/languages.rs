@@ -381,10 +381,6 @@ pub struct WasmConfig {
     /// Defaults to `"Wasm"`.
     #[serde(default)]
     pub type_prefix: Option<String>,
-    /// Functions to exclude from the public TypeScript re-export (index.ts) while still
-    /// generating the Rust binding. Use this when a custom module provides a wrapper.
-    #[serde(default)]
-    pub exclude_reexports: Vec<String>,
     /// Wide-character C functions to shim for WASM external scanner interop.
     #[serde(default)]
     pub env_shims: Vec<String>,
