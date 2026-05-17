@@ -134,7 +134,7 @@ fn audit_docs(docs_dir: &Path) -> Vec<AuditIssue> {
         issues.extend(audit_includes(&path, &content));
     }
 
-    match discover_includes(&[docs_dir.to_path_buf()]) {
+    match discover_includes(&[docs_dir.to_path_buf()], &[]) {
         Ok(references) => {
             for reference in references {
                 if !reference.target.exists() {
