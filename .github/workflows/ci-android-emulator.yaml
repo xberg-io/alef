@@ -47,13 +47,13 @@ jobs:
           macos-dynamic-lookup: "false"
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: "17"
           distribution: "temurin"
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       - name: Build Rust JNI library (release)
         run: cargo build --release -p liter-llm-jni 2>/dev/null || echo "JNI crate not present in this repo; skipping"
