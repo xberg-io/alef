@@ -1,6 +1,6 @@
 use crate::{cargo_package_header, core_dep_features, detect_workspace_inheritance, scaffold_meta};
 use alef_core::backend::GeneratedFile;
-use alef_core::config::{Language, ResolvedCrateConfig};
+use alef_core::config::{AdapterPattern, Language, ResolvedCrateConfig};
 use alef_core::ir::ApiSurface;
 use alef_core::template_versions as tv;
 use std::path::PathBuf;
@@ -45,6 +45,13 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
     let has_trait_bridges = !config.trait_bridges.is_empty();
     if has_trait_bridges && !extra_dep_lines.iter().any(|l| l.starts_with("async-trait")) {
         extra_dep_lines.push(format!("async-trait = \"{}\"", tv::cargo::ASYNC_TRAIT));
+    }
+    let has_streaming = config
+        .adapters
+        .iter()
+        .any(|a| matches!(a.pattern, AdapterPattern::Streaming));
+    if has_streaming && !extra_dep_lines.iter().any(|l| l.starts_with("futures-util")) {
+        extra_dep_lines.push("futures-util = \"0.3\"".to_string());
     }
     extra_dep_lines.sort();
     let extra_deps_block = if extra_dep_lines.is_empty() {
