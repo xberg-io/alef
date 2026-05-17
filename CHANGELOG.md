@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-snippets C validator: use unambiguously invalid token in `syntax_fail` test**: the previous fixture (`return ;` in a non-void function) is treated as a warning by some GCC versions on Linux and exits 0 unless `-Werror` is set, causing the test to return `Pass` instead of `Fail`. Replaced with `@@@` — an invalid preprocessing token that is a hard error on all C compilers. (`crates/alef-snippets/src/validators/c.rs`)
+
 - **publish workflow: include `alef-backend-jni` in the crates.io publish order**: the jni backend was added in commit 831dd99d but was not wired into `.github/workflows/publish.yaml` crate order. Topologically, jni must be published after gleam (which has no jni deps) and before kotlin and kotlin-android (which depend on it). (`.github/workflows/publish.yaml`)
 
 ## [0.16.24] - 2026-05-17

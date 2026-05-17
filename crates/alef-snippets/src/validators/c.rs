@@ -126,7 +126,7 @@ mod tests {
         if !v.is_available() {
             return;
         }
-        let s = snippet("int main(void) { return ; }\n");
+        let s = snippet("int main(void) { @@@ }\n");
         let (status, _) = v.validate(&s, ValidationLevel::Syntax, 30).unwrap();
         assert_eq!(status, SnippetStatus::Fail);
     }
