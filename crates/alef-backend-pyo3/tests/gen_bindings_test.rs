@@ -4253,7 +4253,9 @@ fn test_native_import_no_stray_blank_line_after_open_paren() {
     };
 
     let config = make_config();
-    let files = backend.generate_public_api(&api, &config).expect("generate_public_api failed");
+    let files = backend
+        .generate_public_api(&api, &config)
+        .expect("generate_public_api failed");
 
     let init_py = files
         .iter()

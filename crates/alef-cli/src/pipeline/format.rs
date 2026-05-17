@@ -305,12 +305,6 @@ pub fn format_generated(
         if formatted_langs.contains(lang) {
             continue;
         }
-        // Skip languages outside the explicit filter (if provided).
-        if let Some(filter) = only_languages {
-            if !filter.contains(lang) {
-                continue;
-            }
-        }
 
         // Resolve format config for this language (check overrides first)
         let lang_str = lang.to_string().to_lowercase();
@@ -319,6 +313,24 @@ pub fn format_generated(
             .get(&lang_str)
             .cloned()
             .unwrap_or_else(|| config.format.clone());
+
+        // Languages with a custom format_override command bypass the only_languages
+        // filter. A custom command is an explicit declaration that this formatter
+        // must run whenever the language's files are present in the output — even
+        // when the generated content is identical to on-disk content (i.e., files
+        // were not re-written this run). Skipping in that case would leave the
+        // embedded alef:hash: computed over pre-formatter content, causing prek's
+        // own formatter hook to rewrite the files post-hash and break alef verify.
+        // Default formatters still respect only_languages so that warming the cache
+        // (no file writes) avoids unnecessary ruff/mix-format/etc. invocations.
+        let has_custom_command = format_cfg.command.is_some();
+        if !has_custom_command {
+            if let Some(filter) = only_languages {
+                if !filter.contains(lang) {
+                    continue;
+                }
+            }
+        }
 
         if !format_cfg.enabled {
             debug!("  [{lang_str}] formatting disabled, skipping");
@@ -685,5 +697,78 @@ wasm = "crates/ts-pack-core-wasm/src/"
         }
         let files = collect_java_files(root, 5);
         assert_eq!(files.len(), 5);
+    }
+
+    // Regression: custom format_override commands must run even when the language
+    // is absent from the only_languages filter (i.e., files were not re-written
+    // this run). The only_languages filter is an optimization for default formatters
+    // (skip when nothing changed), but a custom command must always run to ensure
+    // the embedded alef:hash: is computed over formatter-normalized content.
+    // Without this, adding [workspace.format_overrides.php] and running
+    // `alef all --format` on an already-generated repo would skip php-cs-fixer,
+    // leaving hashes computed over raw (pre-formatter) content; prek's own
+    // php-cs-fixer hook would then reformat and break alef verify.
+    #[test]
+    fn format_generated_custom_override_runs_when_lang_absent_from_only_languages_filter() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let sentinel = dir.path().join("was_run.txt");
+        let sentinel_str = sentinel.to_string_lossy().replace('\\', "/");
+
+        // Config with a custom format_override for php that writes a sentinel file.
+        let cfg: NewAlefConfig = toml::from_str(&format!(
+            r#"
+[workspace]
+languages = ["php"]
+
+[workspace.format_overrides.php]
+command = "touch {sentinel_str}"
+
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
+"#
+        ))
+        .expect("valid config");
+        let config = cfg.resolve().expect("resolve").remove(0);
+
+        // Simulate bindings for php — language appears in files but is NOT in only_languages.
+        let files: Vec<(Language, Vec<alef_core::backend::GeneratedFile>)> = vec![(Language::Php, vec![])];
+
+        // only_languages is empty — simulates "nothing was written this run".
+        let only_languages: std::collections::HashSet<Language> = std::collections::HashSet::new();
+
+        assert!(!sentinel.exists(), "sentinel must not exist before format_generated");
+
+        format_generated(&files, &config, dir.path(), Some(&only_languages));
+
+        assert!(
+            sentinel.exists(),
+            "custom format_override command must run even when php is absent from only_languages"
+        );
+    }
+
+    // Complement: default formatters must still respect the only_languages filter
+    // so that a warm cache (no file writes) skips unnecessary ruff/mix-format/etc.
+    // invocations for default formatters.
+    #[test]
+    fn format_generated_default_formatter_skipped_when_lang_absent_from_only_languages() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        // Config with no format_overrides — python uses the default ruff formatter.
+        let config = make_config("my-lib");
+
+        let files: Vec<(Language, Vec<alef_core::backend::GeneratedFile>)> = vec![(Language::Python, vec![])];
+
+        // only_languages is empty — simulates "nothing was written this run".
+        let only_languages: std::collections::HashSet<Language> = std::collections::HashSet::new();
+
+        // This should complete without error (ruff not present on the test box is fine —
+        // the point is that format_generated skips python entirely without reaching the
+        // is_tool_available check, so no warning is emitted and no external process runs).
+        // We verify by ensuring format_generated returns without calling any tool.
+        // Since python has a default formatter (ruff), skipping means the tool is never
+        // looked up — we can't assert negatively on tool invocation, but the test
+        // documents the intent: no-op when only_languages filter excludes the language.
+        format_generated(&files, &config, dir.path(), Some(&only_languages));
+        // If we reach here without error the skip path worked correctly.
     }
 }

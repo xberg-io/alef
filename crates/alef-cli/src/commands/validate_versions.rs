@@ -458,10 +458,11 @@ mod tests {
         )
         .unwrap();
 
-        // package.json at default node path
-        fs::create_dir_all(root.join("packages/node")).unwrap();
+        // package.json at the modern default node path (crates/{name}-node/).
+        // package_dir(Language::Node) returns "crates/{name}-node" for the new default.
+        fs::create_dir_all(root.join("crates/mylib-node")).unwrap();
         fs::write(
-            root.join("packages/node/package.json"),
+            root.join("crates/mylib-node/package.json"),
             format!("{{\"name\":\"mylib\",\"version\":\"{canonical}\"}}\n"),
         )
         .unwrap();
