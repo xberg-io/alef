@@ -1,6 +1,6 @@
 use crate::{cargo_package_header, core_dep_features, detect_workspace_inheritance, render_extra_deps, scaffold_meta};
 use alef_core::backend::GeneratedFile;
-use alef_core::config::{Language, ResolvedCrateConfig};
+use alef_core::config::{AdapterPattern, Language, ResolvedCrateConfig};
 use alef_core::ir::{ApiSurface, TypeRef};
 use alef_core::template_versions as tv;
 use std::path::PathBuf;
@@ -84,12 +84,22 @@ pub(crate) fn scaffold_node_cargo(
     let extra_deps = render_extra_deps(config, Language::Node);
 
     let has_trait_bridges = !config.trait_bridges.is_empty();
+    let has_streaming = config
+        .adapters
+        .iter()
+        .any(|a| matches!(a.pattern, AdapterPattern::Streaming));
     let mut all_deps = extra_deps;
     if has_trait_bridges && !all_deps.contains("async-trait") {
         if !all_deps.is_empty() {
             all_deps.push('\n');
         }
         all_deps.push_str("async-trait = \"0.1\"");
+    }
+    if has_streaming && !all_deps.contains("futures-util = ") && !all_deps.contains("futures-util =\"") {
+        if !all_deps.is_empty() {
+            all_deps.push('\n');
+        }
+        all_deps.push_str("futures-util = \"0.3\"");
     }
 
     let extra_deps_section = if all_deps.is_empty() {

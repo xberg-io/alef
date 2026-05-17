@@ -560,10 +560,9 @@ fn render_test_case(
                 }
             }
             "string" => {
-                // The dart wrapper (`KreuzbergBridge`) emits required params as POSITIONAL
-                // and optional params as named (`{...}` block). Match that convention here:
-                // required string args are positional literals, optional string args are
-                // emitted as `paramName: 'value'` named arguments.
+                // The dart wrapper emits all params as named (`{required ...}` for
+                // required, `{optional ...}` for optional). Emit `paramName: 'value'`
+                // for both forms.
                 //
                 // Special case: when dart remaps `extractFile*` → `extractBytes*`
                 // (because dart cannot pass OS file paths through the FFI bridge), the
@@ -578,14 +577,14 @@ fn render_test_case(
                 let mime_required_due_to_remap = has_file_path_arg
                     && arg_def.name == "mime_type"
                     && (function_name == "extractBytes" || function_name == "extractBytesSync");
-                let is_optional = arg_def.optional && !mime_required_due_to_remap;
+                let use_positional = mime_required_due_to_remap;
                 match arg_value {
                     serde_json::Value::String(s) => {
                         let literal = format!("'{}'", escape_dart(s));
-                        if is_optional {
-                            args.push(format!("{dart_param_name}: {literal}"));
-                        } else {
+                        if use_positional {
                             args.push(literal);
+                        } else {
+                            args.push(format!("{dart_param_name}: {literal}"));
                         }
                     }
                     serde_json::Value::Null
@@ -597,10 +596,10 @@ fn render_test_case(
                         let inferred = file_path_for_mime
                             .and_then(mime_from_extension)
                             .unwrap_or("application/octet-stream");
-                        if is_optional {
-                            args.push(format!("{dart_param_name}: '{inferred}'"));
-                        } else {
+                        if use_positional {
                             args.push(format!("'{inferred}'"));
+                        } else {
+                            args.push(format!("{dart_param_name}: '{inferred}'"));
                         }
                     }
                     // Other optional strings with null value are omitted.

@@ -572,6 +572,8 @@ fn assemble_kt_content(package: &str, imports: &BTreeSet<String>, body: &str) ->
          \"ktlint:standard:spacing-between-declarations-with-comments\",\n    \
          \"ktlint:standard:when-entry-bracing\",\n    \
          \"ktlint:standard:annotation\",\n    \
+         \"ktlint:standard:max-line-length\",\n    \
+         \"MaxLineLength\",\n    \
          \"TooManyFunctions\",\n    \
          \"FunctionParameterNaming\",\n    \
          \"LongParameterList\",\n\
