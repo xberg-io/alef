@@ -59,11 +59,17 @@ impl E2eCodegen for WasmCodegen {
         // that value so that renamed WASM crates resolve correctly without any
         // hardcoded special cases.
         let wasm_pkg = e2e_config.resolve_package("wasm");
-        let pkg_path = wasm_pkg
-            .as_ref()
-            .and_then(|p| p.path.as_ref())
-            .cloned()
-            .unwrap_or_else(|| config.wasm_crate_path());
+        // `pkg_path_is_explicit` distinguishes "user told us exactly where the
+        // npm-consumable package lives" from "fall back to the default
+        // wasm-pack output directory". The render below appends `/nodejs` only
+        // for the fallback case (`wasm_crate_path()` returns the crate's
+        // `pkg/` dir, whose npm-consumable subpackage is at `pkg/nodejs/`).
+        // For an explicit path the user is responsible for pointing at a
+        // directory that already has a valid `package.json`.
+        let (pkg_path, pkg_path_is_explicit) = match wasm_pkg.as_ref().and_then(|p| p.path.as_ref()) {
+            Some(p) => (p.clone(), true),
+            None => (config.wasm_crate_path(), false),
+        };
         let pkg_name = wasm_pkg
             .as_ref()
             .and_then(|p| p.name.as_ref())
@@ -146,7 +152,13 @@ impl E2eCodegen for WasmCodegen {
         // suite can import the wasm-pack nodejs CJS bundle by package name.
         files.push(GeneratedFile {
             path: output_base.join("package.json"),
-            content: render_package_json(&pkg_name, &pkg_path, &pkg_version, e2e_config.dep_mode),
+            content: render_package_json(
+                &pkg_name,
+                &pkg_path,
+                pkg_path_is_explicit,
+                &pkg_version,
+                e2e_config.dep_mode,
+            ),
             generated_header: false,
         });
 
@@ -286,17 +298,27 @@ fn snake_to_camel(s: &str) -> String {
 fn render_package_json(
     pkg_name: &str,
     pkg_path: &str,
+    pkg_path_is_explicit: bool,
     pkg_version: &str,
     dep_mode: crate::config::DependencyMode,
 ) -> String {
     let dep_value = match dep_mode {
         crate::config::DependencyMode::Registry => pkg_version.to_string(),
-        // `wasm-pack build --target nodejs --out-dir pkg/nodejs` writes the actual
-        // npm-consumable package (its own package.json with `main`/`types` etc.) to
-        // `pkg/nodejs/`, not to `pkg/` directly. The e2e suite runs the nodejs target,
-        // so point the local file: dependency at the nodejs subdirectory. Older code
-        // pointed at `pkg/`, which has no package.json and breaks pnpm resolution.
-        crate::config::DependencyMode::Local => format!("file:{pkg_path}/nodejs"),
+        // Fallback path: `wasm-pack build --target nodejs --out-dir pkg/nodejs` writes
+        // the npm-consumable package (its own package.json with `main`/`types` etc.)
+        // to `pkg/nodejs/`, not to `pkg/` directly. The fallback `wasm_crate_path()`
+        // points at `pkg/`, so we descend into `nodejs/` to find a valid
+        // package.json. When the user has set `[e2e.packages.wasm].path` explicitly,
+        // we trust they have already pointed at a directory with a valid package.json
+        // (the crate root, the wasm-pack out-dir, or another distribution layout) and
+        // do not mutate it.
+        crate::config::DependencyMode::Local => {
+            if pkg_path_is_explicit {
+                format!("file:{pkg_path}")
+            } else {
+                format!("file:{pkg_path}/nodejs")
+            }
+        }
     };
     crate::template_env::render(
         "wasm/package.json.jinja",
