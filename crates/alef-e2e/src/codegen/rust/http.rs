@@ -185,12 +185,41 @@ pub fn render_http_test_function(out: &mut String, fixture: &Fixture, dep_name: 
 /// The CORS policy is derived from the fixture's `cors` middleware config.
 /// After this function, `router` is reassigned to the layer-wrapped version.
 pub fn render_cors_layer(out: &mut String, cors: &CorsConfig) {
+    // Decide up-front which axum::http re-exports we will actually reference so we
+    // can emit a tight `use` group — emitting all three unconditionally trips
+    // `-D unused_imports` for fixtures that, say, allow no custom headers.
+    let needs_header_value = !cors.allow_origins.is_empty();
+    let needs_method = !cors.allow_methods.is_empty();
+    let needs_header_name = !cors.allow_headers.is_empty()
+        && cors
+            .allow_headers
+            .iter()
+            .any(|h| !matches!(h.to_lowercase().as_str(), "content-type" | "authorization" | "accept"));
+
     let _ = writeln!(
         out,
         "    // Apply CorsLayer from tower-http based on fixture CORS config."
     );
     let _ = writeln!(out, "    use tower_http::cors::CorsLayer;");
-    let _ = writeln!(out, "    use axum::http::{{HeaderName, HeaderValue, Method}};");
+    let mut imports: Vec<&'static str> = Vec::new();
+    if needs_header_name {
+        imports.push("HeaderName");
+    }
+    if needs_header_value {
+        imports.push("HeaderValue");
+    }
+    if needs_method {
+        imports.push("Method");
+    }
+    match imports.len() {
+        0 => {}
+        1 => {
+            let _ = writeln!(out, "    use axum::http::{};", imports[0]);
+        }
+        _ => {
+            let _ = writeln!(out, "    use axum::http::{{{}}};", imports.join(", "));
+        }
+    }
     let _ = writeln!(out, "    let cors_layer = CorsLayer::new()");
 
     // allow_origins
@@ -330,5 +359,66 @@ mod tests {
         assert!(out.contains("allow_origin(tower_http::cors::Any)"));
         assert!(out.contains("allow_methods(tower_http::cors::Any)"));
         assert!(out.contains("allow_headers(tower_http::cors::Any)"));
+    }
+
+    /// An empty CORS policy must not import `HeaderName`/`HeaderValue`/`Method`
+    /// — emitting unused imports trips `-D unused_imports` in the consumer.
+    #[test]
+    fn render_cors_layer_empty_policy_emits_no_axum_http_imports() {
+        let cors = CorsConfig::default();
+        let mut out = String::new();
+        render_cors_layer(&mut out, &cors);
+        assert!(!out.contains("use axum::http::"));
+    }
+
+    /// `allow_origins` set → `HeaderValue` is referenced, so the import must appear.
+    #[test]
+    fn render_cors_layer_with_origin_imports_header_value() {
+        let cors = CorsConfig {
+            allow_origins: vec!["https://example.com".to_string()],
+            ..CorsConfig::default()
+        };
+        let mut out = String::new();
+        render_cors_layer(&mut out, &cors);
+        assert!(out.contains("use axum::http::HeaderValue;"));
+    }
+
+    /// `allow_methods` set → `Method` is referenced.
+    #[test]
+    fn render_cors_layer_with_method_imports_method() {
+        let cors = CorsConfig {
+            allow_methods: vec!["GET".to_string()],
+            ..CorsConfig::default()
+        };
+        let mut out = String::new();
+        render_cors_layer(&mut out, &cors);
+        assert!(out.contains("use axum::http::Method;"));
+    }
+
+    /// `allow_headers` containing only prelude-mapped names (content-type, etc.)
+    /// must NOT import `HeaderName` — those headers expand to qualified constants.
+    #[test]
+    fn render_cors_layer_with_only_prelude_headers_omits_header_name() {
+        let cors = CorsConfig {
+            allow_headers: vec!["content-type".to_string(), "Authorization".to_string()],
+            ..CorsConfig::default()
+        };
+        let mut out = String::new();
+        render_cors_layer(&mut out, &cors);
+        assert!(!out.contains("HeaderName"));
+    }
+
+    /// `allow_headers` containing a custom header → `HeaderName::from_static(...)` is
+    /// emitted, so the `HeaderName` import must appear.
+    #[test]
+    fn render_cors_layer_with_custom_header_imports_header_name() {
+        let cors = CorsConfig {
+            allow_headers: vec!["X-Custom".to_string()],
+            ..CorsConfig::default()
+        };
+        let mut out = String::new();
+        render_cors_layer(&mut out, &cors);
+        assert!(out.contains("HeaderName"));
+        assert!(out.contains("use axum::http::HeaderName;"));
     }
 }

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-e2e rust cors: emit only the `axum::http` re-exports actually referenced by the rendered `CorsLayer`**: `render_cors_layer` previously emitted `use axum::http::{HeaderName, HeaderValue, Method};` unconditionally, but `HeaderName` is only emitted when `allow_headers` contains a non-prelude header (i.e. anything outside `content-type`/`authorization`/`accept`), `HeaderValue` only when `allow_origins` is non-empty, and `Method` only when `allow_methods` is non-empty. Fixtures that allow no custom headers (the common case) therefore got an unused `HeaderName` import, tripping `-D unused_imports` in the consumer's cargo build. The import group is now computed from actual use and reduced to one of: nothing, a single `use axum::http::X;`, or the appropriate subset. Covered by five new unit tests in `render_cors_layer::tests`. (`crates/alef-e2e/src/codegen/rust/http.rs`)
+
 ## [0.16.29] - 2026-05-17
 
 ### Fixed
