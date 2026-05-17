@@ -91,6 +91,11 @@ pub struct PythonConfig {
     /// Additional Cargo dependencies for this language's binding crate only.
     #[serde(default)]
     pub extra_dependencies: HashMap<String, toml::Value>,
+    /// Runtime Python (PyPI) dependencies emitted into `[project] dependencies`
+    /// of the scaffold-generated `pyproject.toml`. Entries are PEP 508 strings
+    /// such as `"tree-sitter>=0.23"` and pass through verbatim. Empty by default.
+    #[serde(default)]
+    pub pip_dependencies: Vec<String>,
     /// Override the scaffold output directory for this language's Cargo.toml and package files.
     #[serde(default)]
     pub scaffold_output: Option<PathBuf>,

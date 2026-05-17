@@ -163,6 +163,14 @@ pub(crate) fn scaffold_python(api: &ApiSurface, config: &ResolvedCrateConfig) ->
         format!("homepage = \"{}\"\n", meta.homepage)
     };
 
+    let dependencies_toml = match config.python.as_ref().map(|p| &p.pip_dependencies) {
+        Some(deps) if !deps.is_empty() => {
+            let entries: Vec<String> = deps.iter().map(|d| format!("\"{}\"", d)).collect();
+            format!("dependencies = [ {} ]\n", entries.join(", "))
+        }
+        _ => String::new(),
+    };
+
     let content = format!(
         r#"[build-system]
 requires = [ "{maturin_build_requires}" ]
@@ -182,7 +190,7 @@ classifiers = [
   "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3.14",
 ]
-{authors}{keywords}{homepage}[project.urls]
+{authors}{keywords}{homepage}{dependencies}[project.urls]
 repository = "{repository}"
 
 [tool.maturin]
@@ -241,6 +249,7 @@ namespace_packages = true
         authors = authors_toml,
         keywords = keywords_toml,
         homepage = homepage_toml,
+        dependencies = dependencies_toml,
         repository = meta.repository,
         python_package = python_package,
         module_name = module_name,
