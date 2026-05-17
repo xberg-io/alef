@@ -159,6 +159,7 @@ fn extract_raw(config: &ResolvedCrateConfig, _config_path: &Path) -> anyhow::Res
         enums: vec![],
         errors: vec![],
         excluded_type_paths: std::collections::HashMap::new(),
+        excluded_trait_names: std::collections::HashSet::new(),
     };
 
     for (crate_name, sources) in &groups {
@@ -169,6 +170,7 @@ fn extract_raw(config: &ResolvedCrateConfig, _config_path: &Path) -> anyhow::Res
         merged.enums.extend(api.enums);
         merged.errors.extend(api.errors);
         merged.excluded_type_paths.extend(api.excluded_type_paths);
+        merged.excluded_trait_names.extend(api.excluded_trait_names);
     }
 
     Ok(merged)
@@ -384,6 +386,12 @@ fn strip_binding_excluded(api: &mut ApiSurface) -> anyhow::Result<()> {
             info!("Stripping excluded type: {} ({})", typ.name, reason);
             api.excluded_type_paths
                 .insert(typ.name.clone(), typ.rust_path.replace('-', "_"));
+            // Preserve trait-ness across the strip so trait-bridge codegen can tell
+            // an excluded trait (`&dyn Trait` → non-bridgeable, skip the method) from
+            // an excluded struct/enum (`&InternalDocument` → reference by qualified path).
+            if typ.is_trait {
+                api.excluded_trait_names.insert(typ.name.clone());
+            }
         }
     }
     for enm in &api.enums {

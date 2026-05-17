@@ -48,6 +48,7 @@ fn make_empty_api() -> ApiSurface {
         errors: vec![],
         functions: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     }
 }
 

@@ -304,6 +304,7 @@ fn print_generated_java_code() {
             binding_exclusion_reason: None,
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = resolved_one(

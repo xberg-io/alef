@@ -953,6 +953,7 @@ mod tests {
             enums: vec![],
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
         };
         let config = make_test_config();
 
@@ -1037,6 +1038,7 @@ mod tests {
             enums: vec![],
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
         };
         let config = make_test_config();
         let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
@@ -1092,6 +1094,7 @@ mod tests {
             }],
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
         };
         let config = make_test_config();
         let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
@@ -1149,6 +1152,7 @@ mod tests {
             }],
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
         };
         let config = make_test_config();
         let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
@@ -1300,6 +1304,7 @@ mod tests {
             ],
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
         };
         let config = make_test_config();
         let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
@@ -1365,6 +1370,7 @@ mod tests {
             enums: vec![],
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
         };
         let config = make_test_config();
         let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
@@ -1414,6 +1420,7 @@ mod tests {
                 binding_exclusion_reason: None,
             }],
             excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
         };
         let config = make_test_config();
         let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
@@ -1575,6 +1582,7 @@ mod tests {
             enums: vec![],
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
         };
         let config = make_test_config();
         let files = generate_docs(
@@ -1630,6 +1638,7 @@ mod tests {
             enums: vec![],
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
         };
         let config = make_test_config();
         let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();

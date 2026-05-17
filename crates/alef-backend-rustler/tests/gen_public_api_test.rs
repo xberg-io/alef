@@ -230,6 +230,7 @@ fn test_generate_public_api_creates_all_files() {
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config("my_lib");
@@ -328,6 +329,7 @@ fn test_native_ex_has_all_nif_stubs() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config("my_lib");
@@ -457,6 +459,7 @@ fn test_struct_module_has_defstruct() {
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config("my_lib");
@@ -536,6 +539,7 @@ fn test_main_module_has_method_wrappers() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config("my_lib");
@@ -605,6 +609,7 @@ fn test_opaque_types_not_get_struct_module() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config("my_lib");
@@ -672,6 +677,7 @@ fn test_simple_enum_module_has_type_and_accessors() {
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config("my_lib");
@@ -753,6 +759,7 @@ fn test_generate_bindings_nif_init_uses_native_module() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config("my_lib");
@@ -817,6 +824,7 @@ fn test_builtin_type_function_variant_uses_safe_type_name() {
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config("my_lib");
@@ -853,6 +861,7 @@ fn test_native_ex_force_build_line_within_98_chars() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config("my_lib");
@@ -939,6 +948,7 @@ fn test_reserved_attr_doc_variant_uses_safe_name() {
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config("my_lib");
@@ -1023,6 +1033,7 @@ fn test_trailing_optional_params_emit_keyword_opts_function() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config("my_lib");
@@ -1103,6 +1114,7 @@ fn test_defstruct_string_fields_default_to_nil() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config("my_lib");
@@ -1162,6 +1174,7 @@ fn render_native_ex(functions: Vec<FunctionDef>) -> String {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
     let config = make_config("my_lib");
     let files = backend
@@ -1282,6 +1295,7 @@ fn test_wrapper_module_doc_uses_full_first_paragraph_summary() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
     let config = make_config("my_lib");
     let files = backend.generate_public_api(&api, &config).unwrap();

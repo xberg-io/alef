@@ -149,6 +149,7 @@ fn test_basic_generation() {
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config();
@@ -313,6 +314,7 @@ module = "github.com/test/test-lib"
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -361,6 +363,7 @@ fn test_type_mapping() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config();
@@ -450,6 +453,7 @@ fn test_enum_generation() {
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config();
@@ -493,6 +497,7 @@ fn test_generated_header() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config();
@@ -613,6 +618,7 @@ fn test_methods_generation() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config();
@@ -692,6 +698,7 @@ fn test_error_types() {
             binding_exclusion_reason: None,
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config();
@@ -755,6 +762,7 @@ fn test_async_function() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config();
@@ -806,6 +814,7 @@ fn test_opaque_type() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config();
@@ -890,6 +899,7 @@ fn test_default_config() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config();
@@ -990,6 +1000,7 @@ fn test_optional_primitive_uses_cgo_types() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config();
@@ -1062,6 +1073,7 @@ fn test_optional_return_type_no_double_pointer() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config();
@@ -1181,6 +1193,7 @@ fn make_api_with_type(trait_type: TypeDef) -> ApiSurface {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     }
 }
 
@@ -1747,6 +1760,7 @@ fn test_generate_bindings_with_trait_bridge_emits_trait_bridges_go_file() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config_with_bridges(vec![bridge_cfg]);
@@ -1848,6 +1862,7 @@ fn test_opaque_error_type_uses_value_semantics() {
             binding_exclusion_reason: None,
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config();
@@ -1947,6 +1962,7 @@ fn test_bytes_return_emits_helper_and_no_string_free() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config();
@@ -2354,6 +2370,7 @@ module = "github.com/example/mylib"
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
     let backend = GoBackend;
     let files = backend.generate_bindings(&api, &config).unwrap();

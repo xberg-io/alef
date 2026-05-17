@@ -735,16 +735,117 @@ fn emit_trait_bridge_method(
 }
 
 /// Returns true if `ty` references a `Named(name)` at any depth where `name` resolves
-/// to a trait in `api.types`. Such methods return references to trait objects
+/// to a trait — either present in `api.types` or stripped from the binding surface
+/// (`api.excluded_trait_names`). Such methods return references to trait objects
 /// (`&dyn Trait`, `Option<&dyn Trait>`, `Box<dyn Trait>`) which the Rust IR flattens
 /// to `Named(name)`. They cannot be bridged to Dart — the foreign side has no way to
 /// construct or return a Rust trait object across FFI — so the trait-bridge generator
 /// skips them and falls back to the trait's default impl.
+///
+/// The `excluded_trait_names` lookup is necessary because traits annotated with
+/// `#[cfg_attr(alef, alef(skip))]` (e.g. `SyncExtractor`) are stripped from `api.types`
+/// before codegen, but their NAME may still appear in surviving trait method return
+/// signatures (e.g. `DocumentExtractor::as_sync_extractor() -> Option<&dyn SyncExtractor>`).
+/// Without this fallback, the bridge struct would emit a closure field with the trait
+/// path used as a TYPE (`Option<kreuzberg::extractors::SyncExtractor>`), producing
+/// `error[E0782]: expected a type, found a trait`. Restricting the check to trait-shaped
+/// excluded items (not all excluded items) keeps methods returning excluded structs
+/// (`extract_bytes -> Result<InternalDocument>`) emitted, since `InternalDocument` is a
+/// concrete struct usable by its qualified core path.
 pub(crate) fn return_type_references_trait(ty: &TypeRef, api: &ApiSurface) -> bool {
     match ty {
-        TypeRef::Named(name) => api.types.iter().any(|t| t.is_trait && &t.name == name),
+        TypeRef::Named(name) => {
+            api.types.iter().any(|t| t.is_trait && &t.name == name) || api.excluded_trait_names.contains(name)
+        }
         TypeRef::Optional(inner) | TypeRef::Vec(inner) => return_type_references_trait(inner, api),
         TypeRef::Map(k, v) => return_type_references_trait(k, api) || return_type_references_trait(v, api),
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alef_core::ir::{ApiSurface, TypeDef, TypeRef};
+
+    fn empty_type_def(name: &str, is_trait: bool) -> TypeDef {
+        TypeDef {
+            name: name.to_string(),
+            rust_path: format!("demo::{name}"),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: false,
+            is_copy: false,
+            doc: String::new(),
+            cfg: None,
+            is_trait,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }
+    }
+
+    fn api_surface(types: Vec<TypeDef>, excluded_paths: Vec<(&str, &str)>, excluded_traits: Vec<&str>) -> ApiSurface {
+        ApiSurface {
+            types,
+            excluded_type_paths: excluded_paths
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+            excluded_trait_names: excluded_traits.into_iter().map(String::from).collect(),
+            ..ApiSurface::default()
+        }
+    }
+
+    #[test]
+    fn return_type_references_in_surface_trait() {
+        // Sanity check: pre-existing behaviour — traits present in api.types are detected.
+        let api = api_surface(vec![empty_type_def("MyTrait", true)], vec![], vec![]);
+        let ret = TypeRef::Optional(Box::new(TypeRef::Named("MyTrait".into())));
+        assert!(return_type_references_trait(&ret, &api));
+    }
+
+    #[test]
+    fn return_type_references_excluded_trait_is_detected() {
+        // Regression: a trait stripped from api.types via `alef(skip)` must still be
+        // detected via `excluded_trait_names`, otherwise the trait-bridge field is emitted
+        // and the generated `Box<dyn Fn() -> DartFnFuture<Option<demo::SyncExtractor>>>`
+        // fails to compile with E0782 (`SyncExtractor` is a trait, not a type).
+        let api = api_surface(
+            vec![],
+            vec![("SyncExtractor", "demo::extractors::SyncExtractor")],
+            vec!["SyncExtractor"],
+        );
+        let ret = TypeRef::Optional(Box::new(TypeRef::Named("SyncExtractor".into())));
+        assert!(return_type_references_trait(&ret, &api));
+    }
+
+    #[test]
+    fn return_type_with_excluded_struct_is_not_detected() {
+        // Regression: excluded structs (e.g. `InternalDocument`) appear by qualified path
+        // in surviving method signatures (`extract_bytes -> Result<InternalDocument>`) and
+        // ARE bridgeable — they must NOT be filtered out, or the trait impl ends up missing
+        // a required method (`error[E0046]: not all trait items implemented`).
+        let api = api_surface(
+            vec![],
+            vec![("InternalDocument", "demo::types::internal::InternalDocument")],
+            vec![],
+        );
+        let ret = TypeRef::Named("InternalDocument".into());
+        assert!(!return_type_references_trait(&ret, &api));
+    }
+
+    #[test]
+    fn return_type_with_unrelated_named_is_not_detected() {
+        let api = api_surface(vec![empty_type_def("MyStruct", false)], vec![], vec![]);
+        let ret = TypeRef::Optional(Box::new(TypeRef::Named("MyStruct".into())));
+        assert!(!return_type_references_trait(&ret, &api));
     }
 }

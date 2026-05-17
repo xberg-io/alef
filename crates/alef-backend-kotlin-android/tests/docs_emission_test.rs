@@ -103,6 +103,7 @@ fn data_class_field_carries_kdoc() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
     let files = render(api);
     let config_kt = files
@@ -158,6 +159,7 @@ fn enum_variants_carry_kdoc() {
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
     let files = render(api);
     let mode_kt = files
@@ -221,6 +223,7 @@ fn module_free_function_facade_carries_kdoc() {
             binding_exclusion_reason: None,
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
     let files = render(api);
     let module_kt = files

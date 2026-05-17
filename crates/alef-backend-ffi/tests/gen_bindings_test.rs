@@ -19,6 +19,7 @@ fn make_empty_api() -> ApiSurface {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     }
 }
 
@@ -147,6 +148,7 @@ fn make_api() -> ApiSurface {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     }
 }
 
@@ -871,6 +873,7 @@ ffi = "crates/mylib-ffi/src/"
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let backend = FfiBackend;

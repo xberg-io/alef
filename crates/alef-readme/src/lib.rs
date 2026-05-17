@@ -834,6 +834,7 @@ repository = "https://github.com/test/my-lib"
             enums: vec![],
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
         }
     }
 

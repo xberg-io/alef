@@ -207,6 +207,7 @@ fn make_demo_api() -> ApiSurface {
             binding_exclusion_reason: None,
         }],
         excluded_type_paths: std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     }
 }
 
@@ -802,6 +803,7 @@ fn real_ir_shape_optional_ref_result_async() {
             binding_exclusion_reason: None,
         }],
         excluded_type_paths: std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_demo_config();
@@ -918,6 +920,7 @@ fn method_ref_mut_receiver_emits_mut_cast() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_demo_config();
@@ -989,6 +992,7 @@ fn method_ref_receiver_emits_const_cast() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_demo_config();
@@ -1070,6 +1074,7 @@ fn method_slice_u8_param_receives_jbytearray() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_demo_config();
@@ -1155,6 +1160,7 @@ fn method_pathbuf_param_receives_raw_string() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_demo_config();
@@ -1246,6 +1252,7 @@ fn method_slice_str_param_coerces_to_str_refs() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_demo_config();

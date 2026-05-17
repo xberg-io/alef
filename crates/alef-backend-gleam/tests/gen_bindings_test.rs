@@ -116,6 +116,7 @@ fn struct_emits_record_type() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let files = GleamBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -154,6 +155,7 @@ fn function_emits_external_binding() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let files = GleamBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -207,6 +209,7 @@ fn enum_emits_custom_type() {
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let files = GleamBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -229,6 +232,7 @@ fn optional_field_imports_option() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let files = GleamBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -274,6 +278,7 @@ fn error_emits_custom_type() {
             binding_exclusion_reason: None,
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let files = GleamBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -325,6 +330,7 @@ fn enum_tuple_variant_emits_unlabeled_field() {
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let files = GleamBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -366,6 +372,7 @@ fn nif_module_override_uses_custom_name() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config_with_nif("custom_nif_atom");
@@ -518,6 +525,7 @@ fn trait_bridge_single_method_emits_register_and_support_nifs() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config_with_bridges(vec![bridge_cfg]);
@@ -575,6 +583,7 @@ fn trait_bridge_multiple_bridges_emit_support_nifs_only_once() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config_with_bridges(vec![ocr_bridge, embedding_bridge]);
@@ -623,6 +632,7 @@ fn trait_bridge_emits_per_method_response_shim() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config_with_bridges(vec![bridge_cfg]);
@@ -668,6 +678,7 @@ fn trait_bridge_response_shim_uses_typed_return_and_error() {
         enums: vec![],
         errors: vec![ocr_error],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config_with_bridges(vec![bridge_cfg]);
@@ -706,6 +717,7 @@ fn trait_bridge_response_shim_unit_return_emits_nil() {
         enums: vec![],
         errors: vec![my_error],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config_with_bridges(vec![bridge_cfg]);
@@ -738,6 +750,7 @@ fn trait_bridge_multiple_methods_emit_one_shim_each() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config_with_bridges(vec![bridge_cfg]);
@@ -780,6 +793,7 @@ fn trait_bridge_response_shim_includes_doc_comment() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config_with_bridges(vec![bridge_cfg]);
@@ -814,6 +828,7 @@ fn trait_bridge_emits_unregistration_fn_when_configured() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config_with_bridges(vec![bridge_cfg]);
@@ -843,6 +858,7 @@ fn trait_bridge_omits_unregistration_fn_when_not_configured() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config_with_bridges(vec![bridge_cfg]);
@@ -872,6 +888,7 @@ fn trait_bridge_emits_clear_fn_when_configured() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config_with_bridges(vec![bridge_cfg]);
@@ -901,6 +918,7 @@ fn trait_bridge_omits_clear_fn_when_not_configured() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config_with_bridges(vec![bridge_cfg]);
@@ -931,6 +949,7 @@ fn trait_bridge_emits_all_three_fns_when_fully_configured() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config_with_bridges(vec![bridge_cfg]);
@@ -970,6 +989,7 @@ fn non_trait_type_with_methods_emits_opaque_resource_only_once() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config_with_nif("Elixir.Demo.Native");

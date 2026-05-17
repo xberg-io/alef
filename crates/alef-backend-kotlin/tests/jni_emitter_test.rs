@@ -142,6 +142,7 @@ fn make_jni_api_with_client_and_function() -> ApiSurface {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     }
 }
 
@@ -172,6 +173,7 @@ fn make_simple_api() -> ApiSurface {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     }
 }
 
@@ -371,6 +373,7 @@ target = "jvm"
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -478,6 +481,7 @@ fn make_api_with_chat_and_embeddings() -> ApiSurface {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     }
 }
 
@@ -605,6 +609,7 @@ fn make_api_with_speech_method() -> ApiSurface {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     }
 }
 
@@ -705,6 +710,7 @@ fn make_api_with_unit_return_method() -> ApiSurface {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     }
 }
 

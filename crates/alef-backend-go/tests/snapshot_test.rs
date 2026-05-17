@@ -84,6 +84,7 @@ fn surface_for_type(typ: TypeDef) -> ApiSurface {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     }
 }
 
@@ -210,6 +211,7 @@ fn godoc_on_free_function_emits_arguments_bullets_and_errors() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let content = binding_content(&api, &make_config());

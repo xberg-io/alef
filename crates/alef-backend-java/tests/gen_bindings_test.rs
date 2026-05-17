@@ -163,6 +163,7 @@ fn test_basic_generation() {
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = resolved_one(
@@ -341,6 +342,7 @@ package = "dev.example"
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -393,6 +395,7 @@ fn test_duplicate_error_variant_exception_classes_are_emitted_once() {
             },
         ],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -430,6 +433,7 @@ fn test_package_default_when_unconfigured() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     // No java package and no scaffold repository configured
@@ -572,6 +576,7 @@ fn test_optional_field_defaults_in_builder() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = resolved_one(
@@ -723,6 +728,7 @@ fn test_no_standalone_builder_java_file_emitted() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_test_config("com.example");
@@ -823,6 +829,7 @@ fn test_tagged_union_newtype_variants_produce_valid_java() {
             binding_exclusion_reason: None,
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let files = backend
@@ -1048,6 +1055,7 @@ type = "ChatCompletionRequest"
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let backend = JavaBackend;
@@ -1174,6 +1182,7 @@ fn test_bytes_parameter_expansion_in_ffi_descriptor_and_invoke() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = resolved_one(
@@ -1300,6 +1309,7 @@ fn test_dto_emits_as_record_with_fields_only() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_test_config("com.test");
@@ -1359,6 +1369,7 @@ fn test_opaque_handle_type_remains_class() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_test_config("com.test");
@@ -1483,6 +1494,7 @@ fn test_sum_type_sealed_interface_with_record_variants() {
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_test_config("com.test");
@@ -1615,6 +1627,7 @@ type = "EventRequest"
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let backend = JavaBackend;
@@ -1722,6 +1735,7 @@ fn test_tagged_enum_emits_sealed_interface_with_record_variants() {
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let files = backend
@@ -1834,6 +1848,7 @@ fn test_plain_dto_emits_as_record_not_sealed_class() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let files = backend
@@ -2022,6 +2037,7 @@ fn test_option_params_and_returns_emit_nullable_annotations() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_test_config("dev.test");
@@ -2195,6 +2211,7 @@ type = "EventRequest"
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let backend = JavaBackend;
@@ -2275,6 +2292,7 @@ fn facade_unwraps_optional_string_return_via_or_else_null() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_test_config("dev.test");
@@ -2372,6 +2390,7 @@ fn optional_named_method_body_wraps_via_optional_of() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_test_config("dev.test");

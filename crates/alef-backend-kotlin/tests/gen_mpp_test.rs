@@ -137,6 +137,7 @@ fn mpp_emits_five_files() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
     let config = make_mpp_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -163,6 +164,7 @@ fn mpp_common_contains_expect_object() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
     let config = make_mpp_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -213,6 +215,7 @@ fn mpp_jvm_contains_actual_object_with_bridge() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
     let config = make_mpp_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -250,6 +253,7 @@ fn mpp_native_contains_actual_object_with_mem_scoped() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
     let config = make_mpp_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -290,6 +294,7 @@ fn mpp_dtos_only_in_common_main() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
     let config = make_mpp_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -335,6 +340,7 @@ fn mpp_def_file_has_correct_fields() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
     let config = make_mpp_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -372,6 +378,7 @@ fn mpp_gradle_uses_multiplatform_plugin() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
     let config = make_mpp_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -446,6 +453,7 @@ fn mpp_sealed_enum_in_common_main() {
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
     let config = make_mpp_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -489,6 +497,7 @@ fn mpp_error_sealed_class_in_common_main() {
             binding_exclusion_reason: None,
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
     let config = make_mpp_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();

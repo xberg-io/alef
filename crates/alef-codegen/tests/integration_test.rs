@@ -2995,6 +2995,7 @@ fn test_collect_trait_imports_empty_when_no_trait_methods() {
         functions: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let result = collect_trait_imports(&api);
@@ -3053,6 +3054,7 @@ fn test_collect_trait_imports_deduplicates_by_trait_name() {
         functions: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let result = collect_trait_imports(&api);
@@ -3072,6 +3074,7 @@ fn test_collect_explicit_core_imports_returns_type_and_enum_names() {
         functions: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let result = collect_explicit_core_imports(&api);
@@ -3095,6 +3098,7 @@ fn test_collect_explicit_core_imports_is_sorted() {
         functions: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let result = collect_explicit_core_imports(&api);

@@ -1279,6 +1279,7 @@ namespace = "dev.kreuzberg"
             enums: vec![],
             errors: vec![],
             excluded_type_paths: Default::default(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
         };
         let content = emit_lib_rs(&api, &config);
         // The generated helper must NOT use `let _ = env.throw_new(...)` which

@@ -416,6 +416,7 @@ mod tests {
             enums: vec![],
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
         }
     }
 
@@ -1012,6 +1013,7 @@ mod tests {
                 );
                 m
             },
+            excluded_trait_names: ::std::collections::HashSet::new(),
         };
 
         let code = gen_trait_bridge(
@@ -1338,6 +1340,7 @@ mod tests {
                 );
                 m
             },
+            excluded_trait_names: ::std::collections::HashSet::new(),
         };
 
         let code = gen_trait_bridge(

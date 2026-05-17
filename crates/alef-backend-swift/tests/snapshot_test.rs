@@ -155,6 +155,7 @@ fn make_basic_api() -> ApiSurface {
             binding_exclusion_reason: None,
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     }
 }
 
@@ -255,6 +256,7 @@ fn snapshot_conversion_struct_with_named_types() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_basic_config();
@@ -332,6 +334,7 @@ fn snapshot_conversion_enum_with_data() {
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_basic_config();
@@ -395,6 +398,7 @@ fn snapshot_conversion_vec_of_named() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_basic_config();
@@ -581,6 +585,7 @@ fn snapshot_trait_bridge_inbound() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let toml = r#"
@@ -707,6 +712,7 @@ fn snapshot_tuple_field_as_vec() {
             binding_exclusion_reason: None,
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_basic_config();
@@ -777,6 +783,7 @@ fn snapshot_streaming_adapter() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let toml = r#"
@@ -858,6 +865,7 @@ fn snapshot_first_class_struct_optional_field() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_basic_config();
@@ -992,6 +1000,7 @@ fn snapshot_trait_bridge_inbound_options_field() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let toml = r#"
@@ -1092,6 +1101,7 @@ fn snapshot_into_rust_bulk_constructor_primitives() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_basic_config();
@@ -1237,6 +1247,7 @@ fn snapshot_into_rust_bulk_constructor_nested() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_basic_config();
@@ -1331,6 +1342,7 @@ fn snapshot_intorust_bulk_constructor_primitive_no_default() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_basic_config();
@@ -1439,6 +1451,7 @@ fn snapshot_intorust_json_fallback_shim_present_for_map_dto() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_basic_config();
@@ -1560,6 +1573,7 @@ fn snapshot_enum_variant_optional_field() {
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_basic_config();

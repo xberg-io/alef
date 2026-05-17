@@ -105,6 +105,7 @@ fn struct_fields_emit_zig_doc_comments_above_declaration() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let content = render(api);
@@ -168,6 +169,7 @@ fn unit_enum_variants_emit_zig_doc_comments_above_tag() {
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let content = render(api);
@@ -226,6 +228,7 @@ fn tagged_enum_variants_emit_zig_doc_comments() {
             binding_exclusion_reason: None,
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let content = render(api);

@@ -142,6 +142,7 @@ fn test_basic_generation() {
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config();
@@ -231,6 +232,7 @@ fn test_type_mapping() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config();
@@ -315,6 +317,7 @@ fn test_enum_generation() {
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config();
@@ -360,6 +363,7 @@ fn test_generated_header() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config();
@@ -424,6 +428,7 @@ fn test_function_with_error_type() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config();
@@ -463,6 +468,7 @@ fn test_empty_api_surface() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config();
@@ -556,6 +562,7 @@ fn test_module_registration() {
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config();
@@ -646,6 +653,7 @@ fn test_async_function() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config();
@@ -708,6 +716,7 @@ fn test_async_function_with_error() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config();
@@ -812,6 +821,7 @@ fn test_methods_generation() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config();
@@ -893,6 +903,7 @@ fn test_async_method() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config();
@@ -959,6 +970,7 @@ fn test_error_types() {
             binding_exclusion_reason: None,
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config();
@@ -1029,6 +1041,7 @@ fn test_opaque_type() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config();
@@ -1098,6 +1111,7 @@ fn test_optional_and_vec_fields() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config();
@@ -1179,6 +1193,7 @@ fn test_static_method() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config();
@@ -1245,6 +1260,7 @@ fn test_exceptions_py_classes_without_docs_have_generated_docstrings() {
             binding_exclusion_reason: None,
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config();
@@ -1392,6 +1408,7 @@ fn test_return_type_exported_from_native_module_not_options() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let mut config = make_config();
@@ -1634,6 +1651,7 @@ fn test_api_py_imports_config_dto_with_self_returning_method_from_options() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let mut config = make_config();
@@ -1825,6 +1843,7 @@ fn make_api_surface() -> ApiSurface {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     }
 }
 
@@ -2535,6 +2554,7 @@ fn test_static_default_returns_binding_wrapper_not_core_type() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config();
@@ -2649,6 +2669,7 @@ fn test_static_from_update_returns_binding_wrapper_not_core_type() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config();
@@ -2726,6 +2747,7 @@ fn test_sanitized_field_gets_serde_skip() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config();
@@ -2791,6 +2813,7 @@ fn test_sanitized_enum_like_field_gets_serde_skip() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config();
@@ -2877,6 +2900,7 @@ fn test_api_py_uses_keyword_arguments() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let mut config = make_config();
@@ -2969,6 +2993,7 @@ fn test_async_function_emits_async_def_and_await() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let mut config = make_config();
@@ -3062,6 +3087,7 @@ fn test_trait_bridge_register_fns_in_api_py_and_all() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let mut config = make_config();
@@ -3224,6 +3250,7 @@ fn test_options_py_does_not_import_data_enum_aliases_at_runtime() {
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
     let config = make_config();
     let files = backend.generate_public_api(&api, &config).expect("generate public API");
@@ -3384,6 +3411,7 @@ fn test_capsule_types_end_to_end() {
             binding_exclusion_reason: None,
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let mut config = make_config();
@@ -3660,6 +3688,7 @@ fn test_capsule_types_in_methods() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let mut config = make_config();
@@ -3828,6 +3857,7 @@ fn test_pyclass_enum_variants_use_upper_snake_case_pyo3_name() {
         )],
         errors: vec![],
         excluded_type_paths: HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
     let config = make_config();
     let files = backend
@@ -3891,6 +3921,7 @@ fn test_options_py_does_not_emit_screaming_alias_lines() {
         enums: vec![make_unit_enum_def("BatchStatus", &["Validating", "InProgress"])],
         errors: vec![],
         excluded_type_paths: HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
     let config = make_config();
     let files = backend
@@ -3947,6 +3978,7 @@ fn test_api_py_void_function_no_redundant_return() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let mut config = make_config();
@@ -4077,6 +4109,7 @@ fn test_api_py_pep8_blank_lines_between_functions() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let mut config = make_config();

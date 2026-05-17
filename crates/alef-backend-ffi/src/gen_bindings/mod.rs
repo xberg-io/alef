@@ -888,6 +888,7 @@ visitor_callbacks = true
             }],
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
         }
     }
 
@@ -1365,6 +1366,7 @@ sources = ["src/lib.rs"]
             }],
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
         }
     }
 
@@ -1540,6 +1542,7 @@ sources = ["src/lib.rs"]
             }],
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
         }
     }
 
@@ -2006,6 +2009,7 @@ header_name = "mylib.h"
             enums: vec![],
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
         };
         let config = sample_config();
         let backend = FfiBackend;
@@ -2111,6 +2115,7 @@ header_name = "mylib.h"
             enums: vec![],
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
         }
     }
 
@@ -2308,6 +2313,7 @@ core_import = "my_custom_lib"
             enums: vec![],
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
         };
         let config = sample_config();
         let backend = FfiBackend;
@@ -2424,6 +2430,7 @@ type = "ChatRequest"
             enums: vec![],
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
         };
         let backend = FfiBackend;
 

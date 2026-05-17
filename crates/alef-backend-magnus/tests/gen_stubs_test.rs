@@ -177,6 +177,7 @@ fn test_basic_rbs_stubs() {
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config_with_stubs();
@@ -287,6 +288,7 @@ fn test_type_mapping_in_stubs() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config_with_stubs();
@@ -398,6 +400,7 @@ fn test_enum_stubs() {
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config_with_stubs();
@@ -520,6 +523,7 @@ fn test_opaque_type_stubs() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config_with_stubs();
@@ -569,6 +573,7 @@ fn test_rbs_stubs_without_config() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     // Create config WITHOUT stubs enabled
@@ -681,6 +686,7 @@ fn test_type_with_methods_and_fields() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config_with_stubs();
@@ -785,6 +791,7 @@ fn test_multiline_doc_comment_is_valid_rbs() {
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = make_config_with_stubs();
@@ -845,6 +852,7 @@ fn test_module_naming_from_crate_name() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let config = resolved_one(

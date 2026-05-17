@@ -91,6 +91,7 @@ fn test_struct_module_emits_type_t_typespec_with_correct_field_types() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let backend = RustlerBackend;
@@ -206,6 +207,7 @@ fn test_struct_module_defstruct_defaults_align_with_typespec() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let backend = RustlerBackend;
@@ -305,6 +307,7 @@ fn test_struct_module_with_named_type_field() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let backend = RustlerBackend;
@@ -379,6 +382,7 @@ fn test_struct_module_with_vec_fields() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
     let backend = RustlerBackend;

@@ -45,6 +45,14 @@ pub struct ApiSurface {
     /// trait method signatures (e.g. `Renderer::render(&InternalDocument)`).
     #[serde(default)]
     pub excluded_type_paths: std::collections::HashMap<String, String>,
+    /// Subset of `excluded_type_paths` keys whose underlying definition is a trait
+    /// (`is_trait = true` on the original `TypeDef`). The `is_trait` flag is lost
+    /// when the type is stripped, so trait-bridge codegen tracks excluded traits
+    /// separately to decide whether a return-type `Named(name)` referencing an
+    /// excluded item is a non-bridgeable trait object (skip the method, fall back
+    /// to default impl) or a struct/enum still usable via its qualified path.
+    #[serde(default)]
+    pub excluded_trait_names: std::collections::HashSet<String>,
 }
 
 /// A public struct exposed to bindings.
