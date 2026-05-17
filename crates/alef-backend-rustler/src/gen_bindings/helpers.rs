@@ -510,9 +510,11 @@ pub(super) fn gen_elixir_struct_module(
 
             if i == fields.len() - 1 {
                 // Last field: no comma
-                out.push_str(&format!("    {field_name}: {field_type_with_optional}\n"));
+                // mix format aligns struct fields to the column of the opening `{` in
+                // `@type t :: %__MODULE__{`, which is at column 24 (10-space indent).
+                out.push_str(&format!("          {field_name}: {field_type_with_optional}\n"));
             } else {
-                out.push_str(&format!("    {field_name}: {field_type_with_optional},\n"));
+                out.push_str(&format!("          {field_name}: {field_type_with_optional},\n"));
             }
         }
     }

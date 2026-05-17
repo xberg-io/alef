@@ -123,7 +123,7 @@ pub(crate) fn scaffold_python(api: &ApiSurface, config: &ResolvedCrateConfig) ->
         String::new()
     } else {
         let entries: Vec<String> = meta.keywords.iter().map(|k| format!("\"{}\"", k)).collect();
-        format!("keywords = [{}]\n", entries.join(", "))
+        format!("keywords = [ {} ]\n", entries.join(", "))
     };
 
     let homepage_toml = if meta.homepage.is_empty() {
@@ -134,7 +134,7 @@ pub(crate) fn scaffold_python(api: &ApiSurface, config: &ResolvedCrateConfig) ->
 
     let content = format!(
         r#"[build-system]
-requires = ["{maturin_build_requires}"]
+requires = [ "{maturin_build_requires}" ]
 build-backend = "maturin"
 
 [project]
@@ -159,18 +159,18 @@ module-name = "{python_package}.{module_name}"
 manifest-path = "../../crates/{crate_dir}-py/Cargo.toml"
 # abi3-py310 produces a single wheel per platform that loads on Python 3.10+,
 # avoiding a per-Python-version build matrix.
-features = ["pyo3/extension-module", "pyo3/abi3-py310"]
-python-packages = ["{python_package}"]
+features = [ "pyo3/extension-module", "pyo3/abi3-py310" ]
+python-packages = [ "{python_package}" ]
 
 [dependency-groups]
-dev = ["ruff{ruff}", "mypy{mypy}"]
+dev = [ "ruff{ruff}", "mypy{mypy}" ]
 
 [tool.ruff]
 target-version = "py310"
 line-length = 120
 
 [tool.ruff.lint]
-select = ["ALL"]
+select = [ "ALL" ]
 ignore = [
   "ANN401", "ASYNC109", "ASYNC110", "BLE001", "COM812",
   "D100", "D104", "D107", "D205", "E501", "EM",
@@ -190,7 +190,7 @@ max-returns = 10
 convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "D103", "ANN", "PLR2004"]
+"tests/**" = [ "S101", "D103", "ANN", "PLR2004" ]
 
 [tool.ruff.format]
 docstring-code-line-length = 120

@@ -197,6 +197,10 @@ fn render_test_file(
 ) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
+    // Suppress unused_local_variable: `final result = await api.method(...)` is
+    // emitted for every test case; tests that only check for absence of errors
+    // do not consume `result`, triggering this dart-analyze warning.
+    out.push_str("// ignore_for_file: unused_local_variable\n\n");
 
     // Build the field resolver from the e2e config so assertion rendering can validate
     // fixture field paths against the configured result type — assertions on fields that

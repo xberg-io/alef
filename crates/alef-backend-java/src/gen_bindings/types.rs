@@ -360,8 +360,12 @@ pub(crate) fn gen_record_type(
     // Idiomatic Java pattern: `Foo.Builder`, mirroring `ImmutableList.Builder`.
     if typ.has_default {
         record_block.push('\n');
+        // CPD-OFF: generated builder pattern produces identical token sequences across
+        // DTO classes that share common fields (e.g. CrawlPageResult / ScrapeResult).
+        record_block.push_str("    // CPD-OFF\n");
         let nested = gen_builder_nested_class(typ, has_visitor_pattern);
         record_block.push_str(&nested);
+        record_block.push_str("    // CPD-ON\n");
     }
 
     record_block.push_str("}\n");
