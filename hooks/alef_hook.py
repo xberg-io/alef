@@ -74,35 +74,83 @@ def _read_cargo_version(cargo_toml: Path) -> str | None:
     return None
 
 
-def _version() -> str:
-    alef_toml = _hooks_dir().parent / "alef.toml"
-    # alef.toml's [crate] table may declare `version_from = "Cargo.toml"`, in which
-    # case the authoritative version is the workspace Cargo.toml — the top-level
-    # `version = "..."` field in alef.toml is a stale fallback that gets bumped lazily.
+def _find_consumer_alef_toml() -> Path:
+    """Locate the consumer repo's `alef.toml` by walking up from CWD.
+
+    pre-commit / prek run hooks with the consumer repo as CWD. The previous
+    implementation resolved `alef.toml` relative to `_hooks_dir().parent` —
+    which points at the prek-cached clone of the alef repo, NOT the consumer
+    repo. That meant the hook always read the alef.toml of whatever tag the
+    consumer pinned in `.pre-commit-config.yaml`, not the alef.toml in the
+    project being verified. As a result, bumping the consumer's `alef.toml`
+    to a newer version had no effect: the hook kept downloading the binary
+    matching the prek-pin tag, surfacing as `HTTP 404` when the pinned
+    release had no assets uploaded.
+
+    Walk upward from the current working directory until a directory
+    containing `alef.toml` is found.
+    """
+    here = Path.cwd().resolve()
+    for candidate in (here, *here.parents):
+        alef_toml = candidate / "alef.toml"
+        if alef_toml.is_file():
+            return alef_toml
+    msg = f"Could not find alef.toml searching upward from {here}"
+    raise SystemExit(msg)
+
+
+def _parse_alef_toml(alef_toml: Path) -> tuple[str | None, str | None, str | None]:
+    """Extract `(workspace.alef_version, crate.version_from, top-level version)` from alef.toml.
+
+    Minimal hand-rolled parser to keep the hook tomllib-free and py3.10-compatible.
+    """
+    workspace_alef_version: str | None = None
     version_from: str | None = None
     inline_version: str | None = None
-    in_crate = False
+    current_section: str | None = None
     for raw in alef_toml.read_text().splitlines():
         stripped = raw.strip()
         if stripped.startswith("["):
-            in_crate = stripped == "[crate]"
+            current_section = stripped.strip("[]")
             continue
-        if in_crate and stripped.startswith("version_from"):
+        if current_section == "workspace" and stripped.startswith("alef_version"):
+            _, _, val = stripped.partition("=")
+            workspace_alef_version = _parse_quoted(val)
+        elif current_section == "crate" and stripped.startswith("version_from"):
             _, _, val = stripped.partition("=")
             version_from = _parse_quoted(val)
-        elif not in_crate and stripped.startswith("version") and inline_version is None:
+        elif current_section is None and stripped.startswith("version") and inline_version is None:
             _, _, val = stripped.partition("=")
             inline_version = _parse_quoted(val)
+    return workspace_alef_version, version_from, inline_version
+
+
+def _resolve_version_from(alef_toml: Path, version_from: str) -> str | None:
+    cargo_toml = alef_toml.parent / version_from
+    if cargo_toml.is_file():
+        return _read_cargo_version(cargo_toml)
+    return None
+
+
+def _version() -> str:
+    # alef.toml's resolution order (consumer convention first, then alef-self-bootstrap):
+    #   1. `[workspace] alef_version = "X.Y.Z"` — the standard consumer-side declaration of
+    #      which alef BINARY version to use. Lives at the top of every consumer alef.toml.
+    #   2. `[crate] version_from = "Cargo.toml"` — alef's own repo, where alef.toml is
+    #      version-less and defers to the workspace `Cargo.toml`'s package version.
+    #   3. Bare top-level `version = "X.Y.Z"` — legacy/manual fallback.
+    alef_toml = _find_consumer_alef_toml()
+    workspace_alef_version, version_from, inline_version = _parse_alef_toml(alef_toml)
+    if workspace_alef_version:
+        return workspace_alef_version
     if version_from:
-        cargo_toml = alef_toml.parent / version_from
-        if cargo_toml.is_file():
-            resolved = _read_cargo_version(cargo_toml)
-            if resolved:
-                return resolved
+        resolved = _resolve_version_from(alef_toml, version_from)
+        if resolved:
+            return resolved
         # Fall through to the inline version if the referenced file is missing.
     if inline_version:
         return inline_version
-    msg = "Could not resolve version (no [crate].version_from, no top-level version)"
+    msg = "Could not resolve alef version: no [workspace].alef_version, no [crate].version_from, no top-level version"
     raise SystemExit(msg)
 
 
