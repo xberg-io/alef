@@ -340,7 +340,10 @@ pub fn escape_c(s: &str) -> String {
 }
 
 /// Sanitize an identifier for use as a test function name.
-/// Replaces non-alphanumeric characters with underscores, strips leading digits.
+/// Replaces non-alphanumeric characters with underscores, strips leading digits,
+/// and strips any underscores left dangling after the digit prefix so that
+/// generators which prefix the result (e.g. `test_<ident>`) don't produce
+/// double-underscore names like `test__foo` from fixture ids like `24_foo`.
 pub fn sanitize_ident(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
     for ch in s.chars() {
@@ -350,8 +353,15 @@ pub fn sanitize_ident(s: &str) -> String {
             result.push('_');
         }
     }
-    // Strip leading digits
-    let trimmed = result.trim_start_matches(|c: char| c.is_ascii_digit());
+    // Strip leading digits.
+    let after_digits = result.trim_start_matches(|c: char| c.is_ascii_digit());
+    // If we stripped any digits, also strip the underscores left behind so
+    // callers like `format!("test_{name}")` don't yield `test__foo`.
+    let trimmed = if after_digits.len() < result.len() {
+        after_digits.trim_start_matches('_')
+    } else {
+        after_digits
+    };
     if trimmed.is_empty() {
         "_".to_string()
     } else {
@@ -498,5 +508,38 @@ mod tests {
             lit.starts_with('"'),
             "expected double-quoted form when string contains backtick, got: {lit:?}"
         );
+    }
+
+    /// Fixture ids with a numeric prefix (`24_cookie_samesite_strict`) must not
+    /// produce names like `_cookie_samesite_strict` that, when prefixed with
+    /// `test_`, yield the invalid-looking `test__cookie_samesite_strict`.
+    #[test]
+    fn sanitize_ident_strips_leading_underscore_after_digit_prefix() {
+        assert_eq!(sanitize_ident("24_cookie_samesite_strict"), "cookie_samesite_strict");
+        assert_eq!(sanitize_ident("01_foo"), "foo");
+        assert_eq!(sanitize_ident("9bar"), "bar");
+    }
+
+    /// Genuine leading underscores (no preceding digits) are preserved so
+    /// fixture ids that intentionally start with `_` round-trip unchanged.
+    #[test]
+    fn sanitize_ident_preserves_leading_underscore_without_digits() {
+        assert_eq!(sanitize_ident("_foo"), "_foo");
+        assert_eq!(sanitize_ident("__bar"), "__bar");
+    }
+
+    /// Strings consisting only of digits (and the underscores left behind)
+    /// collapse to the placeholder `_` since the result would otherwise be empty.
+    #[test]
+    fn sanitize_ident_all_digits_returns_underscore_placeholder() {
+        assert_eq!(sanitize_ident("123"), "_");
+        assert_eq!(sanitize_ident("12_"), "_");
+    }
+
+    /// Non-leading digits and underscores are untouched.
+    #[test]
+    fn sanitize_ident_preserves_interior_chars() {
+        assert_eq!(sanitize_ident("foo_42_bar"), "foo_42_bar");
+        assert_eq!(sanitize_ident("foo.bar-baz"), "foo_bar_baz");
     }
 }

@@ -85,8 +85,6 @@ pub fn render_test_file(
         &e2e_config.fields_method_calls,
     );
 
-    // Check if this file has http-fixture tests (separate from call-based tests).
-    let file_has_http = fixtures.iter().any(|f| f.http.is_some());
     // Call-based: has mock_response OR is a plain function-call fixture (no http, no mock) with a
     // configured function name. Pure schema/spec stubs (function name empty) use the stub path.
     let file_has_call_based = fixtures.iter().any(|f| {
@@ -142,10 +140,9 @@ pub fn render_test_file(
         }
     }
 
-    // Http fixtures use App + RequestContext for integration tests.
-    if file_has_http {
-        let _ = writeln!(out, "use {module}::{{App, RequestContext}};");
-    }
+    // Http fixtures reference `App` and `RequestContext` via their fully-qualified
+    // module path (`{dep_name}::App::new()`, `{dep_name}::RequestContext`) — no
+    // top-of-file `use` import is required and emitting one trips `-D unused_imports`.
 
     // Render test function bodies into a side buffer so we can gate optional imports
     // on whether the body actually references each imported symbol. Emitting unused

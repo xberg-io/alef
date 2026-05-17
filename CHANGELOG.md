@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-e2e rust: drop unused `use {dep}::{App, RequestContext}` import from http-fixture test files**: `render_test_file` unconditionally emitted `use {module}::{App, RequestContext};` when any fixture in the file declared an `http` block, but `render_http_test_function` references those symbols via their fully-qualified module path (`{dep_name}::App::new()`, `move |_ctx: {dep_name}::RequestContext|`). The use-statement was therefore always unused, tripping `-D unused_imports` in the consumer crate's clippy sweep. The unconditional emission is dropped; the body keeps the fully-qualified paths so no resolution behaviour changes. (`crates/alef-e2e/src/codegen/rust/test_file.rs`)
+
+- **alef-e2e (all backends): `sanitize_ident` now strips underscores left behind after a numeric prefix to avoid `test__foo` names**: fixture ids commonly carry a numeric prefix to control category-file ordering (`24_cookie_samesite_strict.json`). `sanitize_ident` stripped the leading digits but left the underscore separator behind, so generators that prefix the result with `test_` (rust, python, ruby, typescript, elixir, C, …) emitted function names like `test__cookie_samesite_strict`. The function now also strips any leading underscores _that were exposed by stripping digits_, while preserving genuine leading underscores in ids that never had a digit prefix (`_foo` → `_foo`). Covered by four new unit tests in `escape::tests`. (`crates/alef-e2e/src/escape.rs`)
+
 ## [0.16.27] - 2026-05-17
 
 ### Added
