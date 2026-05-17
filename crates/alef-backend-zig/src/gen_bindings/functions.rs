@@ -234,8 +234,13 @@ pub(crate) fn emit_function(
         } else if matches!(f.return_type, TypeRef::Unit) {
             out.push_str("    return;\n");
         } else {
-            let ret_expr =
-                unwrap_return_expr("_result", &f.return_type, prefix, struct_names, Some(error_type.as_str()));
+            let ret_expr = unwrap_return_expr(
+                "_result",
+                &f.return_type,
+                prefix,
+                struct_names,
+                Some(error_type.as_str()),
+            );
             out.push_str(&crate::template_env::render(
                 "function_return.jinja",
                 minijinja::context! {
@@ -674,9 +679,7 @@ fn unwrap_return_expr(
             let mut s = String::new();
             s.push_str("blk: {\n");
             if let Some(err_ty) = error_type {
-                s.push_str(&format!(
-                    "        if ({raw} == null) return _first_error({err_ty});\n"
-                ));
+                s.push_str(&format!("        if ({raw} == null) return _first_error({err_ty});\n"));
             }
             s.push_str(&format!("        const slice = {raw}[0.._result_len];\n"));
             s.push_str("        const owned = try std.heap.c_allocator.dupe(u8, slice);\n");

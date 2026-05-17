@@ -548,18 +548,25 @@ fn emit_method_body(m: &alef_core::ir::MethodDef, out: &mut String, bridge_call:
             let kotlin_ty = return_kotlin_type.unwrap();
             // Strip trailing `?` from the class literal used in readValue.
             let base_ty = kotlin_ty.trim_end_matches('?');
+            // Kotlin disallows generic type arguments on `::class.java`. When
+            // `base_ty` carries any angle-bracketed generics (e.g.
+            // `List<String>`, `Map<String, Long>`, `List<MyDto>`), route the
+            // deserialisation through Jackson's `TypeReference<T>` instead.
+            let use_type_reference = base_ty.contains('<');
+            let deserialize_call = if use_type_reference {
+                imports.insert("com.fasterxml.jackson.core.type.TypeReference".to_string());
+                format!("MAPPER.readValue(responseJson, object : TypeReference<{base_ty}>() {{}})")
+            } else {
+                format!("MAPPER.readValue(responseJson, {base_ty}::class.java)")
+            };
             if m.is_async {
                 out.push_str("        return withContext(Dispatchers.IO) {\n");
                 out.push_str(&format!("            val responseJson = {bridge_call}\n"));
-                out.push_str(&format!(
-                    "            MAPPER.readValue(responseJson, {base_ty}::class.java)\n"
-                ));
+                out.push_str(&format!("            {deserialize_call}\n"));
                 out.push_str("        }\n");
             } else {
                 out.push_str(&format!("        val responseJson = {bridge_call}\n"));
-                out.push_str(&format!(
-                    "        return MAPPER.readValue(responseJson, {base_ty}::class.java)\n"
-                ));
+                out.push_str(&format!("        return {deserialize_call}\n"));
             }
         }
         _ => {

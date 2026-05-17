@@ -1061,8 +1061,7 @@ fn render_test_method(
     // is_empty/not_empty assertions must use `assertNull/assertNotNull` rather than
     // calling `.isEmpty()` on the nullable reference, which is undefined for record
     // types (mirrors the Kotlin / Zig codegen behaviour).
-    let effective_result_is_option =
-        call_overrides.is_some_and(|o| o.result_is_option) || call_config.result_is_option;
+    let effective_result_is_option = call_overrides.is_some_and(|o| o.result_is_option) || call_config.result_is_option;
 
     // Check if this test needs ObjectMapper deserialization for json_object args.
     let needs_deser = effective_options_type.is_some()
