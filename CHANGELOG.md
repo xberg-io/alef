@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.16.25 - Unreleased]
 
+### Changed
+
+- **ci: restrict `Android Emulator (instrumented tests)` workflow to manual dispatch**: the GitHub-hosted arm64-v8a API 34 emulator on `ubuntu-latest` regularly fails to reach `boot_completed` within the 1800s timeout, blocking unrelated merges. Trigger temporarily reduced to `workflow_dispatch` only until a stable runner/image combination is identified. (`.github/workflows/ci-android-emulator.yaml`)
+
 ### Added
 
 - **alef sync-versions: manage `CITATION.cff` at the repo root**: a new optional `[workspace.citation]` section in `alef.toml` declares the project's citation metadata (`title`, `abstract`, `authors` — persons via `family-names`/`given-names` and/or entities via `name`, plus `email`/`orcid`, `repository-code`, `url`, `license`, `date-released`, `doi`). When present, `alef sync-versions` renders a full Citation File Format YAML at `CITATION.cff` using these fields plus the canonical workspace version from `Cargo.toml`; the file is rewritten only when its contents actually change, so the working tree stays clean across reruns. When the section is absent but a hand-authored `CITATION.cff` exists at the repo root, alef falls back to updating only the top-level `version:` scalar (preserving the original quote style — unquoted, single-, or double-quoted). New config types `CitationConfig` and `CitationAuthor` in `alef-core`. (`crates/alef-core/src/config/{output.rs,workspace.rs,resolved/mod.rs,new_config.rs,mod.rs}`, `crates/alef-cli/src/pipeline/version.rs`)
