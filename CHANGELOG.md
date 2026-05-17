@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-scaffold wasm: strip `-node` suffix before appending `-wasm` to derive the npm package name**: `scaffold_wasm` previously appended `-wasm` directly to `node_package_name()`, so consumers following the `-node` naming convention (e.g. `@kreuzberg/html-to-markdown-node`) got `@kreuzberg/html-to-markdown-node-wasm` instead of the correct `@kreuzberg/html-to-markdown-wasm`. The fix strips a trailing `-node` before appending; names without that suffix are unchanged. Three new unit tests cover the scoped case, the unscoped case, and the no-suffix fallback. (`crates/alef-scaffold/src/languages/wasm.rs`)
+
 ### Changed
 
 - **alef-readme: skip Rust by default — no more `packages/rust/README.md` stub**: `generate_readme(Language::Rust, ...)` previously emitted a 25-line stub at `packages/rust/README.md` redirecting users to crates.io. That path collides with consumer repos whose canonical Rust crate README is the source-of-truth `crates/<name>/README.md`, and the stub had to be deleted on every regen. `generate_readmes` now silently skips `Language::Rust` unless the consumer has explicitly opted in via `[readme.languages.rust]` with an `output_path` (or `output`) — opt-in matches the existing per-language configuration pattern used by every other language. The internal `generate_readme` signature changed from `Result<GeneratedFile>` to `Result<Option<GeneratedFile>>` to express the skip cleanly; public `generate_readmes` keeps its existing `Result<Vec<GeneratedFile>>` shape. (`crates/alef-readme/src/lib.rs`)

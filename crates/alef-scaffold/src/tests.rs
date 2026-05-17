@@ -1853,6 +1853,74 @@ fn scaffold_skips_cargo_config_in_legacy_mode_when_file_exists() {
 }
 
 #[test]
+fn wasm_package_name_strips_node_suffix_from_scoped_package() {
+    // @scope/foo-node  →  @scope/foo-wasm  (not @scope/foo-node-wasm)
+    let config = test_config_from_toml(
+        r#"
+[crates.node]
+package_name = "@scope/foo-node"
+"#,
+    );
+    let api = test_api();
+    let files = scaffold(&api, &config, &[Language::Wasm]).unwrap();
+    let pkg_json = files
+        .iter()
+        .find(|f| f.path.ends_with("package.json"))
+        .expect("wasm scaffold must emit package.json");
+    assert!(
+        pkg_json.content.contains("\"@scope/foo-wasm\""),
+        "expected @scope/foo-wasm, got:\n{}",
+        pkg_json.content
+    );
+    assert!(
+        !pkg_json.content.contains("foo-node-wasm"),
+        "must not emit foo-node-wasm, got:\n{}",
+        pkg_json.content
+    );
+}
+
+#[test]
+fn wasm_package_name_strips_node_suffix_from_unscoped_package() {
+    // foo-node  →  foo-wasm  (not foo-node-wasm)
+    let config = test_config_from_toml(
+        r#"
+[crates.node]
+package_name = "foo-node"
+"#,
+    );
+    let api = test_api();
+    let files = scaffold(&api, &config, &[Language::Wasm]).unwrap();
+    let pkg_json = files
+        .iter()
+        .find(|f| f.path.ends_with("package.json"))
+        .expect("wasm scaffold must emit package.json");
+    assert!(
+        pkg_json.content.contains("\"foo-wasm\""),
+        "expected foo-wasm, got:\n{}",
+        pkg_json.content
+    );
+}
+
+#[test]
+fn wasm_package_name_fallback_when_no_node_suffix() {
+    // foo  →  foo-wasm  (no -node suffix present, no stripping)
+    let config = test_config();
+    let api = test_api();
+    let files = scaffold(&api, &config, &[Language::Wasm]).unwrap();
+    let pkg_json = files
+        .iter()
+        .find(|f| f.path.ends_with("package.json"))
+        .expect("wasm scaffold must emit package.json");
+    // Default node_package_name for crate "my-lib" is "my-lib" (no -node suffix).
+    // Stripping "-node" is a no-op → wasm name is "my-lib-wasm".
+    assert!(
+        pkg_json.content.contains("\"my-lib-wasm\""),
+        "expected my-lib-wasm, got:\n{}",
+        pkg_json.content
+    );
+}
+
+#[test]
 fn scaffold_emits_cargo_config_with_env_block_for_h2m_style_ruby_path() {
     let mut env = std::collections::HashMap::new();
     env.insert(
