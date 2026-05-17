@@ -518,7 +518,9 @@ pub(super) fn gen_elixir_struct_module(
             }
         }
     }
-    out.push_str("  }\n\n");
+    // Closing brace aligned to the column of the field indent (8 spaces) —
+    // mix format hoists the `}` to this column when it wraps the typespec.
+    out.push_str("        }\n\n");
 
     // defstruct with defaults - use bare keyword list style (mix format compliant)
     if fields.is_empty() {

@@ -47,6 +47,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **alef-backend-swift: add `tokio` to the generated Cargo.toml's `[package.metadata.cargo-machete] ignored = [...]` list**: alongside the existing `async-trait` / `serde` entries, `tokio` is now ignored. The Swift backend emits `tokio` unconditionally in `[dependencies]` for stable-manifest reasons (matches the documented "conditionally referenced only when the umbrella crate declares trait bridges or async adapters" pattern). For umbrella crates without trait bridges or async adapters — e.g. tree-sitter-language-pack — `tokio` is genuinely unused, and `cargo machete` correctly flagged it. Listing it in `ignored` matches the same approach the template already uses for the other conditional deps. Surfaced on tree-sitter-language-pack prek run. (`crates/alef-backend-swift/src/gen_rust_crate/cargo.rs`)
 
+- **alef-backend-rustler: align the closing `}` of `@type t :: %__MODULE__{...}` to 8-space indent so `mix format` accepts it idempotently**: the typespec block opened at 10-space indent for fields (column 11) but closed with `  }` (2 spaces), which `mix format` rewrote to 8 spaces. tslp's 19+ struct files (`ProcessConfig`, `ProcessResult`, `FileMetrics`, `Span`, etc.) flapped between emit and format on every prek run. Closing brace now matches the column `mix format` settles on. Surfaced on tree-sitter-language-pack prek run. (`crates/alef-backend-rustler/src/gen_bindings/helpers.rs`)
+
 ## [0.16.23] - 2026-05-16
 
 ### Fixed
