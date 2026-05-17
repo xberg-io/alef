@@ -121,6 +121,13 @@ napi-derive = "{napi_derive}"
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"{extra_deps_section}
 
+# `serde_json` is emitted unconditionally above so the manifest is stable
+# across regens, but for umbrella crates with no JSON-marshalled return types
+# it is genuinely unused. List it here so `cargo machete` doesn't flag the
+# no-json case as a real finding.
+[package.metadata.cargo-machete]
+ignored = ["serde_json"]
+
 [build-dependencies]
 napi-build = "{napi_build}"
 

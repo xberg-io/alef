@@ -78,6 +78,14 @@ pyo3-async-runtimes = {{ version = "{pyo3_async_runtimes}", features = ["tokio-r
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"{extra_deps_section}
 
+# `pyo3-async-runtimes` and `serde_json` are emitted unconditionally above so
+# the manifest is stable across regens, but for umbrella crates with no
+# async fns or no JSON-marshalled return types they are genuinely unused.
+# List them here so `cargo machete` doesn't flag the no-async-no-json case
+# as a real finding.
+[package.metadata.cargo-machete]
+ignored = ["pyo3-async-runtimes", "serde_json"]
+
 [features]
 extension-module = ["pyo3/extension-module", "pyo3/abi3-py310"]
 

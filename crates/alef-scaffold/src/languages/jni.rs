@@ -61,6 +61,15 @@ futures-util = "0.3"
 jni = "0.22"
 serde_json = "1"
 tokio = {{ version = "1", features = ["rt-multi-thread", "macros", "sync"] }}
+
+# `futures-util`, `serde_json`, and `tokio` are emitted unconditionally above
+# so the manifest is stable across regens (they are used when the umbrella
+# crate declares async fns, streaming adapters, or JSON-marshalled types),
+# but for an umbrella crate that has none of those they are genuinely unused.
+# List them here so `cargo machete` doesn't flag the no-async-no-streaming
+# case as a real finding.
+[package.metadata.cargo-machete]
+ignored = ["futures-util", "serde_json", "tokio"]
 "#,
         jni_crate_name = jni_crate_name,
         jni_lib_name = jni_lib_name,

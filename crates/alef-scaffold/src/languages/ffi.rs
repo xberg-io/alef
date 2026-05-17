@@ -65,6 +65,15 @@ crate-type = ["cdylib", "staticlib"]
 serde_json = "1"
 tokio = {{ version = "1", features = ["full"] }}{extra_deps_block}
 
+# `serde_json` and `tokio` are emitted unconditionally above so the manifest
+# is stable across regens (and so the C FFI codegen can pull them in when an
+# async / Result-typed function appears in the API surface), but for umbrella
+# crates with no async fns and no JSON-marshalled return types they are
+# genuinely unused. List them here so `cargo machete` doesn't flag the
+# no-async-no-json case as a real finding.
+[package.metadata.cargo-machete]
+ignored = ["serde_json", "tokio"]
+
 [features]
 default = []
 

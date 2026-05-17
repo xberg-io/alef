@@ -60,6 +60,13 @@ serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
 tokio = {{ version = "1", features = ["full"] }}{extra_deps_section}
 
+# `serde_json` and `tokio` are emitted unconditionally above so the manifest
+# is stable across regens, but for umbrella crates with no async fns and no
+# JSON-marshalled return types they are genuinely unused. List them here so
+# `cargo machete` doesn't flag the no-async-no-json case as a real finding.
+[package.metadata.cargo-machete]
+ignored = ["serde_json", "tokio"]
+
 [features]
 extension-module = []
 
