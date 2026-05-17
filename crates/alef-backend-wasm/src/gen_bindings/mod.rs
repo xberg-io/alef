@@ -292,9 +292,6 @@ impl Backend for WasmBackend {
             builder.add_item(&gen_env_shims(&env_shims));
         }
 
-        // Note: custom_modules for WASM are TypeScript-only re-exports
-        // (used in generate_public_api), not Rust module declarations.
-
         // Check if we have opaque types and add Arc import if needed
         let opaque_types: AHashSet<String> = api
             .types
