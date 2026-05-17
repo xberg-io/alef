@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-cli pipeline/generate: `format_rust_content` detects crate edition from nearest `Cargo.toml`**: rustfmt was invoked with a hardcoded `--edition 2024`. When the target crate declares a different edition (e.g. `edition = "2021"`) in its `Cargo.toml`, `cargo fmt` would produce different import sort order and formatting than alef's hardcoded edition, causing drift after `alef generate`. `format_rust_content` now accepts the file path, walks up to find the nearest `Cargo.toml`, parses its `[package] edition` field, and passes the detected edition to rustfmt; falls back to `"2024"` when no `Cargo.toml` is found or the edition field is absent. (`crates/alef-cli/src/pipeline/generate.rs`)
+
 ## [0.16.28] - 2026-05-17
 
 ### Fixed

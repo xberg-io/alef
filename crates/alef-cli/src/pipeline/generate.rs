@@ -234,7 +234,7 @@ pub fn diff_files(files: &[(Language, Vec<GeneratedFile>)], base_dir: &Path) -> 
             let is_rust = file.path.extension().is_some_and(|ext| ext == "rs");
             let generated = normalize_content(&file.path, &file.content);
             let on_disk = if is_rust {
-                format_rust_content(&existing)
+                format_rust_content(&full_path, &existing)
             } else {
                 existing
             };
@@ -265,7 +265,7 @@ pub fn diff_files(files: &[(Language, Vec<GeneratedFile>)], base_dir: &Path) -> 
 /// Non-rust files skip rustfmt and go straight to whitespace normalization.
 pub fn normalize_content(path: &Path, content: &str) -> String {
     let pre = if path.extension().is_some_and(|ext| ext == "rs") {
-        format_rust_content(content)
+        format_rust_content(path, content)
     } else {
         content.to_string()
     };
@@ -534,22 +534,86 @@ pub fn collect_alef_headered_paths(root: &std::path::Path) -> std::collections::
     paths
 }
 
+/// Walk up from `path` to find the nearest `Cargo.toml` and read its
+/// `[package] edition = "YYYY"` value.  Returns `"2024"` if no `Cargo.toml`
+/// is found or the edition field is absent.
+fn detect_crate_edition(path: &Path) -> String {
+    // Start from the file's parent directory (or the path itself if it is a dir).
+    let start = if path.is_dir() {
+        path
+    } else {
+        match path.parent() {
+            Some(p) => p,
+            None => return "2024".to_string(),
+        }
+    };
+
+    let mut current = start;
+    loop {
+        let candidate = current.join("Cargo.toml");
+        if candidate.is_file() {
+            if let Ok(text) = std::fs::read_to_string(&candidate) {
+                if let Some(edition) = parse_package_edition(&text) {
+                    return edition;
+                }
+            }
+            // Found Cargo.toml but no edition — use default.
+            return "2024".to_string();
+        }
+        match current.parent() {
+            Some(parent) => current = parent,
+            None => break,
+        }
+    }
+    "2024".to_string()
+}
+
+/// Parse the `edition = "YYYY"` value from the `[package]` section of a
+/// `Cargo.toml` string.  Returns `None` if not found.
+fn parse_package_edition(toml_text: &str) -> Option<String> {
+    let mut in_package = false;
+    for line in toml_text.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') {
+            // Check if we're entering [package]; exit if we leave it.
+            in_package = trimmed == "[package]";
+            continue;
+        }
+        if !in_package {
+            continue;
+        }
+        // Match: edition = "2021" (or 2024, etc.)
+        if let Some(rest) = trimmed.strip_prefix("edition") {
+            let rest = rest.trim_start();
+            if let Some(rest) = rest.strip_prefix('=') {
+                let value = rest.trim().trim_matches('"');
+                if value.len() == 4 && value.chars().all(|c| c.is_ascii_digit()) {
+                    return Some(value.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Format a Rust source string by piping through `rustfmt`.
 ///
-/// Reads from stdin and writes to stdout, avoiding temp files.  `rustfmt`
-/// discovers the project's `rustfmt.toml` from the working directory.
+/// The edition is detected from the nearest `Cargo.toml` above `path`,
+/// defaulting to `"2024"` when none is found.  `rustfmt` also discovers the
+/// project's `rustfmt.toml` from the working directory.
 ///
 /// Returns the formatted content on success, or the original content if
 /// rustfmt is unavailable or fails (best-effort).
-pub fn format_rust_content(content: &str) -> String {
+pub fn format_rust_content(path: &Path, content: &str) -> String {
     use std::io::Write;
     use std::process::{Command, Stdio};
 
+    let edition = detect_crate_edition(path);
     let config_dir = std::env::current_dir().unwrap_or_default();
 
     let mut child = match Command::new("rustfmt")
         .arg("--edition")
-        .arg("2024")
+        .arg(&edition)
         .arg("--config-path")
         .arg(&config_dir)
         .stdin(Stdio::piped())
@@ -781,5 +845,63 @@ mod write_scaffold_normalize_tests {
             embedded, expected,
             "embedded hash must match compute_file_hash of the post-format on-disk content"
         );
+    }
+
+    /// `detect_crate_edition` must return the edition declared in the nearest
+    /// `Cargo.toml` when one is present, and fall back to `"2024"` when absent.
+    #[test]
+    fn test_detect_crate_edition_reads_from_cargo_toml() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let base = dir.path();
+
+        // Write a Cargo.toml declaring edition 2021.
+        let cargo_toml = "[package]\nname = \"my-crate\"\nversion = \"0.1.0\"\nedition = \"2021\"\n";
+        std::fs::write(base.join("Cargo.toml"), cargo_toml).expect("write Cargo.toml");
+
+        // A source file inside the crate directory.
+        let src = base.join("src").join("lib.rs");
+        std::fs::create_dir_all(src.parent().unwrap()).expect("mkdir src");
+
+        let edition = detect_crate_edition(&src);
+        assert_eq!(edition, "2021", "should detect edition 2021 from Cargo.toml");
+    }
+
+    #[test]
+    fn test_detect_crate_edition_defaults_to_2024_when_no_cargo_toml() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let orphan = dir.path().join("orphan.rs");
+
+        let edition = detect_crate_edition(&orphan);
+        assert_eq!(edition, "2024", "should default to 2024 when no Cargo.toml found");
+    }
+
+    #[test]
+    fn test_detect_crate_edition_defaults_to_2024_when_edition_absent_from_cargo_toml() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let base = dir.path();
+
+        // Cargo.toml with no edition field.
+        std::fs::write(
+            base.join("Cargo.toml"),
+            "[package]\nname = \"no-edition-crate\"\nversion = \"0.1.0\"\n",
+        )
+        .expect("write Cargo.toml");
+
+        let src = base.join("lib.rs");
+        let edition = detect_crate_edition(&src);
+        assert_eq!(edition, "2024", "should default to 2024 when edition field absent");
+    }
+
+    #[test]
+    fn test_parse_package_edition_extracts_value() {
+        let toml = "[package]\nname = \"x\"\nedition = \"2021\"\n";
+        assert_eq!(parse_package_edition(toml).as_deref(), Some("2021"));
+    }
+
+    #[test]
+    fn test_parse_package_edition_ignores_other_sections() {
+        // edition key outside [package] must not be returned.
+        let toml = "[workspace]\nedition = \"2021\"\n[package]\nname = \"x\"\n";
+        assert_eq!(parse_package_edition(toml), None);
     }
 }
