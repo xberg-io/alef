@@ -633,6 +633,36 @@ fn main() -> Result<()> {
                     }
                 }
 
+                // Sweep language package directories to catch stale alef-generated files
+                // in directories the current run no longer writes to. cleanup_orphaned_files
+                // only walks directories touched by current_gen_paths; this pass covers
+                // the case where a backend stopped emitting files in a directory entirely
+                // (e.g. generate_public_api removed from alef-backend-wasm left behind
+                // packages/wasm/src/index.ts which cleanup_orphaned_files never visits
+                // because no current wasm file lives in packages/wasm/).
+                {
+                    let mut sweep_roots: std::collections::HashSet<std::path::PathBuf> =
+                        std::collections::HashSet::new();
+                    for &lang in &languages {
+                        let pkg = base_dir.join(resolved_cfg.package_dir(lang));
+                        sweep_roots.insert(pkg);
+                        if let Some(out) = resolved_cfg.output_for(&lang.to_string()) {
+                            sweep_roots.insert(base_dir.join(out));
+                        }
+                    }
+                    // Legacy paths that alef previously wrote generate_public_api shims
+                    // into but no longer touches after their respective backends stopped
+                    // emitting those files.
+                    sweep_roots.insert(base_dir.join("packages/wasm"));
+                    sweep_roots.insert(base_dir.join("packages/typescript"));
+                    let roots: Vec<std::path::PathBuf> = sweep_roots.into_iter().filter(|d| d.exists()).collect();
+                    if let Ok(removed) = pipeline::sweep_orphans(&roots, &current_gen_paths) {
+                        if removed > 0 {
+                            eprintln!("Removed {removed} stale alef-generated file(s)");
+                        }
+                    }
+                }
+
                 if any_written && format && !changed_languages.is_empty() {
                     eprintln!("Formatting generated files...");
                     // Include stubs in the format pass so that languages where only
@@ -1348,6 +1378,29 @@ fn main() -> Result<()> {
                 if let Ok(removed) = pipeline::cleanup_orphaned_files(&current_gen_paths) {
                     if removed > 0 {
                         eprintln!("Removed {removed} stale alef-generated file(s)");
+                    }
+                }
+
+                // Sweep language package directories to catch stale alef-generated files
+                // in directories the current run no longer writes to (same rationale as
+                // in Commands::Generate above).
+                {
+                    let mut sweep_roots: std::collections::HashSet<std::path::PathBuf> =
+                        std::collections::HashSet::new();
+                    for &lang in &languages {
+                        let pkg = base_dir.join(resolved_cfg.package_dir(lang));
+                        sweep_roots.insert(pkg);
+                        if let Some(out) = resolved_cfg.output_for(&lang.to_string()) {
+                            sweep_roots.insert(base_dir.join(out));
+                        }
+                    }
+                    sweep_roots.insert(base_dir.join("packages/wasm"));
+                    sweep_roots.insert(base_dir.join("packages/typescript"));
+                    let roots: Vec<std::path::PathBuf> = sweep_roots.into_iter().filter(|d| d.exists()).collect();
+                    if let Ok(removed) = pipeline::sweep_orphans(&roots, &current_gen_paths) {
+                        if removed > 0 {
+                            eprintln!("Removed {removed} stale alef-generated file(s)");
+                        }
                     }
                 }
 
