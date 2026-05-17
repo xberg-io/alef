@@ -421,10 +421,10 @@ pub mod precommit {
     pub const RUMDL_REV: &str = "v0.1.93";
 
     // renovate: datasource=github-tags packageName=crate-ci/typos
-    pub const TYPOS_REV: &str = "v1.46.1";
+    pub const TYPOS_REV: &str = "v1.46.2";
 
     // renovate: datasource=github-tags packageName=kreuzberg-dev/pre-commit-hooks
-    pub const KREUZBERG_PRECOMMIT_HOOKS_REV: &str = "v1.0.10";
+    pub const KREUZBERG_PRECOMMIT_HOOKS_REV: &str = "v1.1.2";
 
     // alef rev: managed by sync-versions hook, no renovate marker
     pub const ALEF_REV: &str = "v0.16.24";
