@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.31] - 2026-05-17
+
 ### Fixed
 
 - **alef-backend-napi trait_bridge: build the visitor-only `ConversionOptions` via struct-literal + `..Default::default()` instead of `let mut opts = Default::default(); opts.field = X;`**: the `or_else(|| { ... })` branch in the napi visitor wrapper code constructed a new `ConversionOptions` by `Default::default()` then field-assigned the visitor handle. Clippy's `field_reassign_with_default` lint (denied by default in consumer projects that build with `-D warnings`) rejects this idiom and demands the struct-literal form. The change keeps the same semantics (every other field still falls through to `Default`) but produces clippy-clean Rust on first emission, so consumers don't need to spawn a follow-up "fix clippy" commit after every alef regen. Surfaced on html-to-markdown's CI Rust (crates/html-to-markdown-node/src/lib.rs:1589). (`crates/alef-backend-napi/src/trait_bridge.rs`)
