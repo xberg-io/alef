@@ -139,8 +139,11 @@ fn get_default_formatter(config: &ResolvedCrateConfig, lang: Language) -> Option
         // `cargo sort` normalises the generated Cargo.toml so prek's cargo-sort hook
         // is a no-op; without it, cargo-sort reformats feature indentation after the
         // hash is finalised, making alef verify report the file as stale.
-        // `oxfmt` then re-flows array/inline-table whitespace consistently with
-        // the shared Kreuzberg pre-commit hook.
+        //
+        // No oxfmt step: oxfmt's default TOML style (2-space indent, collapsed
+        // multi-line arrays) collides with cargo-sort's preserved 4-space
+        // indent, producing an infinite format/regen loop on the embedded hash.
+        // cargo-sort alone is enough to canonicalise the wasm Cargo.toml.
         Language::Wasm => {
             let crate_dir = config
                 .output_for("wasm")
@@ -152,15 +155,11 @@ fn get_default_formatter(config: &ResolvedCrateConfig, lang: Language) -> Option
                 commands: vec![
                     FormatterCommand {
                         command: "cargo".to_owned(),
-                        args: vec!["fmt".to_owned(), "--manifest-path".to_owned(), manifest_path.clone()],
+                        args: vec!["fmt".to_owned(), "--manifest-path".to_owned(), manifest_path],
                     },
                     FormatterCommand {
                         command: "cargo".to_owned(),
                         args: vec!["sort".to_owned(), crate_dir_str],
-                    },
-                    FormatterCommand {
-                        command: "pnpm".to_owned(),
-                        args: vec!["dlx".to_owned(), "oxfmt".to_owned(), manifest_path],
                     },
                 ],
                 work_dir: String::new(),
@@ -174,8 +173,17 @@ fn get_default_formatter(config: &ResolvedCrateConfig, lang: Language) -> Option
         // `cargo sort -w` normalises all workspace Cargo.toml files so prek's
         // cargo-sort hook is a no-op; without it the hook reformats feature
         // indentation after finalize_hashes, making alef verify report stale files.
-        // `oxfmt` then re-flows whitespace across workspace TOML/JSON/JS/TS
-        // files consistently with the shared Kreuzberg pre-commit hook.
+        //
+        // No oxfmt step here. The shared Kreuzberg pre-commit `oxfmt` hook is scoped
+        // to `[javascript, jsx, ts, tsx, json, css]` only (see pre-commit-hooks
+        // `.pre-commit-hooks.yaml`), so any JS/TS/JSON files that need oxfmt-shape
+        // formatting are picked up by the per-language scaffold + the consumer's
+        // own oxfmt hook on next commit. Running `pnpm dlx oxfmt .` from here would
+        // additionally reformat every TOML in the workspace — oxfmt's default
+        // settings differ from `cargo-sort` / hand-maintained Cargo.toml styles
+        // (collapses multi-line arrays, 2-space indent), which produced an
+        // infinite format/regen loop for any consumer whose hand-maintained
+        // Cargo.toml didn't already match oxfmt's TOML defaults.
         Language::Ffi => Some(FormatterSpec {
             commands: vec![
                 FormatterCommand {
@@ -185,10 +193,6 @@ fn get_default_formatter(config: &ResolvedCrateConfig, lang: Language) -> Option
                 FormatterCommand {
                     command: "cargo".to_owned(),
                     args: vec!["sort".to_owned(), "-w".to_owned()],
-                },
-                FormatterCommand {
-                    command: "pnpm".to_owned(),
-                    args: vec!["dlx".to_owned(), "oxfmt".to_owned(), ".".to_owned()],
                 },
             ],
             work_dir: String::new(),
@@ -538,13 +542,10 @@ project_file = "{project_file}"
     fn test_wasm_formatter_uses_manifest_path() {
         let config = make_config("liter-llm");
         let spec = get_default_formatter(&config, Language::Wasm).expect("should have formatter");
-        // Three commands: cargo fmt (rs files), cargo sort (Cargo.toml table order),
-        // then oxfmt (Cargo.toml whitespace/array wrapping).
-        assert_eq!(
-            spec.commands.len(),
-            3,
-            "WASM must have cargo fmt + cargo sort + oxfmt steps"
-        );
+        // Two commands: cargo fmt (rs files), cargo sort (Cargo.toml table order).
+        // No oxfmt step — oxfmt's default TOML style fights cargo-sort's preserved
+        // indent and produces an infinite format/regen loop on the embedded hash.
+        assert_eq!(spec.commands.len(), 2, "WASM must have cargo fmt + cargo sort steps");
         let fmt_cmd = &spec.commands[0];
         assert_eq!(fmt_cmd.command, "cargo");
         assert_eq!(
@@ -557,13 +558,6 @@ project_file = "{project_file}"
             sort_cmd.args,
             vec!["sort", "crates/liter-llm-wasm"],
             "cargo sort arg must be the crate directory, not the manifest path"
-        );
-        let oxfmt_cmd = &spec.commands[2];
-        assert_eq!(oxfmt_cmd.command, "pnpm");
-        assert_eq!(
-            oxfmt_cmd.args,
-            vec!["dlx", "oxfmt", "crates/liter-llm-wasm/Cargo.toml"],
-            "oxfmt must target the Cargo.toml manifest path"
         );
         assert!(spec.work_dir.is_empty(), "WASM formatter must run at workspace root");
     }
@@ -601,13 +595,13 @@ wasm = "crates/ts-pack-core-wasm/src/"
     fn test_ffi_formatter_includes_cargo_sort() {
         let config = make_config("liter-llm");
         let spec = get_default_formatter(&config, Language::Ffi).expect("should have formatter");
-        // Three commands: cargo fmt --all (rs files), cargo sort -w (Cargo.toml table
-        // order across the workspace), then oxfmt (workspace TOML/JSON/JS/TS whitespace).
-        assert_eq!(
-            spec.commands.len(),
-            3,
-            "FFI must have cargo fmt + cargo sort + oxfmt steps"
-        );
+        // Two commands: cargo fmt --all (rs files) + cargo sort -w (Cargo.toml table
+        // order across the workspace). No oxfmt step here — the shared Kreuzberg
+        // pre-commit `oxfmt` hook is JS/TS/JSON/CSS only, and running oxfmt on `.`
+        // additionally reformats every workspace TOML (including hand-maintained
+        // Cargo.toml files) into oxfmt's 2-space style, fighting cargo-sort's
+        // preserved indent and breaking the embedded hash.
+        assert_eq!(spec.commands.len(), 2, "FFI must have cargo fmt + cargo sort steps");
         let fmt_cmd = &spec.commands[0];
         assert_eq!(fmt_cmd.command, "cargo");
         assert_eq!(fmt_cmd.args, vec!["fmt", "--all"]);
@@ -617,13 +611,6 @@ wasm = "crates/ts-pack-core-wasm/src/"
             sort_cmd.args,
             vec!["sort", "-w"],
             "cargo sort must run workspace-wide so all binding crate Cargo.toml files are normalised"
-        );
-        let oxfmt_cmd = &spec.commands[2];
-        assert_eq!(oxfmt_cmd.command, "pnpm");
-        assert_eq!(
-            oxfmt_cmd.args,
-            vec!["dlx", "oxfmt", "."],
-            "oxfmt must walk the workspace like the shared pre-commit hook"
         );
         assert!(spec.work_dir.is_empty(), "FFI formatter must run at workspace root");
     }
