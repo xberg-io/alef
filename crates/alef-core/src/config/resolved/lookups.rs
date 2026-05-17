@@ -25,7 +25,14 @@ impl ResolvedCrateConfig {
         } else {
             match lang {
                 Language::Python => "packages/python".to_string(),
-                Language::Node => "packages/node".to_string(),
+                // NAPI-RS + wasm-bindgen emit their published npm package into the same
+                // directory as the Rust binding crate (`crates/{name}-node/`,
+                // `crates/{name}-wasm/`) — those manifests are the actual publish source,
+                // and the historical `packages/{node,wasm}/` scaffolds were dead weight
+                // that modern alef-scaffold no longer emits. Setup/test/clean defaults
+                // need to track the live crate dir, not the dead packages one.
+                Language::Node => format!("crates/{}-node", self.name),
+                Language::Wasm => format!("crates/{}-wasm", self.name),
                 Language::Ruby => "packages/ruby".to_string(),
                 Language::Php => "packages/php".to_string(),
                 Language::Elixir => "packages/elixir".to_string(),
@@ -448,7 +455,10 @@ tokio = "1"
     fn package_dir_defaults_are_correct() {
         let r = minimal();
         assert_eq!(r.package_dir(Language::Python), "packages/python");
-        assert_eq!(r.package_dir(Language::Node), "packages/node");
+        // Node/Wasm default to the live NAPI-RS/wasm-bindgen crate dirs, not the
+        // dead packages/{node,wasm}/ scaffolds.
+        assert_eq!(r.package_dir(Language::Node), format!("crates/{}-node", r.name));
+        assert_eq!(r.package_dir(Language::Wasm), format!("crates/{}-wasm", r.name));
         assert_eq!(r.package_dir(Language::Ruby), "packages/ruby");
         assert_eq!(r.package_dir(Language::Go), "packages/go");
         assert_eq!(r.package_dir(Language::Java), "packages/java");
