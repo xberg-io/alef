@@ -290,6 +290,22 @@ pub(super) fn gen_tagged_enum_as_struct(enum_def: &EnumDef, prefix: &str) -> Str
 /// JS sets `obj.type = "basic"` and the variant-specific fields; this maps `obj.type` to the
 /// matching core variant and reads the relevant fields. Missing fields fall back to
 /// `Default::default()` so the conversion never panics for malformed input.
+/// Return the first `::` segment of a Rust path (the crate name), normalizing hyphens to
+/// underscores to match how Cargo exposes crate names in Rust code.
+fn path_crate_segment(path: &str) -> &str {
+    path.split("::").next().unwrap_or("")
+}
+
+/// True when `rust_path` resolves to a crate other than `core_import`.
+/// Such types are not in the WASM consumer's Cargo dependency graph, so emitting
+/// `serde_wasm_bindgen::from_value::<{rust_path}>()` would produce E0433.
+fn is_external_crate_type(rust_path: &str, core_import: &str) -> bool {
+    let crate_seg = path_crate_segment(rust_path);
+    // Normalise hyphens → underscores (Cargo crate name vs Rust module name).
+    let core_seg = core_import.replace('-', "_");
+    crate_seg.replace('-', "_") != core_seg
+}
+
 pub(super) fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &str, prefix: &str) -> String {
     let core_path = alef_codegen::conversions::core_enum_path(enum_def, core_import);
     let binding_name = format!("{prefix}{}", enum_def.name);
@@ -329,24 +345,36 @@ pub(super) fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &
                     let f_ident = escape_rust_keyword(&f.name);
                     if mixed.contains(&f.name) {
                         // Field is stored as JsValue in the binding struct.
-                        // Prefer the full type_rust_path when available so that external-crate
-                        // types (e.g. `tree_sitter_language_pack::ProcessResult`) are
-                        // reconstructed via the correct fully-qualified path rather than
-                        // `{core_import}::{short_name}` (which would be wrong for types not
-                        // re-exported from the core crate).
-                        let core_inner = if let Some(ref path) = f.type_rust_path {
-                            path.replace('-', "_")
+                        // When the field type is from an external crate (not `core_import`),
+                        // emitting `serde_wasm_bindgen::from_value::<ext_crate::T>()` would
+                        // fail with E0433 because the external crate is not a dep of the WASM
+                        // consumer. Fall back to Default::default() for such fields — the value
+                        // cannot be reconstructed without the dep anyway.
+                        let external = f
+                            .type_rust_path
+                            .as_deref()
+                            .is_some_and(|p| is_external_crate_type(p, core_import));
+                        if external {
+                            let expr = "Default::default()".to_string();
+                            if f.is_boxed { format!("Box::new({expr})") } else { expr }
                         } else {
-                            match &f.ty {
-                                TypeRef::Named(n) => format!("{core_import}::{n}"),
-                                _ => "serde_json::Value".to_string(),
-                            }
-                        };
-                        let expr = format!(
-                            "val.{f_ident}.as_ref().and_then(|v| serde_wasm_bindgen::from_value::<{core_inner}>(v.clone()).ok()).unwrap_or_default()"
-                        );
-                        // Box<T> variants: the reconstructed value must be heap-allocated.
-                        if f.is_boxed { format!("Box::new({expr})") } else { expr }
+                            // Prefer the full type_rust_path when available so that types
+                            // are reconstructed via the correct fully-qualified path rather
+                            // than `{core_import}::{short_name}`.
+                            let core_inner = if let Some(ref path) = f.type_rust_path {
+                                path.replace('-', "_")
+                            } else {
+                                match &f.ty {
+                                    TypeRef::Named(n) => format!("{core_import}::{n}"),
+                                    _ => "serde_json::Value".to_string(),
+                                }
+                            };
+                            let expr = format!(
+                                "val.{f_ident}.as_ref().and_then(|v| serde_wasm_bindgen::from_value::<{core_inner}>(v.clone()).ok()).unwrap_or_default()"
+                            );
+                            // Box<T> variants: the reconstructed value must be heap-allocated.
+                            if f.is_boxed { format!("Box::new({expr})") } else { expr }
+                        }
                     } else if tuple_vec_fields.contains(&f.name) {
                         // Sanitized Vec<(K, V)> or fixed-tuple-array stored as JsValue — decode via serde.
                         let orig = f.original_type.as_deref().unwrap_or("Vec<(String, String)>");

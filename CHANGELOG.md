@@ -13,9 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-backend-wasm: skip `serde_wasm_bindgen::from_value` for external-crate types in tagged enums**: when a mixed-type tagged-enum field's `type_rust_path` resolves to a crate other than `core_import` (e.g. `tree_sitter_language_pack::ProcessResult`), the emitter previously generated `serde_wasm_bindgen::from_value::<ext_crate::T>()` unconditionally. Because the external crate is not in the WASM consumer's Cargo dependency graph, this caused `error[E0433]: failed to resolve: use of unresolved module or unlinked crate` and broke WASM, Python wheel macOS, Swift, and Dart iOS builds. The fix detects whether the type's crate prefix differs from `core_import` and falls back to `Default::default()` for those fields. (`crates/alef-backend-wasm/src/gen_bindings/enums.rs`)
+
 - **alef-snippets C validator: use unambiguously invalid token in `syntax_fail` test**: the previous fixture (`return ;` in a non-void function) is treated as a warning by some GCC versions on Linux and exits 0 unless `-Werror` is set, causing the test to return `Pass` instead of `Fail`. Replaced with `@@@` — an invalid preprocessing token that is a hard error on all C compilers. (`crates/alef-snippets/src/validators/c.rs`)
 
 - **publish workflow: include `alef-backend-jni` in the crates.io publish order**: the jni backend was added in commit 831dd99d but was not wired into `.github/workflows/publish.yaml` crate order. Topologically, jni must be published after gleam (which has no jni deps) and before kotlin and kotlin-android (which depend on it). (`.github/workflows/publish.yaml`)
+
+- **alef-backend-napi + alef-e2e: emit tagged-enum discriminator matching Rust serde tag**: NAPI-RS binding generation for tagged enums hardcoded the TS discriminant field as `"kind"` regardless of what the Rust enum declared via `#[serde(tag = "...")]`. This broke deserialization: kreuzcrawl's `AuthConfig` uses `tag = "type"`, so Rust expected payloads like `{ type: "basic", username, password }` but TypeScript was emitting `{ kind: "basic", ... }`, causing deserialization to fail with `Missing field \`type\``. Now alef-backend-napi emits the discriminant name matching the Rust serde tag, and alef-e2e fixture code preserves the actual tag field name instead of rewriting all tags to "kind". Updated test assertions in alef-backend-napi to expect the serde tag name. (`crates/alef-backend-napi/src/gen_bindings/enums.rs`, `crates/alef-e2e/src/codegen/typescript/test_file.rs`)
 
 ## [0.16.24] - 2026-05-17
 
