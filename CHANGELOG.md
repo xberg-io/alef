@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.27] - 2026-05-17
+
 ### Added
 
 - **alef-scaffold python: `[crates.python] pip_dependencies = [...]`**: declare runtime PyPI dependencies for the alef-scaffolded `pyproject.toml`. Entries are emitted verbatim into `[project] dependencies = [ ... ]` (PEP 508). Needed for downstream crates whose alef-generated `api.py` imports a third-party PyPI package (e.g. `tree-sitter`), so a fresh `pip install <pkg>` resolves the transitive at install time and the sdist smoke-test `import` succeeds. (`crates/alef-core/src/config/languages.rs`, `crates/alef-scaffold/src/languages/python.rs`)
