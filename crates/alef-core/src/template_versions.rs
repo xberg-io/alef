@@ -123,6 +123,9 @@ pub mod gem {
     // renovate: datasource=rubygems depName=rb_sys
     pub const RB_SYS: &str = "~> 0.9";
 
+    // renovate: datasource=rubygems depName=sorbet-runtime
+    pub const SORBET_RUNTIME: &str = "~> 0.5";
+
     // renovate: datasource=rubygems depName=rake-compiler
     pub const RAKE_COMPILER: &str = "~> 1.2";
 

@@ -142,6 +142,7 @@ Gem::Specification.new do |spec|
   spec.extensions    = ['ext/{ext_name}/extconf.rb']
 
   spec.add_dependency 'rb_sys', '{rb_sys}'
+  spec.add_dependency 'sorbet-runtime', '{sorbet_runtime}'
 end
 "#,
         gem_name = gem_name,
@@ -153,6 +154,7 @@ end
         license = meta.license,
         metadata = metadata_ruby,
         rb_sys = tv::gem::RB_SYS,
+        sorbet_runtime = tv::gem::SORBET_RUNTIME,
     );
 
     let rubocop_content = r#"plugins:

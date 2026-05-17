@@ -303,6 +303,33 @@ fn test_scaffold_ruby_production_features() {
     );
 }
 
+/// Regression: the generated gemspec must declare `sorbet-runtime` as a runtime
+/// dependency so consumers running `bundle install --without development` can load
+/// the `native.rb` wrapper, which unconditionally `require 'sorbet-runtime'`.
+/// Missing the dep caused `LoadError: cannot load such file -- sorbet-runtime` in
+/// kreuzcrawl CI E2E (run 25997906829, job 76416254666).
+#[test]
+fn test_scaffold_ruby_gemspec_includes_sorbet_runtime_dependency() {
+    let config = test_config();
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Ruby]).unwrap();
+    let files = language_files(&all_files);
+    // files[0] is the gemspec
+    let gemspec = &files[0].content;
+    assert!(
+        gemspec.contains("sorbet-runtime"),
+        "gemspec must add sorbet-runtime as a runtime dependency; got:\n{gemspec}"
+    );
+    assert!(
+        gemspec.contains("spec.add_dependency 'sorbet-runtime'"),
+        "gemspec must use spec.add_dependency (not add_development_dependency) for sorbet-runtime; got:\n{gemspec}"
+    );
+    assert!(
+        gemspec.contains("~> 0.5"),
+        "sorbet-runtime dependency must carry a ~> 0.5 version constraint; got:\n{gemspec}"
+    );
+}
+
 #[test]
 fn test_pre_commit_config_python_node() {
     let config = test_config();
