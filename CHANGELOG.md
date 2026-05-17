@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.28] - 2026-05-17
+
 ### Fixed
 
 - **alef-e2e rust: drop unused `use {dep}::{App, RequestContext}` import from http-fixture test files**: `render_test_file` unconditionally emitted `use {module}::{App, RequestContext};` when any fixture in the file declared an `http` block, but `render_http_test_function` references those symbols via their fully-qualified module path (`{dep_name}::App::new()`, `move |_ctx: {dep_name}::RequestContext|`). The use-statement was therefore always unused, tripping `-D unused_imports` in the consumer crate's clippy sweep. The unconditional emission is dropped; the body keeps the fully-qualified paths so no resolution behaviour changes. (`crates/alef-e2e/src/codegen/rust/test_file.rs`)
