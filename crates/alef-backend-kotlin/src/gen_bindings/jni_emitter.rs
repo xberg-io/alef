@@ -554,7 +554,7 @@ fn emit_method_body(m: &alef_core::ir::MethodDef, out: &mut String, bridge_call:
             // deserialisation through Jackson's `TypeReference<T>` instead.
             let use_type_reference = base_ty.contains('<');
             let deserialize_call = if use_type_reference {
-                imports.insert("com.fasterxml.jackson.core.type.TypeReference".to_string());
+                imports.insert("import com.fasterxml.jackson.core.type.TypeReference".to_string());
                 format!("MAPPER.readValue(responseJson, object : TypeReference<{base_ty}>() {{}})")
             } else {
                 format!("MAPPER.readValue(responseJson, {base_ty}::class.java)")
