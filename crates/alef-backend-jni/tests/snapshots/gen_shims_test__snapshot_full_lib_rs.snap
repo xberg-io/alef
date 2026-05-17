@@ -148,9 +148,9 @@ pub unsafe extern "system" fn Java_dev_kreuzberg_demo_DemoBridge_nativeDemoClien
     // ensures the handle outlives this call.
     let client: &core_crate::DemoClient = unsafe { &*(handle as *const core_crate::DemoClient) };
     let Some(v) = run_or_throw(env, std::panic::AssertUnwindSafe(|| runtime().block_on(client.ping()))) else {
-        return 0u8;
+        return false;
     };
-    v as jboolean
+    v
 }
 
 #[unsafe(no_mangle)]

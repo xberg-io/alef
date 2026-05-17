@@ -53,9 +53,7 @@ pub enum SnippetsAction {
     },
 
     /// Parse a single file and print its code blocks.
-    Parse {
-        file: PathBuf,
-    },
+    Parse { file: PathBuf },
 
     /// Structural integrity audit (frontmatter, fences, include targets).
     Audit {
@@ -275,11 +273,7 @@ fn run_audit(snippet_dirs: &[PathBuf], docs_dirs: &[PathBuf], require_frontmatte
     }
 }
 
-fn run_gaps(
-    snippet_dirs: &[PathBuf],
-    docs_dirs: &[PathBuf],
-    required_languages: Option<&Vec<String>>,
-) -> ExitCode {
+fn run_gaps(snippet_dirs: &[PathBuf], docs_dirs: &[PathBuf], required_languages: Option<&Vec<String>>) -> ExitCode {
     let required = required_languages
         .map(|languages| {
             languages
