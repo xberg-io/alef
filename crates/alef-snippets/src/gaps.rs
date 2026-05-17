@@ -12,6 +12,12 @@ pub struct GapConfig {
     pub docs_dirs: Vec<PathBuf>,
     pub snippet_dirs: Vec<PathBuf>,
     pub required_languages: Vec<Language>,
+    /// Additional base paths searched when resolving MkDocs `--8<--` include targets.
+    ///
+    /// Mirrors the `pymdownx.snippets` `base_path` list. Each target is resolved
+    /// against these paths in order; the first match wins. Falls back to
+    /// `docs_dir.join(target)` when the list is empty or no path matches.
+    pub include_base_paths: Vec<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -68,7 +74,7 @@ impl GapReport {
 /// Returns an error when snippets or markdown files cannot be read.
 pub fn detect_gaps(config: &GapConfig) -> Result<GapReport> {
     let snippets = discover_snippets(&config.snippet_dirs, None)?;
-    let references = discover_includes(&config.docs_dirs)?;
+    let references = discover_includes(&config.docs_dirs, &config.include_base_paths)?;
     let snippet_files = snippet_files(&snippets);
 
     Ok(GapReport {
@@ -82,30 +88,55 @@ pub fn detect_gaps(config: &GapConfig) -> Result<GapReport> {
 
 /// Discover MkDocs `--8<-- "path"` include references beneath documentation roots.
 ///
+/// `include_base_paths` mirrors the `pymdownx.snippets` `base_path` list. Each
+/// target is resolved against those paths in order; the first match wins. When
+/// empty or no path matches, falls back to `docs_dir.join(target)`.
+///
 /// # Errors
 ///
 /// Returns an error when a markdown file cannot be read.
-pub fn discover_includes(docs_dirs: &[PathBuf]) -> Result<Vec<SnippetReference>> {
+pub fn discover_includes(docs_dirs: &[PathBuf], include_base_paths: &[PathBuf]) -> Result<Vec<SnippetReference>> {
     let mut references = Vec::new();
     for docs_dir in docs_dirs {
         for path in markdown_files(docs_dir) {
             let content = std::fs::read_to_string(&path)?;
-            references.extend(parse_includes(&content, &path, docs_dir));
+            references.extend(parse_includes(&content, &path, docs_dir, include_base_paths));
         }
     }
     references.sort_by(|left, right| left.source.cmp(&right.source).then(left.line.cmp(&right.line)));
     Ok(references)
 }
 
+/// Resolve a single include `target` string against the provided base paths.
+///
+/// Returns the first candidate path that exists on disk, or falls back to
+/// `docs_dir.join(target)` so that the missing-references report still points
+/// to a real candidate when nothing resolves.
 #[must_use]
-pub fn parse_includes(content: &str, source: &Path, docs_dir: &Path) -> Vec<SnippetReference> {
+fn resolve_include_target(target: &str, docs_dir: &Path, include_base_paths: &[PathBuf]) -> PathBuf {
+    for base in include_base_paths {
+        let candidate = base.join(target);
+        if candidate.exists() {
+            return candidate;
+        }
+    }
+    docs_dir.join(target)
+}
+
+#[must_use]
+pub fn parse_includes(
+    content: &str,
+    source: &Path,
+    docs_dir: &Path,
+    include_base_paths: &[PathBuf],
+) -> Vec<SnippetReference> {
     content
         .lines()
         .enumerate()
         .filter_map(|(index, line)| parse_include_target(line).map(|target| (index, target)))
         .map(|(index, target)| SnippetReference {
             source: source.to_path_buf(),
-            target: docs_dir.join(target),
+            target: resolve_include_target(target, docs_dir, include_base_paths),
             line: index + 1,
         })
         .collect()
@@ -258,6 +289,7 @@ mod tests {
 "#,
             Path::new("/repo/docs/index.md"),
             Path::new("/repo/docs"),
+            &[],
         );
 
         assert_eq!(refs.len(), 1);
@@ -284,6 +316,7 @@ mod tests {
             docs_dirs: vec![docs],
             snippet_dirs: vec![snippets],
             required_languages: vec![Language::Python, Language::Rust],
+            include_base_paths: vec![],
         })
         .unwrap();
 
@@ -291,5 +324,35 @@ mod tests {
         assert_eq!(report.unreferenced_snippets.len(), 1);
         assert_eq!(report.missing_language_variants.len(), 2);
         assert_eq!(report.skips_without_reason.len(), 1);
+    }
+
+    #[test]
+    fn resolves_changelog_include_via_project_root_base_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let docs = root.join("docs");
+        let snippets = docs.join("snippets");
+        std::fs::create_dir_all(&docs).unwrap();
+        std::fs::create_dir_all(&snippets).unwrap();
+        // CHANGELOG.md lives at project root, not inside docs/
+        std::fs::write(root.join("CHANGELOG.md"), "# Changelog\n").unwrap();
+        // A docs page includes it via --8<-- "CHANGELOG.md"
+        std::fs::write(docs.join("changelog.md"), r#"--8<-- "CHANGELOG.md""#).unwrap();
+
+        let report = detect_gaps(&GapConfig {
+            docs_dirs: vec![docs],
+            snippet_dirs: vec![snippets],
+            required_languages: vec![],
+            // "." resolves relative to the project root (tmpdir), so CHANGELOG.md is found
+            include_base_paths: vec![root.to_path_buf()],
+        })
+        .unwrap();
+
+        // With the correct base path, the reference should resolve and NOT be flagged as missing
+        assert!(
+            report.missing_references.is_empty(),
+            "expected no missing references, got: {:?}",
+            report.missing_references
+        );
     }
 }

@@ -77,6 +77,14 @@ pub enum SnippetsAction {
 
         #[arg(short = 'L', long, value_delimiter = ',')]
         required_languages: Option<Vec<String>>,
+
+        /// Additional base paths to search when resolving `--8<--` include targets.
+        ///
+        /// Mirrors the `pymdownx.snippets` `base_path` list. Each target is
+        /// resolved against these paths in order; the first match wins. When
+        /// unset, only the docs root is searched (preserving the prior behaviour).
+        #[arg(long = "include-base-path", num_args = 0..)]
+        include_base_paths: Vec<PathBuf>,
     },
 }
 
@@ -114,7 +122,8 @@ pub fn run(action: SnippetsAction) -> ExitCode {
             snippets,
             docs,
             required_languages,
-        } => run_gaps(&snippets, &docs, required_languages.as_ref()),
+            include_base_paths,
+        } => run_gaps(&snippets, &docs, required_languages.as_ref(), &include_base_paths),
     }
 }
 
@@ -273,7 +282,12 @@ fn run_audit(snippet_dirs: &[PathBuf], docs_dirs: &[PathBuf], require_frontmatte
     }
 }
 
-fn run_gaps(snippet_dirs: &[PathBuf], docs_dirs: &[PathBuf], required_languages: Option<&Vec<String>>) -> ExitCode {
+fn run_gaps(
+    snippet_dirs: &[PathBuf],
+    docs_dirs: &[PathBuf],
+    required_languages: Option<&Vec<String>>,
+    include_base_paths: &[PathBuf],
+) -> ExitCode {
     let required = required_languages
         .map(|languages| {
             languages
@@ -283,10 +297,18 @@ fn run_gaps(snippet_dirs: &[PathBuf], docs_dirs: &[PathBuf], required_languages:
                 .collect()
         })
         .unwrap_or_default();
+    // When no explicit base paths are given, default to the docs dirs so that
+    // the behaviour is identical to before this flag was introduced.
+    let resolved_base_paths: Vec<PathBuf> = if include_base_paths.is_empty() {
+        docs_dirs.to_vec()
+    } else {
+        include_base_paths.to_vec()
+    };
     let config = GapConfig {
         docs_dirs: docs_dirs.to_vec(),
         snippet_dirs: snippet_dirs.to_vec(),
         required_languages: required,
+        include_base_paths: resolved_base_paths,
     };
     let report = match detect_gaps(&config) {
         Ok(report) => report,
