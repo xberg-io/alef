@@ -5,9 +5,14 @@
         stream =
           Stream.unfold(handle, fn h ->
             case {{ native_mod }}.{{ next_fn }}(h) do
-              {:ok, nil} -> nil
-              {:ok, chunk_json} -> {Jason.decode!(chunk_json, keys: :atoms), h}
-              {:error, _} -> nil
+              {:ok, nil} ->
+                nil
+
+              {:ok, chunk_json} ->
+                {Jason.decode!(chunk_json, keys: :atoms), h}
+
+              {:error, _} ->
+                nil
             end
           end)
 

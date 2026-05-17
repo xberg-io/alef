@@ -270,7 +270,6 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
             "str_enum_class_header.jinja",
             minijinja::context! { name => &enum_def.name },
         ));
-        out.push('\n');
         let enum_doc = if !enum_def.doc.is_empty() {
             let raw = doc_first_paragraph_joined(&enum_def.doc);
             let first = sanitize_python_doc(&raw);
@@ -338,7 +337,6 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
                 "dataclass_header.jinja",
                 minijinja::context! { name => &typ.name },
             ));
-            out.push('\n');
             let class_doc = if !typ.doc.is_empty() {
                 let raw = doc_first_paragraph_joined(&typ.doc);
                 let first = sanitize_python_doc(&raw);
@@ -600,7 +598,6 @@ fn gen_typeddict(
         "typeddict_header.jinja",
         minijinja::context! { name => &typ.name },
     ));
-    out.push('\n');
     let typeddict_doc = if !typ.doc.is_empty() {
         let raw = doc_first_paragraph_joined(&typ.doc);
         let first = sanitize_python_doc(&raw);
