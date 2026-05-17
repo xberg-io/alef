@@ -924,6 +924,7 @@ crate-type = ["cdylib"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = {{ version = "0.4", features = ["wasm_js"] }}
+getrandom_03 = {{ package = "getrandom", version = "0.3", features = ["wasm_js"] }}
 "#,
         header = header,
         pkg_prefix = pkg_prefix,
