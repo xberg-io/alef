@@ -506,7 +506,12 @@ pub fn visitor_reply(ref_id: u64, result: Option<String>) {
         "elixir_enum_field_rest.jinja",
         ",\n            {{ name }}: {{ default }}",
     ),
-    ("elixir_enum_type_arm_first.jinja", "{{ arm }}\n"),
+    // mix-format aligns the first arm with the `|`-prefixed continuation arms at column 10
+    // (i.e. 10-space indent for the bare arm so its `:atom` lines up with each `| :atom`).
+    // Emitting the first arm at column 0 breaks `mix format --check-formatted` and forces
+    // the consumer's pre-commit `mix-format` hook to rewrite the file, invalidating alef's
+    // embedded `alef:hash:` line.
+    ("elixir_enum_type_arm_first.jinja", "          {{ arm }}\n"),
     ("elixir_enum_type_arm_rest.jinja", "          | {{ arm }}\n"),
     (
         "elixir_data_enum_unit_type.jinja",
