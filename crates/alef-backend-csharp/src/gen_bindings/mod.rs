@@ -442,6 +442,8 @@ impl Backend for CsharpBackend {
                 }
 
                 let type_filename = typ.name.to_pascal_case();
+                let excluded_types: HashSet<String> =
+                    api.excluded_type_paths.keys().map(|n| n.to_pascal_case()).collect();
                 files.push(GeneratedFile {
                     path: base_path.join(format!("{}.cs", type_filename)),
                     content: strip_trailing_whitespace(&types::gen_record_type(
@@ -453,6 +455,7 @@ impl Backend for CsharpBackend {
                         &lang_rename_all,
                         &bridge_type_aliases,
                         &exception_class_name,
+                        &excluded_types,
                     )),
                     generated_header: true,
                 });

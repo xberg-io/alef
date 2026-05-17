@@ -482,6 +482,7 @@ pub(super) fn gen_record_type(
     _lang_rename_all: &str,
     bridge_type_aliases: &HashSet<String>,
     exception_class: &str,
+    excluded_types: &HashSet<String>,
 ) -> String {
     use crate::template_env::render;
 
@@ -599,9 +600,13 @@ pub(super) fn gen_record_type(
 
         let cs_name = to_csharp_name(&field.name);
 
-        // Check if field type is a complex enum (tagged enum with data variants).
+        // Check if field type is a complex enum (tagged enum with data variants) or
+        // an excluded type (marked with #[alef(skip)] or #[doc(hidden)]).
         // These can't be simple C# enums — use JsonElement for flexible deserialization.
-        let is_complex = matches!(&field.ty, TypeRef::Named(n) if complex_enums.contains(&n.to_pascal_case()));
+        let is_complex = matches!(&field.ty, TypeRef::Named(n) if {
+            let pascal = n.to_pascal_case();
+            complex_enums.contains(&pascal) || excluded_types.contains(&pascal)
+        });
 
         // Special handling for visitor bridge fields: always map to IHtmlVisitor?
         if is_visitor_bridge {
