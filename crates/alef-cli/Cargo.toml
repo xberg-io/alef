@@ -43,6 +43,7 @@ alef-backend-wasm = { workspace = true }
 alef-backend-zig = { workspace = true }
 alef-core = { workspace = true }
 alef-docs = { workspace = true }
+alef-snippets = { workspace = true }
 alef-e2e = { workspace = true }
 alef-extract = { workspace = true }
 alef-publish = { workspace = true }

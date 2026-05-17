@@ -1,3 +1,5 @@
+//! `alef snippets` subcommand — discover, validate, audit, and gap-check documentation snippets.
+
 use alef_snippets::audit::{AuditConfig, AuditSeverity, audit};
 use alef_snippets::discovery;
 use alef_snippets::gaps::{GapConfig, detect_gaps};
@@ -5,20 +7,13 @@ use alef_snippets::output;
 use alef_snippets::runner::{RunnerConfig, run_validation};
 use alef_snippets::types::{Language, ValidationLevel};
 use alef_snippets::validators::ValidatorRegistry;
-use clap::{Parser, Subcommand};
+use clap::Subcommand;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-#[derive(Parser)]
-#[command(name = "snippet-runner")]
-#[command(about = "Validate documentation code snippets across languages")]
-struct Cli {
-    #[command(subcommand)]
-    command: Commands,
-}
-
 #[derive(Subcommand)]
-enum Commands {
+pub enum SnippetsAction {
+    /// List discovered snippets and a per-language count summary.
     List {
         #[arg(short, long, required = true, num_args = 1..)]
         snippets: Vec<PathBuf>,
@@ -27,6 +22,7 @@ enum Commands {
         languages: Option<Vec<String>>,
     },
 
+    /// Validate snippet syntax (and optionally compilation / execution).
     Validate {
         #[arg(short, long, required = true, num_args = 1..)]
         snippets: Vec<PathBuf>,
@@ -56,10 +52,12 @@ enum Commands {
         show_code: bool,
     },
 
+    /// Parse a single file and print its code blocks.
     Parse {
         file: PathBuf,
     },
 
+    /// Structural integrity audit (frontmatter, fences, include targets).
     Audit {
         #[arg(short, long, required = true, num_args = 1..)]
         snippets: Vec<PathBuf>,
@@ -71,6 +69,7 @@ enum Commands {
         require_frontmatter: bool,
     },
 
+    /// Coverage gap report (unreferenced snippets, missing language variants).
     Gaps {
         #[arg(short, long, required = true, num_args = 1..)]
         snippets: Vec<PathBuf>,
@@ -83,12 +82,10 @@ enum Commands {
     },
 }
 
-fn main() -> ExitCode {
-    let cli = Cli::parse();
-
-    match cli.command {
-        Commands::List { snippets, languages } => run_list_command(&snippets, languages.as_ref()),
-        Commands::Validate {
+pub fn run(action: SnippetsAction) -> ExitCode {
+    match action {
+        SnippetsAction::List { snippets, languages } => run_list(&snippets, languages.as_ref()),
+        SnippetsAction::Validate {
             snippets,
             level,
             languages,
@@ -98,7 +95,7 @@ fn main() -> ExitCode {
             fail_fast,
             include,
             show_code,
-        } => run_validate_command(
+        } => run_validate(
             &snippets,
             level,
             languages.as_ref(),
@@ -109,21 +106,144 @@ fn main() -> ExitCode {
             include.as_ref(),
             show_code,
         ),
-        Commands::Parse { file } => run_parse_command(&file),
-        Commands::Audit {
+        SnippetsAction::Parse { file } => run_parse(&file),
+        SnippetsAction::Audit {
             snippets,
             docs,
             require_frontmatter,
-        } => run_audit_command(&snippets, &docs, require_frontmatter),
-        Commands::Gaps {
+        } => run_audit(&snippets, &docs, require_frontmatter),
+        SnippetsAction::Gaps {
             snippets,
             docs,
             required_languages,
-        } => run_gaps_command(&snippets, &docs, required_languages.as_ref()),
+        } => run_gaps(&snippets, &docs, required_languages.as_ref()),
     }
 }
 
-fn run_audit_command(snippet_dirs: &[PathBuf], docs_dirs: &[PathBuf], require_frontmatter: bool) -> ExitCode {
+fn parse_language_filter(languages: Option<&[String]>) -> Option<Vec<Language>> {
+    let languages = languages?;
+    Some(
+        languages
+            .iter()
+            .map(|language| Language::from_fence_tag(language))
+            .filter(|language| *language != Language::Unknown)
+            .collect(),
+    )
+}
+
+fn run_list(snippets: &[PathBuf], languages: Option<&Vec<String>>) -> ExitCode {
+    let filter = parse_language_filter(languages.map(Vec::as_slice));
+    match discovery::discover_snippets(snippets, filter.as_deref()) {
+        Ok(found) => {
+            output::print_snippet_list(&found);
+            println!();
+            for (language, count) in &discovery::count_by_language(&found) {
+                println!("  {language:<12} {count}");
+            }
+            println!();
+            ExitCode::SUCCESS
+        }
+        Err(err) => {
+            eprintln!("Error discovering snippets: {err}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_validate(
+    snippets: &[PathBuf],
+    level: ValidationLevel,
+    languages: Option<&Vec<String>>,
+    output_path: Option<PathBuf>,
+    jobs: usize,
+    timeout: u64,
+    fail_fast: bool,
+    include: Option<&String>,
+    show_code: bool,
+) -> ExitCode {
+    let filter = parse_language_filter(languages.map(Vec::as_slice));
+    let mut found = match discovery::discover_snippets(snippets, filter.as_deref()) {
+        Ok(found) => found,
+        Err(err) => {
+            eprintln!("Error discovering snippets: {err}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    if let Some(pattern) = &include {
+        found.retain(|snippet| snippet.path.to_string_lossy().contains(pattern.as_str()));
+    }
+
+    if found.is_empty() {
+        println!("No snippets found.");
+        return ExitCode::SUCCESS;
+    }
+
+    println!("Validating {} snippets at level '{level}'...", found.len());
+    let registry = ValidatorRegistry::new();
+    let config = RunnerConfig {
+        level,
+        parallelism: jobs,
+        timeout_secs: timeout,
+        fail_fast,
+    };
+
+    match run_validation(&found, &registry, &config) {
+        Ok(summary) => {
+            output::print_summary(&summary, show_code);
+
+            if let Some(path) = output_path {
+                if let Err(err) = output::write_json(&summary.results, &path) {
+                    eprintln!("Error writing JSON output: {err}");
+                } else {
+                    println!("Results written to {}", path.display());
+                }
+            }
+
+            if summary.has_failures() {
+                ExitCode::FAILURE
+            } else {
+                ExitCode::SUCCESS
+            }
+        }
+        Err(err) => {
+            eprintln!("Error running validation: {err}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run_parse(file: &Path) -> ExitCode {
+    match alef_snippets::parser::parse_code_blocks(file) {
+        Ok(blocks) => {
+            if blocks.is_empty() {
+                println!("No code blocks found in {}", file.display());
+            } else {
+                for (index, block) in blocks.iter().enumerate() {
+                    println!("--- Block {} (line {}) ---", index + 1, block.start_line);
+                    println!("Language: {}", block.lang);
+                    if let Some(title) = &block.title {
+                        println!("Title: {title}");
+                    }
+                    if let Some(comment) = &block.preceding_comment {
+                        println!("Annotation: {comment}");
+                    }
+                    println!("Code ({} lines):", block.code.lines().count());
+                    println!("{}", block.code);
+                    println!();
+                }
+            }
+            ExitCode::SUCCESS
+        }
+        Err(err) => {
+            eprintln!("Error parsing {}: {err}", file.display());
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run_audit(snippet_dirs: &[PathBuf], docs_dirs: &[PathBuf], require_frontmatter: bool) -> ExitCode {
     let config = AuditConfig {
         docs_dirs: docs_dirs.to_vec(),
         snippet_dirs: snippet_dirs.to_vec(),
@@ -155,7 +275,7 @@ fn run_audit_command(snippet_dirs: &[PathBuf], docs_dirs: &[PathBuf], require_fr
     }
 }
 
-fn run_gaps_command(
+fn run_gaps(
     snippet_dirs: &[PathBuf],
     docs_dirs: &[PathBuf],
     required_languages: Option<&Vec<String>>,
@@ -229,127 +349,4 @@ fn run_gaps_command(
         }
     }
     ExitCode::FAILURE
-}
-
-fn parse_language_filter(languages: Option<&[String]>) -> Option<Vec<Language>> {
-    let languages = languages?;
-    Some(
-        languages
-            .iter()
-            .map(|language| Language::from_fence_tag(language))
-            .filter(|language| *language != Language::Unknown)
-            .collect(),
-    )
-}
-
-fn run_list_command(snippets: &[PathBuf], languages: Option<&Vec<String>>) -> ExitCode {
-    let filter = parse_language_filter(languages.map(Vec::as_slice));
-    match discovery::discover_snippets(snippets, filter.as_deref()) {
-        Ok(found) => {
-            output::print_snippet_list(&found);
-            println!();
-            for (language, count) in &discovery::count_by_language(&found) {
-                println!("  {language:<12} {count}");
-            }
-            println!();
-            ExitCode::SUCCESS
-        }
-        Err(err) => {
-            eprintln!("Error discovering snippets: {err}");
-            ExitCode::FAILURE
-        }
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn run_validate_command(
-    snippets: &[PathBuf],
-    level: ValidationLevel,
-    languages: Option<&Vec<String>>,
-    output_path: Option<PathBuf>,
-    jobs: usize,
-    timeout: u64,
-    fail_fast: bool,
-    include: Option<&String>,
-    show_code: bool,
-) -> ExitCode {
-    let filter = parse_language_filter(languages.map(Vec::as_slice));
-    let mut found = match discovery::discover_snippets(snippets, filter.as_deref()) {
-        Ok(found) => found,
-        Err(err) => {
-            eprintln!("Error discovering snippets: {err}");
-            return ExitCode::FAILURE;
-        }
-    };
-
-    if let Some(pattern) = &include {
-        found.retain(|snippet| snippet.path.to_string_lossy().contains(pattern.as_str()));
-    }
-
-    if found.is_empty() {
-        println!("No snippets found.");
-        return ExitCode::SUCCESS;
-    }
-
-    println!("Validating {} snippets at level '{level}'...", found.len());
-    let registry = ValidatorRegistry::new();
-    let config = RunnerConfig {
-        level,
-        parallelism: jobs,
-        timeout_secs: timeout,
-        fail_fast,
-    };
-
-    match run_validation(&found, &registry, &config) {
-        Ok(summary) => {
-            output::print_summary(&summary, show_code);
-
-            if let Some(path) = output_path {
-                if let Err(err) = output::write_json(&summary.results, &path) {
-                    eprintln!("Error writing JSON output: {err}");
-                } else {
-                    println!("Results written to {}", path.display());
-                }
-            }
-
-            if summary.has_failures() {
-                ExitCode::FAILURE
-            } else {
-                ExitCode::SUCCESS
-            }
-        }
-        Err(err) => {
-            eprintln!("Error running validation: {err}");
-            ExitCode::FAILURE
-        }
-    }
-}
-
-fn run_parse_command(file: &Path) -> ExitCode {
-    match alef_snippets::parser::parse_code_blocks(file) {
-        Ok(blocks) => {
-            if blocks.is_empty() {
-                println!("No code blocks found in {}", file.display());
-            } else {
-                for (index, block) in blocks.iter().enumerate() {
-                    println!("--- Block {} (line {}) ---", index + 1, block.start_line);
-                    println!("Language: {}", block.lang);
-                    if let Some(title) = &block.title {
-                        println!("Title: {title}");
-                    }
-                    if let Some(comment) = &block.preceding_comment {
-                        println!("Annotation: {comment}");
-                    }
-                    println!("Code ({} lines):", block.code.lines().count());
-                    println!("{}", block.code);
-                    println!();
-                }
-            }
-            ExitCode::SUCCESS
-        }
-        Err(err) => {
-            eprintln!("Error parsing {}: {err}", file.display());
-            ExitCode::FAILURE
-        }
-    }
 }

@@ -306,6 +306,11 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Discover, validate, audit, and gap-check documentation snippets.
+    Snippets {
+        #[command(subcommand)]
+        action: commands::snippets::SnippetsAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1888,6 +1893,13 @@ fn main() -> Result<()> {
                     workspace_root: &workspace_root,
                 };
                 commands::go_tag::run(&params)?;
+            }
+            Ok(())
+        }
+        Commands::Snippets { action } => {
+            let exit_code = commands::snippets::run(action);
+            if exit_code != std::process::ExitCode::SUCCESS {
+                process::exit(1);
             }
             Ok(())
         }

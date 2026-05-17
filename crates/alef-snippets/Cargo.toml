@@ -9,17 +9,7 @@ homepage.workspace = true
 description = "Reusable documentation snippet discovery and validation for Alef"
 readme = "README.md"
 
-[[bin]]
-name = "alef-snippets"
-path = "src/main.rs"
-required-features = ["cli"]
-
-[features]
-default = []
-cli = ["dep:clap"]
-
 [dependencies]
-clap = { workspace = true, optional = true }
 rayon = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

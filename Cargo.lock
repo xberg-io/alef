@@ -324,6 +324,7 @@ dependencies = [
  "alef-publish",
  "alef-readme",
  "alef-scaffold",
+ "alef-snippets",
  "anyhow",
  "blake3",
  "clap",
@@ -458,7 +459,6 @@ dependencies = [
 name = "alef-snippets"
 version = "0.16.24"
 dependencies = [
- "clap",
  "rayon",
  "serde",
  "serde_json",

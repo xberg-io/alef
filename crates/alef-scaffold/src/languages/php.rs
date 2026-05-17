@@ -87,7 +87,6 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     // PSR-4 namespace derived from the extension name (e.g. html_to_markdown_rs -> Html\To\Markdown\Rs).
     // Double backslashes for JSON string literal output.
     let php_namespace = php_autoload_namespace(config).replace('\\', "\\\\");
-    let name_lower = name.to_lowercase();
 
     let keywords_json = if meta.keywords.is_empty() {
         String::new()
@@ -100,14 +99,26 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     // e.g. "https://github.com/Acme/my-lib" -> "acme" (composer requires the
     // vendor to be all-lowercase per the package-name regex; mixed-case orgs
     // like `Goldziher` get folded down here).
-    let vendor = meta
-        .repository
-        .strip_prefix("https://github.com/")
-        .or_else(|| meta.repository.strip_prefix("http://github.com/"))
-        .and_then(|rest| rest.split('/').next())
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_lowercase())
-        .unwrap_or_else(|| name.clone());
+    let (vendor, package_name) = {
+        let repo = meta
+            .repository
+            .strip_prefix("https://github.com/")
+            .or_else(|| meta.repository.strip_prefix("http://github.com/"))
+            .filter(|s| !s.is_empty())
+            .unwrap_or(&meta.repository);
+
+        let parts: Vec<&str> = repo.split('/').collect();
+        match parts.as_slice() {
+            [owner, repo_name, ..] => {
+                let vendor = owner.to_lowercase();
+                // Use the repo name (e.g. html-to-markdown) for the package name,
+                // falling back to the crate name if the repo name can't be extracted.
+                let pkg_name = repo_name.to_lowercase();
+                (vendor, pkg_name)
+            }
+            _ => (name.clone(), name.to_lowercase()),
+        }
+    };
 
     // Derive the GitHub owner/repo from the repository URL for the binary URL template.
     // e.g. "https://github.com/kreuzberg-dev/html-to-markdown" -> "kreuzberg-dev/html-to-markdown"
@@ -137,7 +148,7 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
 
     let content = format!(
         r#"{{
-  "name": "{vendor}/{name}",
+  "name": "{vendor}/{package_name}",
   "description": "{description}",
   "license": "{license}",
   "type": "php-ext",
@@ -170,7 +181,8 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
   }}{keywords}{pie_binary_block}
 }}
 "#,
-        name = name_lower,
+        vendor = vendor,
+        package_name = package_name,
         description = meta.description,
         license = meta.license,
         php_namespace = php_namespace,
