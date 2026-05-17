@@ -295,6 +295,10 @@ fn default_readme_path(config: &ResolvedCrateConfig, lang: Language) -> PathBuf 
     match lang {
         Language::Ffi => PathBuf::from(format!("crates/{name}-ffi/README.md")),
         Language::Wasm => PathBuf::from(format!("crates/{name}-wasm/README.md")),
+        // Node: the real publish target is the NAPI-RS crate, not a packages/node/ stub.
+        Language::Node => PathBuf::from(format!("crates/{name}-node/README.md")),
+        // Rust: the source crate IS the canonical crate — no packages/rust/ stub.
+        Language::Rust => PathBuf::from(format!("crates/{name}/README.md")),
         _ => PathBuf::from(format!("packages/{}/README.md", lang_dir_name(lang))),
     }
 }
@@ -891,7 +895,7 @@ repository = "https://github.com/test/my-lib"
         let api = test_api();
         let files = generate_readmes(&api, &config, &[Language::Node]).unwrap();
         assert_eq!(files.len(), 1);
-        assert_eq!(files[0].path, PathBuf::from("packages/node/README.md"));
+        assert_eq!(files[0].path, PathBuf::from("crates/my-lib-node/README.md"));
         assert!(files[0].content.contains("Node.js"));
     }
 
@@ -1579,6 +1583,37 @@ languages:
         let api = test_api();
         let files = generate_readmes(&api, &config, &[Language::Wasm]).unwrap();
         assert_eq!(files[0].path, PathBuf::from("crates/my-lib-wasm/README.md"));
+    }
+
+    #[test]
+    fn test_default_readme_path_node() {
+        let config = test_config();
+        let api = test_api();
+        let files = generate_readmes(&api, &config, &[Language::Node]).unwrap();
+        assert_eq!(files[0].path, PathBuf::from("crates/my-lib-node/README.md"));
+    }
+
+    #[test]
+    fn test_default_readme_path_rust_when_explicitly_configured() {
+        let mut config = test_config();
+        let mut readme_cfg = ReadmeConfig {
+            template_dir: None,
+            snippets_dir: None,
+            config: None,
+            output_pattern: None,
+            discord_url: None,
+            banner_url: None,
+            languages: std::collections::HashMap::new(),
+        };
+        // Opt in via output_path so the Rust README is not silently skipped.
+        readme_cfg.languages.insert(
+            "rust".to_string(),
+            serde_json::json!({ "output_path": "crates/my-lib/README.md" }),
+        );
+        config.readme = Some(readme_cfg);
+        let api = test_api();
+        let files = generate_readmes(&api, &config, &[Language::Rust]).unwrap();
+        assert_eq!(files[0].path, PathBuf::from("crates/my-lib/README.md"));
     }
 
     // --- readme_output_path: "output" key alias ---

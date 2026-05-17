@@ -271,10 +271,10 @@ pub(super) fn gen_init_py(
     if !imports_from_native.is_empty() {
         let import_line = format!("from .{module_name} import {}", imports_from_native.join(", "));
         if import_line.len() > 88 {
-            out.push_str(&crate::template_env::render(
-                "trait_bridge/single_line.jinja",
-                minijinja::context! { text => format!("from .{module_name} import (\n") },
-            ));
+            // Use push_str directly to avoid the double-newline produced by routing through
+            // single_line.jinja when the text already ends with `\n` (the template itself
+            // appends another newline, yielding `(\n\n` which ruff then flags as E303).
+            out.push_str(&format!("from .{module_name} import (\n"));
             for name in &imports_from_native {
                 out.push_str(&crate::template_env::render(
                     "trait_bridge/indented_import_item.jinja",

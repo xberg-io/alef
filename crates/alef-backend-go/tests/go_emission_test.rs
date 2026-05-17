@@ -114,7 +114,10 @@ fn test_error_method_uses_value_receiver() {
 
 /// Bug B: unmarshalBytes should return []byte, not *[]byte
 #[test]
-#[cfg_attr(target_os = "macos", ignore = "generator output differs on CI macos runners; tracked separately")]
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "generator output differs on CI macos runners; tracked separately"
+)]
 fn test_unmarshal_bytes_returns_slice_not_pointer() {
     let backend = GoBackend;
     let config = make_config();

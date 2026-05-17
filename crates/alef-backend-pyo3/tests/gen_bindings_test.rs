@@ -4196,3 +4196,84 @@ fn test_api_py_pep8_blank_lines_between_functions() {
         api_py.content
     );
 }
+
+/// Regression test: `from ._<module> import (` must NOT be followed by a blank line.
+///
+/// Previously the multi-line native-import branch routed through `single_line.jinja`
+/// with a text ending in `\n`; the template appended a second `\n`, yielding
+/// `from ._mod import (\n\n    Name,` which ruff E303 rejects and which caused an
+/// endless regen-format-fail loop in downstream consumers (kreuzberg, kreuzcrawl).
+#[test]
+fn test_native_import_no_stray_blank_line_after_open_paren() {
+    let backend = Pyo3Backend;
+
+    // Create enough opaque types (no has_default) so that the import line exceeds
+    // 88 chars and the multi-line branch is taken.  Names are intentionally long
+    // to force multi-line without needing dozens of types.
+    let make_opaque = |name: &str| TypeDef {
+        name: name.to_string(),
+        rust_path: format!("test_lib::{name}"),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![],
+        is_opaque: true,
+        is_clone: false,
+        is_copy: false,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![
+            make_opaque("AssetCategory"),
+            make_opaque("AuthConfig"),
+            make_opaque("BrowserMode"),
+            make_opaque("BrowserWait"),
+            make_opaque("CrawlEngineHandle"),
+            make_opaque("FeedType"),
+            make_opaque("ImageSource"),
+            make_opaque("LinkType"),
+        ],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let config = make_config();
+    let files = backend.generate_public_api(&api, &config).expect("generate_public_api failed");
+
+    let init_py = files
+        .iter()
+        .find(|f| f.path.ends_with("__init__.py"))
+        .expect("__init__.py not generated");
+
+    // The import must start a multi-line block and must NOT have a blank line
+    // immediately after the open paren — `(\n\n` is the bug pattern.
+    assert!(
+        !init_py.content.contains("import (\n\n"),
+        "__init__.py must not have a blank line after the open paren in a multi-line import; \
+         ruff E303 rejects it and causes an endless regen-format loop.\ncontent:\n{}",
+        init_py.content
+    );
+
+    // Verify the import block is actually multi-line (the test is only useful
+    // if we hit the `import_line.len() > 88` branch).
+    assert!(
+        init_py.content.contains("from ._test_lib import (\n"),
+        "__init__.py should emit a multi-line native import for this many types;\ncontent:\n{}",
+        init_py.content
+    );
+}
