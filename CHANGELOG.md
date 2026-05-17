@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.35] - 2026-05-17
+
 ### Fixed
 
 - **alef-e2e java: honor `returns_void` on calls returning `()` / `Result<(), E>`**: `java/test_method.jinja` unconditionally emitted `var result = <call_expr>;` which the Java compiler rejected with `cannot infer type for local variable result (variable initializer is 'void')` for calls whose Rust signature is `() -> ()` / `() -> Result<(), E>` (e.g. tree-sitter-language-pack's `init`, `configure`, `clean_cache`). Threaded `returns_void` from `CallConfig` through `render_example` into the template; when true the template emits the bare statement form (`<call_expr>;`) instead of the `var` assignment. Mirrors the existing Ruby/C# patterns. (`crates/alef-e2e/src/codegen/java.rs`, `crates/alef-e2e/templates/java/test_method.jinja`)
