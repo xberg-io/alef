@@ -938,11 +938,11 @@ fn is_tagged_data_enum(type_name: &str, enums: &[EnumDef]) -> bool {
 /// `ChatCompletionTool` where "function" is not a `ContentPart` variant)
 /// are left unchanged.
 fn rename_napi_serde_tags_to_kind(value: &serde_json::Value, enums: &[EnumDef]) -> serde_json::Value {
-    // Build map: serde_tag_key → set of allowed variant serde-names.
+    // Build map: serde_tag_key → (set of variant serde-names, actual_tag_name).
     // Only include tagged-data enums (serde_tag present AND at least one
     // variant with fields so the binding is a flattened struct, not a plain
     // string enum).
-    let mut tag_map: std::collections::HashMap<&str, std::collections::HashSet<String>> =
+    let mut tag_map: std::collections::HashMap<&str, (std::collections::HashSet<String>, &str)> =
         std::collections::HashMap::new();
     for e in enums {
         if let Some(tag) = e.serde_tag.as_deref() {
@@ -952,7 +952,7 @@ fn rename_napi_serde_tags_to_kind(value: &serde_json::Value, enums: &[EnumDef]) 
                     .iter()
                     .map(|v| v.serde_rename.as_deref().unwrap_or(&v.name).to_string())
                     .collect();
-                tag_map.entry(tag).or_default().extend(variants);
+                tag_map.insert(tag, (variants, tag));
             }
         }
     }
@@ -962,24 +962,23 @@ fn rename_napi_serde_tags_to_kind(value: &serde_json::Value, enums: &[EnumDef]) 
 
 fn rename_napi_serde_tags_recursive(
     value: &serde_json::Value,
-    tag_map: &std::collections::HashMap<&str, std::collections::HashSet<String>>,
+    tag_map: &std::collections::HashMap<&str, (std::collections::HashSet<String>, &str)>,
 ) -> serde_json::Value {
     match value {
         serde_json::Value::Object(map) => {
             let mut new_map = serde_json::Map::new();
             for (key, val) in map {
-                // Rename the key to "kind" when:
+                // Preserve the original serde_tag key name when:
                 //  1. the key is a known serde_tag name, AND
                 //  2. the value is a string that matches a known variant of that enum.
-                let new_key = if let Some(variants) = tag_map.get(key.as_str()) {
-                    if val.as_str().is_some_and(|s| variants.contains(s)) {
-                        "kind".to_string()
-                    } else {
-                        key.clone()
+                // The actual tag field name is already correct in the fixture; we only need
+                // to validate and recurse.
+                let new_key = key.clone();
+                if let Some((variants, _)) = tag_map.get(key.as_str()) {
+                    if !val.as_str().is_some_and(|s| variants.contains(s)) {
+                        // Not a valid variant value for this tag; leave as-is and recurse
                     }
-                } else {
-                    key.clone()
-                };
+                }
                 new_map.insert(new_key, rename_napi_serde_tags_recursive(val, tag_map));
             }
             serde_json::Value::Object(new_map)

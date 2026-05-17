@@ -206,10 +206,10 @@ pub(super) fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str, has_se
     use alef_codegen::type_mapper::TypeMapper;
     let mapper = NapiMapper::new(prefix.to_string());
 
-    // Always use "kind" as the TypeScript discriminant field name for consistency.
-    // The Rust serde tag (if any) is used internally but not exposed to TypeScript.
-    let ts_discriminant = "kind";
+    // Use the Rust serde tag as the TypeScript discriminant field name to match
+    // what the Rust deserializer expects. If no explicit tag is set, default to "type".
     let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
+    let ts_discriminant = tag_field;
 
     let derive = if has_serde {
         "#[derive(Clone, serde::Serialize, serde::Deserialize)]"
@@ -502,11 +502,11 @@ mod tests {
 
         let result = gen_enum(&e, "Js", true);
 
-        // Must NOT use the Rust serde tag name ("annotation_type") as js_name.
-        // The discriminant field in napi-rs-generated TypeScript should be "kind", not "annotation_type".
+        // The discriminant field js_name must match the Rust serde tag name so TypeScript
+        // payloads deserialize correctly in Rust. Here the serde_tag is "annotation_type".
         assert!(
-            result.contains("js_name = \"kind\""),
-            "tagged enum must use js_name = \"kind\" for discriminant field, not annotation_type;\nactual:\n{result}"
+            result.contains("js_name = \"annotation_type\""),
+            "tagged enum must use js_name matching serde tag (annotation_type);\nactual:\n{result}"
         );
     }
 
@@ -623,10 +623,10 @@ mod tests {
             result.contains("reason"),
             "struct variant must emit field names (reason);\nactual:\n{result}"
         );
-        // And discriminant must be "kind".
+        // Discriminant js_name must match the serde tag name (annotation_type here).
         assert!(
-            result.contains("js_name = \"kind\""),
-            "struct variant enum must use js_name = \"kind\";\nactual:\n{result}"
+            result.contains("js_name = \"annotation_type\""),
+            "struct variant enum must use js_name matching serde tag;\nactual:\n{result}"
         );
     }
 }
