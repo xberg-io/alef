@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **alef sync-versions: manage `CITATION.cff` at the repo root**: a new optional `[workspace.citation]` section in `alef.toml` declares the project's citation metadata (`title`, `abstract`, `authors` — persons via `family-names`/`given-names` and/or entities via `name`, plus `email`/`orcid`, `repository-code`, `url`, `license`, `date-released`, `doi`). When present, `alef sync-versions` renders a full Citation File Format YAML at `CITATION.cff` using these fields plus the canonical workspace version from `Cargo.toml`; the file is rewritten only when its contents actually change, so the working tree stays clean across reruns. When the section is absent but a hand-authored `CITATION.cff` exists at the repo root, alef falls back to updating only the top-level `version:` scalar (preserving the original quote style — unquoted, single-, or double-quoted). New config types `CitationConfig` and `CitationAuthor` in `alef-core`. (`crates/alef-core/src/config/{output.rs,workspace.rs,resolved/mod.rs,new_config.rs,mod.rs}`, `crates/alef-cli/src/pipeline/version.rs`)
+
+### Fixed
+
+- **publish workflow: include `alef-backend-jni` in the crates.io publish order**: the jni backend was added in commit 831dd99d but was not wired into `.github/workflows/publish.yaml` crate order. Topologically, jni must be published after gleam (which has no jni deps) and before kotlin and kotlin-android (which depend on it). (`.github/workflows/publish.yaml`)
+
 ## [0.16.24] - 2026-05-17
 
 ### Changed

@@ -320,6 +320,7 @@ jobs:
             alef-backend-csharp
             alef-backend-dart
             alef-backend-gleam
+            alef-backend-jni
             alef-backend-kotlin
             alef-backend-kotlin-android
             alef-backend-swift
