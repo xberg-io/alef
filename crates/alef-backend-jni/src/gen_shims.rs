@@ -799,7 +799,7 @@ fn emit_single_param_unmarshal(out: &mut String, rust_name: &str, ty: &TypeRef, 
             // jbyteArray → Vec<u8> via env.convert_byte_array.
             // SAFETY: `source` is a valid jbyteArray produced by the JNI caller.
             out.push_str(&format!(
-                "    let {rust_name}_jarr = unsafe {{ jni::objects::JByteArray::from_raw({rust_name}) }};\n"
+                "    let {rust_name}_jarr = unsafe {{ jni::objects::JByteArray::from_raw(env, {rust_name}) }};\n"
             ));
             out.push_str(&format!(
                 "    let {rust_name}: Vec<u8> = match env.convert_byte_array(&{rust_name}_jarr) {{\n"
@@ -816,7 +816,7 @@ fn emit_single_param_unmarshal(out: &mut String, rust_name: &str, ty: &TypeRef, 
             // No bytes crate dependency needed.
             // SAFETY: `source` is a valid jbyteArray produced by the JNI caller.
             out.push_str(&format!(
-                "    let {rust_name}_jarr = unsafe {{ jni::objects::JByteArray::from_raw({rust_name}) }};\n"
+                "    let {rust_name}_jarr = unsafe {{ jni::objects::JByteArray::from_raw(env, {rust_name}) }};\n"
             ));
             out.push_str(&format!(
                 "    let {rust_name}: Vec<u8> = match env.convert_byte_array(&{rust_name}_jarr) {{\n"
@@ -906,7 +906,10 @@ fn emit_return_marshal_with_indent(out: &mut String, return_type: &TypeRef, inde
             // No return value.
         }
         TypeRef::Primitive(PrimitiveType::Bool) => {
-            out.push_str(&format!("{indent}v as jboolean\n"));
+            // jni 0.22 + jni-sys 0.4 made `jboolean` a `bool` (it was `u8` in
+            // 0.21), so a `bool as bool` cast is a Rust compile error. Return
+            // the value as-is.
+            out.push_str(&format!("{indent}v\n"));
         }
         TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8)) => {
             // Vec<u8> → jbyteArray
@@ -1127,7 +1130,10 @@ fn method_return_type_decl(return_type: &TypeRef) -> String {
 fn method_return_null(return_type: &TypeRef) -> &'static str {
     match return_type {
         TypeRef::Unit => "()",
-        TypeRef::Primitive(PrimitiveType::Bool) => "0u8",
+        // jni 0.22 + jni-sys 0.4 changed `jboolean` from `u8` to `bool`; the
+        // sentinel value for an error-path return therefore needs to be `false`,
+        // not the legacy `0u8`.
+        TypeRef::Primitive(PrimitiveType::Bool) => "false",
         TypeRef::Primitive(PrimitiveType::F32) => "0.0f32",
         TypeRef::Primitive(PrimitiveType::F64) => "0.0f64",
         TypeRef::Primitive(_) => "0",
