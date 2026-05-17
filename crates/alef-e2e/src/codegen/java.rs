@@ -1288,6 +1288,7 @@ fn render_test_method(
             expects_error => expects_error,
             call_expr => call_expr,
             result_var => result_var,
+            returns_void => call_config.returns_void,
             collect_snippet => collect_snippet,
             assertions_body => assertions_body,
         },
