@@ -915,7 +915,15 @@ fn emit_client_class(
         };
 
         let return_ty = mapper.map_type(&method.return_type);
-        let needs_throws = method.error_type.is_some() || has_dto_param;
+        // First-class DTO return type: the bridge call returns the opaque `RustBridge.T`,
+        // but the Swift method signature exposes the first-class `T` struct. Wrap the call
+        // in `try T(bridgeReturn)` using the `init(_ rb: RustBridge.T) throws` extension
+        // emitted by `emit_first_class_struct`.
+        let needs_return_init = matches!(
+            &method.return_type,
+            TypeRef::Named(n) if first_class_types.contains(n)
+        );
+        let needs_throws = method.error_type.is_some() || has_dto_param || needs_return_init;
         let throws_clause = if needs_throws { " throws" } else { "" };
         let async_clause = if method.is_async { " async" } else { "" };
         let return_clause = if matches!(method.return_type, TypeRef::Unit) {
@@ -947,9 +955,15 @@ fn emit_client_class(
                 ""
             };
             if bytes_suffix.is_empty() {
-                out.push_str(&format!(
-                    "        return {try_kw}{await_kw}RustBridge.{bridge_fn_camel}(self.inner{args_str})\n"
-                ));
+                if needs_return_init {
+                    out.push_str(&format!(
+                        "        return try {return_ty}({try_kw}{await_kw}RustBridge.{bridge_fn_camel}(self.inner{args_str}))\n"
+                    ));
+                } else {
+                    out.push_str(&format!(
+                        "        return {try_kw}{await_kw}RustBridge.{bridge_fn_camel}(self.inner{args_str})\n"
+                    ));
+                }
             } else {
                 // For Bytes returns we can't chain `.map` on a throwing call directly,
                 // so capture the RustVec into a local and convert.
