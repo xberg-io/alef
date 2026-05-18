@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.39] - 2026-05-18
+
 ### Fixed
 
 - **alef-backend-wasm: drop `js_name = "<unprefixed>"` override on emitted struct/opaque/enum types so the JS class name matches the Rust struct name (the prefixed form, e.g. `WasmChatCompletionRequest`)**. Previously, wasm-bindgen exported `Wasm<T>` as `T` (unprefixed) via `js_name`, but alef-e2e's TypeScript test generator imports the prefixed Rust identifier (`WasmChatCompletionRequest`). The mismatch made every wasm e2e import resolve to `undefined`, so the first method call (e.g. `WasmChatCompletionRequest.default()`) failed with `TypeError: Cannot read properties of undefined (reading 'default')`. Removing the `js_name` override aligns the JS API with the e2e import shape. Consumers that want a custom JS class name can still configure `[crates.wasm] type_prefix` (e.g. `""` for unprefixed). Surfaced on every liter-llm wasm e2e fixture. (`crates/alef-backend-wasm/templates/{gen_struct,gen_opaque_struct}.jinja`, `crates/alef-backend-wasm/src/gen_bindings/enums.rs`)
