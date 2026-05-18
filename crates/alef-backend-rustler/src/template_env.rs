@@ -46,7 +46,7 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "sync_method_body.rs.jinja",
         r#"{%- for param in clone_params %}
-let {{ param.name }} = {{ param.name }}.clone();
+let {{ param.name }} = {{ param.name }}.to_owned();
 {%- endfor %}
 
 let reply_id = TRAIT_REPLY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -88,7 +88,7 @@ match rx.blocking_recv() {
     (
         "trait_sync_method_body.rs.jinja",
         r#"{%- for param_clone in param_clones %}
-let {{ param_clone.name }} = {{ param_clone.name }}.clone();
+let {{ param_clone.name }} = {{ param_clone.name }}.to_owned();
 {% endfor -%}
 
 let reply_id = TRAIT_REPLY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -129,7 +129,7 @@ match rx.blocking_recv() {
     (
         "trait_async_method_body.rs.jinja",
         r#"{%- for param_clone in param_clones %}
-let {{ param_clone.name }} = {{ param_clone.name }}.clone();
+let {{ param_clone.name }} = {{ param_clone.name }}.to_owned();
 {% endfor -%}
 
 let reply_id = TRAIT_REPLY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -148,7 +148,7 @@ let args_json = {
 
 let method = "{{ method_name }}";
 
-tokio::task::spawn_blocking(move || {
+let _ = tokio::task::spawn_blocking(move || {
     let mut env = rustler::OwnedEnv::new();
     let _ = env.send_and_clear(&pid, |env| {
         (rustler::types::atom::Atom::from_str(env, "trait_call").unwrap(), method, args_json.as_str(), reply_id).encode(env)
