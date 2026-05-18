@@ -835,8 +835,30 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
             &format!("is the {} variant of {}.", variant.name, enum_def.name),
         );
 
+        // Detect "scalar-tuple" variants (single positional tuple field carrying a
+        // primitive, String, Char, or Path). For untagged enums these need a
+        // named Go field (`Value <type>`) to hold the payload — the default
+        // tuple-field skip would emit an empty struct that loses the payload
+        // entirely. Surfaced on `enum RerankDocument { Text(String), Object { … } }`
+        // where the Text variant otherwise lost its inner String content.
+        let scalar_tuple_field = if enum_def.serde_untagged && variant.fields.len() == 1 && is_tuple_field(&variant.fields[0]) {
+            match &variant.fields[0].ty {
+                TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Primitive(_) => Some(&variant.fields[0]),
+                _ => None,
+            }
+        } else {
+            None
+        };
+
         // Struct definition with only this variant's fields
         out.push_str(&format!("type {variant_struct_name} struct {{\n"));
+        if let Some(field) = scalar_tuple_field {
+            // Scalar tuple variant: emit `Value <type>` to hold the payload.
+            // The `json:"-"` tag prevents encoding/json from picking it up
+            // through default field marshalling — we emit a custom
+            // MarshalJSON/UnmarshalJSON below that handles the bare scalar.
+            out.push_str(&format!("\tValue {} `json:\"-\"`\n", go_type(&field.ty)));
+        }
         for field in &variant.fields {
             if is_tuple_field(field) {
                 continue;
@@ -873,42 +895,59 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
             wire_value
         ));
 
-        // Implement MarshalJSON for the concrete struct
-        out.push_str(&format!(
-            "func (v {variant_struct_name}) MarshalJSON() ([]byte, error) {{\n"
-        ));
-        out.push_str("\ttype aux struct {\n");
-        if let Some(tag_name) = &enum_def.serde_tag {
-            let tag_json_name = tag_name.as_str();
+        if scalar_tuple_field.is_some() {
+            // Scalar tuple variant: marshal as a bare JSON scalar (the inner Value),
+            // and unmarshal a bare JSON scalar into Value. Skip the default
+            // tag-wrapping aux-struct dance entirely.
             out.push_str(&format!(
-                "\t\t{} string `json:\"{}\"`\n",
-                to_go_name(tag_name),
-                tag_json_name
+                "func (v {variant_struct_name}) MarshalJSON() ([]byte, error) {{\n"
             ));
-        }
-        for field in &variant.fields {
-            if is_tuple_field(field) {
-                continue;
+            out.push_str("\treturn json.Marshal(v.Value)\n");
+            out.push_str("}\n\n");
+
+            out.push_str(&format!(
+                "func (v *{variant_struct_name}) UnmarshalJSON(data []byte) error {{\n"
+            ));
+            out.push_str("\treturn json.Unmarshal(data, &v.Value)\n");
+            out.push_str("}\n\n");
+        } else {
+            // Implement MarshalJSON for the concrete struct
+            out.push_str(&format!(
+                "func (v {variant_struct_name}) MarshalJSON() ([]byte, error) {{\n"
+            ));
+            out.push_str("\ttype aux struct {\n");
+            if let Some(tag_name) = &enum_def.serde_tag {
+                let tag_json_name = tag_name.as_str();
+                out.push_str(&format!(
+                    "\t\t{} string `json:\"{}\"`\n",
+                    to_go_name(tag_name),
+                    tag_json_name
+                ));
             }
-            let field_go_name = to_go_name(&field.name);
-            let field_type = go_type(&field.ty);
-            let json_name = apply_serde_rename(&field.name, enum_def.serde_rename_all.as_deref());
-            out.push_str(&format!("\t\t{field_go_name} {field_type} `json:\"{json_name}\"`\n"));
-        }
-        out.push_str("\t}\n");
-        out.push_str("\treturn json.Marshal(aux{\n");
-        if let Some(tag_name) = &enum_def.serde_tag {
-            out.push_str(&format!("\t\t{}: v.Type(),\n", to_go_name(tag_name)));
-        }
-        for field in &variant.fields {
-            if is_tuple_field(field) {
-                continue;
+            for field in &variant.fields {
+                if is_tuple_field(field) {
+                    continue;
+                }
+                let field_go_name = to_go_name(&field.name);
+                let field_type = go_type(&field.ty);
+                let json_name = apply_serde_rename(&field.name, enum_def.serde_rename_all.as_deref());
+                out.push_str(&format!("\t\t{field_go_name} {field_type} `json:\"{json_name}\"`\n"));
             }
-            let field_go_name = to_go_name(&field.name);
-            out.push_str(&format!("\t\t{field_go_name}: v.{field_go_name},\n"));
+            out.push_str("\t}\n");
+            out.push_str("\treturn json.Marshal(aux{\n");
+            if let Some(tag_name) = &enum_def.serde_tag {
+                out.push_str(&format!("\t\t{}: v.Type(),\n", to_go_name(tag_name)));
+            }
+            for field in &variant.fields {
+                if is_tuple_field(field) {
+                    continue;
+                }
+                let field_go_name = to_go_name(&field.name);
+                out.push_str(&format!("\t\t{field_go_name}: v.{field_go_name},\n"));
+            }
+            out.push_str("\t})\n");
+            out.push_str("}\n\n");
         }
-        out.push_str("\t})\n");
-        out.push_str("}\n\n");
     }
 
     // Emit the Unmarshal{EnumName} helper function.
@@ -1294,16 +1333,26 @@ pub(super) fn gen_struct_type(
         go_name: String,
         enum_go_name: String,
         is_optional: bool,
+        is_slice: bool,
     }
     let data_enum_fields: Vec<DataEnumField> = binding_fields(&typ.fields)
         .filter(|f| !is_tuple_field(f))
         .filter(|f| f.name != "visitor" || !matches!(&f.ty, TypeRef::Named(n) if n.contains("Visitor")))
         .filter_map(|f| {
-            // Determine the inner Named type name, and whether the field is optional.
-            let (enum_name_str, is_optional) = match &f.ty {
-                TypeRef::Named(n) if data_enum_names.contains(n.as_str()) => (n.as_str(), false),
+            // Determine the inner Named type name, and whether the field is optional
+            // and/or a slice. Slices of data enums (e.g. `Vec<RerankDocument>` where
+            // `RerankDocument` is `#[serde(untagged)]`) need per-element dispatch
+            // through the `Unmarshal<Enum>` helper — Go's default unmarshal of a
+            // JSON array into `[]<sealed-interface>` fails because Go interfaces
+            // are opaque to encoding/json.
+            let (enum_name_str, is_optional, is_slice) = match &f.ty {
+                TypeRef::Named(n) if data_enum_names.contains(n.as_str()) => (n.as_str(), false, false),
                 TypeRef::Optional(inner) => match inner.as_ref() {
-                    TypeRef::Named(n) if data_enum_names.contains(n.as_str()) => (n.as_str(), true),
+                    TypeRef::Named(n) if data_enum_names.contains(n.as_str()) => (n.as_str(), true, false),
+                    _ => return None,
+                },
+                TypeRef::Vec(inner) => match inner.as_ref() {
+                    TypeRef::Named(n) if data_enum_names.contains(n.as_str()) => (n.as_str(), false, true),
                     _ => return None,
                 },
                 _ => return None,
@@ -1312,6 +1361,7 @@ pub(super) fn gen_struct_type(
                 go_name: to_go_name(&f.name),
                 enum_go_name: go_type_name(enum_name_str),
                 is_optional,
+                is_slice,
             })
         })
         .collect();
@@ -1338,12 +1388,20 @@ pub(super) fn gen_struct_type(
                 .serde_rename
                 .clone()
                 .unwrap_or_else(|| apply_serde_rename(&field.name, typ.serde_rename_all.as_deref()));
-            // Check if this field is a data enum field (direct or optional).
-            let is_data_enum = data_enum_fields.iter().any(|def| def.go_name == go_field_name);
-            if is_data_enum {
-                // Always use omitempty for raw message fields; nil check guards the decode.
+            // Check if this field is a data enum field (direct, optional, or slice).
+            let data_enum_def = data_enum_fields.iter().find(|def| def.go_name == go_field_name);
+            if let Some(def) = data_enum_def {
+                // For slice fields we keep the array shape so we can iterate
+                // per-element; scalar/optional fields collapse to a single
+                // json.RawMessage. Both use omitempty — nil-length checks
+                // guard the decode loop below.
+                let raw_type = if def.is_slice {
+                    "[]json.RawMessage"
+                } else {
+                    "json.RawMessage"
+                };
                 out.push_str(&format!(
-                    "\t\t{go_field_name} json.RawMessage `json:\"{json_name},omitempty\"`\n"
+                    "\t\t{go_field_name} {raw_type} `json:\"{json_name},omitempty\"`\n"
                 ));
             } else {
                 // Use the normal field type and tag.
@@ -1391,7 +1449,25 @@ pub(super) fn gen_struct_type(
         // Decode each data-enum field via its UnmarshalX helper.
         for def in &data_enum_fields {
             let unmarshal_fn = format!("Unmarshal{}", def.enum_go_name);
-            if def.is_optional {
+            if def.is_slice {
+                // Slice field: iterate over the JSON array and dispatch per element
+                // via the generated UnmarshalX helper. The struct field type is
+                // `[]<sealed-interface>`, which encoding/json cannot populate
+                // directly from a heterogeneous JSON array (interfaces are opaque).
+                out.push_str(&format!("\tif len(raw.{}) > 0 {{\n", def.go_name));
+                out.push_str(&format!(
+                    "\t\ts.{} = make([]{}, 0, len(raw.{}))\n",
+                    def.go_name, def.enum_go_name, def.go_name
+                ));
+                out.push_str(&format!("\t\tfor _, item := range raw.{} {{\n", def.go_name));
+                out.push_str(&format!("\t\t\tv, err := {unmarshal_fn}(item)\n"));
+                out.push_str("\t\t\tif err != nil {\n");
+                out.push_str("\t\t\t\treturn err\n");
+                out.push_str("\t\t\t}\n");
+                out.push_str(&format!("\t\t\ts.{} = append(s.{}, v)\n", def.go_name, def.go_name));
+                out.push_str("\t\t}\n");
+                out.push_str("\t}\n");
+            } else if def.is_optional {
                 // Optional field: only decode when the raw bytes are non-nil/non-empty.
                 // The struct field type is the bare sealed-interface (no `*`), since
                 // Go interfaces are already nullable — so assign `v` directly.
