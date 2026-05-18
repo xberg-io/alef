@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **alef-backend-pyo3: propagate Rust `///` doc comments into Python `.pyi` stubs as `"""..."""` docstrings**. `gen_stubs.rs` previously emitted only signatures (`class Foo:`, `model: str`) without any docstrings, leaving Python IDE hovers / `help()` output blank for every binding type and field. Added a small `pyi_docstring` helper that takes a Rust doc string, extracts the first paragraph, joins multi-line text with spaces, sanitises Unicode quote/dash characters via the existing `sanitize_python_doc` helper, escapes embedded `"""` and backslashes, and emits a single-line `"""…"""` indented for class-body inclusion. Hooked it into struct-class headers, struct field annotations, unit-enum class headers, and unit-enum variant declarations. Liter-llm regen now ships ~140 Python class/field docstrings inherited from the upstream Rust source. (`crates/alef-backend-pyo3/src/gen_stubs.rs`, `crates/alef-backend-pyo3/src/gen_bindings/enums.rs` — `sanitize_python_doc` and `class_name_to_docstring` promoted to `pub(crate)`)
+
 ### Fixed
 
 - **alef-backend-wasm: tagged-enum variant Map fields now bridge through `serde_wasm_bindgen` in both directions**. v0.16.51 added the core→binding `to_value` path for `tagged_enum_core_to_binding_expr` but the symmetric `tagged_enum_binding_to_core_expr` still emitted `val.field.clone().unwrap_or_default()` for non-optional Map fields, producing E0308 in the opposite direction ("expected `HashMap<String, String>`, found `JsValue`"). Added `TypeRef::Map` arms that deserialise the binding `Option<JsValue>` via `serde_wasm_bindgen::from_value` with a `Default` fallback. Surfaced when exposing `liter_llm::tower::CacheBackend::OpenDal { config: HashMap<String, String> }` as a Wasm DTO — the v0.16.51 fix unblocked the From<core> impl but the From<WasmCacheBackend> impl still failed. (`crates/alef-backend-wasm/src/gen_bindings/enums.rs`)

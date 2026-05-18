@@ -102,18 +102,18 @@ fn tagged_enum_binding_to_core_expr(field_ident: &str, field_ty: &TypeRef, field
             TypeRef::Named(_) => format!("val.{field_ident}.clone().map(Into::into)"),
             // Map fields ride as `Option<JsValue>` in the binding (map_uses_jsvalue);
             // deserialize back to the core HashMap via serde_wasm_bindgen.
-            TypeRef::Map(_, _) => format!(
-                "val.{field_ident}.clone().and_then(|v| serde_wasm_bindgen::from_value(v).ok())"
-            ),
+            TypeRef::Map(_, _) => {
+                format!("val.{field_ident}.clone().and_then(|v| serde_wasm_bindgen::from_value(v).ok())")
+            }
             _ => format!("val.{field_ident}.clone()"),
         };
     }
     match field_ty {
         TypeRef::Optional(inner) => match inner.as_ref() {
             TypeRef::Named(_) => format!("val.{field_ident}.clone().map(Into::into)"),
-            TypeRef::Map(_, _) => format!(
-                "val.{field_ident}.clone().and_then(|v| serde_wasm_bindgen::from_value(v).ok())"
-            ),
+            TypeRef::Map(_, _) => {
+                format!("val.{field_ident}.clone().and_then(|v| serde_wasm_bindgen::from_value(v).ok())")
+            }
             _ => format!("val.{field_ident}.clone()"),
         },
         TypeRef::Named(_) => format!("val.{field_ident}.clone().map(Into::into).unwrap_or_default()"),
