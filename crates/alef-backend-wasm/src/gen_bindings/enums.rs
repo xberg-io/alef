@@ -171,7 +171,10 @@ pub(super) fn gen_tagged_enum_as_struct(enum_def: &EnumDef, prefix: &str) -> Str
     }
 
     // Struct definition. Discriminator is always a String; all variant fields are Option<T>.
-    lines.push(format!("#[wasm_bindgen(js_name = \"{}\")]", enum_def.name));
+    // Use the prefixed Rust struct name as the JS export name too — keeps the
+    // wasm-bindgen JS API in sync with the alef-e2e codegen's imports, which
+    // reference types by their prefixed Rust identifier.
+    lines.push("#[wasm_bindgen]".to_string());
     lines.push("#[derive(Clone, Default)]".to_string());
     lines.push(format!("pub struct {js_name} {{"));
     lines.push(format!("    pub(crate) {tag_field_ident}: String,"));
@@ -593,8 +596,10 @@ pub(super) fn gen_enum(enum_def: &EnumDef, prefix: &str) -> String {
     if !doc.is_empty() {
         lines.push(doc);
     }
+    // Use the prefixed Rust enum name as the JS export name too — keeps the
+    // wasm-bindgen JS API in sync with the alef-e2e codegen's imports.
     lines.extend([
-        format!("#[wasm_bindgen(js_name = \"{}\")]", enum_def.name),
+        "#[wasm_bindgen]".to_string(),
         "#[derive(Clone, Copy, PartialEq, Eq)]".to_string(),
         format!("pub enum {} {{", js_name),
     ]);
@@ -704,8 +709,12 @@ mod tests {
     fn gen_enum_produces_wasm_bindgen_attribute() {
         let e = make_enum("Color", &["Red", "Green", "Blue"]);
         let result = gen_enum(&e, "Wasm");
-        assert!(result.contains("#[wasm_bindgen(js_name = \"Color\")]"));
+        // Unit enums are exported with their prefixed Rust name as the JS
+        // class name (no js_name override) — keeps the JS API in sync with the
+        // alef-e2e codegen's imports, which always reference the prefixed name.
+        assert!(result.contains("#[wasm_bindgen]"));
         assert!(result.contains("pub enum WasmColor"));
+        assert!(!result.contains("js_name = \"Color\""));
         assert!(result.contains("Red = 0,"));
         assert!(result.contains("Green = 1,"));
         assert!(result.contains("Blue = 2,"));

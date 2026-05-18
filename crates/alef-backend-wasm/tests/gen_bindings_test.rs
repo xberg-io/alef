@@ -317,9 +317,11 @@ fn test_enum_generation() {
 
     let content = &files[0].content;
 
-    // Should contain WasmLevel enum with #[wasm_bindgen(js_name = "Level")]
-    assert!(content.contains("#[wasm_bindgen(js_name = \"Level\")]"));
+    // Should contain WasmLevel enum exported with its prefixed Rust name (no
+    // js_name override) so the JS API matches alef-e2e imports.
+    assert!(content.contains("#[wasm_bindgen]"));
     assert!(content.contains("pub enum WasmLevel"));
+    assert!(!content.contains("js_name = \"Level\""));
 
     // Should have all variants
     assert!(content.contains("Low"));
@@ -3010,16 +3012,16 @@ fn test_wasm_js_name_on_non_opaque_struct() {
     let files = result.unwrap();
     let content = &files[0].content;
 
-    // The struct should have #[wasm_bindgen(js_name = "Config")] to export unprefixed name
+    // The struct should be exported via wasm-bindgen using its prefixed Rust
+    // name (`WasmConfig`) so the JS API matches what alef-e2e codegen imports.
+    // No `js_name` override — the JS class name == the Rust struct name.
     assert!(
-        content.contains("#[wasm_bindgen(js_name = \"Config\")]"),
-        "Non-opaque struct should have #[wasm_bindgen(js_name = \"Config\")] to expose unprefixed name; actual content:\n{content}"
+        content.contains("#[wasm_bindgen]\npub struct WasmConfig"),
+        "Non-opaque struct should be exported as the prefixed Rust name (no js_name override); actual content:\n{content}"
     );
-
-    // The internal Rust struct name remains WasmConfig (prefixed) for internal use
     assert!(
-        content.contains("pub struct WasmConfig"),
-        "Rust struct should retain WasmConfig name; actual content:\n{content}"
+        !content.contains("js_name = \"Config\""),
+        "Non-opaque struct must NOT strip the wasm prefix via js_name; actual content:\n{content}"
     );
 }
 
@@ -3083,16 +3085,15 @@ fn test_wasm_js_name_on_opaque_struct() {
     let files = result.unwrap();
     let content = &files[0].content;
 
-    // The opaque struct should have #[wasm_bindgen(js_name = "Parser")] to export unprefixed name
+    // The opaque struct is exported via wasm-bindgen using its prefixed Rust
+    // name (`WasmParser`) so the JS API matches what alef-e2e codegen imports.
     assert!(
-        content.contains("#[wasm_bindgen(js_name = \"Parser\")]"),
-        "Opaque struct should have #[wasm_bindgen(js_name = \"Parser\")] to expose unprefixed name; actual content:\n{content}"
+        content.contains("#[wasm_bindgen]\npub struct WasmParser"),
+        "Opaque struct should be exported as the prefixed Rust name (no js_name override); actual content:\n{content}"
     );
-
-    // The internal Rust struct name remains WasmParser (prefixed) for internal use
     assert!(
-        content.contains("pub struct WasmParser"),
-        "Rust opaque struct should retain WasmParser name; actual content:\n{content}"
+        !content.contains("js_name = \"Parser\""),
+        "Opaque struct must NOT strip the wasm prefix via js_name; actual content:\n{content}"
     );
 }
 
@@ -3150,16 +3151,15 @@ fn test_wasm_js_name_on_unit_enum() {
     let files = result.unwrap();
     let content = &files[0].content;
 
-    // The enum should have #[wasm_bindgen(js_name = "Mode")] to export unprefixed name
+    // The enum is exported via wasm-bindgen using its prefixed Rust name
+    // (`WasmMode`) so the JS API matches what alef-e2e codegen imports.
     assert!(
-        content.contains("#[wasm_bindgen(js_name = \"Mode\")]"),
-        "Unit enum should have #[wasm_bindgen(js_name = \"Mode\")] to expose unprefixed name; actual content:\n{content}"
+        content.contains("#[wasm_bindgen]\n#[derive(Clone, Copy, PartialEq, Eq)]\npub enum WasmMode"),
+        "Unit enum should be exported as the prefixed Rust name (no js_name override); actual content:\n{content}"
     );
-
-    // The internal Rust enum name remains WasmMode (prefixed) for internal use
     assert!(
-        content.contains("pub enum WasmMode"),
-        "Rust enum should retain WasmMode name; actual content:\n{content}"
+        !content.contains("js_name = \"Mode\""),
+        "Unit enum must NOT strip the wasm prefix via js_name; actual content:\n{content}"
     );
 }
 

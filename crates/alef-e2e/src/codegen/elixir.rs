@@ -1060,15 +1060,10 @@ fn render_test_case(
     let chunks_var = "chunks";
 
     if returns_result {
-        if call_config.returns_void {
-            // Result<(), Error> — Elixir returns bare `:ok` on success, not `{:ok, value}`.
-            let _ = writeln!(out, "      :ok = {module_path}.{function_name}({effective_args})");
-        } else {
-            let _ = writeln!(
-                out,
-                "      {{:ok, {result_var}}} = {module_path}.{function_name}({effective_args})"
-            );
-        }
+        let _ = writeln!(
+            out,
+            "      {{:ok, {result_var}}} = {module_path}.{function_name}({effective_args})"
+        );
     } else {
         // Non-Result function returns value directly (e.g., bool, String).
         let _ = writeln!(
