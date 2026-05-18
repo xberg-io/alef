@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-backend-pyo3: add `# noqa: F401` to `TYPE_CHECKING` import items in generated `options.py`**: the `type_checking_import_item.jinja` template emitted bare `Name,` lines while the runtime `import_item.jinja` already had `# noqa: TC001`. When a TYPE_CHECKING-only import is referenced through `from __future__ import annotations` deferred evaluation but the local @dataclass / TypedDict field annotations don't textually reference the name (e.g. because the field's type was rewritten to `dict[str, Any]` or because the type is reachable transitively but only appears nested), ruff F401 flags the import as unused. Consumers can't hand-edit (alef-generated file), and `ruff --fix` would diverge from the alef hash. The TC import item now carries `# noqa: F401` to mirror the existing TC001 suppression on runtime imports — both fall in the same generated-binding pragma family. Surfaced on html-to-markdown CI Lint ruff F401 (packages/python/html_to_markdown/options.py: `DocumentStructure`, `PreprocessingOptionsUpdate`, `ProcessingWarning`, `TableData`). (`crates/alef-backend-pyo3/templates/type_checking_import_item.jinja`)
+
 ## [0.16.37] - 2026-05-17
 
 ### Fixed
