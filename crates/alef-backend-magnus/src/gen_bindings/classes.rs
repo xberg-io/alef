@@ -667,15 +667,22 @@ pub(super) fn gen_enum(enum_def: &EnumDef) -> String {
         .unwrap_or(first_variant);
 
     let first_variant_default = if has_data && !enum_def.variants.first().unwrap().fields.is_empty() {
-        let field_defaults: Vec<String> = enum_def
-            .variants
-            .first()
-            .unwrap()
-            .fields
-            .iter()
-            .map(|f| format!("{}: Default::default()", f.name))
-            .collect();
-        format!(" {{ {} }}", field_defaults.join(", "))
+        let first = enum_def.variants.first().unwrap();
+        // Untagged enums emit tuple-form `Variant(T)` for tuple variants (see enum_magnus.rs.jinja
+        // since commit a715f378). The Default impl must match the same shape, otherwise
+        // rustc rejects `Self::Variant { _0: Default::default() }` as a struct-pattern over
+        // a tuple variant (E0559 / E0769).
+        if enum_def.serde_untagged && first.is_tuple {
+            let field_defaults: Vec<&str> = first.fields.iter().map(|_| "Default::default()").collect();
+            format!("({})", field_defaults.join(", "))
+        } else {
+            let field_defaults: Vec<String> = first
+                .fields
+                .iter()
+                .map(|f| format!("{}: Default::default()", f.name))
+                .collect();
+            format!(" {{ {} }}", field_defaults.join(", "))
+        }
     } else {
         String::new()
     };
