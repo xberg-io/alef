@@ -2,10 +2,10 @@
 //! when the accessor chain crosses an optional field.
 //!
 //! Regression: alef 0.15.57 emitted
-//!     XCTAssertGreaterThan(result.markdown()?.content().len(), 0, ...)
+//!     XCTAssertGreaterThan(result.markdown?.content.count, 0, ...)
 //! which Swift rejects because `result.markdown()?.content().len()` is
 //! `UInt?` and cannot be compared to the integer literal `0`. The fix
-//! emits `(result.markdown()?.content().len() ?? 0)` so the comparison
+//! emits `(result.markdown?.content.count ?? 0)` so the comparison
 //! typechecks. Symmetric fix applies to `is_empty`.
 
 use alef_core::config::NewAlefConfig;
@@ -100,12 +100,12 @@ fn not_empty_optional_chain_coalesces_len_to_int() {
     let files = render_swift("smoke_markdown_content", "not_empty", "markdown.content");
     let rendered = smoke_test_content(&files);
     assert!(
-        rendered.contains("(result.markdown()?.content().len() ?? 0)"),
+        rendered.contains("(result.markdown?.content.count ?? 0)"),
         "not_empty over an optional chain must coalesce `.len()` via `?? 0`. \
          Rendered:\n{rendered}"
     );
     assert!(
-        !rendered.contains("result.markdown()?.content().len(), 0"),
+        !rendered.contains("result.markdown?.content.count, 0"),
         "must not emit the bare `?.chain.len(), 0` pattern that produces a \
          `UInt? vs Int` compile error. Rendered:\n{rendered}"
     );
@@ -116,12 +116,12 @@ fn is_empty_optional_chain_coalesces_len_to_int() {
     let files = render_swift("smoke_markdown_empty", "is_empty", "markdown.content");
     let rendered = smoke_test_content(&files);
     assert!(
-        rendered.contains("(result.markdown()?.content().len() ?? 0)"),
+        rendered.contains("(result.markdown?.content.count ?? 0)"),
         "is_empty over an optional chain must coalesce `.len()` via `?? 0`. \
          Rendered:\n{rendered}"
     );
     assert!(
-        !rendered.contains("result.markdown()?.content().len(), 0"),
+        !rendered.contains("result.markdown?.content.count, 0"),
         "must not emit the bare `?.chain.len(), 0` pattern. Rendered:\n{rendered}"
     );
 }

@@ -602,9 +602,15 @@ fn render_accessor(segments: &[PathSegment], language: &str, result_var: &str) -
 
 /// Generate a Swift accessor expression.
 ///
-/// Swift-bridge exposes all Rust struct fields as methods with `()`, so every
-/// field segment must be followed by `()`. Array fields (e.g. `nodes` inside
-/// an array parent) also need `()`.
+/// Alef now emits first-class Swift structs (`public struct Foo: Codable { public let
+/// id: String }`) for most DTO types, where fields are properties — property access
+/// uses `.id` (no parens). The remaining typealias-to-opaque types (e.g. request
+/// types with Vec/Map/Named fields that aren't first-class candidates) are accessed
+/// via the swift-bridge-generated method-call syntax `.id()`, but in e2e tests these
+/// typealias types are method inputs / streaming outputs rather than parents for
+/// field-access chains, so property syntax works in practice. If a future e2e test
+/// asserts on a field-access chain rooted in an opaque type, a per-type
+/// `SwiftFirstClassMap` (analogous to `PhpGetterMap`) would be needed.
 fn render_swift(segments: &[PathSegment], result_var: &str) -> String {
     let mut out = result_var.to_string();
     for seg in segments {
@@ -612,20 +618,19 @@ fn render_swift(segments: &[PathSegment], result_var: &str) -> String {
             PathSegment::Field(f) => {
                 out.push('.');
                 out.push_str(f);
-                out.push_str("()");
             }
             PathSegment::ArrayField { name, index } => {
                 out.push('.');
                 out.push_str(name);
-                out.push_str(&format!("()[{index}]"));
+                out.push_str(&format!("[{index}]"));
             }
             PathSegment::MapAccess { field, key } => {
                 out.push('.');
                 out.push_str(field);
                 if key.chars().all(|c| c.is_ascii_digit()) {
-                    out.push_str(&format!("()[{key}]"));
+                    out.push_str(&format!("[{key}]"));
                 } else {
-                    out.push_str(&format!("()[\"{key}\"]"));
+                    out.push_str(&format!("[\"{key}\"]"));
                 }
             }
             PathSegment::Length => {
@@ -663,9 +668,9 @@ fn render_swift_with_optionals(
                 path_so_far.push_str(f);
                 out.push('.');
                 out.push_str(f);
-                out.push_str("()");
-                // Insert `?` after `()` for non-leaf optional fields so the next
-                // member access becomes `?.`.
+                // First-class Swift struct fields are properties (no parens).
+                // Insert `?` after the property name for non-leaf optional fields so the
+                // next member access becomes `?.`.
                 if !is_leaf && optional_fields.contains(&path_so_far) {
                     out.push('?');
                 }
@@ -675,29 +680,16 @@ fn render_swift_with_optionals(
                     path_so_far.push('.');
                 }
                 path_so_far.push_str(name);
-                // Check optionality before appending `[0]` to path_so_far so the
-                // lookup key matches the entry in optional_fields (e.g.
-                // "choices[0].message.tool_calls" not "choices[0].message.tool_calls[0]").
                 let is_optional = optional_fields.contains(&path_so_far);
                 out.push('.');
                 out.push_str(name);
                 if is_optional {
-                    // The getter returns Optional<RustVec<T>>; use `?` before the
-                    // subscript so Swift unwraps the Optional before indexing.
-                    out.push_str(&format!("()?[{index}]"));
+                    // Optional<[T]>: unwrap before indexing.
+                    out.push_str(&format!("?[{index}]"));
                 } else {
-                    out.push_str(&format!("()[{index}]"));
+                    out.push_str(&format!("[{index}]"));
                 }
-                // Append the normalised `[0]` suffix to path_so_far so that
-                // subsequent Field segments build paths like "choices[0].message"
-                // which match optional_fields entries that use indexed keys.
                 path_so_far.push_str("[0]");
-                // Do NOT append `?` after `[index]` even when the vec is optional.
-                // In swift-bridge, `RustVec<T>`'s subscript operator returns `T`
-                // directly (non-optional). After `vec()?[N]` Swift has already
-                // consumed the optional via the `?` before the subscript, so the
-                // value at `[N]` is a plain `T` — appending `?` here would produce
-                // a compiler error: "cannot use optional chaining on non-optional".
                 let _ = is_leaf;
             }
             PathSegment::MapAccess { field, key } => {
@@ -708,9 +700,9 @@ fn render_swift_with_optionals(
                 out.push('.');
                 out.push_str(field);
                 if key.chars().all(|c| c.is_ascii_digit()) {
-                    out.push_str(&format!("()[{key}]"));
+                    out.push_str(&format!("[{key}]"));
                 } else {
-                    out.push_str(&format!("()[\"{key}\"]"));
+                    out.push_str(&format!("[\"{key}\"]"));
                 }
             }
             PathSegment::Length => {
