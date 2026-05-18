@@ -2,12 +2,13 @@
 {% if has_data %}
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 {% if serde_tag %}#[serde(tag = "{{ serde_tag }}")]
+{% endif %}{% if serde_untagged %}#[serde(untagged)]
 {% endif %}{% if serde_rename_all %}#[serde(rename_all = "{{ serde_rename_all }}")]
 {% endif %}pub enum {{ enum_name }} {
 {% for variant in variants %}
 {% if variant.serde_rename %}    #[serde(rename = "{{ variant.serde_rename }}")]
 {% endif %}{% if variant.fields %}
-{%- if variant.is_tuple %}    {{ variant.name }}({% for field in variant.fields %}{{ field.field_type }}{{ ", " if not loop.last }}{% endfor %}{%- if variant.fields | length == 1 %}{%- endif %}),
+{%- if variant.is_tuple and serde_untagged %}    {{ variant.name }}({% for field in variant.fields %}{{ field.field_type }}{{ ", " if not loop.last }}{% endfor %}),
 {%- else %}    {{ variant.name }} { {% for field in variant.fields %}{{ field.name }}: {{ field.field_type }}{{ ", " if not loop.last }}{% endfor %} },
 {%- endif %}
 {% else %}    {{ variant.name }},
