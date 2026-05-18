@@ -653,6 +653,9 @@ pub fn binding_to_core_match_arm(binding_prefix: &str, variant_name: &str, field
 
 /// Like `binding_to_core_match_arm` but `binding_has_data` controls whether the binding
 /// enum has the variant's fields (true) or is unit-only (false, e.g. Rustler/Elixir).
+/// `enum_serde_untagged` toggles the binding-side variant body shape for tuple variants:
+/// untagged enums emit tuple-form `Variant(T)` in the binding (see Magnus template), so the
+/// destructure pattern must match. Tagged/unit enums keep struct-form `Variant { _0 }`.
 /// Generate match arm for binding->core conversion with config (handles type conversions).
 pub fn binding_to_core_match_arm_ext_cfg(
     binding_prefix: &str,
@@ -660,6 +663,7 @@ pub fn binding_to_core_match_arm_ext_cfg(
     fields: &[FieldDef],
     binding_has_data: bool,
     config: &ConversionConfig,
+    enum_serde_untagged: bool,
 ) -> String {
     use super::binding_to_core::field_conversion_to_core_cfg;
 
@@ -721,10 +725,12 @@ pub fn binding_to_core_match_arm_ext_cfg(
                 if f.is_boxed { format!("Box::new({expr})") } else { expr }
             })
             .collect();
-        format!(
-            "{binding_prefix}::{variant_name} {{ {binding_pattern} }} => Self::{variant_name}({}),",
-            core_args.join(", ")
-        )
+        let pattern_syntax = if enum_serde_untagged {
+            format!("{binding_prefix}::{variant_name}({binding_pattern})")
+        } else {
+            format!("{binding_prefix}::{variant_name} {{ {binding_pattern} }}")
+        };
+        format!("{pattern_syntax} => Self::{variant_name}({}),", core_args.join(", "))
     } else {
         let field_names: Vec<&str> = fields.iter().map(|f| f.name.as_str()).collect();
         let pattern = field_names.join(", ");
@@ -849,6 +855,9 @@ pub fn core_to_binding_match_arm(core_prefix: &str, variant_name: &str, fields: 
 
 /// Like `core_to_binding_match_arm` but `binding_has_data` controls whether the binding
 /// enum has the variant's fields (true) or is unit-only (false).
+/// `enum_serde_untagged` toggles the binding-side variant body shape for tuple variants:
+/// untagged enums emit tuple-form `Variant(T)` in the binding (see Magnus template), so the
+/// constructor must use tuple form too. Tagged/unit enums keep struct-form `Variant { _0 }`.
 /// Generate match arm for core->binding conversion with config (handles type conversions).
 pub fn core_to_binding_match_arm_ext_cfg(
     core_prefix: &str,
@@ -856,6 +865,7 @@ pub fn core_to_binding_match_arm_ext_cfg(
     fields: &[FieldDef],
     binding_has_data: bool,
     config: &ConversionConfig,
+    enum_serde_untagged: bool,
 ) -> String {
     use super::core_to_binding::field_conversion_from_core_cfg;
     use ahash::AHashSet;
@@ -887,16 +897,27 @@ pub fn core_to_binding_match_arm_ext_cfg(
                     if f.is_boxed {
                         expr = expr.replace(&format!("{}.into()", f.name), &format!("(*{}).into()", f.name));
                     }
-                    format!("{}: {}", f.name, expr)
+                    if enum_serde_untagged {
+                        expr
+                    } else {
+                        format!("{}: {}", f.name, expr)
+                    }
                 } else {
                     conv
                 }
             })
             .collect();
-        format!(
-            "{core_prefix}::{variant_name}({core_pattern}) => Self::{variant_name} {{ {} }},",
-            binding_fields.join(", ")
-        )
+        if enum_serde_untagged {
+            format!(
+                "{core_prefix}::{variant_name}({core_pattern}) => Self::{variant_name}({}),",
+                binding_fields.join(", ")
+            )
+        } else {
+            format!(
+                "{core_prefix}::{variant_name}({core_pattern}) => Self::{variant_name} {{ {} }},",
+                binding_fields.join(", ")
+            )
+        }
     } else {
         let field_names: Vec<&str> = fields.iter().map(|f| f.name.as_str()).collect();
         let pattern = field_names.join(", ");

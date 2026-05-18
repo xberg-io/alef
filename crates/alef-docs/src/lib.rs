@@ -100,6 +100,8 @@ fn generate_lang_doc(
         "front_matter.jinja",
         minijinja::context! { title => format!("{lang_display} API Reference") },
     ));
+    // MD071: blank line required between frontmatter and first heading.
+    out.push('\n');
     out.push_str(&template_env::render(
         "version_heading.jinja",
         minijinja::context! { marker => "##", title => format!("{lang_display} API Reference"), version => version },
@@ -194,6 +196,8 @@ fn render_function(
         "code_block.jinja",
         minijinja::context! { lang_code => lang_code, body => sig },
     ));
+    // MD031: blank line required after fenced code block.
+    out.push('\n');
 
     // Parameters table
     if !func.params.is_empty() {
@@ -268,6 +272,8 @@ fn render_method(method: &MethodDef, type_name_str: &str, lang: Language, ffi_pr
         "code_block.jinja",
         minijinja::context! { lang_code => lang_code, body => sig },
     ));
+    // MD031: blank line required after fenced code block.
+    out.push('\n');
 
     out
 }

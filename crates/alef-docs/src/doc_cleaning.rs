@@ -173,6 +173,12 @@ pub(crate) fn rust_paths_to_dot_notation(doc: &str, lang: Language) -> String {
 }
 
 /// Inline version that also strips newlines for use in table cells.
+///
+/// Note: this function does NOT escape pipe characters. Every call site in
+/// `lib.rs` passes the result through `escape_table_cell`, which handles pipe
+/// escaping exactly once. Escaping here as well would double-escape `||` into
+/// `\\|\\|`, causing CommonMark parsers to see an extra cell separator and
+/// trigger MD056 violations.
 pub(crate) fn clean_doc_inline(doc: &str, lang: Language) -> String {
     if doc.is_empty() {
         return String::new();
@@ -185,8 +191,6 @@ pub(crate) fn clean_doc_inline(doc: &str, lang: Language) -> String {
         .filter(|l| !l.is_empty())
         .collect::<Vec<_>>()
         .join(" ")
-        // Escape pipe characters in table cells
-        .replace('|', "\\|")
 }
 
 /// Strip Rust-specific doc sections (`# Example`, `# Arguments`, `# Fields`).
@@ -584,11 +588,25 @@ mod tests {
     }
 
     #[test]
-    fn test_clean_doc_inline_escapes_pipe_for_table_cells() {
+    fn test_clean_doc_inline_does_not_escape_pipes() {
+        // clean_doc_inline must NOT escape pipes; callers use escape_table_cell for that.
         let doc = "Value between 0 | 1.";
         let result = clean_doc_inline(doc, Language::Python);
-        assert!(result.contains("\\|"), "pipe must be escaped: {result}");
-        assert!(!result.contains(" | "), "unescaped pipe must not remain: {result}");
+        assert!(
+            !result.contains("\\|"),
+            "pipe must not be pre-escaped by clean_doc_inline: {result}"
+        );
+        assert!(
+            result.contains(" | "),
+            "raw pipe must be preserved for caller to escape: {result}"
+        );
+        // The full pipeline (what lib.rs does) escapes exactly once:
+        let cell = crate::formatting::escape_table_cell(&result);
+        assert!(
+            cell.contains("\\|"),
+            "caller escape_table_cell must escape the pipe: {cell}"
+        );
+        assert!(!cell.contains("\\\\|"), "pipe must not be double-escaped: {cell}");
     }
 
     #[test]
@@ -612,6 +630,40 @@ mod tests {
         let doc = "\n\n  \n\nActual content.\n\n  \n";
         let result = clean_doc_inline(doc, Language::Python);
         assert_eq!(result, "Actual content.");
+    }
+
+    /// Regression test for MD056 double-escaping.
+    ///
+    /// `clean_doc_inline` must NOT escape pipes itself. All call sites in
+    /// `lib.rs` pass the result through `escape_table_cell`, so internal pipe
+    /// escaping inside `clean_doc_inline` causes double-escaping:
+    ///   `||`  →  `\|\|`  (clean_doc_inline)  →  `\\|\\|`  (escape_table_cell)
+    /// The CommonMark parser then sees `\\` as an escaped backslash (literal `\`)
+    /// followed by an unescaped `|` (cell separator), splitting one cell into two
+    /// and triggering MD056.
+    ///
+    /// The correct output after the full pipeline is `\|\|` (each pipe escaped
+    /// exactly once by `escape_table_cell`).
+    #[test]
+    fn test_clean_doc_inline_does_not_double_escape_pipes_in_logical_or() {
+        let doc =
+            "The length of this vec is ≤ rows * cols. An empty table (rows == 0 || cols == 0) produces an empty vec.";
+        let raw = clean_doc_inline(doc, Language::Python);
+        // clean_doc_inline must NOT have pre-escaped the pipes
+        assert!(
+            !raw.contains("\\|"),
+            "clean_doc_inline must not escape pipes (double-escaping bug): {raw}"
+        );
+        // The caller (lib.rs) escapes once via escape_table_cell
+        let cell = crate::formatting::escape_table_cell(&raw);
+        assert!(
+            cell.contains("\\|\\|"),
+            "after escape_table_cell the || must become \\|\\|, got: {cell}"
+        );
+        assert!(
+            !cell.contains("\\\\|"),
+            "double-escaped \\\\| must not appear, got: {cell}"
+        );
     }
 
     #[test]
