@@ -326,6 +326,19 @@ fn test_plugin_bridge_with_super_trait_generates_plugin_impl() {
         code.code.contains("fn shutdown(&self)"),
         "Plugin impl must include shutdown()"
     );
+
+    // Regression: initialize()/shutdown() take no args, so the args map is
+    // never mutated. Emitting `let mut args` triggers unused_mut warnings
+    // (clippy/rustc) in the generated NIF code. See
+    // packages/elixir/native/kreuzberg_nif/src/lib.rs:5159/:5196 reproduction.
+    assert!(
+        !code.code.contains("let mut args = serde_json::Map::new();"),
+        "no-arg trait methods must emit `let args`, not `let mut args` (unused_mut)"
+    );
+    assert!(
+        code.code.contains("let args = serde_json::Map::new();"),
+        "no-arg trait methods must emit `let args = serde_json::Map::new();`"
+    );
 }
 
 // ---------------------------------------------------------------------------

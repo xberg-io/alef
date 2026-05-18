@@ -9,7 +9,7 @@ TRAIT_REPLY_CHANNELS.lock().unwrap().insert(reply_id, tx);
 let pid = self.inner;
 
 let args_json = {
-    let mut args = serde_json::Map::new();
+    let {% if args_json %}mut {% endif %}args = serde_json::Map::new();
 {%- for arg in args_json %}
     args.insert("{{ arg.name }}".to_string(), {{ arg.expr }});
 {%- endfor %}

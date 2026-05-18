@@ -56,7 +56,7 @@ TRAIT_REPLY_CHANNELS.lock().unwrap().insert(reply_id, tx);
 let pid = self.inner;
 
 let args_json = {
-    let mut args = serde_json::Map::new();
+    let {% if params %}mut {% endif %}args = serde_json::Map::new();
 {%- for param in params %}
     args.insert("{{ param.name }}".to_string(), {{ param.json_expr }});
 {%- endfor %}
@@ -98,7 +98,7 @@ TRAIT_REPLY_CHANNELS.lock().unwrap().insert(reply_id, tx);
 let pid = self.inner;
 
 let args_json = {
-    let mut args = serde_json::Map::new();
+    let {% if args_json %}mut {% endif %}args = serde_json::Map::new();
 {%- for arg in args_json %}
     args.insert("{{ arg.name }}".to_string(), {{ arg.expr }});
 {%- endfor %}
@@ -139,7 +139,7 @@ TRAIT_REPLY_CHANNELS.lock().unwrap().insert(reply_id, tx);
 let pid = self.inner;
 
 let args_json = {
-    let mut args = serde_json::Map::new();
+    let {% if args_json %}mut {% endif %}args = serde_json::Map::new();
 {%- for arg in args_json %}
     args.insert("{{ arg.name }}".to_string(), {{ arg.expr }});
 {%- endfor %}
@@ -605,6 +605,7 @@ pub fn visitor_reply(ref_id: u64, result: Option<String>) {
   defp apply_visitor_callback(fun, args_json) do
     args = Jason.decode!(args_json)
     result = fun.(args)
+
     case result do
       :continue -> "continue"
       :skip -> "skip"
