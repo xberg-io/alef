@@ -178,7 +178,7 @@ impl Backend for GoBackend {
         let to_root = "../".repeat(depth);
 
         let mut files = vec![GeneratedFile {
-            path: PathBuf::from(&output_dir).join("binding.go"),
+            path: PathBuf::from(format!("{output_dir}binding.go")),
             content,
             generated_header: true,
         }];
@@ -225,7 +225,7 @@ impl Backend for GoBackend {
                 String::new()
             };
             files.push(GeneratedFile {
-                path: PathBuf::from(&output_dir).join("visitor.go"),
+                path: PathBuf::from(format!("{output_dir}visitor.go")),
                 content: visitor_content,
                 generated_header: true,
             });
@@ -247,7 +247,7 @@ impl Backend for GoBackend {
             ));
             if !trait_bridges_content.trim().is_empty() && trait_bridges_content.len() > 100 {
                 files.push(GeneratedFile {
-                    path: PathBuf::from(&output_dir).join("trait_bridges.go"),
+                    path: PathBuf::from(format!("{output_dir}trait_bridges.go")),
                     content: trait_bridges_content,
                     generated_header: true,
                 });

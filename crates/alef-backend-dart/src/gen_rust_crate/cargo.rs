@@ -270,7 +270,7 @@ unexpected_cfgs = {{ level = "warn", check-cfg = ['cfg(frb_expand)'] }}"#
     );
 
     GeneratedFile {
-        path: PathBuf::from(rust_dir).join("Cargo.toml"),
+        path: PathBuf::from(format!("{rust_dir}/Cargo.toml")),
         content,
         generated_header: false,
     }
@@ -327,7 +327,7 @@ pub(crate) fn emit_build_rs(rust_dir: &str) -> GeneratedFile {
 "#
     .to_string();
     GeneratedFile {
-        path: PathBuf::from(rust_dir).join("build.rs"),
+        path: PathBuf::from(format!("{rust_dir}/build.rs")),
         content,
         generated_header: false,
     }
@@ -347,7 +347,7 @@ pub(crate) fn emit_frb_yaml(rust_dir: &str, module_name: &str) -> GeneratedFile 
         "rust_root: .\nrust_input: crate\ndart_output: ../lib/src/{module_name}_bridge_generated\nadd_mod_to_lib: false\n"
     );
     GeneratedFile {
-        path: PathBuf::from(rust_dir).join("flutter_rust_bridge.yaml"),
+        path: PathBuf::from(format!("{rust_dir}/flutter_rust_bridge.yaml")),
         content,
         generated_header: false,
     }
