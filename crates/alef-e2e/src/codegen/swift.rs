@@ -602,14 +602,6 @@ fn render_test_method(
     // rather than `result.audio().toString().isEmpty`.
     let result_is_bytes_any_lang =
         call_config.result_is_bytes || call_config.overrides.values().any(|o| o.result_is_bytes);
-    eprintln!(
-        "[swift debug] fixture={} call={:?} result_is_bytes={} any_override_bytes={} overrides={}",
-        fixture.id,
-        fixture.call,
-        call_config.result_is_bytes,
-        call_config.overrides.values().any(|o| o.result_is_bytes),
-        call_config.overrides.len()
-    );
     let result_is_simple = call_config.result_is_simple
         || call_overrides.is_some_and(|o| o.result_is_simple)
         || result_is_simple
@@ -873,12 +865,19 @@ fn render_test_method(
         }
     }
 
+    // Each fixture's call returns a different IR type. Override the resolver's
+    // Swift first-class-map `root_type` with the call's `result_type` (looked up
+    // across c/csharp/java/kotlin/go/php overrides — these are language-agnostic
+    // IR type names that any backend can use to anchor field-access dispatch).
+    let fixture_root_type: Option<String> = swift_call_result_type(call_config);
+    let fixture_resolver = field_resolver.with_swift_root_type(fixture_root_type);
+
     for assertion in &fixture.assertions {
         render_assertion(
             out,
             assertion,
             result_var,
-            field_resolver,
+            &fixture_resolver,
             result_is_simple,
             result_is_array,
             result_is_option,
@@ -2056,6 +2055,32 @@ fn json_to_swift(value: &serde_json::Value) -> String {
 /// Escape a string for embedding in a Swift double-quoted string literal.
 fn escape_swift(s: &str) -> String {
     escape_swift_str(s)
+}
+
+/// Resolve the IR type name backing this call's result.
+///
+/// Lookup order mirrors PHP's `derive_root_type` for `[crates.e2e.calls.*]`
+/// configs: any of `c, csharp, java, kotlin, go, php` overrides may carry a
+/// `result_type = "ChatCompletionResponse"` field. The first non-empty value
+/// wins. These overrides are language-agnostic IR type names — they were
+/// originally added for the C/C# backends and other backends piggy-back on them
+/// because the IR names are shared across every binding.
+///
+/// Returns `None` when no override sets `result_type`; the renderer then falls
+/// back to the workspace-default heuristic in `SwiftFirstClassMap` (which
+/// defaults to property access — the right call for first-class result types
+/// like `FileObject` but wrong for opaque types like `ChatCompletionResponse`).
+fn swift_call_result_type(call_config: &alef_core::config::e2e::CallConfig) -> Option<String> {
+    const LOOKUP_LANGS: &[&str] = &["c", "csharp", "java", "kotlin", "go", "php"];
+    for lang in LOOKUP_LANGS {
+        if let Some(o) = call_config.overrides.get(*lang)
+            && let Some(rt) = o.result_type.as_deref()
+            && !rt.is_empty()
+        {
+            return Some(rt.to_string());
+        }
+    }
+    None
 }
 
 /// Returns true when the field type would be emitted as a Swift primitive value

@@ -9,6 +9,7 @@ use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use std::collections::{HashMap, HashSet};
 
 /// Resolves fixture field paths to language-specific accessor expressions.
+#[derive(Clone)]
 pub struct FieldResolver {
     aliases: HashMap<String, String>,
     optional_fields: HashSet<String>,
@@ -253,6 +254,22 @@ impl FieldResolver {
             php_getter_map,
             swift_first_class_map: SwiftFirstClassMap::default(),
         }
+    }
+
+    /// Return a clone of this resolver with the Swift first-class map's
+    /// `root_type` replaced.
+    ///
+    /// Used by Swift e2e codegen to thread a per-fixture (per-call) root type
+    /// into the `render_swift_with_first_class_map` dispatcher. Each fixture's
+    /// call returns a different IR type (e.g. `ChatCompletionResponse` vs
+    /// `FileObject`), and the first-class/opaque classification of the root
+    /// drives whether path segments are emitted with property access or
+    /// method-call access. Setting it per-fixture avoids picking a single
+    /// workspace-wide default that breaks half the fixtures.
+    pub fn with_swift_root_type(&self, root_type: Option<String>) -> Self {
+        let mut clone = self.clone();
+        clone.swift_first_class_map.root_type = root_type;
+        clone
     }
 
     /// Create a new resolver that also knows the Swift first-class/opaque
