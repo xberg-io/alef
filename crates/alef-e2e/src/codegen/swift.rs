@@ -1592,18 +1592,18 @@ fn render_assertion(
                         "        XCTAssertFalse({result_var}.isEmpty, \"expected non-empty value\")"
                     );
                 } else {
-                    // Both `RustString` (via RustStringRef.len() -> UInt) and `RustVec<T>` (via
-                    // len() -> Int) expose a `.len()` method. Using `.len() > 0` avoids the
-                    // `.toString().isEmpty` path that fails to compile when the field returns
-                    // `RustVec<T>` — `RustVec<T>` has no `.toString()` member.
+                    // First-class Swift struct fields are properties typed as native Swift
+                    // `String` / `[T]` / `Data` etc — all of which expose `.count` (and
+                    // `String`/`Array` also expose `.isEmpty`). Use `.count > 0` so the same
+                    // path works whether the field is a String or an Array.
                     //
-                    // When the accessor contains a `?.` optional chain, `.len()` returns an
-                    // Optional (e.g. `UInt?`) which Swift cannot compare directly to `0`;
-                    // coalesce via `?? 0` so the assertion typechecks.
+                    // When the accessor contains a `?.` optional chain, `.count` returns an
+                    // Optional which Swift cannot compare directly to `0`; coalesce via `?? 0`
+                    // so the assertion typechecks.
                     let len_expr = if accessor_is_optional {
-                        format!("({field_expr}.len() ?? 0)")
+                        format!("({field_expr}.count ?? 0)")
                     } else {
-                        format!("{field_expr}.len()")
+                        format!("{field_expr}.count")
                     };
                     let _ = writeln!(
                         out,
@@ -1623,13 +1623,11 @@ fn render_assertion(
                     "        XCTAssertTrue({field_expr}.isEmpty, \"expected empty value\")"
                 );
             } else {
-                // Symmetric with not_empty: use .len() == 0 to avoid .toString() on
-                // RustVec<T> fields that have no .toString() method. When the accessor
-                // contains a `?.` optional chain, coalesce so the comparison typechecks.
+                // Symmetric with not_empty: use .count == 0 on first-class Swift types.
                 let len_expr = if accessor_is_optional {
-                    format!("({field_expr}.len() ?? 0)")
+                    format!("({field_expr}.count ?? 0)")
                 } else {
-                    format!("{field_expr}.len()")
+                    format!("{field_expr}.count")
                 };
                 let _ = writeln!(out, "        XCTAssertEqual({len_expr}, 0, \"expected empty value\")");
             }
