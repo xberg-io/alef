@@ -113,6 +113,19 @@ fn gen_type_stub(typ: &TypeDef) -> String {
         if typ.has_default && !field_type.ends_with('?') {
             field_type.push('?');
         }
+        // Field-level doc comment from the Rust source. RBS supports leading
+        // `#` comment lines before declarations; we emit each line of the doc
+        // separately so multi-line docs render correctly.
+        if !f.doc.is_empty() {
+            for line in f.doc.lines() {
+                let line = line.trim();
+                if line.is_empty() {
+                    lines.push("    #".to_string());
+                } else {
+                    lines.push(format!("    # {line}"));
+                }
+            }
+        }
         lines.push(format!(r#"    {accessor} {}: {field_type}"#, f.name));
     }
 
@@ -174,11 +187,28 @@ fn gen_method_stub(method: &MethodDef, is_static: bool) -> String {
     let return_type = rbs_type(&method.return_type);
     let param_list = format!("({})", params.join(", "));
 
-    if is_static {
+    let sig_line = if is_static {
         format!("    def self.{}: {} -> {}", method.name, param_list, return_type)
     } else {
         format!("    def {}: {} -> {}", method.name, param_list, return_type)
+    };
+
+    // Prefix with the method's Rust doc comment, line by line. RBS allows free-form
+    // comments preceding method declarations.
+    if method.doc.is_empty() {
+        return sig_line;
     }
+    let mut out = String::new();
+    for line in method.doc.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            out.push_str("    #\n");
+        } else {
+            out.push_str(&format!("    # {line}\n"));
+        }
+    }
+    out.push_str(&sig_line);
+    out
 }
 
 /// Generate a Ruby enum stub.

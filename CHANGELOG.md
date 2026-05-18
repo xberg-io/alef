@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **alef-backend-magnus: Ruby `.rbs` stubs now propagate Rust `///` doc comments for fields and methods**. `gen_stubs.rs` was already emitting struct/enum-level doc comments (via `rbs_doc_block.jinja`) but field-level and method-level docs were silently dropped. Field docs now precede each `attr_accessor`/`attr_reader` line and method docs precede each `def ... : (...) -> T` signature. Multi-line docs render as multiple `#` lines; empty lines become bare `#` (matching RBS comment-block conventions). Brings Ruby `.rbs` coverage in line with Python `.pyi` (both now ship every public type/field/method docstring inherited from the upstream Rust source). (`crates/alef-backend-magnus/src/gen_stubs.rs`)
+
 ### Fixed
 
 - **alef-backend-php: non-scalar field getters now emit as plain PHP methods (`getCamelCase()`), not `#[php(getter)]` property accessors**. ext-php-rs-derive 0.11.7 leaves `get_method_props` as `todo!()`, so `#[php(getter)]` registers ONLY as a property accessor (the runtime callable method is never registered) AND the property accessor itself is broken for non-scalar return types — every `$obj->nonScalarField` and `$obj->getNonScalarField()` raises a fatal "Call to undefined method" error. Drop `#[php(getter)]` from non-scalar field getters and emit a regular `pub fn getCamelCase(&self) -> T` so ext-php-rs surfaces them as callable PHP methods. The Rust ident is now `getPascalCase` (e.g. `getToolCalls`) so the PHP-side name matches the `$obj->getToolCalls()` shape `alef-e2e/src/codegen/php.rs` already emits for non-scalar fields. Property-style `$obj->camelCase` access for non-scalar fields is forgone as a result of the ext-php-rs limitation. Surfaced on liter-llm `E2E (php)` with 76 runtime errors on `getChoices()`, `getData()`, etc. (`crates/alef-backend-php/src/gen_bindings/types.rs`)
