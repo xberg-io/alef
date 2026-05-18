@@ -159,6 +159,7 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
 
     let mut out = csharp_file_header();
     out.push_str("using System;\n");
+    out.push_str("using System.Collections.Generic;\n");
     out.push_str("using System.IO;\n");
     out.push_str("using System.Text.Json;\n");
     out.push_str("using System.Text.Json.Serialization;\n\n");

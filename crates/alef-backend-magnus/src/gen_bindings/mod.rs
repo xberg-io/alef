@@ -785,29 +785,32 @@ fn gen_tagged_enum_ruby_classes(enum_def: &alef_core::ir::EnumDef, module_name: 
             })
             .collect();
 
-        // YARD @param / @return for initialize
-        for f in &variant.fields {
-            let param_name = if f.name == "_0" { "value" } else { f.name.as_str() };
-            let sorbet_t = sorbet_type_for_field(&f.ty, f.optional);
-            out.push_str(&format!("    # @param {param_name} [{sorbet_t}]\n"));
-        }
-        out.push_str("    # @return [void]\n");
-        if init_sig_params.is_empty() {
-            out.push_str("    sig { void }\n");
-        } else {
+        // Initialize emission — skipped entirely for unit variants because rubocop's
+        // `Lint/UselessMethodDefinition` strips the trivial `def initialize() super() end`
+        // body, which would leave an orphan `sig { void }` and trip Sorbet's runtime
+        // "You called sig twice without declaring a method in between" check.
+        // Unit variants inherit the parent's no-arg initialize.
+        if !variant.fields.is_empty() {
+            // YARD @param / @return for initialize
+            for f in &variant.fields {
+                let param_name = if f.name == "_0" { "value" } else { f.name.as_str() };
+                let sorbet_t = sorbet_type_for_field(&f.ty, f.optional);
+                out.push_str(&format!("    # @param {param_name} [{sorbet_t}]\n"));
+            }
+            out.push_str("    # @return [void]\n");
             out.push_str(&format!("    sig {{ params({}).void }}\n", init_sig_params.join(", ")));
+            let kwarg_list = init_params
+                .iter()
+                .map(|p| format!("{p}:"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            out.push_str(&format!("    def initialize({kwarg_list})\n"));
+            out.push_str("      super()\n");
+            for assign in &init_assigns {
+                out.push_str(&format!("      {assign}\n"));
+            }
+            out.push_str("    end\n\n");
         }
-        let kwarg_list = init_params
-            .iter()
-            .map(|p| format!("{p}:"))
-            .collect::<Vec<_>>()
-            .join(", ");
-        out.push_str(&format!("    def initialize({kwarg_list})\n"));
-        out.push_str("      super()\n");
-        for assign in &init_assigns {
-            out.push_str(&format!("      {assign}\n"));
-        }
-        out.push_str("    end\n\n");
 
         // Predicate override
         out.push_str(&format!("    # @return [Boolean] true when this variant is {snake}\n"));
