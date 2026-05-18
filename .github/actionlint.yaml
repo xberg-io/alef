@@ -1,0 +1,4 @@
+self-hosted-runner:
+  labels:
+    - runner-medium
+    - runner-medium-arm64

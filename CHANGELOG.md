@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-e2e kotlin_android: drop redundant `repositories { mavenCentral(); google() }` block from emitted `build.gradle.kts`**. The v0.16.39 settings.gradle.kts emission sets `dependencyResolutionManagement { repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS) }` and declares `google()` + `mavenCentral()` centrally. Leaving the per-project `repositories { ... }` block in `build.gradle.kts` triggers Gradle "Build was configured to prefer settings repositories over project repositories but repository 'MavenRepo' was added by build file 'build.gradle.kts'" at the `e2e/kotlin_android/` configuration phase. Surfaced on liter-llm's `E2E (kotlin_android)` CI job following the v0.16.43 regen. (`crates/alef-e2e/src/codegen/kotlin_android.rs`)
+
 ## [0.16.43] - 2026-05-18
 
 ### Changed
