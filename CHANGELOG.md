@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.37] - 2026-05-17
+
+### Fixed
+
+- **alef-backend-rustler: uniform multi-line case arms in opaque-module streaming wrapper and blank lines before `@doc` in template wrappers**: two separate mix-format violations in generated Elixir. (1) `gen_elixir_opaque_module` in `helpers.rs` rendered the `Stream.unfold` inner `case` block with mixed single-line and multi-line arms (`{:ok, nil} -> nil`, `{:ok, chunk} -> {chunk, h}`) alongside a multi-line arm — mix-format requires all arms to use the same multi-line form when any arm is multi-line, and requires blank lines between multi-line arms. Fixed by rewriting all four arms to multi-line form (`{:ok, nil} ->\n  nil`, etc.) with blank lines between each. Also fixed the outer `case` arms wrapping the `Stream.unfold` call (`{:ok, stream}` and `{:error, reason}`) to use multi-line form and blank lines. (2) `elixir_streaming_start_wrapper.jinja` and `elixir_streaming_next_wrapper.jinja` emitted `end` with no trailing blank line, so the following `@doc` attribute (from the next template) appeared immediately after `end` without a blank line — mix-format requires a blank line before each `@doc` that precedes a function definition. Added a blank line at the end of both templates. Surfaced on liter-llm CI Lint mix-format (packages/elixir/lib/liter_llm/default_client.ex + packages/elixir/lib/liter_llm.ex). (`crates/alef-backend-rustler/src/gen_bindings/helpers.rs`, `crates/alef-backend-rustler/templates/elixir_streaming_start_wrapper.jinja`, `crates/alef-backend-rustler/templates/elixir_streaming_next_wrapper.jinja`)
+
 ## [0.16.36] - 2026-05-17
 
 ### Fixed
