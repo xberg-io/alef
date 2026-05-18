@@ -36,6 +36,7 @@ use naming::{
 };
 use signatures::{render_function_signature, render_method_signature};
 use sorting::{is_update_type, type_sort_key};
+use std::collections::HashSet;
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -75,6 +76,127 @@ pub fn generate_docs(
     Ok(files)
 }
 
+fn language_excludes(config: &ResolvedCrateConfig, lang: Language) -> (HashSet<String>, HashSet<String>) {
+    let mut functions: HashSet<String> = config.exclude.functions.iter().cloned().collect();
+    let mut types: HashSet<String> = config.exclude.types.iter().cloned().collect();
+
+    match lang {
+        Language::Python => {
+            if let Some(c) = &config.python {
+                extend_excludes(&mut functions, &mut types, &c.exclude_functions, &c.exclude_types);
+            }
+        }
+        Language::Node => {
+            if let Some(c) = &config.node {
+                extend_excludes(&mut functions, &mut types, &c.exclude_functions, &c.exclude_types);
+            }
+        }
+        Language::Ruby => {
+            if let Some(c) = &config.ruby {
+                extend_excludes(&mut functions, &mut types, &c.exclude_functions, &c.exclude_types);
+            }
+        }
+        Language::Php => {
+            if let Some(c) = &config.php {
+                extend_excludes(&mut functions, &mut types, &c.exclude_functions, &c.exclude_types);
+            }
+        }
+        Language::Elixir => {
+            if let Some(c) = &config.elixir {
+                extend_excludes(&mut functions, &mut types, &c.exclude_functions, &c.exclude_types);
+            }
+        }
+        Language::Wasm => {
+            if let Some(c) = &config.wasm {
+                extend_excludes(&mut functions, &mut types, &c.exclude_functions, &c.exclude_types);
+            }
+        }
+        Language::Ffi | Language::C => {
+            if let Some(c) = &config.ffi {
+                extend_excludes(&mut functions, &mut types, &c.exclude_functions, &c.exclude_types);
+            }
+        }
+        Language::Go => {
+            if let Some(c) = &config.go {
+                types.extend(c.exclude_types.iter().cloned());
+            }
+            if let Some(c) = &config.ffi {
+                extend_excludes(&mut functions, &mut types, &c.exclude_functions, &c.exclude_types);
+            }
+        }
+        Language::Java => {
+            if let Some(c) = &config.java {
+                types.extend(c.exclude_types.iter().cloned());
+            }
+            if let Some(c) = &config.ffi {
+                extend_excludes(&mut functions, &mut types, &c.exclude_functions, &c.exclude_types);
+            }
+        }
+        Language::Kotlin => {
+            if let Some(c) = &config.kotlin {
+                extend_excludes(&mut functions, &mut types, &c.exclude_functions, &c.exclude_types);
+            }
+            if let Some(c) = &config.ffi {
+                extend_excludes(&mut functions, &mut types, &c.exclude_functions, &c.exclude_types);
+            }
+        }
+        Language::KotlinAndroid => {
+            if let Some(c) = &config.kotlin_android {
+                extend_excludes(&mut functions, &mut types, &c.exclude_functions, &c.exclude_types);
+            }
+            if let Some(c) = &config.ffi {
+                extend_excludes(&mut functions, &mut types, &c.exclude_functions, &c.exclude_types);
+            }
+        }
+        Language::Jni => {
+            if let Some(c) = &config.ffi {
+                extend_excludes(&mut functions, &mut types, &c.exclude_functions, &c.exclude_types);
+            }
+        }
+        Language::Swift => {
+            if let Some(c) = &config.swift {
+                extend_excludes(&mut functions, &mut types, &c.exclude_functions, &c.exclude_types);
+            }
+        }
+        Language::Dart => {
+            if let Some(c) = &config.dart {
+                extend_excludes(&mut functions, &mut types, &c.exclude_functions, &c.exclude_types);
+            }
+        }
+        Language::Gleam => {
+            if let Some(c) = &config.gleam {
+                extend_excludes(&mut functions, &mut types, &c.exclude_functions, &c.exclude_types);
+            }
+        }
+        Language::Csharp => {
+            if let Some(c) = &config.csharp {
+                extend_excludes(&mut functions, &mut types, &c.exclude_functions, &c.exclude_types);
+            }
+            if let Some(c) = &config.ffi {
+                extend_excludes(&mut functions, &mut types, &c.exclude_functions, &c.exclude_types);
+            }
+        }
+        Language::Zig => {
+            if let Some(c) = &config.zig {
+                extend_excludes(&mut functions, &mut types, &c.exclude_functions, &c.exclude_types);
+            }
+        }
+        Language::R | Language::Rust => {}
+    }
+
+    (functions, types)
+}
+
+fn extend_excludes(
+    functions: &mut HashSet<String>,
+    types: &mut HashSet<String>,
+    exclude_functions: &[String],
+    exclude_types: &[String],
+) {
+    functions.extend(exclude_functions.iter().cloned());
+    types.extend(exclude_types.iter().cloned());
+}
+
 // ---------------------------------------------------------------------------
 // Per-language doc page
 // ---------------------------------------------------------------------------
@@ -95,6 +217,7 @@ fn generate_lang_doc(
     let lang_slug = lang_slug(lang);
 
     let mut out = String::with_capacity(8192);
+    let (exclude_functions, exclude_types) = language_excludes(config, lang);
 
     out.push_str(&template_env::render(
         "front_matter.jinja",
@@ -108,7 +231,11 @@ fn generate_lang_doc(
     ));
 
     // --- Functions section ---
-    let public_fns: Vec<&FunctionDef> = api.functions.iter().collect();
+    let public_fns: Vec<&FunctionDef> = api
+        .functions
+        .iter()
+        .filter(|f| !exclude_functions.contains(&f.name))
+        .collect();
     if !public_fns.is_empty() {
         out.push_str("### Functions\n\n");
         for func in &public_fns {
@@ -120,7 +247,11 @@ fn generate_lang_doc(
     // --- Types section ---
     // Order: ConversionOptions, ConversionResult, then rest alphabetical
     // Skip opaque types and *Update types in main section
-    let mut types_to_doc: Vec<&TypeDef> = api.types.iter().filter(|t| !is_update_type(&t.name)).collect();
+    let mut types_to_doc: Vec<&TypeDef> = api
+        .types
+        .iter()
+        .filter(|t| !is_update_type(&t.name) && !exclude_types.contains(&t.name))
+        .collect();
 
     // Sort: ConversionOptions first, ConversionResult second, rest alphabetical
     types_to_doc.sort_by(|a, b| type_sort_key(&a.name).cmp(&type_sort_key(&b.name)));
@@ -134,9 +265,10 @@ fn generate_lang_doc(
     }
 
     // --- Enums section ---
-    if !api.enums.is_empty() {
+    let enums_to_doc: Vec<&EnumDef> = api.enums.iter().filter(|e| !exclude_types.contains(&e.name)).collect();
+    if !enums_to_doc.is_empty() {
         out.push_str("### Enums\n\n");
-        for en in &api.enums {
+        for en in &enums_to_doc {
             out.push_str(&render_enum(en, lang, ffi_prefix));
             out.push_str("\n---\n\n");
         }
@@ -947,7 +1079,36 @@ fn generate_errors_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<Gen
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::{make_minimal_api, make_param, make_test_config};
+    use crate::test_helpers::{make_function, make_minimal_api, make_param, make_test_config};
+
+    fn config_from_toml(toml_str: &str) -> ResolvedCrateConfig {
+        let cfg: alef_core::config::NewAlefConfig = toml::from_str(toml_str).expect("valid toml");
+        cfg.resolve().expect("resolve ok").remove(0)
+    }
+
+    fn empty_type(name: &str) -> TypeDef {
+        TypeDef {
+            name: name.to_string(),
+            rust_path: format!("mylib::{name}"),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            doc: String::new(),
+            cfg: None,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }
+    }
 
     #[test]
     fn test_generate_docs_empty_api() {
@@ -972,6 +1133,52 @@ mod tests {
             .unwrap();
         assert!(lang_file.content.contains("Python API Reference"));
         assert!(lang_file.content.contains("v0.1.0"));
+    }
+
+    #[test]
+    fn test_generate_docs_respects_language_excludes() {
+        let config = config_from_toml(
+            r#"
+[workspace]
+languages = ["python", "go"]
+
+[[crates]]
+name = "mylib"
+sources = ["src/lib.rs"]
+
+[crates.python]
+exclude_functions = ["interact"]
+exclude_types = ["InteractionResult"]
+
+[crates.ffi]
+exclude_functions = ["ffi_only"]
+exclude_types = ["FfiHidden"]
+"#,
+        );
+        let mut api = make_minimal_api("1.2.3");
+        api.functions = vec![
+            make_function("interact", vec![], TypeRef::Unit, false, None),
+            make_function("scrape", vec![], TypeRef::Unit, false, None),
+            make_function("ffi_only", vec![], TypeRef::Unit, false, None),
+        ];
+        api.types = vec![empty_type("InteractionResult"), empty_type("FfiHidden")];
+
+        let files = generate_docs(&api, &config, &[Language::Python, Language::Go], "out").unwrap();
+        let python = files
+            .iter()
+            .find(|f| f.path.to_str().unwrap().contains("api-python"))
+            .unwrap();
+        let go = files
+            .iter()
+            .find(|f| f.path.to_str().unwrap().contains("api-go"))
+            .unwrap();
+
+        assert!(!python.content.contains("interact()"));
+        assert!(python.content.contains("scrape()"));
+        assert!(!python.content.contains("InteractionResult"));
+        assert!(!go.content.contains("ffi_only()"));
+        assert!(!go.content.contains("FfiHidden"));
+        assert!(go.content.contains("Interact()"));
     }
 
     #[test]
