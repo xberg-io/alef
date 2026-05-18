@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.44] - 2026-05-18
+
 ### Fixed
 
 - **alef-backend-rustler: `gen_rustler_flat_data_enum_from_core` / `_to_core` now use the enum's full `rust_path` instead of `{core_import}::{name}`**. The two helpers in `crates/alef-backend-rustler/src/gen_bindings/types.rs` unconditionally hardcoded `format!("{core_import}::{name}")` for the core-side type path. For enums re-exported at the crate root (e.g. `kreuzberg::FormatMetadata`) the short form happens to compile, but for enums living in a nested module (e.g. `DrawingType` at `kreuzberg::extraction::docx::drawing::DrawingType`) the generated `impl From<kreuzberg::DrawingType>` references a path that does not exist, and the consumer NIF crate fails to build with `cannot find DrawingType in kreuzberg`. The fix routes both helpers through `alef_codegen::conversions::core_enum_path`, which preserves `enum_def.rust_path` when it is already fully qualified (matching the alef-backend-wasm path used by the other discovered data enums). Locked in with `test_flat_data_enum_from_core_uses_full_rust_path` asserting the generated `impl From<…>` carries the full module path and never collapses to `kreuzberg::<Name>`. Surfaced on kreuzberg's `E2E (elixir)` and `Build Elixir NIF` publish jobs failing to compile `packages/elixir/native/kreuzberg_nif/src/lib.rs`. (`crates/alef-backend-rustler/src/gen_bindings/types.rs`)
