@@ -3,6 +3,37 @@ use alef_core::config::TraitBridgeConfig;
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 use heck::ToPascalCase;
+use std::collections::HashSet;
+
+/// Recursively substitute `TypeRef::Named(n)` references where `n` is explicitly excluded
+/// from the binding's public surface (collected from `ApiSurface::excluded_type_paths` and
+/// any `binding_excluded` types) with `TypeRef::Json`. This lets trait-bridge interface
+/// signatures and trampolines fall back to `json.RawMessage`, since the named Go type was
+/// never emitted into `binding.go` and would otherwise produce `undefined: <Name>` build
+/// errors.
+fn substitute_excluded_types(ty: &TypeRef, excluded: &HashSet<&str>) -> TypeRef {
+    match ty {
+        TypeRef::Named(name) if excluded.contains(name.as_str()) => TypeRef::Json,
+        TypeRef::Optional(inner) => TypeRef::Optional(Box::new(substitute_excluded_types(inner, excluded))),
+        TypeRef::Vec(inner) => TypeRef::Vec(Box::new(substitute_excluded_types(inner, excluded))),
+        TypeRef::Map(k, v) => TypeRef::Map(
+            Box::new(substitute_excluded_types(k, excluded)),
+            Box::new(substitute_excluded_types(v, excluded)),
+        ),
+        other => other.clone(),
+    }
+}
+
+/// Clone a `MethodDef`, substituting any excluded named-type references in its
+/// parameters and return type with `TypeRef::Json`. See [`substitute_excluded_types`].
+fn method_with_excluded_substituted(method: &MethodDef, excluded: &HashSet<&str>) -> MethodDef {
+    let mut m = method.clone();
+    for p in &mut m.params {
+        p.ty = substitute_excluded_types(&p.ty, excluded);
+    }
+    m.return_type = substitute_excluded_types(&m.return_type, excluded);
+    m
+}
 /// Generate Go trait bridge interface, CGo callback trampolines, and registration functions.
 ///
 /// # CGo callback strategy
@@ -45,6 +76,22 @@ pub fn gen_trait_bridges_file(
 ) -> String {
     let mut out = String::with_capacity(16_384);
 
+    // Collect names of types that are present in the IR but explicitly excluded from the
+    // public binding surface (typically via `#[cfg_attr(alef, alef(skip))]` or
+    // type-level config exclusions). Trait-bridge interface signatures referencing any
+    // such type must fall back to `json.RawMessage`: the corresponding Go type was never
+    // emitted into binding.go and would otherwise produce `undefined: <Name>` build
+    // errors. The IR exposes these names in `excluded_type_paths` — that includes both
+    // types stripped from `api.types` entirely and types still present with
+    // `binding_excluded = true`. We also union in any `binding_excluded` type names from
+    // `api.types` defensively.
+    let excluded_named_types: HashSet<&str> = api
+        .excluded_type_paths
+        .keys()
+        .map(|s| s.as_str())
+        .chain(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.as_str()))
+        .collect();
+
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
     // NOTE: package_and_cgo.jinja already emits "package {name}\n\n/*\n#cgo..."
     // so we render it directly — do NOT push a separate "/*\n" before this call.
@@ -69,7 +116,8 @@ pub fn gen_trait_bridges_file(
                 .filter(|m| !bridge_cfg.ffi_skip_methods.contains(&m.name))
             {
                 let export_name = format!("go{}{}", &pascal, method.name.to_pascal_case());
-                let c_sig = c_trampoline_signature(&export_name, method);
+                let method_substituted = method_with_excluded_substituted(method, &excluded_named_types);
+                let c_sig = c_trampoline_signature(&export_name, &method_substituted);
                 out.push_str(&crate::template_env::render(
                     "extern_trampoline_decl.jinja",
                     minijinja::context! {
@@ -132,7 +180,14 @@ pub fn gen_trait_bridges_file(
     // Generate interfaces, trampolines, and registration functions for each bridge
     for bridge_cfg in &config.trait_bridges {
         if let Some(trait_def) = api.types.iter().find(|t| t.name == bridge_cfg.trait_name) {
-            gen_trait_bridge(&mut out, trait_def, bridge_cfg, ffi_prefix, crate_name);
+            gen_trait_bridge(
+                &mut out,
+                trait_def,
+                bridge_cfg,
+                ffi_prefix,
+                crate_name,
+                &excluded_named_types,
+            );
             out.push('\n');
         }
     }
@@ -147,6 +202,7 @@ fn gen_trait_bridge(
     bridge_cfg: &TraitBridgeConfig,
     ffi_prefix: &str,
     crate_name: &str,
+    excluded_named_types: &HashSet<&str>,
 ) {
     let trait_name = &trait_def.name;
     let trait_snake = heck::AsSnakeCase(trait_name).to_string();
@@ -214,7 +270,8 @@ fn gen_trait_bridge(
         .iter()
         .filter(|m| !bridge_cfg.ffi_skip_methods.contains(&m.name))
     {
-        gen_interface_method(out, method);
+        let method_substituted = method_with_excluded_substituted(method, excluded_named_types);
+        gen_interface_method(out, &method_substituted);
     }
 
     out.push_str("}\n");
@@ -236,7 +293,8 @@ fn gen_trait_bridge(
             },
         ));
         out.push('\n');
-        gen_trampoline(out, trait_name, &trait_pascal, method);
+        let method_substituted = method_with_excluded_substituted(method, excluded_named_types);
+        gen_trampoline(out, trait_name, &trait_pascal, &method_substituted);
     }
 
     // Plugin method trampolines
@@ -1016,6 +1074,25 @@ fn gen_param_conversion(out: &mut String, param: &alef_core::ir::ParamDef) {
             out.push_str("\t}\n");
             out.push('\n');
         }
+        TypeRef::Json => {
+            // Trait-bridge fallback for binding-excluded named types. The Go-side type is
+            // `json.RawMessage`; the C-side carries the JSON payload as a NUL-terminated
+            // string. Copy the bytes through so the user gets the raw JSON document
+            // without forcing them to unmarshal into a Go type that was never emitted.
+            out.push_str(&format!("\tvar {var_name} json.RawMessage\n"));
+            out.push_str(&crate::template_env::render(
+                "if_nil_check.jinja",
+                minijinja::context! {
+                    param => param.name.as_str(),
+                },
+            ));
+            out.push_str(&format!(
+                "\t\t{var_name} = json.RawMessage(C.GoString({}))\n",
+                param.name
+            ));
+            out.push_str("\t}\n");
+            out.push('\n');
+        }
         TypeRef::Primitive(p) => {
             use alef_core::ir::PrimitiveType::*;
             let cast = match p {
@@ -1206,5 +1283,71 @@ mod tests {
             result.contains("C.kreuzberg_clear_ocr_backend"),
             "C call not found in:\n{result}"
         );
+    }
+
+    #[test]
+    fn substitute_excluded_types_replaces_excluded_named_with_json() {
+        let mut excluded = HashSet::new();
+        excluded.insert("InternalDocument");
+        // Excluded named type collapses to Json so the Go trait-bridge interface
+        // can fall back to `json.RawMessage`.
+        let result = substitute_excluded_types(&TypeRef::Named("InternalDocument".to_string()), &excluded);
+        assert!(matches!(result, TypeRef::Json), "expected Json, got {:?}", result);
+    }
+
+    #[test]
+    fn substitute_excluded_types_leaves_non_excluded_named_intact() {
+        let excluded: HashSet<&str> = HashSet::new();
+        let result = substitute_excluded_types(&TypeRef::Named("ExtractionConfig".to_string()), &excluded);
+        match result {
+            TypeRef::Named(ref n) => assert_eq!(n, "ExtractionConfig"),
+            other => panic!("expected Named, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn substitute_excluded_types_recurses_into_optional_vec_map() {
+        let mut excluded = HashSet::new();
+        excluded.insert("X");
+        excluded.insert("Y");
+        excluded.insert("Z");
+        // Optional<Named("X")> → Optional<Json>
+        let opt = TypeRef::Optional(Box::new(TypeRef::Named("X".to_string())));
+        match substitute_excluded_types(&opt, &excluded) {
+            TypeRef::Optional(inner) => assert!(matches!(*inner, TypeRef::Json)),
+            other => panic!("expected Optional<Json>, got {:?}", other),
+        }
+        // Vec<Named("Y")> → Vec<Json>
+        let v = TypeRef::Vec(Box::new(TypeRef::Named("Y".to_string())));
+        match substitute_excluded_types(&v, &excluded) {
+            TypeRef::Vec(inner) => assert!(matches!(*inner, TypeRef::Json)),
+            other => panic!("expected Vec<Json>, got {:?}", other),
+        }
+        // Map<String, Named("Z")> → Map<String, Json>
+        let m = TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::Named("Z".to_string())));
+        match substitute_excluded_types(&m, &excluded) {
+            TypeRef::Map(k, v) => {
+                assert!(matches!(*k, TypeRef::String));
+                assert!(matches!(*v, TypeRef::Json));
+            }
+            other => panic!("expected Map<String, Json>, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn substitute_excluded_types_passes_through_primitives_and_other_atoms() {
+        let excluded: HashSet<&str> = HashSet::new();
+        assert!(matches!(
+            substitute_excluded_types(&TypeRef::String, &excluded),
+            TypeRef::String
+        ));
+        assert!(matches!(
+            substitute_excluded_types(&TypeRef::Bytes, &excluded),
+            TypeRef::Bytes
+        ));
+        assert!(matches!(
+            substitute_excluded_types(&TypeRef::Unit, &excluded),
+            TypeRef::Unit
+        ));
     }
 }

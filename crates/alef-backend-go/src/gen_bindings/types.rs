@@ -1738,6 +1738,10 @@ pub(super) fn gen_config_options(
                     } else if enum_names.contains(name.as_str()) {
                         // String-typed enum — zero value is empty string
                         val = "\"\"".to_string();
+                    } else if data_enum_names.contains(name.as_str()) {
+                        // Sealed-interface (data enum) — zero value is nil interface.
+                        // Composite literal `T{}` is invalid for interface types.
+                        val = "nil".to_string();
                     } else {
                         // Struct — zero value is TypeName{}
                         val = format!("{}{{}}", go_type_name(name));
@@ -1924,5 +1928,93 @@ mod tests {
         assert!(out.contains("func UnmarshalAuthConfig(data []byte)"));
         assert!(out.contains("case \"basic\""));
         assert!(out.contains("case \"bearer\""));
+    }
+
+    /// Regression: an `Option<Bytes>` field becomes a non-pointer `[]byte` in the Go
+    /// struct (slices are already nullable in Go). The MarshalJSON helper must not
+    /// dereference `v.Data` with `*v.Data` — that produced
+    /// `invalid operation: cannot indirect v.Data (variable of type []byte)`.
+    #[test]
+    fn gen_struct_type_marshal_optional_bytes_field_does_not_dereference() {
+        let mut data_field = simple_field("data", TypeRef::Bytes);
+        data_field.optional = true;
+        let typ = TypeDef {
+            name: "EmailAttachment".to_string(),
+            rust_path: String::new(),
+            original_rust_path: String::new(),
+            doc: String::new(),
+            cfg: None,
+            fields: vec![data_field],
+            is_opaque: false,
+            is_clone: false,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+            methods: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+        let out = gen_struct_type(
+            &typ,
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
+        );
+        assert!(!out.contains("*v.Data"), "expected no `*v.Data` dereference in:\n{out}");
+        assert!(
+            out.contains("len(v.Data)") && out.contains("range v.Data"),
+            "expected `len(v.Data)` and `range v.Data` (no dereference) in:\n{out}"
+        );
+    }
+
+    /// Regression: a non-optional field whose type is a sealed-interface (data) enum
+    /// must default to `nil` (the interface zero value), NOT `TypeName{}` — composite
+    /// literals are not valid for interface types in Go.
+    #[test]
+    fn gen_config_options_defaults_data_enum_field_to_nil_not_composite_literal() {
+        let typ = TypeDef {
+            name: "ChunkingConfig".to_string(),
+            rust_path: String::new(),
+            original_rust_path: String::new(),
+            doc: String::new(),
+            cfg: None,
+            fields: vec![simple_field("sizing", TypeRef::Named("ChunkSizing".to_string()))],
+            is_opaque: false,
+            is_clone: false,
+            is_copy: false,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            methods: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+        let mut data_enum_names = std::collections::HashSet::new();
+        data_enum_names.insert("ChunkSizing");
+        let out = gen_config_options(
+            &typ,
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
+            &data_enum_names,
+        );
+        // BUG fixed: previously emitted `Sizing: ChunkSizing{}` which is a Go compile
+        // error (`invalid composite literal type ChunkSizing` — ChunkSizing is an
+        // interface). Verify the constructor now uses the interface zero value `nil`.
+        assert!(
+            !out.contains("Sizing: ChunkSizing{}") && !out.contains("Sizing:                ChunkSizing{}"),
+            "expected no `Sizing: ChunkSizing{{}}` in:\n{out}"
+        );
+        assert!(
+            out.contains("Sizing:") && out.contains("nil"),
+            "expected `Sizing: ... nil` default in:\n{out}"
+        );
     }
 }

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-backend-go: trait-bridge interfaces and trampolines fall back to `json.RawMessage` for excluded named types** — when a Rust trait method (e.g. `DocumentExtractor::extract_bytes -> Result<InternalDocument>`, `Renderer::render(&InternalDocument)`) referenced a type that was excluded from the binding via `#[cfg_attr(alef, alef(skip))]`, the Go codegen emitted `InternalDocument` as the parameter/return type without ever defining that Go type, causing `undefined: InternalDocument` build errors. `gen_trait_bridges_file` now collects names from `ApiSurface::excluded_type_paths` and substitutes any `TypeRef::Named(n)` (or nested `Optional`/`Vec`/`Map` of one) with `TypeRef::Json`, which renders as `json.RawMessage` in the Go interface signature and trampoline declarations. Added explicit `TypeRef::Json` handling in `gen_param_conversion` so the trampoline copies the raw JSON payload through verbatim. Surfaced by kreuzberg's `DocumentExtractor` and `Renderer` trait bridges. (`crates/alef-backend-go/src/trait_bridge.rs`)
+
+- **alef-backend-go: data-enum (sealed-interface) fields default to `nil` in `New{Config}` constructors instead of invalid `T{}` composite literal** — `gen_config_options` fell through to `format!("{}{{}}", go_type_name(name))` for any non-string-enum, non-passthrough Named field, producing `Sizing: ChunkSizing{}` / `Model: EmbeddingModelType{}`. Since those types are Go interfaces (one per variant struct, sealed via an `is{Trait}()` marker), composite literals are invalid (`invalid composite literal type ChunkSizing`). Added an explicit branch that checks `data_enum_names` and emits `nil` (the interface zero value) instead. (`crates/alef-backend-go/src/gen_bindings/types.rs`)
+
+- **alef-backend-go: `MarshalJSON` for optional `[]byte` fields no longer dereferences the slice** — for a Rust `Option<Bytes>` field the IR sets `field.optional = true` and `ty = Bytes`; the Go struct field is `[]byte` (slices are already nullable in Go, no pointer needed). The `struct_marshal_bytes_field_pointer.jinja` template wrongly wrote `*v.Field`, producing `invalid operation: cannot indirect v.Data (variable of type []byte)`. Dropped the dereference so the template works for both pointer and non-pointer bytes fields. Surfaced on kreuzberg's `EmailAttachment.data`. (`crates/alef-backend-go/templates/struct_marshal_bytes_field_pointer.jinja`)
+
 ## [0.16.38] - 2026-05-18
 
 ### Fixed

@@ -2219,6 +2219,69 @@ fn test_trait_bridge_enum_return_type_emitted_as_concrete_type() {
 }
 
 // ---------------------------------------------------------------------------
+// Excluded-type substitution (regression: kreuzberg's InternalDocument)
+// ---------------------------------------------------------------------------
+
+/// Regression: when a trait method references a type that was extracted from Rust
+/// but excluded from the public binding (e.g. `#[cfg_attr(alef, alef(skip))]`),
+/// the Go trait interface and trampoline must fall back to `json.RawMessage`
+/// — otherwise the generated Go code refers to an undefined type and the build
+/// fails with `undefined: <Name>`.
+#[test]
+fn test_trait_bridge_substitutes_excluded_named_types_with_json_raw_message() {
+    let trait_type = make_trait_type(
+        "Renderer",
+        vec![make_trait_method(
+            "render",
+            vec![make_trait_param("doc", TypeRef::Named("InternalDocument".to_string()))],
+            TypeRef::String,
+            true,
+        )],
+    );
+    let bridge_cfg = TraitBridgeConfig {
+        trait_name: "Renderer".to_string(),
+        super_trait: None,
+        registry_getter: Some("get_renderer_registry".to_string()),
+        register_fn: Some("register_renderer".to_string()),
+        unregister_fn: None,
+        clear_fn: None,
+        type_alias: None,
+        param_name: None,
+        register_extra_args: None,
+        exclude_languages: Vec::new(),
+        ffi_skip_methods: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
+        context_type: None,
+        result_type: None,
+    };
+    let config = make_config_with_bridges(vec![bridge_cfg]);
+    let mut api = make_api_with_type(trait_type);
+    // Mark InternalDocument as excluded — this is what `#[cfg_attr(alef, alef(skip))]`
+    // produces in the real kreuzberg IR.
+    api.excluded_type_paths.insert(
+        "InternalDocument".to_string(),
+        "kreuzberg::types::internal::InternalDocument".to_string(),
+    );
+
+    let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "../ffi", "..", "testlib");
+
+    // The Go trait interface and trampoline must NOT name `InternalDocument` — that
+    // type was never emitted into binding.go and the build would fail with
+    // `undefined: InternalDocument`.
+    assert!(
+        !code.contains("InternalDocument"),
+        "trait_bridges.go must not reference excluded type InternalDocument\nGenerated code:\n{code}"
+    );
+    // The trampoline parameter declaration must use json.RawMessage instead.
+    assert!(
+        code.contains("json.RawMessage"),
+        "expected json.RawMessage fallback for excluded named type\nGenerated code:\n{code}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Function deduplication (regression: D2 - snake_case + PascalCase duplicates)
 // ---------------------------------------------------------------------------
 
