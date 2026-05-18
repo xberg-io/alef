@@ -7,19 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.43] - 2026-05-18
+
 ### Changed
 
 - **publish workflow: move all Linux jobs to self-hosted runners (`runner-medium`, `runner-medium-arm64`) and reorder so `publish-crates` runs before `build-cli`**. Two related infrastructure changes to `.github/workflows/publish.yaml`. (1) Every `ubuntu-latest` job (prepare, validate-versions, check-cratesio, check-github-release, build-homebrew-bottles, upload-release-assets, publish-crates, publish-homebrew, finalize) now targets the self-hosted `runner-medium` label; the `build-cli` matrix uses `runner-medium` for `linux-x86_64` and `runner-medium-arm64` for `linux-aarch64`. macOS (`macos-latest`, `macos-15-intel`) and Windows (`windows-latest`) matrix entries continue to use GitHub-hosted runners. Motivation: GitHub-hosted Linux runners were queuing for 4+ hours behind unrelated workloads, blocking v0.16.41/42/43 from publishing. (2) `build-cli` now `needs: [..., publish-crates]` with `(publish-crates.result == 'success' || == 'skipped')` gating, so the canonical crates.io artifact lands before any platform binary work begins — a crates.io failure (network, dupe version, manifest error) no longer wastes ~30 min of CLI matrix build time. `upload-release-assets` and `build-homebrew-bottles` already transitively depend on `build-cli` so they inherit the new ordering. (`.github/workflows/publish.yaml`)
 
-## [0.16.44] - 2026-05-18
-
 ### Fixed
 
 - **alef-backend-rustler: `gen_rustler_flat_data_enum_from_core` / `_to_core` now use the enum's full `rust_path` instead of `{core_import}::{name}`**. The two helpers in `crates/alef-backend-rustler/src/gen_bindings/types.rs` unconditionally hardcoded `format!("{core_import}::{name}")` for the core-side type path. For enums re-exported at the crate root (e.g. `kreuzberg::FormatMetadata`) the short form happens to compile, but for enums living in a nested module (e.g. `DrawingType` at `kreuzberg::extraction::docx::drawing::DrawingType`) the generated `impl From<kreuzberg::DrawingType>` references a path that does not exist, and the consumer NIF crate fails to build with `cannot find DrawingType in kreuzberg`. The fix routes both helpers through `alef_codegen::conversions::core_enum_path`, which preserves `enum_def.rust_path` when it is already fully qualified (matching the alef-backend-wasm path used by the other discovered data enums). Locked in with `test_flat_data_enum_from_core_uses_full_rust_path` asserting the generated `impl From<…>` carries the full module path and never collapses to `kreuzberg::<Name>`. Surfaced on kreuzberg's `E2E (elixir)` and `Build Elixir NIF` publish jobs failing to compile `packages/elixir/native/kreuzberg_nif/src/lib.rs`. (`crates/alef-backend-rustler/src/gen_bindings/types.rs`)
-
-## [0.16.43] - 2026-05-18
-
-### Fixed
 
 - **alef-cli: `finalize_hashes` no longer applies `normalize_whitespace` to non-Rust files**. Language-native formatters (`gofmt`, `oxfmt`/oxlint, `php-cs-fixer`, `ruff`, etc.) have already produced idempotent canonical output by the time `finalize_hashes` runs; the additional `normalize_whitespace` pass mutated that output (e.g. collapsing blank lines that `php-cs-fixer` intentionally inserts after `<?php`) so the on-disk bytes after finalisation differed from what prek's formatter hooks would produce, causing `alef verify` to report a stale hash on every `prek` run. The fix restricts `normalize_whitespace` to `.rs` files only (where it is needed to match a subsequent `cargo fmt`); all other languages hash the raw stripped on-disk content directly, matching what `compute_file_hash` in the verify path computes. Regression-covered by `test_finalize_hashes_non_rust_skips_normalize_whitespace`. Surfaced on html-to-markdown `alef verify` reporting `crates/html-to-markdown-node/index.d.ts` and `packages/go/visitor.go` as stale after every `prek` run. (`crates/alef-cli/src/pipeline/generate.rs`)
 
