@@ -574,9 +574,12 @@ fn assemble_kt_content(package: &str, imports: &BTreeSet<String>, body: &str) ->
          \"ktlint:standard:spacing-between-declarations-with-annotations\",\n    \
          \"ktlint:standard:when-entry-bracing\",\n    \
          \"ktlint:standard:blank-line-between-when-conditions\",\n    \
+         \"ktlint:standard:blank-line-before-declaration\",\n    \
          \"ktlint:standard:chain-method-continuation\",\n    \
          \"ktlint:standard:annotation\",\n    \
          \"ktlint:standard:max-line-length\",\n    \
+         \"ktlint:standard:no-semi\",\n    \
+         \"ktlint:standard:statement-wrapping\",\n    \
          \"MaxLineLength\",\n    \
          \"TooManyFunctions\",\n    \
          \"FunctionParameterNaming\",\n    \
