@@ -700,6 +700,7 @@ pub(super) fn gen_enum(enum_def: &EnumDef) -> String {
                 name => &variant.name,
                 serde_rename => &variant.serde_rename,
                 fields => &fields,
+                is_tuple => variant.is_tuple,
                 snake_name => pascal_to_snake(&variant.name),
             }
         })
@@ -711,6 +712,7 @@ pub(super) fn gen_enum(enum_def: &EnumDef) -> String {
             enum_name => &enum_def.name,
             has_data => has_data,
             serde_tag => &enum_def.serde_tag,
+            serde_untagged => enum_def.serde_untagged,
             serde_rename_all => &enum_def.serde_rename_all,
             variants => &variants,
             first_variant => first_variant,
