@@ -6,6 +6,7 @@ use alef_codegen::generators::{self, RustBindingConfig};
 use alef_codegen::shared::{binding_fields, partition_methods};
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::ir::{EnumDef, EnumVariant, FieldDef, TypeDef, TypeRef};
+use heck::ToUpperCamelCase;
 
 use super::functions::{
     gen_async_instance_method, gen_async_static_method, gen_instance_method, gen_instance_method_non_opaque,
@@ -634,19 +635,33 @@ fn gen_struct_methods_impl(
     // Note: Clone is derived automatically and works correctly for both Arc<T> and Arc<Mutex<T>>
     // since Arc::clone() and Mutex::clone() both increment refcounts without wrapping.
 
-    // Generate #[php(getter)] methods for non-scalar fields so PHP can access them as
-    // $obj->fieldName.  Scalar fields already have #[php(prop)] on the struct field itself.
+    // Generate getter methods for non-scalar fields. Scalar fields already have
+    // #[php(prop)] on the struct field itself.
+    //
+    // Historical note: this code used to emit `#[php(getter)] pub fn get_camelCase(...)` so
+    // PHP could access `$obj->camelCase` as a magic property. But ext-php-rs-derive 0.11.7
+    // (the latest release compatible with ext-php-rs 0.15.4) leaves `get_method_props` as
+    // `todo!()` in its derive macro — so `#[php(getter)]` registers ONLY as a property
+    // accessor (the runtime callable method is never registered) AND the property accessor
+    // path itself is broken for non-scalar return types, raising a fatal "Call to undefined
+    // method" error at every site.
+    //
+    // The new approach drops `#[php(getter)]` entirely and emits a regular `pub fn` with a
+    // `getCamelCase` Rust ident, which ext-php-rs surfaces as a callable PHP method named
+    // `getCamelCase()`. Property-style access via `$obj->camelCase` is forgone for non-scalar
+    // fields; consumers call `$obj->getCamelCase()` instead. Matches the
+    // `alef-e2e/src/codegen/php.rs` field-access dispatch which already emits the
+    // `->getCamelCase()` shape for non-scalar fields.
+    //
     // Cfg-gated fields stay in the binding struct (gen_struct keeps them with #[serde(skip)])
     // so PHP also needs a getter to access them — do not skip them here.
     for field in binding_fields(&typ.fields) {
         let effective_ty = &field.ty;
         if !is_php_prop_scalar_with_enums(effective_ty, enum_names) {
-            // ext-php-rs derives the PHP property name from the Rust method ident (stripping `get_`),
-            // *not* from the `#[php(name = ...)]` attribute (which only renames the PHP method).
-            // Use a camelCase Rust ident (`get_toolCalls`) so the resulting property is `toolCalls`,
-            // matching the `#[php(prop, name = "...")]` convention used for scalar fields.
             let php_field_name = alef_codegen::naming::to_php_name(&field.name);
-            let getter_ident = format!("get_{php_field_name}");
+            // Rust ident in the form `getCamelCase` so the PHP-side method name matches the
+            // `$obj->getCamelCase()` pattern emitted by alef-e2e for non-scalar fields.
+            let getter_ident = format!("get{}", php_field_name.to_upper_camel_case());
 
             // Untagged data enums and `TypeRef::Json` both map to `serde_json::Value` in
             // the binding struct, but ext-php-rs has no IntoZval impl for `serde_json::Value`.
@@ -672,8 +687,7 @@ fn gen_struct_methods_impl(
                 } else {
                     format!("serde_json::to_string(&self.{name}).ok()", name = field.name)
                 };
-                let getter_method =
-                    format!("#[php(getter)]\npub fn {getter_ident}(&self) -> Option<String> {{\n    {body}\n}}");
+                let getter_method = format!("pub fn {getter_ident}(&self) -> Option<String> {{\n    {body}\n}}");
                 impl_builder.add_method(&getter_method);
                 continue;
             }
@@ -684,7 +698,7 @@ fn gen_struct_methods_impl(
                 map_fn(&field.ty)
             };
             let getter_method = format!(
-                "#[php(getter)]\npub fn {getter_ident}(&self) -> {ret} {{\n    self.{field_name}.clone()\n}}",
+                "pub fn {getter_ident}(&self) -> {ret} {{\n    self.{field_name}.clone()\n}}",
                 field_name = field.name,
                 ret = rust_return_type,
             );
