@@ -41,6 +41,7 @@ pub fn render_test_file(
     e2e_config: &E2eConfig,
     type_defs: &[TypeDef],
     enums: &[EnumDef],
+    wasm_type_prefix: &str,
 ) -> String {
     // `lang` is used for wasm visitor arg placement and override routing
     let (needs_cache_isolation, has_configure) = detect_cache_isolation_needs(fixtures, e2e_config);
@@ -117,7 +118,7 @@ pub fn render_test_file(
     // test fails at runtime with `ReferenceError: WasmFunctionDefinition
     // is not defined`. The BFS uses a seen-set to terminate on cycles.
     if lang == "wasm" {
-        let derived_all = collect_transitive_nested_types_for_wasm(&all_options_types, type_defs);
+        let derived_all = collect_transitive_nested_types_for_wasm(&all_options_types, type_defs, wasm_type_prefix);
         for (k, v) in derived_all {
             all_nested_types.entry(k).or_insert(v);
         }
@@ -335,6 +336,7 @@ pub fn render_test_file(
                 &result_enum_fields,
                 type_defs,
                 enums,
+                wasm_type_prefix,
             );
         }
         if i + 1 < fixtures.len() {
@@ -549,6 +551,7 @@ fn render_test_case(
     result_enum_fields: &std::collections::HashMap<String, String>,
     type_defs: &[TypeDef],
     enums: &[EnumDef],
+    wasm_type_prefix: &str,
 ) {
     let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
     let function_name = resolve_node_function_name(call_config);
@@ -623,6 +626,7 @@ fn render_test_case(
         handle_config_type.as_deref(),
         type_defs,
         enums,
+        wasm_type_prefix,
     );
 
     if !extra_args.is_empty() {
@@ -890,6 +894,7 @@ fn ts_builder_expression(
     bigint_fields: &std::collections::BTreeSet<String>,
     type_defs: &[TypeDef],
     enums: &[EnumDef],
+    wasm_type_prefix: &str,
 ) -> String {
     ts_builder_expression_inner(
         obj,
@@ -900,6 +905,7 @@ fn ts_builder_expression(
         bigint_fields,
         type_defs,
         enums,
+        wasm_type_prefix,
     )
 }
 
@@ -914,8 +920,8 @@ fn ts_builder_expression(
 /// wasm-bindgen wrapper class whose own-property table is empty — serde
 /// then fails to read the discriminator. The e2e builder must emit a plain
 /// JS object literal for these instead.
-fn is_tagged_data_enum(type_name: &str, enums: &[EnumDef]) -> bool {
-    let stripped = type_name.strip_prefix("Wasm").unwrap_or(type_name);
+fn is_tagged_data_enum(type_name: &str, enums: &[EnumDef], wasm_type_prefix: &str) -> bool {
+    let stripped = type_name.strip_prefix(wasm_type_prefix).unwrap_or(type_name);
     enums
         .iter()
         .any(|e| e.name == stripped && e.serde_tag.is_some() && e.variants.iter().any(|v| !v.fields.is_empty()))
@@ -1012,11 +1018,11 @@ fn to_bigint_literal(value_expr: &str) -> String {
 /// Return the WASM binding class name for an IR type name.
 ///
 /// wasm-bindgen emits each exported Rust type as a JS class named
-/// `Wasm<TypeName>`.  For example, the IR type `ChatMessage` is exposed as
-/// `WasmChatMessage`.  This mirrors the `wasm_class_name` helper used
-/// elsewhere in the wasm-bindgen backend.
-fn wasm_class_name(ir_type_name: &str) -> String {
-    format!("Wasm{ir_type_name}")
+/// `<prefix><TypeName>`.  For example, with prefix "Wasm", the IR type
+/// `ChatMessage` is exposed as `WasmChatMessage`.  This mirrors the
+/// `wasm_class_name` helper used elsewhere in the wasm-bindgen backend.
+fn wasm_class_name(ir_type_name: &str, prefix: &str) -> String {
+    format!("{prefix}{ir_type_name}")
 }
 
 /// Derive `nested_types` entries from the IR type registry for a given
@@ -1051,12 +1057,13 @@ fn wasm_class_name(ir_type_name: &str) -> String {
 fn collect_transitive_nested_types_for_wasm(
     seed_wasm_types: &std::collections::BTreeSet<String>,
     type_defs: &[TypeDef],
+    wasm_type_prefix: &str,
 ) -> std::collections::HashMap<String, String> {
     let mut result: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     let mut queue: Vec<String> = seed_wasm_types.iter().cloned().collect();
     let mut seen: std::collections::HashSet<String> = queue.iter().cloned().collect();
     while let Some(wasm_type) = queue.pop() {
-        let derived = derive_nested_types_for_wasm(&wasm_type, type_defs);
+        let derived = derive_nested_types_for_wasm(&wasm_type, type_defs, wasm_type_prefix);
         for (k, v) in derived {
             if seen.insert(v.clone()) {
                 queue.push(v.clone());
@@ -1070,9 +1077,10 @@ fn collect_transitive_nested_types_for_wasm(
 fn derive_nested_types_for_wasm(
     wasm_type_name: &str,
     type_defs: &[TypeDef],
+    wasm_type_prefix: &str,
 ) -> std::collections::HashMap<String, String> {
-    // Strip the `Wasm` prefix to get the IR type name.
-    let ir_name = wasm_type_name.strip_prefix("Wasm").unwrap_or(wasm_type_name);
+    // Strip the prefix to get the IR type name.
+    let ir_name = wasm_type_name.strip_prefix(wasm_type_prefix).unwrap_or(wasm_type_name);
     let Some(type_def) = type_defs.iter().find(|t| t.name == ir_name) else {
         return std::collections::HashMap::new();
     };
@@ -1082,11 +1090,11 @@ fn derive_nested_types_for_wasm(
             // Only map fields whose IR type is a struct (TypeDef). Sealed-union
             // enums (EnumDef) don't expose a constructible wasm-bindgen class
             // — wasm-bindgen serialises them via discriminator from a plain
-            // object literal, so wrapping them with `new Wasm<Enum>()` fails
-            // with `WasmFoo is not a constructor`. Looking up the name in
+            // object literal, so wrapping them with `new <prefix><Enum>()` fails
+            // with `<prefix>Foo is not a constructor`. Looking up the name in
             // type_defs filters enums out (they're carried in EnumDef, not here).
             if type_defs.iter().any(|t| t.name == class_name) {
-                map.insert(field.name.clone(), wasm_class_name(&class_name));
+                map.insert(field.name.clone(), wasm_class_name(&class_name, wasm_type_prefix));
             }
         }
     }
@@ -1116,8 +1124,9 @@ fn ts_builder_expression_inner(
     bigint_fields: &std::collections::BTreeSet<String>,
     type_defs: &[TypeDef],
     enums: &[EnumDef],
+    wasm_type_prefix: &str,
 ) -> String {
-    if lang == "node" || (lang == "wasm" && is_tagged_data_enum(type_name, enums)) {
+    if lang == "node" || (lang == "wasm" && is_tagged_data_enum(type_name, enums, wasm_type_prefix)) {
         // For node: if this type itself is a tagged-data enum, rename its serde_tag
         // key to "kind". The napi-rs backend hardcodes `#[napi(js_name = "kind")]`
         // for every tagged-data enum discriminant, regardless of the original
@@ -1125,7 +1134,7 @@ fn ts_builder_expression_inner(
         // JS object is deserialized via serde_wasm_bindgen which reads the original
         // serde_tag name, so the rename only applies to the node language path.
         let serde_tag_for_this_type = if lang == "node" {
-            let ir_name = type_name.strip_prefix("Wasm").unwrap_or(type_name);
+            let ir_name = type_name.strip_prefix(wasm_type_prefix).unwrap_or(type_name);
             enums
                 .iter()
                 .find(|e| e.name == ir_name && e.serde_tag.is_some() && e.variants.iter().any(|v| !v.fields.is_empty()))
@@ -1181,7 +1190,7 @@ fn ts_builder_expression_inner(
 
     // Build derived nested_types from the IR registry and merge with the
     // explicit overrides (explicit wins on collision).
-    let derived = derive_nested_types_for_wasm(type_name, type_defs);
+    let derived = derive_nested_types_for_wasm(type_name, type_defs, wasm_type_prefix);
     let effective_nested_types: std::collections::HashMap<String, String> = {
         let mut m = derived;
         for (k, v) in nested_types {
@@ -1205,6 +1214,7 @@ fn ts_builder_expression_inner(
                     bigint_fields,
                     type_defs,
                     enums,
+                    wasm_type_prefix,
                 );
                 stmts.push(format!("_u.{camel_key} = {nested_expr};"));
             } else {
@@ -1230,6 +1240,7 @@ fn ts_builder_expression_inner(
                                 bigint_fields,
                                 type_defs,
                                 enums,
+                                wasm_type_prefix,
                             )
                         } else {
                             json_to_js(item)
@@ -1282,6 +1293,7 @@ fn build_args_and_setup(
     handle_config_type: Option<&str>,
     type_defs: &[TypeDef],
     enums: &[EnumDef],
+    wasm_type_prefix: &str,
 ) -> (Vec<String>, String) {
     let fixture_id = &fixture.id;
     if args.is_empty() {
@@ -1350,7 +1362,7 @@ fn build_args_and_setup(
                     if let Some(obj) = config_value.as_object() {
                         // Derive nested types for the handle config type so nested objects
                         // are wrapped with their proper class constructors
-                        let derived_nested = derive_nested_types_for_wasm(config_type, type_defs);
+                        let derived_nested = derive_nested_types_for_wasm(config_type, type_defs, wasm_type_prefix);
                         let effective_nested: std::collections::HashMap<String, String> = {
                             let mut m = derived_nested;
                             for (k, v) in nested_types {
@@ -1373,6 +1385,7 @@ fn build_args_and_setup(
                                         bigint_fields,
                                         type_defs,
                                         enums,
+                                        wasm_type_prefix,
                                     )
                                 } else {
                                     json_to_js_camel(val)
@@ -1474,6 +1487,7 @@ fn build_args_and_setup(
                                 bigint_fields,
                                 type_defs,
                                 enums,
+                                wasm_type_prefix,
                             );
                             parts.push(ts_code);
                         } else {
@@ -1591,7 +1605,7 @@ mod tests {
         );
         let type_defs = vec![message_type, request_type];
 
-        let derived = derive_nested_types_for_wasm("WasmChatRequest", &type_defs);
+        let derived = derive_nested_types_for_wasm("WasmChatRequest", &type_defs, "Wasm");
         assert_eq!(derived.get("messages"), Some(&"WasmChatMessage".to_string()));
     }
 
@@ -1607,7 +1621,7 @@ mod tests {
         );
         let type_defs = vec![config_type, request_type];
 
-        let derived = derive_nested_types_for_wasm("WasmExtractionRequest", &type_defs);
+        let derived = derive_nested_types_for_wasm("WasmExtractionRequest", &type_defs, "Wasm");
         assert_eq!(derived.get("config"), Some(&"WasmExtractionConfig".to_string()));
     }
 
@@ -1620,7 +1634,7 @@ mod tests {
                 make_field("name", TypeRef::String),
             ],
         );
-        let derived = derive_nested_types_for_wasm("WasmSimpleRequest", &[request_type]);
+        let derived = derive_nested_types_for_wasm("WasmSimpleRequest", &[request_type], "Wasm");
         assert!(derived.is_empty(), "primitives must not produce nested_types entries");
     }
 
@@ -1639,7 +1653,7 @@ mod tests {
                 .into_iter()
                 .collect();
 
-        let derived = derive_nested_types_for_wasm("WasmRequest", &type_defs);
+        let derived = derive_nested_types_for_wasm("WasmRequest", &type_defs, "Wasm");
         // Merge: explicit wins on collision.
         let mut effective = derived;
         for (k, v) in &explicit {
@@ -1650,7 +1664,7 @@ mod tests {
 
     #[test]
     fn derive_nested_types_returns_empty_for_unknown_type() {
-        let derived = derive_nested_types_for_wasm("WasmUnknownType", &[]);
+        let derived = derive_nested_types_for_wasm("WasmUnknownType", &[], "Wasm");
         assert!(derived.is_empty());
     }
 
@@ -1675,7 +1689,7 @@ mod tests {
 
         let mut seeds = std::collections::BTreeSet::new();
         seeds.insert("WasmChatRequest".to_string());
-        let derived = collect_transitive_nested_types_for_wasm(&seeds, &type_defs);
+        let derived = collect_transitive_nested_types_for_wasm(&seeds, &type_defs, "Wasm");
 
         let class_names: std::collections::HashSet<&String> = derived.values().collect();
         assert!(
@@ -1708,6 +1722,7 @@ mod tests {
             &std::collections::BTreeSet::new(),
             &[],
             &[],
+            "Wasm",
         );
         assert!(
             result.contains("const _u = WasmChatCompletionTool.default();"),
@@ -1736,6 +1751,7 @@ mod tests {
             &std::collections::BTreeSet::new(),
             &[],
             &[],
+            "",
         );
         // Node path returns an object literal cast — no `default()` call.
         assert!(
@@ -1757,14 +1773,14 @@ mod tests {
         );
         let mut seeds = std::collections::BTreeSet::new();
         seeds.insert("WasmRecursive".to_string());
-        let derived = collect_transitive_nested_types_for_wasm(&seeds, &[recursive]);
+        let derived = collect_transitive_nested_types_for_wasm(&seeds, &[recursive], "Wasm");
         assert_eq!(derived.get("child"), Some(&"WasmRecursive".to_string()));
     }
 
     #[test]
     fn wasm_class_name_prepends_wasm_prefix() {
-        assert_eq!(wasm_class_name("ChatMessage"), "WasmChatMessage");
-        assert_eq!(wasm_class_name("EmbeddingRequest"), "WasmEmbeddingRequest");
+        assert_eq!(wasm_class_name("ChatMessage", "Wasm"), "WasmChatMessage");
+        assert_eq!(wasm_class_name("EmbeddingRequest", "Wasm"), "WasmEmbeddingRequest");
     }
 
     #[test]
