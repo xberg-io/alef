@@ -19,10 +19,68 @@ pub struct FieldResolver {
     /// Maps fixture sub-field names (the part after "error.") to actual field names
     /// on the error type. E.g., `"status_code" -> "status_code"`.
     error_field_aliases: HashMap<String, String>,
-    /// Field names (snake_case) that are non-scalar in the PHP binding and therefore
-    /// require `->getCamelCase()` getter-method syntax rather than `->camelCase`
-    /// property syntax. Populated by `new_with_php_getters`; empty by default.
-    php_getter_fields: HashSet<String>,
+    /// Per-type PHP getter classification: maps an owner type's snake_case field
+    /// name to whether THAT field on THAT type requires `->getCamelCase()` syntax
+    /// (because the field's mapped PHP type is non-scalar and ext-php-rs emits a
+    /// `#[php(getter)]` method) rather than `->camelCase` property access.
+    /// Populated by `new_with_php_getters`; empty by default.
+    ///
+    /// Keying by (type, field) — not bare field name — is required because two
+    /// different types can declare the same field name with different scalarness
+    /// (e.g. `CrawlConfig.content: ContentConfig` is non-scalar while
+    /// `MarkdownResult.content: String` is scalar).
+    php_getter_map: PhpGetterMap,
+}
+
+/// Per-type PHP getter classification + chain-resolution metadata.
+///
+/// Holds enough information to resolve a multi-segment field path through the
+/// IR's nested type graph and pick the correct accessor style at each segment:
+///
+/// * `getters[type_name]` — set of field names on `type_name` whose PHP binding
+///   uses a `#[php(getter)]` method (caller must emit `->getCamelCase()`).
+/// * `field_types[type_name][field_name]` — the IR-resolved `Named` type that
+///   `field_name` traverses into, used to advance the "current type" cursor
+///   for the next path segment. Absent for terminal/scalar fields.
+/// * `root_type` — the IR type name backing the result variable at the start of
+///   any chain. When `None`, chain traversal degrades to per-segment lookup
+///   using a flattened union across all types (legacy bare-name behaviour),
+///   which produces false positives when field names collide across types.
+#[derive(Debug, Clone, Default)]
+pub struct PhpGetterMap {
+    pub getters: HashMap<String, HashSet<String>>,
+    pub field_types: HashMap<String, HashMap<String, String>>,
+    pub root_type: Option<String>,
+}
+
+impl PhpGetterMap {
+    /// Returns true if `(owner_type, field_name)` requires getter-method syntax.
+    ///
+    /// When `owner_type` is `None` (root type unknown, or chain advanced into an
+    /// unmapped type), falls back to the union across all types: any type
+    /// declaring `field_name` as non-scalar marks it as needing a getter. This
+    /// is the legacy behaviour and is unsafe when field names collide.
+    pub fn needs_getter(&self, owner_type: Option<&str>, field_name: &str) -> bool {
+        if let Some(t) = owner_type {
+            if let Some(fields) = self.getters.get(t) {
+                return fields.contains(field_name);
+            }
+        }
+        self.getters.values().any(|set| set.contains(field_name))
+    }
+
+    /// Returns the IR `Named` type that `field_name` traverses into for the
+    /// next chain segment, or `None` if the field is terminal/scalar/unknown.
+    pub fn advance(&self, owner_type: Option<&str>, field_name: &str) -> Option<String> {
+        let owner = owner_type?;
+        self.field_types.get(owner).and_then(|m| m.get(field_name).cloned())
+    }
+
+    /// True when no per-type information is recorded — equivalent to the legacy
+    /// "no PHP getter resolution" code path.
+    pub fn is_empty(&self) -> bool {
+        self.getters.is_empty()
+    }
 }
 
 /// A parsed segment of a field path.
@@ -59,7 +117,7 @@ impl FieldResolver {
             array_fields: array_fields.clone(),
             method_calls: method_calls.clone(),
             error_field_aliases: HashMap::new(),
-            php_getter_fields: HashSet::new(),
+            php_getter_map: PhpGetterMap::default(),
         }
     }
 
@@ -83,17 +141,24 @@ impl FieldResolver {
             array_fields: array_fields.clone(),
             method_calls: method_calls.clone(),
             error_field_aliases: error_field_aliases.clone(),
-            php_getter_fields: HashSet::new(),
+            php_getter_map: PhpGetterMap::default(),
         }
     }
 
     /// Create a new resolver that also knows which PHP fields need getter-method syntax.
     ///
-    /// When `php_getter_fields` is non-empty, the PHP accessor renderer (`accessor("php", ...)`)
-    /// emits `->getCamelCase()` for fields whose snake_case name is in the set, and
-    /// `->camelCase` property syntax for all others. This matches the ext-php-rs 0.15.x
-    /// behaviour where `#[php(getter)]` is used for non-scalar fields (Named structs, Vec<Named>,
-    /// Map, etc.) while `#[php(prop)]` is used for scalar-compatible fields.
+    /// `php_getter_map` carries a per-`(type_name, field_name)` classification: the PHP
+    /// accessor renderer emits `->getCamelCase()` when `(owner_type, field)` is
+    /// recorded as needing a getter, and `->camelCase` property syntax otherwise.
+    /// This matches the ext-php-rs 0.15.x behaviour where `#[php(getter)]` is used for
+    /// non-scalar fields (Named structs, Vec<Named>, Map, etc.) while `#[php(prop)]` is
+    /// used for scalar-compatible fields.
+    ///
+    /// Keying by (type, field) — not bare field name — is essential because the same
+    /// field name can have different scalarness on different types. The map also carries
+    /// per-type field→nested-type mappings so the renderer can walk a path like
+    /// `outer.inner.content` through the IR, advancing the current-type cursor at each
+    /// segment.
     pub fn new_with_php_getters(
         fields: &HashMap<String, String>,
         optional: &HashSet<String>,
@@ -101,7 +166,7 @@ impl FieldResolver {
         array_fields: &HashSet<String>,
         method_calls: &HashSet<String>,
         error_field_aliases: &HashMap<String, String>,
-        php_getter_fields: &HashSet<String>,
+        php_getter_map: PhpGetterMap,
     ) -> Self {
         Self {
             aliases: fields.clone(),
@@ -110,7 +175,7 @@ impl FieldResolver {
             array_fields: array_fields.clone(),
             method_calls: method_calls.clone(),
             error_field_aliases: error_field_aliases.clone(),
-            php_getter_fields: php_getter_fields.clone(),
+            php_getter_map,
         }
     }
 
@@ -266,8 +331,8 @@ impl FieldResolver {
             "zig" => render_zig_with_optionals(&segments, result_var, &self.optional_fields, &self.method_calls),
             "swift" => render_swift_with_optionals(&segments, result_var, &self.optional_fields),
             "dart" => render_dart_with_optionals(&segments, result_var, &self.optional_fields),
-            "php" if !self.php_getter_fields.is_empty() => {
-                render_php_with_getters(&segments, result_var, &self.php_getter_fields)
+            "php" if !self.php_getter_map.is_empty() => {
+                render_php_with_getters(&segments, result_var, &self.php_getter_map)
             }
             _ => render_accessor(&segments, language, result_var),
         }
@@ -1463,16 +1528,21 @@ fn render_php(segments: &[PathSegment], result_var: &str) -> String {
 /// converting the camelCase remainder to a PHP property name), so e2e assertions must call
 /// `->getCamelCase()` for those fields.
 ///
-/// `getter_fields` contains the snake_case field names whose first path segment should use
-/// getter-method syntax. Only the first-level segment name is checked; nested segments
-/// within the returned object always use property syntax.
-fn render_php_with_getters(segments: &[PathSegment], result_var: &str, getter_fields: &HashSet<String>) -> String {
+/// `getter_map` carries the per-`(owner_type, field_name)` classification along with the
+/// chain-resolution metadata required to walk multi-segment paths through the IR's nested
+/// type graph. Each path segment is classified using the *current* owner type, then the
+/// owner cursor advances to the field's referenced `Named` type (if any) for the next
+/// segment. When `root_type` is unset the renderer falls back to the legacy bare-name
+/// union, which is unsafe but preserves backwards compatibility for callers that have
+/// not wired type resolution.
+fn render_php_with_getters(segments: &[PathSegment], result_var: &str, getter_map: &PhpGetterMap) -> String {
     let mut out = result_var.to_string();
+    let mut current_type: Option<String> = getter_map.root_type.clone();
     for seg in segments {
         match seg {
             PathSegment::Field(f) => {
                 let camel = f.to_lower_camel_case();
-                if getter_fields.contains(f.as_str()) {
+                if getter_map.needs_getter(current_type.as_deref(), f.as_str()) {
                     // Non-scalar field: ext-php-rs emits a `get{CamelCase}()` method.
                     // The `get_` prefix is stripped by ext-php-rs when it derives the
                     // PHP property name, but the Rust method ident is `get_{camelCase}`,
@@ -1485,10 +1555,11 @@ fn render_php_with_getters(segments: &[PathSegment], result_var: &str, getter_fi
                     out.push_str("->");
                     out.push_str(&camel);
                 }
+                current_type = getter_map.advance(current_type.as_deref(), f.as_str());
             }
             PathSegment::ArrayField { name, index } => {
                 let camel = name.to_lower_camel_case();
-                if getter_fields.contains(name.as_str()) {
+                if getter_map.needs_getter(current_type.as_deref(), name.as_str()) {
                     let getter = format!("get{}", camel.as_str()[..1].to_uppercase() + &camel[1..]);
                     out.push_str("->");
                     out.push_str(&getter);
@@ -1498,10 +1569,11 @@ fn render_php_with_getters(segments: &[PathSegment], result_var: &str, getter_fi
                     out.push_str(&camel);
                 }
                 out.push_str(&format!("[{index}]"));
+                current_type = getter_map.advance(current_type.as_deref(), name.as_str());
             }
             PathSegment::MapAccess { field, key } => {
                 let camel = field.to_lower_camel_case();
-                if getter_fields.contains(field.as_str()) {
+                if getter_map.needs_getter(current_type.as_deref(), field.as_str()) {
                     let getter = format!("get{}", camel.as_str()[..1].to_uppercase() + &camel[1..]);
                     out.push_str("->");
                     out.push_str(&getter);
@@ -1511,6 +1583,7 @@ fn render_php_with_getters(segments: &[PathSegment], result_var: &str, getter_fi
                     out.push_str(&camel);
                 }
                 out.push_str(&format!("[\"{key}\"]"));
+                current_type = getter_map.advance(current_type.as_deref(), field.as_str());
             }
             PathSegment::Length => {
                 let current = std::mem::take(&mut out);
@@ -2065,9 +2138,16 @@ mod tests {
     // ---------------------------------------------------------------------------
 
     fn make_php_getter_resolver() -> FieldResolver {
-        let mut php_getter_fields = HashSet::new();
-        php_getter_fields.insert("metadata".to_string());
-        php_getter_fields.insert("links".to_string());
+        let mut getters: HashMap<String, HashSet<String>> = HashMap::new();
+        getters.insert(
+            "Root".to_string(),
+            ["metadata".to_string(), "links".to_string()].into_iter().collect(),
+        );
+        let map = PhpGetterMap {
+            getters,
+            field_types: HashMap::new(),
+            root_type: Some("Root".to_string()),
+        };
         FieldResolver::new_with_php_getters(
             &HashMap::new(),
             &HashSet::new(),
@@ -2075,7 +2155,7 @@ mod tests {
             &HashSet::new(),
             &HashSet::new(),
             &HashMap::new(),
-            &php_getter_fields,
+            map,
         )
     }
 
@@ -2095,8 +2175,20 @@ mod tests {
     fn render_php_nested_non_scalar_uses_getter_then_property() {
         let mut fields = HashMap::new();
         fields.insert("title".to_string(), "metadata.title".to_string());
-        let mut php_getter_fields = HashSet::new();
-        php_getter_fields.insert("metadata".to_string());
+        let mut getters: HashMap<String, HashSet<String>> = HashMap::new();
+        getters.insert("Root".to_string(), ["metadata".to_string()].into_iter().collect());
+        // No entry for Metadata.title → scalar by default.
+        getters.insert("Metadata".to_string(), HashSet::new());
+        let mut field_types: HashMap<String, HashMap<String, String>> = HashMap::new();
+        field_types.insert(
+            "Root".to_string(),
+            [("metadata".to_string(), "Metadata".to_string())].into_iter().collect(),
+        );
+        let map = PhpGetterMap {
+            getters,
+            field_types,
+            root_type: Some("Root".to_string()),
+        };
         let r = FieldResolver::new_with_php_getters(
             &fields,
             &HashSet::new(),
@@ -2104,7 +2196,7 @@ mod tests {
             &HashSet::new(),
             &HashSet::new(),
             &HashMap::new(),
-            &php_getter_fields,
+            map,
         );
         // `metadata` → `->getMetadata()`, then `title` (scalar on returned object) → `->title`
         assert_eq!(r.accessor("title", "php", "$result"), "$result->getMetadata()->title");
@@ -2114,7 +2206,13 @@ mod tests {
     fn render_php_array_field_uses_getter_when_non_scalar() {
         let mut fields = HashMap::new();
         fields.insert("first_link".to_string(), "links[0]".to_string());
-        let php_getter_fields: HashSet<String> = ["links".to_string()].into_iter().collect();
+        let mut getters: HashMap<String, HashSet<String>> = HashMap::new();
+        getters.insert("Root".to_string(), ["links".to_string()].into_iter().collect());
+        let map = PhpGetterMap {
+            getters,
+            field_types: HashMap::new(),
+            root_type: Some("Root".to_string()),
+        };
         let r = FieldResolver::new_with_php_getters(
             &fields,
             &HashSet::new(),
@@ -2122,14 +2220,14 @@ mod tests {
             &HashSet::new(),
             &HashSet::new(),
             &HashMap::new(),
-            &php_getter_fields,
+            map,
         );
         assert_eq!(r.accessor("first_link", "php", "$result"), "$result->getLinks()[0]");
     }
 
     #[test]
     fn render_php_falls_back_to_property_when_getter_fields_empty() {
-        // With empty php_getter_fields the resolver uses the plain `render_php` path,
+        // With empty php_getter_map the resolver uses the plain `render_php` path,
         // which emits `->camelCase` for every field regardless of scalar-ness.
         let r = FieldResolver::new(
             &HashMap::new(),
@@ -2140,5 +2238,87 @@ mod tests {
         );
         assert_eq!(r.accessor("status_code", "php", "$result"), "$result->statusCode");
         assert_eq!(r.accessor("metadata", "php", "$result"), "$result->metadata");
+    }
+
+    // Regression: bare-name HashSet classification produced false getters when two
+    // types shared a field name with different scalarness (kreuzcrawl `content`
+    // collision between CrawlConfig.content: ContentConfig and MarkdownResult.content: String).
+    #[test]
+    fn render_php_with_getters_distinguishes_same_field_name_on_different_types() {
+        let mut getters: HashMap<String, HashSet<String>> = HashMap::new();
+        // A.content is non-scalar.
+        getters.insert("A".to_string(), ["content".to_string()].into_iter().collect());
+        // B.content is scalar — explicit empty set.
+        getters.insert("B".to_string(), HashSet::new());
+        let map_a = PhpGetterMap {
+            getters: getters.clone(),
+            field_types: HashMap::new(),
+            root_type: Some("A".to_string()),
+        };
+        let map_b = PhpGetterMap {
+            getters,
+            field_types: HashMap::new(),
+            root_type: Some("B".to_string()),
+        };
+        let r_a = FieldResolver::new_with_php_getters(
+            &HashMap::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashMap::new(),
+            map_a,
+        );
+        let r_b = FieldResolver::new_with_php_getters(
+            &HashMap::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashMap::new(),
+            map_b,
+        );
+        assert_eq!(r_a.accessor("content", "php", "$a"), "$a->getContent()");
+        assert_eq!(r_b.accessor("content", "php", "$b"), "$b->content");
+    }
+
+    // Regression: the chain renderer must advance current_type through the IR's
+    // nested-type graph so a scalar field on a nested type is not falsely
+    // classified as needing a getter because some other type uses the same name.
+    #[test]
+    fn render_php_with_getters_chains_through_correct_type() {
+        let mut fields = HashMap::new();
+        fields.insert("nested_content".to_string(), "inner.content".to_string());
+        let mut getters: HashMap<String, HashSet<String>> = HashMap::new();
+        // Outer.inner is non-scalar (struct B).
+        getters.insert("Outer".to_string(), ["inner".to_string()].into_iter().collect());
+        // B.content is scalar.
+        getters.insert("B".to_string(), HashSet::new());
+        // Decoy: another type with non-scalar `content` field — used to verify
+        // the legacy bare-name union would have produced the wrong answer.
+        getters.insert("Decoy".to_string(), ["content".to_string()].into_iter().collect());
+        let mut field_types: HashMap<String, HashMap<String, String>> = HashMap::new();
+        field_types.insert(
+            "Outer".to_string(),
+            [("inner".to_string(), "B".to_string())].into_iter().collect(),
+        );
+        let map = PhpGetterMap {
+            getters,
+            field_types,
+            root_type: Some("Outer".to_string()),
+        };
+        let r = FieldResolver::new_with_php_getters(
+            &fields,
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashMap::new(),
+            map,
+        );
+        assert_eq!(
+            r.accessor("nested_content", "php", "$result"),
+            "$result->getInner()->content"
+        );
     }
 }

@@ -6,7 +6,7 @@
 
 use crate::config::E2eConfig;
 use crate::escape::{escape_php, sanitize_filename};
-use crate::field_access::FieldResolver;
+use crate::field_access::{FieldResolver, PhpGetterMap};
 use crate::fixture::{
     Assertion, CallbackAction, Fixture, FixtureGroup, HttpFixture, TemplateReturnForm, ValidationErrorExpectation,
 };
@@ -170,18 +170,21 @@ impl E2eCodegen for PhpCodegen {
         // Generate test files per category.
         let tests_base = output_base.join("tests");
 
-        // Compute which fields require getter-method syntax in PHP.
+        // Compute per-(type, field) getter classification for PHP.
         // ext-php-rs 0.15.x exposes scalar fields as PHP properties via `#[php(prop)]`,
         // but non-scalar fields (Named structs, Vec<Named>, Map, etc.) need a
         // `#[php(getter)]` method because `get_method_props` is `todo!()` in
         // ext-php-rs-derive 0.11.7. E2e assertions must call `->getCamelCase()` for those.
+        //
+        // The classification MUST be keyed by (owner_type, field_name) rather than
+        // bare field_name: two unrelated types can declare the same field name with
+        // different scalarness (e.g. `CrawlConfig.content: ContentConfig` vs
+        // `MarkdownResult.content: String`). A bare-name union would force every
+        // `->content` access to `->getContent()` even on types where it is a scalar
+        // property — see kreuzcrawl regression where `MarkdownResult::getContent()`
+        // does not exist.
         let php_enum_names: HashSet<String> = enums.iter().map(|e| e.name.clone()).collect();
-        let php_getter_fields: HashSet<String> = type_defs
-            .iter()
-            .flat_map(|td| td.fields.iter())
-            .filter(|f| !is_php_scalar(&f.ty, &php_enum_names))
-            .map(|f| f.name.clone())
-            .collect();
+        let php_getter_map = build_php_getter_map(type_defs, &php_enum_names, call, &e2e_config.result_fields);
 
         let field_resolver = FieldResolver::new_with_php_getters(
             &e2e_config.fields,
@@ -190,7 +193,7 @@ impl E2eCodegen for PhpCodegen {
             &e2e_config.fields_array,
             &HashSet::new(),
             &HashMap::new(),
-            &php_getter_fields,
+            php_getter_map,
         );
 
         for group in groups {
@@ -247,6 +250,102 @@ impl E2eCodegen for PhpCodegen {
 /// Scalar-compatible: primitives, String, Char, Duration (→ u64), Path (→ String),
 /// Option<scalar>, Vec<primitive|String|Char>, unit-variant enums (mapped to String).
 /// Non-scalar: Named struct, Map, nested Vec<Named>, Json, Bytes.
+/// Build a per-`(owner_type, field_name)` PHP getter classification plus chain-resolution
+/// metadata from the IR's `TypeDef`s.
+///
+/// For each type, marks fields as needing getter syntax when their mapped Rust type
+/// is non-scalar in PHP (Named struct, Vec<Named>, Map, Json, Bytes). Also records each
+/// field's referenced `Named` inner type so the resolver can advance the current-type
+/// cursor as it walks multi-segment paths like `outer.inner.content`.
+///
+/// `root_type` is derived (best-effort) from a `result_type` override on any backend
+/// (`c`, `csharp`, `java`, `kotlin`, `go`, `php`) and otherwise inferred by matching
+/// `result_fields` against `TypeDef.fields`. When no root can be determined, chain
+/// resolution falls back to the legacy bare-name union (sound only when no field names
+/// collide across types).
+fn build_php_getter_map(
+    type_defs: &[alef_core::ir::TypeDef],
+    enum_names: &HashSet<String>,
+    call: &alef_core::config::e2e::CallConfig,
+    result_fields: &HashSet<String>,
+) -> PhpGetterMap {
+    let mut getters: HashMap<String, HashSet<String>> = HashMap::new();
+    let mut field_types: HashMap<String, HashMap<String, String>> = HashMap::new();
+    for td in type_defs {
+        let mut getter_fields: HashSet<String> = HashSet::new();
+        let mut field_type_map: HashMap<String, String> = HashMap::new();
+        for f in &td.fields {
+            if !is_php_scalar(&f.ty, enum_names) {
+                getter_fields.insert(f.name.clone());
+            }
+            if let Some(named) = inner_named(&f.ty) {
+                field_type_map.insert(f.name.clone(), named);
+            }
+        }
+        getters.insert(td.name.clone(), getter_fields);
+        if !field_type_map.is_empty() {
+            field_types.insert(td.name.clone(), field_type_map);
+        }
+    }
+    let root_type = derive_root_type(call, type_defs, result_fields);
+    PhpGetterMap {
+        getters,
+        field_types,
+        root_type,
+    }
+}
+
+/// Unwrap `Option<T>` / `Vec<T>` to the innermost `Named` type name, if any.
+/// Returns `None` for primitives, scalars, Map, Json, Bytes, and Unit.
+fn inner_named(ty: &TypeRef) -> Option<String> {
+    match ty {
+        TypeRef::Named(n) => Some(n.clone()),
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => inner_named(inner),
+        _ => None,
+    }
+}
+
+/// Derive the IR type name backing the result variable in PHP-generated assertions.
+///
+/// Lookup order:
+/// 1. `call.overrides[<lang>].result_type` for any of `php`, `c`, `csharp`, `java`,
+///    `kotlin`, `go` (first non-empty wins).
+/// 2. Type-defs whose field names form a superset of `result_fields` (when exactly
+///    one matches).
+///
+/// Returns `None` when neither yields a definitive answer; callers fall back to the
+/// legacy bare-name union behaviour.
+fn derive_root_type(
+    call: &alef_core::config::e2e::CallConfig,
+    type_defs: &[alef_core::ir::TypeDef],
+    result_fields: &HashSet<String>,
+) -> Option<String> {
+    const LOOKUP_LANGS: &[&str] = &["php", "c", "csharp", "java", "kotlin", "go"];
+    for lang in LOOKUP_LANGS {
+        if let Some(o) = call.overrides.get(*lang)
+            && let Some(rt) = o.result_type.as_deref()
+            && !rt.is_empty()
+            && type_defs.iter().any(|td| td.name == rt)
+        {
+            return Some(rt.to_string());
+        }
+    }
+    if result_fields.is_empty() {
+        return None;
+    }
+    let matches: Vec<&alef_core::ir::TypeDef> = type_defs
+        .iter()
+        .filter(|td| {
+            let names: HashSet<&str> = td.fields.iter().map(|f| f.name.as_str()).collect();
+            result_fields.iter().all(|rf| names.contains(rf.as_str()))
+        })
+        .collect();
+    if matches.len() == 1 {
+        return Some(matches[0].name.clone());
+    }
+    None
+}
+
 fn is_php_scalar(ty: &TypeRef, enum_names: &HashSet<String>) -> bool {
     match ty {
         TypeRef::Primitive(_) | TypeRef::String | TypeRef::Char | TypeRef::Duration | TypeRef::Path => true,
