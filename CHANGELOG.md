@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.38] - 2026-05-18
+
 ### Fixed
 
 - **alef-e2e elixir: honor `returns_void` on calls returning `Result<(), E>`**: `crates/alef-e2e/src/codegen/elixir.rs` unconditionally emitted `{:ok, result} = Module.fn(...)` whenever `returns_result` was true. For unit-returning fallible functions (Rust `Result<(), E>` → Elixir bare `:ok` on success) the pattern match `{:ok, result} = :ok` raises `MatchError` at runtime. The codegen now emits `:ok = Module.fn(...)` when `call_config.returns_void` is set, mirroring the Ruby/Java patterns. Surfaced on tree-sitter-language-pack's `download_configure_custom_dir`, `download_init_default`, `download_clean_cache` Elixir e2e fixtures.
