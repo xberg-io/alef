@@ -455,6 +455,11 @@ impl Backend for MagnusBackend {
         // kept as-is. vec_named_to_string is intentionally false here.
         let magnus_conv_config = alef_codegen::conversions::ConversionConfig {
             binding_enums_have_data: true,
+            // Magnus is the one backend whose enum body emits tuple-form `Variant(T)` for
+            // `serde_untagged && variant.is_tuple` (see crates/alef-backend-magnus/templates/
+            // enum_magnus.rs.jinja since commit a715f378). Conversion match arms must
+            // destructure / construct in the same shape.
+            binding_tuple_form_for_untagged_variants: true,
             exclude_types: &absent_named_types,
             ..Default::default()
         };

@@ -134,6 +134,15 @@ pub struct ConversionConfig<'a> {
     /// all feature combinations.  PyO3/NAPI/PHP/etc keep cfg-gated fields in the binding
     /// struct (decorated with `#[cfg(...)]`) and want them included in conversions.
     pub strip_cfg_fields_from_binding_struct: bool,
+    /// When true, untagged-enum tuple variants in the binding use Rust tuple-form
+    /// `Variant(T)` instead of struct-form `Variant { _0: T }`. The conversion match
+    /// arms must destructure / construct in the same shape, otherwise rustc rejects
+    /// the From impls with E0559 / E0769.
+    /// Set true ONLY for backends whose enum body emitter switches to tuple form for
+    /// `serde_untagged && variant.is_tuple` — currently just Magnus (Ruby) since
+    /// commit a715f378. Other data-bearing backends (Rustler, NAPI, PyO3, …) keep
+    /// struct-form even for untagged enums and so this flag must stay false.
+    pub binding_tuple_form_for_untagged_variants: bool,
 }
 
 impl<'a> ConversionConfig<'a> {
@@ -436,6 +445,7 @@ mod tests {
         let enum_def = untagged_tuple_enum();
         let config = ConversionConfig {
             binding_enums_have_data: true,
+            binding_tuple_form_for_untagged_variants: true,
             ..ConversionConfig::default()
         };
         let result = gen_enum_from_binding_to_core_cfg(&enum_def, "my_crate", &config);
@@ -459,6 +469,7 @@ mod tests {
         let enum_def = untagged_tuple_enum();
         let config = ConversionConfig {
             binding_enums_have_data: true,
+            binding_tuple_form_for_untagged_variants: true,
             ..ConversionConfig::default()
         };
         let result = gen_enum_from_core_to_binding_cfg(&enum_def, "my_crate", &config);
@@ -482,12 +493,37 @@ mod tests {
         enum_def.serde_tag = Some("type".to_string());
         let config = ConversionConfig {
             binding_enums_have_data: true,
+            binding_tuple_form_for_untagged_variants: true,
             ..ConversionConfig::default()
         };
         let result = gen_enum_from_binding_to_core_cfg(&enum_def, "my_crate", &config);
         assert!(
             result.contains("UserContent::Text { _0 }"),
             "tagged enums must keep struct-form, got: {result}"
+        );
+    }
+
+    #[test]
+    fn test_enum_untagged_keeps_struct_form_when_backend_does_not_opt_in() {
+        // Counter-regression for the Rustler backend: untagged enums must remain in
+        // struct-form when the backend's enum body emitter does not switch to tuple
+        // form (every backend except Magnus). `binding_tuple_form_for_untagged_variants`
+        // is the opt-in flag.
+        let enum_def = untagged_tuple_enum();
+        let config = ConversionConfig {
+            binding_enums_have_data: true,
+            binding_tuple_form_for_untagged_variants: false,
+            ..ConversionConfig::default()
+        };
+        let result = gen_enum_from_binding_to_core_cfg(&enum_def, "my_crate", &config);
+        assert!(
+            result.contains("UserContent::Text { _0 }"),
+            "backends without the opt-in must keep struct-form, got: {result}"
+        );
+        let result2 = gen_enum_from_core_to_binding_cfg(&enum_def, "my_crate", &config);
+        assert!(
+            result2.contains("Self::Text { _0:"),
+            "backends without the opt-in must construct struct-form, got: {result2}"
         );
     }
 
