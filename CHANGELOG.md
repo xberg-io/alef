@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-backend-rustler: drop unused `mut` on `args` in trait-bridge method bodies when the method takes no parameters**. The four `*_method_body.rs.jinja` templates (`sync_method_body`, `trait_sync_method_body`, `trait_async_method_body` — both as standalone files under `templates/` and as embedded strings in `src/template_env.rs`) unconditionally emitted `let mut args = serde_json::Map::new();`. For Plugin trait methods like `initialize()` and `shutdown()` (and any other no-arg trait method) the `args.insert(...)` loop expands to nothing, so the `mut` binding is never used and rustc/clippy flag every emission with `warning: variable does not need to be mutable`. Surfaced on kreuzberg's generated `packages/elixir/native/kreuzberg_nif/src/lib.rs:5159` (initialize) and `:5196` (shutdown) and propagates to every plugin trait bridge (OcrBackend/PostProcessor/Validator/EmbeddingBackend/DocumentExtractor/Renderer). The templates now gate `mut` on the presence of params (`let {% if params %}mut {% endif %}args = …`), so no-arg methods emit `let args = …` and parameterised methods continue to emit `let mut args = …`. Locked in with a regression assertion in `test_plugin_bridge_with_super_trait_generates_plugin_impl` (which uses no-arg `initialize`/`shutdown` via `super_trait = "Plugin"`). (`crates/alef-backend-rustler/templates/{sync,trait_sync,trait_async}_method_body.rs.jinja`, `crates/alef-backend-rustler/src/template_env.rs`, `crates/alef-backend-rustler/tests/trait_bridge_test.rs`)
+
 ## [0.16.39] - 2026-05-18
 
 ### Fixed
