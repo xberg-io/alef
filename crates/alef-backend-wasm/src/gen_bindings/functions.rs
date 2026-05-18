@@ -174,6 +174,22 @@ pub(super) fn gen_function(
                             serde_bindings.push_str("    ");
                         }
                     }
+                } else if let TypeRef::Vec(inner) = &p.ty
+                    && let TypeRef::Named(name) = inner.as_ref()
+                    && !opaque_types.contains(name.as_str())
+                {
+                    let core_path = format!("{}::{}", core_import, name);
+                    if p.optional {
+                        serde_bindings.push_str(&format!(
+                            "let {name}_core: Option<Vec<{core_path}>> = {name}.map(|values| values.into_iter().map(Into::into).collect());\n    ",
+                            name = p.name
+                        ));
+                    } else {
+                        serde_bindings.push_str(&format!(
+                            "let {name}_core: Vec<{core_path}> = {name}.into_iter().map(Into::into).collect();\n    ",
+                            name = p.name
+                        ));
+                    }
                 }
             }
         }
@@ -555,6 +571,69 @@ pub(super) fn gen_function(
             params.join(", "),
             return_annotation
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alef_core::ir::{ParamDef, TypeRef};
+    use std::collections::HashMap;
+
+    fn param(name: &str, ty: TypeRef) -> ParamDef {
+        ParamDef {
+            name: name.to_string(),
+            ty,
+            optional: false,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: false,
+            is_mut: false,
+            newtype_wrapper: None,
+            original_type: None,
+        }
+    }
+
+    fn async_function(params: Vec<ParamDef>) -> FunctionDef {
+        FunctionDef {
+            name: "interact".to_string(),
+            rust_path: "kreuzcrawl::interact".to_string(),
+            original_rust_path: String::new(),
+            params,
+            return_type: TypeRef::Unit,
+            is_async: true,
+            error_type: Some("CrawlError".to_string()),
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }
+    }
+
+    #[test]
+    fn async_vec_named_params_convert_to_core_vec() {
+        let mapper = WasmMapper::new(HashMap::new(), "Wasm".to_string());
+        let func = async_function(vec![param(
+            "actions",
+            TypeRef::Vec(Box::new(TypeRef::Named("PageAction".to_string()))),
+        )]);
+
+        let out = gen_function(&func, &mapper, "kreuzcrawl", &AHashSet::new(), "Wasm", &AHashSet::new());
+
+        assert!(out.contains("actions: Vec<WasmPageAction>"));
+        assert!(
+            out.contains(
+                "let actions_core: Vec<kreuzcrawl::PageAction> = actions.into_iter().map(Into::into).collect();"
+            ),
+            "{out}"
+        );
+        assert!(out.contains("kreuzcrawl::interact(actions_core).await"), "{out}");
     }
 }
 

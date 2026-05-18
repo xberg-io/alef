@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **alef-backend-swift, alef-docs: bridge data-enum function parameters without stale docs**. Swift free-function shims now declare `Named(enum)` and `Vec<Named(enum)>` parameters as JSON strings at the swift-bridge boundary and deserialize them back to the source enum before calling Rust, avoiding invalid `.0` wrapper unwrapping for data enums such as `PageAction`. Per-language API docs now respect language-specific and FFI-backed `exclude_functions` / `exclude_types` so generated references no longer advertise functions or types omitted from that language surface. (`crates/alef-backend-swift/src/gen_rust_crate/{extern_block,mod,shims}.rs`, `crates/alef-docs/src/lib.rs`)
 
+- **alef-backend-wasm: async functions with `Vec<Named>` parameters now convert binding vectors before calling core Rust**. The async function path already detected `Vec<Named>` as needing a let-binding, but only emitted serde recovery bindings for direct `Named` params. Generated WASM code could therefore pass `Vec<WasmPageAction>` into a core function expecting `Vec<PageAction>`. The binding now emits an `{param}_core` vector by mapping each element with `Into::into`, matching the synchronous path. (`crates/alef-backend-wasm/src/gen_bindings/functions.rs`)
+
 ## [0.16.50] - 2026-05-18
 
 ### Fixed
