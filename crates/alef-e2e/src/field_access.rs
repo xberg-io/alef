@@ -30,6 +30,13 @@ pub struct FieldResolver {
     /// (e.g. `CrawlConfig.content: ContentConfig` is non-scalar while
     /// `MarkdownResult.content: String` is scalar).
     php_getter_map: PhpGetterMap,
+    /// Per-type Swift first-class/opaque classification, populated by the
+    /// Swift e2e codegen. When non-empty, `accessor` uses
+    /// `render_swift_with_first_class_map` instead of the legacy property-only
+    /// `render_swift_with_optionals`, so paths that traverse from first-class
+    /// types (property access) into opaque typealias types (method-call access)
+    /// pick the correct syntax at each segment.
+    swift_first_class_map: SwiftFirstClassMap,
 }
 
 /// Per-type PHP getter classification + chain-resolution metadata.
@@ -57,6 +64,59 @@ pub struct PhpGetterMap {
     /// `all_fields[owner_type]` doesn't contain `field_name`, the renderer
     /// falls back to the bare-name union instead of trusting the (wrong) owner.
     pub all_fields: HashMap<String, HashSet<String>>,
+}
+
+/// Swift first-class struct classification + chain-resolution metadata.
+///
+/// alef-backend-swift emits two flavors of binding types:
+///
+/// * **First-class Codable structs** — `public struct Foo: Codable { public let id: String }`.
+///   Fields are Swift properties; access with `.id` (no parens).
+/// * **Opaque typealiases** — `public typealias Foo = RustBridge.Foo` where the
+///   RustBridge class exposes swift-bridge methods. Fields are methods;
+///   access with `.id()` (parens).
+///
+/// The renderer needs per-segment dispatch because a path can traverse both:
+/// e.g. `BatchListResponse` (first-class Codable, with `data: [BatchObject]`) →
+/// indexed `[0]` → `BatchObject` (opaque typealias). At the `BatchObject` cursor
+/// the renderer must switch to method-call access for `.id`, `.status`, etc.
+///
+/// * `first_class_types` — set of TypeDef names whose binding is a first-class
+///   Codable struct. Membership = "use property access for fields on this type".
+/// * `field_types[type_name][field_name]` — the IR-resolved `Named` type that
+///   `field_name` traverses into.
+/// * `root_type` — the IR type name backing the result variable.
+#[derive(Debug, Clone, Default)]
+pub struct SwiftFirstClassMap {
+    pub first_class_types: HashSet<String>,
+    pub field_types: HashMap<String, HashMap<String, String>>,
+    pub root_type: Option<String>,
+}
+
+impl SwiftFirstClassMap {
+    /// Returns true when fields on `type_name` should be accessed as properties
+    /// (no parens), false when they should be accessed via method-call.
+    ///
+    /// When `type_name` is `None` the renderer defaults to property syntax
+    /// (matching the common case where result types are first-class).
+    pub fn is_first_class(&self, type_name: Option<&str>) -> bool {
+        match type_name {
+            Some(t) => self.first_class_types.contains(t),
+            None => true,
+        }
+    }
+
+    /// Returns the IR `Named` type that `field_name` traverses into for the
+    /// next chain segment, or `None` if the field is terminal/scalar/unknown.
+    pub fn advance(&self, owner_type: Option<&str>, field_name: &str) -> Option<String> {
+        let owner = owner_type?;
+        self.field_types.get(owner).and_then(|m| m.get(field_name).cloned())
+    }
+
+    /// True when no per-type information is recorded.
+    pub fn is_empty(&self) -> bool {
+        self.first_class_types.is_empty() && self.field_types.is_empty()
+    }
 }
 
 impl PhpGetterMap {
@@ -131,6 +191,7 @@ impl FieldResolver {
             method_calls: method_calls.clone(),
             error_field_aliases: HashMap::new(),
             php_getter_map: PhpGetterMap::default(),
+            swift_first_class_map: SwiftFirstClassMap::default(),
         }
     }
 
@@ -155,6 +216,7 @@ impl FieldResolver {
             method_calls: method_calls.clone(),
             error_field_aliases: error_field_aliases.clone(),
             php_getter_map: PhpGetterMap::default(),
+            swift_first_class_map: SwiftFirstClassMap::default(),
         }
     }
 
@@ -189,6 +251,32 @@ impl FieldResolver {
             method_calls: method_calls.clone(),
             error_field_aliases: error_field_aliases.clone(),
             php_getter_map,
+            swift_first_class_map: SwiftFirstClassMap::default(),
+        }
+    }
+
+    /// Create a new resolver that also knows the Swift first-class/opaque
+    /// classification per IR type. Mirrors `new_with_php_getters` but for the
+    /// Swift `render_swift_with_first_class_map` path.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_swift_first_class(
+        fields: &HashMap<String, String>,
+        optional: &HashSet<String>,
+        result_fields: &HashSet<String>,
+        array_fields: &HashSet<String>,
+        method_calls: &HashSet<String>,
+        error_field_aliases: &HashMap<String, String>,
+        swift_first_class_map: SwiftFirstClassMap,
+    ) -> Self {
+        Self {
+            aliases: fields.clone(),
+            optional_fields: optional.clone(),
+            result_fields: result_fields.clone(),
+            array_fields: array_fields.clone(),
+            method_calls: method_calls.clone(),
+            error_field_aliases: error_field_aliases.clone(),
+            php_getter_map: PhpGetterMap::default(),
+            swift_first_class_map,
         }
     }
 
@@ -342,6 +430,12 @@ impl FieldResolver {
             "rust" => render_rust_with_optionals(&segments, result_var, &self.optional_fields, &self.method_calls),
             "csharp" => render_csharp_with_optionals(&segments, result_var, &self.optional_fields),
             "zig" => render_zig_with_optionals(&segments, result_var, &self.optional_fields, &self.method_calls),
+            "swift" if !self.swift_first_class_map.is_empty() => render_swift_with_first_class_map(
+                &segments,
+                result_var,
+                &self.optional_fields,
+                &self.swift_first_class_map,
+            ),
             "swift" => render_swift_with_optionals(&segments, result_var, &self.optional_fields),
             "dart" => render_dart_with_optionals(&segments, result_var, &self.optional_fields),
             "php" if !self.php_getter_map.is_empty() => {
@@ -717,6 +811,80 @@ fn render_swift_with_optionals(
                 } else {
                     out.push_str(&format!("[\"{key}\"]"));
                 }
+            }
+            PathSegment::Length => {
+                out.push_str(".count");
+            }
+        }
+    }
+    out
+}
+
+/// Like `render_swift_with_optionals` but dispatches per-segment between
+/// property access (first-class Codable struct) and method-call access
+/// (typealias-to-opaque RustBridge class). Uses the `SwiftFirstClassMap` to
+/// track the current type as the path advances.
+fn render_swift_with_first_class_map(
+    segments: &[PathSegment],
+    result_var: &str,
+    optional_fields: &HashSet<String>,
+    map: &SwiftFirstClassMap,
+) -> String {
+    let mut out = result_var.to_string();
+    let mut path_so_far = String::new();
+    let mut current_type: Option<String> = map.root_type.clone();
+    let total = segments.len();
+    for (i, seg) in segments.iter().enumerate() {
+        let is_leaf = i == total - 1;
+        let property_syntax = map.is_first_class(current_type.as_deref());
+        match seg {
+            PathSegment::Field(f) => {
+                if !path_so_far.is_empty() {
+                    path_so_far.push('.');
+                }
+                path_so_far.push_str(f);
+                out.push('.');
+                out.push_str(f);
+                if !property_syntax {
+                    out.push_str("()");
+                }
+                if !is_leaf && optional_fields.contains(&path_so_far) {
+                    out.push('?');
+                }
+                current_type = map.advance(current_type.as_deref(), f);
+            }
+            PathSegment::ArrayField { name, index } => {
+                if !path_so_far.is_empty() {
+                    path_so_far.push('.');
+                }
+                path_so_far.push_str(name);
+                let is_optional = optional_fields.contains(&path_so_far);
+                out.push('.');
+                out.push_str(name);
+                let access = if property_syntax { "" } else { "()" };
+                if is_optional {
+                    out.push_str(&format!("{access}?[{index}]"));
+                } else {
+                    out.push_str(&format!("{access}[{index}]"));
+                }
+                path_so_far.push_str("[0]");
+                // Indexing into a Vec<Named> yields a Named element — advance current_type.
+                current_type = map.advance(current_type.as_deref(), name);
+            }
+            PathSegment::MapAccess { field, key } => {
+                if !path_so_far.is_empty() {
+                    path_so_far.push('.');
+                }
+                path_so_far.push_str(field);
+                out.push('.');
+                out.push_str(field);
+                let access = if property_syntax { "" } else { "()" };
+                if key.chars().all(|c| c.is_ascii_digit()) {
+                    out.push_str(&format!("{access}[{key}]"));
+                } else {
+                    out.push_str(&format!("{access}[\"{key}\"]"));
+                }
+                current_type = map.advance(current_type.as_deref(), field);
             }
             PathSegment::Length => {
                 out.push_str(".count");

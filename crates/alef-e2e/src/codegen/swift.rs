@@ -14,7 +14,7 @@
 
 use crate::config::E2eConfig;
 use crate::escape::{escape_java as escape_swift_str, expand_fixture_templates, sanitize_filename, sanitize_ident};
-use crate::field_access::FieldResolver;
+use crate::field_access::{FieldResolver, SwiftFirstClassMap};
 use crate::fixture::{Assertion, Fixture, FixtureGroup, ValidationErrorExpectation};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::ResolvedCrateConfig;
@@ -22,6 +22,7 @@ use alef_core::hash::{self, CommentStyle};
 use alef_core::template_versions::toolchain;
 use anyhow::Result;
 use heck::{ToLowerCamelCase, ToSnakeCase, ToUpperCamelCase};
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
@@ -38,7 +39,7 @@ impl E2eCodegen for SwiftE2eCodegen {
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
         config: &ResolvedCrateConfig,
-        _type_defs: &[alef_core::ir::TypeDef],
+        type_defs: &[alef_core::ir::TypeDef],
         _enums: &[alef_core::ir::EnumDef],
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
@@ -107,12 +108,21 @@ impl E2eCodegen for SwiftE2eCodegen {
         // Tests are placed alongside Package.swift under `<output>/swift_e2e/Tests/...`.
         let tests_base = output_base.clone();
 
-        let field_resolver = FieldResolver::new(
+        // Build the Swift first-class/opaque classification map for per-segment
+        // dispatch in `render_swift_with_first_class_map`. A TypeDef is treated
+        // as first-class (Codable struct → property access) when it's not opaque,
+        // has serde derives, and every binding field is primitive/optional. This
+        // mirrors `can_emit_first_class_struct` in alef-backend-swift.
+        let swift_first_class_map = build_swift_first_class_map(type_defs, e2e_config);
+
+        let field_resolver = FieldResolver::new_with_swift_first_class(
             &e2e_config.fields,
             &e2e_config.fields_optional,
             &e2e_config.result_fields,
             &e2e_config.fields_array,
             &e2e_config.fields_method_calls,
+            &HashMap::new(),
+            swift_first_class_map,
         );
 
         // Resolve client_factory override for swift (enables client-instance dispatch).
@@ -2046,6 +2056,89 @@ fn json_to_swift(value: &serde_json::Value) -> String {
 /// Escape a string for embedding in a Swift double-quoted string literal.
 fn escape_swift(s: &str) -> String {
     escape_swift_str(s)
+}
+
+/// Returns true when the field type would be emitted as a Swift primitive value
+/// (`String`, `Bool`, `Int`-family, `Double`, etc.) — these can appear on
+/// first-class Codable structs without forcing the host type into a typealias.
+/// Mirrors `first_class_field_supported` in alef-backend-swift.
+fn swift_first_class_field_supported(ty: &alef_core::ir::TypeRef) -> bool {
+    use alef_core::ir::TypeRef;
+    match ty {
+        TypeRef::Primitive(_) | TypeRef::String => true,
+        TypeRef::Optional(inner) => swift_first_class_field_supported(inner),
+        _ => false,
+    }
+}
+
+/// Build the per-type Swift first-class/opaque classification map used by
+/// `render_swift_with_first_class_map`.
+///
+/// A TypeDef is treated as first-class (Codable Swift struct → property access)
+/// when it is not opaque, has serde derives, has at least one field, and every
+/// binding field is a Swift primitive (or `Optional<primitive>`). All other
+/// public types end up as typealiases to opaque `RustBridge.X` classes whose
+/// fields are swift-bridge methods (`.id()`, `.status()`).
+///
+/// `field_types` records the next-type that each Named field traverses into,
+/// so the renderer can advance its current-type cursor through nested
+/// `data[0].id` style paths.
+fn build_swift_first_class_map(
+    type_defs: &[alef_core::ir::TypeDef],
+    e2e_config: &crate::config::E2eConfig,
+) -> SwiftFirstClassMap {
+    use alef_core::ir::TypeRef;
+    let mut first_class_types: HashSet<String> = HashSet::new();
+    let mut field_types: HashMap<String, HashMap<String, String>> = HashMap::new();
+    fn inner_named(ty: &TypeRef) -> Option<String> {
+        match ty {
+            TypeRef::Named(n) => Some(n.clone()),
+            TypeRef::Optional(inner) | TypeRef::Vec(inner) => inner_named(inner),
+            _ => None,
+        }
+    }
+    for td in type_defs {
+        let is_first_class = !td.is_opaque
+            && td.has_serde
+            && !td.fields.is_empty()
+            && td.fields.iter().all(|f| swift_first_class_field_supported(&f.ty));
+        if is_first_class {
+            first_class_types.insert(td.name.clone());
+        }
+        let mut td_field_types: HashMap<String, String> = HashMap::new();
+        for f in &td.fields {
+            if let Some(named) = inner_named(&f.ty) {
+                td_field_types.insert(f.name.clone(), named);
+            }
+        }
+        if !td_field_types.is_empty() {
+            field_types.insert(td.name.clone(), td_field_types);
+        }
+    }
+    // Best-effort root-type detection: pick a unique TypeDef that contains all
+    // `result_fields`. Falls back to `None` (renderer defaults to first-class
+    // property syntax for unknown roots).
+    let root_type = if e2e_config.result_fields.is_empty() {
+        None
+    } else {
+        let matches: Vec<&alef_core::ir::TypeDef> = type_defs
+            .iter()
+            .filter(|td| {
+                let names: HashSet<&str> = td.fields.iter().map(|f| f.name.as_str()).collect();
+                e2e_config.result_fields.iter().all(|rf| names.contains(rf.as_str()))
+            })
+            .collect();
+        if matches.len() == 1 {
+            Some(matches[0].name.clone())
+        } else {
+            None
+        }
+    };
+    SwiftFirstClassMap {
+        first_class_types,
+        field_types,
+        root_type,
+    }
 }
 
 #[cfg(test)]
