@@ -234,6 +234,7 @@ impl E2eCodegen for WasmCodegen {
         // routes per-fixture override resolution and skip checks through the wasm
         // language key. We then inject Node.js WASM initialization code to load
         // the WASM binary from the pkg directory using fs.readFileSync.
+        let wasm_type_prefix = config.wasm_type_prefix();
         for (group, active) in groups.iter().zip(active_per_group.iter()) {
             if active.is_empty() {
                 continue;
@@ -253,6 +254,7 @@ impl E2eCodegen for WasmCodegen {
                 e2e_config,
                 type_defs,
                 enums,
+                &wasm_type_prefix,
             );
 
             // The local `pkg/` directory produced by `wasm-pack build --target nodejs`
