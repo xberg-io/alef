@@ -841,14 +841,15 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
         // tuple-field skip would emit an empty struct that loses the payload
         // entirely. Surfaced on `enum RerankDocument { Text(String), Object { … } }`
         // where the Text variant otherwise lost its inner String content.
-        let scalar_tuple_field = if enum_def.serde_untagged && variant.fields.len() == 1 && is_tuple_field(&variant.fields[0]) {
-            match &variant.fields[0].ty {
-                TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Primitive(_) => Some(&variant.fields[0]),
-                _ => None,
-            }
-        } else {
-            None
-        };
+        let scalar_tuple_field =
+            if enum_def.serde_untagged && variant.fields.len() == 1 && is_tuple_field(&variant.fields[0]) {
+                match &variant.fields[0].ty {
+                    TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Primitive(_) => Some(&variant.fields[0]),
+                    _ => None,
+                }
+            } else {
+                None
+            };
 
         // Struct definition with only this variant's fields
         out.push_str(&format!("type {variant_struct_name} struct {{\n"));

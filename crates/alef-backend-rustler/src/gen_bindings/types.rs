@@ -273,7 +273,7 @@ fn gen_rustler_flat_data_enum(enum_def: &EnumDef, module_prefix: &str) -> String
 /// ```
 pub(super) fn gen_rustler_flat_data_enum_from_core(enum_def: &EnumDef, core_import: &str) -> String {
     let name = &enum_def.name;
-    let core_path = format!("{core_import}::{name}");
+    let core_path = alef_codegen::conversions::core_enum_path(enum_def, core_import);
     let discriminator = enum_def.serde_tag.as_deref().unwrap_or("format_type");
     let mut out = String::with_capacity(512);
 
@@ -352,7 +352,7 @@ pub(super) fn gen_rustler_flat_data_enum_from_core(enum_def: &EnumDef, core_impo
 /// enum variant, threading per-payload conversions (`.into()`, or iter-map for `Vec<Named>`).
 pub(super) fn gen_rustler_flat_data_enum_to_core(enum_def: &EnumDef, core_import: &str) -> String {
     let name = &enum_def.name;
-    let core_path = format!("{core_import}::{name}");
+    let core_path = alef_codegen::conversions::core_enum_path(enum_def, core_import);
     let discriminator = enum_def.serde_tag.as_deref().unwrap_or("format_type");
     let mut out = String::with_capacity(512);
 
@@ -978,6 +978,87 @@ mod tests {
         assert!(
             !core_to_binding.contains(".."),
             "core->binding From must not discard fields with `..`; got:\n{core_to_binding}"
+        );
+    }
+
+    /// Flat data enum From impls must use the enum's full `rust_path`, not
+    /// the short `{core_import}::{name}` form. Regression for kreuzberg's
+    /// elixir NIF emitting `impl From<kreuzberg::DrawingType> for DrawingType`
+    /// instead of `impl From<kreuzberg::extraction::docx::drawing::DrawingType>`
+    /// — the short form fails to compile because DrawingType is not re-exported
+    /// from the crate root.
+    #[test]
+    fn test_flat_data_enum_from_core_uses_full_rust_path() {
+        let enum_def = EnumDef {
+            name: "DrawingType".to_string(),
+            rust_path: "kreuzberg::extraction::docx::drawing::DrawingType".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Inline".into(),
+                    fields: vec![],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: true,
+                    serde_rename: None,
+                },
+                EnumVariant {
+                    name: "Anchored".into(),
+                    fields: vec![FieldDef {
+                        name: "_0".into(),
+                        ty: TypeRef::Named("AnchorProperties".into()),
+                        optional: false,
+                        default: None,
+                        doc: String::new(),
+                        sanitized: true,
+                        is_boxed: false,
+                        type_rust_path: None,
+                        cfg: None,
+                        typed_default: None,
+                        core_wrapper: alef_core::ir::CoreWrapper::None,
+                        vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                        newtype_wrapper: None,
+                        serde_rename: None,
+                        serde_flatten: false,
+                        binding_excluded: false,
+                        binding_exclusion_reason: None,
+                        original_type: None,
+                    }],
+                    is_tuple: true,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+            ],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: false,
+            serde_tag: Some("format_type".into()),
+            serde_untagged: false,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+
+        let from_core = gen_rustler_flat_data_enum_from_core(&enum_def, "kreuzberg");
+        assert!(
+            from_core.contains("kreuzberg::extraction::docx::drawing::DrawingType"),
+            "flat data enum From<core> must use full rust_path; got:\n{from_core}"
+        );
+        assert!(
+            !from_core.contains("From<kreuzberg::DrawingType>"),
+            "flat data enum From<core> must not collapse to {{core_import}}::{{name}}; got:\n{from_core}"
+        );
+
+        let to_core = gen_rustler_flat_data_enum_to_core(&enum_def, "kreuzberg");
+        assert!(
+            to_core.contains("kreuzberg::extraction::docx::drawing::DrawingType"),
+            "flat data enum From<binding> for core must use full rust_path; got:\n{to_core}"
+        );
+        assert!(
+            !to_core.contains("for kreuzberg::DrawingType "),
+            "flat data enum From<binding> must target full rust_path; got:\n{to_core}"
         );
     }
 
