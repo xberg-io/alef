@@ -425,7 +425,10 @@ fn gen_wrapper_function(
 
         // Check for FFI error (null result means the call failed).
         // For Optional(_) return types, null means None (not found), not an error.
-        if func.return_type != TypeRef::Unit {
+        // For numeric Result-returning functions, native returns a sentinel value (0) on error
+        // and `LastErrorCode()` is set — Rust FFI clears it at every call entry, so a non-zero
+        // value here unambiguously indicates the just-completed call failed.
+        if func.return_type != TypeRef::Unit && returns_ptr(&func.return_type) {
             if matches!(func.return_type, TypeRef::Optional(_)) {
                 out.push_str(
                     "            if (nativeResult == IntPtr.Zero)\n            {\n                return null;\n            }\n",
@@ -435,6 +438,10 @@ fn gen_wrapper_function(
                     "            if (nativeResult == IntPtr.Zero)\n            {\n                throw GetLastError();\n            }\n",
                 );
             }
+        } else if func.error_type.is_some() {
+            out.push_str(
+                "            if (NativeMethods.LastErrorCode() != 0)\n            {\n                throw GetLastError();\n            }\n",
+            );
         }
 
         emit_return_marshalling_indented(
@@ -488,8 +495,9 @@ fn gen_wrapper_function(
         }
 
         // Check for FFI error (null result means the call failed).
-        // Only emit for pointer-returning functions — numeric returns (ulong, uint, bool)
-        // don't use IntPtr.Zero as an error sentinel.
+        // Pointer returns use IntPtr.Zero as a sentinel; numeric Result returns surface failure
+        // via `LastErrorCode()`, which the Rust FFI clears at every call entry so a non-zero
+        // value here unambiguously indicates the just-completed call failed.
         // For Optional(_) return types, null means None (not found), not an error.
         if func.return_type != TypeRef::Unit && returns_ptr(&func.return_type) {
             if matches!(func.return_type, TypeRef::Optional(_)) {
@@ -501,6 +509,10 @@ fn gen_wrapper_function(
                     "        if (nativeResult == IntPtr.Zero)\n        {\n            throw GetLastError();\n        }\n",
                 );
             }
+        } else if func.error_type.is_some() {
+            out.push_str(
+                "        if (NativeMethods.LastErrorCode() != 0)\n        {\n            throw GetLastError();\n        }\n",
+            );
         }
 
         emit_return_marshalling_indented(

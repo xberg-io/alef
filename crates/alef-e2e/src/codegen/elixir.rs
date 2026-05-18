@@ -972,7 +972,7 @@ fn render_test_case(
             };
             let _ = writeln!(
                 out,
-                "      {{:ok, client}} = {module_path}.{factory}(\"test-key\", {base_url_expr})"
+                "      {{:ok, client}} = {module_path}.{factory}(\"test-key\", base_url: {base_url_expr})"
             );
         }
         let _ = writeln!(
@@ -1009,23 +1009,23 @@ fn render_test_case(
             let _ = writeln!(out, "      api_key_val = System.get_env(\"{api_key_var}\")");
             let _ = writeln!(
                 out,
-                "      {{api_key_val, base_url_val}} = if api_key_val && api_key_val != \"\" do"
+                "      {{api_key_val, client_opts}} = if api_key_val && api_key_val != \"\" do"
             );
             let _ = writeln!(
                 out,
                 "        IO.puts(\"{fixture_id}: using real API ({api_key_var} is set)\")"
             );
-            let _ = writeln!(out, "        {{api_key_val, nil}}");
+            let _ = writeln!(out, "        {{api_key_val, []}}");
             let _ = writeln!(out, "      else");
             let _ = writeln!(
                 out,
                 "        IO.puts(\"{fixture_id}: using mock server ({api_key_var} not set)\")"
             );
-            let _ = writeln!(out, "        {{\"test-key\", {mock_url_expr}}}");
+            let _ = writeln!(out, "        {{\"test-key\", [base_url: {mock_url_expr}]}}");
             let _ = writeln!(out, "      end");
             let _ = writeln!(
                 out,
-                "      {{:ok, client}} = {module_path}.{factory}(api_key_val, base_url_val)"
+                "      {{:ok, client}} = {module_path}.{factory}(api_key_val, client_opts)"
             );
         } else {
             let base_url_expr = if fixture.has_host_root_route() {
@@ -1038,7 +1038,7 @@ fn render_test_case(
             };
             let _ = writeln!(
                 out,
-                "      {{:ok, client}} = {module_path}.{factory}(\"test-key\", {base_url_expr})"
+                "      {{:ok, client}} = {module_path}.{factory}(\"test-key\", base_url: {base_url_expr})"
             );
         }
     }
@@ -1060,10 +1060,15 @@ fn render_test_case(
     let chunks_var = "chunks";
 
     if returns_result {
-        let _ = writeln!(
-            out,
-            "      {{:ok, {result_var}}} = {module_path}.{function_name}({effective_args})"
-        );
+        if call_config.returns_void {
+            // Result<(), Error> — Elixir returns bare `:ok` on success, not `{:ok, value}`.
+            let _ = writeln!(out, "      :ok = {module_path}.{function_name}({effective_args})");
+        } else {
+            let _ = writeln!(
+                out,
+                "      {{:ok, {result_var}}} = {module_path}.{function_name}({effective_args})"
+            );
+        }
     } else {
         // Non-Result function returns value directly (e.g., bool, String).
         let _ = writeln!(

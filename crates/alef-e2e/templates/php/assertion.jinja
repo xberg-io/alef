@@ -29,7 +29,8 @@
 {% if field_is_array %}
     $found = false;
     foreach ({{ field_expr }} as $item) {
-        if (str_contains((string)$item, {{ php_val }})) { $found = true; }
+        $itemStr = is_object($item) ? json_encode($item) : (string)$item;
+        if (stripos($itemStr, {{ php_val }}) !== false) { $found = true; }
     }
     $this->assertTrue($found, 'expected array to contain string');
 {% else %}
@@ -40,7 +41,8 @@
 {% for val in values_php %}
     $found = false;
     foreach ({{ field_expr }} as $item) {
-        if (str_contains((string)$item, {{ val }})) { $found = true; }
+        $itemStr = is_object($item) ? json_encode($item) : (string)$item;
+        if (stripos($itemStr, {{ val }}) !== false) { $found = true; }
     }
     $this->assertTrue($found, 'expected array to contain string');
 {% endfor %}

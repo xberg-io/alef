@@ -11,14 +11,14 @@
 {%- endif -%}
 {%- elif assertion_type == "contains" -%}
 {%- if field_is_array -%}
-        assertTrue({{ string_expr }}.toString().contains({{ java_val }}), "expected to contain: " + {{ java_val }});
+        assertTrue({{ string_expr }}.toString().toLowerCase().contains(String.valueOf({{ java_val }}).toLowerCase()), "expected to contain: " + {{ java_val }});
 {%- else -%}
         assertTrue({{ string_expr }}.contains({{ java_val }}), "expected to contain: " + {{ java_val }});
 {%- endif -%}
 {%- elif assertion_type == "contains_all" -%}
 {%- for val in values_java -%}
 {%- if field_is_array -%}
-        assertTrue({{ string_expr }}.toString().contains({{ val }}), "expected to contain: " + {{ val }});
+        assertTrue({{ string_expr }}.toString().toLowerCase().contains(String.valueOf({{ val }}).toLowerCase()), "expected to contain: " + {{ val }});
 {%- else -%}
         assertTrue({{ string_expr }}.contains({{ val }}), "expected to contain: " + {{ val }});
 {%- endif -%}
@@ -26,7 +26,7 @@
 {%- elif assertion_type == "not_contains" -%}
 {%- for val in values_java -%}
 {%- if field_is_array -%}
-        assertFalse({{ string_expr }}.toString().contains({{ val }}), "expected NOT to contain: " + {{ val }});
+        assertFalse({{ string_expr }}.toString().toLowerCase().contains(String.valueOf({{ val }}).toLowerCase()), "expected NOT to contain: " + {{ val }});
 {%- else -%}
         assertFalse({{ string_expr }}.contains({{ val }}), "expected NOT to contain: " + {{ val }});
 {%- endif -%}
