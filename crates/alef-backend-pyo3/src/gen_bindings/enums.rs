@@ -38,7 +38,7 @@ pub(super) enum Wrapping {
 /// Replaces Unicode characters that trigger ruff RUF001/RUF002 lint errors with
 /// their closest ASCII equivalents. Must be applied to every doc string before
 /// it is emitted into a Python source file or stub.
-pub(super) fn sanitize_python_doc(s: &str) -> String {
+pub(crate) fn sanitize_python_doc(s: &str) -> String {
     s.replace('\u{2013}', "-")   // EN DASH → HYPHEN-MINUS
         .replace('\u{2014}', "--") // EM DASH → double hyphen
         .replace('\u{00D7}', "x")  // MULTIPLICATION SIGN → x
@@ -50,7 +50,7 @@ pub(super) fn sanitize_python_doc(s: &str) -> String {
 ///
 /// Examples: `AuthenticationError` → `"Authentication error."`,
 /// `LiterLlmError` → `"Liter llm error."`
-pub(super) fn class_name_to_docstring(name: &str) -> String {
+pub(crate) fn class_name_to_docstring(name: &str) -> String {
     use heck::ToSnakeCase;
     let snake = name.to_snake_case();
     let sentence = snake.replace('_', " ");

@@ -1,8 +1,37 @@
+use crate::gen_bindings::enums::sanitize_python_doc;
 use crate::type_map::python_type;
 use alef_codegen::shared::binding_fields;
 use alef_core::config::{Language, ResolvedCrateConfig, TraitBridgeConfig};
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{ApiSurface, EnumDef, FunctionDef, MethodDef, TypeDef, TypeRef};
+
+/// Format a Rust doc string as a single-line Python `"""…"""` docstring,
+/// indented for inclusion inside a class body. Returns `None` when `doc` is
+/// empty so callers can skip emission.
+fn pyi_docstring(doc: &str, indent: &str) -> Option<String> {
+    let trimmed = doc.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    // Take the first paragraph (split on blank line) and join multi-line docs
+    // with spaces so the stub stays a single line — easy to read in IDE hovers
+    // and avoids escaping subtleties.
+    let first_paragraph = trimmed.split("\n\n").next().unwrap_or(trimmed);
+    let joined: String = first_paragraph
+        .lines()
+        .map(|l| l.trim().trim_start_matches("///").trim())
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    if joined.is_empty() {
+        return None;
+    }
+    let sanitized = sanitize_python_doc(&joined);
+    // Escape embedded triple-double-quote sequences and backslashes that would
+    // break the docstring boundary.
+    let escaped = sanitized.replace('\\', "\\\\").replace("\"\"\"", "\\\"\\\"\\\"");
+    Some(format!("{indent}\"\"\"{escaped}\"\"\""))
+}
 
 /// Convert an identifier to a Python-safe name by escaping reserved keywords.
 ///
@@ -297,6 +326,11 @@ fn gen_type_stub(
 
     lines.push(format!("class {}:", typ.name));
 
+    // Class-level docstring from Rust doc comment.
+    if let Some(docstring) = pyi_docstring(&typ.doc, "    ") {
+        lines.push(docstring);
+    }
+
     // Add field type annotations.
     // Field names that are Python reserved keywords are shown with their escaped name
     // (e.g. `class_`) because that is the attribute name callers must use in Python.
@@ -318,6 +352,10 @@ fn gen_type_stub(
             .resolve_field_name(Language::Python, &typ.name, &field.name)
             .unwrap_or_else(|| field.name.clone());
         lines.push(format!("    {stub_field_name}: {field_type}"));
+        // Field-level docstring follows the type annotation (PEP-style).
+        if let Some(docstring) = pyi_docstring(&field.doc, "    ") {
+            lines.push(docstring);
+        }
     }
 
     // Add __init__ signature
@@ -574,6 +612,9 @@ fn gen_enum_stub(enum_def: &EnumDef) -> String {
         gen_data_enum_typeddicts(&mut lines, enum_def);
     } else {
         lines.push(format!("class {}:", enum_def.name));
+        if let Some(docstring) = pyi_docstring(&enum_def.doc, "    ") {
+            lines.push(docstring);
+        }
         for variant in &enum_def.variants {
             // Emit UPPER_SNAKE_CASE attribute names to match the #[pyo3(name = "...")] rename
             // on the Rust pyclass variant (PEP 8: enum members are UPPER_SNAKE_CASE).
@@ -582,6 +623,9 @@ fn gen_enum_stub(enum_def: &EnumDef) -> String {
                 to_python_screaming(&variant.name),
                 enum_def.name
             ));
+            if let Some(docstring) = pyi_docstring(&variant.doc, "    ") {
+                lines.push(docstring);
+            }
         }
         lines.push("    def __init__(self, value: int | str) -> None: ...".to_string());
     }
