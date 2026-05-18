@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **publish workflow: move all Linux jobs to self-hosted runners (`runner-medium`, `runner-medium-arm64`) and reorder so `publish-crates` runs before `build-cli`**. Two related infrastructure changes to `.github/workflows/publish.yaml`. (1) Every `ubuntu-latest` job (prepare, validate-versions, check-cratesio, check-github-release, build-homebrew-bottles, upload-release-assets, publish-crates, publish-homebrew, finalize) now targets the self-hosted `runner-medium` label; the `build-cli` matrix uses `runner-medium` for `linux-x86_64` and `runner-medium-arm64` for `linux-aarch64`. macOS (`macos-latest`, `macos-15-intel`) and Windows (`windows-latest`) matrix entries continue to use GitHub-hosted runners. Motivation: GitHub-hosted Linux runners were queuing for 4+ hours behind unrelated workloads, blocking v0.16.41/42/43 from publishing. (2) `build-cli` now `needs: [..., publish-crates]` with `(publish-crates.result == 'success' || == 'skipped')` gating, so the canonical crates.io artifact lands before any platform binary work begins — a crates.io failure (network, dupe version, manifest error) no longer wastes ~30 min of CLI matrix build time. `upload-release-assets` and `build-homebrew-bottles` already transitively depend on `build-cli` so they inherit the new ordering. (`.github/workflows/publish.yaml`)
+
 ## [0.16.44] - 2026-05-18
 
 ### Fixed

@@ -40,7 +40,7 @@ env:
 jobs:
   prepare:
     name: Prepare release
-    runs-on: ubuntu-latest
+    runs-on: runner-medium
     permissions:
       contents: write
     outputs:
@@ -70,7 +70,7 @@ jobs:
   validate-versions:
     name: Validate versions
     needs: prepare
-    runs-on: ubuntu-latest
+    runs-on: runner-medium
     steps:
       - uses: actions/checkout@v6.0.2
         with:
@@ -86,7 +86,7 @@ jobs:
     name: Check crates.io
     needs: prepare
     if: needs.prepare.outputs.release_crates == 'true'
-    runs-on: ubuntu-latest
+    runs-on: runner-medium
     outputs:
       exists: ${{ steps.check.outputs.exists }}
     steps:
@@ -103,7 +103,7 @@ jobs:
     name: Check GitHub release
     needs: prepare
     if: needs.prepare.outputs.release_cli == 'true'
-    runs-on: ubuntu-latest
+    runs-on: runner-medium
     outputs:
       exists: ${{ steps.check.outputs.exists }}
     steps:
@@ -121,21 +121,22 @@ jobs:
 
   build-cli:
     name: Build CLI (${{ matrix.label }})
-    needs: [prepare, validate-versions, check-github-release]
+    needs: [prepare, validate-versions, check-github-release, publish-crates]
     if: |
       always() &&
       needs.prepare.outputs.release_cli == 'true' &&
       needs.validate-versions.result == 'success' &&
+      (needs.publish-crates.result == 'success' || needs.publish-crates.result == 'skipped') &&
       (needs.check-github-release.outputs.exists != 'true' || needs.prepare.outputs.force_republish == 'true')
     strategy:
       fail-fast: false
       matrix:
         include:
           - label: linux-x86_64
-            runner: ubuntu-latest
+            runner: runner-medium
             target: x86_64-unknown-linux-gnu
           - label: linux-aarch64
-            runner: ubuntu-24.04-arm
+            runner: runner-medium-arm64
             target: aarch64-unknown-linux-gnu
           - label: macos-arm64
             runner: macos-latest
@@ -201,7 +202,7 @@ jobs:
       always() &&
       needs.prepare.outputs.release_homebrew == 'true' &&
       needs.build-cli.result == 'success'
-    runs-on: ubuntu-latest
+    runs-on: runner-medium
     steps:
       - uses: actions/checkout@v6.0.2
         with:
@@ -247,7 +248,7 @@ jobs:
       needs.validate-versions.result == 'success' &&
       needs.build-cli.result == 'success' &&
       (needs.check-github-release.outputs.exists != 'true' || needs.prepare.outputs.force_republish == 'true')
-    runs-on: ubuntu-latest
+    runs-on: runner-medium
     permissions:
       contents: write
     steps:
@@ -280,7 +281,7 @@ jobs:
       needs.prepare.outputs.release_crates == 'true' &&
       needs.validate-versions.result == 'success' &&
       (needs.check-cratesio.outputs.exists != 'true' || needs.prepare.outputs.force_republish == 'true')
-    runs-on: ubuntu-latest
+    runs-on: runner-medium
     permissions:
       contents: read
       id-token: write
@@ -344,7 +345,7 @@ jobs:
       needs.validate-versions.result == 'success' &&
       needs.build-homebrew-bottles.result == 'success' &&
       needs.upload-release-assets.result == 'success'
-    runs-on: ubuntu-latest
+    runs-on: runner-medium
     permissions:
       contents: write
     steps:
@@ -382,7 +383,7 @@ jobs:
     name: Finalize release
     needs: [prepare, upload-release-assets, publish-crates, publish-homebrew]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: runner-medium
     permissions:
       contents: write
     steps:
