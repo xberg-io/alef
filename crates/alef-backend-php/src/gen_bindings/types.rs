@@ -20,6 +20,13 @@ use super::functions::{
 ///   Vec<primitive> (the `Vec<T: IntoZval>` blanket impl).
 /// Anything containing a Named struct, Map, nested Vec, Json, or Bytes requires a getter.
 /// Enums are mapped as String in the PHP binding, so they count as scalar.
+///
+/// This function is public so that `alef-e2e` can determine which fields require
+/// `->getCamelCase()` getter-method syntax vs. `->camelCase` property syntax.
+pub fn is_php_prop_scalar(ty: &TypeRef, enum_names: &AHashSet<String>) -> bool {
+    is_php_prop_scalar_with_enums(ty, enum_names)
+}
+
 fn is_php_prop_scalar_with_enums(ty: &TypeRef, enum_names: &AHashSet<String>) -> bool {
     match ty {
         TypeRef::Primitive(_) | TypeRef::String | TypeRef::Char | TypeRef::Duration | TypeRef::Path => true,

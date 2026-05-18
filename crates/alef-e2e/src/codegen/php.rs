@@ -14,10 +14,11 @@ use alef_backend_php::naming::php_autoload_namespace;
 use alef_core::backend::GeneratedFile;
 use alef_core::config::ResolvedCrateConfig;
 use alef_core::hash::{self, CommentStyle};
+use alef_core::ir::TypeRef;
 use alef_core::template_versions as tv;
 use anyhow::Result;
 use heck::{ToLowerCamelCase, ToSnakeCase, ToUpperCamelCase};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
 
@@ -33,8 +34,8 @@ impl E2eCodegen for PhpCodegen {
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
         config: &ResolvedCrateConfig,
-        _type_defs: &[alef_core::ir::TypeDef],
-        _enums: &[alef_core::ir::EnumDef],
+        type_defs: &[alef_core::ir::TypeDef],
+        enums: &[alef_core::ir::EnumDef],
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
         let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
@@ -168,12 +169,28 @@ impl E2eCodegen for PhpCodegen {
 
         // Generate test files per category.
         let tests_base = output_base.join("tests");
-        let field_resolver = FieldResolver::new(
+
+        // Compute which fields require getter-method syntax in PHP.
+        // ext-php-rs 0.15.x exposes scalar fields as PHP properties via `#[php(prop)]`,
+        // but non-scalar fields (Named structs, Vec<Named>, Map, etc.) need a
+        // `#[php(getter)]` method because `get_method_props` is `todo!()` in
+        // ext-php-rs-derive 0.11.7. E2e assertions must call `->getCamelCase()` for those.
+        let php_enum_names: HashSet<String> = enums.iter().map(|e| e.name.clone()).collect();
+        let php_getter_fields: HashSet<String> = type_defs
+            .iter()
+            .flat_map(|td| td.fields.iter())
+            .filter(|f| !is_php_scalar(&f.ty, &php_enum_names))
+            .map(|f| f.name.clone())
+            .collect();
+
+        let field_resolver = FieldResolver::new_with_php_getters(
             &e2e_config.fields,
             &e2e_config.fields_optional,
             &e2e_config.result_fields,
             &e2e_config.fields_array,
-            &std::collections::HashSet::new(),
+            &HashSet::new(),
+            &HashMap::new(),
+            &php_getter_fields,
         );
 
         for group in groups {
@@ -215,6 +232,31 @@ impl E2eCodegen for PhpCodegen {
 
     fn language_name(&self) -> &'static str {
         "php"
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PHP scalar-type predicate
+// ---------------------------------------------------------------------------
+
+/// Returns true when a type is scalar-compatible for ext-php-rs `#[php(prop)]` —
+/// that is, the mapped Rust type implements `IntoZval` + `FromZval` automatically
+/// without a manual getter. Mirrors `is_php_prop_scalar_with_enums` from
+/// `alef-backend-php/src/gen_bindings/types.rs`.
+///
+/// Scalar-compatible: primitives, String, Char, Duration (→ u64), Path (→ String),
+/// Option<scalar>, Vec<primitive|String|Char>, unit-variant enums (mapped to String).
+/// Non-scalar: Named struct, Map, nested Vec<Named>, Json, Bytes.
+fn is_php_scalar(ty: &TypeRef, enum_names: &HashSet<String>) -> bool {
+    match ty {
+        TypeRef::Primitive(_) | TypeRef::String | TypeRef::Char | TypeRef::Duration | TypeRef::Path => true,
+        TypeRef::Optional(inner) => is_php_scalar(inner, enum_names),
+        TypeRef::Vec(inner) => {
+            matches!(inner.as_ref(), TypeRef::Primitive(_) | TypeRef::String | TypeRef::Char)
+                || matches!(inner.as_ref(), TypeRef::Named(n) if enum_names.contains(n))
+        }
+        TypeRef::Named(n) if enum_names.contains(n) => true,
+        TypeRef::Named(_) | TypeRef::Map(_, _) | TypeRef::Json | TypeRef::Bytes | TypeRef::Unit => false,
     }
 }
 

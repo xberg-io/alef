@@ -1,6 +1,6 @@
 mod functions;
 mod helpers;
-mod types;
+pub mod types;
 
 use crate::type_map::PhpMapper;
 use ahash::AHashSet;
