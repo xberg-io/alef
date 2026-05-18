@@ -24,6 +24,7 @@ pub fn gen_enum_from_binding_to_core_cfg(enum_def: &EnumDef, core_import: &str, 
                 &variant.fields,
                 config.binding_enums_have_data,
                 config,
+                enum_def.serde_untagged,
             )
         })
         .collect();
@@ -59,6 +60,7 @@ pub fn gen_enum_from_core_to_binding_cfg(enum_def: &EnumDef, core_import: &str, 
                 &variant.fields,
                 config.binding_enums_have_data,
                 config,
+                enum_def.serde_untagged,
             )
         })
         .collect();

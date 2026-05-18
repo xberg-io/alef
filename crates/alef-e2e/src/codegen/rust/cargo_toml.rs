@@ -134,6 +134,10 @@ pub fn render_cargo_toml(
     } else {
         ""
     };
+    // E2e package version tracks the consumer crate version so `alef sync-versions`
+    // doesn't rewrite the generated file on every prek run. Fall back to "0.1.0" only
+    // when no consumer version is known (test fixtures, etc.).
+    let pkg_version = version.unwrap_or("0.1.0");
     let header = hash::header(CommentStyle::Hash);
     format!(
         r#"{header}
@@ -141,7 +145,7 @@ pub fn render_cargo_toml(
 
 [package]
 name = "{e2e_name}"
-version = "0.1.0"
+version = "{pkg_version}"
 edition = "2021"
 license = "MIT"
 publish = false

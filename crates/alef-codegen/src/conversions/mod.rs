@@ -355,6 +355,142 @@ mod tests {
         assert!(result.contains("my_crate::Backend::Gpu => Self::Gpu"));
     }
 
+    fn untagged_tuple_enum() -> EnumDef {
+        EnumDef {
+            name: "UserContent".to_string(),
+            rust_path: "my_crate::UserContent".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Text".into(),
+                    fields: vec![FieldDef {
+                        name: "_0".into(),
+                        ty: TypeRef::String,
+                        optional: false,
+                        default: None,
+                        doc: String::new(),
+                        sanitized: false,
+                        is_boxed: false,
+                        type_rust_path: None,
+                        cfg: None,
+                        typed_default: None,
+                        core_wrapper: CoreWrapper::None,
+                        vec_inner_core_wrapper: CoreWrapper::None,
+                        newtype_wrapper: None,
+                        serde_rename: None,
+                        serde_flatten: false,
+                        binding_excluded: false,
+                        binding_exclusion_reason: None,
+                        original_type: None,
+                    }],
+                    is_tuple: true,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+                EnumVariant {
+                    name: "Parts".into(),
+                    fields: vec![FieldDef {
+                        name: "_0".into(),
+                        ty: TypeRef::Vec(Box::new(TypeRef::String)),
+                        optional: false,
+                        default: None,
+                        doc: String::new(),
+                        sanitized: false,
+                        is_boxed: false,
+                        type_rust_path: None,
+                        cfg: None,
+                        typed_default: None,
+                        core_wrapper: CoreWrapper::None,
+                        vec_inner_core_wrapper: CoreWrapper::None,
+                        newtype_wrapper: None,
+                        serde_rename: None,
+                        serde_flatten: false,
+                        binding_excluded: false,
+                        binding_exclusion_reason: None,
+                        original_type: None,
+                    }],
+                    is_tuple: true,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+            ],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: true,
+            serde_tag: None,
+            serde_untagged: true,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }
+    }
+
+    #[test]
+    fn test_enum_from_binding_to_core_untagged_tuple_emits_tuple_pattern() {
+        // Regression: untagged enums with tuple variants emit tuple-form `Variant(T)` in
+        // the binding (Magnus template since commit a715f378). Conversion match arms must
+        // destructure tuple-form, not struct-form `Variant { _0 }`.
+        let enum_def = untagged_tuple_enum();
+        let config = ConversionConfig {
+            binding_enums_have_data: true,
+            ..ConversionConfig::default()
+        };
+        let result = gen_enum_from_binding_to_core_cfg(&enum_def, "my_crate", &config);
+        // MUST destructure as tuple, not struct
+        assert!(
+            result.contains("UserContent::Text(_0)"),
+            "expected tuple-form binding pattern, got: {result}"
+        );
+        assert!(
+            !result.contains("UserContent::Text { _0 }"),
+            "must NOT use struct-form for untagged enums, got: {result}"
+        );
+        // Construct core as tuple
+        assert!(result.contains("Self::Text("));
+    }
+
+    #[test]
+    fn test_enum_from_core_to_binding_untagged_tuple_emits_tuple_constructor() {
+        // Regression: untagged enums with tuple variants emit tuple-form `Variant(T)` in
+        // the binding. Constructor must use tuple form, not `Self::Variant { _0 }`.
+        let enum_def = untagged_tuple_enum();
+        let config = ConversionConfig {
+            binding_enums_have_data: true,
+            ..ConversionConfig::default()
+        };
+        let result = gen_enum_from_core_to_binding_cfg(&enum_def, "my_crate", &config);
+        // Core destructured as tuple (already correct), binding constructed as tuple
+        assert!(
+            result.contains("Self::Text(_0)"),
+            "expected tuple-form binding constructor, got: {result}"
+        );
+        assert!(
+            !result.contains("Self::Text { _0 }"),
+            "must NOT use struct-form constructor for untagged enums, got: {result}"
+        );
+    }
+
+    #[test]
+    fn test_enum_tagged_data_keeps_struct_form_pattern() {
+        // Counter-regression: tagged (non-untagged) data enums must keep struct-form
+        // `Variant { _0 }` pattern/constructor — only untagged enums switch to tuple form.
+        let mut enum_def = untagged_tuple_enum();
+        enum_def.serde_untagged = false;
+        enum_def.serde_tag = Some("type".to_string());
+        let config = ConversionConfig {
+            binding_enums_have_data: true,
+            ..ConversionConfig::default()
+        };
+        let result = gen_enum_from_binding_to_core_cfg(&enum_def, "my_crate", &config);
+        assert!(
+            result.contains("UserContent::Text { _0 }"),
+            "tagged enums must keep struct-form, got: {result}"
+        );
+    }
+
     #[test]
     fn test_from_binding_to_core_with_cfg_gated_field() {
         // Create a type with a cfg-gated field

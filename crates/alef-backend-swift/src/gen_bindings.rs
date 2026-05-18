@@ -131,11 +131,15 @@ impl Backend for SwiftBackend {
             .map(|c| c.client_constructor_body.keys().map(String::as_str).collect())
             .unwrap_or_default();
         // Collect first-class struct type names for streaming chunk decode dispatch.
+        // Must match the actual emission decision in `can_emit_first_class_struct`
+        // (Codable struct with all-primitive/optional fields + emittable bulk constructor).
+        // Types failing that check are emitted as typealiases to RustBridge.X and so
+        // do not have a `func intoRust()` extension or auto-derived Codable conformance.
         let first_class_types: std::collections::HashSet<String> = api
             .types
             .iter()
-            .filter(|t| !t.is_trait && !t.is_opaque && t.has_serde && !t.fields.is_empty())
-            .filter(|t| !exclude_types.contains(&t.name))
+            .filter(|t| !t.is_trait && !exclude_types.contains(&t.name))
+            .filter(|t| can_emit_first_class_struct(t, &mapper, &exclude_fields))
             .map(|t| t.name.clone())
             .collect();
         for ty in api.types.iter().filter(|t| {
@@ -891,7 +895,14 @@ fn emit_client_class(
                 let swift_name = swift_ident(&p.name.to_lower_camel_case());
                 match &p.ty {
                     TypeRef::Named(n) if first_class_types.contains(n) => {
-                        format!("try {swift_name}.intoRust()")
+                        // Optional first-class DTO: `query?.intoRust()` returns
+                        // `RustBridge.T?` which matches the swift-bridge-emitted Optional<T>
+                        // signature.
+                        if p.optional {
+                            format!("try {swift_name}?.intoRust()")
+                        } else {
+                            format!("try {swift_name}.intoRust()")
+                        }
                     }
                     _ => swift_name,
                 }
