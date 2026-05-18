@@ -1,15 +1,16 @@
 //! Swift e2e test generator using XCTest.
 //!
-//! Generates test files for the swift package in `packages/swift/Tests/<Module>Tests/`.
+//! Generates a standalone Swift package at `e2e/swift_e2e/` that depends on the
+//! binding at `packages/swift/` via `.package(path:)`.
 //!
-//! IMPORTANT: Due to SwiftPM 6.0 limitations (forbids inter-package `.package(path:)`
-//! references within a monorepo), generated test files are placed directly inside
-//! the `packages/swift` package (not in a separate `e2e/swift` package). This allows
-//! tests to depend on the library target without an explicit package dependency.
-//!
-//! The generated `Package.swift` is placed in `e2e/swift/` for documentation and CI
-//! reference but is NOT used for running tests — tests are run from the
-//! `packages/swift/` directory using `swift test`.
+//! IMPORTANT: SwiftPM 6.0 derives the identity of path-based dependencies from
+//! the path's *basename* and ignores any explicit `name:` override. If the
+//! consumer (`e2e/swift/`) and the dep (`packages/swift/`) share the same path
+//! basename `swift`, SwiftPM treats them as the same package and fails
+//! resolution with: `product '<X>' required by package 'swift' target '...' not
+//! found in package 'swift'`. The e2e package is therefore emitted under
+//! `swift_e2e/` to guarantee a distinct identity from any sibling
+//! `packages/swift/` dep.
 
 use crate::config::E2eConfig;
 use crate::escape::{escape_java as escape_swift_str, expand_fixture_templates, sanitize_filename, sanitize_ident};
@@ -41,12 +42,14 @@ impl E2eCodegen for SwiftE2eCodegen {
         _enums: &[alef_core::ir::EnumDef],
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
-        // Emit under `<output>/swift/` for consistency with every other language's e2e
-        // layout. SwiftPM identifies path-based deps by the path's last component,
-        // which would collide with the dep at `packages/swift/`; we disambiguate by
-        // passing an explicit `name:` to `.package(path:)` in the consumer manifest
-        // (see render_package_swift below).
-        let output_base = PathBuf::from(e2e_config.effective_output()).join("swift");
+        // Emit under `<output>/swift_e2e/` so the consumer's SwiftPM identity
+        // (derived from path basename) does not collide with the dep at
+        // `packages/swift/` (also basename `swift`). SwiftPM 6.0 deprecated the
+        // `name:` parameter on `.package(path:)` and uses the path basename as
+        // the package's identity unconditionally, so disambiguation must happen
+        // at the filesystem level. Consumers of the alef-emitted e2e must
+        // `cd e2e/swift_e2e/` to run `swift test`.
+        let output_base = PathBuf::from(e2e_config.effective_output()).join("swift_e2e");
 
         let mut files = Vec::new();
 
@@ -93,20 +96,15 @@ impl E2eCodegen for SwiftE2eCodegen {
             })
             .unwrap_or_else(|_| format!("https://example.invalid/{module_name}.git"));
 
-        // Generate Package.swift (kept for tooling/CI reference but not used
-        // for running tests — see note below).
+        // Generate Package.swift for the standalone e2e consumer at
+        // `<output>/swift_e2e/`. `swift test` is run from that directory.
         files.push(GeneratedFile {
             path: output_base.join("Package.swift"),
             content: render_package_swift(module_name, &registry_url, &pkg_path, &pkg_version, e2e_config.dep_mode),
             generated_header: false,
         });
 
-        // Swift e2e tests live in the standalone e2e/swift package (same as
-        // every other language). The generated Package.swift uses an explicit
-        // `.package(name: "{module}", path: "../../packages/swift")` dep so
-        // SwiftPM resolves the binding library by its declared identity, not
-        // the path tail (avoids collision when both this package and the dep
-        // share the path-last component `swift`).
+        // Tests are placed alongside Package.swift under `<output>/swift_e2e/Tests/...`.
         let tests_base = output_base.clone();
 
         let field_resolver = FieldResolver::new(
@@ -195,13 +193,14 @@ fn render_package_swift(
             (dep, prod)
         }
         crate::config::DependencyMode::Local => {
-            // SwiftPM identifies path-based deps by the path's last component.
-            // Because this e2e consumer and the dep both live in directories
-            // named `swift/`, declare an explicit `name:` on `.package(path:)`
-            // to give the dep a distinct identity (matches the module name).
-            // The `.product(package:)` reference uses that identity.
-            let pkg_id = module_name;
-            let dep = format!(r#"        .package(name: "{pkg_id}", path: "{pkg_path}")"#);
+            // SwiftPM 6.0 deprecated the `name:` parameter on `.package(path:)`:
+            // package identity is derived from the path's last component, ignoring
+            // any explicit `name:`. The `.product(package:)` reference must therefore
+            // match that identity (the path basename), not the dep's declared
+            // `Package(name:)`. The product `name:` still matches the library
+            // declared in the dep's manifest (e.g. `.library(name: "Kreuzberg")`).
+            let pkg_id = pkg_path.trim_end_matches('/').rsplit('/').next().unwrap_or(module_name);
+            let dep = format!(r#"        .package(path: "{pkg_path}")"#);
             let prod = format!(r#".product(name: "{module_name}", package: "{pkg_id}")"#);
             (dep, prod)
         }
@@ -281,7 +280,7 @@ fn render_test_file(
         // Chdir once at class setUp so all fixture file_path arguments resolve relative
         // to the repository's test_documents directory.
         //
-        // #filePath = <repo>/packages/swift/Tests/<Module>Tests/<Class>.swift
+        // #filePath = <repo>/e2e/swift_e2e/Tests/<Module>E2ETests/<Class>.swift
         // 5 deletingLastPathComponent() calls climb to the repo root before appending
         // "test_documents". Mirrors the Ruby/Python conftest pattern that chdirs to
         // test_documents.

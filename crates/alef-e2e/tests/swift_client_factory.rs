@@ -201,3 +201,49 @@ options_via = "from_json"
         "Package.swift must include .iOS platform also when client_factory is set. Content:\n{pkg_cf}"
     );
 }
+
+/// SwiftPM 6.0 derives path-dep identity from the path basename, ignoring any
+/// `name:` override. To avoid identity collision between the e2e consumer and
+/// the dep (both at directories named `swift/`), the e2e package is emitted
+/// under `swift_e2e/`, and the dep is referenced by `.package(path:)` (no
+/// `name:`) with `.product(package: "<basename>")`. Regression test for the
+/// kreuzberg `packages/swift` case where consumer at `e2e/swift/` previously
+/// collided with the dep at `packages/swift/`.
+#[test]
+fn package_swift_uses_path_basename_for_product_package_ref() {
+    let toml = format!(
+        r#"{BASE_TOML}
+[crates.e2e.call.overrides.swift]
+options_via = "from_json"
+"#
+    );
+    let files = render_swift(&toml, "smoke_basic");
+    let pkg_file = files
+        .iter()
+        .find(|f| f.path.ends_with("Package.swift"))
+        .expect("Package.swift is emitted");
+    // E2e package is emitted under `swift_e2e/`, not `swift/`, to avoid
+    // SwiftPM identity collision with `packages/swift/`.
+    assert!(
+        pkg_file.path.to_string_lossy().contains("/swift_e2e/Package.swift"),
+        "Package.swift must be emitted under swift_e2e/. Path: {:?}",
+        pkg_file.path
+    );
+    let pkg = &pkg_file.content;
+    // Must NOT use the deprecated `.package(name:path:)` form, which SwiftPM 6.0
+    // silently ignores — the resolver always uses the path basename.
+    assert!(
+        !pkg.contains(".package(name:"),
+        "Package.swift must not use deprecated .package(name:path:) form. Content:\n{pkg}"
+    );
+    // The dep must be referenced by path basename in `.product(package:)`.
+    // The default BASE_TOML uses path `../../packages/swift`, basename `swift`.
+    assert!(
+        pkg.contains(r#".product(name: "LiterLlm", package: "swift")"#),
+        "Package.swift must reference the dep by path basename `swift`. Content:\n{pkg}"
+    );
+    assert!(
+        pkg.contains(r#".package(path: "../../packages/swift")"#),
+        "Package.swift must declare the dep via .package(path:) without name:. Content:\n{pkg}"
+    );
+}
