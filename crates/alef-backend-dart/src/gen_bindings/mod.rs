@@ -154,13 +154,13 @@ impl Backend for DartBackend {
         content.push_str(&body);
 
         let dir = resolve_output_dir(None, &config.name, "packages/dart/lib/src");
-        let path = PathBuf::from(dir).join(format!("{module_name}.dart"));
+        let path = PathBuf::from(format!("{dir}/{module_name}.dart"));
 
         // Emit the top-level barrel file `lib/<barrel>.dart` so that consumers
         // can import `package:<pkg>/<pkg>.dart` (the canonical Dart import path).
         // Uses `lib_name` when configured (D9 fix), otherwise falls back to module_name.
         let barrel_dir = resolve_output_dir(None, &config.name, "packages/dart/lib");
-        let barrel_path = PathBuf::from(barrel_dir).join(format!("{barrel_name}.dart"));
+        let barrel_path = PathBuf::from(format!("{barrel_dir}/{barrel_name}.dart"));
         let barrel_content = crate::template_env::render(
             "dart_barrel_file.jinja",
             minijinja::context! {
@@ -214,7 +214,7 @@ impl Backend for DartBackend {
                 traits_content.push_str(&traits_body);
 
                 let traits_dir = resolve_output_dir(None, &config.name, "packages/dart/lib/src");
-                let traits_path = PathBuf::from(traits_dir).join("traits.dart");
+                let traits_path = PathBuf::from(format!("{traits_dir}/traits.dart"));
                 files.push(GeneratedFile {
                     path: traits_path,
                     content: traits_content,
@@ -264,9 +264,7 @@ impl DartBackend {
                 // crate root.  Post-processing rewrites positional field names
                 // (`field0`) to payload-derived names so callers get an ergonomic API.
                 let lib_dart_dir = resolve_output_dir(None, &config.name, "packages/dart/lib/src");
-                let lib_dart_path = PathBuf::from(lib_dart_dir)
-                    .join(format!("{module_name}_bridge_generated"))
-                    .join("lib.dart");
+                let lib_dart_path = PathBuf::from(format!("{lib_dart_dir}/{module_name}_bridge_generated/lib.dart"));
                 Some(BuildConfig {
                     tool: "cargo",
                     crate_suffix: "-dart",

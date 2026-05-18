@@ -437,7 +437,7 @@ fn emit_lib_rs(
     }
 
     GeneratedFile {
-        path: std::path::PathBuf::from(rust_dir).join("src/lib.rs"),
+        path: std::path::PathBuf::from(format!("{rust_dir}/src/lib.rs")),
         content,
         generated_header: false,
     }
