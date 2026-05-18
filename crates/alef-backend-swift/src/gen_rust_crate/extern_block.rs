@@ -331,6 +331,7 @@ pub(crate) fn emit_extern_block_for_type_constructor(ty: &TypeDef) -> Option<Str
 pub(crate) fn emit_extern_block_for_functions(
     functions: &[FunctionDef],
     handle_returned_types: &HashSet<String>,
+    enum_names: &HashSet<String>,
 ) -> String {
     let mut block = String::new();
     block.push_str("    extern \"Rust\" {\n");
@@ -343,7 +344,7 @@ pub(crate) fn emit_extern_block_for_functions(
             .params
             .iter()
             .map(|p| {
-                let bridge_ty = bridge_type(&p.ty);
+                let bridge_ty = bridge_type_enum_aware(&p.ty, enum_names);
                 let bridge_ty = if p.optional {
                     format!("Option<{bridge_ty}>")
                 } else {

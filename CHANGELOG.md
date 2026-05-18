@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-backend-swift, alef-docs: bridge data-enum function parameters without stale docs**. Swift free-function shims now declare `Named(enum)` and `Vec<Named(enum)>` parameters as JSON strings at the swift-bridge boundary and deserialize them back to the source enum before calling Rust, avoiding invalid `.0` wrapper unwrapping for data enums such as `PageAction`. Per-language API docs now respect language-specific and FFI-backed `exclude_functions` / `exclude_types` so generated references no longer advertise functions or types omitted from that language surface. (`crates/alef-backend-swift/src/gen_rust_crate/{extern_block,mod,shims}.rs`, `crates/alef-docs/src/lib.rs`)
+
 ## [0.16.50] - 2026-05-18
 
 ### Fixed

@@ -266,6 +266,12 @@ fn emit_lib_rs(
         .filter(|t| !t.has_serde)
         .map(|t| t.name.as_str())
         .collect();
+    let no_serde_enum_names: HashSet<&str> = api
+        .enums
+        .iter()
+        .filter(|e| !e.has_serde)
+        .map(|e| e.name.as_str())
+        .collect();
 
     // api types that are returned by value from public functions/methods.  These appear as
     // `*mut T` opaque handles in the FFI; swift-bridge must declare them as the bare
@@ -282,7 +288,16 @@ fn emit_lib_rs(
         .functions
         .iter()
         .filter(|f| !exclude_functions.contains(&f.name))
-        .filter(|f| shims::is_bridgeable_fn(f, &enum_names, &type_paths, &no_serde_names, &handle_returned_types))
+        .filter(|f| {
+            shims::is_bridgeable_fn(
+                f,
+                &enum_names,
+                &type_paths,
+                &no_serde_names,
+                &no_serde_enum_names,
+                &handle_returned_types,
+            )
+        })
         .collect();
 
     // Collect trait bridge definitions for configured traits.
@@ -339,6 +354,7 @@ fn emit_lib_rs(
         extern_blocks.push(extern_block::emit_extern_block_for_functions(
             &visible,
             &handle_returned_types,
+            &enum_names_owned,
         ));
     }
     for (_bridge_cfg, trait_def) in &active_bridges {

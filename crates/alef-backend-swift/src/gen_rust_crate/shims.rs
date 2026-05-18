@@ -8,7 +8,8 @@
 //!   - for async fns, blocks on a current-thread Tokio runtime
 
 use crate::gen_rust_crate::type_bridge::{
-    bridge_type, bridge_type_with_handles, needs_json_bridge, needs_json_bridge_with_handles, swift_bridge_rust_type,
+    bridge_type_enum_aware_ref, bridge_type_with_handles, needs_json_bridge, needs_json_bridge_with_handles,
+    swift_bridge_rust_type,
 };
 use alef_core::ir::{FunctionDef, TypeRef};
 use alef_core::keywords::swift_ident;
@@ -25,14 +26,25 @@ pub(crate) fn is_bridgeable_fn(
     enum_names: &std::collections::HashSet<&str>,
     type_paths: &HashMap<String, String>,
     no_serde_names: &std::collections::HashSet<&str>,
+    no_serde_enum_names: &std::collections::HashSet<&str>,
     handle_returned_types: &HashSet<String>,
 ) -> bool {
-    // Enum parameter: no reverse From generated.
-    if f.params
-        .iter()
-        .any(|p| matches!(&p.ty, TypeRef::Named(n) if enum_names.contains(n.as_str())))
-    {
-        return false;
+    for p in &f.params {
+        match &p.ty {
+            TypeRef::Named(n) if enum_names.contains(n.as_str()) => {
+                if p.is_ref || no_serde_enum_names.contains(n.as_str()) {
+                    return false;
+                }
+            }
+            TypeRef::Vec(inner) => {
+                if let TypeRef::Named(n) = inner.as_ref() {
+                    if enum_names.contains(n.as_str()) && (p.is_ref || no_serde_enum_names.contains(n.as_str())) {
+                        return false;
+                    }
+                }
+            }
+            _ => {}
+        }
     }
     // Tuple-vec with Vec<u8> inner: batch_extract_bytes pattern.
     for p in &f.params {
@@ -79,7 +91,11 @@ pub(crate) fn is_bridgeable_fn(
 /// Handles JSON-bridged types, Path conversion, primitive casts, and reference borrows
 /// based on `is_ref`/`optional`. Named types are wrapped as `pub struct T(pub SourceT)`,
 /// so accessing the inner source type requires `.0` indirection.
-pub(crate) fn swift_call_arg(p: &alef_core::ir::ParamDef) -> String {
+pub(crate) fn swift_call_arg(
+    p: &alef_core::ir::ParamDef,
+    enum_names: &HashSet<&str>,
+    type_paths: &HashMap<String, String>,
+) -> String {
     let name = p.name.to_snake_case();
     let original = p.original_type.as_deref().unwrap_or("");
     let stripped_orig = original
@@ -110,10 +126,46 @@ pub(crate) fn swift_call_arg(p: &alef_core::ir::ParamDef) -> String {
         }
     }
 
+    let source_type = |type_name: &str| {
+        type_paths
+            .get(type_name)
+            .cloned()
+            .unwrap_or_else(|| type_name.to_string())
+            .replace('-', "_")
+    };
+
+    if let TypeRef::Named(n) = &p.ty {
+        if enum_names.contains(n.as_str()) {
+            let native_ty = source_type(n);
+            let deser = format!("::serde_json::from_str::<{native_ty}>(&{name}).expect(\"valid JSON for {name}\")");
+            if p.optional {
+                return format!(
+                    "{name}.map(|json| ::serde_json::from_str::<{native_ty}>(&json).expect(\"valid JSON for {name}\"))"
+                );
+            }
+            return deser;
+        }
+    }
+
+    if let TypeRef::Vec(inner) = &p.ty {
+        if let TypeRef::Named(n) = inner.as_ref() {
+            if enum_names.contains(n.as_str()) {
+                let native_ty = source_type(n);
+                let map_expr = format!(
+                    "values.into_iter().map(|json| ::serde_json::from_str::<{native_ty}>(&json).expect(\"valid JSON for {name}\")).collect::<Vec<_>>()"
+                );
+                if p.optional {
+                    return format!("{name}.map(|values| {map_expr})");
+                }
+                return format!("{{ let values = {name}; {map_expr} }}");
+            }
+        }
+    }
+
     // JSON-bridged: deserialize from the bridged String.
     if needs_json_bridge(&p.ty) {
         let native_ty = swift_bridge_rust_type(&p.ty);
-        let deser = format!("serde_json::from_str::<{native_ty}>(&{name}).expect(\"valid JSON for {name}\")");
+        let deser = format!("::serde_json::from_str::<{native_ty}>(&{name}).expect(\"valid JSON for {name}\")");
         if p.is_ref {
             // When the kreuzberg function expects a reference (e.g. &[Vec<String>]),
             // we must borrow the deserialized value.
@@ -220,7 +272,7 @@ pub(crate) fn emit_function_shim(
         .params
         .iter()
         .map(|p| {
-            let bridge_ty = bridge_type(&p.ty);
+            let bridge_ty = bridge_type_enum_aware_ref(&p.ty, enum_names);
             let bridge_ty = if p.optional {
                 format!("Option<{bridge_ty}>")
             } else {
@@ -245,7 +297,11 @@ pub(crate) fn emit_function_shim(
     };
 
     // Build call args, deserializing JSON-bridged params before passing to the real fn
-    let call_args: Vec<String> = f.params.iter().map(swift_call_arg).collect();
+    let call_args: Vec<String> = f
+        .params
+        .iter()
+        .map(|p| swift_call_arg(p, enum_names, type_paths))
+        .collect();
     let call_args_str = call_args.join(", ");
 
     // Resolve the source call via the IR's full rust_path so module-prefixed
@@ -257,28 +313,6 @@ pub(crate) fn emit_function_shim(
         f.rust_path.replace('-', "_")
     };
     let source_call = format!("{resolved_path}({call_args_str})");
-
-    // If any parameter is a Named enum wrapper, we cannot pass it into the source crate
-    // because the bridge enum only generates From<SourceT> for BridgeT (not the
-    // reverse). Emit an unimplemented!() body — the function will panic at runtime.
-    if f.params
-        .iter()
-        .any(|p| matches!(&p.ty, TypeRef::Named(n) if enum_names.contains(n.as_str())))
-    {
-        let problematic = f
-            .params
-            .iter()
-            .filter(|p| matches!(&p.ty, TypeRef::Named(n) if enum_names.contains(n.as_str())))
-            .map(|p| p.name.as_str())
-            .collect::<Vec<_>>()
-            .join(", ");
-        return format!(
-            "// alef: skipped — parameter(s) `{problematic}` are enum bridge wrappers; reverse From not generated\n\
-             pub fn {fn_name}({params_str}) -> {return_ty} {{\n    \
-             ::std::unimplemented!(\"{fn_name}: enum parameter(s) [{problematic}] cannot be converted back to source crate types\")\n\
-             }}\n"
-        );
-    }
 
     // Bug B: If the return type is a JSON-bridged Optional/Vec/Named whose inner
     // Named type is NOT in the visible type table (i.e., excluded from codegen —
@@ -428,5 +462,101 @@ pub(crate) fn emit_function_shim(
         )
     } else {
         format!("pub fn {fn_name}({params_str}) -> {return_ty} {{\n    {body}\n}}\n")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alef_core::ir::{ParamDef, TypeRef};
+
+    fn param(name: &str, ty: TypeRef) -> ParamDef {
+        ParamDef {
+            name: name.to_string(),
+            ty,
+            optional: false,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: false,
+            is_mut: false,
+            newtype_wrapper: None,
+            original_type: None,
+        }
+    }
+
+    fn function(params: Vec<ParamDef>) -> FunctionDef {
+        FunctionDef {
+            name: "interact".to_string(),
+            rust_path: "kreuzcrawl::interact".to_string(),
+            original_rust_path: String::new(),
+            params,
+            return_type: TypeRef::Named("InteractionResult".to_string()),
+            is_async: true,
+            error_type: Some("CrawlError".to_string()),
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }
+    }
+
+    #[test]
+    fn vec_enum_params_bridge_as_json_strings() {
+        let f = function(vec![param(
+            "actions",
+            TypeRef::Vec(Box::new(TypeRef::Named("PageAction".to_string()))),
+        )]);
+        let enum_names = HashSet::from(["PageAction"]);
+        let type_paths = HashMap::from([("PageAction".to_string(), "kreuzcrawl::PageAction".to_string())]);
+        let no_serde_names = HashSet::new();
+        let handle_returned_types = HashSet::new();
+
+        assert!(is_bridgeable_fn(
+            &f,
+            &enum_names,
+            &type_paths,
+            &no_serde_names,
+            &HashSet::new(),
+            &handle_returned_types
+        ));
+
+        let shim = emit_function_shim(
+            &f,
+            "kreuzcrawl",
+            &type_paths,
+            &enum_names,
+            &no_serde_names,
+            &handle_returned_types,
+        );
+        assert!(shim.contains("actions: Vec<String>"));
+        assert!(shim.contains("::serde_json::from_str::<kreuzcrawl::PageAction>"));
+        assert!(!shim.contains(".0"));
+    }
+
+    #[test]
+    fn direct_enum_params_bridge_as_json_strings() {
+        let f = function(vec![param("action", TypeRef::Named("PageAction".to_string()))]);
+        let enum_names = HashSet::from(["PageAction"]);
+        let type_paths = HashMap::from([("PageAction".to_string(), "kreuzcrawl::PageAction".to_string())]);
+        let no_serde_names = HashSet::new();
+        let handle_returned_types = HashSet::new();
+
+        let shim = emit_function_shim(
+            &f,
+            "kreuzcrawl",
+            &type_paths,
+            &enum_names,
+            &no_serde_names,
+            &handle_returned_types,
+        );
+        assert!(shim.contains("action: String"));
+        assert!(shim.contains("::serde_json::from_str::<kreuzcrawl::PageAction>"));
+        assert!(!shim.contains("unimplemented!"));
     }
 }
