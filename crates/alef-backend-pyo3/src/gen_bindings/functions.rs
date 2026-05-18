@@ -254,6 +254,8 @@ pub(super) fn gen_api_py(
     native_imports.sort_unstable();
     options_imports.sort_unstable();
     if !native_imports.is_empty() {
+        // isort: blank line between `import X as _rust` (absolute) and `from .Y import` (relative).
+        out.push('\n');
         out.push_str(&crate::template_env::render(
             "import_from_module.jinja",
             minijinja::context! {

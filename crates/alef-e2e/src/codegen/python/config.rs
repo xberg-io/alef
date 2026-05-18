@@ -14,15 +14,15 @@ pub(super) fn render_pyproject(pkg_name: &str, pkg_path: &str, pkg_version: &str
     let (deps_line, uv_sources_block) = match dep_mode {
         DependencyMode::Registry => (
             format!(
-                "dependencies = [ \"pytest>=7.4\", \"pytest-asyncio>=0.23\", \
-                 \"pytest-timeout>=2.1\", \"{pkg_name}{pkg_version}\" ]"
+                "dependencies = [ \"{pkg_name}{pkg_version}\", \"pytest>=7.4\", \
+                 \"pytest-asyncio>=0.23\", \"pytest-timeout>=2.1\" ]"
             ),
             String::new(),
         ),
         DependencyMode::Local => (
             format!(
-                "dependencies = [ \"pytest>=7.4\", \"pytest-asyncio>=0.23\", \
-                 \"pytest-timeout>=2.1\", \"{pkg_name}\" ]"
+                "dependencies = [ \"{pkg_name}\", \"pytest>=7.4\", \"pytest-asyncio>=0.23\", \
+                 \"pytest-timeout>=2.1\" ]"
             ),
             format!(
                 "\n[tool.uv]\nsources.{pkg_name} = {{ path = \"{pkg_path}\" }}\n",
@@ -52,7 +52,7 @@ classifiers = [
 {deps_line}
 
 [tool.setuptools]
-packages = [  ]
+packages = []
 {uv_sources_block}
 [tool.ruff]
 lint.ignore = [ "PLR2004" ]

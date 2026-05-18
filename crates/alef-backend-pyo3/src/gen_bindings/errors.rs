@@ -84,6 +84,8 @@ pub(super) fn gen_init_py(
         "init_header.jinja",
         minijinja::context! { version => version },
     ));
+    // ruff format: blank line required after module docstring before first import.
+    out.push('\n');
 
     // Collect enum names referenced by config types (user-facing enums only)
     let enum_names: AHashSet<&str> = api.enums.iter().map(|e| e.name.as_str()).collect();
@@ -205,7 +207,8 @@ pub(super) fn gen_init_py(
     // (e.g. tree_sitter.Language) instead, so the symbol does not exist in `._native` and must
     // be excluded from the import list.
     imports_from_native.retain(|n| !capsule_types.contains_key(n));
-    imports_from_native.sort();
+    // Case-insensitive sort matches isort's ordering (e.g. VisitorHandle < VisitResult).
+    imports_from_native.sort_by_key(|a| a.to_lowercase());
     imports_from_native.dedup();
 
     // Import config types from options.
@@ -229,8 +232,32 @@ pub(super) fn gen_init_py(
     exc_names.sort();
     imports_from_exceptions.extend(exc_names.clone());
 
-    // Output imports in sorted order (by module name: api, exceptions, native, options)
+    // Output imports in isort order: underscore-prefixed modules before regular names.
+    // Correct order: ._native (underscore) → .api → .exceptions → .options
     // Use multi-line format if the import line would be too long (>88 chars for ruff)
+
+    // Data enums are Rust-backed structs; re-export from the native module first (isort: _ < a).
+    if !imports_from_native.is_empty() {
+        let import_line = format!("from .{module_name} import {}", imports_from_native.join(", "));
+        if import_line.len() > 88 {
+            // Use push_str directly to avoid the double-newline produced by routing through
+            // single_line.jinja when the text already ends with `\n` (the template itself
+            // appends another newline, yielding `(\n\n` which ruff then flags as E303).
+            out.push_str(&format!("from .{module_name} import (\n"));
+            for name in &imports_from_native {
+                out.push_str(&crate::template_env::render(
+                    "trait_bridge/indented_import_item.jinja",
+                    minijinja::context! { name => name },
+                ));
+            }
+            out.push_str(")\n");
+        } else {
+            out.push_str(&crate::template_env::render(
+                "trait_bridge/single_line.jinja",
+                minijinja::context! { text => format!("{}\n", import_line) },
+            ));
+        }
+    }
     if !imports_from_api.is_empty() {
         let import_line = format!("from .api import {}", imports_from_api.join(", "));
         if import_line.len() > 88 {
@@ -254,28 +281,6 @@ pub(super) fn gen_init_py(
         if import_line.len() > 88 {
             out.push_str("from .exceptions import (\n");
             for name in &imports_from_exceptions {
-                out.push_str(&crate::template_env::render(
-                    "trait_bridge/indented_import_item.jinja",
-                    minijinja::context! { name => name },
-                ));
-            }
-            out.push_str(")\n");
-        } else {
-            out.push_str(&crate::template_env::render(
-                "trait_bridge/single_line.jinja",
-                minijinja::context! { text => format!("{}\n", import_line) },
-            ));
-        }
-    }
-    // Data enums are Rust-backed structs; re-export from the native module.
-    if !imports_from_native.is_empty() {
-        let import_line = format!("from .{module_name} import {}", imports_from_native.join(", "));
-        if import_line.len() > 88 {
-            // Use push_str directly to avoid the double-newline produced by routing through
-            // single_line.jinja when the text already ends with `\n` (the template itself
-            // appends another newline, yielding `(\n\n` which ruff then flags as E303).
-            out.push_str(&format!("from .{module_name} import (\n"));
-            for name in &imports_from_native {
                 out.push_str(&crate::template_env::render(
                     "trait_bridge/indented_import_item.jinja",
                     minijinja::context! { name => name },

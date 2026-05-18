@@ -67,9 +67,16 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
         .any(|t| binding_fields(&t.fields).any(|f| type_contains_json(&f.ty)));
 
     // Collect all Named types referenced by has_default types (including inside Vec/Optional).
+    // Only include types that will actually be emitted in options.py:
+    //   - Skip `*Update` types (internal, never emitted as @dataclass).
+    //   - Skip return types unless TypedDict style is active (return types are native pyclasses).
     let mut referenced_types: AHashSet<String> = AHashSet::new();
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
-        if typ.has_default {
+        if typ.has_default && !typ.name.ends_with("Update") {
+            let is_emitted = !typ.is_return_type || output_style == PythonDtoStyle::TypedDict;
+            if !is_emitted {
+                continue;
+            }
             for field in binding_fields(&typ.fields) {
                 collect_named_types(&field.ty, &mut referenced_types);
             }
@@ -209,6 +216,8 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
     // Runtime imports for unit enums — needed both for monkey-patching aliases and for
     // users who import from options.py (e.g. `from html_to_markdown.options import NewlineStyle`).
     if !runtime_native_imports.is_empty() {
+        // Blank line separates stdlib imports from the relative package import (isort E401).
+        out.push('\n');
         out.push_str(&crate::template_env::render(
             "import_from_module_header.jinja",
             minijinja::context! { module_name => module_name },
@@ -290,6 +299,8 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
             "enum_docstring.jinja",
             minijinja::context! { doc => &enum_doc },
         ));
+        // ruff format (E303): blank line required after class docstring before first member.
+        out.push('\n');
         for variant in &enum_def.variants {
             let value = variant
                 .serde_rename
@@ -357,6 +368,8 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
                 "class_docstring.jinja",
                 minijinja::context! { doc => &class_doc },
             ));
+            // ruff format (E303): blank line required after class docstring before first field.
+            out.push('\n');
 
             if binding_fields(&typ.fields).next().is_none() {
                 // Empty class body — docstring already emitted, so no `pass` needed
@@ -431,7 +444,7 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
                         "trait_bridge/python_docstring.jinja",
                         minijinja::context! { text => &safe_doc },
                     ));
-                    out.push_str("\n\n");
+                    out.push('\n');
                 } else {
                     out.push_str(&crate::template_env::render(
                         "trait_bridge/dataclass_field_with_default.jinja",

@@ -687,6 +687,8 @@ impl Backend for PhpBackend {
             "php_declare_strict_types.jinja",
             minijinja::Value::default(),
         ));
+        // PSR-12: blank line between `declare(strict_types=1);` and `namespace`.
+        content.push('\n');
 
         // Determine namespace — delegates to config so [php].namespace overrides are respected.
         let namespace = php_autoload_namespace(config);
@@ -695,6 +697,8 @@ impl Backend for PhpBackend {
             "php_namespace.jinja",
             context! { namespace => &namespace },
         ));
+        // PSR-12: blank line between `namespace` and class declaration.
+        content.push('\n');
         content.push_str(&crate::template_env::render(
             "php_facade_class_declaration.jinja",
             context! { class_name => &class_name },
@@ -958,6 +962,8 @@ impl Backend for PhpBackend {
             "php_declare_strict_types.jinja",
             minijinja::Value::default(),
         ));
+        // PSR-12: blank line between `declare(strict_types=1);` and `namespace`.
+        content.push('\n');
         // Use bracketed namespace syntax so we can add global-namespace function stubs later.
         content.push_str(&crate::template_env::render(
             "php_namespace_block_begin.jinja",
@@ -1280,10 +1286,14 @@ fn gen_php_opaque_class_file(typ: &alef_core::ir::TypeDef, namespace: &str) -> S
         "php_declare_strict_types.jinja",
         minijinja::Value::default(),
     ));
+    // PSR-12: blank line between `declare(strict_types=1);` and `namespace`.
+    content.push('\n');
     content.push_str(&crate::template_env::render(
         "php_namespace.jinja",
         context! { namespace => namespace },
     ));
+    // PSR-12: blank line between `namespace` and class declaration.
+    content.push('\n');
 
     // Type-level docblock.
     if !typ.doc.is_empty() {

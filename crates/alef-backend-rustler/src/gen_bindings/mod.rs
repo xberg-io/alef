@@ -919,6 +919,8 @@ impl Backend for RustlerBackend {
                                 field_name => field_name,
                             },
                         ));
+                        // mix format: blank line after Map.pop before if block.
+                        content.push('\n');
                         content.push_str("    if is_map(visitor) do\n");
                         // Build NIF args: replace opts param with JSON-encoded clean opts, append visitor.
                         let with_visitor_args: Vec<String> = nif_call_args
@@ -934,14 +936,27 @@ impl Backend for RustlerBackend {
                             })
                             .collect();
                         let with_visitor_args_str = with_visitor_args.join(", ");
-                        content.push_str(&template_env::render(
-                            "elixir_visitor_call.jinja",
-                            minijinja::context! {
-                                native_mod => &native_mod,
-                                func_name => &nif_fn_name,
-                                args => &with_visitor_args_str,
-                            },
-                        ));
+                        // Emit visitor NIF call. Check line length to decide between single-line
+                        // and multi-line format (mix format wraps at 98 chars).
+                        let single_line = format!(
+                            "      {{:ok, _}} = {native_mod}.{nif_fn_name}_with_visitor({with_visitor_args_str})\n"
+                        );
+                        if single_line.len() > 98 {
+                            // Multi-line format that mix format produces for long calls.
+                            content.push_str("      {:ok, _} =\n");
+                            content.push_str(&format!("        {native_mod}.{nif_fn_name}_with_visitor(\n"));
+                            let args_parts: Vec<&str> = with_visitor_args_str.splitn(2, ", ").collect();
+                            if args_parts.len() == 2 {
+                                content.push_str(&format!("          {},\n", args_parts[0]));
+                                content.push_str(&format!("          {}\n", args_parts[1]));
+                            } else {
+                                content.push_str(&format!("          {with_visitor_args_str}\n"));
+                            }
+                            content.push_str("        )\n");
+                        } else {
+                            content.push_str(&single_line);
+                        }
+                        content.push('\n'); // mix format: blank line before do_visitor_receive_loop.
                         content.push_str(&template_env::render(
                             "elixir_visitor_receive.jinja",
                             minijinja::context! {
@@ -950,6 +965,7 @@ impl Backend for RustlerBackend {
                         ));
                         content.push_str("    else\n");
                         // No visitor: call regular NIF with options as JSON.
+                        // mix format indents else body to 6 spaces (same as if body).
                         let plain_args: Vec<String> = nif_call_args
                             .iter()
                             .enumerate()
@@ -964,14 +980,7 @@ impl Backend for RustlerBackend {
                             })
                             .collect();
                         let plain_args_str = plain_args.join(", ");
-                        content.push_str(&template_env::render(
-                            "elixir_def_nif_call.jinja",
-                            minijinja::context! {
-                                native_mod => &native_mod,
-                                func_name => &nif_fn_name,
-                                args => &plain_args_str,
-                            },
-                        ));
+                        content.push_str(&format!("      {native_mod}.{nif_fn_name}({plain_args_str})\n"));
                         content.push_str("    end\n");
                         content.push_str("  end\n\n");
 
