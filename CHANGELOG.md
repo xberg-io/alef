@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-e2e kotlin_android: migrate the emitted `build.gradle.kts` to the Kotlin 2.x `compilerOptions` DSL**. The legacy `android { kotlinOptions { jvmTarget = "<n>" } }` block was removed as an error in Kotlin 2.x ("Using 'jvmTarget: String' is an error. Please migrate to the compilerOptions DSL"), failing the kotlin_android e2e project at script compilation. Drop the legacy block and emit `kotlin { compilerOptions { jvmTarget = JvmTarget.JVM_<n> } }` at the top level — the `org.jetbrains.kotlin.gradle.dsl.JvmTarget` import was already present in the scaffold. Surfaced on liter-llm's `E2E (kotlin_android)` CI job after Kotlin Gradle plugin upgrade. (`crates/alef-e2e/src/codegen/kotlin_android.rs`)
+
 ## [0.16.41] - 2026-05-18
 
 ### Fixed

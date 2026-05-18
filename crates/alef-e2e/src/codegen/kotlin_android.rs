@@ -334,10 +334,6 @@ android {{
         targetCompatibility = JavaVersion.VERSION_{jvm_target}
     }}
 
-    kotlinOptions {{
-        jvmTarget = "{jvm_target}"
-    }}
-
     sourceSets {{
         getByName("test") {{
             // Include the AAR-bundled Java facade as test sources
@@ -359,6 +355,12 @@ android {{
                 }}
             }}
         }}
+    }}
+}}
+
+kotlin {{
+    compilerOptions {{
+        jvmTarget = JvmTarget.JVM_{jvm_target}
     }}
 }}
 
