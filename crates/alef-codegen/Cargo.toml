@@ -14,6 +14,7 @@ ahash = { workspace = true }
 alef-core = { workspace = true }
 heck = { workspace = true }
 minijinja = { workspace = true }
+serde_json = { workspace = true }
 
 [dev-dependencies]
 toml = { workspace = true }
