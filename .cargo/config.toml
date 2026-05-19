@@ -1,0 +1,9 @@
+# Windows MSVC defaults to a 1 MB thread stack, which is insufficient for clap's
+# `--help` recursion on alef's large nested command tree (`alef generate --help`
+# / `alef all --help` stack-overflow in CI). Match Linux/macOS by raising it to
+# 8 MB. The flag is ignored on non-MSVC targets.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "link-args=/STACK:8388608"]
+
+[target.aarch64-pc-windows-msvc]
+rustflags = ["-C", "link-args=/STACK:8388608"]
