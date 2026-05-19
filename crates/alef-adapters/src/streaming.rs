@@ -374,11 +374,11 @@ fn gen_php_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Strin
          /// which the PHP wrapper drives via Generator + next calls.\n\
          #[php_function]\n\
          pub fn {start_fn}(\n    \
-             resource: ext_php_rs::types::Zval,\n    \
+             resource: &mut ext_php_rs::types::ZendObject,\n    \
              {req_param_name}: &{req_param_type},\n\
          ) -> std::result::Result<i64, ext_php_rs::exception::PhpException> {{\n    \
              {bindings_block}\
-             let resource_obj = resource.try_into::<{owner_type}>()\n        \
+             let resource_obj: {owner_type} = resource.clone().try_into()\n        \
                  .map_err(|e| ext_php_rs::exception::PhpException::default(format!(\"invalid resource: {{}}\", e)))?;\n    \
              let stream = WORKER_RUNTIME.block_on(async {{\n        \
                  resource_obj.inner.{core_path}({call_str}).await\n    \
