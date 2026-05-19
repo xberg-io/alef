@@ -271,6 +271,11 @@ pub(crate) fn gen_sync_function_method(
             },
         ));
         emit_ffi_ptr_cleanup(out);
+        if func.error_type.is_some() {
+            // Void returns can't surface failure through the return value;
+            // the FFI sets last_error and the Java caller must check it.
+            out.push_str("            checkLastError();\n");
+        }
         out.push_str("        } catch (Throwable e) {\n");
         out.push_str(&crate::template_env::render(
             "ffi_throw_exception.jinja",
@@ -529,6 +534,13 @@ pub(crate) fn gen_sync_function_method(
             },
         ));
         emit_ffi_ptr_cleanup(out);
+        if func.error_type.is_some() {
+            // Fallible primitive returns use a sentinel value (0) on error and
+            // set last_error on the FFI side; the Java caller must check it
+            // explicitly because the primitive itself can't distinguish a
+            // legitimate 0 from an error.
+            out.push_str("            checkLastError();\n");
+        }
         if is_optional_return {
             out.push_str("            return Optional.of(primitiveResult);\n");
         } else {
