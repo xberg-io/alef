@@ -2,7 +2,7 @@ use crate::type_map::{java_boxed_type, java_return_type, java_type};
 use ahash::AHashSet;
 use alef_codegen::naming::to_class_name;
 use alef_codegen::shared::binding_fields;
-use alef_core::config::{AdapterConfig, AdapterPattern};
+use alef_core::config::{AdapterConfig, AdapterPattern, JavaBuilderMode};
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{DefaultValue, EnumDef, MethodDef, PrimitiveType, TypeDef, TypeRef};
 use heck::{ToLowerCamelCase, ToSnakeCase};
@@ -21,6 +21,7 @@ pub(crate) fn gen_record_type(
     _lang_rename_all: &str,
     has_visitor_pattern: bool,
     main_class: &str,
+    builder_mode: JavaBuilderMode,
 ) -> String {
     // `fields_joined` holds the comma-separated parameter list used both for the
     // single-line length probe AND for the final single-line emit path — no rebuild.
@@ -355,10 +356,10 @@ pub(crate) fn gen_record_type(
     // `Optional.ofNullable(record.content())` at the call site, or the e2e
     // codegen emits a null-safe pattern.
 
-    // When the type has defaults, inline the Jackson POJO builder as a nested
+    // When the type meets builder criteria, inline the Jackson POJO builder as a nested
     // static class instead of emitting a sibling top-level `FooBuilder.java`.
     // Idiomatic Java pattern: `Foo.Builder`, mirroring `ImmutableList.Builder`.
-    if typ.has_default {
+    if should_emit_builder(typ, builder_mode) {
         record_block.push('\n');
         // CPD-OFF: generated builder pattern produces identical token sequences across
         // DTO classes that share common fields (e.g. CrawlPageResult / ScrapeResult).
@@ -1705,6 +1706,49 @@ fn gen_streaming_helpers(out: &mut String, prefix: &str, main_class: &str) {
 // Record types (Java records)
 // ---------------------------------------------------------------------------
 
+/// Threshold for auto-emit builder: emit when field count >= this value.
+const BUILDER_AUTO_THRESHOLD: usize = 8;
+
+/// Check if a field type is complex (nested object, collection of complex types, etc.).
+fn is_complex_field_type(ty: &TypeRef) -> bool {
+    matches!(
+        ty,
+        TypeRef::Named(_)
+            | TypeRef::Vec(_)
+            | TypeRef::Map(_, _)
+            | TypeRef::Json
+    )
+}
+
+/// Decide whether to emit a builder for this type based on its field count and configuration.
+fn should_emit_builder(typ: &TypeDef, builder_mode: JavaBuilderMode) -> bool {
+    // First, only emit if the type has defaults (canonical condition for builder emission).
+    if !typ.has_default {
+        return false;
+    }
+
+    match builder_mode {
+        JavaBuilderMode::Always => true,
+        JavaBuilderMode::Never => false,
+        JavaBuilderMode::Auto => {
+            let visible_fields: Vec<_> = binding_fields(&typ.fields).collect();
+            let field_count = visible_fields.len();
+
+            // Auto: emit if field count >= 8, OR (has complex field AND count >= 5).
+            if field_count >= BUILDER_AUTO_THRESHOLD {
+                return true;
+            }
+
+            // Check for complex fields when count is 5-7.
+            if field_count >= 5 {
+                return visible_fields.iter().any(|f| is_complex_field_type(&f.ty));
+            }
+
+            false
+        }
+    }
+}
+
 /// Emit a Javadoc comment block into `out` at the given indentation level.
 ///
 /// `indent` is the leading whitespace prepended to each line (e.g. `""` for
@@ -2323,6 +2367,7 @@ mod tests {
             "SNAKE_CASE",
             false,
             "LiterLlmRs",
+            JavaBuilderMode::Auto,
         );
         // `model` is single-word: camelCase == snake_case, so no annotation needed.
         assert!(
@@ -2345,6 +2390,7 @@ mod tests {
             "SNAKE_CASE",
             false,
             "LiterLlmRs",
+            JavaBuilderMode::Auto,
         );
         assert!(
             out.contains("@JsonProperty(\"max_tokens\")"),
@@ -2372,6 +2418,7 @@ mod tests {
             "SNAKE_CASE",
             false,
             "Kreuzcrawl",
+            JavaBuilderMode::Auto,
         );
         assert!(
             out.contains("requestTimeout == null"),

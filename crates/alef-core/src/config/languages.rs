@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use super::dto::JavaDtoConfig;
 use super::extras::Language;
 
 /// Configuration for a single capsule type entry in `PythonConfig::capsule_types`.
@@ -572,6 +573,9 @@ pub struct JavaConfig {
     /// lint/build/test commands target this file instead of the output directory.
     #[serde(default)]
     pub project_file: Option<String>,
+    /// DTO-specific configuration (e.g., builder mode).
+    #[serde(default)]
+    pub dto: JavaDtoConfig,
 }
 
 fn default_java_ffi_style() -> String {

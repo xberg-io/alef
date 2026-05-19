@@ -104,6 +104,26 @@ pub enum JavaDtoStyle {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
+pub enum JavaBuilderMode {
+    /// Emit builder when field count >= 8 OR (nested type exists AND field count >= 5).
+    #[default]
+    Auto,
+    /// Always emit builder for types with defaults.
+    Always,
+    /// Never emit builder.
+    Never,
+}
+
+/// Java-specific DTO configuration.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct JavaDtoConfig {
+    /// Builder mode: auto (default), always, or never.
+    #[serde(default)]
+    pub builder: JavaBuilderMode,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
 pub enum CsharpDtoStyle {
     #[default]
     Record,

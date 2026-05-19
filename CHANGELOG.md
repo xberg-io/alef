@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **alef-backend-java: conditional builder emission with `[crates.java.dto] builder = "auto" | "always" | "never"`.** The Java backend now gates builder class generation based on field count instead of unconditionally emitting a builder for every type with defaults. The `builder` knob accepts three modes: `"auto"` (default) emits a builder when field count >= 8 OR (has nested type AND count >= 5); `"always"` unconditionally emits builders for types with defaults; `"never"` disables builder emission entirely. This reduces boilerplate in kreuzberg's Java package: records with 2–7 fields no longer carry unnecessary nested `Builder` inner classes. Idiomatic Java 17+ prefers `record(...)` constructors with optional `withX(...)` methods for simple cases; builders shine when a type has many optional fields and complex dependencies. The threshold of 8 (or 5 with nested types) is a heuristic tuned for document-extraction configs: spot-checks confirm `BoundingBox` (4 fields) and `ExtractionConfig` (25 fields) respond appropriately. Configuration in `crates/alef-core/src/config/dto.rs` adds `JavaBuilderMode` enum and `JavaDtoConfig` struct; per-crate plumbing through `[crates.java.dto]` block in `alef.toml`. Implementation in `crates/alef-backend-java/src/gen_bindings/types.rs` adds `should_emit_builder()` predicate and `BUILDER_AUTO_THRESHOLD` constant.
+
 ### Fixed
 
 - **alef-backend-napi: emit trait-bridge registration functions (`register_*`) in TypeScript declarations.** The NAPI backend was generating the Rust implementations of trait-bridge registration functions (`#[napi(js_name = "registerOcrBackend")]`, etc.) in `lib.rs` but omitting their declarations from `index.d.ts`, making them invisible to TypeScript callers. The `.d.ts` generator now iterates over `config.trait_bridges`, emitting `export declare function register*(impl: object): void;` declarations for each bridge's `register_fn` alongside the existing `unregister_*` and `clear_*` declarations. Fix in `crates/alef-backend-napi/src/gen_bindings/errors.rs::gen_dts`.

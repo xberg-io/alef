@@ -1,7 +1,7 @@
 use ahash::AHashSet;
 use alef_codegen::naming::to_class_name;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
-use alef_core::config::{BridgeBinding, Language, ResolvedCrateConfig};
+use alef_core::config::{BridgeBinding, JavaBuilderMode, Language, ResolvedCrateConfig};
 use alef_core::ir::{ApiSurface, TypeRef};
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -268,6 +268,11 @@ impl Backend for JavaBackend {
                 if has_visitor_pattern && bridge_associated_types.contains(typ.name.as_str()) {
                     continue;
                 }
+                let builder_mode = config
+                    .java
+                    .as_ref()
+                    .map(|j| j.dto.builder)
+                    .unwrap_or(JavaBuilderMode::Auto);
                 files.push(GeneratedFile {
                     path: base_path.join(format!("{}.java", typ.name)),
                     content: gen_record_type(
@@ -278,6 +283,7 @@ impl Backend for JavaBackend {
                         &lang_rename_all,
                         has_visitor_pattern,
                         &main_class,
+                        builder_mode,
                     ),
                     generated_header: true,
                 });
