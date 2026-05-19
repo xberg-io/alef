@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-backend-csharp: change visitor-bridge property from `{ get; set; }` to `{ get; init; }`.** Records should enforce immutability semantics. The `IHtmlVisitor?` property in visitor-bridge records was mutable, violating record invariants. Now emitted as init-only (constructor-time initialization only), matching other record properties and enforcing this constraint at compile time. *Breaking change:* code that was mutating the visitor property after construction will no longer compile — callers must now set it via the property initializer at construction time.
+
 - **alef-backend-java: emit NativeLib MethodHandle for static methods on opaque types.** `gen_native_lib` previously skipped every `method.is_static` entry on opaque types, so the new static-factory emission referenced symbols (`TS_PACK_PARSER_DEFAULT`, `TS_PACK_DOWNLOAD_MANAGER_NEW`, etc.) that NativeLib never declared. Static methods are now emitted alongside instance methods; the only difference is the param-layout vector starts empty rather than with the receiver `ValueLayout.ADDRESS`. Fix in `crates/alef-backend-java/src/gen_bindings/native_lib.rs`.
 
 - **alef-backend-java: use the (String, Throwable) exception constructor in `gen_static_factory_method`.** Emitted `throw new TreeSitterLanguagePackRsException("…")` (single-String arg) but the available constructors are `(int, String)` and `(String, Throwable)` — so the generated Java did not compile. Now emits `new {exception_class}("…", (Throwable) null)` to match the existing instance-method pattern. Fix in `crates/alef-backend-java/src/gen_bindings/types.rs`.
