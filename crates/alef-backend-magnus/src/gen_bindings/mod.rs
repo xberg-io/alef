@@ -719,8 +719,9 @@ fn gen_tagged_enum_ruby_classes(enum_def: &alef_core::ir::EnumDef, module_name: 
     }
     out.push_str(&format!("  module {class_name}\n"));
     out.push_str("    extend T::Helpers\n");
-    out.push_str("    interface!\n");
-    out.push_str("    abstract!\n\n");
+    // `interface!` already declares the module abstract; calling `abstract!` again
+    // raises `T::Private::Abstract::Declare: already declared as abstract`.
+    out.push_str("    interface!\n\n");
 
     // Dispatcher from_hash on the module (routes by discriminator tag)
     out.push_str("    # Dispatch from a Hash to the appropriate variant constructor.\n");
@@ -796,7 +797,12 @@ fn gen_tagged_enum_ruby_classes(enum_def: &alef_core::ir::EnumDef, module_name: 
                 out.push_str(&format!("    # @return [{sorbet_t}]\n"));
             }
             out.push_str(&format!("    sig {{ returns({sorbet_t}) }}\n"));
-            out.push_str(&format!("    def {attr_name}; super; end\n\n"));
+            // Wrap the Data-auto-generated accessor so the sig has a method to attach to.
+            // `# rubocop:disable Lint/UselessMethodDefinition` keeps `rubocop -a` from
+            // stripping the def (which would leave the sig orphaned and break Sorbet).
+            out.push_str(&format!(
+                "    def {attr_name} = super # rubocop:disable Lint/UselessMethodDefinition\n\n"
+            ));
         }
 
         // Variant predicate methods (return true for this variant, false for others)

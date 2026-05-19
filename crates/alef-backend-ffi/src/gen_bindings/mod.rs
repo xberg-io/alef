@@ -678,6 +678,15 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
         }
     }
 
+    // Error introspection helpers — `extern "C"` wrappers for whitelisted methods
+    // (status_code, is_transient, error_type) declared in ErrorDef.methods.
+    for error in &api.errors {
+        let methods_code = alef_codegen::error_gen::gen_ffi_error_methods(error, &core_import, prefix);
+        if !methods_code.is_empty() {
+            builder.add_item(&methods_code);
+        }
+    }
+
     // Plugin bridge support — vtable + user_data pattern for each [[trait_bridges]] entry.
     // Only emitted when the entry applies to traits present in the extracted IR.
     if !config.trait_bridges.is_empty() {

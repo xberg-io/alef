@@ -2456,10 +2456,15 @@ fn tagged_enum_public_api_emits_class_hierarchy() {
         "non-system variants must define system? as false:\n{content}"
     );
 
-    // Field accessor wraps Data-auto-generated method via super (no infinite recursion)
+    // Field accessor wraps Data-auto-generated method via super (no infinite recursion).
+    // Endless def with rubocop disable so `rubocop -a` doesn't strip the def.
     assert!(
-        content.contains("def content; super; end"),
+        content.contains("def content = super"),
         "variant accessor must delegate to Data's auto-getter via super:\n{content}"
+    );
+    assert!(
+        content.contains("rubocop:disable Lint/UselessMethodDefinition"),
+        "accessor def must carry rubocop disable so autocorrect won't strip it:\n{content}"
     );
 }
 
