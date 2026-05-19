@@ -1615,7 +1615,7 @@ fn render_assertion(
                     // `.toString()`. Array fields short-circuit above via `field_is_array`, so
                     // method-call accessors landing here are guaranteed to be the scalar /
                     // string flavour; vec accessors return `RustVec` (whose `.count` is fine).
-                    let count_target = swift_count_target(&field_expr);
+                    let count_target = swift_count_target(&field_expr, field_resolver, assertion.field.as_deref());
                     let len_expr = if accessor_is_optional {
                         format!("({count_target}.count ?? 0)")
                     } else {
@@ -1642,7 +1642,7 @@ fn render_assertion(
                 // Symmetric with not_empty: use .count == 0 on first-class Swift types.
                 // Wrap opaque method-call accessors (`result.id()`) with `.toString()` so
                 // `.count` lands on Swift `String`, not `RustString` (which lacks `.count`).
-                let count_target = swift_count_target(&field_expr);
+                let count_target = swift_count_target(&field_expr, field_resolver, assertion.field.as_deref());
                 let len_expr = if accessor_is_optional {
                     format!("({count_target}.count ?? 0)")
                 } else {
@@ -2070,21 +2070,30 @@ fn escape_swift(s: &str) -> String {
 /// Return the count-able target expression for `field_expr`.
 ///
 /// For opaque method-call accessors (ending in `()` or `()?`), the returned
-/// value is `RustString` (or another swift-bridge wrapper) which does NOT
-/// expose `.count`. Wrap with `.toString()` so `.count` lands on Swift
-/// `String`. First-class property accessors (no trailing parens) return Swift
-/// values that already support `.count` directly.
+/// value depends on the field's IR kind:
 ///
-/// The discriminator is purely textual: `.id()` ⇒ opaque, `.id` ⇒ first-class.
-/// Array accessors short-circuit before reaching this helper, so a method-call
-/// ending here is guaranteed to be a scalar string field (the only opaque
-/// scalar leaf whose `.count` is unsupported).
-fn swift_count_target(field_expr: &str) -> String {
-    if field_expr.trim_end().ends_with(')') {
-        format!("{field_expr}.toString()")
-    } else {
-        field_expr.to_string()
+/// - `Vec<T>` ⇒ `RustVec<T>`, which exposes `.count` directly. No wrap.
+/// - `String` ⇒ `RustString`, which does NOT expose `.count`. Wrap with
+///   `.toString()` so `.count` lands on Swift `String`.
+///
+/// First-class property accessors (no trailing parens) return Swift values
+/// that already support `.count` directly.
+///
+/// The discriminator is the field's resolved leaf type, looked up against the
+/// `SwiftFirstClassMap`'s vec field set when available. If the field is
+/// unknown (None), fall back to the conservative wrap — RustString is the
+/// dominant scalar-leaf case for top-level assertions.
+fn swift_count_target(field_expr: &str, field_resolver: &FieldResolver, field: Option<&str>) -> String {
+    let is_method_call = field_expr.trim_end().ends_with(')');
+    if !is_method_call {
+        return field_expr.to_string();
     }
+    if let Some(f) = field
+        && field_resolver.leaf_is_vec_via_swift_map(field_resolver.resolve(f))
+    {
+        return field_expr.to_string();
+    }
+    format!("{field_expr}.toString()")
 }
 
 /// Resolve the IR type name backing this call's result.
@@ -2145,11 +2154,19 @@ fn build_swift_first_class_map(
     use alef_core::ir::TypeRef;
     let mut first_class_types: HashSet<String> = HashSet::new();
     let mut field_types: HashMap<String, HashMap<String, String>> = HashMap::new();
+    let mut vec_field_names: HashSet<String> = HashSet::new();
     fn inner_named(ty: &TypeRef) -> Option<String> {
         match ty {
             TypeRef::Named(n) => Some(n.clone()),
             TypeRef::Optional(inner) | TypeRef::Vec(inner) => inner_named(inner),
             _ => None,
+        }
+    }
+    fn is_vec_ty(ty: &TypeRef) -> bool {
+        match ty {
+            TypeRef::Vec(_) => true,
+            TypeRef::Optional(inner) => is_vec_ty(inner),
+            _ => false,
         }
     }
     for td in type_defs {
@@ -2164,6 +2181,9 @@ fn build_swift_first_class_map(
         for f in &td.fields {
             if let Some(named) = inner_named(&f.ty) {
                 td_field_types.insert(f.name.clone(), named);
+            }
+            if is_vec_ty(&f.ty) {
+                vec_field_names.insert(f.name.clone());
             }
         }
         if !td_field_types.is_empty() {
@@ -2192,6 +2212,7 @@ fn build_swift_first_class_map(
     SwiftFirstClassMap {
         first_class_types,
         field_types,
+        vec_field_names,
         root_type,
     }
 }

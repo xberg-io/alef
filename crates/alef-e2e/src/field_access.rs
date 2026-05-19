@@ -86,11 +86,15 @@ pub struct PhpGetterMap {
 ///   Codable struct. Membership = "use property access for fields on this type".
 /// * `field_types[type_name][field_name]` — the IR-resolved `Named` type that
 ///   `field_name` traverses into.
+/// * `vec_field_names` — flat set of field names whose IR type is `Vec<T>` on
+///   any owner. Used by swift_count_target to keep `.count` straight on
+///   RustVec-typed method-call accessors (don't inject `.toString()`).
 /// * `root_type` — the IR type name backing the result variable.
 #[derive(Debug, Clone, Default)]
 pub struct SwiftFirstClassMap {
     pub first_class_types: HashSet<String>,
     pub field_types: HashMap<String, HashMap<String, String>>,
+    pub vec_field_names: HashSet<String>,
     pub root_type: Option<String>,
 }
 
@@ -112,6 +116,14 @@ impl SwiftFirstClassMap {
     pub fn advance(&self, owner_type: Option<&str>, field_name: &str) -> Option<String> {
         let owner = owner_type?;
         self.field_types.get(owner).and_then(|m| m.get(field_name).cloned())
+    }
+
+    /// True when `field_name` appears as a `Vec<T>` (or `Option<Vec<T>>`) on
+    /// any IR type. swift codegen consults this when deciding whether `.count`
+    /// on a method-call accessor needs `.toString()` injected: RustVec already
+    /// supports `.count` directly; RustString does not.
+    pub fn is_vec_field_name(&self, field_name: &str) -> bool {
+        self.vec_field_names.contains(field_name)
     }
 
     /// True when no per-type information is recorded.
@@ -304,6 +316,18 @@ impl FieldResolver {
             .get(fixture_field)
             .map(String::as_str)
             .unwrap_or(fixture_field)
+    }
+
+    /// True when the leaf segment of `field` is a `Vec<T>` field on any IR type.
+    ///
+    /// Used by swift codegen to keep `.count` straight on method-call accessors
+    /// (`result.output()` returns RustVec — `.count` works directly, no
+    /// `.toString()` needed). The check is on the bare leaf name, so it is best-
+    /// effort when distinct types share a field name with different kinds.
+    pub fn leaf_is_vec_via_swift_map(&self, field: &str) -> bool {
+        let leaf = field.split('.').next_back().unwrap_or(field);
+        let leaf = leaf.split('[').next().unwrap_or(leaf);
+        self.swift_first_class_map.is_vec_field_name(leaf)
     }
 
     /// Check if a resolved field path is optional.
