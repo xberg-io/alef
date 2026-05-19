@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-backend-rustler: append `visitor` to the trailing args of the emitted `Native.{fn}_with_visitor(...)` call.** The high-level Elixir wrapper module `lib/<crate>.ex` invokes the visitor NIF with arity `base+1` (extra trailing `visitor` parameter), but the args-builder for the call only re-mapped the existing NIF params and forgot to append `visitor`. Generated code was emitting `Native.convert_with_visitor(html, opts)` (arity 2) for an arity-3 NIF, producing `undefined function convert_with_visitor/2 (expected /3)` compile warnings (and runtime `:undef` on the visitor branch). Append the visitor parameter explicitly. (`crates/alef-backend-rustler/src/gen_bindings/mod.rs`)
+
 ### Added
 
 - **alef-backend-pyo3**: when `ErrorDef.methods` is non-empty, the exception class gains `@property` stubs in the `.pyi` stub file (`status_code -> int`, `is_transient -> bool`, `error_type -> str`) and a `#[pymethods] impl` block in the emitted Rust crate where each `#[getter]` reads the value from the exception args tuple by index (args are stored as `(msg, status_code, is_transient, error_type)` at raise-time). (`crates/alef-backend-pyo3/src/gen_bindings/errors.rs`, `crates/alef-backend-pyo3/src/gen_bindings/mod.rs`, `crates/alef-codegen/src/error_gen.rs`, `crates/alef-codegen/templates/error_gen/pyo3_error_converter.jinja`)

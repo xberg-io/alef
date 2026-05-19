@@ -955,8 +955,9 @@ impl Backend for RustlerBackend {
                         // mix format: blank line after Map.pop before if block.
                         content.push('\n');
                         content.push_str("    if is_map(visitor) do\n");
-                        // Build NIF args: replace opts param with JSON-encoded clean opts, append visitor.
-                        let with_visitor_args: Vec<String> = nif_call_args
+                        // Build NIF args: replace opts param with JSON-encoded clean opts, then append visitor.
+                        // The _with_visitor NIF has arity = base NIF arity + 1; the trailing arg is the popped visitor map.
+                        let mut with_visitor_args: Vec<String> = nif_call_args
                             .iter()
                             .enumerate()
                             .map(|(i, a)| {
@@ -968,6 +969,7 @@ impl Backend for RustlerBackend {
                                 }
                             })
                             .collect();
+                        with_visitor_args.push("visitor".to_string());
                         let with_visitor_args_str = with_visitor_args.join(", ");
                         // Emit visitor NIF call. Check line length to decide between single-line
                         // and multi-line format (mix format wraps at 98 chars).
