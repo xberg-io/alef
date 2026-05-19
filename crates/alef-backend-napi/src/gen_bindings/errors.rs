@@ -343,6 +343,27 @@ pub(super) fn gen_dts(
         lines.push("}".to_string());
     }
 
+    // Emit a class declaration for each error type that has introspection methods.
+    // The Rust-side #[napi] struct is named `Js{ErrorName}Info`; the TypeScript
+    // declaration strips the Js prefix so it reads `{ErrorName}Info`.
+    let mut sorted_errors: Vec<_> = api.errors.iter().filter(|e| !e.methods.is_empty()).collect();
+    sorted_errors.sort_by_key(|e| e.name.as_str());
+    for error in sorted_errors {
+        let class_name = format!("{}Info", error.name);
+        lines.push(String::new());
+        lines.push(format!("export declare class {class_name} {{"));
+        for method in &error.methods {
+            let (js_name, ret_type): (&str, &str) = match method.name.as_str() {
+                "status_code" => ("statusCode", "number"),
+                "is_transient" => ("isTransient", "boolean"),
+                "error_type" => ("errorType", "string"),
+                _ => continue,
+            };
+            lines.push(format!("  {js_name}(): {ret_type}"));
+        }
+        lines.push("}".to_string());
+    }
+
     lines.push(String::new());
     lines.join("\n")
 }

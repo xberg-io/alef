@@ -665,6 +665,11 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
         for error in &api.errors {
             builder.add_item(&alef_codegen::error_gen::gen_napi_error_types(error));
             builder.add_item(&alef_codegen::error_gen::gen_napi_error_converter(error, &core_import));
+            // Emit #[napi] class for errors with introspection methods.
+            let class_code = alef_codegen::error_gen::gen_napi_error_class(error, &core_import);
+            if !class_code.is_empty() {
+                builder.add_item(&class_code);
+            }
         }
 
         let mut content = builder.build();
