@@ -91,6 +91,32 @@ The selection feeds every default that calls a package-manager-specific tool —
 
 ---
 
+## `[workspace.client_constructors]` -- Custom Opaque Handle Constructors
+
+Per-type custom constructors emitted by backends that support opaque handles (FFI, Go, Zig, C#, JNI/Kotlin, PyO3, NAPI, WASM, PHP, Rustler, Dart). Each entry under `[workspace.client_constructors.<TypeName>]` defines constructor parameters and a body template with `{type_name}` and `{source_path}` substitution.
+
+```toml
+[workspace.client_constructors.DefaultClient]
+body = "{source_path}::new().map_err(|e| e.to_string())"
+error_type = "String"
+
+[[workspace.client_constructors.DefaultClient.params]]
+name = "api_key"
+type = "*const std::ffi::c_char"
+
+[[workspace.client_constructors.DefaultClient.params]]
+name = "endpoint"
+type = "*const std::ffi::c_char"
+```
+
+| Field         | Type                      | Default    | Description                                                           |
+| ------------- | ------------------------- | ---------- | --------------------------------------------------------------------- |
+| `params`      | array of `ConstructorParam` | `[]`     | Ordered list of constructor parameters; each has `name` and `type`   |
+| `body`        | string                    | _required_ | Template for constructor body; use `{type_name}` and `{source_path}` |
+| `error_type`  | string                    | `"String"` | Error type returned by the constructor (`Result<Self, ErrType>`)    |
+
+---
+
 ## `[[crates]]` -- Per-Crate Configuration
 
 Each `[[crates]]` entry defines one independently published binding package. Every field except `name` is optional and inherits from `[workspace]` defaults during resolution.
@@ -218,13 +244,14 @@ The fields below are accepted on every language section listed in this document 
 
 ### `[crates.python]`
 
-| Field              | Type     | Default                       | Description                                           |
-| ------------------ | -------- | ----------------------------- | ----------------------------------------------------- |
-| `module_name`      | string   | `_{name}`                     | Python module name (the native extension name)        |
-| `async_runtime`    | string   | --                            | Async runtime spec for `pyo3_async_runtimes`          |
-| `stubs.output`     | string   | --                            | Output directory for `.pyi` stub files                |
-| `features`         | string[] | inherits per-crate `features` | Per-language Cargo feature override                   |
-| `serde_rename_all` | string   | `"snake_case"`                | Override JSON field naming strategy for this language |
+| Field                    | Type     | Default                       | Description                                                                 |
+| ------------------------ | -------- | ----------------------------- | --------------------------------------------------------------------------- |
+| `module_name`            | string   | `_{name}`                     | Python module name (the native extension name)                              |
+| `async_runtime`          | string   | --                            | Async runtime spec for `pyo3_async_runtimes`                                |
+| `stubs.output`           | string   | --                            | Output directory for `.pyi` stub files                                      |
+| `stubs.emit_docstrings`  | bool     | `false`                       | Emit Rust doc comments as stub docstrings (ruff PYI021 prohibits by default) |
+| `features`               | string[] | inherits per-crate `features` | Per-language Cargo feature override                                         |
+| `serde_rename_all`       | string   | `"snake_case"`                | Override JSON field naming strategy for this language                       |
 
 ### `[crates.node]`
 
@@ -236,12 +263,13 @@ The fields below are accepted on every language section listed in this document 
 
 ### `[crates.ruby]`
 
-| Field              | Type     | Default                       | Description                                           |
-| ------------------ | -------- | ----------------------------- | ----------------------------------------------------- |
-| `gem_name`         | string   | `{name}` with `_`             | Ruby gem name                                         |
-| `stubs.output`     | string   | --                            | Output directory for `.rbs` type stubs                |
-| `features`         | string[] | inherits per-crate `features` | Per-language Cargo feature override                   |
-| `serde_rename_all` | string   | `"snake_case"`                | Override JSON field naming strategy for this language |
+| Field                    | Type     | Default                       | Description                                           |
+| ------------------------ | -------- | ----------------------------- | ----------------------------------------------------- |
+| `gem_name`               | string   | `{name}` with `_`             | Ruby gem name                                         |
+| `stubs.output`           | string   | --                            | Output directory for `.rbs` type stubs                |
+| `stubs.emit_docstrings`  | bool     | `false`                       | Emit Rust doc comments as stub docstrings             |
+| `features`               | string[] | inherits per-crate `features` | Per-language Cargo feature override                   |
+| `serde_rename_all`       | string   | `"snake_case"`                | Override JSON field naming strategy for this language |
 
 ### `[crates.php]`
 
