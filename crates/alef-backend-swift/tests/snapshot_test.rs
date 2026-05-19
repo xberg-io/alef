@@ -1269,26 +1269,37 @@ fn snapshot_into_rust_bulk_constructor_nested() {
         swift_file.content
     );
 
-    // Diagnostic (nested struct) and ProcessResult (vectors) stay as RustBridge
-    // typealiases rather than emitting uncompilable first-class wrappers.
+    // Diagnostic (nested struct) and ProcessResult (vectors) are now emitted as
+    // first-class Swift structs because all their fields are known DTO types.
     assert!(
-        swift_file
-            .content
-            .contains("public typealias Diagnostic = RustBridge.Diagnostic"),
-        "Diagnostic should stay a RustBridge typealias:\n{}",
+        swift_file.content.contains("public struct Diagnostic:"),
+        "Diagnostic must be a first-class struct:\n{}",
         swift_file.content
     );
     assert!(
+        swift_file.content.contains("public struct ProcessResult:"),
+        "ProcessResult must be a first-class struct:\n{}",
+        swift_file.content
+    );
+
+    // Diagnostic.intoRust() uses direct constructor (has_default=true + Named field).
+    assert!(
         swift_file
             .content
-            .contains("public typealias ProcessResult = RustBridge.ProcessResult"),
-        "ProcessResult should stay a RustBridge typealias:\n{}",
+            .contains("return RustBridge.Diagnostic(self.message, try self.span.intoRust())"),
+        "Diagnostic.intoRust must use direct bulk constructor with nested intoRust:\n{}",
+        swift_file.content
+    );
+
+    // ProcessResult.init(_ rb:) must use .map conversions for Vec fields.
+    assert!(
+        swift_file.content.contains("try rb.diagnostics().map { try Diagnostic($0) }"),
+        "ProcessResult init must convert Vec<Diagnostic> via .map:\n{}",
         swift_file.content
     );
     assert!(
-        !swift_file.content.contains("return RustBridge.Diagnostic(")
-            && !swift_file.content.contains("return RustBridge.ProcessResult("),
-        "complex DTOs must not emit first-class intoRust constructors:\n{}",
+        swift_file.content.contains("rb.tags().map { $0.toString() }"),
+        "ProcessResult init must convert Vec<String> via .map:\n{}",
         swift_file.content
     );
 

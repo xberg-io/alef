@@ -77,6 +77,18 @@ impl Backend for SwiftBackend {
 
         let mut body = String::new();
 
+        // Unit serde enums (all-unit + has_serde) are emitted as `public enum S: String, Codable`
+        // with serde-derived raw values. They are Codable so structs containing them as fields
+        // can also derive Codable. Collect their names before the fixed-point loop so the loop
+        // can accept `Named(enum_S)` fields.
+        let unit_serde_enum_names: std::collections::HashSet<String> = api
+            .enums
+            .iter()
+            .filter(|e| !exclude_types.contains(&e.name))
+            .filter(|e| e.has_serde && e.variants.iter().all(|v| v.fields.is_empty()))
+            .map(|e| e.name.clone())
+            .collect();
+
         // Compute which struct DTO types will actually be emitted as first-class Swift
         // structs via a fixed-point iteration.
         //
@@ -84,14 +96,11 @@ impl Backend for SwiftBackend {
         //   1. It is non-opaque, has_serde, non-trait, non-excluded, and has visible fields.
         //   2. Every visible field's TypeRef is "supported" given the current first-class set.
         //
-        // Because first-class status of type A can depend on B (via Vec<Named("B")>) and B's
-        // status can depend on A, we iterate until the set stabilises (convergence is guaranteed
-        // because each round can only add types — the set is monotonically growing).
+        // Unit serde enums (above) are Codable and seed the initial `known_dto_names` set.
+        // Struct DTOs are added iteratively: a struct becomes first-class when all its fields
+        // are known-supported (primitive, String, known first-class struct, or unit serde enum).
         //
-        // Only struct DTO names are seeded here.  Native Swift enums (api.enums) are emitted
-        // separately and do NOT yet provide an `init(_ rb:) throws` extension (they are plain
-        // Swift enums, not Codable wrappers), so Named(enum) fields reject first-class emission
-        // on the containing struct until enum Codable support is added.
+        // Convergence is guaranteed: each round only adds types (monotonically growing set).
         let candidate_types: Vec<&alef_core::ir::TypeDef> = api
             .types
             .iter()
@@ -99,7 +108,8 @@ impl Backend for SwiftBackend {
             .filter(|t| !t.fields.is_empty())
             .collect();
 
-        let mut known_dto_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+        // Seed with unit serde enum names (they are Codable and can appear in struct fields).
+        let mut known_dto_names: std::collections::HashSet<String> = unit_serde_enum_names.clone();
         loop {
             let prev_len = known_dto_names.len();
             for ty in &candidate_types {
@@ -107,7 +117,7 @@ impl Backend for SwiftBackend {
                     continue;
                 }
                 // Check if all visible (binding-non-excluded) fields are supported given the
-                // current known set.
+                // current known set (struct DTOs + unit serde enums).
                 let all_supported = binding_fields(&ty.fields)
                     .all(|field| first_class_field_supported(&field.ty, &known_dto_names));
                 if all_supported {
@@ -133,7 +143,7 @@ impl Backend for SwiftBackend {
         {
             emit_doc_comment(&ty.doc, "", &mut body);
             if can_emit_first_class_struct(ty, &mapper, &exclude_fields, &known_dto_names) {
-                emit_first_class_struct(ty, &mapper, &exclude_fields, &known_dto_names, &mut body);
+                emit_first_class_struct(ty, &mapper, &exclude_fields, &known_dto_names, &unit_serde_enum_names, &mut body);
             } else {
                 body.push_str(&crate::template_env::render(
                     "typealias.jinja",
@@ -262,7 +272,7 @@ impl Backend for SwiftBackend {
         // free function accessible via `RustBridge.{swiftName}(json)`. Without a
         // forwarding wrapper in this module, callers would need the `RustBridge.`
         // prefix, which the generated e2e test layer doesn't use.
-        emit_from_json_forwarders(api, &exclude_types, &mapper, &exclude_fields, &mut body);
+        emit_from_json_forwarders(api, &exclude_types, &mapper, &exclude_fields, &known_dto_names, &mut body);
 
         // Emit Swift protocol + adapter class for OptionsField inbound trait bridges.
         // Each bridge in `config.trait_bridges` where `bind_via = "options_field"` gets:
@@ -441,6 +451,7 @@ fn emit_first_class_struct(
     mapper: &SwiftMapper,
     exclude_fields: &std::collections::HashSet<String>,
     known_dto_names: &std::collections::HashSet<String>,
+    unit_enum_names: &std::collections::HashSet<String>,
     out: &mut String,
 ) {
     use alef_codegen::type_mapper::TypeMapper;
@@ -530,7 +541,7 @@ fn emit_first_class_struct(
         let swift_field = swift_case_ident(&field.name.to_lower_camel_case());
         let rust_accessor = swift_ident(&field.name.to_snake_case());
         let is_optional = field.optional || matches!(&field.ty, TypeRef::Optional(_));
-        let expr = swift_ffi_read_expr(&field.ty, is_optional, &rust_accessor, known_dto_names);
+        let expr = swift_ffi_read_expr(&field.ty, is_optional, &rust_accessor, known_dto_names, unit_enum_names);
         out.push_str(&format!("        self.{swift_field} = {expr}\n"));
     }
     out.push_str("    }\n");
@@ -728,6 +739,7 @@ fn swift_ffi_read_expr(
     field_optional: bool,
     accessor: &str,
     known_dto_names: &std::collections::HashSet<String>,
+    unit_enum_names: &std::collections::HashSet<String>,
 ) -> String {
     use alef_core::ir::TypeRef;
 
@@ -741,6 +753,21 @@ fn swift_ffi_read_expr(
         TypeRef::String if opt => format!("rb.{accessor}()?.toString()"),
         TypeRef::String => format!("rb.{accessor}().toString()"),
 
+        // Named(S) where S is a unit serde enum: getter returns String (serde-serialized).
+        // Convert via raw value init (`:String, Codable` enum).
+        // When optional: `rb.field()?.toString().flatMap { S(rawValue: $0) }`
+        // When required: `S(rawValue: rb.field().toString())` (force-safe: serde guarantees valid value)
+        TypeRef::Named(name) if unit_enum_names.contains(name) && opt => {
+            format!("rb.{accessor}()?.toString().flatMap {{ {name}(rawValue: $0) }}")
+        }
+        TypeRef::Named(name) if unit_enum_names.contains(name) => {
+            // The Rust getter for enum fields returns `String` (the serde-serialized name).
+            // Since the bridge generates the value, the rawValue is always valid for known variants
+            // (unknown variants map to `other` when the enum has a catch-all, or panic otherwise).
+            // Using non-optional init here: callers that care about safety should make the field optional.
+            format!("{name}(rawValue: rb.{accessor}().toString()) ?? {{ fatalError(\"Unknown {name}: \\(rb.{accessor}().toString())\") }}()")
+        }
+
         // Named(S) where S is a first-class struct: getter returns RustBridge.S (or S?).
         // Convert with the symmetric `init(_ rb:) throws` on the first-class struct.
         TypeRef::Named(name) if known_dto_names.contains(name) && opt => {
@@ -752,7 +779,6 @@ fn swift_ffi_read_expr(
 
         // Vec<T>: getter returns RustVec<T> (a Swift Collection/Sequence).
         TypeRef::Vec(inner) if opt => {
-            let map_expr = vec_elem_convert_expr(inner, known_dto_names);
             // The getter return type for optional Vec is RustVec<T>? when the field is
             // declared optional via `field.optional` (not TypeRef::Optional).
             // Use `?.map` for the optional chain.
@@ -762,7 +788,10 @@ fn swift_ffi_read_expr(
                 TypeRef::Named(name) if known_dto_names.contains(name) => {
                     format!("try rb.{accessor}()?.map {{ try {name}($0) }}")
                 }
-                _ => format!("rb.{accessor}()?.map {{ {map_expr} }}"),
+                _ => {
+                    let map_expr = vec_elem_convert_expr(inner, known_dto_names);
+                    format!("rb.{accessor}()?.map {{ {map_expr} }}")
+                }
             }
         }
         TypeRef::Vec(inner) => {
@@ -777,8 +806,12 @@ fn swift_ffi_read_expr(
         }
 
         // TypeRef::Optional(inner) — the extractor-wrapped nullable form.
+        // For Optional<Named(unit_enum)>: getter returns Option<String> (serde-serialized).
         TypeRef::Optional(inner) => match inner.as_ref() {
             TypeRef::String => format!("rb.{accessor}()?.toString()"),
+            TypeRef::Named(name) if unit_enum_names.contains(name) => {
+                format!("rb.{accessor}()?.toString().flatMap {{ {name}(rawValue: $0) }}")
+            }
             TypeRef::Named(name) if known_dto_names.contains(name) => {
                 format!("try rb.{accessor}().map {{ try {name}($0) }}")
             }
@@ -835,17 +868,29 @@ fn emit_enum(en: &EnumDef, out: &mut String, mapper: &SwiftMapper) {
     let all_unit = en.variants.iter().all(|v| v.fields.is_empty());
 
     if all_unit {
-        out.push_str(&format!("public enum {} {{\n", en.name));
-        let _ = mapper; // mapper unused for header — suppress unused warning
+        // All-unit serde enums receive `: String, Codable, Sendable, Hashable` conformance
+        // so that structs with enum-typed fields can derive `Codable` automatically.
+        // Raw values are the serde-serialized variant names (respecting serde_rename_all
+        // and per-variant serde_rename overrides) so JSONDecoder/JSONEncoder round-trip
+        // correctly against the Rust wire format.
+        let _ = mapper; // mapper unused for case bodies — suppress unused warning
+        out.push_str(&format!("public enum {}: String, Codable, Sendable, Hashable {{\n", en.name));
         for variant in &en.variants {
             emit_doc_comment(&variant.doc, "    ", out);
             let case_name = swift_case_ident(&variant.name.to_lower_camel_case());
-            out.push_str(&crate::template_env::render(
-                "enum_case_unit.jinja",
-                minijinja::context! {
-                    case_name => &case_name,
-                },
-            ));
+            let raw_value = unit_enum_raw_value(variant, en.serde_rename_all.as_deref());
+            if raw_value == case_name.trim_matches('`') {
+                // Raw value matches the Swift case name — no explicit annotation needed.
+                out.push_str(&crate::template_env::render(
+                    "enum_case_unit.jinja",
+                    minijinja::context! {
+                        case_name => &case_name,
+                    },
+                ));
+            } else {
+                // Explicit raw-value annotation required (e.g. `case toolCalls = "tool_calls"`).
+                out.push_str(&format!("    case {case_name} = \"{raw_value}\"\n"));
+            }
         }
         out.push_str("}\n");
         return;
@@ -861,6 +906,30 @@ fn emit_enum(en: &EnumDef, out: &mut String, mapper: &SwiftMapper) {
         emit_variant_with_data(variant, out, mapper);
     }
     out.push_str("}\n");
+}
+
+/// Returns the serde wire value for a unit enum variant.
+///
+/// Priority:
+/// 1. Per-variant `serde_rename` override (verbatim).
+/// 2. Enum-level `serde_rename_all` strategy applied to the Rust PascalCase variant name.
+/// 3. The Rust PascalCase variant name unchanged (serde default).
+///
+/// Supported `serde_rename_all` values: `"snake_case"`, `"camelCase"`, `"SCREAMING_SNAKE_CASE"`,
+/// `"kebab-case"`. Unknown strategies fall back to the PascalCase variant name.
+fn unit_enum_raw_value(variant: &alef_core::ir::EnumVariant, rename_all: Option<&str>) -> String {
+    use heck::{ToKebabCase, ToLowerCamelCase, ToSnakeCase, ToUpperCamelCase};
+    if let Some(rename) = &variant.serde_rename {
+        return rename.clone();
+    }
+    match rename_all {
+        Some("snake_case") => variant.name.to_snake_case(),
+        Some("camelCase") => variant.name.to_lower_camel_case(),
+        Some("SCREAMING_SNAKE_CASE") | Some("SCREAMING-KEBAB-CASE") => variant.name.to_snake_case().to_uppercase(),
+        Some("PascalCase") => variant.name.to_upper_camel_case(),
+        Some("kebab-case") | Some("train-case") => variant.name.to_kebab_case(),
+        _ => variant.name.clone(),
+    }
 }
 
 /// Emits a single enum case, with or without associated values.
@@ -1421,6 +1490,7 @@ fn emit_from_json_forwarders(
     exclude_types: &std::collections::HashSet<String>,
     mapper: &SwiftMapper,
     exclude_fields: &std::collections::HashSet<String>,
+    known_dto_names: &std::collections::HashSet<String>,
     out: &mut String,
 ) {
     use heck::AsSnakeCase;
@@ -1461,20 +1531,11 @@ fn emit_from_json_forwarders(
     out.push_str("// First-class struct types (Codable) use JSONDecoder directly.\n");
     out.push_str("// Opaque RustBridge types forward to RustBridge.\n\n");
 
-    // Build the known-DTO names set needed by can_emit_first_class_struct.
-    let known_dto_names_fwd: std::collections::HashSet<String> = api
-        .types
-        .iter()
-        .filter(|t| !t.is_trait && !t.is_opaque && t.has_serde && !exclude_types.contains(&t.name))
-        .map(|t| t.name.clone())
-        .chain(api.enums.iter().filter(|e| !exclude_types.contains(&e.name)).map(|e| e.name.clone()))
-        .collect();
-
     // First-class structs have serde + non-empty fields — decode with JSONDecoder.
     let first_class_set: std::collections::HashSet<&str> = api
         .types
         .iter()
-        .filter(|t| !t.is_trait && can_emit_first_class_struct(t, mapper, exclude_fields, &known_dto_names_fwd))
+        .filter(|t| !t.is_trait && can_emit_first_class_struct(t, mapper, exclude_fields, known_dto_names))
         .map(|t| t.name.as_str())
         .collect();
 
