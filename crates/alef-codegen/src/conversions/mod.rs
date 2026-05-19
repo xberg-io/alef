@@ -857,4 +857,68 @@ mod tests {
             "expected .map(|v| (*v).clone().into()) for Option<Arc<String>>, got: {result}"
         );
     }
+
+    /// Regression: `Arc<HashMap<String, String>>` field — synthetic shape representative
+    /// of structs that share an immutable map via Arc for zero-copy FFI. The plain `Arc`
+    /// CoreWrapper must transparently unwrap the inner `val.<name>` reference via
+    /// `(*val.<name>).clone()` so the downstream map iteration sees the owned `HashMap`,
+    /// and the binding side reconstructs an `Arc` around the binding-shaped map.
+    #[test]
+    fn test_arc_hashmap_string_string_field_transparent() {
+        let field = arc_field(
+            "headers",
+            TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+            false,
+        );
+        let typ = arc_field_type(field);
+        let to_binding = gen_from_core_to_binding(&typ, "my_crate", &AHashSet::new());
+        assert!(
+            to_binding.contains("(*val.headers).clone()"),
+            "expected (*val.headers).clone() deref-clone for Arc<HashMap<...>>, got: {to_binding}"
+        );
+        let to_core = gen_from_binding_to_core(&typ, "my_crate");
+        assert!(
+            to_core.contains("headers:"),
+            "expected headers field in binding→core conversion, got: {to_core}"
+        );
+    }
+
+    /// Regression: `Arc<Vec<String>>` field — plain Arc unwraps via deref-clone on the
+    /// non-optional branch, just like the HashMap shape.
+    #[test]
+    fn test_arc_vec_string_field_transparent() {
+        let field = arc_field("tags", TypeRef::Vec(Box::new(TypeRef::String)), false);
+        let typ = arc_field_type(field);
+        let to_binding = gen_from_core_to_binding(&typ, "my_crate", &AHashSet::new());
+        assert!(
+            to_binding.contains("(*val.tags).clone()"),
+            "expected (*val.tags).clone() deref-clone for Arc<Vec<...>>, got: {to_binding}"
+        );
+        let to_core = gen_from_binding_to_core(&typ, "my_crate");
+        assert!(
+            to_core.contains("tags:"),
+            "expected tags field in binding→core conversion, got: {to_core}"
+        );
+    }
+
+    /// Regression: `Arc<Mutex<String>>` field — the `ArcMutex` CoreWrapper drives
+    /// codegen to emit `.lock().unwrap().clone()` on the read path (core→binding) and
+    /// `Arc::new(Mutex::new(...))` on the write path (binding→core). Verifies the
+    /// ArcMutex branch is wired end-to-end.
+    #[test]
+    fn test_arc_mutex_string_field_transparent() {
+        let mut field = arc_field("state", TypeRef::String, false);
+        field.core_wrapper = CoreWrapper::ArcMutex;
+        let typ = arc_field_type(field);
+        let to_binding = gen_from_core_to_binding(&typ, "my_crate", &AHashSet::new());
+        assert!(
+            to_binding.contains("val.state.lock().unwrap().clone().into()"),
+            "expected .lock().unwrap().clone().into() for Arc<Mutex<String>>, got: {to_binding}"
+        );
+        let to_core = gen_from_binding_to_core(&typ, "my_crate");
+        assert!(
+            to_core.contains("std::sync::Arc::new(std::sync::Mutex::new(val.state.into()))"),
+            "expected Arc::new(Mutex::new(...)) construction for Arc<Mutex<String>>, got: {to_core}"
+        );
+    }
 }

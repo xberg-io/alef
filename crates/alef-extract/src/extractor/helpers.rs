@@ -497,15 +497,58 @@ fn outermost_ident(ty: &syn::Type) -> Option<String> {
     None
 }
 
-/// Detect if a syn::Type is wrapped in Cow, Arc, or Bytes (before resolution).
+/// Detect if a syn::Type is wrapped in Cow, Arc, Arc<Mutex<T>>, Arc<RwLock<T>>, or Bytes
+/// (before resolution).
+///
+/// Peeks through `Option<...>` so `Option<Arc<Mutex<T>>>` resolves the same as the
+/// bare `Arc<Mutex<T>>` form. `Arc<dyn Trait>` is deliberately left as plain `Arc` —
+/// trait objects have different ownership semantics and must not be collapsed into
+/// `ArcMutex`. The `Mutex`/`RwLock` check uses last-segment matching, so both
+/// `std::sync::Mutex` and `tokio::sync::Mutex` map to `CoreWrapper::ArcMutex`
+/// (intentional — both share the same lock/unlock binding shape).
 pub(crate) fn detect_core_wrapper(ty: &syn::Type) -> alef_core::ir::CoreWrapper {
     use alef_core::ir::CoreWrapper;
-    match outermost_ident(ty).as_deref() {
-        Some("Cow") => CoreWrapper::Cow,
-        Some("Arc") => CoreWrapper::Arc,
-        Some("Bytes") => CoreWrapper::Bytes,
-        _ => CoreWrapper::None,
+
+    // Peek through Option<...> so Option<Arc<Mutex<T>>> is treated like Arc<Mutex<T>>.
+    let inner_ty: Option<Box<syn::Type>> = if let syn::Type::Path(p) = ty {
+        p.path.segments.last().and_then(|seg| {
+            if seg.ident == "Option" {
+                type_resolver::extract_single_generic_arg_syn(seg)
+            } else {
+                None
+            }
+        })
+    } else {
+        None
+    };
+    let probe: &syn::Type = inner_ty.as_deref().unwrap_or(ty);
+
+    if let syn::Type::Path(p) = probe {
+        if let Some(seg) = p.path.segments.last() {
+            let ident = seg.ident.to_string();
+            match ident.as_str() {
+                "Cow" => return CoreWrapper::Cow,
+                "Bytes" => return CoreWrapper::Bytes,
+                "Arc" => {
+                    // Inspect Arc's inner type. If it's Mutex<T> or RwLock<T>, return ArcMutex.
+                    // `Arc<dyn Trait>` stays as plain Arc — trait-object semantics differ.
+                    if let Some(arc_inner) = type_resolver::extract_single_generic_arg_syn(seg) {
+                        if let syn::Type::Path(inner_path) = &*arc_inner {
+                            if let Some(inner_seg) = inner_path.path.segments.last() {
+                                let inner_ident = inner_seg.ident.to_string();
+                                if inner_ident == "Mutex" || inner_ident == "RwLock" {
+                                    return CoreWrapper::ArcMutex;
+                                }
+                            }
+                        }
+                    }
+                    return CoreWrapper::Arc;
+                }
+                _ => {}
+            }
+        }
     }
+    CoreWrapper::None
 }
 
 /// Detect if a Vec's inner type is wrapped in Arc (e.g., `Vec<Arc<T>>`).
@@ -1108,5 +1151,55 @@ mod tests {
         let attrs: Vec<syn::Attribute> = vec![];
         assert!(!has_derive(&attrs, "Debug"));
         assert!(!has_derive_path(&attrs, &["Debug"]));
+    }
+
+    // --- detect_core_wrapper: Arc<Mutex<T>> / Arc<RwLock<T>> unwrap ---
+
+    use super::detect_core_wrapper;
+    use alef_core::ir::CoreWrapper;
+
+    fn parse_type(s: &str) -> syn::Type {
+        syn::parse_str(s).unwrap()
+    }
+
+    #[test]
+    fn test_detect_core_wrapper_arc_mutex_returns_arc_mutex() {
+        let ty = parse_type("Arc<Mutex<HashMap<String, String>>>");
+        assert_eq!(detect_core_wrapper(&ty), CoreWrapper::ArcMutex);
+    }
+
+    #[test]
+    fn test_detect_core_wrapper_arc_rwlock_returns_arc_mutex() {
+        let ty = parse_type("Arc<RwLock<Vec<u8>>>");
+        assert_eq!(detect_core_wrapper(&ty), CoreWrapper::ArcMutex);
+    }
+
+    #[test]
+    fn test_detect_core_wrapper_option_arc_mutex_peeks_through_option() {
+        // Option<Arc<Mutex<T>>> must resolve to ArcMutex (peek through Option).
+        let ty = parse_type("Option<Arc<Mutex<String>>>");
+        assert_eq!(detect_core_wrapper(&ty), CoreWrapper::ArcMutex);
+    }
+
+    #[test]
+    fn test_detect_core_wrapper_plain_arc_returns_arc() {
+        // Bare Arc<T> (no inner Mutex/RwLock) must stay as plain Arc.
+        let ty = parse_type("Arc<String>");
+        assert_eq!(detect_core_wrapper(&ty), CoreWrapper::Arc);
+    }
+
+    #[test]
+    fn test_detect_core_wrapper_arc_dyn_trait_stays_plain_arc() {
+        // Arc<dyn Trait> deliberately NOT collapsed — trait-object ownership differs.
+        let ty = parse_type("Arc<dyn MyTrait>");
+        assert_eq!(detect_core_wrapper(&ty), CoreWrapper::Arc);
+    }
+
+    #[test]
+    fn test_detect_core_wrapper_tokio_sync_mutex_last_segment_match() {
+        // `tokio::sync::Mutex<T>` matches via last-segment ident — intentional, same
+        // handling as `std::sync::Mutex` since the binding shape (.lock()) is identical.
+        let ty = parse_type("Arc<tokio::sync::Mutex<u64>>");
+        assert_eq!(detect_core_wrapper(&ty), CoreWrapper::ArcMutex);
     }
 }

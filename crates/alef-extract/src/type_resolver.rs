@@ -228,8 +228,17 @@ fn resolve_path_type(type_path: &syn::TypePath) -> TypeRef {
         // Result<T, E> → unwrap to T
         "Result" => extract_single_generic_arg(segment).unwrap_or(TypeRef::Named("unknown".into())),
 
-        // Box<T>, Arc<T> → unwrap to T
-        "Box" | "Arc" | "Rc" => extract_single_generic_arg(segment).unwrap_or(TypeRef::Named("unknown".into())),
+        // Box<T>, Arc<T>, Rc<T>, Mutex<T>, RwLock<T> → unwrap to T.
+        //
+        // Mutex/RwLock are last-segment matches (both `std::sync::Mutex` and
+        // `tokio::sync::Mutex` resolve the same way) so `Arc<Mutex<T>>` and
+        // `Arc<RwLock<T>>` collapse cleanly through the Arc unwrap to T. The
+        // `core_wrapper` field on the surrounding FieldDef still records
+        // `CoreWrapper::ArcMutex` for the binding emitters, so the lock
+        // semantics aren't lost from the IR.
+        "Box" | "Arc" | "Rc" | "Mutex" | "RwLock" => {
+            extract_single_generic_arg(segment).unwrap_or(TypeRef::Named("unknown".into()))
+        }
 
         // Well-known std/common types
         "Duration" => TypeRef::Duration,
@@ -668,5 +677,32 @@ mod tests {
     fn test_type_to_string_static_slice_of_static_str() {
         let ty = parse_type("&'static [&'static str]");
         assert_eq!(type_to_string(&ty), "&'static [&'static str]");
+    }
+
+    // --- Mutex / RwLock unwrap (Arc-wrapped synchronization primitives) ---
+
+    #[test]
+    fn test_arc_mutex_inner_resolved_through_unwrap() {
+        // Arc<Mutex<String>> unwraps Arc → unwraps Mutex → String. The CoreWrapper
+        // on the surrounding FieldDef (set by detect_core_wrapper) preserves the
+        // ArcMutex shape for binding emitters.
+        assert_eq!(resolve_type(&parse_type("Arc<Mutex<String>>")), TypeRef::String);
+    }
+
+    #[test]
+    fn test_arc_rwlock_inner_resolved_through_unwrap() {
+        // Arc<RwLock<Vec<u8>>> unwraps Arc → unwraps RwLock → Vec<u8> → Bytes.
+        assert_eq!(resolve_type(&parse_type("Arc<RwLock<Vec<u8>>>")), TypeRef::Bytes);
+    }
+
+    #[test]
+    fn test_arc_hashmap_string_string_inner_resolved() {
+        // Arc<HashMap<String, String>> — synthetic shape representative of structs
+        // that share a hashmap via Arc for zero-copy FFI. The Arc must unwrap to
+        // a Map(String, String) so backend emitters can render a proper map type.
+        assert_eq!(
+            resolve_type(&parse_type("Arc<HashMap<String, String>>")),
+            TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String))
+        );
     }
 }
