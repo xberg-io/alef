@@ -16,7 +16,7 @@ mod trait_types;
 
 use bridge_fn::emit_bridge_fn;
 use cargo::{emit_build_rs, emit_cargo_toml, emit_frb_yaml};
-use mirror::{emit_mirror_enum, emit_mirror_struct};
+use mirror::{emit_mirror_enum, emit_mirror_error, emit_mirror_struct};
 use trait_bridge::emit_trait_bridge;
 
 /// Emit the Rust-side flutter_rust_bridge bridge crate for the given API surface.
@@ -294,6 +294,14 @@ fn emit_lib_rs(
     for en in api.enums.iter().filter(|e| !exclude_types.contains(&e.name)) {
         content.push('\n');
         emit_mirror_enum(&mut content, en);
+    }
+
+    // Emit mirror enums for error types so flutter_rust_bridge generates a Dart sealed
+    // class for each error. The `impl` block with `#[frb]` methods surfaces introspection
+    // methods (e.g. `status_code`, `is_transient`, `error_type`) as Dart instance methods.
+    for error in api.errors.iter().filter(|e| !e.binding_excluded) {
+        content.push('\n');
+        emit_mirror_error(&mut content, error, source_crate_name);
     }
 
     // Emit From<SourceT> for T conversions for all struct and enum types.

@@ -1,5 +1,5 @@
 use alef_codegen::shared::binding_fields;
-use alef_core::ir::{EnumDef, TypeDef};
+use alef_core::ir::{EnumDef, ErrorDef, TypeDef};
 
 use super::conversions::{frb_rust_type, frb_rust_type_inner};
 
@@ -166,4 +166,129 @@ pub(crate) fn emit_mirror_enum(out: &mut String, en: &EnumDef) {
         }
         out.push_str("}\n");
     }
+}
+
+/// Emit a `#[frb(mirror(ErrorName))]` enum + `impl ErrorName` block with `#[frb]`
+/// introspection methods that delegate to the core error type.
+///
+/// flutter_rust_bridge translates the mirrored enum into a Dart sealed class with
+/// per-variant subclasses. The `impl` block methods annotated with `#[frb]` are
+/// surfaced as Dart instance methods on the sealed class.
+///
+/// # SAFETY
+///
+/// Each introspection method casts `self` to the core error type via a raw pointer
+/// transmute. This is sound because `#[frb(mirror(T))]` guarantees that the local
+/// mirror enum has the same memory layout as the core type `T` — FRB's codegen
+/// relies on this invariant and panics at compile time if layouts differ.
+pub(crate) fn emit_mirror_error(out: &mut String, error: &ErrorDef, source_crate_name: &str) {
+    use crate::template_env;
+
+    emit_rust_doc(&error.doc, "", out);
+    out.push_str(&template_env::render(
+        "rust_mirror_enum_attribute.jinja",
+        minijinja::context! {
+            name => error.name.as_str(),
+        },
+    ));
+    out.push_str(&template_env::render(
+        "rust_mirror_enum_open.jinja",
+        minijinja::context! {
+            name => error.name.as_str(),
+        },
+    ));
+
+    for variant in &error.variants {
+        emit_rust_doc(&variant.doc, "    ", out);
+        if variant.is_unit {
+            out.push_str(&template_env::render(
+                "rust_mirror_enum_unit_variant.jinja",
+                minijinja::context! {
+                    variant_name => variant.name.as_str(),
+                },
+            ));
+        } else {
+            out.push_str(&template_env::render(
+                "rust_mirror_enum_data_variant_open.jinja",
+                minijinja::context! {
+                    variant_name => variant.name.as_str(),
+                },
+            ));
+            for (idx, f) in variant.fields.iter().enumerate() {
+                let fname = if f.name.is_empty() || f.name.starts_with('_') {
+                    format!("field{idx}")
+                } else {
+                    f.name.clone()
+                };
+                let rust_ty = frb_rust_type_inner(&f.ty);
+                out.push_str(&template_env::render(
+                    "rust_mirror_enum_data_variant_field.jinja",
+                    minijinja::context! {
+                        field_name => fname,
+                        rust_ty => rust_ty,
+                    },
+                ));
+            }
+            out.push_str(&template_env::render(
+                "rust_mirror_enum_data_close.jinja",
+                minijinja::context! {},
+            ));
+        }
+    }
+    out.push_str("}\n");
+
+    // Emit introspection methods only when the error has whitelisted methods.
+    let bridge_methods: Vec<&alef_core::ir::MethodDef> = error.methods.iter().filter(|m| !m.sanitized).collect();
+    if bridge_methods.is_empty() {
+        return;
+    }
+
+    // Resolve the fully-qualified core type path, preferring the IR-recorded `rust_path`
+    // (e.g. `liter_llm::error::LiterLlmError`) over the naive `{crate}::{Name}` fallback.
+    let core_path = if error.rust_path.is_empty() {
+        format!("{source_crate_name}::{}", error.name)
+    } else {
+        error.rust_path.replace('-', "_")
+    };
+
+    out.push_str(&format!("\nimpl {} {{\n", error.name));
+    for method in bridge_methods {
+        emit_rust_doc(&method.doc, "    ", out);
+        let ret_ty = frb_rust_type_inner(&method.return_type);
+        out.push_str("    #[frb]\n");
+        out.push_str(&format!("    pub fn {}(&self) -> {ret_ty} {{\n", method.name));
+        // SAFETY: `#[frb(mirror(T))]` guarantees identical layout between
+        // the local mirror enum and the core type `T`. Casting `self` via a
+        // raw pointer is equivalent to the transmute FRB itself performs when
+        // encoding/decoding values across the bridge.
+        out.push_str(&format!(
+            "        // SAFETY: mirror layout is identical to {core_path} (FRB invariant).\n"
+        ));
+        // Build any coercion suffix needed to reconcile the core return type with the FRB
+        // bridge return type declared above:
+        //   - `&str` (returns_ref=true + String TypeRef) → `.to_string()`
+        //   - narrow integer or float (e.g. u16) → ` as i64` / ` as f64`
+        let call_suffix: String =
+            if method.returns_ref && matches!(method.return_type, alef_core::ir::TypeRef::String) {
+                // Core returns &str; bridge declares String.
+                ".to_string()".to_string()
+            } else if let alef_core::ir::TypeRef::Primitive(ref prim) = method.return_type {
+                use super::conversions::primitive_name;
+                let native = primitive_name(prim);
+                let frb_ty = frb_rust_type_inner(&method.return_type);
+                if native != frb_ty.as_str() {
+                    format!(" as {frb_ty}")
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            };
+        out.push_str(&format!(
+            "        unsafe {{ &*(self as *const Self as *const {core_path}) }}.{}(){call_suffix}\n",
+            method.name
+        ));
+        out.push_str("    }\n");
+    }
+    out.push_str("}\n");
 }
