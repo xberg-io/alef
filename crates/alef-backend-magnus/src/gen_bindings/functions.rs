@@ -1083,6 +1083,26 @@ pub(super) fn gen_module_init(
                 },
             ));
         }
+        if let Some(unregister_fn) = bridge_cfg.unregister_fn.as_deref() {
+            lines.push(crate::template_env::render(
+                "module_function_register.rs.jinja",
+                minijinja::context! {
+                    ruby_name => unregister_fn,
+                    function_name => unregister_fn,
+                    arity => 1,
+                },
+            ));
+        }
+        if let Some(clear_fn) = bridge_cfg.clear_fn.as_deref() {
+            lines.push(crate::template_env::render(
+                "module_function_register.rs.jinja",
+                minijinja::context! {
+                    ruby_name => clear_fn,
+                    function_name => clear_fn,
+                    arity => 0,
+                },
+            ));
+        }
     }
 
     // Register error info classes for errors with introspection methods.
