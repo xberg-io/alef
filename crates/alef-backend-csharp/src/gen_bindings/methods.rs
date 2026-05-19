@@ -143,6 +143,11 @@ pub(super) fn gen_wrapper_class(
             if streaming_methods.contains(&method.name) {
                 continue;
             }
+            // Skip Rust-ism methods: is_valid (move to instance method on type) and default
+            // (idiomatic C# uses parameterless constructor or field defaults).
+            if method.name == "is_valid" || method.name == "default" {
+                continue;
+            }
             out.push_str(&gen_wrapper_method(
                 method,
                 exception_name,
