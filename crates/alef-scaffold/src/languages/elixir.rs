@@ -3,7 +3,7 @@ use crate::{
     scaffold_meta,
 };
 use alef_core::backend::GeneratedFile;
-use alef_core::config::{BridgeBinding, Language, ResolvedCrateConfig};
+use alef_core::config::{AdapterPattern, BridgeBinding, Language, ResolvedCrateConfig};
 use alef_core::ir::ApiSurface;
 use alef_core::template_versions as tv;
 use heck::{ToPascalCase, ToSnakeCase};
@@ -31,12 +31,7 @@ pub(crate) fn scaffold_elixir_cargo(
         &ws,
     );
 
-    let extra_deps = render_extra_deps(config, Language::Elixir);
-    let extra_deps_section = if extra_deps.is_empty() {
-        String::new()
-    } else {
-        format!("\n{extra_deps}")
-    };
+    let mut extra_deps = render_extra_deps(config, Language::Elixir);
     let has_async =
         api.functions.iter().any(|f| f.is_async) || api.types.iter().any(|t| t.methods.iter().any(|m| m.is_async));
     // Trait bridges generate async_trait impls and a tokio::sync::oneshot-based
@@ -46,12 +41,31 @@ pub(crate) fn scaffold_elixir_cargo(
         .trait_bridges
         .iter()
         .any(|b| !b.exclude_languages.iter().any(|l| l == "elixir" || l == "rustler"));
+    // Streaming adapters generate `use futures_util::StreamExt` plus a
+    // `futures_util::stream::BoxStream` field on the per-adapter handle struct,
+    // so the scaffold must add `futures-util` whenever a streaming adapter is
+    // declared on this crate.
+    let has_streaming = config
+        .adapters
+        .iter()
+        .any(|a| matches!(a.pattern, AdapterPattern::Streaming));
+    if has_streaming && !extra_deps.contains("futures-util = ") && !extra_deps.contains("futures-util =\"") {
+        if !extra_deps.is_empty() {
+            extra_deps.push('\n');
+        }
+        extra_deps.push_str("futures-util = \"0.3\"");
+    }
+    let extra_deps_section = if extra_deps.is_empty() {
+        String::new()
+    } else {
+        format!("\n{extra_deps}")
+    };
     let async_trait_dep = if has_trait_bridges {
         format!("\nasync-trait = \"{}\"", tv::cargo::ASYNC_TRAIT)
     } else {
         String::new()
     };
-    let tokio_dep = if has_async || has_trait_bridges {
+    let tokio_dep = if has_async || has_trait_bridges || has_streaming {
         "\ntokio = { version = \"1\", features = [\"rt-multi-thread\", \"sync\"] }"
     } else {
         ""
