@@ -280,6 +280,9 @@ pub(super) fn gen_tagged_enum_core_to_binding(
                         if let Some(field) = variant_field_map.get(f) {
                             let has_binding = fields_with_binding_struct.contains(f.as_str());
                             let is_mixed = mixed_named_fields.contains(field.name.as_str());
+                            // For Box<T> the destructured variable binds the Box; we must deref
+                            // before calling `.into()` because `Box<T>: Into<JsT>` is not provided.
+                            let boxed_deref = if field.is_boxed { "*" } else { "" };
                             if field.optional {
                                 match &field.ty {
                                     TypeRef::Path => format!("{f}: {f}.map(|p| p.to_string_lossy().to_string())"),
@@ -287,7 +290,7 @@ pub(super) fn gen_tagged_enum_core_to_binding(
                                         format!("{f}: {f}.and_then(|v| serde_json::to_string(&v).ok())")
                                     }
                                     TypeRef::Named(_) if has_binding => {
-                                        format!("{f}: {f}.map(|v| v.into())")
+                                        format!("{f}: {f}.map(|v| (*v).into())",)
                                     }
                                     TypeRef::Named(_) => {
                                         format!("{f}: {f}.map(|v| v.into())")
@@ -301,8 +304,10 @@ pub(super) fn gen_tagged_enum_core_to_binding(
                                     TypeRef::Named(_) if is_mixed => {
                                         format!("{f}: serde_json::to_string(&{f}).ok()")
                                     }
-                                    TypeRef::Named(_) if has_binding => format!("{f}: Some({f}.into())"),
-                                    TypeRef::Named(_) => format!("{f}: Some({f}.into())"),
+                                    TypeRef::Named(_) if has_binding => {
+                                        format!("{f}: Some(({boxed_deref}{f}).into())")
+                                    }
+                                    TypeRef::Named(_) => format!("{f}: Some(({boxed_deref}{f}).into())"),
                                     TypeRef::Path => format!("{f}: Some({f}.to_string_lossy().to_string())"),
                                     TypeRef::Primitive(p) if needs_napi_cast(p) => match p {
                                         alef_core::ir::PrimitiveType::F32 => format!("{f}: Some({f} as f64)"),
