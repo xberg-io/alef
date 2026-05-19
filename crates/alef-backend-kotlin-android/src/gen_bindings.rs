@@ -219,6 +219,8 @@ fn emit_module_kt(
         let class_name = *type_name;
         let free_name = format!("nativeFree{}", to_pascal_case(class_name));
         let mut body = String::new();
+        let mut imports: BTreeSet<String> = BTreeSet::new();
+
         // Prefer the IR-supplied rustdoc for the opaque type; fall back to a
         // generic description when the source has no doc comment so the
         // generated class still has *some* KDoc.
@@ -235,8 +237,116 @@ fn emit_module_kt(
         body.push_str(&format!(
             "    override fun close() {{ {bridge_name}.{free_name}(handle) }}\n"
         ));
+
+        // Collect streaming adapters owned by this opaque type.
+        let streaming_adapters_for_type: Vec<&alef_core::config::AdapterConfig> = config
+            .adapters
+            .iter()
+            .filter(|a| matches!(a.pattern, alef_core::config::AdapterPattern::Streaming))
+            .filter(|a| {
+                a.owner_type
+                    .as_deref()
+                    .map(|owner| owner == class_name)
+                    .unwrap_or(false)
+            })
+            .collect();
+
+        // If there are streaming adapters, emit Flow wrapper methods and add imports.
+        if !streaming_adapters_for_type.is_empty() {
+            imports.insert("import com.fasterxml.jackson.databind.ObjectMapper".to_string());
+            imports.insert("import com.fasterxml.jackson.datatype.jdk8.Jdk8Module".to_string());
+            imports.insert("import com.fasterxml.jackson.databind.PropertyNamingStrategies".to_string());
+            imports.insert("import kotlinx.coroutines.Dispatchers".to_string());
+            imports.insert("import kotlinx.coroutines.flow.Flow".to_string());
+            imports.insert("import kotlinx.coroutines.flow.callbackFlow".to_string());
+            imports.insert("import kotlinx.coroutines.withContext".to_string());
+            imports.insert("import kotlinx.coroutines.channels.awaitClose".to_string());
+
+            // Add a mapper field and emit streaming methods.
+            body.push_str("\n    private val mapper = ObjectMapper()\n");
+            body.push_str("        .registerModule(Jdk8Module())\n");
+            body.push_str("        .findAndRegisterModules()\n");
+            body.push_str("        .setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE)\n\n");
+
+            for adapter in &streaming_adapters_for_type {
+                let method_name = to_lower_camel(&adapter.name);
+                let item_type = adapter.item_type.as_deref().unwrap_or("Any");
+                let owner_pascal = to_pascal_case(class_name);
+                let adapter_pascal = to_pascal_case(&adapter.name);
+                let jni_start = format!("native{owner_pascal}{adapter_pascal}Start");
+                let jni_next = format!("native{owner_pascal}{adapter_pascal}Next");
+                let jni_free = format!("native{owner_pascal}{adapter_pascal}Free");
+
+                let params: Vec<String> = adapter
+                    .params
+                    .iter()
+                    .map(|p| {
+                        let simple_ty = p.ty.rsplit("::").next().unwrap_or(&p.ty);
+                        let param_name = to_lower_camel(&p.name);
+                        format!("{param_name}: {simple_ty}")
+                    })
+                    .collect();
+
+                let first_param_name = adapter
+                    .params
+                    .first()
+                    .map(|p| to_lower_camel(&p.name))
+                    .unwrap_or_else(|| "request".to_string());
+
+                // Add import for the item type (DTO).
+                if let Some(item) = adapter.item_type.as_deref() {
+                    let simple_item = item.rsplit("::").next().unwrap_or(item);
+                    if !matches!(simple_item, "Any" | "Unit" | "String" | "Long" | "Int" | "Boolean" | "Float" | "Double") {
+                        imports.insert(format!("import {item}"));
+                    }
+                }
+
+                // Add imports for param types.
+                for param in &adapter.params {
+                    let simple_ty = param.ty.rsplit("::").next().unwrap_or(&param.ty);
+                    if !matches!(simple_ty, "String" | "Long" | "Int" | "Boolean" | "Float" | "Double") {
+                        imports.insert(format!("import {}", param.ty));
+                    }
+                }
+
+                body.push_str("    @Suppress(\"TooGenericExceptionCaught\")\n");
+                body.push_str(&format!(
+                    "    fun {method_name}({}): Flow<{item_type}> = callbackFlow {{\n",
+                    if params.is_empty() {
+                        "".to_string()
+                    } else {
+                        params.join(", ")
+                    }
+                ));
+                body.push_str("        val streamHandle: Long = withContext(Dispatchers.IO) {\n");
+                body.push_str(&format!(
+                    "            {bridge_name}.{jni_start}(handle, mapper.writeValueAsString({first_param_name}))\n"
+                ));
+                body.push_str("        }\n");
+                body.push_str("        try {\n");
+                body.push_str("            while (true) {\n");
+                body.push_str("                val chunkJson: String? = withContext(Dispatchers.IO) {\n");
+                body.push_str(&format!("                    {bridge_name}.{jni_next}(streamHandle)\n"));
+                body.push_str("                }\n");
+                body.push_str("                if (chunkJson == null) break\n");
+                body.push_str(&format!(
+                    "                val chunk = mapper.readValue(chunkJson, {item_type}::class.java)\n"
+                ));
+                body.push_str("                send(chunk)\n");
+                body.push_str("            }\n");
+                body.push_str("            close()\n");
+                body.push_str("        } catch (e: Throwable) {\n");
+                body.push_str("            close(e)\n");
+                body.push_str("        }\n");
+                body.push_str("        awaitClose {\n");
+                body.push_str(&format!("            {bridge_name}.{jni_free}(streamHandle)\n"));
+                body.push_str("        }\n");
+                body.push_str("    }\n\n");
+            }
+        }
+
         body.push_str("}\n");
-        let content = assemble_kt_content(package, &BTreeSet::new(), &body);
+        let content = assemble_kt_content(package, &imports, &body);
         files.push(GeneratedFile {
             path: kotlin_source_dir.join(format!("{class_name}.kt")),
             content,
