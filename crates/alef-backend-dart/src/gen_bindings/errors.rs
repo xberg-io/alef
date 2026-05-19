@@ -195,4 +195,90 @@ mod tests {
     fn build_message_no_template_uses_variant_name() {
         assert_eq!(build_message("NotFound", None), "NotFound");
     }
+
+    #[test]
+    fn emit_error_with_methods_adds_abstract_getters() {
+        use alef_core::ir::{MethodDef, ReceiverKind};
+
+        let error = alef_core::ir::ErrorDef {
+            name: "ApiError".to_string(),
+            rust_path: "demo::ApiError".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![alef_core::ir::ErrorVariant {
+                name: "NotFound".to_string(),
+                message_template: Some("not found".to_string()),
+                fields: vec![],
+                has_source: false,
+                has_from: false,
+                is_unit: true,
+                doc: String::new(),
+            }],
+            doc: String::new(),
+            methods: vec![
+                MethodDef {
+                    name: "status_code".to_string(),
+                    params: vec![],
+                    return_type: alef_core::ir::TypeRef::Primitive(alef_core::ir::PrimitiveType::U16),
+                    is_async: false,
+                    is_static: false,
+                    error_type: None,
+                    doc: String::new(),
+                    receiver: Some(ReceiverKind::Ref),
+                    sanitized: false,
+                    trait_source: None,
+                    returns_ref: false,
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    has_default_impl: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                },
+                MethodDef {
+                    name: "is_transient".to_string(),
+                    params: vec![],
+                    return_type: alef_core::ir::TypeRef::Primitive(alef_core::ir::PrimitiveType::Bool),
+                    is_async: false,
+                    is_static: false,
+                    error_type: None,
+                    doc: String::new(),
+                    receiver: Some(ReceiverKind::Ref),
+                    sanitized: false,
+                    trait_source: None,
+                    returns_ref: false,
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    has_default_impl: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                },
+                MethodDef {
+                    name: "error_type".to_string(),
+                    params: vec![],
+                    return_type: alef_core::ir::TypeRef::String,
+                    is_async: false,
+                    is_static: false,
+                    error_type: None,
+                    doc: String::new(),
+                    receiver: Some(ReceiverKind::Ref),
+                    sanitized: false,
+                    trait_source: None,
+                    returns_ref: false,
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    has_default_impl: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                },
+            ],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+        let mut out = String::new();
+        let mut imports = BTreeSet::new();
+        emit_error(&error, &mut out, &mut imports);
+        // Sealed class must declare abstract getters for each method.
+        assert!(out.contains("int get statusCode;"), "missing statusCode: {out}");
+        assert!(out.contains("bool get isTransient;"), "missing isTransient: {out}");
+        assert!(out.contains("String get errorType;"), "missing errorType: {out}");
+    }
 }
