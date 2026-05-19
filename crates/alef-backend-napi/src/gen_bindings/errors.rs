@@ -81,9 +81,14 @@ pub(super) fn gen_dts(
     sorted_fns.sort_by(|a, b| a.name.cmp(&b.name));
 
     // Trait-bridge registration functions → `export declare function`
-    // For each trait bridge, emit unregister and clear functions.
+    // For each trait bridge, emit register, unregister, and clear functions.
     let mut trait_bridge_fns: Vec<(String, String, String)> = Vec::new();
     for bridge in trait_bridges {
+        // register_{trait_name_lower}
+        if let Some(register) = &bridge.register_fn {
+            let js_name = alef_codegen::naming::to_node_name(register);
+            trait_bridge_fns.push((js_name, format!("impl: object"), "void".to_string()));
+        }
         // unregister_{trait_name_lower}
         if let Some(unregister) = &bridge.unregister_fn {
             let js_name = alef_codegen::naming::to_node_name(unregister);
