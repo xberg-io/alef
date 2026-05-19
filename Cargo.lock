@@ -405,6 +405,7 @@ dependencies = [
  "ahash",
  "alef-core",
  "anyhow",
+ "heck",
  "quote",
  "syn",
  "tempfile",

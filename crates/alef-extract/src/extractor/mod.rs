@@ -1,4 +1,5 @@
 mod defaults;
+mod disambiguation;
 mod functions;
 mod helpers;
 mod reexports;
@@ -121,6 +122,14 @@ pub fn extract(
     // exactly one field named `_0`. We replace all `TypeRef::Named("Foo")` references
     // with the inner type, then remove the newtype TypeDefs from the surface.
     resolve_newtypes(&mut surface);
+
+    // Post-processing: disambiguate types with the same identifier from different
+    // source modules. The second+ collisions are renamed by prepending the
+    // PascalCase parent module segment (e.g. `testing::SseEvent` → `TestingSseEvent`),
+    // letting both definitions survive into binding codegen instead of one silently
+    // overwriting the other. The first-seen variant (sorted by full rust_path) keeps
+    // its original name.
+    disambiguation::disambiguate_type_names(&mut surface);
 
     // After newtype resolution, any remaining types with `_0` fields are tuple structs
     // that weren't resolved (because they have methods or complex inner types).

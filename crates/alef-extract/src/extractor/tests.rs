@@ -3322,3 +3322,35 @@ fn test_extract_binding_excluded_method() {
     let baz = foo.methods.iter().find(|m| m.name == "baz").unwrap();
     assert!(!baz.binding_excluded, "baz should not be excluded");
 }
+
+#[test]
+fn test_disambiguation_pass_runs_on_full_extract() {
+    // Two structs named `Event` in sibling modules. Without disambiguation, both
+    // would survive with the same `name`, and downstream codegen would emit two
+    // conflicting binding definitions. With disambiguation, the second is renamed
+    // by prepending its PascalCase parent module segment.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let lib_rs = dir.path().join("lib.rs");
+    std::fs::write(
+        &lib_rs,
+        r#"
+        pub mod stream {
+            pub struct Event { pub data: String }
+        }
+        pub mod testing {
+            pub struct Event { pub data: String }
+        }
+        "#,
+    )
+    .expect("write lib.rs");
+
+    let surface = super::extract(&[lib_rs.as_path()], "my_crate", "0.0.0", None).expect("extract failed");
+
+    let names: Vec<&str> = surface.types.iter().map(|t| t.name.as_str()).collect();
+    // First-seen by sorted rust_path: `my_crate::stream::Event` < `my_crate::testing::Event`.
+    assert!(names.contains(&"Event"), "stream::Event kept its original name: {names:?}");
+    assert!(
+        names.contains(&"TestingEvent"),
+        "testing::Event renamed with PascalCase parent: {names:?}"
+    );
+}
