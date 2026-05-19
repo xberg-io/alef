@@ -103,16 +103,28 @@ pub(crate) fn gen_opaque_struct_methods_with_exclude(
     for streaming_key in streaming_method_keys.iter() {
         if streaming_key.starts_with(&format!("{}.", typ.name)) {
             if let Some(body) = adapter_bodies.get(streaming_key) {
-                let method_name = streaming_key.strip_prefix(&format!("{}.", typ.name))
-                    .unwrap_or("");
+                let method_name = streaming_key.strip_prefix(&format!("{}.", typ.name)).unwrap_or("");
                 if !method_name.is_empty() {
+                    // Find the original method to get its parameter information
+                    let orig_method = instance.iter().find(|m| m.name == method_name);
+
+                    let params_str = if let Some(method) = orig_method {
+                        super::helpers::gen_php_function_params(&method.params, mapper, opaque_types, &AHashSet::new())
+                    } else {
+                        String::new()
+                    };
+
+                    // The adapter body already includes the parameter conversions via
+                    // core_let_bindings_cloned, so we just use it as-is.
                     let method_code = format!(
                         "    #[php(name = \"{}\")]\n    \
-                         pub fn {}(&self) -> std::result::Result<Vec<String>, ext_php_rs::exception::PhpException> {{\n    \
+                         pub fn {}(&self{}{}) -> std::result::Result<Vec<String>, ext_php_rs::exception::PhpException> {{\n    \
                          {}\n    \
                          }}",
                         method_name.to_lower_camel_case(),
                         method_name,
+                        if params_str.is_empty() { "" } else { ", " },
+                        params_str,
                         body
                     );
                     impl_builder.add_method(&method_code);

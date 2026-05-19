@@ -329,14 +329,26 @@ fn gen_opaque_type_stub(
     // Instance methods
     for method in &typ.methods {
         if !method.is_static {
-            lines.push(gen_method_stub(method, false, capsule_names, Some(&typ.name), streaming_return_types));
+            lines.push(gen_method_stub(
+                method,
+                false,
+                capsule_names,
+                Some(&typ.name),
+                streaming_return_types,
+            ));
         }
     }
 
     // Static methods
     for method in &typ.methods {
         if method.is_static {
-            lines.push(gen_method_stub(method, true, capsule_names, Some(&typ.name), streaming_return_types));
+            lines.push(gen_method_stub(
+                method,
+                true,
+                capsule_names,
+                Some(&typ.name),
+                streaming_return_types,
+            ));
         }
     }
 
@@ -404,14 +416,26 @@ fn gen_type_stub(
     // Add instance methods
     for method in &typ.methods {
         if !method.is_static {
-            lines.push(gen_method_stub(method, false, capsule_names, Some(&typ.name), streaming_return_types));
+            lines.push(gen_method_stub(
+                method,
+                false,
+                capsule_names,
+                Some(&typ.name),
+                streaming_return_types,
+            ));
         }
     }
 
     // Add static methods
     for method in &typ.methods {
         if method.is_static {
-            lines.push(gen_method_stub(method, true, capsule_names, Some(&typ.name), streaming_return_types));
+            lines.push(gen_method_stub(
+                method,
+                true,
+                capsule_names,
+                Some(&typ.name),
+                streaming_return_types,
+            ));
         }
     }
 

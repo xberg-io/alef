@@ -372,8 +372,11 @@ pub(crate) fn gen_record_type(
     // Static methods with no receiver and Self return type become `public static T method(params)`.
     // Instance methods with a ref receiver and Self return type become `public T withX(params)`.
     // The Java reserved word `default` is remapped to `defaultConfig`.
-    let non_excluded_methods: Vec<&MethodDef> =
-        typ.methods.iter().filter(|m| !m.binding_excluded && !m.sanitized).collect();
+    let non_excluded_methods: Vec<&MethodDef> = typ
+        .methods
+        .iter()
+        .filter(|m| !m.binding_excluded && !m.sanitized)
+        .collect();
     for method in &non_excluded_methods {
         // Only emit Self-returning methods here; other signatures need more complex bridging.
         let returns_self = matches!(&method.return_type, TypeRef::Named(n) if n == &typ.name);
@@ -949,11 +952,7 @@ pub(crate) fn gen_opaque_handle_class(
     // Static factory methods: receiver is None (no &self). These are constructors /
     // preset factories (e.g. `Parser::default()`, `LanguageRegistry::default()`,
     // `DownloadManager::new(version)`) that return a new instance of the type.
-    let static_factory_methods: Vec<&MethodDef> = typ
-        .methods
-        .iter()
-        .filter(|m| m.receiver.is_none())
-        .collect();
+    let static_factory_methods: Vec<&MethodDef> = typ.methods.iter().filter(|m| m.receiver.is_none()).collect();
     let has_instance_methods = !instance_methods.is_empty();
     let has_static_factories = !static_factory_methods.is_empty();
     let needs_helpers = has_streaming || has_instance_methods;
@@ -1509,9 +1508,7 @@ fn gen_static_factory_method(
                 ));
                 call_args.push(cname);
             }
-            TypeRef::Optional(inner)
-                if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char | TypeRef::Json) =>
-            {
+            TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char | TypeRef::Json) => {
                 out.push_str(&crate::template_env::render(
                     "stream_method_optional_string_param.jinja",
                     minijinja::context! { c_name => cname, param_name => pname },

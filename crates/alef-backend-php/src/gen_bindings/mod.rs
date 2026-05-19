@@ -33,8 +33,8 @@ fn sanitize_php_enum_case(name: &str) -> String {
 }
 use helpers::{gen_enum_tainted_from_binding_to_core, gen_tokio_runtime, has_enum_named_field, references_named_type};
 use types::{
-    gen_enum_constants, gen_flat_data_enum, gen_flat_data_enum_from_impls, gen_flat_data_enum_methods,
-    gen_php_struct, is_tagged_data_enum, is_untagged_data_enum,
+    gen_enum_constants, gen_flat_data_enum, gen_flat_data_enum_from_impls, gen_flat_data_enum_methods, gen_php_struct,
+    is_tagged_data_enum, is_untagged_data_enum,
 };
 
 pub struct PhpBackend;
@@ -949,10 +949,7 @@ impl Backend for PhpBackend {
                         && a.owner_type.as_deref() == Some(&typ.name)
                 })
                 .collect();
-            let streaming_method_names: AHashSet<String> = streaming_adapters
-                .iter()
-                .map(|a| a.name.clone())
-                .collect();
+            let streaming_method_names: AHashSet<String> = streaming_adapters.iter().map(|a| a.name.clone()).collect();
             let opaque_file = gen_php_opaque_class_file(typ, &namespace, &streaming_adapters, &streaming_method_names);
             files.push(GeneratedFile {
                 path: PathBuf::from(&output_dir).join(format!("{}.php", typ.name)),
@@ -1075,8 +1072,11 @@ impl Backend for PhpBackend {
             // PHPStan can only see methods that appear in the stub; without these,
             // static preset factories (e.g. `all()`, `minimal()`) and withers
             // (e.g. `withChunking()`) are flagged as "Call to undefined method".
-            let non_excluded_methods: Vec<&alef_core::ir::MethodDef> =
-                typ.methods.iter().filter(|m| !m.binding_excluded && !m.sanitized).collect();
+            let non_excluded_methods: Vec<&alef_core::ir::MethodDef> = typ
+                .methods
+                .iter()
+                .filter(|m| !m.binding_excluded && !m.sanitized)
+                .collect();
             for method in non_excluded_methods {
                 let method_name = method.name.to_lower_camel_case();
                 let is_static = method.receiver.is_none();
@@ -1101,7 +1101,8 @@ impl Backend for PhpBackend {
                 let stub_body = if is_void {
                     "{ }".to_string()
                 } else {
-                    "{ throw new \\RuntimeException('Not implemented — provided by the native extension.'); }".to_string()
+                    "{ throw new \\RuntimeException('Not implemented — provided by the native extension.'); }"
+                        .to_string()
                 };
                 content.push_str(&format!(
                     "    public {static_kw}function {method_name}({}): {return_type}\n    {stub_body}\n",
@@ -1386,12 +1387,16 @@ fn gen_php_opaque_class_file(
     // Instance methods first, static methods second — skip streaming methods
     // (they'll be emitted as Generator wrappers after regular methods).
     let mut method_order: Vec<&alef_core::ir::MethodDef> = Vec::new();
-    method_order.extend(typ.methods.iter().filter(|m| {
-        m.receiver.is_some() && !streaming_method_names.contains(&m.name)
-    }));
-    method_order.extend(typ.methods.iter().filter(|m| {
-        m.receiver.is_none() && !streaming_method_names.contains(&m.name)
-    }));
+    method_order.extend(
+        typ.methods
+            .iter()
+            .filter(|m| m.receiver.is_some() && !streaming_method_names.contains(&m.name)),
+    );
+    method_order.extend(
+        typ.methods
+            .iter()
+            .filter(|m| m.receiver.is_none() && !streaming_method_names.contains(&m.name)),
+    );
 
     for method in method_order {
         let method_name = method.name.to_lower_camel_case();
@@ -1477,10 +1482,7 @@ fn gen_php_opaque_class_file(
 /// For PHP, we generate a Generator method that calls the Rust streaming methods directly.
 /// Since PHP can't easily pass opaque types as function parameters, we skip the _start/_next/_free
 /// pattern and instead keep the streaming logic on the class.
-fn gen_php_streaming_method_wrapper(
-    adapter: &alef_core::config::AdapterConfig,
-    _item_type: &str,
-) -> String {
+fn gen_php_streaming_method_wrapper(adapter: &alef_core::config::AdapterConfig, _item_type: &str) -> String {
     let method_name = adapter.name.to_lower_camel_case();
 
     // Build parameter list.

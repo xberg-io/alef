@@ -730,7 +730,9 @@ pub(super) fn gen_dto_method_fns(
                 let indent = "    ";
                 let core_ty = &core_type_path;
                 let mut body_parts = String::new();
-                body_parts.push_str(&format!("{indent}let _json = serde_json::to_string(&cfg){err_conv}?;\n"));
+                body_parts.push_str(&format!(
+                    "{indent}let _json = serde_json::to_string(&cfg){err_conv}?;\n"
+                ));
                 body_parts.push_str(&format!(
                     "{indent}let _core: {core_ty} = serde_json::from_str(&_json){err_conv}?;\n"
                 ));
@@ -741,9 +743,7 @@ pub(super) fn gen_dto_method_fns(
                 body_parts.push_str(&format!(
                     "{indent}let _out_json = serde_json::to_string(&_result){err_conv}?;\n"
                 ));
-                body_parts.push_str(&format!(
-                    "{indent}serde_json::from_str(&_out_json){err_conv}"
-                ));
+                body_parts.push_str(&format!("{indent}serde_json::from_str(&_out_json){err_conv}"));
                 body_parts
             } else {
                 format!(

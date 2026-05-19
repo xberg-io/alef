@@ -524,6 +524,77 @@ fn test_opaque_method_return_wraps_handle_without_to_json() {
 }
 
 #[test]
+fn test_fallible_unit_opaque_method_checks_last_error_code() {
+    let backend = CsharpBackend;
+    let config = minimal_csharp_config("test");
+    let api = ApiSurface {
+        crate_name: "test".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Session".to_string(),
+            rust_path: "test::Session".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![MethodDef {
+                name: "close".to_string(),
+                params: vec![],
+                return_type: TypeRef::Unit,
+                is_async: false,
+                is_static: false,
+                error_type: Some("SessionError".to_string()),
+                doc: "Close the session.".to_string(),
+                receiver: Some(ReceiverKind::Ref),
+                sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                trait_source: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            is_opaque: true,
+            is_clone: false,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: "Session handle.".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![ErrorDef {
+            name: "SessionError".to_string(),
+            rust_path: "test::SessionError".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![],
+            doc: String::new(),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let wrapper = files.iter().find(|file| file.path.ends_with("Session.cs")).unwrap();
+
+    assert!(wrapper.content.contains("NativeMethods.SessionClose("));
+    assert!(
+        wrapper.content.contains("if (NativeMethods.LastErrorCode() != 0)"),
+        "fallible unit methods must preserve FFI errors: {}",
+        wrapper.content
+    );
+}
+
+#[test]
 fn test_error_helper_preserves_base_error_acronym_class_name() {
     let backend = CsharpBackend;
     let config = minimal_csharp_config("test");

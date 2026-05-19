@@ -1006,7 +1006,11 @@ fn emit_record_methods(out: &mut String, typ: &TypeDef, class_name: &str, _prefi
                 let pname = p.name.to_lower_camel_case();
                 let ptype = if p.optional {
                     let t = csharp_type(&p.ty);
-                    if t.ends_with('?') { t.to_string() } else { format!("{t}?") }
+                    if t.ends_with('?') {
+                        t.to_string()
+                    } else {
+                        format!("{t}?")
+                    }
                 } else {
                     csharp_type(&p.ty).to_string()
                 };
@@ -1017,7 +1021,9 @@ fn emit_record_methods(out: &mut String, typ: &TypeDef, class_name: &str, _prefi
         // Doc comment
         if !method.doc.is_empty() {
             let first_line = method.doc.lines().next().unwrap_or("").replace('"', "\\\"");
-            out.push_str(&format!("\n    /// <summary>\n    /// {first_line}\n    /// </summary>\n"));
+            out.push_str(&format!(
+                "\n    /// <summary>\n    /// {first_line}\n    /// </summary>\n"
+            ));
         } else {
             out.push('\n');
         }
@@ -1062,7 +1068,11 @@ fn emit_record_methods(out: &mut String, typ: &TypeDef, class_name: &str, _prefi
                          }}\n"
                 ));
             } else {
-                let call_args: Vec<String> = method.params.iter().map(|p| p.name.to_lower_camel_case().to_string()).collect();
+                let call_args: Vec<String> = method
+                    .params
+                    .iter()
+                    .map(|p| p.name.to_lower_camel_case().to_string())
+                    .collect();
                 let args_str = call_args.join(", ");
                 out.push_str(&format!(
                     "        var nativeResult = NativeMethods.{native_method_name}({args_str});\n\
@@ -1098,7 +1108,11 @@ fn emit_record_methods(out: &mut String, typ: &TypeDef, class_name: &str, _prefi
                          }}\n"
                 ));
             } else {
-                let call_args: Vec<String> = method.params.iter().map(|p| p.name.to_lower_camel_case().to_string()).collect();
+                let call_args: Vec<String> = method
+                    .params
+                    .iter()
+                    .map(|p| p.name.to_lower_camel_case().to_string())
+                    .collect();
                 let args_str = call_args.join(", ");
                 out.push_str(&format!(
                     "        var nativeResult = NativeMethods.{native_method_name}({args_str});\n\
