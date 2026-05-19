@@ -468,6 +468,21 @@ pub fn field_conversion_from_core(
         {
             format!("{name}: val.{name}.map(|v| v.into_iter().map(Into::into).collect())")
         }
+        // Vec<Primitive>, Vec<String>, Vec<Bytes>, etc.
+        // The core type may be a Set (HashSet, AHashSet, BTreeSet, etc.) which the type resolver
+        // maps to Vec in the IR. Emit .into_iter().collect() which works for both Vec→Vec (identity)
+        // and Set→Vec (uniqueness guarantee → ordered collection) conversions.
+        TypeRef::Vec(_) => {
+            if optional {
+                format!("{name}: val.{name}.map(|v| v.into_iter().collect())")
+            } else {
+                format!("{name}: val.{name}.into_iter().collect()")
+            }
+        }
+        // Optional(Vec<T>): same but wrapped in Option
+        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Vec(_)) => {
+            format!("{name}: val.{name}.map(|v| v.into_iter().collect())")
+        }
         // Everything else is symmetric
         _ => field_conversion_to_core(name, ty, optional),
     }

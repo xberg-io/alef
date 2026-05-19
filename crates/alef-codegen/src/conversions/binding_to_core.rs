@@ -575,6 +575,11 @@ pub fn field_conversion_to_core(name: &str, ty: &TypeRef, optional: bool) -> Str
                     "{name}: val.{name}.map(|m| m.into_iter().map(|(k, v)| ({k_expr}, serde_json::from_str(&v).unwrap_or_default())).collect())"
                 )
             }
+            // Optional<Vec<Primitive/String/Bytes>>: the core type may be a Set.
+            // Use .into_iter().collect() for Set→Vec conversion compatibility.
+            TypeRef::Vec(_) => {
+                format!("{name}: val.{name}.map(|v| v.into_iter().collect())")
+            }
             _ => format!("{name}: val.{name}"),
         },
         // Vec of named or Json types -- map each element
@@ -599,7 +604,17 @@ pub fn field_conversion_to_core(name: &str, ty: &TypeRef, optional: bool) -> Str
                     format!("{name}: val.{name}.into_iter().map(Into::into).collect()")
                 }
             }
-            _ => format!("{name}: val.{name}"),
+            // Vec<Primitive>, Vec<String>, Vec<Bytes>, etc.
+            // The core type may be a Set (HashSet, AHashSet, BTreeSet, etc.) which the type resolver
+            // maps to Vec in the IR. Emit .into_iter().collect() which works for both Vec→Vec (identity)
+            // and Vec→Set (convert ordered collection to uniqueness-guaranteed set) conversions.
+            _ => {
+                if optional {
+                    format!("{name}: val.{name}.map(|v| v.into_iter().collect())")
+                } else {
+                    format!("{name}: val.{name}.into_iter().collect()")
+                }
+            }
         },
         // Map -- collect to handle HashMap↔BTreeMap conversion;
         // additionally convert Named keys/values via Into, Json values via serde.
