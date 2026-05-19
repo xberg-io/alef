@@ -629,7 +629,18 @@ impl Backend for PhpBackend {
                             if emitted_binding_to_core.contains(&typ.name) {
                                 continue;
                             }
-                            if alef_codegen::conversions::can_generate_conversion(typ, &convertible) {
+                            if enum_tainted.contains(&typ.name) {
+                                builder.add_item(&gen_enum_tainted_from_binding_to_core(
+                                    typ,
+                                    &core_import,
+                                    enum_names_ref,
+                                    &enum_tainted,
+                                    &php_conv_config,
+                                    &api.enums,
+                                    &bridge_type_aliases_set,
+                                ));
+                                emitted_binding_to_core.insert(typ.name.clone());
+                            } else if alef_codegen::conversions::can_generate_conversion(typ, &convertible) {
                                 builder.add_item(&alef_codegen::conversions::gen_from_binding_to_core_cfg(
                                     typ,
                                     &core_import,
@@ -647,15 +658,26 @@ impl Backend for PhpBackend {
         // emitted yet. This handles nested types that appear as fields in output structures
         // but are not direct input types or enum variant payloads.
         for typ in api.types.iter().filter(|t| !t.is_trait) {
-            if !emitted_binding_to_core.contains(&typ.name)
-                && alef_codegen::conversions::can_generate_conversion(typ, &convertible)
-            {
-                builder.add_item(&alef_codegen::conversions::gen_from_binding_to_core_cfg(
-                    typ,
-                    &core_import,
-                    &php_conv_config,
-                ));
-                emitted_binding_to_core.insert(typ.name.clone());
+            if !emitted_binding_to_core.contains(&typ.name) {
+                if enum_tainted.contains(&typ.name) {
+                    builder.add_item(&gen_enum_tainted_from_binding_to_core(
+                        typ,
+                        &core_import,
+                        enum_names_ref,
+                        &enum_tainted,
+                        &php_conv_config,
+                        &api.enums,
+                        &bridge_type_aliases_set,
+                    ));
+                    emitted_binding_to_core.insert(typ.name.clone());
+                } else if alef_codegen::conversions::can_generate_conversion(typ, &convertible) {
+                    builder.add_item(&alef_codegen::conversions::gen_from_binding_to_core_cfg(
+                        typ,
+                        &core_import,
+                        &php_conv_config,
+                    ));
+                    emitted_binding_to_core.insert(typ.name.clone());
+                }
             }
         }
 

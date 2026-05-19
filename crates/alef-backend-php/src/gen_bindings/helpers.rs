@@ -1070,7 +1070,17 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
                 if let Some(expr) = conversion.strip_prefix(&format!("{name}: ")) {
                     match &field.ty {
                         TypeRef::Optional(_) => format!("{name}: ({expr}).map({newtype_path})"),
-                        TypeRef::Vec(_) => format!("{name}: ({expr}).into_iter().map({newtype_path}).collect()"),
+                        TypeRef::Vec(_) => {
+                            // When the inner expr already ends with .collect() (e.g. primitive Vec),
+                            // the compiler cannot infer the intermediate Vec type without an explicit
+                            // type annotation. Use collect::<Vec<_>>() to make it unambiguous.
+                            let inner_expr = if let Some(prefix) = expr.strip_suffix(".collect()") {
+                                format!("{prefix}.collect::<Vec<_>>()")
+                            } else {
+                                expr.to_string()
+                            };
+                            format!("{name}: ({inner_expr}).into_iter().map({newtype_path}).collect()")
+                        }
                         _ if field.optional => format!("{name}: ({expr}).map({newtype_path})"),
                         _ => format!("{name}: {newtype_path}({expr})"),
                     }
