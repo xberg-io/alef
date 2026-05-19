@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-backend-swift: add `rt-multi-thread` to the emitted swift crate's tokio features**. v0.16.62 switched the swift-bridge async shims from per-call `Builder::new_current_thread()` to a process-wide `Builder::new_multi_thread()` runtime (so `reqwest`'s lazily-attached connection pool stays alive across calls), but the emitted `packages/swift/rust/Cargo.toml` still pinned `tokio = { features = ["rt", "macros"] }` — and `new_multi_thread` only exists when the `rt-multi-thread` feature is enabled. Surfaced on tree-sitter-language-pack `CI Mobile` as `error[E0599]: no function or associated item named 'new_multi_thread' found for struct 'tokio::runtime::Builder'` on both `aarch64-apple-ios-sim` and `aarch64-apple-ios` cargo-check jobs after the v0.16.68 regen. Bump the emitted tokio dep to `features = ["rt", "rt-multi-thread", "macros"]`; iOS/macOS/Linux all support `rt-multi-thread` so no platform-conditional gating is required. (`crates/alef-backend-swift/src/gen_rust_crate/cargo.rs`, snapshot fixtures)
+
 ## [0.16.68] - 2026-05-19
 
 ### Fixed
