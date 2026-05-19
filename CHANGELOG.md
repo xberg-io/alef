@@ -29,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **alef-adapters: Node streaming methods now return a `#[napi]` iterator class instead of materializing the entire stream into a Vec.** Callers consume items via `await iter.next()` (returns `null` at end-of-stream), matching the existing Python AsyncIterator pattern. The previous behavior collected every chunk into a JS Array eagerly, defeating the point of streaming.
 
+- **alef-adapters: WASM streaming methods now return a `#[wasm_bindgen]` iterator class with an async `next()` instead of materialising the entire stream into a JS Array.** Callers consume items via `await iter.next()` (returns `null` at end-of-stream), matching the Python/Node patterns. The iterator struct wraps a `RefCell<futures::channel::mpsc::Receiver>` and uses `wasm_bindgen_futures::spawn_local()` to drive the core stream in a background task. The previous behavior collected every chunk into a `js_sys::Array` eagerly, defeating the point of streaming.
+
 - **alef-backend-zig: Zig streaming methods now return all chunks as a JSON array instead of only the last chunk.** Previously, `_last_json` was overwritten on every iteration, dropping every event except the final one. Now emits `[chunk1,chunk2,...]` so callers receive the full stream.
 
 ## [0.16.69] - 2026-05-19

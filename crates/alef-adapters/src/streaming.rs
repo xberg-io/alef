@@ -376,7 +376,7 @@ fn gen_php_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Strin
          pub fn {start_fn}(\n    \
              resource: ext_php_rs::types::Zval,\n    \
              {req_param_name}: &{req_param_type},\n\
-         ) -> ext_php_rs::prelude::Result<i64> {{\n    \
+         ) -> std::result::Result<i64, ext_php_rs::exception::PhpException> {{\n    \
              {bindings_block}\
              let resource_obj = resource.try_into::<{owner_type}>()\n        \
                  .map_err(|e| ext_php_rs::exception::PhpException::default(format!(\"invalid resource: {{}}\", e)))?;\n    \
@@ -396,7 +396,7 @@ fn gen_php_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Strin
          /// (to be decoded by the PHP wrapper via `json_decode()`) or null to\n\
          /// signal end-of-stream. After end-of-stream the inner stream is dropped.\n\
          #[php_function]\n\
-         pub fn {next_fn}(handle: i64) -> ext_php_rs::prelude::Result<Option<String>> {{\n    \
+         pub fn {next_fn}(handle: i64) -> std::result::Result<Option<String>, ext_php_rs::exception::PhpException> {{\n    \
              use futures_util::StreamExt;\n    \
              if handle <= 0 {{\n        \
                  return Err(ext_php_rs::exception::PhpException::default(\"invalid handle\".to_string()));\n    \
@@ -430,7 +430,7 @@ fn gen_php_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Strin
          \n\
          /// Free a streaming handle. Must be called after iteration is complete.\n\
          #[php_function]\n\
-         pub fn {free_fn}(handle: i64) -> ext_php_rs::prelude::Result<()> {{\n    \
+         pub fn {free_fn}(handle: i64) -> std::result::Result<(), ext_php_rs::exception::PhpException> {{\n    \
              if handle <= 0 {{\n        \
                  return Ok(());\n    \
              }}\n    \
@@ -576,12 +576,13 @@ fn gen_wasm_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Stri
     let core_path = &adapter.core_path;
     let prefix = config.wasm_type_prefix();
     let raw_item = adapter.item_type.as_deref().unwrap_or("JsValue");
-    let _item_type = if raw_item == "()" || raw_item == "JsValue" {
+    let item_type = if raw_item == "()" || raw_item == "JsValue" {
         raw_item.to_string()
     } else {
         format!("{prefix}{raw_item}")
     };
     let core_import = config.core_import_name();
+    let iter_name = iterator_name(adapter);
 
     let args = call_args(adapter);
     let call_str = args.join(", ");
@@ -593,35 +594,69 @@ fn gen_wasm_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Stri
         format!("{}\n    ", let_bindings.join("\n    "))
     };
 
-    // WASM: collect stream chunks into a js_sys::Array of typed Wasm wrapper objects
-    // (e.g. WasmChatCompletionChunk) so JavaScript callers access fields via the
-    // `#[wasm_bindgen(getter, js_name = "...")]`-annotated camelCase getters.
-    // Using serde_wasm_bindgen::to_value(&core_chunks) would emit snake_case field
-    // names that don't match the generated e2e test assertions (finishReason, etc.).
-    let core_item = adapter.item_type.as_deref().unwrap_or("()");
-    let wasm_item = if core_item == "()" || core_item == "JsValue" {
-        core_item.to_string()
-    } else {
-        format!("{prefix}{core_item}")
-    };
-    let body = format!(
-        "use futures_util::StreamExt;\n    \
-         {bindings_block}\
-         let stream = self.inner.{core_path}({call_str}).await\n        \
-             .map_err(|e| JsValue::from_str(&e.to_string()))?;\n    \
-         let core_chunks: Vec<{core_import}::{core_item}> = stream\n        \
-             .collect::<Vec<_>>().await\n        \
-             .into_iter()\n        \
-             .collect::<std::result::Result<Vec<_>, _>>()\n        \
-             .map_err(|e| JsValue::from_str(&e.to_string()))?;\n    \
-         let arr = js_sys::Array::new();\n    \
-         for chunk in core_chunks {{\n        \
-             arr.push(&JsValue::from({wasm_item}::from(chunk)));\n    \
-         }}\n    \
-         Ok(arr.into())"
+    // The iterator forwards stream items through a futures mpsc channel populated by a
+    // background task spawned via wasm_bindgen_futures::spawn_local(). This avoids
+    // materializing the entire stream into a JS Array upfront, enabling truly lazy
+    // consumption: JavaScript code calls await iter.next() for each chunk.
+    // We use futures::mpsc instead of tokio::mpsc because WASM has no thread pool.
+
+    let struct_def = format!(
+        "#[wasm_bindgen]\n\
+         pub struct {iter_name} {{\n    \
+             // Receiver wrapped in RefCell for interior mutability (WASM is single-threaded)\n    \
+             receiver: std::cell::RefCell<futures::channel::mpsc::Receiver<Result<{item_type}, String>>>,\n\
+         }}\n\
+         \n\
+         #[wasm_bindgen]\n\
+         impl {iter_name} {{\n    \
+             #[wasm_bindgen]\n    \
+             pub async fn next(&self) -> Result<JsValue, JsValue> {{\n        \
+                 use futures::stream::StreamExt;\n        \
+                 let mut rx = self.receiver.borrow_mut();\n        \
+                 match rx.next().await {{\n            \
+                     Some(Ok(item)) => Ok(JsValue::from(item)),\n            \
+                     Some(Err(e)) => Err(JsValue::from_str(&e)),\n            \
+                     None => Ok(JsValue::null()),\n        \
+                 }}\n    \
+             }}\n\
+         }}"
     );
 
-    (body, None)
+    let method_body = format!(
+        "let inner = self.inner.clone();\n    \
+         {bindings_block}\
+         let (tx, rx) = futures::channel::mpsc::channel(32);\n    \
+         wasm_bindgen_futures::spawn_local(async move {{\n        \
+             use futures_util::StreamExt;\n        \
+             use futures::sink::SinkExt;\n        \
+             let mut tx = tx;\n        \
+             match inner.{core_path}({call_str}).await {{\n            \
+                 Err(e) => {{\n                \
+                     let _ = tx.send(Err(e.to_string())).await;\n            \
+                 }}\n            \
+                 Ok(mut stream) => {{\n                \
+                     while let Some(chunk) = stream.next().await {{\n                    \
+                         let item = match chunk {{\n                        \
+                             Ok(c) => {item_type}::from(c),\n                        \
+                             Err(e) => {{\n                            \
+                                 let _ = tx.send(Err(e.to_string())).await;\n                            \
+                                 break;\n                        \
+                             }}\n                        \
+                         }};\n                    \
+                         if tx.send(Ok(item)).await.is_err() {{\n                        \
+                             break;\n                    \
+                         }}\n                \
+                     }}\n            \
+                 }}\n        \
+             }}\n    \
+         }});\n    \
+         let iter = {iter_name} {{\n        \
+             receiver: std::cell::RefCell::new(rx),\n    \
+         }};\n    \
+         Ok(iter)"
+    );
+
+    (method_body, Some(struct_def))
 }
 
 // ---------------------------------------------------------------------------
