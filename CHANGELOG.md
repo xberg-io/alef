@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **alef-backend-kotlin-android: emit `Flow<T>` wrappers on opaque-handle classes for streaming adapters.** The kotlin-android backend now generates streaming instance methods on handle-only wrapper classes (e.g., `CrawlEngineHandle`) when streaming adapters own them. Each wrapper class gets one `fun {streamName}(req): Flow<ItemType>` instance method per streaming adapter, using `callbackFlow { ... }` to drive the JNI `nativeXxxStart/Next/Free` extern triple. This mirrors the existing `alef-backend-kotlin` (JVM) pattern in `jni_emitter.rs:emit_jni_streaming_client_method`. Previously the JNI externs were emitted but no Kotlin wrapper exposed them — callers had no way to consume the stream without dropping to raw JNI. New collector logic in `emit_module_kt` detects handle-only streaming ownership and emits methods with full Jackson mapper initialization and `withContext(Dispatchers.IO)` for each JNI call. Lives in `crates/alef-backend-kotlin-android/src/gen_bindings.rs:217–350`.
+
 ### Changed
 
 - **alef-backend-pyo3: emit `@dataclass(frozen=True, slots=True)` for Python DTO classes.** Modern Python 3.10+ best practice is `slots=True`, which reduces memory overhead and improves attribute access performance with no behavioral change for users. All alef-generated dataclasses now include `slots=True` in the decorator on all `@dataclass` types emitted to `options.py`. The types generated are composed only of primitives and standard collections (no self-referential defaults), so slots compatibility is guaranteed.
