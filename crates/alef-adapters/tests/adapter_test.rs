@@ -322,12 +322,13 @@ fn test_streaming_python() {
         "Expected streaming method body"
     );
     assert!(
-        bodies.contains_key("DataItem.__stream_struct__"),
-        "Expected streaming iterator struct"
+        bodies.contains_key("DataClient.stream_data.__stream_struct__"),
+        "Expected streaming iterator struct under owner-qualified key. Keys: {:?}",
+        bodies.keys().collect::<Vec<_>>()
     );
 
     let method_body = &bodies["DataClient.stream_data"];
-    let struct_def = &bodies["DataItem.__stream_struct__"];
+    let struct_def = &bodies["DataClient.stream_data.__stream_struct__"];
 
     // Method body should create iterator
     assert!(
@@ -1054,5 +1055,134 @@ fn test_go_numeric_params() {
         body.contains("C.") || body.contains("json"),
         "Go should call C functions or use JSON serialization. Got: {}",
         body
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Multi-adapter regression tests (kreuzcrawl).
+//
+// Two streaming adapters sharing one owner_type and item_type must produce
+// distinct iterator/handle struct bodies under per-adapter lookup keys; the
+// previous behaviour keyed bodies on `item_type`, which collapsed the second
+// adapter onto the first and produced duplicate-definition compile errors in
+// the generated PyO3, Rustler, PHP, WASM, and NAPI shims.
+// ---------------------------------------------------------------------------
+
+fn two_streaming_adapters_on_one_owner() -> Vec<AdapterConfig> {
+    vec![
+        AdapterConfig {
+            name: "crawl_stream".to_string(),
+            pattern: AdapterPattern::Streaming,
+            core_path: "crawl_stream".to_string(),
+            params: vec![AdapterParam {
+                name: "req".to_string(),
+                ty: "CrawlStreamRequest".to_string(),
+                optional: false,
+            }],
+            returns: None,
+            error_type: Some("CrawlError".to_string()),
+            owner_type: Some("CrawlEngineHandle".to_string()),
+            item_type: Some("CrawlEvent".to_string()),
+            gil_release: false,
+            trait_name: None,
+            trait_method: None,
+            detect_async: false,
+            request_type: Some("kreuzcrawl::CrawlStreamRequest".to_string()),
+        },
+        AdapterConfig {
+            name: "batch_crawl_stream".to_string(),
+            pattern: AdapterPattern::Streaming,
+            core_path: "batch_crawl_stream".to_string(),
+            params: vec![AdapterParam {
+                name: "req".to_string(),
+                ty: "BatchCrawlStreamRequest".to_string(),
+                optional: false,
+            }],
+            returns: None,
+            error_type: Some("CrawlError".to_string()),
+            owner_type: Some("CrawlEngineHandle".to_string()),
+            item_type: Some("CrawlEvent".to_string()),
+            gil_release: false,
+            trait_name: None,
+            trait_method: None,
+            detect_async: false,
+            request_type: Some("kreuzcrawl::BatchCrawlStreamRequest".to_string()),
+        },
+    ]
+}
+
+#[test]
+fn test_two_streaming_adapters_share_owner_python_emits_distinct_iterators() {
+    let mut config = make_config(vec![Language::Python]);
+    config.adapters = two_streaming_adapters_on_one_owner();
+
+    let bodies = build_adapter_bodies(&config, Language::Python).expect("build failed");
+
+    // Both adapters' iterator structs must coexist in the map under per-adapter keys.
+    let key_crawl = "CrawlEngineHandle.crawl_stream.__stream_struct__";
+    let key_batch = "CrawlEngineHandle.batch_crawl_stream.__stream_struct__";
+    assert!(
+        bodies.contains_key(key_crawl),
+        "missing per-adapter iterator key '{key_crawl}'. Keys: {:?}",
+        bodies.keys().collect::<Vec<_>>()
+    );
+    assert!(
+        bodies.contains_key(key_batch),
+        "missing per-adapter iterator key '{key_batch}'. Keys: {:?}",
+        bodies.keys().collect::<Vec<_>>()
+    );
+
+    let struct_crawl = &bodies[key_crawl];
+    let struct_batch = &bodies[key_batch];
+
+    assert!(
+        struct_crawl.contains("CrawlStreamIterator"),
+        "crawl_stream iterator struct should be named CrawlStreamIterator. Got: {struct_crawl}"
+    );
+    assert!(
+        struct_batch.contains("BatchCrawlStreamIterator"),
+        "batch_crawl_stream iterator struct should be named BatchCrawlStreamIterator. Got: {struct_batch}"
+    );
+    assert!(
+        !struct_crawl.contains("BatchCrawlStreamIterator"),
+        "crawl_stream struct must not collide with BatchCrawlStreamIterator. Got: {struct_crawl}"
+    );
+}
+
+#[test]
+fn test_two_streaming_adapters_share_owner_elixir_emits_distinct_handles() {
+    let mut config = make_config(vec![Language::Elixir]);
+    config.adapters = two_streaming_adapters_on_one_owner();
+
+    let bodies = build_adapter_bodies(&config, Language::Elixir).expect("build failed");
+
+    let key_crawl = "CrawlEngineHandle.crawl_stream.__stream_struct__";
+    let key_batch = "CrawlEngineHandle.batch_crawl_stream.__stream_struct__";
+    let struct_crawl = bodies
+        .get(key_crawl)
+        .unwrap_or_else(|| panic!("missing '{key_crawl}'. Keys: {:?}", bodies.keys().collect::<Vec<_>>()));
+    let struct_batch = bodies
+        .get(key_batch)
+        .unwrap_or_else(|| panic!("missing '{key_batch}'. Keys: {:?}", bodies.keys().collect::<Vec<_>>()));
+
+    // Per-adapter start NIF function names must be distinct.
+    assert!(
+        struct_crawl.contains("crawlenginehandle_crawl_stream_start"),
+        "crawl_stream body must define start NIF. Got: {struct_crawl}"
+    );
+    assert!(
+        struct_batch.contains("crawlenginehandle_batch_crawl_stream_start"),
+        "batch_crawl_stream body must define batch start NIF. Got: {struct_batch}"
+    );
+
+    // Each body must reference its own request type for the `From` conversion
+    // (kreuzcrawl::CrawlStreamRequest vs kreuzcrawl::BatchCrawlStreamRequest).
+    assert!(
+        struct_crawl.contains("CrawlStreamRequest") && !struct_crawl.contains("BatchCrawlStreamRequest"),
+        "crawl_stream must use its own request type, not the second adapter's. Got: {struct_crawl}"
+    );
+    assert!(
+        struct_batch.contains("BatchCrawlStreamRequest"),
+        "batch_crawl_stream must use its own request type. Got: {struct_batch}"
     );
 }

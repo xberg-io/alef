@@ -332,7 +332,7 @@ impl Backend for WasmBackend {
         for adapter in &config.adapters {
             match adapter.pattern {
                 alef_core::config::AdapterPattern::Streaming => {
-                    let key = format!("{}.__stream_struct__", adapter.item_type.as_deref().unwrap_or(""));
+                    let key = alef_adapters::stream_struct_key(adapter);
                     if let Some(struct_code) = adapter_bodies.get(&key) {
                         builder.add_item(struct_code);
                     }

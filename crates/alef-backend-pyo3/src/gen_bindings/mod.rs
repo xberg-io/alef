@@ -432,7 +432,7 @@ mod alef_json_str_opt {
         for adapter in &config.adapters {
             match adapter.pattern {
                 AdapterPattern::Streaming => {
-                    let key = format!("{}.__stream_struct__", adapter.item_type.as_deref().unwrap_or(""));
+                    let key = alef_adapters::stream_struct_key(adapter);
                     if let Some(struct_code) = adapter_bodies.get(&key) {
                         // Don't import item_type — the binding crate defines its own
                         // wrapper struct with the same name. The streaming struct should
