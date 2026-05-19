@@ -603,6 +603,7 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
                 ));
             }
         }
+        let mut emitted_enum_binding_to_core: AHashSet<String> = AHashSet::new();
         for e in &api.enums {
             let has_data_variants = e.variants.iter().any(|v| !v.fields.is_empty());
             let is_tagged_data_enum = e.serde_tag.is_some() && has_data_variants;
@@ -650,6 +651,7 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
                         &core_import,
                         &napi_conv_config,
                     ));
+                    emitted_enum_binding_to_core.insert(e.name.clone());
                 }
                 if alef_codegen::conversions::can_generate_enum_conversion_from_core(e) {
                     builder.add_item(&alef_codegen::conversions::gen_enum_from_core_to_binding_cfg(
@@ -657,6 +659,109 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
                         &core_import,
                         &napi_conv_config,
                     ));
+                }
+            }
+        }
+
+        // From impls for tagged data enums lowered to flat NAPI classes.
+        // Track types whose `From<binding> for core` impl has already been emitted by
+        // the main loop above (or by a prior variant in this loop) to avoid duplicate
+        // impls when the same DTO appears both as a top-level input type and as a
+        // variant payload of a tagged enum (e.g. `CrawlPageResult` used directly and
+        // inside `CrawlEvent::Page { result: Box<CrawlPageResult> }`).
+        // The main loop above emits a `From<binding> for core` impl for any type
+        // that is `input_types.contains(&typ.name)`. Pre-seed the dedup set with those.
+        let mut emitted_binding_to_core: AHashSet<String> = api
+            .types
+            .iter()
+            .filter(|typ| !typ.is_trait && input_types.contains(&typ.name))
+            .filter(|typ| alef_codegen::conversions::can_generate_conversion(typ, &binding_to_core))
+            .map(|typ| typ.name.clone())
+            .collect();
+        for enum_def in api.enums.iter() {
+            let has_data_variants = enum_def.variants.iter().any(|v| !v.fields.is_empty());
+            let is_tagged_data_enum = enum_def.serde_tag.is_some() && has_data_variants;
+            if !is_tagged_data_enum {
+                continue;
+            }
+            // Also generate From impls for variant data types (e.g., BibtexMetadata from Metadata::Bibtex).
+            // These are needed when tagged enum binding→core conversion calls `.into()` on variant fields.
+            for variant in &enum_def.variants {
+                for field in &variant.fields {
+                    if let TypeRef::Named(type_name) = &field.ty {
+                        if let Some(typ) = api.types.iter().find(|t| &t.name == type_name) {
+                            if emitted_binding_to_core.contains(&typ.name) {
+                                continue;
+                            }
+                            if alef_codegen::conversions::can_generate_conversion(typ, &binding_to_core) {
+                                builder.add_item(&alef_codegen::conversions::gen_from_binding_to_core_cfg(
+                                    typ,
+                                    &core_import,
+                                    &napi_conv_config,
+                                ));
+                                emitted_binding_to_core.insert(typ.name.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Emit From impls for all remaining DTO types that are convertible but haven't been
+        // emitted yet. This handles nested types that appear as fields in output structures
+        // but are not direct input types or enum variant payloads (e.g., DbfFieldInfo inside
+        // Vec<DbfFieldInfo> in DbfMetadata, which itself is inside FormatMetadata::Dbf).
+        for typ in api.types.iter().filter(|t| !t.is_trait) {
+            if !emitted_binding_to_core.contains(&typ.name)
+                && alef_codegen::conversions::can_generate_conversion(typ, &binding_to_core)
+            {
+                builder.add_item(&alef_codegen::conversions::gen_from_binding_to_core_cfg(
+                    typ,
+                    &core_import,
+                    &napi_conv_config,
+                ));
+                emitted_binding_to_core.insert(typ.name.clone());
+            }
+        }
+
+        // Emit From impls for unit-variant enums that appear in fields of types we've
+        // already emitted From impls for. These are needed because binding code calls
+        // `.map(Into::into)` on Option<enum> fields (e.g., Option<TextDirection>).
+        for typ in api.types.iter().filter(|t| !t.is_trait && emitted_binding_to_core.contains(&t.name)) {
+            for field in &typ.fields {
+                // Recursively extract enum names from field types (e.g., Option<TextDirection> → TextDirection)
+                fn collect_enum_names(ty: &TypeRef, enums: &mut AHashSet<String>) {
+                    match ty {
+                        TypeRef::Named(name) => { enums.insert(name.clone()); },
+                        TypeRef::Optional(inner) | TypeRef::Vec(inner) => collect_enum_names(inner, enums),
+                        TypeRef::Map(_k, v) => collect_enum_names(v, enums),
+                        _ => {}
+                    }
+                }
+                let mut field_enums = AHashSet::new();
+                collect_enum_names(&field.ty, &mut field_enums);
+                for enum_name in field_enums {
+                    if let Some(enum_def) = api.enums.iter().find(|e| e.name == enum_name) {
+                        // Skip data enums — they have their own conversion logic via tagged enum handling
+                        let has_data_variants = enum_def.variants.iter().any(|v| !v.fields.is_empty());
+                        if enum_def.serde_tag.is_some() && has_data_variants {
+                            continue;
+                        }
+                        if enum_def.serde_untagged && has_data_variants {
+                            continue;
+                        }
+                        // Unit-variant enum: emit From impl for binding→core if not already emitted
+                        if !emitted_enum_binding_to_core.contains(&enum_def.name)
+                            && alef_codegen::conversions::can_generate_enum_conversion(enum_def)
+                        {
+                            builder.add_item(&alef_codegen::conversions::gen_enum_from_binding_to_core_cfg(
+                                enum_def,
+                                &core_import,
+                                &napi_conv_config,
+                            ));
+                            emitted_enum_binding_to_core.insert(enum_def.name.clone());
+                        }
+                    }
                 }
             }
         }

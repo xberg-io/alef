@@ -643,6 +643,23 @@ impl Backend for PhpBackend {
             }
         }
 
+        // Emit From impls for all remaining DTO types that are convertible but haven't been
+        // emitted yet. This handles nested types that appear as fields in output structures
+        // but are not direct input types or enum variant payloads.
+        for typ in api.types.iter().filter(|t| !t.is_trait) {
+            if !emitted_binding_to_core.contains(&typ.name)
+                && alef_codegen::conversions::can_generate_conversion(typ, &convertible)
+            {
+                builder.add_item(&alef_codegen::conversions::gen_from_binding_to_core_cfg(
+                    typ,
+                    &core_import,
+                    &php_conv_config,
+                ));
+                emitted_binding_to_core.insert(typ.name.clone());
+            }
+        }
+
+
         // Error converter functions + optional introspection method impl structs
         for error in &api.errors {
             builder.add_item(&alef_codegen::error_gen::gen_php_error_converter(error, &core_import));
