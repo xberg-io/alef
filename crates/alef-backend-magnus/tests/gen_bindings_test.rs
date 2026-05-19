@@ -2653,3 +2653,193 @@ fn test_enum_variant_method_yard_docs() {
         "from_hash must declare a self return:\n{content}"
     );
 }
+
+#[test]
+fn test_explicit_re_export_list_filters_internal_types() {
+    let backend = MagnusBackend;
+
+    // Create a test API with types that should be filtered (Update, Builder),
+    // excluded types, and valid public types.
+    let types = vec![
+        TypeDef {
+            name: "Config".to_string(),
+            rust_path: "test_lib::Config".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![make_field("value", TypeRef::String, false)],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        },
+        // Update struct should be filtered out
+        TypeDef {
+            name: "ConfigUpdate".to_string(),
+            rust_path: "test_lib::ConfigUpdate".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![make_field("value", TypeRef::String, true)],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        },
+        // Builder struct should be filtered out
+        TypeDef {
+            name: "ConfigBuilder".to_string(),
+            rust_path: "test_lib::ConfigBuilder".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![make_field("value", TypeRef::String, true)],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        },
+    ];
+
+    let api = ApiSurface {
+        crate_name: "test-lib-rs".to_string(),
+        version: "0.1.0".to_string(),
+        types,
+        functions: vec![FunctionDef {
+            name: "process".to_string(),
+            rust_path: "test_lib_rs::process".to_string(),
+            original_rust_path: String::new(),
+            params: vec![],
+            return_type: TypeRef::String,
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![EnumDef {
+            name: "Status".to_string(),
+            rust_path: "test_lib::Status".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Active".to_string(),
+                    fields: vec![],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+            ],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: false,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let config = resolved_one(
+        r#"
+[workspace]
+languages = ["ruby"]
+
+[[crates]]
+name = "test-lib-rs"
+sources = ["src/lib.rs"]
+
+[crates.ruby]
+gem_name = "test_lib"
+exclude_types = ["ExcludedType"]
+"#,
+    );
+
+    let files = backend.generate_public_api(&api, &config).unwrap();
+    let native_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("native.rb"))
+        .unwrap();
+    let content = &native_file.content;
+
+    // Verify no dynamic re-export pattern (old behavior)
+    assert!(
+        !content.contains(".methods(false).each"),
+        "native.rb must NOT use dynamic .methods(false).each pattern:\n{content}"
+    );
+    assert!(
+        !content.contains(".constants.each"),
+        "native.rb must NOT use dynamic .constants.each pattern:\n{content}"
+    );
+
+    // Verify explicit re-exports are present
+    assert!(
+        content.contains("Config = TestLibRs.const_get(:Config)"),
+        "valid type Config should be explicitly re-exported:\n{content}"
+    );
+    assert!(
+        content.contains("Status = TestLibRs.const_get(:Status)"),
+        "enum Status should be explicitly re-exported:\n{content}"
+    );
+
+    // Verify Update and Builder types are NOT exported
+    assert!(
+        !content.contains("ConfigUpdate"),
+        "Update-type ConfigUpdate must NOT be re-exported:\n{content}"
+    );
+    assert!(
+        !content.contains("ConfigBuilder"),
+        "Builder-type ConfigBuilder must NOT be re-exported:\n{content}"
+    );
+
+    // Verify function is explicitly re-exported
+    assert!(
+        content.contains("define_singleton_method(:process)"),
+        "function process should be explicitly re-exported:\n{content}"
+    );
+
+    // Verify no leakage of dynamic re-export patterns
+    assert!(
+        !content.contains(".methods(false).each") && !content.contains(".constants.each"),
+        "must not use dynamic .methods or .constants patterns:\n{content}"
+    );
+}

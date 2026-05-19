@@ -590,6 +590,46 @@ impl Backend for MagnusBackend {
         );
         content.push('\n');
 
+        // Build explicit re-export lists: filter out excluded types and Update/Builder types.
+        let exclude_types: std::collections::HashSet<&str> = config
+            .ruby
+            .as_ref()
+            .map(|c| c.exclude_types.iter().map(|s| s.as_str()).collect())
+            .unwrap_or_default();
+
+        let exclude_functions: std::collections::HashSet<&str> = config
+            .ruby
+            .as_ref()
+            .map(|c| c.exclude_functions.iter().map(|s| s.as_str()).collect())
+            .unwrap_or_default();
+
+        // Collect public types: include all non-opaque, non-trait types and enums,
+        // except those in exclude_types and those ending with "Update" or "Builder".
+        let mut public_types = Vec::new();
+        for typ in &api.types {
+            if !typ.is_trait && !typ.is_opaque && !exclude_types.contains(typ.name.as_str()) {
+                // Filter out partial-update structs (*Update) and builder types (*Builder)
+                if !typ.name.ends_with("Update") && !typ.name.ends_with("Builder") {
+                    public_types.push(typ.name.clone());
+                }
+            }
+        }
+        for enum_def in &api.enums {
+            if !exclude_types.contains(enum_def.name.as_str()) {
+                public_types.push(enum_def.name.clone());
+            }
+        }
+        public_types.sort();
+
+        // Collect public functions: include all non-excluded functions.
+        let mut public_functions = Vec::new();
+        for func in &api.functions {
+            if !is_reserved_fn(&func.name) && !exclude_functions.contains(func.name.as_str()) {
+                public_functions.push(func.name.clone());
+            }
+        }
+        public_functions.sort();
+
         // Generate the native.rb file that requires the extension and re-exports its symbols
         let native_module_name = get_module_name(&api.crate_name);
         let mut native_content = hash::header(CommentStyle::Hash);
@@ -600,6 +640,8 @@ impl Backend for MagnusBackend {
                     ext_name => ext_name,
                     module_name => module_name,
                     native_module_name => native_module_name,
+                    public_types => public_types,
+                    public_functions => public_functions,
                 },
             )
             .trim_end_matches('\n'),
