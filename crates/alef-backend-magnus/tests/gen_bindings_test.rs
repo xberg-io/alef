@@ -2815,8 +2815,8 @@ exclude_types = ["ExcludedType"]
         "valid type Config should be explicitly re-exported:\n{content}"
     );
     assert!(
-        content.contains("Status = TestLibRs.const_get(:Status)"),
-        "enum Status should be explicitly re-exported:\n{content}"
+        !content.contains("Status = TestLibRs.const_get(:Status)"),
+        "enum Status must NOT be re-exported — Magnus does not register enums as module constants:\n{content}"
     );
 
     // Verify Update and Builder types are NOT exported
