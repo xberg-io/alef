@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-backend-napi: emit trait-bridge registration functions (`unregister_*`, `clear_*`) in TypeScript declarations.** The NAPI backend was generating the Rust implementations of trait-bridge functions (`#[napi(js_name = "unregisterOcrBackend")]`, etc.) in `lib.rs` but omitting their declarations from `index.d.ts`, making them invisible to TypeScript callers. The `.d.ts` generator now iterates over `config.trait_bridges`, emitting `export declare function unregister*(name: string): void;` and `export declare function clear*(): void;` declarations for each bridge's `unregister_fn` and `clear_fn`. Fix in `crates/alef-backend-napi/src/gen_bindings/errors.rs::gen_dts`.
+
 ### Added
 
 - **alef-backend-php: emit `HtmlVisitorInterface` for visitor trait bridges so PHP users can implement custom visitors.** The PHP binding previously exposed only the opaque `VisitorHandle` type alias, giving no way for users to implement custom visitor logic. The backend now generates a `HtmlVisitorInterface` with method signatures for every visitor callback (15 methods: `visit_text`, `visit_element_start`, `visit_element_end`, `visit_link`, `visit_image`, `visit_heading`, `visit_code_block`, `visit_code_inline`, `visit_list_item`, `visit_list_start`, `visit_list_end`, `visit_table_start`, `visit_table_row`, `visit_table_end`, `visit_blockquote`). PHP users can now `implement HtmlVisitorInterface` on their callback class and pass instances via `ConversionOptions::$visitor`. The context parameter (`NodeContext`) is automatically hidden from the interface signature — only user-relevant parameters appear. Implementation in `crates/alef-backend-php/src/trait_bridge.rs:gen_visitor_interface` and `src/template_env.rs` (template registration).
