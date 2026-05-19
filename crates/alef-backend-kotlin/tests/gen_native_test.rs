@@ -413,7 +413,7 @@ fn native_kt_file_is_at_correct_path() {
         .iter()
         .find(|f| f.path.extension().is_some_and(|e| e == "kt"))
         .unwrap();
-    let path_str = kt.path.to_string_lossy();
+    let path_str = kt.path.to_string_lossy().replace('\\', "/");
 
     assert!(
         path_str.contains("packages/kotlin-native/src/nativeMain/kotlin"),
