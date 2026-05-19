@@ -388,6 +388,36 @@ fn emit_lib_rs(
         emit_from_mirror_to_core_enum(&mut content, en, source_crate_name);
     }
 
+    // Streaming adapter method bodies use `let core_req: crate::T = req.into()` which
+    // requires `From<LocalMirrorT> for crate::T`. Simple request types (e.g.
+    // `CrawlStreamRequest { url: String }`) have no sanitized fields, so they never enter
+    // `types_needing_from_impl` via the sanitized-field transitive closure above. Emit the
+    // mirror-to-core `From` impl for any streaming adapter param type that is a declared
+    // mirror type and has not already been covered above.
+    {
+        let streaming_param_mirror_types: Vec<&TypeDef> = config
+            .adapters
+            .iter()
+            .filter(|a| matches!(a.pattern, AdapterPattern::Streaming))
+            .flat_map(|a| a.params.iter())
+            .map(|p| p.ty.as_str())
+            .filter(|ty_name| mirror_type_names.contains(*ty_name))
+            .filter(|ty_name| !types_needing_from_impl.contains(*ty_name))
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .filter_map(|ty_name| api.types.iter().find(|t| t.name == ty_name))
+            .collect();
+        if !streaming_param_mirror_types.is_empty() {
+            content.push_str(
+                "\n// From<T> for SourceT conversions for streaming-adapter mirror request types.\n",
+            );
+            for ty in streaming_param_mirror_types {
+                content.push('\n');
+                emit_from_mirror_to_core_struct(&mut content, ty, source_crate_name);
+            }
+        }
+    }
+
     let type_paths = build_type_path_lookup_for_source(api, source_crate_name);
     // opaque_type_names already computed above (before emit_opaque_impl_block).
 
