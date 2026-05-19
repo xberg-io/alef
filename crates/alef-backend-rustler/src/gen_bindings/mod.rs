@@ -5,6 +5,7 @@ mod types;
 use crate::template_env;
 use crate::type_map::RustlerMapper;
 use ahash::AHashSet;
+use alef_codegen::type_mapper::TypeMapper;
 use alef_codegen::builder::RustFileBuilder;
 use alef_codegen::generators;
 use alef_codegen::shared::binding_fields;
@@ -502,6 +503,32 @@ impl Backend for RustlerBackend {
                 error,
                 &core_import,
             ));
+        }
+
+        // NIF shims for whitelisted error introspection methods.
+        // Each shim takes a string error message (the current Rustler error term
+        // representation) and returns the method's default value.  When the
+        // error-passing model is upgraded to structured terms these bodies will
+        // be replaced with real dispatch; for now the declarations are emitted
+        // so the Elixir public-API wrappers have matching NIF counterparts.
+        for error in &api.errors {
+            for method in error.methods.iter().filter(|m| !m.sanitized) {
+                let fn_name = format!("{}_{}", error.name.to_lowercase(), method.name);
+                let return_type = mapper.map_type(&method.return_type);
+                let default_val = rustler_default_for_type(&method.return_type);
+                let shim = format!(
+                    "/// Introspection NIF: returns the `{method_name}` value carried by the error.\n\
+                     /// TODO: extend to accept a structured error term once error passing is upgraded.\n\
+                     #[allow(dead_code)]\n\
+                     #[rustler::nif]\n\
+                     fn {fn_name}(_msg: String) -> {return_type} {{\n    {default_val}\n}}\n",
+                    method_name = method.name,
+                    fn_name = fn_name,
+                    return_type = return_type,
+                    default_val = default_val,
+                );
+                builder.add_item(&shim);
+            }
         }
 
         // from_json NIF shims for Gleam e2e tests.
@@ -1299,6 +1326,45 @@ impl Backend for RustlerBackend {
             }
         }
 
+        // Elixir public-API wrappers for whitelisted error introspection methods.
+        // Each emits an `@spec` + `def` that delegates to the corresponding NIF shim.
+        for error in &api.errors {
+            for method in error.methods.iter().filter(|m| !m.sanitized) {
+                let nif_fn_name = format!("{}_{}", error.name.to_lowercase(), method.name);
+                let return_spec =
+                    elixir_return_typespec(&method.return_type, false, &opaque_types, &default_types);
+                let doc_line = if method.doc.is_empty() {
+                    format!("Returns the `{}` value for the given error message.", method.name)
+                } else {
+                    alef_codegen::doc_emission::doc_first_paragraph_joined(&method.doc)
+                        .replace('"', "\\\"")
+                };
+                content.push_str(&template_env::render(
+                    "elixir_doc_line.jinja",
+                    minijinja::context! {
+                        doc_line => &doc_line,
+                    },
+                ));
+                content.push_str(&format!("  @spec {nif_fn_name}(String.t()) :: {return_spec}\n"));
+                content.push_str(&template_env::render(
+                    "elixir_def_simple.jinja",
+                    minijinja::context! {
+                        func_name => &nif_fn_name,
+                        params => "msg",
+                    },
+                ));
+                content.push_str(&template_env::render(
+                    "elixir_def_nif_call.jinja",
+                    minijinja::context! {
+                        native_mod => &native_mod,
+                        func_name => &nif_fn_name,
+                        args => "msg",
+                    },
+                ));
+                content.push_str("  end\n\n");
+            }
+        }
+
         // Streaming-adapter wrappers: emit the underlying `_start` / `_next` defs
         // (delegating to NIFs) plus a high-level `{name}/2` (or `/3`) function
         // returning an Elixir `Stream` driven by `Stream.unfold/2`.
@@ -1389,6 +1455,23 @@ impl Backend for RustlerBackend {
             build_dep: BuildDependency::None,
             post_build: vec![],
         })
+    }
+}
+
+/// Return the Rust default value literal for the given `TypeRef`.
+///
+/// Used to populate the body of error-introspection NIF stubs before structured
+/// error terms are available.  The literal must be valid Rust and match the
+/// return type produced by `RustlerMapper::map_type`.
+fn rustler_default_for_type(ty: &alef_core::ir::TypeRef) -> &'static str {
+    use alef_core::ir::{PrimitiveType, TypeRef};
+    match ty {
+        TypeRef::Primitive(PrimitiveType::Bool) => "false",
+        TypeRef::Primitive(_) => "0",
+        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => {
+            "String::new()"
+        }
+        _ => "Default::default()",
     }
 }
 
