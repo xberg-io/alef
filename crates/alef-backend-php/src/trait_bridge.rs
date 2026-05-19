@@ -286,13 +286,10 @@ pub fn gen_trait_bridge(
     if is_visitor_bridge {
         let struct_name = format!("Php{}Bridge", bridge_cfg.trait_name);
         let trait_path = trait_type.rust_path.replace('-', "_");
-        let mut code = gen_visitor_bridge(trait_type, bridge_cfg, &struct_name, &trait_path, &type_paths);
+        let code = gen_visitor_bridge(trait_type, bridge_cfg, &struct_name, &trait_path, &type_paths);
 
-        // Also emit the PHP interface stub so users can implement custom visitors
-        let interface_code = gen_visitor_interface(trait_type, bridge_cfg, &type_paths);
-        code.push_str(&interface_code);
-        code.push('\n');
-
+        // Note: PHP interface file generation is handled separately by the PHP backend
+        // in generate_bindings() to emit it as a standalone PHP file, not inline Rust code.
         BridgeOutput { imports: vec![], code }
     } else {
         // Use the IR-driven TraitBridgeGenerator infrastructure
@@ -799,15 +796,71 @@ pub fn gen_bridge_function(
     out
 }
 
+/// Convert a Rust TypeRef to a PHP type string for interface declarations.
+/// Handles Rust types like `&str`, `Option<&str>`, `bool`, etc.
+fn rust_type_to_php_type(ty: &TypeRef, _is_ref: bool, optional: bool, _type_paths: &HashMap<String, String>) -> String {
+    // String reference or optional string ref → PHP string (nullable if optional)
+    if matches!(ty, TypeRef::String) {
+        if optional {
+            return "?string".to_string();
+        }
+        return "string".to_string();
+    }
+
+    // Boolean type
+    if matches!(ty, TypeRef::Primitive(alef_core::ir::PrimitiveType::Bool)) {
+        if optional {
+            return "?bool".to_string();
+        }
+        return "bool".to_string();
+    }
+
+    // Numeric types → int or float
+    if let TypeRef::Primitive(prim) = ty {
+        match prim {
+            alef_core::ir::PrimitiveType::I32
+            | alef_core::ir::PrimitiveType::I64
+            | alef_core::ir::PrimitiveType::U32
+            | alef_core::ir::PrimitiveType::U64
+            | alef_core::ir::PrimitiveType::Usize => {
+                if optional {
+                    return "?int".to_string();
+                }
+                return "int".to_string();
+            }
+            alef_core::ir::PrimitiveType::F32 | alef_core::ir::PrimitiveType::F64 => {
+                if optional {
+                    return "?float".to_string();
+                }
+                return "float".to_string();
+            }
+            _ => {}
+        }
+    }
+
+    // Default: untyped (mixed)
+    if optional {
+        "?mixed".to_string()
+    } else {
+        "mixed".to_string()
+    }
+}
+
 /// Generate a PHP interface stub definition for the trait.
 /// This allows PHP users to implement the interface and pass their implementation to functions.
-fn gen_visitor_interface(
+pub fn gen_visitor_interface(
     trait_type: &TypeDef,
     bridge_cfg: &TraitBridgeConfig,
+    namespace: &str,
     type_paths: &HashMap<String, String>,
 ) -> String {
     let interface_name = format!("{}Interface", bridge_cfg.trait_name);
     let mut out = String::with_capacity(2048);
+
+    // PHP file header with declare(strict_types=1)
+    out.push_str("<?php\n\n");
+    out.push_str("declare(strict_types=1);\n\n");
+    out.push_str(&format!("namespace {namespace};\n\n"));
 
     // Interface declaration header
     out.push_str(&crate::template_env::render(
@@ -833,19 +886,18 @@ fn gen_visitor_interface(
         for p in &method.params {
             // Skip the context parameter - it's internal to the bridge
             let is_ctx_param = match &p.ty {
-                TypeRef::Named(n) => {
-                    Some(n.as_str()) == bridge_cfg.context_type.as_deref()
-                }
+                TypeRef::Named(n) => Some(n.as_str()) == bridge_cfg.context_type.as_deref(),
                 _ => false,
             };
             if is_ctx_param {
                 continue;
             }
 
-            let ty_str = visitor_param_type(&p.ty, p.is_ref, p.optional, type_paths);
-            method_params_parts.push(format!("{}: {}", p.name, ty_str));
+            // Convert Rust type to PHP type
+            let php_type = rust_type_to_php_type(&p.ty, p.is_ref, p.optional, type_paths);
+            method_params_parts.push(format!("{} ${}", php_type, p.name));
 
-            let doc = format!("     * @param {} ${}", ty_str, p.name);
+            let doc = format!("     * @param {} ${}", php_type, p.name);
             param_docs.push(doc);
         }
 
