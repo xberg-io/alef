@@ -1,5 +1,6 @@
 
-    private void checkLastFfiError() throws {{ exception_class }} {
+    // CPD-OFF — generated FFI boilerplate, identical across all opaque types by design.
+    private static void checkLastFfiError() throws {{ exception_class }} {
         try {
             int code = (int) NativeLib.{{ prefix_upper }}_LAST_ERROR_CODE.invoke();
             if (code == 0) { return; }
@@ -37,3 +38,4 @@
         .setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE)
         .setSerializationInclusion(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
         .configure(com.fasterxml.jackson.databind.MapperFeature.ACCEPT_CASE_INSENSITIVE_ENUMS, true);
+    // CPD-ON

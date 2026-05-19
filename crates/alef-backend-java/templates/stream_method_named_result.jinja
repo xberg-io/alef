@@ -1,3 +1,4 @@
+            // CPD-OFF — FFI JSON-roundtrip body, structurally identical for every named-result method.
             MemorySegment resultPtr = (MemorySegment) {{ ffi_handle }}.invoke({{ args_joined }});
 {{ named_frees }}            if (resultPtr.equals(MemorySegment.NULL)) {
                 checkLastFfiError();
@@ -15,3 +16,4 @@
             } finally {
                 {{ ret_free }}.invoke(resultPtr);
             }
+            // CPD-ON
