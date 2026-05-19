@@ -653,6 +653,7 @@ pub(super) fn gen_dto_method_fns(
     opaque_types: &ahash::AHashSet<String>,
     prefix: &str,
     mutex_types: &ahash::AHashSet<String>,
+    api: &alef_core::ir::ApiSurface,
 ) -> String {
     let methods: Vec<&alef_core::ir::MethodDef> = typ
         .methods
@@ -711,7 +712,32 @@ pub(super) fn gen_dto_method_fns(
         // Build the function body.
         let body = if is_static {
             // Static preset: call core::TypeName::method(args) and wrap into binding type.
-            let core_call = format!("{core_type_path}::{}({call_args_str})", method.name);
+            let core_call = if method.name == "from" && method.params.len() == 1 {
+                // Special case: From trait method. `core::Type::from(arg.into())` is
+                // ambiguous because both `From<RealArg>` and the blanket `From<Type> for Type`
+                // satisfy the call, and `arg.into()` is ambiguous too. Use a let-binding
+                // with an explicit type to disambiguate.
+                let param = &method.params[0];
+                let param_expr = napi_gen_call_args(std::slice::from_ref(param), opaque_types);
+
+                // Look up the param's core type from the API surface
+                let core_param_type = match &param.ty {
+                    alef_core::ir::TypeRef::Named(param_type_name) => {
+                        api.types
+                            .iter()
+                            .find(|t| t.name == *param_type_name)
+                            .map(|t| t.rust_path.replace('-', "_"))
+                            .unwrap_or_else(|| param_type_name.clone())
+                    }
+                    other_ty => mapper.map_type(other_ty).to_string(),
+                };
+
+                format!(
+                    "let _arg: {core_param_type} = {param_expr};\n    {core_type_path}::from(_arg)",
+                )
+            } else {
+                format!("{core_type_path}::{}({call_args_str})", method.name)
+            };
             napi_wrap_return(
                 &core_call,
                 &method.return_type,
