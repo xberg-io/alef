@@ -13,6 +13,7 @@ use alef_core::ir::{DefaultValue, MethodDef, PrimitiveType, TypeDef, TypeRef};
 use heck::{ToLowerCamelCase, ToPascalCase};
 use std::collections::{HashMap, HashSet};
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn gen_opaque_handle(
     typ: &TypeDef,
     namespace: &str,
