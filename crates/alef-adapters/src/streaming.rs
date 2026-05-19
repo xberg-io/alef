@@ -217,23 +217,33 @@ fn gen_node_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Stri
     };
 
     // The iterator forwards stream items through an mpsc channel populated by a
-    // background tokio task. This avoids the NAPI-rs serialization overhead of
-    // collecting all chunks into a Vec before returning to JavaScript.
+    // background tokio task. We implement NAPI-RS's AsyncGenerator trait so that
+    // NAPI-RS automatically sets Symbol.asyncIterator on every instance, making the
+    // iterator directly usable with `for await (const chunk of client.chatStream(req))`.
+    // The AsyncGenerator::next() method drives the mpsc receiver; returning Ok(None)
+    // signals end-of-stream and sets done:true in the JS iterator result object.
     let struct_def = format!(
-        "#[napi]\n\
+        "#[napi(async_iterator)]\n\
          pub struct {iter_name} {{\n    \
              receiver: Arc<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<napi::Result<{item_type}>>>>,\n\
          }}\n\
          \n\
-         #[napi]\n\
-         impl {iter_name} {{\n    \
-             #[napi]\n    \
-             pub async fn next(&self) -> napi::Result<Option<{item_type}>> {{\n        \
+         impl napi::bindgen_prelude::AsyncGenerator for {iter_name} {{\n    \
+             type Yield = {item_type};\n    \
+             type Next = napi::bindgen_prelude::Unknown<'static>;\n    \
+             type Return = napi::bindgen_prelude::Unknown<'static>;\n\
+             \n    \
+             fn next(\n        \
+                 &mut self,\n        \
+                 _value: Option<napi::bindgen_prelude::Unknown<'static>>,\n    \
+             ) -> impl std::future::Future<Output = napi::Result<Option<{item_type}>>> + Send + 'static {{\n        \
                  let receiver = self.receiver.clone();\n        \
-                 let mut rx = receiver.lock().await;\n        \
-                 match rx.recv().await {{\n            \
-                     Some(res) => res.map(Some),\n            \
-                     None => Ok(None),\n        \
+                 async move {{\n            \
+                     let mut rx = receiver.lock().await;\n            \
+                     match rx.recv().await {{\n                \
+                         Some(res) => res.map(Some),\n                \
+                         None => Ok(None),\n            \
+                     }}\n        \
                  }}\n    \
              }}\n\
          }}"

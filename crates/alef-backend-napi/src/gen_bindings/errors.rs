@@ -7,12 +7,19 @@ use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{ApiSurface, EnumDef, FunctionDef, ParamDef, TypeDef, TypeRef};
 use std::collections::HashMap;
 
+/// Generate the TypeScript declaration file for NAPI-RS bindings.
+///
+/// `streaming_item_types` maps `"OwnerType.method_name"` (snake_case) to the item type name
+/// (unprefixed, e.g. `"ChatCompletionChunk"`). When a class method is identified as a streaming
+/// method, its return type is overridden to `Promise<AsyncGenerator<ItemType, void, undefined>>`
+/// and a matching iterator class declaration is appended.
 pub(super) fn gen_dts(
     api: &ApiSurface,
     prefix: &str,
     exclude_functions: &ahash::AHashSet<String>,
     trait_bridges: &[alef_core::config::TraitBridgeConfig],
     capsule_types: &HashMap<String, NodeCapsuleTypeConfig>,
+    streaming_item_types: &ahash::AHashMap<String, String>,
 ) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
     let mut lines: Vec<String> = header.lines().map(|l| l.to_string()).collect();
@@ -87,12 +94,12 @@ pub(super) fn gen_dts(
         // register_{trait_name_lower}
         if let Some(register) = &bridge.register_fn {
             let js_name = alef_codegen::naming::to_node_name(register);
-            trait_bridge_fns.push((js_name, format!("impl: object"), "void".to_string()));
+            trait_bridge_fns.push((js_name, "impl: object".to_string(), "void".to_string()));
         }
         // unregister_{trait_name_lower}
         if let Some(unregister) = &bridge.unregister_fn {
             let js_name = alef_codegen::naming::to_node_name(unregister);
-            trait_bridge_fns.push((js_name, format!("name: string"), "void".to_string()));
+            trait_bridge_fns.push((js_name, "name: string".to_string(), "void".to_string()));
         }
         // clear_{trait_name_lower}s
         if let Some(clear) = &bridge.clear_fn {
@@ -160,16 +167,25 @@ pub(super) fn gen_dts(
                 for method in &typ.methods {
                     let js_name = to_node_name(&method.name);
                     let params = dts_params(&method.params, no_prefix);
-                    // Use capsule-aware return type so that methods returning a capsule type
-                    // emit the ecosystem type name (e.g. `Language`) rather than the now-
-                    // undeclared opaque handle (e.g. `JsLanguage`).
-                    let ret = dts_return_type_capsule(
-                        &method.return_type,
-                        method.error_type.is_some(),
-                        method.is_async,
-                        no_prefix,
-                        capsule_types,
-                    );
+                    // Check if this is a streaming method — if so, override the return type to
+                    // Promise<AsyncGenerator<ItemType, void, undefined>> so `for await...of` is
+                    // typesafe. The iterator class name follows the PascalCase(method_name)+Iterator
+                    // convention emitted by alef-adapters streaming codegen.
+                    let streaming_key = format!("{}.{}", typ.name, method.name);
+                    let ret = if let Some(item_type) = streaming_item_types.get(&streaming_key) {
+                        format!("Promise<AsyncGenerator<{item_type}, void, undefined>>")
+                    } else {
+                        // Use capsule-aware return type so that methods returning a capsule type
+                        // emit the ecosystem type name (e.g. `Language`) rather than the now-
+                        // undeclared opaque handle (e.g. `JsLanguage`).
+                        dts_return_type_capsule(
+                            &method.return_type,
+                            method.error_type.is_some(),
+                            method.is_async,
+                            no_prefix,
+                            capsule_types,
+                        )
+                    };
                     lines.extend(format_jsdoc(&method.doc, "  "));
                     if method.is_static {
                         lines.push(format!("  static {js_name}({params}): {ret}"));
@@ -288,6 +304,43 @@ pub(super) fn gen_dts(
                 lines.push(format!("export declare function {name}({params}): {return_type};"));
             }
         }
+    }
+
+    // Emit a class declaration for each streaming iterator struct. These are adapter-generated
+    // types (not in api.types) that implement Symbol.asyncIterator via NAPI-RS's AsyncGenerator
+    // trait. Each iterator wraps a channel receiver and yields streaming chunks.
+    //
+    // The iterator class name follows the PascalCase(adapter.name)+Iterator convention from
+    // alef-adapters/src/streaming.rs: gen_node_body. The [Symbol.asyncIterator]() method is
+    // automatically added by #[napi(async_iterator)] at build time.
+    let mut sorted_streaming: Vec<(&String, &String)> = streaming_item_types.iter().collect();
+    sorted_streaming.sort_by_key(|(k, _)| k.as_str());
+    for (owner_method_key, item_type) in sorted_streaming {
+        // Derive the iterator class name: "OwnerType.method_name" → PascalCase(method_name) + "Iterator"
+        let method_name = owner_method_key
+            .split('.')
+            .next_back()
+            .unwrap_or(owner_method_key.as_str());
+        let iter_class_name = method_name
+            .split('_')
+            .map(|part| {
+                let mut chars = part.chars();
+                match chars.next() {
+                    None => String::new(),
+                    Some(first) => first.to_uppercase().to_string() + chars.as_str(),
+                }
+            })
+            .collect::<String>()
+            + "Iterator";
+        lines.push(String::new());
+        lines.push(format!("export declare class {iter_class_name} {{"));
+        lines.push(format!(
+            "  next(value?: undefined): Promise<IteratorResult<{item_type}, void>>"
+        ));
+        lines.push(format!(
+            "  [Symbol.asyncIterator](): AsyncGenerator<{item_type}, void, undefined>"
+        ));
+        lines.push("}".to_string());
     }
 
     lines.push(String::new());

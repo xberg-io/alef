@@ -780,7 +780,24 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
             .as_ref()
             .map(|c| c.capsule_types.clone())
             .unwrap_or_default();
-        let content = errors::gen_dts(api, &prefix, &exclude_functions, &config.trait_bridges, &capsule_types);
+        let streaming_item_types: ahash::AHashMap<String, String> = config
+            .adapters
+            .iter()
+            .filter(|a| matches!(a.pattern, alef_core::config::AdapterPattern::Streaming))
+            .filter_map(|a| {
+                let owner = a.owner_type.as_deref()?;
+                let item = a.item_type.as_deref()?;
+                Some((format!("{owner}.{}", a.name), item.to_string()))
+            })
+            .collect();
+        let content = errors::gen_dts(
+            api,
+            &prefix,
+            &exclude_functions,
+            &config.trait_bridges,
+            &capsule_types,
+            &streaming_item_types,
+        );
 
         // `output_for("node")` points to the `src/` directory (e.g., `crates/{name}-node/src/`).
         // `index.d.ts` belongs at the crate root, one level up from `src/`.
