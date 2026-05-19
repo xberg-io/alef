@@ -325,7 +325,8 @@ sources = ["src/lib.rs"]
 [crates.elixir]
 scaffold_output = "{pkg}"
 "#,
-            pkg = tmp.path().display()
+            // Normalize backslashes to / so the path is a valid TOML basic string on Windows.
+            pkg = tmp.path().display().to_string().replace('\\', "/")
         ))
         .unwrap();
         let config = cfg.resolve().unwrap().remove(0);

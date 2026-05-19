@@ -186,7 +186,7 @@ namespace = "MyLib"
 
         let result = stage_ffi(&config, Language::Go, &target, root).unwrap();
         assert!(result.exists());
-        assert!(result.to_string_lossy().contains("packages/go/lib"));
+        assert!(result.to_string_lossy().replace('\\', "/").contains("packages/go/lib"));
     }
 
     #[test]
@@ -201,7 +201,12 @@ namespace = "MyLib"
 
         let result = stage_ffi(&config, Language::Java, &target, root).unwrap();
         assert!(result.exists());
-        assert!(result.to_string_lossy().contains("natives/linux-x86_64"));
+        assert!(
+            result
+                .to_string_lossy()
+                .replace('\\', "/")
+                .contains("natives/linux-x86_64")
+        );
     }
 
     #[test]
@@ -216,7 +221,12 @@ namespace = "MyLib"
 
         let result = stage_ffi(&config, Language::Csharp, &target, root).unwrap();
         assert!(result.exists());
-        assert!(result.to_string_lossy().contains("runtimes/osx-arm64/native"));
+        assert!(
+            result
+                .to_string_lossy()
+                .replace('\\', "/")
+                .contains("runtimes/osx-arm64/native")
+        );
     }
 
     #[test]

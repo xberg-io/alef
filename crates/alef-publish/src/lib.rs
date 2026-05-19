@@ -651,6 +651,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_os = "windows"))] // sh + > redirect doesn't work portably on Windows CI runners
     fn test_run_publish_hooks_runs_before_only() {
         let (_temp_dir, marker) = make_temp_marker_file();
         let marker_str = marker.to_str().unwrap();
@@ -683,6 +684,7 @@ mod tests {
         assert!(!marker.exists(), "before hook should not run when precondition fails");
     }
 
+    #[cfg(not(target_os = "windows"))] // sh + > redirect doesn't work portably on Windows CI runners
     #[test]
     fn test_run_publish_after_hooks_runs_after_only() {
         let (_temp_dir, marker) = make_temp_marker_file();
@@ -708,7 +710,8 @@ mod tests {
         let result = run_publish_after_hooks(Language::Python, &config);
         assert!(result.is_ok(), "after hooks should succeed when not specified");
     }
-
+    #[cfg(not(target_os = "windows"))] // sh + > redirect doesn't work portably on Windows CI runners
+    #[cfg(not(target_os = "windows"))] // sh + > redirect doesn't work portably on Windows CI runners
     #[test]
     fn test_run_publish_after_hooks_multiple_commands() {
         let temp_dir = TempDir::new().unwrap();
@@ -743,6 +746,7 @@ mod tests {
         assert!(result.is_err(), "after hook failure should propagate error");
     }
 
+    #[cfg(not(target_os = "windows"))] // sh + > redirect doesn't work portably on Windows CI runners
     #[test]
     fn test_publish_hooks_full_lifecycle_success() {
         let temp_dir = TempDir::new().unwrap();
