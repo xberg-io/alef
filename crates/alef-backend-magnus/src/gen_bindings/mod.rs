@@ -603,8 +603,11 @@ impl Backend for MagnusBackend {
             .map(|c| c.exclude_functions.iter().map(|s| s.as_str()).collect())
             .unwrap_or_default();
 
-        // Collect public types: include all non-opaque, non-trait types and enums,
+        // Collect public types: include all non-opaque, non-trait struct types,
         // except those in exclude_types and those ending with "Update" or "Builder".
+        // NOTE: Enums are NOT included because Magnus backend does not register them as
+        // module-level constants (only structs are registered in gen_module_init). Attempting
+        // to const_get an enum raises NameError.
         let mut public_types = Vec::new();
         for typ in &api.types {
             if !typ.is_trait && !typ.is_opaque && !exclude_types.contains(typ.name.as_str()) {
@@ -612,11 +615,6 @@ impl Backend for MagnusBackend {
                 if !typ.name.ends_with("Update") && !typ.name.ends_with("Builder") {
                     public_types.push(typ.name.clone());
                 }
-            }
-        }
-        for enum_def in &api.enums {
-            if !exclude_types.contains(enum_def.name.as_str()) {
-                public_types.push(enum_def.name.clone());
             }
         }
         public_types.sort();
@@ -1052,6 +1050,60 @@ gem_name = "test_lib"
         assert!(
             files[0].path.to_string_lossy().contains("lib.rs"),
             "output must be lib.rs"
+        );
+    }
+
+    #[test]
+    fn test_explicit_re_export_list_filters_internal_types() {
+        // Verify that generate_public_api includes only struct types in the re-export list,
+        // filtering out enums (which are not registered on the native module).
+        let backend = MagnusBackend;
+        let config = make_config();
+
+        let mut api = make_api_surface();
+        // Add an enum to the API surface
+        api.enums.push(EnumDef {
+            name: "Status".to_string(),
+            rust_path: "test_lib::Status".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Active".to_string(),
+                    fields: vec![],
+                    doc: String::new(),
+                    serde_rename: None,
+                },
+                EnumVariant {
+                    name: "Inactive".to_string(),
+                    fields: vec![],
+                    doc: String::new(),
+                    serde_rename: None,
+                },
+            ],
+            doc: String::new(),
+            serde_tag: None,
+            serde_rename_all: None,
+            is_untagged: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            cfg: None,
+        });
+
+        let files = backend.generate_public_api(&api, &config).unwrap();
+        let native_file = files
+            .iter()
+            .find(|f| f.path.to_string_lossy().ends_with("native.rb"))
+            .expect("native.rb must exist");
+
+        // Verify that the enum (Status) is NOT in the re-export list
+        assert!(
+            !native_file.content.contains("Status ="),
+            "enum types must not be in re-export list"
+        );
+        // Verify that the struct type (Config) IS in the re-export list
+        assert!(
+            native_file.content.contains("Config ="),
+            "struct types must be in re-export list"
         );
     }
 }
