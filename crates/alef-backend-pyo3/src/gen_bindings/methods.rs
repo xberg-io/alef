@@ -115,11 +115,19 @@ pub(super) fn gen_module_init(module_name: &str, api: &ApiSurface, config: &Reso
         lines.push(format!("    m.add_function(wrap_pyfunction!(_alef_{clear_fn}, m)?)?;"));
     }
 
-    // Register error exception types
+    // Register error exception types and companion info classes/functions.
+    // Errors with introspection methods also get a companion `{Name}Info` pyclass
+    // and a free `{snake_name}_info` pyfunction to build it from an exception.
     let mut seen_registrations = AHashSet::new();
     for error in &api.errors {
         for reg_line in alef_codegen::error_gen::gen_pyo3_error_registration(error, &mut seen_registrations) {
             lines.push(reg_line);
+        }
+        if alef_codegen::error_gen::pyo3_error_has_methods(error) {
+            let info_struct = alef_codegen::error_gen::pyo3_error_info_struct_name(error);
+            let info_fn = alef_codegen::error_gen::pyo3_error_info_fn_name(error);
+            lines.push(format!("    m.add_class::<{info_struct}>()?;"));
+            lines.push(format!("    m.add_function(wrap_pyfunction!({info_fn}, m)?)?;"));
         }
     }
 

@@ -394,14 +394,18 @@ pub fn gen_wasm_error_methods(error: &ErrorDef, core_import: &str, wasm_prefix: 
 }
 
 // ---------------------------------------------------------------------------
-// PyO3 (Python) error methods impl
+// PyO3 (Python) error methods — companion class
 // ---------------------------------------------------------------------------
 
-/// Generate a `#[pymethods]` impl block for the base exception class, exposing
-/// the whitelisted introspection methods as `#[getter]` properties.
+/// Generate a `#[pyclass]` companion struct for error introspection, exposing
+/// the whitelisted methods as `#[getter]` properties.
 ///
-/// The converter stores `(message, status_code, is_transient, error_type)` in
-/// the exception args tuple; this impl reads them back by index.
+/// `pyo3::create_exception!` types are zero-sized marker types that do not
+/// implement `PyClass`, so `#[pymethods]` blocks cannot be added to them
+/// directly. Instead we emit a separate `{ErrorName}Info` `#[pyclass]` that
+/// stores the three fields and is built by a `#[pyfunction]` free function
+/// which extracts the values from the exception's args tuple (indices 1–3,
+/// which the converter already populates).
 ///
 /// Returns an empty string when `error.methods` is empty.
 pub fn gen_pyo3_error_methods_impl(error: &ErrorDef) -> String {
@@ -409,58 +413,140 @@ pub fn gen_pyo3_error_methods_impl(error: &ErrorDef) -> String {
         return String::new();
     }
 
-    let mut method_bodies = Vec::new();
-    for method in &error.methods {
-        let body = match method.name.as_str() {
-            "status_code" => concat!(
+    let struct_name = format!("{}Info", error.name);
+    let snake_name = to_snake_case(&error.name);
+    let fn_name = format!("{snake_name}_info");
+
+    let mut fields = Vec::new();
+    let mut getters = Vec::new();
+
+    let has_status_code = error.methods.iter().any(|m| m.name == "status_code");
+    let has_is_transient = error.methods.iter().any(|m| m.name == "is_transient");
+    let has_error_type = error.methods.iter().any(|m| m.name == "error_type");
+
+    if has_status_code {
+        fields.push("    pub status_code: u16,".to_string());
+        getters.push(
+            concat!(
                 "    /// HTTP status code for this error (0 means no associated status).\n",
                 "    #[getter]\n",
-                "    fn status_code(&self, py: pyo3::Python<'_>) -> u16 {\n",
-                "        self.args(py)\n",
-                "            .get_item(1)\n",
-                "            .and_then(|v| v.extract::<u16>())\n",
-                "            .unwrap_or(0)\n",
+                "    fn status_code(&self) -> u16 {\n",
+                "        self.status_code\n",
                 "    }",
             )
             .to_string(),
-            "is_transient" => concat!(
+        );
+    }
+    if has_is_transient {
+        fields.push("    pub is_transient: bool,".to_string());
+        getters.push(
+            concat!(
                 "    /// Returns `true` if the error is transient and a retry may succeed.\n",
                 "    #[getter]\n",
-                "    fn is_transient(&self, py: pyo3::Python<'_>) -> bool {\n",
-                "        self.args(py)\n",
-                "            .get_item(2)\n",
-                "            .and_then(|v| v.extract::<bool>())\n",
-                "            .unwrap_or(false)\n",
+                "    fn is_transient(&self) -> bool {\n",
+                "        self.is_transient\n",
                 "    }",
             )
             .to_string(),
-            "error_type" => concat!(
+        );
+    }
+    if has_error_type {
+        fields.push("    pub error_type: String,".to_string());
+        getters.push(
+            concat!(
                 "    /// Machine-readable error category string for matching and logging.\n",
                 "    #[getter]\n",
-                "    fn error_type<'py>(&self, py: pyo3::Python<'py>) -> pyo3::Bound<'py, pyo3::types::PyString> {\n",
-                "        self.args(py)\n",
-                "            .get_item(3)\n",
-                "            .and_then(|v| v.downcast_into::<pyo3::types::PyString>())\n",
-                "            .unwrap_or_else(|_| pyo3::types::PyString::new(py, \"\"))\n",
+                "    fn error_type(&self) -> String {\n",
+                "        self.error_type.clone()\n",
                 "    }",
             )
             .to_string(),
-            other => format!("    // TODO: emit getter for method `{other}` on `{}`", error.name),
-        };
-        method_bodies.push(body);
+        );
+    }
+    // Emit TODO stubs for any other whitelisted methods.
+    for method in &error.methods {
+        match method.name.as_str() {
+            "status_code" | "is_transient" | "error_type" => {}
+            other => getters.push(format!(
+                "    // TODO: emit getter for method `{other}` on `{struct_name}`"
+            )),
+        }
     }
 
-    format!(
-        "#[pymethods]\nimpl {} {{\n{}\n}}",
-        error.name,
-        method_bodies.join("\n\n")
-    )
+    // The converter stores (msg, status_code, is_transient, error_type) at args indices 0-3.
+    // We extract via getattr("args") which returns Option<Bound<PyAny>>.
+    let mut ctor_fields = Vec::new();
+    if has_status_code {
+        ctor_fields.push(
+            "        status_code: args\n\
+             \x20           .as_ref()\n\
+             \x20           .and_then(|a| a.get_item(1).ok())\n\
+             \x20           .and_then(|v| v.extract::<u16>().ok())\n\
+             \x20           .unwrap_or(0),",
+        );
+    }
+    if has_is_transient {
+        ctor_fields.push(
+            "        is_transient: args\n\
+             \x20           .as_ref()\n\
+             \x20           .and_then(|a| a.get_item(2).ok())\n\
+             \x20           .and_then(|v| v.extract::<bool>().ok())\n\
+             \x20           .unwrap_or(false),",
+        );
+    }
+    if has_error_type {
+        ctor_fields.push(
+            "        error_type: args\n\
+             \x20           .as_ref()\n\
+             \x20           .and_then(|a| a.get_item(3).ok())\n\
+             \x20           .and_then(|v| v.extract::<String>().ok())\n\
+             \x20           .unwrap_or_default(),",
+        );
+    }
+
+    let struct_def = format!(
+        "#[pyclass(name = \"{struct_name}\")]\npub struct {struct_name} {{\n{}\n}}",
+        fields.join("\n")
+    );
+
+    let impl_block = format!(
+        "#[pymethods]\nimpl {struct_name} {{\n{}\n}}",
+        getters.join("\n\n")
+    );
+
+    let free_fn = format!(
+        "/// Build a `{struct_name}` from any exception raised by the `{error_name}` hierarchy.\n\
+         ///\n\
+         /// The converter stores `(message, status_code, is_transient, error_type)` in the\n\
+         /// exception args tuple; this function extracts those values at indices 1–3.\n\
+         #[pyfunction]\n\
+         pub fn {fn_name}(err: pyo3::Bound<'_, pyo3::types::PyAny>) -> {struct_name} {{\n\
+             let args = err.getattr(\"args\").ok();\n\
+             {struct_name} {{\n\
+         {ctor}\n\
+             }}\n\
+         }}",
+        error_name = error.name,
+        ctor = ctor_fields.join("\n"),
+    );
+
+    format!("{struct_def}\n\n{impl_block}\n\n{free_fn}")
 }
 
 /// Returns `true` when the error has whitelisted introspection methods that
 /// require extended constructor args `(msg, status_code, is_transient, error_type)`.
 pub fn pyo3_error_has_methods(error: &ErrorDef) -> bool {
     !error.methods.is_empty()
+}
+
+/// Return the name of the companion info struct for an error type.
+pub fn pyo3_error_info_struct_name(error: &ErrorDef) -> String {
+    format!("{}Info", error.name)
+}
+
+/// Return the name of the free function that builds the companion info struct.
+pub fn pyo3_error_info_fn_name(error: &ErrorDef) -> String {
+    format!("{}_info", to_snake_case(&error.name))
 }
 
 // ---------------------------------------------------------------------------
