@@ -354,6 +354,16 @@ pub fn write_scaffold_files(files: &[GeneratedFile], base_dir: &Path) -> anyhow:
 }
 
 /// Like [`write_scaffold_files`] but with an explicit `overwrite` flag.
+///
+/// Files marked `generated_header: true` are always overwritten regardless of the
+/// flag: these are fully alef-managed manifests (Cargo.toml, gemspec, composer.json)
+/// whose dependency lists are derived from `[workspace.languages]`, `[crates.*]`,
+/// and the active adapter set. Skipping them on regen means newly added streaming
+/// adapters or trait bridges never get their conditional deps (futures-util,
+/// futures, tokio sync features) appended, leaving the generated bindings
+/// referencing crates that aren't in `[dependencies]`. Files with
+/// `generated_header: false` are seeds (py.typed markers, sample test files,
+/// README.md placeholders) and stay create-only so user edits survive.
 pub fn write_scaffold_files_with_overwrite(
     files: &[GeneratedFile],
     base_dir: &Path,
@@ -362,7 +372,8 @@ pub fn write_scaffold_files_with_overwrite(
     let mut count = 0;
     for file in files {
         let full_path = base_dir.join(&file.path);
-        if !overwrite && full_path.exists() {
+        let can_skip = !overwrite && !file.generated_header && full_path.exists();
+        if can_skip {
             debug!("  skipped (already exists): {}", full_path.display());
             continue;
         }
