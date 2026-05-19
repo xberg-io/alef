@@ -1737,3 +1737,211 @@ fn scalar_named_dto_return_still_uses_class_java_literal() {
         "scalar DTO return must use ConversionResult::class.java, got:\n{content}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// exclude_types: types listed in [crates.kotlin_android].exclude_types must
+// not appear as emitted .kt data-class / enum / error files.
+// ---------------------------------------------------------------------------
+
+fn make_exclude_types_config(excluded: &[&str]) -> ResolvedCrateConfig {
+    let exclude_list = excluded
+        .iter()
+        .map(|s| format!("\"{s}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    resolved_one(&format!(
+        r#"
+[workspace]
+languages = ["kotlin_android", "java", "ffi"]
+
+[[crates]]
+name = "demo"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "demo"
+
+[crates.java]
+package = "dev.kreuzberg"
+
+[crates.kotlin_android]
+package = "dev.kreuzberg.demo.android"
+namespace = "dev.kreuzberg.demo.android"
+artifact_id = "demo-android"
+group_id = "dev.kreuzberg"
+exclude_types = [{exclude_list}]
+"#
+    ))
+}
+
+fn make_exclude_types_api() -> ApiSurface {
+    use alef_core::ir::{EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef};
+    ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![
+            TypeDef {
+                name: "TowerRequest".into(),
+                rust_path: "demo::TowerRequest".into(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                doc: String::new(),
+                cfg: None,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: true,
+                super_traits: vec![],
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+            TypeDef {
+                name: "TowerResponse".into(),
+                rust_path: "demo::TowerResponse".into(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                doc: String::new(),
+                cfg: None,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: true,
+                super_traits: vec![],
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+            TypeDef {
+                name: "KeepMe".into(),
+                rust_path: "demo::KeepMe".into(),
+                original_rust_path: String::new(),
+                fields: vec![make_sealed_field("value", TypeRef::String)],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                doc: String::new(),
+                cfg: None,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: true,
+                serde_rename_all: None,
+                has_serde: true,
+                super_traits: vec![],
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+        ],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "TowerStatus".into(),
+            rust_path: "demo::TowerStatus".into(),
+            original_rust_path: "demo::TowerStatus".into(),
+            variants: vec![EnumVariant {
+                name: "Ok".into(),
+                fields: vec![],
+                doc: String::new(),
+                is_default: false,
+                serde_rename: None,
+                is_tuple: false,
+            }],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: true,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        errors: vec![ErrorDef {
+            name: "TowerError".into(),
+            rust_path: "demo::TowerError".into(),
+            original_rust_path: String::new(),
+            variants: vec![ErrorVariant {
+                name: "Generic".into(),
+                message_template: Some("error".into()),
+                fields: vec![FieldDef {
+                    name: "msg".into(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    doc: String::new(),
+                    sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    typed_default: None,
+                    core_wrapper: alef_core::ir::CoreWrapper::None,
+                    vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                    newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                    original_type: None,
+                }],
+                has_source: false,
+                has_from: false,
+                is_unit: false,
+                doc: String::new(),
+            }],
+            doc: String::new(),
+            methods: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    }
+}
+
+/// Types named in `[crates.kotlin_android].exclude_types` must not produce
+/// `.kt` files in the generated output. Types NOT in the exclusion list must
+/// still be emitted normally.
+#[test]
+fn exclude_types_suppresses_listed_types_enums_and_errors() {
+    let api = make_exclude_types_api();
+    let config = make_exclude_types_config(&["TowerRequest", "TowerResponse", "TowerStatus", "TowerError"]);
+    let files = KotlinAndroidBackend.generate_bindings(&api, &config).unwrap();
+
+    let kt_filenames: Vec<&str> = files
+        .iter()
+        .filter_map(|f| f.path.file_name()?.to_str())
+        .filter(|n| n.ends_with(".kt"))
+        .collect();
+
+    assert!(
+        !kt_filenames.contains(&"TowerRequest.kt"),
+        "TowerRequest.kt must be suppressed by exclude_types, got: {kt_filenames:?}"
+    );
+    assert!(
+        !kt_filenames.contains(&"TowerResponse.kt"),
+        "TowerResponse.kt must be suppressed by exclude_types, got: {kt_filenames:?}"
+    );
+    assert!(
+        !kt_filenames.contains(&"TowerStatus.kt"),
+        "TowerStatus.kt (enum) must be suppressed by exclude_types, got: {kt_filenames:?}"
+    );
+    assert!(
+        !kt_filenames.contains(&"TowerError.kt"),
+        "TowerError.kt (error) must be suppressed by exclude_types, got: {kt_filenames:?}"
+    );
+    assert!(
+        kt_filenames.contains(&"KeepMe.kt"),
+        "KeepMe.kt must still be emitted when not in exclude_types, got: {kt_filenames:?}"
+    );
+}

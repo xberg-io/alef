@@ -1786,3 +1786,161 @@ fn first_class_struct_field_emits_doc_comment_above_let() {
         swift.content
     );
 }
+
+/// A DTO with a `Vec<Named>` field referencing another DTO in the same API must be
+/// emitted as a first-class `public struct`, with the correct `[T]` stored property
+/// and `try rb.field().map { try T($0) }` in `init(_ rb:)`.
+#[test]
+fn complex_dto_with_vec_named_field_emits_first_class_struct() {
+    let mut message_type = make_type("Message", vec![make_field("content", TypeRef::String, false)]);
+    message_type.has_serde = true;
+    message_type.has_default = true;
+
+    // Request: DTO with a Vec<Message> field.  has_default is NOT set — intoRust() uses JSON.
+    let mut request_type = make_type(
+        "ChatRequest",
+        vec![
+            make_field("model", TypeRef::String, false),
+            make_field("messages", TypeRef::Vec(Box::new(TypeRef::Named("Message".into()))), false),
+            make_field("temperature", TypeRef::Primitive(PrimitiveType::F64), true),
+        ],
+    );
+    request_type.has_serde = true;
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![message_type, request_type],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let config = make_config();
+    let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
+    let swift = files.iter().find(|f| f.path.to_string_lossy().ends_with(".swift")).unwrap();
+    let content = &swift.content;
+
+    // Both types must be emitted as public structs.
+    assert!(content.contains("public struct Message:"), "Message must be first-class; got:\n{content}");
+    assert!(content.contains("public struct ChatRequest:"), "ChatRequest must be first-class; got:\n{content}");
+
+    // Vec<Message> → [Message] stored property.
+    assert!(
+        content.contains("public let messages: [Message]"),
+        "Vec<Message> field must emit [Message]; got:\n{content}"
+    );
+
+    // init(_ rb:) must convert Vec<Named> via .map.
+    assert!(
+        content.contains("try rb.messages().map { try Message($0) }"),
+        "init must convert RustVec<Message> via .map; got:\n{content}"
+    );
+
+    // intoRust() must fall back to JSON (no direct constructor for complex type).
+    assert!(content.contains("JSONEncoder().encode(self)"), "intoRust() must use JSON fallback; got:\n{content}");
+    assert!(content.contains("chatRequestFromJson"), "intoRust() must call from-json shim; got:\n{content}");
+}
+
+/// A DTO with a `Named(S)` field (optional nested struct via field.optional=true) must be
+/// emitted as first-class, with `try rb.field().map { try S($0) }` in `init(_ rb:)`.
+#[test]
+fn complex_dto_with_named_struct_field_emits_first_class_struct() {
+    let mut usage_type = make_type(
+        "Usage",
+        vec![
+            make_field("prompt_tokens", TypeRef::Primitive(PrimitiveType::I32), false),
+            make_field("completion_tokens", TypeRef::Primitive(PrimitiveType::I32), false),
+        ],
+    );
+    usage_type.has_serde = true;
+    usage_type.has_default = true;
+
+    let mut response_type = make_type(
+        "ChatResponse",
+        vec![
+            make_field("model", TypeRef::String, false),
+            // Optional nested struct via field.optional=true, TypeRef::Named
+            make_field("usage", TypeRef::Named("Usage".into()), true),
+        ],
+    );
+    response_type.has_serde = true;
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![usage_type, response_type],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let config = make_config();
+    let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
+    let swift = files.iter().find(|f| f.path.to_string_lossy().ends_with(".swift")).unwrap();
+    let content = &swift.content;
+
+    assert!(content.contains("public struct ChatResponse:"), "ChatResponse must be first-class; got:\n{content}");
+
+    // Optional Named field emits `Usage?`.
+    assert!(content.contains("public let usage: Usage?"), "Optional Named field must be Usage?; got:\n{content}");
+
+    // init must convert optional Named field via .map.
+    assert!(
+        content.contains("try rb.usage().map { try Usage($0) }"),
+        "init must convert optional Named field via .map; got:\n{content}"
+    );
+}
+
+/// A DTO with an `Optional<Vec<Named>>` field (TypeRef::Optional wrapping) must be
+/// emitted as first-class, with `?.map` conversion in `init(_ rb:)`.
+#[test]
+fn complex_dto_with_optional_vec_named_field_emits_first_class_struct() {
+    let mut tool_type = make_type("Tool", vec![make_field("name", TypeRef::String, false)]);
+    tool_type.has_serde = true;
+    tool_type.has_default = true;
+
+    let mut request_type = make_type(
+        "ToolRequest",
+        vec![
+            make_field("model", TypeRef::String, false),
+            make_field(
+                "tools",
+                TypeRef::Optional(Box::new(TypeRef::Vec(Box::new(TypeRef::Named("Tool".into()))))),
+                false,
+            ),
+        ],
+    );
+    request_type.has_serde = true;
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![tool_type, request_type],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let config = make_config();
+    let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
+    let swift = files.iter().find(|f| f.path.to_string_lossy().ends_with(".swift")).unwrap();
+    let content = &swift.content;
+
+    assert!(content.contains("public struct ToolRequest:"), "ToolRequest must be first-class; got:\n{content}");
+
+    // Optional<Vec<Tool>> → [Tool]?
+    assert!(content.contains("public let tools: [Tool]?"), "Optional<Vec<Tool>> must emit [Tool]?; got:\n{content}");
+
+    // init must handle Optional<Vec<Named>> via ?.map.
+    assert!(
+        content.contains("try rb.tools()?.map { try Tool($0) }"),
+        "init must convert Optional<Vec<Tool>> via ?.map; got:\n{content}"
+    );
+}

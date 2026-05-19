@@ -3357,3 +3357,93 @@ fn test_disambiguation_pass_runs_on_full_extract() {
         "testing::Event renamed with PascalCase parent: {names:?}"
     );
 }
+
+#[test]
+fn test_error_enum_methods_whitelist() {
+    // Simulates liter-llm's LiterLlmError with whitelisted introspection methods
+    // plus a noisy Display::fmt that must be excluded.
+    let source = r#"
+        #[derive(Debug, thiserror::Error)]
+        pub enum LiterLlmError {
+            #[error("authentication failed")]
+            AuthenticationFailed,
+            #[error("rate limited: retry after {retry_after_secs}s")]
+            RateLimited { retry_after_secs: u64 },
+            #[error("provider unavailable")]
+            ProviderUnavailable,
+            #[error("invalid request: {message}")]
+            InvalidRequest { message: String },
+        }
+
+        impl LiterLlmError {
+            pub fn status_code(&self) -> u16 {
+                match self {
+                    Self::AuthenticationFailed => 401,
+                    Self::RateLimited { .. } => 429,
+                    Self::ProviderUnavailable => 503,
+                    Self::InvalidRequest { .. } => 400,
+                }
+            }
+
+            pub fn is_transient(&self) -> bool {
+                matches!(self, Self::RateLimited { .. } | Self::ProviderUnavailable)
+            }
+
+            pub fn error_type(&self) -> &'static str {
+                match self {
+                    Self::AuthenticationFailed => "authentication_failed",
+                    Self::RateLimited { .. } => "rate_limited",
+                    Self::ProviderUnavailable => "provider_unavailable",
+                    Self::InvalidRequest { .. } => "invalid_request",
+                }
+            }
+
+            // This helper must NOT appear in the IR — it is not on the whitelist.
+            pub fn to_status_message(&self) -> String {
+                format!("{} ({})", self.error_type(), self.status_code())
+            }
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+
+    assert_eq!(surface.errors.len(), 1);
+    let err = &surface.errors[0];
+    assert_eq!(err.name, "LiterLlmError");
+    assert_eq!(err.variants.len(), 4);
+
+    // Exactly 3 whitelisted methods must be extracted, noisy helper excluded.
+    assert_eq!(
+        err.methods.len(),
+        3,
+        "expected 3 whitelisted methods, got {}: {:?}",
+        err.methods.len(),
+        err.methods.iter().map(|m| &m.name).collect::<Vec<_>>()
+    );
+
+    let method_names: std::collections::HashSet<&str> =
+        err.methods.iter().map(|m| m.name.as_str()).collect();
+
+    assert!(method_names.contains("status_code"), "status_code must be extracted");
+    assert!(method_names.contains("is_transient"), "is_transient must be extracted");
+    assert!(method_names.contains("error_type"), "error_type must be extracted");
+    assert!(
+        !method_names.contains("to_status_message"),
+        "to_status_message is not whitelisted and must be excluded"
+    );
+
+    // Verify return types are correctly resolved.
+    let status_code = err.methods.iter().find(|m| m.name == "status_code").unwrap();
+    assert_eq!(
+        status_code.return_type,
+        alef_core::ir::TypeRef::Primitive(PrimitiveType::U16),
+        "status_code must return u16"
+    );
+
+    let is_transient = err.methods.iter().find(|m| m.name == "is_transient").unwrap();
+    assert_eq!(
+        is_transient.return_type,
+        alef_core::ir::TypeRef::Primitive(PrimitiveType::Bool),
+        "is_transient must return bool"
+    );
+}
