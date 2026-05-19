@@ -417,6 +417,34 @@ impl Backend for PhpBackend {
                 }
             }
 
+            // Emit trait-bridge registration functions as static methods
+            for bridge_cfg in &config.trait_bridges {
+                if let Some(register_fn) = bridge_cfg.register_fn.as_deref() {
+                    method_items.push(format!(
+                        "#[php_method]\npub fn {}(impl: &mut ext_php_rs::types::ZendObject) -> ext_php_rs::prelude::PhpResult<()> {{\n    \
+                        {}(impl)\n}}",
+                        register_fn,
+                        register_fn
+                    ));
+                }
+                if let Some(unregister_fn) = bridge_cfg.unregister_fn.as_deref() {
+                    method_items.push(format!(
+                        "#[php_method]\npub fn {}(name: String) -> ext_php_rs::prelude::PhpResult<()> {{\n    \
+                        {}(name)\n}}",
+                        unregister_fn,
+                        unregister_fn
+                    ));
+                }
+                if let Some(clear_fn) = bridge_cfg.clear_fn.as_deref() {
+                    method_items.push(format!(
+                        "#[php_method]\npub fn {}() -> ext_php_rs::prelude::PhpResult<()> {{\n    \
+                        {}()\n}}",
+                        clear_fn,
+                        clear_fn
+                    ));
+                }
+            }
+
             let methods_joined = method_items
                 .iter()
                 .map(|m| {
