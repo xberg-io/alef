@@ -691,62 +691,90 @@ fn sorbet_type_for_field(ty: &alef_core::ir::TypeRef, optional: bool) -> String 
     if optional { format!("T.nilable({base})") } else { base }
 }
 
-/// Generate a Ruby class hierarchy for an internally-tagged enum.
+/// Generate a Ruby marker module and Data.define variants for an internally-tagged enum.
 ///
 /// Emits:
-/// - A sealed abstract base class with `extend T::Sig` and per-variant predicate methods
-///   returning `false` by default.
-/// - A concrete subclass per variant with Sorbet-typed `attr_reader` fields, an
-///   `initialize` with keyword args, an overridden predicate, and a `from_hash` factory.
+/// - A marker module with `interface!` and `abstract!` Sorbet annotations, plus a
+///   dispatcher `from_hash(hash)` that routes to the appropriate variant constructor
+///   based on the discriminator field.
+/// - A `Data.define(...)` per variant that includes the marker module, with typed
+///   attribute accessors, variant predicate methods, and a per-variant `from_hash` factory.
 ///
-/// This replaces the Hash `method_missing` monkey-patch that was previously emitted in
-/// `native.rb`. It is a BREAKING change for callers that relied on the Hash interface.
+/// This is the Ruby 3.2+ idiomatic pattern for sealed sum types using Data classes
+/// mixed into marker modules. Each variant instance `is_a?(MarkerModule)` returns true.
 fn gen_tagged_enum_ruby_classes(enum_def: &alef_core::ir::EnumDef, module_name: &str) -> String {
     use alef_codegen::doc_emission::emit_yard_doc;
-    use alef_core::ir::TypeRef;
     let mut out = String::new();
 
     let class_name = &enum_def.name;
     let variant_names: Vec<&str> = enum_def.variants.iter().map(|v| v.name.as_str()).collect();
+    let tag_field = enum_def.serde_tag.as_deref().unwrap_or("kind");
 
-    // --- Base class ---
+    // --- Marker module ---
     out.push_str(&format!("module {module_name}\n"));
     if !enum_def.doc.is_empty() {
         emit_yard_doc(&mut out, &enum_def.doc, "  ");
     } else {
-        // Fallback when no doc is available
-        out.push_str(&format!("  # Sealed base class for the {class_name} tagged enum.\n"));
-        out.push_str("  # Do not instantiate directly — use the variant subclasses.\n");
+        out.push_str(&format!("  # Marker module for the {class_name} sum type.\n"));
     }
-    out.push_str(&format!("  class {class_name}\n"));
-    out.push_str("    extend T::Sig\n");
-    out.push_str("    extend T::Helpers\n\n");
+    out.push_str(&format!("  module {class_name}\n"));
+    out.push_str("    extend T::Helpers\n");
+    out.push_str("    interface!\n");
+    out.push_str("    abstract!\n\n");
 
-    for variant_name in &variant_names {
-        let snake = classes::pascal_to_snake(variant_name);
-        out.push_str("    sig { returns(T::Boolean) }\n");
-        out.push_str(&format!("    def {snake}? = false\n\n"));
+    // Dispatcher from_hash on the module (routes by discriminator tag)
+    out.push_str("    # Dispatch from a Hash to the appropriate variant constructor.\n");
+    out.push_str("    # @param hash [Hash] with discriminator field and variant-specific fields\n");
+    out.push_str("    # @return [variant_class] an instance of the appropriate variant\n");
+    out.push_str("    sig { params(hash: T::Hash[T.untyped, T.untyped]).returns(T.untyped) }\n");
+    out.push_str("    def self.from_hash(hash)\n");
+    out.push_str(&format!(
+        "      discriminator = hash[:{tag_field}] || hash[\"{tag_field}\"]\n"
+    ));
+    out.push_str("      case discriminator\n");
+    for variant in &enum_def.variants {
+        let snake = classes::pascal_to_snake(&variant.name);
+        let variant_const = format!("{}{}", class_name, &variant.name);
+        if let Some(rename) = &variant.serde_rename {
+            out.push_str(&format!(
+                "      when \"{rename}\" then {variant_const}.from_hash(hash)\n"
+            ));
+        } else {
+            out.push_str(&format!(
+                "      when \"{snake}\" then {variant_const}.from_hash(hash)\n"
+            ));
+        }
     }
+    out.push_str("      else raise \"Unknown discriminator: #{discriminator}\"\n");
+    out.push_str("      end\n");
+    out.push_str("    end\n\n");
 
     out.push_str("  end\n\n");
 
-    // --- Per-variant subclasses ---
+    // --- Per-variant Data.define classes ---
     for variant in &enum_def.variants {
         let variant_class = format!("{}{}", class_name, &variant.name);
-        let snake = classes::pascal_to_snake(&variant.name);
+        let field_names: Vec<&str> = variant.fields.iter().map(|f| f.name.as_str()).collect();
 
         if !variant.doc.is_empty() {
             emit_yard_doc(&mut out, &variant.doc, "  ");
         } else {
-            // Fallback when no doc is available
+            out.push_str(&format!("  # Variant {variant_class} of the {class_name} sum type.\n"));
+        }
+
+        // Data.define(...) declaration
+        if field_names.is_empty() {
+            out.push_str(&format!("  {variant_class} = Data.define do\n"));
+        } else {
             out.push_str(&format!(
-                "  # Variant {variant_class} of the {class_name} tagged enum.\n"
+                "  {variant_class} = Data.define({}) do\n",
+                field_names.join(", ")
             ));
         }
-        out.push_str(&format!("  class {variant_class} < {class_name}\n"));
+        out.push_str(&format!("    include {class_name}\n"));
         out.push_str("    extend T::Sig\n\n");
 
-        // attr_reader declarations with Sorbet sigs and YARD @return
+        // Sorbet sigs for the Data attributes (read-only accessors)
         for field in &variant.fields {
             let attr_name = if field.name == "_0" {
                 "value"
@@ -760,73 +788,19 @@ fn gen_tagged_enum_ruby_classes(enum_def: &alef_core::ir::EnumDef, module_name: 
                 out.push_str(&format!("    # @return [{sorbet_t}]\n"));
             }
             out.push_str(&format!("    sig {{ returns({sorbet_t}) }}\n"));
-            out.push_str(&format!("    attr_reader :{attr_name}\n\n"));
+            out.push_str(&format!("    def {attr_name}; {attr_name}; end\n\n"));
         }
 
-        // initialize with keyword args
-        let init_params: Vec<String> = variant
-            .fields
-            .iter()
-            .map(|f| {
-                if f.name == "_0" {
-                    "value".to_string()
-                } else {
-                    f.name.clone()
-                }
-            })
-            .collect();
-        let init_sig_params: Vec<String> = variant
-            .fields
-            .iter()
-            .map(|f| {
-                let sorbet_t = sorbet_type_for_field(&f.ty, f.optional);
-                let param_name = if f.name == "_0" { "value" } else { f.name.as_str() };
-                format!("{param_name}: {sorbet_t}")
-            })
-            .collect();
-        let init_assigns: Vec<String> = variant
-            .fields
-            .iter()
-            .map(|f| {
-                let param_name = if f.name == "_0" { "value" } else { f.name.as_str() };
-                format!("@{param_name} = {param_name}")
-            })
-            .collect();
-
-        // Initialize emission — skipped entirely for unit variants because rubocop's
-        // `Lint/UselessMethodDefinition` strips the trivial `def initialize() super() end`
-        // body, which would leave an orphan `sig { void }` and trip Sorbet's runtime
-        // "You called sig twice without declaring a method in between" check.
-        // Unit variants inherit the parent's no-arg initialize.
-        if !variant.fields.is_empty() {
-            // YARD @param / @return for initialize
-            for f in &variant.fields {
-                let param_name = if f.name == "_0" { "value" } else { f.name.as_str() };
-                let sorbet_t = sorbet_type_for_field(&f.ty, f.optional);
-                out.push_str(&format!("    # @param {param_name} [{sorbet_t}]\n"));
-            }
-            out.push_str("    # @return [void]\n");
-            out.push_str(&format!("    sig {{ params({}).void }}\n", init_sig_params.join(", ")));
-            let kwarg_list = init_params
-                .iter()
-                .map(|p| format!("{p}:"))
-                .collect::<Vec<_>>()
-                .join(", ");
-            out.push_str(&format!("    def initialize({kwarg_list})\n"));
-            out.push_str("      super()\n");
-            for assign in &init_assigns {
-                out.push_str(&format!("      {assign}\n"));
-            }
-            out.push_str("    end\n\n");
+        // Variant predicate methods (return true for this variant, false for others)
+        for variant_name in &variant_names {
+            let v_snake = classes::pascal_to_snake(variant_name);
+            let returns_true = *variant_name == variant.name;
+            out.push_str("    sig { returns(T::Boolean) }\n");
+            out.push_str(&format!("    def {v_snake}? = {}\n\n", returns_true));
         }
 
-        // Predicate override
-        out.push_str(&format!("    # @return [Boolean] true when this variant is {snake}\n"));
-        out.push_str("    sig { returns(T::Boolean) }\n");
-        out.push_str(&format!("    def {snake}? = true\n\n"));
-
-        // Class-level `from_hash` factory
-        out.push_str("    # @param hash [Hash] a Hash deserialized from the native extension\n");
+        // Class-level `from_hash` factory — per-variant
+        out.push_str("    # @param hash [Hash] deserialized from the native extension\n");
         out.push_str("    # @return [self]\n");
         out.push_str("    sig { params(hash: T::Hash[T.untyped, T.untyped]).returns(T.attached_class) }\n");
         out.push_str("    def self.from_hash(hash)\n");
@@ -844,12 +818,8 @@ fn gen_tagged_enum_ruby_classes(enum_def: &alef_core::ir::EnumDef, module_name: 
                 } else {
                     f.name.clone()
                 };
-                // Try both symbol (Magnus default) and string key
                 let key_string = if f.name == "_0" { "_0" } else { f.name.as_str() };
-                let val_expr = match &f.ty {
-                    TypeRef::Optional(_) => format!("hash[{key_sym}] || hash[\"{key_string}\"]"),
-                    _ => format!("hash[{key_sym}] || hash[\"{key_string}\"]"),
-                };
+                let val_expr = format!("hash[{key_sym}] || hash[\"{key_string}\"]");
                 format!("{param_name}: {val_expr}")
             })
             .collect();
@@ -858,7 +828,7 @@ fn gen_tagged_enum_ruby_classes(enum_def: &alef_core::ir::EnumDef, module_name: 
         } else {
             out.push_str(&format!("      new({})\n", field_args.join(", ")));
         }
-        out.push_str("    end\n\n");
+        out.push_str("    end\n");
 
         out.push_str("  end\n\n");
     }
