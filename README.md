@@ -30,7 +30,7 @@ Generate fully-typed, lint-clean language bindings for Rust libraries across 16 
 
 ## Key Features
 
-- **API extraction** -- Parses your Rust crate's public API via `syn` into a language-agnostic intermediate representation. Handles `pub use` re-exports across workspace crates, `#[cfg(feature)]` gating, serde `rename_all` metadata, doc comments, `Default` detection, and transparent newtype resolution.
+- **API extraction** -- Parses your Rust crate's public API via `syn` into a language-agnostic intermediate representation. Handles `pub use` re-exports across workspace crates, `#[cfg(feature)]` gating, serde `rename_all` metadata, doc comments, `Default` detection, transparent newtype resolution, automatic `Arc<Mutex<T>>`/`Arc<RwLock<T>>` unwrapping to expose the inner `T`, and name-collision disambiguation via PascalCase module prefixes.
 - **16 language backends** -- Each backend generates idiomatic, lint-clean binding code using the target language's native framework. See the [supported languages](#supported-languages) table below.
 - **Configurable DTO styles** -- Choose how types are represented in each language: Python `dataclass` vs `TypedDict` vs `pydantic` vs `msgspec`, TypeScript `interface` vs `zod`, Ruby `Struct` vs `dry-struct` vs `Data`, and more. Input and output types can use different styles.
 - **Type stubs** -- Generates `.pyi` (Python), `.rbs` (Ruby), and `.d.ts` (TypeScript) type definition files for editor support and static analysis in consuming projects.
@@ -47,7 +47,7 @@ Generate fully-typed, lint-clean language bindings for Rust libraries across 16 
 - **Config validation** -- `alef.toml` is validated at load time. Custom command tables that override a main field must declare a `precondition` so warn-and-skip behavior is preserved on user systems. Fields whose value matches the built-in default emit a `tracing::warn!` so consumer configs stay minimal.
 - **Caching** -- blake3-based content hashing skips regeneration when source and config haven't changed.
 - **Version-idempotent verify** -- `alef verify` is a pure read+strip+rehash+compare. The hash baked into every generated file is `blake3(sources_hash || file_content_without_hash_line)` -- per-file, derived from the rust sources and the on-disk byte content; deliberately _no_ alef CLI version dimension. Upgrading the alef CLI does not by itself invalidate verify on a tagged repo. `alef generate` finalises the embedded hash after the optional formatter pass (`--format`) runs, so the on-disk hash always matches the on-disk content. See [Verify model](#verify-model) below for details.
-- **Opt-in formatting + live output** -- `alef generate` writes whitespace-normalised output without invoking external formatters by default; pass `--format` to also run `cargo fmt`, `ruff format`, `oxfmt`, etc. Long-running commands (`alef setup`, `alef update`, `alef lint`, `alef test`) stream stdout/stderr live with `[<lang>]` prefixes — no more multi-minute blackouts during `pnpm install` / `bundle install` / `cargo update`. Global flags `--verbose` / `--quiet` / `--no-color` and `--version` give standard CLI ergonomics.
+- **Formatting + live output** -- `alef generate`, `alef init`, and `alef all` run post-generation formatters by default (`cargo fmt`, `ruff format`, `oxfmt`, etc.); pass `--format=false` to skip. Long-running commands (`alef setup`, `alef update`, `alef lint`, `alef test`) stream stdout/stderr live with `[<lang>]` prefixes — no more multi-minute blackouts during `pnpm install` / `bundle install` / `cargo update`. Global flags `--verbose` / `--quiet` / `--no-color` and `--version` give standard CLI ergonomics.
 
 ## Supported Languages
 
@@ -64,6 +64,7 @@ Generate fully-typed, lint-clean language bindings for Rust libraries across 16 
 | Elixir             | [Rustler](https://github.com/rusterlium/rustler)                   | Hex                                        | ExUnit         | `struct`, `typed-struct`                         |
 | R                  | [extendr](https://extendr.github.io/extendr/)                      | CRAN                                       | testthat       | `list`, `r6`                                     |
 | Kotlin/JVM         | [Panama FFM](https://openjdk.org/jeps/454) (shared with Java)      | Maven (.jar)                               | JUnit          | `data-class`, `sealed-class`                     |
+| Kotlin/Android     | JNI + Kotlin DSL                                                   | Android Gradle library                     | JUnit          | `data-class`                                     |
 | Gleam              | [Rustler](https://github.com/rusterlium/rustler) NIF + `@external` | Hex                                        | gleeunit       | record types                                     |
 | Zig                | C FFI via `@cImport`                                               | tarball                                    | `std.testing`  | structs                                          |
 | C                  | [cbindgen](https://github.com/mozilla/cbindgen)                    | Header (.h)                                | --             | --                                               |
@@ -127,11 +128,13 @@ alef test --lang python,go # Specific languages
 | Command              | Description                                                                                                                                                                                         |
 | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `alef init`          | Initialize `alef.toml` for your crate                                                                                                                                                               |
+| `alef migrate`       | Migrate legacy alef.toml schema to new `[workspace]` / `[[crates]]` layout                                                                                                                           |
 | `alef extract`       | Extract API surface from Rust source into IR JSON                                                                                                                                                   |
 | `alef generate`      | Generate language bindings from IR                                                                                                                                                                  |
 | `alef stubs`         | Generate type stubs (`.pyi`, `.rbs`, `.d.ts`)                                                                                                                                                       |
 | `alef scaffold`      | Generate package manifests (`pyproject.toml`, `package.json`, etc.)                                                                                                                                 |
 | `alef readme`        | Generate per-language README files                                                                                                                                                                  |
+| `alef docs`          | Generate API reference documentation (Markdown for mkdocs)                                                                                                                                          |
 | `alef build`         | Build bindings with native tools (`maturin`, `napi`, `wasm-pack`, etc.)                                                                                                                             |
 | `alef test`          | Run per-language test suites (`--e2e` for e2e tests, `--coverage` for coverage)                                                                                                                     |
 | `alef lint`          | Run configured linters on generated output                                                                                                                                                          |
@@ -146,6 +149,11 @@ alef test --lang python,go # Specific languages
 | `alef e2e`           | Generate e2e test projects from JSON fixtures (subcommands: `generate`, `init`, `scaffold`, `list`, `validate`)                                                                                     |
 | `alef publish`       | Vendor, cross-compile, and package release artifacts (subcommands: `prepare`, `build`, `package`, `validate`)                                                                                       |
 | `alef cache`         | Manage build cache (subcommands: `clear`, `status`)                                                                                                                                                 |
+| `alef validate`      | Cross-manifest version consistency checker (subcommands: `versions`)                                                                                                                                |
+| `alef release-metadata` | Emit release metadata JSON consumed by CI workflows                                                                                                                                                |
+| `alef check-registry` | Check whether a package version exists in a registry                                                                                                                                                |
+| `alef go-tag`        | Create and push Go module tags for a release                                                                                                                                                       |
+| `alef snippets`      | Discover, validate, audit, and gap-check documentation snippets (subcommands: implementation-dependent)                                                                                             |
 
 ## Verify model
 
@@ -750,6 +758,65 @@ classes = ["CustomHandler"]
 functions = ["custom_extract"]
 init_calls = ["register_custom_types(m)?;"]
 ```
+
+### `[workspace.client_constructors]` -- Custom Type Constructors
+
+Define custom constructors for opaque handle types (workspace-level; shared across crates):
+
+```toml
+[workspace.client_constructors.DefaultClient]
+params = [
+  { name = "api_key", type = "&str" },
+]
+body = "{source_path}::new({api_key})"
+error_type = "String"
+```
+
+When a `[workspace.client_constructors.<TypeName>]` block exists, every Rust-host backend emits a per-type `impl T { pub fn new(...) -> Result<Self, ErrType> { ... } }` constructor with the appropriate native attribute (`#[new]`, `#[napi(constructor)]`, `#[wasm_bindgen(constructor)]`, etc.). FFI-based languages (Go, Zig, C#, Java/Kotlin) emit a C ABI constructor plus language wrappers. The body template supports `{type_name}` (bare type name) and `{source_path}` (fully-qualified core path) placeholders. The `error_type` field defaults to `String` when absent.
+
+### `[crates.<lang>.stubs] emit_docstrings`
+
+Control whether Rust doc comments are emitted into stub files (`.pyi` for PyO3, `.rbs` for Magnus):
+
+```toml
+[[crates]]
+name = "my-library"
+
+[crates.python.stubs]
+output = "packages/python/"
+emit_docstrings = true
+```
+
+Default: `false`. Docstrings in stub files trigger ruff PYI021 violations, so the default keeps stubs clean. Set to `true` to preserve API documentation in the stubs.
+
+### Source-level `#[alef::skip]` / `#[alef::exclude]` Attributes
+
+Mark Rust items to exclude from binding generation at the source level:
+
+```rust
+#[alef::skip]
+pub fn internal_helper() { }
+
+#[alef::exclude]
+pub struct InternalType { }
+```
+
+Source attributes take precedence over config-level `exclude_types` and per-crate `[crates.exclude]` arrays. Use source attributes for intentional removals; use config-level filters as a safety net for types you don't own (e.g., upstream crate dependencies).
+
+### Polyglot Release Flow
+
+Releases are triggered via `gh release create vX.Y.Z` on a tag. The workflow (`.github/workflows/publish.yaml`) then:
+
+1. **prepare** — Derive version and validate git state.
+2. **validate-versions** — Check all language manifests match the Cargo.toml version.
+3. **check-cratesio** — Verify the new version doesn't already exist on crates.io.
+4. **publish-crates** — Upload Rust crates to crates.io.
+5. **build-cli matrix** — Cross-compile CLI binaries for each platform.
+6. **build-homebrew-bottles** — Pre-compile bottled formulae.
+7. **upload-release-assets** — Attach binaries and signatures to the release.
+8. **publish-homebrew** — Update the shared Homebrew tap.
+
+See `.github/workflows/publish.yaml` for the full automation and [`kreuzberg-dev/actions`](https://github.com/kreuzberg-dev/actions) for the shared action repo. Always ensure CI on `main` is green before tagging.
 
 ## Architecture
 

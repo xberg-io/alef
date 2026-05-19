@@ -13,3 +13,11 @@ name = 'kreuzberg-core'
 source = 'https://github.com/kreuzberg-dev/ai-rulez.git'
 path = 'modules/core'
 merge_strategy = 'local-override'
+
+[[skills]]
+name = 'release-procedure'
+path = '.ai-rulez/skills/release-procedure'
+
+[[skills]]
+name = 'binding-audit'
+path = '.ai-rulez/skills/binding-audit'

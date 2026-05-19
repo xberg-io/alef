@@ -40,21 +40,21 @@ The IR contains all extracted types, functions, enums, and errors from the confi
 
 Generate language bindings from the extracted IR. Also generates type stubs and public API wrappers when enabled in config.
 
-| Flag       | Type                     | Default         | Description                                                      |
-| ---------- | ------------------------ | --------------- | ---------------------------------------------------------------- |
-| `--lang`   | string (comma-separated) | all from config | Languages to generate bindings for                               |
-| `--clean`  | bool                     | `false`         | Ignore cache and regenerate everything                           |
-| `--format` | bool                     | `false`         | Run post-generation formatters on emitted files (off by default) |
+| Flag       | Type                     | Default         | Description                                                         |
+| ---------- | ------------------------ | --------------- | ------------------------------------------------------------------- |
+| `--lang`   | string (comma-separated) | all from config | Languages to generate bindings for                                  |
+| `--clean`  | bool                     | `false`         | Ignore cache and regenerate everything                              |
+| `--format` | bool                     | `true`          | Run post-generation formatters on emitted files (enabled by default) |
 
 ```bash
 alef generate
 alef generate --lang python,node
 alef generate --clean
-alef generate --format          # also run language formatters after generation
+alef generate --format=false    # skip formatters
 alef generate --lang ruby --clean
 ```
 
-Formatters are **opt-in via `--format`**. With `--format`, alef invokes language-native formatters (`cargo fmt`, `ruff format`, `oxfmt`, `gofmt`, etc.) plus any repo-configured `[lint.<lang>].format` commands as a best-effort post-generation step: a missing tool, a failing `before` hook, or a non-zero formatter exit emits a warning and the run continues. Without `--format`, generated files are written exactly as the codegen emits them (already whitespace-normalised). Formatters run **only for languages whose bindings actually regenerated this run** — unchanged languages skip the formatter pass entirely.
+Formatters are **enabled by default**. Use `--format=false` to skip them. With formatters enabled, alef invokes language-native formatters (`cargo fmt`, `ruff format`, `oxfmt`, `gofmt`, etc.) plus any repo-configured `[lint.<lang>].format` commands as a best-effort post-generation step: a missing tool, a failing `before` hook, or a non-zero formatter exit emits a warning and the run continues. Formatters run **only for languages whose bindings actually regenerated this run** — unchanged languages skip the formatter pass entirely.
 
 Caching is based on blake3 content hashing of source files and config -- use `--clean` to force regeneration.
 
@@ -365,18 +365,18 @@ Always operates on all configured languages (no `--lang` filter).
 
 Run the full pipeline: generate + stubs + public API + scaffold + readme + docs + e2e generation (when configured) + sync. Equivalent to running `generate`, `stubs`, `scaffold`, `readme`, `docs`, and `e2e generate` in sequence.
 
-| Flag       | Type | Default | Description                                                      |
-| ---------- | ---- | ------- | ---------------------------------------------------------------- |
-| `--clean`  | bool | `false` | Ignore cache and regenerate everything                           |
-| `--format` | bool | `false` | Run post-generation formatters on emitted files (off by default) |
+| Flag       | Type | Default | Description                                                         |
+| ---------- | ---- | ------- | ------------------------------------------------------------------- |
+| `--clean`  | bool | `false` | Ignore cache and regenerate everything                              |
+| `--format` | bool | `true`  | Run post-generation formatters on emitted files (enabled by default) |
 
 ```bash
 alef all
 alef all --clean
-alef all --format
+alef all --format=false
 ```
 
-Always operates on all configured languages. Like `alef generate`, formatting is opt-in via `--format` and only runs for languages that actually regenerated this run.
+Always operates on all configured languages. Formatters are enabled by default; use `--format=false` to skip them. Only runs for languages that actually regenerated this run.
 
 ---
 
@@ -384,15 +384,15 @@ Always operates on all configured languages. Like `alef generate`, formatting is
 
 Initialize a new `alef.toml` configuration file in the current directory.
 
-| Flag       | Type                     | Default | Description                                                      |
-| ---------- | ------------------------ | ------- | ---------------------------------------------------------------- |
-| `--lang`   | string (comma-separated) | --      | Languages to include in the generated config                     |
-| `--format` | bool                     | `false` | Run post-generation formatters on emitted files (off by default) |
+| Flag       | Type                     | Default | Description                                                         |
+| ---------- | ------------------------ | ------- | ------------------------------------------------------------------- |
+| `--lang`   | string (comma-separated) | --      | Languages to include in the generated config                        |
+| `--format` | bool                     | `true`  | Run post-generation formatters on emitted files (enabled by default) |
 
 ```bash
 alef init
 alef init --lang python,node,ruby,go
-alef init --format
+alef init --format=false
 ```
 
 ---

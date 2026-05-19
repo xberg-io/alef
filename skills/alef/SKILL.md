@@ -199,7 +199,7 @@ Alef provides pre-commit hooks for consumer repos:
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/kreuzberg-dev/alef
-    rev: v0.7.9
+    rev: v1.1.11
     hooks:
       - id: alef-verify # Check-only: fails if any output (incl. README) is stale
       # OR
@@ -207,6 +207,16 @@ repos:
       # OR
       - id: alef-readme # README-only refresh (template / snippets changes)
 ```
+
+## Local-install Workflow
+
+When iterating on alef's code generation logic (changes to `alef-codegen`, `alef-backend-*`, or `alef-cli`), install the local binary instead of using the published crates.io version:
+
+```bash
+cargo install --path crates/alef-cli --force
+```
+
+The resulting `~/.cargo/bin/alef` shadows any crates.io install until replaced. After every meaningful change to the codegen pipeline, reinstall with the same command so the binary picks up your latest changes. Only reinstall from crates.io (via `cargo binstall alef-cli` or `cargo install alef-cli`) after a published release.
 
 ## Caching
 
@@ -252,3 +262,4 @@ See `references/cli-reference.md#alef-verify` for the full mental model.
 - [Adapter Patterns](references/adapters.md) -- Custom FFI bridging patterns
 - [Designing alef.toml](references/designing-alef-toml.md) -- Practical guide for configuring alef.toml with real-world patterns
 - [Troubleshooting](references/troubleshooting.md) -- Common errors and fixes
+- For cutting and publishing a release, use the `release-procedure` skill — do not improvise.

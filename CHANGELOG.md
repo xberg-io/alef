@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+
+- **README, `skills/alef/`, `.ai-rulez/`: refresh to cover v0.16.69 and capture recurring work patterns.** README adds `[workspace.client_constructors]`, `[crates.<lang>.stubs] emit_docstrings`, source-level `#[alef::skip]`/`#[alef::exclude]` precedence vs config-level filters, polyglot release flow pointer (`.github/workflows/publish.yaml` + `kreuzberg-dev/actions`), the missing CLI subcommands (`docs`, `migrate`, `validate`, `release-metadata`, `check-registry`, `go-tag`, `snippets`), splits Kotlin/JVM and Kotlin/Android into separate rows, and corrects the `--format` default (now `true` on `generate`/`init`/`all`). The `alef` user-facing skill picks up the same `client_constructors`/`emit_docstrings` config sections, the corrected `--format` default, the `cargo install --path crates/alef-cli --force` local-install loop, and a cross-link to the `release-procedure` skill; pre-commit hook revision in the skill bumped to match `.pre-commit-config.yaml` (`v1.1.11`). `.ai-rulez/` gains five new rule files (`binding-audit-pattern`, `upstream-triage`, `sibling-agent-coordination`, `publish-flow`, `local-alef-install`) and a new `binding-audit` slash-command skill; `config.toml` declares both `release-procedure` and `binding-audit` skills explicitly; `CLAUDE.md` regenerated from source.
+
 ### Fixed
 
 - **alef-adapters: Node streaming methods now return a `#[napi]` iterator class instead of materializing the entire stream into a Vec.** Callers consume items via `await iter.next()` (returns `null` at end-of-stream), matching the existing Python AsyncIterator pattern. The previous behavior collected every chunk into a JS Array eagerly, defeating the point of streaming.
