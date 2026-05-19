@@ -737,7 +737,11 @@ impl Backend for ExtendrBackend {
                 .functions
                 .iter()
                 .map(|f| format!("    fn {};\n", f.name))
-                .collect::<String>(),
+                .collect::<String>()
+                + &collect_trait_bridge_functions(config)
+                    .iter()
+                    .map(|tb| format!("    fn {};\n", tb.name))
+                    .collect::<String>(),
         );
         builder.add_item(&module_items);
 
@@ -799,7 +803,8 @@ impl Backend for ExtendrBackend {
         // alef now emits it directly so install-time builds (which never run rextendr)
         // still expose the public API.
         let input_type_names = alef_codegen::conversions::input_type_names(api);
-        let wrappers_content = gen_extendr_wrappers_r(api, &package_name, &input_type_names);
+        let trait_bridge_fns = collect_trait_bridge_functions(config);
+        let wrappers_content = gen_extendr_wrappers_r(api, &package_name, &input_type_names, &trait_bridge_fns);
         files.push(GeneratedFile {
             path: PathBuf::from(&r_wrapper_dir).join("extendr-wrappers.R"),
             content: wrappers_content,
@@ -808,7 +813,7 @@ impl Backend for ExtendrBackend {
 
         // NAMESPACE: regenerated each run so that newly added `#[extendr]` functions and
         // methods are exported. Scaffolding only writes a useDynLib bootstrap on init.
-        let namespace_content = gen_namespace(api, &package_name);
+        let namespace_content = gen_namespace(api, &package_name, &trait_bridge_fns);
         files.push(GeneratedFile {
             path: PathBuf::from(r_pkg_dir).join("NAMESPACE"),
             content: namespace_content,
@@ -1652,6 +1657,62 @@ fn gen_extendr_json_bridged_function(
 ///
 /// The returned set is used by wrapper-file generation to skip class env emission for
 /// types that are not present in `extendr_module!`.
+/// A trait-bridge function (register / unregister / clear) that must be wired into
+/// `extendr_module!`, `extendr-wrappers.R`, and `NAMESPACE` alongside ordinary
+/// free functions emitted from `api.functions`.
+///
+/// The IR (`ApiSurface`) does not contain these symbols because they are synthesised
+/// by `gen_trait_bridge` from `TraitBridgeConfig` rather than parsed from Rust source.
+/// Each entry records the name and the R-visible parameters so the R-side wrappers
+/// can call `.Call("wrap__<name>", <args>, PACKAGE = ...)` with a matching signature.
+pub(crate) struct TraitBridgeFn {
+    pub(crate) name: String,
+    /// Parameter names in R-visible order. R is dynamically typed so the type is
+    /// erased — `register_fn` takes an R object (named list of closures), `unregister_fn`
+    /// takes a plugin name, `clear_fn` takes nothing.
+    pub(crate) params: Vec<String>,
+}
+
+/// Collect every trait-bridge register / unregister / clear function that the
+/// extendr backend will emit for this crate, honouring `exclude_languages`.
+///
+/// The order matches `gen_trait_bridge` so the resulting extendr_module! entries
+/// line up with the `#[extendr]` items in `lib.rs`.
+pub(crate) fn collect_trait_bridge_functions(config: &ResolvedCrateConfig) -> Vec<TraitBridgeFn> {
+    let mut out = Vec::new();
+    for bridge_cfg in &config.trait_bridges {
+        if bridge_cfg
+            .exclude_languages
+            .iter()
+            .any(|l| l == "r" || l == "extendr")
+        {
+            continue;
+        }
+        // register_fn(r_backend: Robj) — the R caller passes a named list of closures.
+        if let Some(name) = bridge_cfg.register_fn.as_deref() {
+            out.push(TraitBridgeFn {
+                name: name.to_string(),
+                params: vec!["r_backend".to_string()],
+            });
+        }
+        // unregister_fn(name: String) — the R caller passes the plugin name.
+        if let Some(name) = bridge_cfg.unregister_fn.as_deref() {
+            out.push(TraitBridgeFn {
+                name: name.to_string(),
+                params: vec!["name".to_string()],
+            });
+        }
+        // clear_fn() — no arguments; clears every registered backend of this type.
+        if let Some(name) = bridge_cfg.clear_fn.as_deref() {
+            out.push(TraitBridgeFn {
+                name: name.to_string(),
+                params: Vec::new(),
+            });
+        }
+    }
+    out
+}
+
 fn collect_excluded_class_types(api: &ApiSurface) -> ahash::AHashSet<String> {
     let opaque_types: ahash::AHashSet<String> = api
         .types
@@ -2055,7 +2116,12 @@ fn r_enum_roxygen_block(enum_def: &EnumDef, include_variants_as_fields: bool) ->
 ///      • static methods bound as `Type$method <- function(...) .Call("wrap__Type__method", ...)`,
 ///      • instance methods bound as `Type$method <- function(...) .Call("wrap__Type__method", self, ...)`,
 ///      • dispatch operators (`$.Type`, `[[.Type`) so callers can write `instance$method(...)`.
-fn gen_extendr_wrappers_r(api: &ApiSurface, package_name: &str, input_type_names: &ahash::AHashSet<String>) -> String {
+fn gen_extendr_wrappers_r(
+    api: &ApiSurface,
+    package_name: &str,
+    input_type_names: &ahash::AHashSet<String>,
+    trait_bridge_fns: &[TraitBridgeFn],
+) -> String {
     let mut out = String::with_capacity(8 * 1024);
     out.push_str("# Generated by extendr: Do not edit by hand\n");
     out.push_str("#\n");
@@ -2087,6 +2153,61 @@ fn gen_extendr_wrappers_r(api: &ApiSurface, package_name: &str, input_type_names
             "r_free_function_wrapper.jinja",
             minijinja::context! {
                 func_name => &func.name,
+                params_sig => params_sig,
+                call_args_str => call_args_str,
+                roxygen_block => roxygen_block,
+            },
+        ));
+    }
+
+    // Trait-bridge functions (register_<trait> / unregister_<trait> / clear_<trait>).
+    // These are synthesised from `[trait_bridges]` in alef.toml rather than parsed from
+    // Rust source, so they are absent from `api.functions` but are still registered in
+    // `extendr_module!` (see `collect_trait_bridge_functions`). Without these R wrappers
+    // callers cannot reach the `wrap__register_<trait>` entry points.
+    //
+    // The R-side surface is intentionally minimal: `register_<trait>` accepts an R object
+    // (typically a named list of closures), `unregister_<trait>` accepts a name string,
+    // `clear_<trait>` accepts nothing. Type checking happens on the Rust side via extendr's
+    // `Robj` introspection — R's dynamic typing makes static signatures unnecessary.
+    for bridge_fn in trait_bridge_fns {
+        let params_sig = bridge_fn.params.join(", ");
+        let mut call_args = vec![format!("\"wrap__{}\"", bridge_fn.name)];
+        for p in &bridge_fn.params {
+            call_args.push(p.clone());
+        }
+        call_args.push(format!("PACKAGE = \"{package_name}\""));
+        let call_args_str = call_args.join(", ");
+
+        // Hand-crafted roxygen block — we cannot reuse `r_roxygen_block` because
+        // trait-bridge functions are not represented as `FunctionDef` in the IR.
+        let mut roxygen_block = String::with_capacity(256);
+        roxygen_block.push_str(&format!("#' {}\n", bridge_fn.name));
+        roxygen_block.push_str("#'\n");
+        if bridge_fn.name.starts_with("register_") {
+            roxygen_block.push_str(
+                "#' Register an R-side plugin implementation. Pass a named list whose entries\n",
+            );
+            roxygen_block.push_str(
+                "#' implement the trait's required methods (e.g. `list(name = function() \"my\", ...)`).\n",
+            );
+            roxygen_block.push_str("#'\n");
+            roxygen_block.push_str("#' @param r_backend Named list of R closures implementing the trait surface.\n");
+        } else if bridge_fn.name.starts_with("unregister_") {
+            roxygen_block.push_str("#' Unregister a previously registered plugin by name.\n");
+            roxygen_block.push_str("#'\n");
+            roxygen_block.push_str("#' @param name Plugin name string as returned by the backend's `name()` method.\n");
+        } else if bridge_fn.name.starts_with("clear_") {
+            roxygen_block.push_str("#' Remove every registered plugin of this type. Typically used in test teardown.\n");
+        }
+        roxygen_block.push_str("#'\n");
+        roxygen_block.push_str("#' @return Invisible NULL on success; raises an R error on failure.\n");
+        roxygen_block.push_str("#' @export\n");
+
+        out.push_str(&crate::template_env::render(
+            "r_free_function_wrapper.jinja",
+            minijinja::context! {
+                func_name => &bridge_fn.name,
                 params_sig => params_sig,
                 call_args_str => call_args_str,
                 roxygen_block => roxygen_block,
@@ -2257,7 +2378,7 @@ fn gen_extendr_wrappers_r(api: &ApiSurface, package_name: &str, input_type_names
 /// emitted by `gen_extendr_wrappers_r`. Without explicit `export()` entries, R loads
 /// the wrapper file but treats the symbols as internal — calling code receives
 /// `could not find function`.
-fn gen_namespace(api: &ApiSurface, package_name: &str) -> String {
+fn gen_namespace(api: &ApiSurface, package_name: &str, trait_bridge_fns: &[TraitBridgeFn]) -> String {
     let mut out = String::with_capacity(2 * 1024);
     out.push_str("# Generated by alef — do not edit.\n\n");
     // NAMESPACE requires the bare `useDynLib(...)` directive. The roxygen2 form
@@ -2274,6 +2395,16 @@ fn gen_namespace(api: &ApiSurface, package_name: &str) -> String {
         out.push_str(&crate::template_env::render(
             "r_namespace_export.jinja",
             minijinja::context! { name => &func.name },
+        ));
+    }
+
+    // Trait-bridge functions need explicit NAMESPACE exports so that callers can use
+    // them directly (e.g. `kreuzberg::register_ocr_backend(...)`). Without an `export()`
+    // entry, R restricts the wrapper to internal-only visibility and `:: ` lookups fail.
+    for bridge_fn in trait_bridge_fns {
+        out.push_str(&crate::template_env::render(
+            "r_namespace_export.jinja",
+            minijinja::context! { name => &bridge_fn.name },
         ));
     }
 
@@ -2931,6 +3062,137 @@ package_name = "testlib"
         assert!(
             content.contains("Payload <- new.env(parent = emptyenv())"),
             "enum class env must still be emitted:\n{content}"
+        );
+    }
+
+    fn trait_bridge_config_for_tests() -> ResolvedCrateConfig {
+        resolved_one(
+            r#"
+[workspace]
+languages = ["r"]
+
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[crates.r]
+package_name = "testlib"
+
+[[crates.trait_bridges]]
+trait_name = "OcrBackend"
+super_trait = "test_lib::Plugin"
+registry_getter = "test_lib::get_ocr_backend_registry"
+register_fn = "register_ocr_backend"
+unregister_fn = "unregister_ocr_backend"
+clear_fn = "clear_ocr_backends"
+"#,
+        )
+    }
+
+    #[test]
+    fn extendr_module_registers_trait_bridge_register_unregister_clear() {
+        // Regression: register_<trait> / unregister_<trait> / clear_<trait> are emitted
+        // as `#[extendr]` functions by the trait-bridge generator but were missing from
+        // the `extendr_module!` block, so the wrap__<symbol> entry points never reached
+        // the .so and R callers could not invoke them.
+        let backend = ExtendrBackend;
+        let config = trait_bridge_config_for_tests();
+        let api = make_api_surface();
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let lib_rs = files
+            .iter()
+            .find(|f| f.path.to_string_lossy().ends_with("lib.rs"))
+            .expect("lib.rs must be generated");
+        for sym in ["register_ocr_backend", "unregister_ocr_backend", "clear_ocr_backends"] {
+            assert!(
+                lib_rs.content.contains(&format!("fn {sym};")),
+                "extendr_module! must register `{sym}`:\n{}",
+                lib_rs.content
+            );
+        }
+    }
+
+    #[test]
+    fn extendr_wrappers_emits_trait_bridge_register_unregister_clear() {
+        // Regression: extendr-wrappers.R only iterated `api.functions` and so omitted
+        // the trait-bridge register/unregister/clear functions. R callers had no way to
+        // invoke `wrap__register_ocr_backend` because no R wrapper existed.
+        let backend = ExtendrBackend;
+        let config = trait_bridge_config_for_tests();
+        let api = make_api_surface();
+        let files = backend.generate_public_api(&api, &config).unwrap();
+        let wrappers = files
+            .iter()
+            .find(|f| f.path.to_string_lossy().ends_with("extendr-wrappers.R"))
+            .expect("extendr-wrappers.R must be generated");
+        let content = &wrappers.content;
+        assert!(
+            content.contains("register_ocr_backend <- function(r_backend) .Call(\"wrap__register_ocr_backend\""),
+            "register wrapper must accept an R object and call wrap__register_ocr_backend:\n{content}"
+        );
+        assert!(
+            content.contains("unregister_ocr_backend <- function(name) .Call(\"wrap__unregister_ocr_backend\""),
+            "unregister wrapper must accept a name and call wrap__unregister_ocr_backend:\n{content}"
+        );
+        assert!(
+            content.contains("clear_ocr_backends <- function() .Call(\"wrap__clear_ocr_backends\""),
+            "clear wrapper must take no arguments:\n{content}"
+        );
+    }
+
+    #[test]
+    fn namespace_exports_trait_bridge_register_unregister_clear() {
+        // Regression: without explicit `export()` entries in NAMESPACE, the
+        // trait-bridge wrappers would be loaded internally but unreachable via
+        // `pkg::register_<trait>(...)`.
+        let backend = ExtendrBackend;
+        let config = trait_bridge_config_for_tests();
+        let api = make_api_surface();
+        let files = backend.generate_public_api(&api, &config).unwrap();
+        let namespace = files
+            .iter()
+            .find(|f| f.path.to_string_lossy().ends_with("NAMESPACE"))
+            .expect("NAMESPACE must be generated");
+        for sym in ["register_ocr_backend", "unregister_ocr_backend", "clear_ocr_backends"] {
+            assert!(
+                namespace.content.contains(&format!("export({sym})")),
+                "NAMESPACE must export `{sym}`:\n{}",
+                namespace.content
+            );
+        }
+    }
+
+    #[test]
+    fn extendr_excludes_trait_bridge_functions_when_language_excluded() {
+        // The bridge structs already honour `exclude_languages`. Their register / unregister /
+        // clear free functions must follow the same gate so the module/wrappers/namespace stay in sync.
+        let config = resolved_one(
+            r#"
+[workspace]
+languages = ["r"]
+
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[crates.r]
+package_name = "testlib"
+
+[[crates.trait_bridges]]
+trait_name = "OcrBackend"
+super_trait = "test_lib::Plugin"
+registry_getter = "test_lib::get_ocr_backend_registry"
+register_fn = "register_ocr_backend"
+unregister_fn = "unregister_ocr_backend"
+clear_fn = "clear_ocr_backends"
+exclude_languages = ["r"]
+"#,
+        );
+        let collected = super::collect_trait_bridge_functions(&config);
+        assert!(
+            collected.is_empty(),
+            "no trait-bridge entries should be collected when r is excluded: {:?}",
+            collected.iter().map(|t| &t.name).collect::<Vec<_>>()
         );
     }
 }
