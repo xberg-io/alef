@@ -375,7 +375,7 @@ fn gen_php_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Strin
          #[php_function]\n\
          pub fn {start_fn}(\n    \
              resource: ext_php_rs::types::Zval,\n    \
-             {req_param_name}: {req_param_type},\n\
+             {req_param_name}: &{req_param_type},\n\
          ) -> ext_php_rs::prelude::Result<i64> {{\n    \
              {bindings_block}\
              let resource_obj = resource.try_into::<{owner_type}>()\n        \
