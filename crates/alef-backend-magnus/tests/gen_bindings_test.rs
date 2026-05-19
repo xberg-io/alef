@@ -2422,31 +2422,27 @@ fn tagged_enum_public_api_emits_class_hierarchy() {
         .unwrap();
     let content = &native_file.content;
 
-    // Base class with predicate stubs
+    // Base marker module
     assert!(
-        content.contains("class Message"),
-        "must emit a Message base class:\n{content}"
-    );
-    assert!(
-        content.contains("def system? = false"),
-        "base class must have system? predicate returning false:\n{content}"
-    );
-    assert!(
-        content.contains("def user? = false"),
-        "base class must have user? predicate returning false:\n{content}"
+        content.contains("module Message"),
+        "must emit a Message marker module:\n{content}"
     );
 
-    // Per-variant subclasses
+    // Per-variant Data.define classes including the marker module
     assert!(
-        content.contains("class MessageSystem < Message"),
-        "must emit MessageSystem subclass:\n{content}"
+        content.contains("MessageSystem = Data.define(:content) do"),
+        "must emit MessageSystem as Data.define with symbol args:\n{content}"
     );
     assert!(
-        content.contains("class MessageUser < Message"),
-        "must emit MessageUser subclass:\n{content}"
+        content.contains("MessageUser = Data.define(:content) do"),
+        "must emit MessageUser as Data.define with symbol args:\n{content}"
+    );
+    assert!(
+        content.contains("    include Message"),
+        "variant must include the marker module:\n{content}"
     );
 
-    // Subclass predicate override
+    // Variant predicate methods
     assert!(
         content.contains("def system? = true"),
         "MessageSystem must override system? to true:\n{content}"
@@ -2455,11 +2451,15 @@ fn tagged_enum_public_api_emits_class_hierarchy() {
         content.contains("def user? = true"),
         "MessageUser must override user? to true:\n{content}"
     );
-
-    // attr_reader for fields
     assert!(
-        content.contains("attr_reader :content"),
-        "variant subclass must expose content via attr_reader:\n{content}"
+        content.contains("def system? = false"),
+        "non-system variants must define system? as false:\n{content}"
+    );
+
+    // Field accessor wraps Data-auto-generated method via super (no infinite recursion)
+    assert!(
+        content.contains("def content; super; end"),
+        "variant accessor must delegate to Data's auto-getter via super:\n{content}"
     );
 }
 
@@ -2626,26 +2626,16 @@ fn test_enum_variant_method_yard_docs() {
         .unwrap();
     let content = &native_file.content;
 
-    // attr_reader field with doc should emit the doc as YARD
+    // Data field with doc should emit the doc as YARD
     assert!(
         content.contains("# The success value."),
-        "attr_reader with doc must emit YARD comment:\n{content}"
+        "field accessor with doc must emit YARD comment:\n{content}"
     );
 
-    // initialize must have @param and @return [void]
+    // predicate must have a Sorbet sig declaring Boolean return
     assert!(
-        content.contains("# @param value"),
-        "initialize must have @param YARD tag:\n{content}"
-    );
-    assert!(
-        content.contains("# @return [void]"),
-        "initialize must have @return [void] YARD tag:\n{content}"
-    );
-
-    // predicate must have @return [Boolean]
-    assert!(
-        content.contains("# @return [Boolean]"),
-        "predicate method must have @return [Boolean] YARD tag:\n{content}"
+        content.contains("sig { returns(T::Boolean) }"),
+        "predicate method must have Sorbet boolean return sig:\n{content}"
     );
 
     // from_hash must have @param and @return [self]
@@ -2654,7 +2644,7 @@ fn test_enum_variant_method_yard_docs() {
         "from_hash must have @param hash YARD tag:\n{content}"
     );
     assert!(
-        content.contains("# @return [self]"),
-        "from_hash must have @return [self] YARD tag:\n{content}"
+        content.contains("@return [self]") || content.contains("returns(T.attached_class)"),
+        "from_hash must declare a self return:\n{content}"
     );
 }

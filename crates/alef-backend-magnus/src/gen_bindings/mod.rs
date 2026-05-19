@@ -762,19 +762,27 @@ fn gen_tagged_enum_ruby_classes(enum_def: &alef_core::ir::EnumDef, module_name: 
             out.push_str(&format!("  # Variant {variant_class} of the {class_name} sum type.\n"));
         }
 
-        // Data.define(...) declaration
+        // Data.define(...) declaration — Ruby requires symbol arguments
         if field_names.is_empty() {
             out.push_str(&format!("  {variant_class} = Data.define do\n"));
         } else {
+            let symbol_args: Vec<String> = variant
+                .fields
+                .iter()
+                .map(|f| {
+                    let attr_name = if f.name == "_0" { "value" } else { f.name.as_str() };
+                    format!(":{attr_name}")
+                })
+                .collect();
             out.push_str(&format!(
                 "  {variant_class} = Data.define({}) do\n",
-                field_names.join(", ")
+                symbol_args.join(", ")
             ));
         }
         out.push_str(&format!("    include {class_name}\n"));
         out.push_str("    extend T::Sig\n\n");
 
-        // Sorbet sigs for the Data attributes (read-only accessors)
+        // Sorbet sigs for the Data attributes — wrap auto-generated accessors via super
         for field in &variant.fields {
             let attr_name = if field.name == "_0" {
                 "value"
@@ -788,7 +796,7 @@ fn gen_tagged_enum_ruby_classes(enum_def: &alef_core::ir::EnumDef, module_name: 
                 out.push_str(&format!("    # @return [{sorbet_t}]\n"));
             }
             out.push_str(&format!("    sig {{ returns({sorbet_t}) }}\n"));
-            out.push_str(&format!("    def {attr_name}; {attr_name}; end\n\n"));
+            out.push_str(&format!("    def {attr_name}; super; end\n\n"));
         }
 
         // Variant predicate methods (return true for this variant, false for others)
