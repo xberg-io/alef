@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-backend-wasm**: add `futures` umbrella crate to emitted `Cargo.toml` dependency list. The WASM backend previously only included `futures-util` but the emitted `lib.rs` uses `futures::channel::mpsc` and `futures::sink::SinkExt` from the umbrella crate, causing E0433 compile errors in generated crates. `FUTURES` constant added to `alef-core::template_versions::cargo`; `"futures"` added to the `cargo-machete` ignored list. (`crates/alef-core/src/template_versions.rs`, `crates/alef-backend-wasm/src/gen_bindings/mod.rs`)
+- **alef-backend-swift**: clone refs in Vec-of-Named return wrapper when `returns_ref = true`. When a core function returns `&[T]`, the emitted wrapper previously called `.into_iter().map(T)` — but `into_iter()` on `&[T]` yields `&T`, and the tuple constructor `T(...)` does not accept `&CoreT`. The fix emits `.iter().map(|x| T(x.clone()))` when `f.returns_ref` is true. (`crates/alef-backend-swift/src/gen_rust_crate/shims.rs`)
+- **alef-backend-dart**: clone refs in Vec-of-Named return wrapper when `returns_ref = true`. Same root cause as the Swift fix: `return_transmute_expr` now accepts `returns_ref: bool` and emits `.iter().map(|x| T::from(x.clone()))` (or opaque `.iter().map(|inner| T { inner: inner.clone() })`) when the function returns a reference slice. (`crates/alef-backend-dart/src/gen_rust_crate/bridge_fn.rs`)
+- **alef-backend-zig**: emit clear_<trait>s pub fns for the trait-bridge family (was previously omitted, leaving plugin registries un-clearable from Zig consumers).
 - **alef-backend-csharp**: emit `Clear()` static method on each trait-bridge nested class (was previously omitted, leaving plugin registries un-clearable from .NET consumers).
 
 ### Added

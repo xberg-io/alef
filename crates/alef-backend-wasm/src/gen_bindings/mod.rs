@@ -813,6 +813,7 @@ fn gen_cargo_toml(api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
             core_dep_key.clone(),
             format!(r#"{{ path = "../{core_crate_dir}"{features_clause} }}"#),
         ),
+        ("futures".to_string(), format!(r#""{}""#, tv::cargo::FUTURES)),
         ("futures-util".to_string(), format!(r#""{}""#, tv::cargo::FUTURES_UTIL)),
         ("js-sys".to_string(), format!(r#""{}""#, tv::cargo::JS_SYS)),
         ("wasm-bindgen".to_string(), format!(r#""{}""#, tv::cargo::WASM_BINDGEN)),
@@ -851,7 +852,7 @@ description = "{description}"
 repository = "{repository}"
 {keywords_toml}
 [package.metadata.cargo-machete]
-ignored = ["futures-util", "js-sys", "wasm-bindgen-futures", "serde_json"]
+ignored = ["futures", "futures-util", "js-sys", "wasm-bindgen-futures", "serde_json"]
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false
