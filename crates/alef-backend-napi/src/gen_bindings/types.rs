@@ -8,7 +8,7 @@ use alef_codegen::naming::to_node_name;
 use alef_codegen::shared::{binding_fields, can_auto_delegate, function_params, partition_methods};
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::ir::{MethodDef, TypeDef, TypeRef};
-use heck::ToPascalCase;
+use heck::{ToPascalCase, ToSnakeCase};
 
 use super::functions::{napi_apply_primitive_casts_to_call_args, napi_gen_call_args, napi_wrap_return};
 
@@ -678,7 +678,7 @@ pub(super) fn gen_dto_method_fns(
             s
         };
         let full_js_name = format!("{type_js_name}{js_name_upper}");
-        let full_rust_name = format!("{}_{}", heck::AsSnakeCase(&typ.name), heck::AsSnakeCase(&method.name));
+        let full_rust_name = format!("{}_{}", typ.name.to_snake_case(), method.name.to_snake_case());
 
         // The binding DTO type name (Js-prefixed if prefix is non-empty).
         let binding_type = format!("{prefix}{}", typ.name);
@@ -698,15 +698,7 @@ pub(super) fn gen_dto_method_fns(
         let params_str = param_parts.join(", ");
 
         // Build the core call arguments.
-        let call_args: Vec<String> = method
-            .params
-            .iter()
-            .map(|p| {
-                let go = napi_gen_call_args(&[p.clone()], opaque_types);
-                go
-            })
-            .collect();
-        let call_args_str = call_args.join(", ");
+        let call_args_str = napi_gen_call_args(&method.params, opaque_types);
 
         // Build the function body.
         let body = if is_static {

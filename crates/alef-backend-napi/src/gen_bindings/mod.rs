@@ -430,6 +430,22 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
                     &opaque_types,
                     &never_skip_cfg_field_names,
                 ));
+                // Emit impl methods as standalone #[napi] free functions.
+                // #[napi(object)] structs cannot have impl blocks, so each method becomes a
+                // module-level function whose JS name encodes the type as a namespace prefix
+                // (e.g. `processConfigAll`, `processConfigWithChunking`). TypeScript callers
+                // group them via a value-namespace declaration in their own code.
+                let dto_fns = types::gen_dto_method_fns(
+                    typ,
+                    &mapper,
+                    &cfg,
+                    &opaque_types,
+                    &prefix,
+                    &mutex_types,
+                );
+                if !dto_fns.is_empty() {
+                    builder.add_item(&dto_fns);
+                }
             }
         }
 
