@@ -8,6 +8,7 @@ use alef_codegen::naming::to_node_name;
 use alef_codegen::shared::{binding_fields, can_auto_delegate, function_params, partition_methods};
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::ir::{MethodDef, TypeDef, TypeRef};
+use heck::ToPascalCase;
 
 use super::functions::{napi_apply_primitive_casts_to_call_args, napi_gen_call_args, napi_wrap_return};
 
@@ -312,8 +313,10 @@ pub(super) fn gen_opaque_instance_method(
     });
     let adapter_key_for_stream = format!("{}.{}", typ.name, method.name);
     let stream_item = streaming_item_types.get(&adapter_key_for_stream);
-    let return_type = if let Some(item) = stream_item {
-        format!("Vec<{prefix}{item}>")
+    let return_type = if stream_item.is_some() {
+        // For streaming methods, return the iterator struct (not Vec<item>).
+        // The iterator struct name is {PascalCaseMethodName}Iterator.
+        format!("{}Iterator", method.name.to_pascal_case())
     } else {
         mapper.map_type(&method.return_type)
     };
