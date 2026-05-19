@@ -450,6 +450,24 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
             }
         }
 
+        // Collect enum names used as streaming-adapter `item_type`. The streaming `_next`
+        // helper (emitted via `gen_stream_handle_functions`) returns `*mut item_type`, so
+        // when the item is an enum the FFI surface must also expose `_to_json` and `_free`
+        // for that enum — otherwise downstream language bindings (Go, Ruby, Java, C#, …)
+        // that drive the stream by repeatedly calling `_next` + `_to_json` + `_free` have
+        // no way to consume the returned pointer.
+        for adapter in &config.adapters {
+            if !matches!(adapter.pattern, AdapterPattern::Streaming) {
+                continue;
+            }
+            let Some(item_type) = adapter.item_type.as_deref() else {
+                continue;
+            };
+            if api.enums.iter().any(|e| e.name == item_type) {
+                enum_pointer_return.insert(item_type.to_string());
+            }
+        }
+
         // Collect enum names used as parameters in non-excluded free functions
         let mut enum_pointer_param: ahash::AHashSet<String> = ahash::AHashSet::new();
         for func in &api.functions {

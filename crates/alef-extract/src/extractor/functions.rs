@@ -199,12 +199,23 @@ pub(crate) fn extract_impl_block(
                 surface.types[idx].methods.push(method);
             }
         }
-    } else if surface.errors.iter().any(|e| e.name == type_name) {
-        // This is an impl block on a thiserror error enum. Error variants are already
-        // captured in surface.errors; creating a duplicate opaque TypeDef here would
-        // cause backends to emit two conflicting definitions for the same name.
-        // Methods on error types (e.g. status_code()) are excluded via alef.toml
-        // [exclude].methods, so we can safely skip without losing information.
+    } else if let Some(error_def) = surface.errors.iter_mut().find(|e| e.name == type_name) {
+        // This is an impl block on a thiserror error enum. Populate ErrorDef.methods with
+        // a fixed whitelist of introspection methods that are safe to expose across the FFI:
+        //   - status_code  → maps the error variant to an HTTP status code
+        //   - is_transient → indicates whether the error is retryable
+        //   - error_type   → returns a &'static str identifier for the error class
+        //
+        // All other methods (Display helpers, internal utilities, trait impls) are excluded.
+        // The whitelist prevents accidentally exporting Rust-only ergonomics to bindings.
+        const ERROR_METHOD_WHITELIST: &[&str] = &["status_code", "is_transient", "error_type"];
+        for method in methods {
+            let is_whitelisted = ERROR_METHOD_WHITELIST.contains(&method.name.as_str());
+            let already_present = error_def.methods.iter().any(|m| m.name == method.name);
+            if is_whitelisted && !already_present {
+                error_def.methods.push(method);
+            }
+        }
     } else {
         // The impl is for a type we haven't seen as a pub struct — create an opaque entry
         let rust_path = build_rust_path(crate_name, module_path, &type_name);

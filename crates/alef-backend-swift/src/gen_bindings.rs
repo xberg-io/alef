@@ -77,18 +77,47 @@ impl Backend for SwiftBackend {
 
         let mut body = String::new();
 
-        // Build the set of all DTO type names in this API surface (non-opaque, has_serde,
-        // non-trait, non-excluded).  This set is passed to `can_emit_first_class_struct`
-        // so that `Named(S)` fields can be accepted when S refers to another DTO in the
-        // same API — even before it is known whether S itself becomes first-class.
-        // Enum names are also included so that enum-typed fields are considered known.
-        let known_dto_names: std::collections::HashSet<String> = api
+        // Compute which struct DTO types will actually be emitted as first-class Swift
+        // structs via a fixed-point iteration.
+        //
+        // A type is first-class iff:
+        //   1. It is non-opaque, has_serde, non-trait, non-excluded, and has visible fields.
+        //   2. Every visible field's TypeRef is "supported" given the current first-class set.
+        //
+        // Because first-class status of type A can depend on B (via Vec<Named("B")>) and B's
+        // status can depend on A, we iterate until the set stabilises (convergence is guaranteed
+        // because each round can only add types — the set is monotonically growing).
+        //
+        // Only struct DTO names are seeded here.  Native Swift enums (api.enums) are emitted
+        // separately and do NOT yet provide an `init(_ rb:) throws` extension (they are plain
+        // Swift enums, not Codable wrappers), so Named(enum) fields reject first-class emission
+        // on the containing struct until enum Codable support is added.
+        let candidate_types: Vec<&alef_core::ir::TypeDef> = api
             .types
             .iter()
             .filter(|t| !t.is_trait && !t.is_opaque && t.has_serde && !exclude_types.contains(&t.name))
-            .map(|t| t.name.clone())
-            .chain(api.enums.iter().filter(|e| !exclude_types.contains(&e.name)).map(|e| e.name.clone()))
+            .filter(|t| !t.fields.is_empty())
             .collect();
+
+        let mut known_dto_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+        loop {
+            let prev_len = known_dto_names.len();
+            for ty in &candidate_types {
+                if known_dto_names.contains(&ty.name) {
+                    continue;
+                }
+                // Check if all visible (binding-non-excluded) fields are supported given the
+                // current known set.
+                let all_supported = binding_fields(&ty.fields)
+                    .all(|field| first_class_field_supported(&field.ty, &known_dto_names));
+                if all_supported {
+                    known_dto_names.insert(ty.name.clone());
+                }
+            }
+            if known_dto_names.len() == prev_len {
+                break; // stable — no new types added this round
+            }
+        }
 
         // Emit typealiases for all struct types exposed by swift-bridge.
         // swift-bridge exposes types that are declared in the extern "Rust" block,
