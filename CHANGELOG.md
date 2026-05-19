@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **alef-extract: HashSet/BTreeSet/AHashSet/IndexSet/FxHashSet now resolve to Vec<T> in the IR so set-returning public APIs become exposed across all bindings (collapsing the wire shape).**
+
 - **alef-backend-java: keyword-safe sanitiser `safe_java_method_name` for Rust impl-method names.** Rust impl blocks use names that are Java reserved words — `default`, `new`, `class`, etc. — and emitting them verbatim produces non-compiling Java (`public static Parser default()`). Sanitiser renames `default` → `defaultInstance` and `new` → `create`; any other `JAVA_KEYWORDS` collision falls back to a trailing-underscore suffix. Replaces the ad-hoc `if method.name == "default"` check in `emit_record_methods` and wires the new opaque static-factory and instance-method emission through the same helper. Lives in `crates/alef-backend-java/src/gen_bindings/helpers.rs`.
 
 - **alef-backend-java: emit static factory methods on opaque-handle classes.** Opaque types in Java had no public constructors / static factories — users could only obtain a `Parser`, `LanguageRegistry`, or `DownloadManager` via top-level static helpers on the main class. Rust impl methods with no `&self` receiver and `-> Self` return (e.g. `Parser::default()`, `LanguageRegistry::default()`, `DownloadManager::new(version)`) now emit as `public static ClassName methodName(...)` on the opaque-handle class itself, with full Panama FFM marshaling. Mirrors the existing `gen_instance_method` pattern. New `gen_static_factory_method` in `crates/alef-backend-java/src/gen_bindings/types.rs`, called from `gen_opaque_handle_class` after instance-method emission.

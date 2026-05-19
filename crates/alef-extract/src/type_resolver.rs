@@ -225,6 +225,15 @@ fn resolve_path_type(type_path: &syn::TypePath) -> TypeRef {
             TypeRef::Map(Box::new(k), Box::new(v))
         }
 
+        // HashSet<T> / BTreeSet<T> / AHashSet<T> / IndexSet<T> / FxHashSet<T> → Vec<T>.
+        // Sets serialize to JSON arrays on the wire, so the binding-level shape
+        // collapses to a Vec; uniqueness is the producer's invariant, not part
+        // of the cross-language surface.
+        "HashSet" | "BTreeSet" | "AHashSet" | "IndexSet" | "FxHashSet" => {
+            let inner = extract_single_generic_arg(segment).unwrap_or(TypeRef::Named("unknown".into()));
+            TypeRef::Vec(Box::new(inner))
+        }
+
         // Result<T, E> → unwrap to T
         "Result" => extract_single_generic_arg(segment).unwrap_or(TypeRef::Named("unknown".into())),
 
@@ -521,6 +530,46 @@ mod tests {
                 Box::new(TypeRef::String),
                 Box::new(TypeRef::Primitive(PrimitiveType::Bool))
             )
+        );
+    }
+
+    #[test]
+    fn test_hashset_resolves_as_vec() {
+        assert_eq!(
+            resolve_type(&parse_type("HashSet<String>")),
+            TypeRef::Vec(Box::new(TypeRef::String))
+        );
+    }
+
+    #[test]
+    fn test_btreeset_resolves_as_vec() {
+        assert_eq!(
+            resolve_type(&parse_type("BTreeSet<u32>")),
+            TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::U32)))
+        );
+    }
+
+    #[test]
+    fn test_ahashset_resolves_as_vec() {
+        assert_eq!(
+            resolve_type(&parse_type("AHashSet<String>")),
+            TypeRef::Vec(Box::new(TypeRef::String))
+        );
+    }
+
+    #[test]
+    fn test_indexset_resolves_as_vec() {
+        assert_eq!(
+            resolve_type(&parse_type("IndexSet<MyType>")),
+            TypeRef::Vec(Box::new(TypeRef::Named("MyType".into())))
+        );
+    }
+
+    #[test]
+    fn test_fxhashset_resolves_as_vec() {
+        assert_eq!(
+            resolve_type(&parse_type("FxHashSet<u64>")),
+            TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::U64)))
         );
     }
 
