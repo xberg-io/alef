@@ -85,6 +85,26 @@ pub(crate) fn safe_java_field_name(name: &str) -> String {
     }
 }
 
+/// Sanitise a Rust impl-method name for use as a Java method identifier.
+///
+/// Rust impl blocks routinely use names that are Java reserved keywords —
+/// `default`, `new`, `class`, `int`, etc. Emitting them verbatim produces
+/// non-compiling Java (`public static Parser default()`).
+///
+/// Strategy: the two common Rust conventions get meaningful renames
+/// (`default` → `defaultInstance`, `new` → `create`); any other keyword
+/// collision falls back to a trailing-underscore suffix (e.g. `class`
+/// → `class_`), matching the field-name convention.
+pub(crate) fn safe_java_method_name(name: &str) -> String {
+    let camel = name.to_lower_camel_case();
+    match camel.as_str() {
+        "default" => "defaultInstance".to_string(),
+        "new" => "create".to_string(),
+        other if alef_core::keywords::JAVA_KEYWORDS.contains(&other) => format!("{other}_"),
+        _ => camel,
+    }
+}
+
 pub(crate) fn is_bridge_param_java(
     param: &alef_core::ir::ParamDef,
     bridge_param_names: &HashSet<String>,

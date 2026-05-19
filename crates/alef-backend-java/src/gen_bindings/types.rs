@@ -9,7 +9,7 @@ use heck::{ToLowerCamelCase, ToSnakeCase};
 
 use super::helpers::{
     RECORD_LINE_WRAP_THRESHOLD, emit_javadoc, escape_javadoc_line, format_optional_value, is_tuple_field_name,
-    java_apply_rename_all, safe_java_field_name,
+    java_apply_rename_all, safe_java_field_name, safe_java_method_name,
 };
 use super::marshal::{is_ffi_string_return, java_ffi_return_cast};
 
@@ -381,12 +381,7 @@ pub(crate) fn gen_record_type(
             continue;
         }
         let is_static_method = method.receiver.is_none();
-        // Java-safe method name: `default` is reserved.
-        let java_method_name = if method.name == "default" {
-            "defaultConfig".to_string()
-        } else {
-            method.name.to_lower_camel_case()
-        };
+        let java_method_name = safe_java_method_name(&method.name);
         // Build parameter list.
         let params_str = method
             .params
@@ -1089,7 +1084,7 @@ pub(crate) fn gen_opaque_handle_class(
 
 /// Emit a non-streaming instance method on an opaque-handle owner.
 fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner_snake: &str, main_class: &str) {
-    let method_name = method.name.to_lower_camel_case();
+    let method_name = safe_java_method_name(&method.name);
     let prefix_upper = prefix.to_uppercase();
     let owner_upper = owner_snake.to_uppercase();
     let method_upper = method.name.to_snake_case().to_uppercase();
@@ -1448,7 +1443,7 @@ fn gen_static_factory_method(
     owner_snake: &str,
     main_class: &str,
 ) {
-    let method_name = method.name.to_lower_camel_case();
+    let method_name = safe_java_method_name(&method.name);
     let prefix_upper = prefix.to_uppercase();
     let owner_upper = owner_snake.to_uppercase();
     let method_upper = method.name.to_snake_case().to_uppercase();
