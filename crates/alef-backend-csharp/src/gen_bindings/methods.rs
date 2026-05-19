@@ -14,6 +14,46 @@ use alef_core::ir::{ApiSurface, FunctionDef, MethodDef, TypeRef};
 use heck::ToLowerCamelCase;
 use std::collections::{HashMap, HashSet};
 
+/// Skip methods that take opaque handle FFI pointers as first arg but operate on non-opaque types.
+/// These are validation/property functions that shouldn't be exposed as static methods.
+/// Examples: HeaderMetadataIsValid, ConversionOptionsLevel (getters on JSON-serializable types).
+fn should_skip_ffi_method(func: &FunctionDef) -> bool {
+    let name = &func.name;
+
+    // Skip validation methods (IsValid suffix)
+    if name.ends_with("IsValid") || name.contains("IsValid") {
+        return true;
+    }
+
+    // Skip default factory methods (*Default suffix)
+    if name.ends_with("Default") {
+        return true;
+    }
+
+    false
+}
+
+
+fn sanitize_doc_for_csharp(doc: &str) -> String {
+    doc.lines()
+        .filter_map(|line| {
+            if line.trim().starts_with("use ") && line.contains("::") {
+                return None;
+            }
+            let line = line.replace("`", "");
+            let line = line.replace(".unwrap()", "");
+            let line = line.replace("```rust", "").replace("```", "");
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn gen_wrapper_class(
     api: &ApiSurface,
@@ -28,6 +68,7 @@ pub(super) fn gen_wrapper_class(
     _streaming_methods_meta: &HashMap<String, StreamingMethodMeta>,
     exclude_functions: &HashSet<String>,
     trait_bridges: &[alef_core::config::TraitBridgeConfig],
+    _all_opaque_type_names: &HashSet<String>,
 ) -> String {
     use crate::template_env::render;
     use minijinja::Value;
@@ -60,7 +101,10 @@ pub(super) fn gen_wrapper_class(
     let handle_returned_types = super::errors::compute_handle_returned_types(api);
 
     // Generate wrapper methods for functions
-    for func in api.functions.iter().filter(|f| !exclude_functions.contains(&f.name)) {
+    for func in api.functions.iter().filter(|f| {
+        !exclude_functions.contains(&f.name)
+            && !should_skip_ffi_method(f)
+    }) {
         // Check if this function has a bridge_field binding (e.g., visitor field on options)
         let bridge_field = find_bridge_field(func, &api.types, trait_bridges);
         if let Some(bm) = bridge_field {
@@ -761,7 +805,8 @@ fn gen_wrapper_method(
         .collect();
 
     // XML doc comment using shared doc emission
-    doc_emission::emit_csharp_doc(&mut out, &method.doc, "    ", exception_name);
+    let sanitized_doc = sanitize_doc_for_csharp(&method.doc);
+    doc_emission::emit_csharp_doc(&mut out, &sanitized_doc, "    ", exception_name);
     for param in &visible_params {
         if !method.doc.is_empty() {
             let param_name = param.name.to_lower_camel_case();
