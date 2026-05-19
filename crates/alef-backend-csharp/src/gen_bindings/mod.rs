@@ -1,4 +1,4 @@
-use alef_codegen::naming::csharp_type_name;
+use alef_codegen::naming::{csharp_type_name, to_csharp_name};
 use alef_codegen::shared::binding_fields;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{AdapterPattern, Language, ResolvedCrateConfig, resolve_output_dir};
@@ -171,7 +171,7 @@ impl Backend for CsharpBackend {
         let mut files = Vec::new();
 
         // Fallback generic exception class name (used by GetLastError and as base for typed errors)
-        let exception_class_name = format!("{}Exception", csharp_type_name(&api.crate_name));
+        let exception_class_name = format!("{}Exception", to_csharp_name(&api.crate_name));
 
         // 1. Generate NativeMethods.cs
         files.push(GeneratedFile {
@@ -223,7 +223,7 @@ impl Backend for CsharpBackend {
         }
 
         // 3. Generate main wrapper class
-        let base_class_name = csharp_type_name(&api.crate_name);
+        let base_class_name = to_csharp_name(&api.crate_name);
         let wrapper_class_name = if namespace == base_class_name {
             format!("{}Lib", base_class_name)
         } else {

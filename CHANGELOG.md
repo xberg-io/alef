@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-backend-csharp: use `to_csharp_name` (not `csharp_type_name`) on `api.crate_name`.** `csharp_type_name` only applies initialism uppercasing — it does not perform snake_case → PascalCase conversion. Since `api.crate_name` is a snake_case crate identifier (e.g. `ts_pack_core`), the previous initialism fix accidentally regressed it: callers got `ts_pack_coreException` instead of `TsPackCoreException`. Routed through `to_csharp_name` (PascalCase + initialisms) at the two `api.crate_name` call sites in `crates/alef-backend-csharp/src/gen_bindings/mod.rs`. Includes a cosmetic `Cow::to_string()` fix in `emit_record_methods` to satisfy the borrow checker.
+
 - **C# backend**: preserve initialisms in type names (e.g. `GraphQLRouteConfig` instead of `GraphQlRouteConfig`), matching Go behaviour. A new `csharp_type_name` function in `alef-codegen/src/naming.rs` applies longest-match initialism restoration to PascalCase IR type names, handling multi-segment initialisms like `GraphQL` that `heck` splits into `Graph`+`Ql`. All C# class name, enum name, and `TypeRef::Named` call sites in `alef-backend-csharp` now route through `csharp_type_name`. `to_csharp_name` (snake_case → PascalCase) also applies the same initialism handling so e.g. `graphql_route_config` → `GraphQLRouteConfig`.
 
 ### Documentation
