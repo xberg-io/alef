@@ -102,6 +102,11 @@ pub fn emit_jni_bridge_object(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     // Emit nativeNew<TypeName> external funs for client_constructors entries.
     emit_constructor_jni_external_funs(&mut body, api, config, &exception_class);
 
+    // Emit nativeRegister<Trait> / nativeUnregister<Trait> / nativeClear<Trait>s
+    // external funs for every [[crates.trait_bridges]] entry whose configuration
+    // does not exclude `kotlin_android`.
+    emit_trait_bridge_jni_external_funs(&mut body, config, &exception_class, &package);
+
     // Emit nativeFreeXxx destructors for opaque types returned by top-level functions
     // that do NOT have instance methods (those are handled via emit_method_jni_external_funs
     // which already emits the destructor in the paired Kotlin client class, while the
@@ -881,6 +886,58 @@ fn emit_jni_client_factory(class_name: &str, bridge_name: &str, ctor: &ClientCon
     out.push_str(&format!(
         "        fun create({params_str}): {class_name} = {class_name}({bridge_name}.{native_name}({call_args}))\n"
     ));
+}
+
+/// Emit `external fun nativeRegister<Trait>`, `nativeUnregister<Trait>`, and
+/// `nativeClear<Trait>s` declarations for every configured `[[crates.trait_bridges]]`
+/// entry that does not list `kotlin_android` in its `exclude_languages` list.
+///
+/// The register fun signature receives the user-implemented `I<Trait>` interface
+/// as a generic JVM `Any` reference; the Rust JNI shim is responsible for holding a
+/// global reference and trampolining trait method calls back into the JVM.
+///
+/// Each generated `external fun` is annotated `@Throws(<Bridge>Exception::class)`
+/// because both the Rust registration logic and the upcall vtable assembly can fail.
+fn emit_trait_bridge_jni_external_funs(
+    out: &mut String,
+    config: &ResolvedCrateConfig,
+    exception_class: &str,
+    kotlin_package: &str,
+) {
+    let bridges: Vec<_> = config
+        .trait_bridges
+        .iter()
+        .filter(|b| !b.exclude_languages.iter().any(|l| l == "kotlin_android"))
+        .collect();
+    if bridges.is_empty() {
+        return;
+    }
+    out.push_str("\n    // JNI trait-bridge external funs — implementations are Rust JNI shims.\n");
+    for bridge in &bridges {
+        let trait_pascal = to_pascal_case(&bridge.trait_name);
+        // The managed Kotlin interface lives in the same package as the bridge object;
+        // the fully-qualified reference is used so callers can pass any class that
+        // implements I<Trait> without an extra import in the bridge file.
+        let iface_fqn = format!("{kotlin_package}.I{trait_pascal}");
+        if bridge.register_fn.is_some() {
+            let native_name = format!("nativeRegister{trait_pascal}");
+            out.push_str(&format!(
+                "\n    @Throws({exception_class}::class)\n    external fun {native_name}(impl: {iface_fqn})\n"
+            ));
+        }
+        if bridge.unregister_fn.is_some() {
+            let native_name = format!("nativeUnregister{trait_pascal}");
+            out.push_str(&format!(
+                "    @Throws({exception_class}::class)\n    external fun {native_name}(name: String)\n"
+            ));
+        }
+        if bridge.clear_fn.is_some() {
+            let native_name = format!("nativeClear{trait_pascal}s");
+            out.push_str(&format!(
+                "    @Throws({exception_class}::class)\n    external fun {native_name}()\n"
+            ));
+        }
+    }
 }
 
 /// Resolve the Kotlin package for JNI-mode output.

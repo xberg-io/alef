@@ -233,7 +233,111 @@ pub(crate) fn emit_lib_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> Str
         emit_destructor_shim(&mut out, &free_symbol, type_name);
     }
 
+    // Trait-bridge shims (Java_*_nativeRegister<Trait> / nativeUnregister<Trait> /
+    // nativeClear<Trait>s).  Bridges with `kotlin_android` in `exclude_languages`
+    // are skipped.
+    emit_trait_bridge_shims(&mut out, config, &package, &bridge);
+
     out
+}
+
+/// Emit JNI Rust shims for every configured `[[crates.trait_bridges]]` entry.
+///
+/// For each bridge whose `exclude_languages` does not contain `kotlin_android`,
+/// emits up to three `Java_*` symbols:
+///
+/// - `nativeUnregister<Trait>(name: String)` — calls the host crate's
+///   `unregister_fn(&name)` and surfaces any `Err(_)` as a thrown JNI exception.
+/// - `nativeClear<Trait>s()` — calls the host crate's `clear_fn()` similarly.
+/// - `nativeRegister<Trait>(impl: I<Trait>)` — placeholder that throws a
+///   `not yet implemented` exception.  Full JNI upcall-stub register support
+///   requires global JVM references + per-method trampolines and is tracked as
+///   a follow-up; declaring the symbol here preserves binding-surface parity
+///   with the JVM Panama backend so the API contract is the same across both
+///   targets.
+fn emit_trait_bridge_shims(out: &mut String, config: &ResolvedCrateConfig, package: &str, bridge: &str) {
+    let bridges: Vec<_> = config
+        .trait_bridges
+        .iter()
+        .filter(|b| !b.exclude_languages.iter().any(|l| l == "kotlin_android"))
+        .collect();
+    if bridges.is_empty() {
+        return;
+    }
+    out.push_str("\n// ---------------------------------------------------------------------------\n");
+    out.push_str("// Trait-bridge shims\n");
+    out.push_str("// ---------------------------------------------------------------------------\n\n");
+    for bridge_cfg in &bridges {
+        use heck::ToUpperCamelCase;
+        let trait_pascal = bridge_cfg.trait_name.to_upper_camel_case();
+        if let Some(register_fn) = bridge_cfg.register_fn.as_deref() {
+            let _ = register_fn; // host-side function name reserved for full upcall impl
+            let native_name = format!("nativeRegister{trait_pascal}");
+            let symbol = jni_symbol(package, bridge, &native_name);
+            emit_trait_register_stub(out, &symbol, &trait_pascal);
+        }
+        if let Some(unregister_fn) = bridge_cfg.unregister_fn.as_deref() {
+            let native_name = format!("nativeUnregister{trait_pascal}");
+            let symbol = jni_symbol(package, bridge, &native_name);
+            emit_trait_unregister_shim(out, &symbol, unregister_fn);
+        }
+        if let Some(clear_fn) = bridge_cfg.clear_fn.as_deref() {
+            let native_name = format!("nativeClear{trait_pascal}s");
+            let symbol = jni_symbol(package, bridge, &native_name);
+            emit_trait_clear_shim(out, &symbol, clear_fn);
+        }
+    }
+}
+
+/// Emit a placeholder `Java_*_nativeRegister<Trait>` shim that throws a
+/// `not yet implemented` JNI exception.  Surfaces parity at the symbol level
+/// without committing to a specific upcall-stub strategy.
+fn emit_trait_register_stub(out: &mut String, symbol: &str, trait_pascal: &str) {
+    out.push_str(&format!(
+        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {symbol}(\n    mut env: EnvUnowned,\n    _class: JClass,\n    _impl_obj: JObject,\n) {{\n    // SAFETY: env is a valid EnvUnowned passed by the JVM for this native call frame.\n    let mut __jni_attach_guard = unsafe {{ jni::AttachGuard::from_unowned(env.as_raw()) }};\n    let env = __jni_attach_guard.borrow_env_mut();\n"
+    ));
+    out.push_str(&format!(
+        "    throw_jni_error(env, \"register{trait_pascal}: JNI upcall trait registration is not yet implemented on Android\");\n"
+    ));
+    out.push_str("}\n\n");
+}
+
+/// Emit `Java_*_nativeUnregister<Trait>(name: String)` shim that calls the
+/// host crate's configured `unregister_fn`.
+fn emit_trait_unregister_shim(out: &mut String, symbol: &str, unregister_fn: &str) {
+    out.push_str(&format!(
+        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {symbol}(\n    mut env: EnvUnowned,\n    _class: JClass,\n    name: JString,\n) {{\n    // SAFETY: env is a valid EnvUnowned passed by the JVM for this native call frame.\n    let mut __jni_attach_guard = unsafe {{ jni::AttachGuard::from_unowned(env.as_raw()) }};\n    let env = __jni_attach_guard.borrow_env_mut();\n"
+    ));
+    out.push_str("    let name = match jstring_to_string(env, name) {\n");
+    out.push_str("        Ok(s) => s,\n");
+    out.push_str("        Err(e) => { throw_jni_error(env, &format!(\"{e}\")); return; }\n");
+    out.push_str("    };\n");
+    out.push_str(&format!(
+        "    let Some(result) = run_or_throw(env, std::panic::AssertUnwindSafe(|| core_crate::{unregister_fn}(&name))) else {{\n"
+    ));
+    out.push_str("        return;\n");
+    out.push_str("    };\n");
+    out.push_str("    if let Err(e) = result {\n");
+    out.push_str("        throw_jni_error(env, &format!(\"{e}\"));\n");
+    out.push_str("    }\n");
+    out.push_str("}\n\n");
+}
+
+/// Emit `Java_*_nativeClear<Trait>s()` shim that calls the host crate's
+/// configured `clear_fn`.
+fn emit_trait_clear_shim(out: &mut String, symbol: &str, clear_fn: &str) {
+    out.push_str(&format!(
+        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {symbol}(\n    mut env: EnvUnowned,\n    _class: JClass,\n) {{\n    // SAFETY: env is a valid EnvUnowned passed by the JVM for this native call frame.\n    let mut __jni_attach_guard = unsafe {{ jni::AttachGuard::from_unowned(env.as_raw()) }};\n    let env = __jni_attach_guard.borrow_env_mut();\n"
+    ));
+    out.push_str(&format!(
+        "    let Some(result) = run_or_throw(env, std::panic::AssertUnwindSafe(core_crate::{clear_fn})) else {{\n"
+    ));
+    out.push_str("        return;\n");
+    out.push_str("    };\n");
+    out.push_str("    if let Err(e) = result {\n");
+    out.push_str("        throw_jni_error(env, &format!(\"{e}\"));\n");
+    out.push_str("    }\n");
+    out.push_str("}\n\n");
 }
 
 // ---------------------------------------------------------------------------

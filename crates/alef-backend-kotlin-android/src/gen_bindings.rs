@@ -115,10 +115,129 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, kotlin_source_dir: &
         });
     }
 
+    // Emit one Kotlin interface file per configured trait bridge so that
+    // callers have an `I<Trait>` type to implement and pass to
+    // `<Bridge>.nativeRegister<Trait>`. Bridges with `kotlin_android` in
+    // `exclude_languages` are skipped.
+    emit_trait_interfaces(api, config, kotlin_source_dir, &package, &mut files);
+
     // Emit the free-function facade object (Module.kt) when visible functions exist.
     emit_module_kt(api, config, kotlin_source_dir, &package, &mut files);
 
     files
+}
+
+/// Emit one `I<Trait>.kt` file per `[[crates.trait_bridges]]` entry.
+///
+/// The interface is the managed Kotlin shape callers implement when they want
+/// to plug a backend into the host plugin registry. IR trait methods are surfaced
+/// as suspend functions when async, regular functions otherwise; complex parameter
+/// and return types are emitted as their canonical Kotlin DTO names because the
+/// interface shares the package with the generated DTOs.
+fn emit_trait_interfaces(
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+    kotlin_source_dir: &Path,
+    package: &str,
+    files: &mut Vec<GeneratedFile>,
+) {
+    use alef_backend_kotlin::to_lower_camel;
+
+    let trait_by_name: std::collections::HashMap<&str, &alef_core::ir::TypeDef> = api
+        .types
+        .iter()
+        .filter(|t| t.is_trait)
+        .map(|t| (t.name.as_str(), t))
+        .collect();
+
+    for bridge in &config.trait_bridges {
+        if bridge.exclude_languages.iter().any(|l| l == "kotlin_android") {
+            continue;
+        }
+        let trait_pascal = to_pascal_case(&bridge.trait_name);
+        let mut body = String::new();
+        body.push_str(&format!(
+            "/** Managed interface for the {trait_pascal} plugin trait. */\n"
+        ));
+        body.push_str(&format!("interface I{trait_pascal} {{\n"));
+
+        // When the trait inherits from a `Plugin` super-trait surface the
+        // canonical Plugin lifecycle methods so Kotlin callers honour the same
+        // contract as the Java/Panama backend's `I<Trait>` interface.
+        if bridge.super_trait.is_some() {
+            body.push_str("    /** Plugin name (used for registry keying). */\n");
+            body.push_str("    fun name(): String\n\n");
+            body.push_str("    /** Plugin version. */\n");
+            body.push_str("    fun version(): String\n\n");
+            body.push_str("    /** Initialize the plugin. */\n");
+            body.push_str("    fun initialize() {}\n\n");
+            body.push_str("    /** Shut down the plugin. */\n");
+            body.push_str("    fun shutdown() {}\n");
+        }
+
+        if let Some(trait_def) = trait_by_name.get(bridge.trait_name.as_str()) {
+            for method in &trait_def.methods {
+                if method.sanitized {
+                    continue;
+                }
+                let method_name = to_lower_camel(&method.name);
+                let async_kw = if method.is_async { "suspend " } else { "" };
+                let params = method
+                    .params
+                    .iter()
+                    .map(|p| {
+                        let name = to_lower_camel(&p.name);
+                        format!("{name}: {}", render_interface_type(&p.ty))
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let ret_ty = render_interface_type(&method.return_type);
+                body.push('\n');
+                if matches!(method.return_type, alef_core::ir::TypeRef::Unit) {
+                    body.push_str(&format!("    {async_kw}fun {method_name}({params})\n"));
+                } else {
+                    body.push_str(&format!("    {async_kw}fun {method_name}({params}): {ret_ty}\n"));
+                }
+            }
+        }
+
+        body.push_str("}\n");
+        let content = assemble_kt_content(package, &BTreeSet::new(), &body);
+        files.push(GeneratedFile {
+            path: kotlin_source_dir.join(format!("I{trait_pascal}.kt")),
+            content,
+            generated_header: false,
+        });
+    }
+}
+
+/// Render a `TypeRef` as its Kotlin shape for use inside an interface signature.
+///
+/// Complex types are rendered as their canonical Kotlin DTO name (no JSON
+/// strings — the interface is the managed surface, not the JNI boundary).
+/// `Vec`, `Map`, and `Option` recurse so nested generics render correctly.
+fn render_interface_type(ty: &alef_core::ir::TypeRef) -> String {
+    use alef_core::ir::{PrimitiveType, TypeRef};
+    match ty {
+        TypeRef::Unit => "Unit".to_string(),
+        TypeRef::Primitive(p) => match p {
+            PrimitiveType::Bool => "Boolean".to_string(),
+            PrimitiveType::I8 | PrimitiveType::U8 => "Byte".to_string(),
+            PrimitiveType::I16 | PrimitiveType::U16 => "Short".to_string(),
+            PrimitiveType::I32 | PrimitiveType::U32 => "Int".to_string(),
+            PrimitiveType::I64 | PrimitiveType::U64 | PrimitiveType::Usize | PrimitiveType::Isize => "Long".to_string(),
+            PrimitiveType::F32 => "Float".to_string(),
+            PrimitiveType::F64 => "Double".to_string(),
+        },
+        TypeRef::String | TypeRef::Char | TypeRef::Path => "String".to_string(),
+        TypeRef::Bytes => "ByteArray".to_string(),
+        TypeRef::Json => "Any".to_string(),
+        TypeRef::Duration => "Long".to_string(),
+        TypeRef::Named(n) => n.clone(),
+        TypeRef::Vec(inner) => format!("List<{}>", render_interface_type(inner)),
+        TypeRef::Map(k, v) => format!("Map<{}, {}>", render_interface_type(k), render_interface_type(v)),
+        TypeRef::Optional(inner) => format!("{}?", render_interface_type(inner)),
+    }
 }
 
 /// Emit `<Module>.kt` — a Kotlin `object` that re-exposes every free function

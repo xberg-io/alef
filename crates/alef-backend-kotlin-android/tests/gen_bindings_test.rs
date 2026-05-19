@@ -1945,3 +1945,204 @@ fn exclude_types_suppresses_listed_types_enums_and_errors() {
         "KeepMe.kt must still be emitted when not in exclude_types, got: {kt_filenames:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Trait-bridge emission
+// ---------------------------------------------------------------------------
+
+fn make_trait_api() -> ApiSurface {
+    use alef_core::ir::{MethodDef, TypeDef};
+    let trait_def = TypeDef {
+        name: "OcrBackend".into(),
+        rust_path: "demo::OcrBackend".into(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![MethodDef {
+            name: "process_image".into(),
+            params: vec![ParamDef {
+                name: "image".into(),
+                ty: TypeRef::Bytes,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            }],
+            return_type: TypeRef::String,
+            is_async: true,
+            is_static: false,
+            receiver: None,
+            error_type: None,
+            doc: String::new(),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        is_opaque: false,
+        is_clone: false,
+        is_copy: false,
+        doc: String::new(),
+        cfg: None,
+        is_trait: true,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+    ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_def],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    }
+}
+
+fn make_trait_bridge_config() -> ResolvedCrateConfig {
+    resolved_one(
+        r#"
+[workspace]
+languages = ["kotlin_android", "java", "ffi"]
+
+[[crates]]
+name = "demo"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "demo"
+
+[crates.java]
+package = "dev.kreuzberg"
+
+[crates.kotlin_android]
+package = "dev.kreuzberg"
+namespace = "dev.kreuzberg"
+artifact_id = "demo-android"
+group_id = "dev.kreuzberg"
+
+[[crates.trait_bridges]]
+trait_name = "OcrBackend"
+super_trait = "demo::Plugin"
+registry_getter = "demo::get_ocr_registry"
+register_fn = "register_ocr_backend"
+unregister_fn = "unregister_ocr_backend"
+clear_fn = "clear_ocr_backends"
+"#,
+    )
+}
+
+/// Every `[[crates.trait_bridges]]` entry must emit three `external fun`
+/// declarations on the bridge object (register / unregister / clear) plus an
+/// `I<Trait>.kt` interface file, mirroring the Java/Panama backend's contract.
+#[test]
+fn trait_bridge_emits_native_funs_and_interface_file() {
+    let api = make_trait_api();
+    let config = make_trait_bridge_config();
+    let files = KotlinAndroidBackend.generate_bindings(&api, &config).unwrap();
+
+    let bridge_kt = files
+        .iter()
+        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("DemoBridge.kt"))
+        .expect("DemoBridge.kt must be emitted");
+    let body = &bridge_kt.content;
+
+    assert!(
+        body.contains("external fun nativeRegisterOcrBackend(impl: dev.kreuzberg.IOcrBackend)"),
+        "register native fun missing: {body}"
+    );
+    assert!(
+        body.contains("external fun nativeUnregisterOcrBackend(name: String)"),
+        "unregister native fun missing: {body}"
+    );
+    assert!(
+        body.contains("external fun nativeClearOcrBackends()"),
+        "clear native fun missing: {body}"
+    );
+
+    let iface = files
+        .iter()
+        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("IOcrBackend.kt"))
+        .expect("IOcrBackend.kt must be emitted alongside the trait-bridge native funs");
+    let iface_body = &iface.content;
+    assert!(
+        iface_body.contains("interface IOcrBackend"),
+        "I<Trait> interface declaration missing: {iface_body}"
+    );
+    // Super-trait `Plugin` surfaces the canonical lifecycle methods.
+    assert!(
+        iface_body.contains("fun name(): String"),
+        "name() lifecycle method missing: {iface_body}"
+    );
+    // Async IR methods become Kotlin `suspend` functions.
+    assert!(
+        iface_body.contains("suspend fun processImage(image: ByteArray): String"),
+        "process_image suspend signature missing: {iface_body}"
+    );
+}
+
+/// Trait bridges that list `kotlin_android` in `exclude_languages` must not
+/// produce any of the three native funs nor the I<Trait>.kt interface file.
+#[test]
+fn trait_bridge_exclude_languages_skips_kotlin_android() {
+    let api = make_trait_api();
+    let config = resolved_one(
+        r#"
+[workspace]
+languages = ["kotlin_android", "java", "ffi"]
+
+[[crates]]
+name = "demo"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "demo"
+
+[crates.java]
+package = "dev.kreuzberg"
+
+[crates.kotlin_android]
+package = "dev.kreuzberg"
+namespace = "dev.kreuzberg"
+artifact_id = "demo-android"
+group_id = "dev.kreuzberg"
+
+[[crates.trait_bridges]]
+trait_name = "OcrBackend"
+register_fn = "register_ocr_backend"
+unregister_fn = "unregister_ocr_backend"
+clear_fn = "clear_ocr_backends"
+exclude_languages = ["kotlin_android"]
+"#,
+    );
+    let files = KotlinAndroidBackend.generate_bindings(&api, &config).unwrap();
+    let bridge_kt = files
+        .iter()
+        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("DemoBridge.kt"))
+        .expect("DemoBridge.kt must be emitted");
+    let body = &bridge_kt.content;
+    assert!(
+        !body.contains("nativeRegisterOcrBackend"),
+        "register native fun must be suppressed when kotlin_android is excluded: {body}"
+    );
+    assert!(
+        !files
+            .iter()
+            .any(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("IOcrBackend.kt")),
+        "I<Trait>.kt must be suppressed when kotlin_android is excluded"
+    );
+}

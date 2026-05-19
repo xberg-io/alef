@@ -1506,3 +1506,120 @@ fn client_constructors_emits_native_new_shim() {
         "constructor must call throw_jni_error on failure; section:\n{section}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Trait-bridge shim emission
+// ---------------------------------------------------------------------------
+
+fn trait_bridge_config(exclude_languages: &[&str]) -> ResolvedCrateConfig {
+    let exclude_array = if exclude_languages.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\nexclude_languages = [{}]",
+            exclude_languages
+                .iter()
+                .map(|l| format!("\"{l}\""))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    };
+    let toml = format!(
+        r#"
+[workspace]
+languages = ["kotlin_android", "jni", "ffi"]
+
+[[crates]]
+name = "demo"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "demo"
+
+[crates.kotlin_android]
+package = "dev.kreuzberg"
+namespace = "dev.kreuzberg"
+
+[[crates.trait_bridges]]
+trait_name = "OcrBackend"
+super_trait = "demo::Plugin"
+registry_getter = "demo::get_ocr_registry"
+register_fn = "register_ocr_backend"
+unregister_fn = "unregister_ocr_backend"
+clear_fn = "clear_ocr_backends"{exclude_array}
+"#,
+    );
+    resolved_one(&toml)
+}
+
+fn empty_api() -> ApiSurface {
+    ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: Default::default(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    }
+}
+
+/// For every `[[crates.trait_bridges]]` entry the JNI backend must emit
+/// `Java_*_nativeRegister<Trait>`, `Java_*_nativeUnregister<Trait>`, and
+/// `Java_*_nativeClear<Trait>s` extern functions paired with the Kotlin
+/// declarations.
+#[test]
+fn trait_bridge_emits_jni_shim_symbols() {
+    let api = empty_api();
+    let config = trait_bridge_config(&[]);
+    let files = JniBackend.generate_bindings(&api, &config).unwrap();
+    assert_eq!(files.len(), 1, "JNI backend emits a single lib.rs");
+    let content = &files[0].content;
+
+    assert!(
+        content.contains("pub unsafe extern \"system\" fn Java_dev_kreuzberg_DemoBridge_nativeRegisterOcrBackend"),
+        "missing nativeRegisterOcrBackend extern fn: {content}"
+    );
+    assert!(
+        content.contains("pub unsafe extern \"system\" fn Java_dev_kreuzberg_DemoBridge_nativeUnregisterOcrBackend"),
+        "missing nativeUnregisterOcrBackend extern fn: {content}"
+    );
+    assert!(
+        content.contains("pub unsafe extern \"system\" fn Java_dev_kreuzberg_DemoBridge_nativeClearOcrBackends"),
+        "missing nativeClearOcrBackends extern fn: {content}"
+    );
+
+    // Unregister wires through to the host-configured function.
+    assert!(
+        content.contains("core_crate::unregister_ocr_backend(&name)"),
+        "unregister shim must call host unregister_fn: {content}"
+    );
+    // Clear wires through to the host-configured function.
+    assert!(
+        content.contains("core_crate::clear_ocr_backends"),
+        "clear shim must call host clear_fn: {content}"
+    );
+}
+
+/// Trait bridges with `kotlin_android` in `exclude_languages` must be omitted
+/// from the JNI shim output entirely.
+#[test]
+fn trait_bridge_exclude_languages_suppresses_jni_shim() {
+    let api = empty_api();
+    let config = trait_bridge_config(&["kotlin_android"]);
+    let files = JniBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+    assert!(
+        !content.contains("nativeRegisterOcrBackend"),
+        "excluded trait bridge must not emit register shim: {content}"
+    );
+    assert!(
+        !content.contains("nativeUnregisterOcrBackend"),
+        "excluded trait bridge must not emit unregister shim: {content}"
+    );
+    assert!(
+        !content.contains("nativeClearOcrBackends"),
+        "excluded trait bridge must not emit clear shim: {content}"
+    );
+}
