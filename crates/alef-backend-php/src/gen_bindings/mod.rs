@@ -600,6 +600,24 @@ impl Backend for PhpBackend {
         }
 
         // From impls for tagged data enums lowered to flat PHP classes.
+        // Track types whose `From<binding> for core` impl has already been emitted by
+        // the main loop above (or by a prior variant in this loop) to avoid duplicate
+        // impls when the same DTO appears both as a top-level input type and as a
+        // variant payload of a tagged enum (e.g. `CrawlPageResult` used directly and
+        // inside `CrawlEvent::Page { result: Box<CrawlPageResult> }`).
+        // The main loop above emits a `From<binding> for core` impl for any type
+        // that is `input_types.contains(&typ.name)` (either via the plain branch
+        // or the enum-tainted branch). Pre-seed the dedup set with those.
+        let mut emitted_binding_to_core: AHashSet<String> = api
+            .types
+            .iter()
+            .filter(|typ| !typ.is_trait && input_types.contains(&typ.name))
+            .filter(|typ| {
+                (enum_tainted.contains(&typ.name))
+                    || alef_codegen::conversions::can_generate_conversion(typ, &convertible)
+            })
+            .map(|typ| typ.name.clone())
+            .collect();
         for enum_def in api.enums.iter().filter(|e| is_tagged_data_enum(e)) {
             builder.add_item(&gen_flat_data_enum_from_impls(enum_def, &core_import));
             // Also generate From impls for variant data types (e.g., ArchiveMetadata from FormatMetadata::Archive).
@@ -608,12 +626,16 @@ impl Backend for PhpBackend {
                 for field in &variant.fields {
                     if let TypeRef::Named(type_name) = &field.ty {
                         if let Some(typ) = api.types.iter().find(|t| &t.name == type_name) {
+                            if emitted_binding_to_core.contains(&typ.name) {
+                                continue;
+                            }
                             if alef_codegen::conversions::can_generate_conversion(typ, &convertible) {
                                 builder.add_item(&alef_codegen::conversions::gen_from_binding_to_core_cfg(
                                     typ,
                                     &core_import,
                                     &php_conv_config,
                                 ));
+                                emitted_binding_to_core.insert(typ.name.clone());
                             }
                         }
                     }
