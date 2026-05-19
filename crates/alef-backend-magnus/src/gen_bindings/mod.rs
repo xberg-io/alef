@@ -1058,32 +1058,56 @@ gem_name = "test_lib"
         // Verify that generate_public_api includes only struct types in the re-export list,
         // filtering out enums (which are not registered on the native module).
         let backend = MagnusBackend;
-        let config = make_config();
+
+        // Create a custom config where module_name != native_module_name
+        // (so the template emits the re-export block).
+        // api.crate_name "my_lib" → native_module_name "MyLib"
+        // gem_name "my_gem" → module_name "MyGem" (different!)
+        let cfg_str = r#"
+[workspace]
+languages = ["ruby"]
+
+[[crates]]
+name = "my_lib"
+sources = ["src/lib.rs"]
+
+[crates.ruby]
+gem_name = "my_gem"
+"#;
+        let cfg: NewAlefConfig = toml::from_str(cfg_str).unwrap();
+        let config = cfg.resolve().unwrap().remove(0);
 
         let mut api = make_api_surface();
+        api.crate_name = "my_lib".to_string();
         // Add an enum to the API surface
         api.enums.push(EnumDef {
             name: "Status".to_string(),
-            rust_path: "test_lib::Status".to_string(),
+            rust_path: "html_to_markdown::Status".to_string(),
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
                     name: "Active".to_string(),
                     fields: vec![],
                     doc: String::new(),
+                    is_default: false,
                     serde_rename: None,
+                    is_tuple: false,
                 },
                 EnumVariant {
                     name: "Inactive".to_string(),
                     fields: vec![],
                     doc: String::new(),
+                    is_default: false,
                     serde_rename: None,
+                    is_tuple: false,
                 },
             ],
             doc: String::new(),
             serde_tag: None,
             serde_rename_all: None,
-            is_untagged: false,
+            serde_untagged: false,
+            is_copy: false,
+            has_serde: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
             cfg: None,
@@ -1095,15 +1119,15 @@ gem_name = "test_lib"
             .find(|f| f.path.to_string_lossy().ends_with("native.rb"))
             .expect("native.rb must exist");
 
-        // Verify that the enum (Status) is NOT in the re-export list
+        // Verify that the enum (Status) is NOT in the re-export list via const_get
         assert!(
-            !native_file.content.contains("Status ="),
+            !native_file.content.contains("const_get(:Status)"),
             "enum types must not be in re-export list"
         );
-        // Verify that the struct type (Config) IS in the re-export list
+        // Verify that the struct type (Config) IS in the re-export list via const_get
         assert!(
-            native_file.content.contains("Config ="),
-            "struct types must be in re-export list"
+            native_file.content.contains("const_get(:Config)"),
+            "struct types must be in re-export list via const_get"
         );
     }
 }
