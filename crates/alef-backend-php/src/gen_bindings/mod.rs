@@ -949,7 +949,11 @@ impl Backend for PhpBackend {
                         && a.owner_type.as_deref() == Some(&typ.name)
                 })
                 .collect();
-            let opaque_file = gen_php_opaque_class_file(typ, &namespace, &streaming_adapters);
+            let streaming_method_names: AHashSet<String> = streaming_adapters
+                .iter()
+                .map(|a| a.name.clone())
+                .collect();
+            let opaque_file = gen_php_opaque_class_file(typ, &namespace, &streaming_adapters, &streaming_method_names);
             files.push(GeneratedFile {
                 path: PathBuf::from(&output_dir).join(format!("{}.php", typ.name)),
                 content: opaque_file,
@@ -1343,6 +1347,7 @@ fn gen_php_opaque_class_file(
     typ: &alef_core::ir::TypeDef,
     namespace: &str,
     streaming_adapters: &[&alef_core::config::AdapterConfig],
+    streaming_method_names: &AHashSet<String>,
 ) -> String {
     let mut content = String::new();
     content.push_str(&crate::template_env::render(
@@ -1378,10 +1383,15 @@ fn gen_php_opaque_class_file(
 
     content.push_str(&format!("final class {}\n{{\n", typ.name));
 
-    // Instance methods first, static methods second.
+    // Instance methods first, static methods second — skip streaming methods
+    // (they'll be emitted as Generator wrappers after regular methods).
     let mut method_order: Vec<&alef_core::ir::MethodDef> = Vec::new();
-    method_order.extend(typ.methods.iter().filter(|m| m.receiver.is_some()));
-    method_order.extend(typ.methods.iter().filter(|m| m.receiver.is_none()));
+    method_order.extend(typ.methods.iter().filter(|m| {
+        m.receiver.is_some() && !streaming_method_names.contains(&m.name)
+    }));
+    method_order.extend(typ.methods.iter().filter(|m| {
+        m.receiver.is_none() && !streaming_method_names.contains(&m.name)
+    }));
 
     for method in method_order {
         let method_name = method.name.to_lower_camel_case();
@@ -1465,7 +1475,7 @@ fn gen_php_opaque_class_file(
 /// Generate a PHP streaming method wrapper for an adapter.
 ///
 /// Creates a Generator-yielding method that wraps the Rust `_start`/`_next`/`_free` functions.
-/// The method signature matches the adapter's signature (minus the resource, which is `$this`).
+/// The method signature includes all params from the adapter (which already exclude the resource).
 fn gen_php_streaming_method_wrapper(
     adapter: &alef_core::config::AdapterConfig,
     _item_type: &str,
@@ -1477,16 +1487,11 @@ fn gen_php_streaming_method_wrapper(
     let free_fn = format!("\\{}_{}_free", owner_type, adapter.name);
 
     // Build parameter list and call arguments.
-    // The first param is the resource (ZendObject), which becomes `$this`.
-    // Remaining params are forwarded as-is.
+    // All params from the adapter are forwarded to _start (which takes the resource separately).
     let mut params_vec: Vec<String> = Vec::new();
     let mut call_params_vec: Vec<String> = vec!["$this".to_string()];
 
-    for (idx, p) in adapter.params.iter().enumerate() {
-        if idx == 0 {
-            // Skip the resource param — it's not exposed in the PHP signature.
-            continue;
-        }
+    for p in &adapter.params {
         let ptype = php_type(&alef_core::ir::TypeRef::Named(p.ty.clone()));
         let nullable = if p.optional { "?" } else { "" };
         let default = if p.optional { " = null" } else { "" };
