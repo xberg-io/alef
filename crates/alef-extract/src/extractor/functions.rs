@@ -309,6 +309,28 @@ pub(crate) fn extract_trait_impl_methods(
         }
     }
 
+    // Skip From/Into/TryFrom/TryInto trait method extraction. These conversions
+    // reference Rust-only counterpart types (e.g. `impl From<tree_sitter::Point>
+    // for Point` references `tree_sitter::Point`, which has no representation in
+    // any target language). Emitting them as binding methods produces nonsensical
+    // signatures like `Point.from(Point p)` in Java/C# and uncompilable code in
+    // napi where the input type is ambiguous between the JsX wrapper and the
+    // Rust counterpart.
+    //
+    // `Default` is intentionally NOT in this list — `Default::default()` is a
+    // legitimate preset constructor that we want emitted as `Type.default()` /
+    // `Type::default()` in target languages. The `has_default = true` flag set
+    // above handles Default-derived field values for builders; method emission
+    // from the impl block handles the `default()` factory itself.
+    let is_conversion_trait = item.trait_.as_ref().is_some_and(|(_, path, _)| {
+        path.segments
+            .last()
+            .is_some_and(|s| matches!(s.ident.to_string().as_str(), "From" | "Into" | "TryFrom" | "TryInto"))
+    });
+    if is_conversion_trait {
+        return;
+    }
+
     // Extract methods from the trait impl (trait methods are implicitly pub)
     for impl_item in &item.items {
         if let syn::ImplItem::Fn(method) = impl_item {

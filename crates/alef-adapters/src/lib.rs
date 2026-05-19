@@ -27,6 +27,11 @@ pub fn stream_struct_key(adapter: &AdapterConfig) -> String {
     }
 }
 
+/// Get the key for looking up a streaming adapter's method body.
+pub fn stream_adapter_body_key(method_name: &str) -> String {
+    format!("{}.__stream_body__", method_name)
+}
+
 /// Build a map of adapter-generated method/function bodies for a language.
 pub fn build_adapter_bodies(config: &ResolvedCrateConfig, language: Language) -> anyhow::Result<AdapterBodies> {
     let mut bodies = AHashMap::new();
