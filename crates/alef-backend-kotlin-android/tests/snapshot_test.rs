@@ -243,7 +243,10 @@ kotlin_android = "packages/kotlin-android/src/main/kotlin/dev/kreuzberg/demo/and
     );
 
     let files = KotlinAndroidBackend.generate_bindings(&api, &config).unwrap();
-    let paths: Vec<String> = files.iter().map(|f| f.path.display().to_string()).collect();
+    let paths: Vec<String> = files
+        .iter()
+        .map(|f| f.path.display().to_string().replace('\\', "/"))
+        .collect();
 
     let expect_at = |needle: &str| {
         assert!(
