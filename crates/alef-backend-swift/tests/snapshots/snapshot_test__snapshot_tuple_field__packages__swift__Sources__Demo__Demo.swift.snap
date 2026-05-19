@@ -25,3 +25,14 @@ public enum DemoError: Swift.Error {
 public func keywordConfigFromJson(_ json: String) throws -> KeywordConfig {
     return try RustBridge.keywordConfigFromJson(json)
 }
+
+// MARK: - Free-function Forwarders
+// Re-export every public free function on the source Rust crate as a
+// top-level `public func` on the host module so consumers do not need to
+// `import RustBridge` directly. Forwarders take Swift-native parameter
+// types and convert to the swift-bridge runtime types internally.
+
+/// Extract keywords from text.
+public func extractKeywords(text: String, config: KeywordConfig) throws -> [String] {
+    return try RustBridge.extractKeywords(text, config).map { $0.toString() }
+}

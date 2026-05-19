@@ -10,3 +10,14 @@ import RustBridge
 
 /// Item struct.
 public typealias Item = RustBridge.Item
+
+// MARK: - Free-function Forwarders
+// Re-export every public free function on the source Rust crate as a
+// top-level `public func` on the host module so consumers do not need to
+// `import RustBridge` directly. Forwarders take Swift-native parameter
+// types and convert to the swift-bridge runtime types internally.
+
+/// Get all items.
+public func getItems() -> [Item] {
+    return RustBridge.getItems()
+}

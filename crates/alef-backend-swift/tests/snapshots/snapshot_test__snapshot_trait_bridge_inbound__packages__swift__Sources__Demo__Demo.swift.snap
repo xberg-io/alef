@@ -53,3 +53,21 @@ public func ocrConfigFromJson(_ json: String) throws -> OcrConfig {
     let data = json.data(using: .utf8) ?? Data()
     return try JSONDecoder().decode(OcrConfig.self, from: data)
 }
+
+// MARK: - Trait Bridge Registration Forwarders
+// Top-level `public func` re-exports of the swift-bridge–generated
+// `register_*` / `unregister_*` / `clear_*` plugin registration entry
+// points so consumers do not need to `import RustBridge` for plugin work.
+
+/// Register an inbound `OcrBackend` plugin implementation. The Swift
+/// host wraps a `OcrBackend` conformer in a `SwiftOcrBackendBox` adapter
+/// (see `Sources/RustBridge/Plugins.swift`); pass the wrapped instance to
+/// register the plugin in the global registry.
+public func registerOcrBackend(_ swiftBox: SwiftOcrBackendBox) throws {
+    try RustBridge.registerOcrBackend(swiftBox)
+}
+
+/// Unregister a previously-registered `OcrBackend` plugin by name.
+public func unregisterOcrBackend(_ name: String) throws {
+    try RustBridge.unregisterOcrBackend(name)
+}

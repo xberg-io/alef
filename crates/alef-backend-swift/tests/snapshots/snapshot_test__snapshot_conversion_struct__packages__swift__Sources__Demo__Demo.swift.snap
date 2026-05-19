@@ -13,3 +13,14 @@ public typealias Output = RustBridge.Output
 
 /// Wrapper containing a named type.
 public typealias Wrapper = RustBridge.Wrapper
+
+// MARK: - Free-function Forwarders
+// Re-export every public free function on the source Rust crate as a
+// top-level `public func` on the host module so consumers do not need to
+// `import RustBridge` directly. Forwarders take Swift-native parameter
+// types and convert to the swift-bridge runtime types internally.
+
+/// Process and wrap result.
+public func processAndWrap(input: String) -> Wrapper {
+    return RustBridge.processAndWrap(input)
+}

@@ -21,3 +21,14 @@ public enum DemoError: Swift.Error {
     /// Processing encountered an error.
     case processingFailed
 }
+
+// MARK: - Free-function Forwarders
+// Re-export every public free function on the source Rust crate as a
+// top-level `public func` on the host module so consumers do not need to
+// `import RustBridge` directly. Forwarders take Swift-native parameter
+// types and convert to the swift-bridge runtime types internally.
+
+/// Process input and return a result.
+public func process(input: String, count: UInt32) throws -> String {
+    return try RustBridge.process(input, count)
+}
