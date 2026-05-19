@@ -1084,10 +1084,20 @@ async fn main() {
         axum::serve(shared_listener, shared_app).await.expect("mock-server: shared server error");
     });
 
-    // Block until stdin is closed — the parent process controls lifetime.
-    let stdin = io::stdin();
-    let mut lines = stdin.lock().lines();
-    while lines.next().is_some() {}
+    // Lifetime: by default block until stdin is closed (the typical
+    // parent-controlled subprocess pattern used by Rust/Node/Python/etc. test
+    // harnesses that spawn this binary directly). When `MOCK_SERVER_NO_STDIN_WATCH=1`
+    // is set, block on Ctrl-C / SIGTERM instead — useful for CI launches that
+    // background the process across multiple shell steps (the per-step shell
+    // exits and the inherited stdin FD closes, which would otherwise kill the
+    // server between steps before the test step runs).
+    if std::env::var("MOCK_SERVER_NO_STDIN_WATCH").as_deref() == Ok("1") {
+        let _ = tokio::signal::ctrl_c().await;
+    } else {
+        let stdin = io::stdin();
+        let mut lines = stdin.lock().lines();
+        while lines.next().is_some() {}
+    }
 }
 "#
 }

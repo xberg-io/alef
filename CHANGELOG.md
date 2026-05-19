@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-e2e mock-server: honour `MOCK_SERVER_NO_STDIN_WATCH=1` to wait on SIGTERM instead of stdin EOF**. The standalone mock-server binary's default lifecycle waits for stdin EOF (parent-controlled subprocess pattern, fine for Rust/Node/Python harnesses that spawn it directly). The Swift e2e GitHub Actions job uses a different pattern — it backgrounds the mock-server in a `Start mock-server` step, then expects it to survive across to the next `Run E2E tests` step. When the per-step bash exits the inherited stdin FD closes and the mock-server immediately reads EOF and exits, leaving the test step to fail every smoke test with `error sending request for url (...)`. Add an opt-in env switch that swaps the lifetime watcher to `tokio::signal::ctrl_c()` so the server runs until the job step explicitly terminates it. (`crates/alef-e2e/src/codegen/rust/mock_server.rs`)
+
+### Fixed
+
 - **alef-backend-swift: share a single process-wide tokio runtime across all async wrappers instead of building one per call**. swift-bridge functions wrap async source calls with `Builder::new_current_thread().enable_all().build().block_on(...)` — fine for self-contained futures, but breaks `reqwest`. `reqwest::Client::builder().build()` lazily attaches its connection pool to the FIRST tokio runtime it sees, then the pool dies when that runtime drops. Every subsequent call (driven by a fresh runtime) hits an orphaned pool and fails with `error sending request for url (...)` — the exact symptom on liter-llm `E2E (swift)` smoke tests after v0.16.61 unblocked compile. Replace the per-call pattern with `crate::__alef_tokio_runtime()` — a `OnceLock<tokio::runtime::Runtime>` initialized once with `Builder::new_multi_thread()` so the pool stays alive for the process lifetime and works across reentrant host threads. Touches `gen_rust_crate/shims.rs` (top-level definition + accessor const), `gen_rust_crate/trait_bridge.rs`, and `gen_rust_crate/wrappers.rs`. Snapshot tests updated. (`crates/alef-backend-swift/src/gen_rust_crate/{mod,shims,trait_bridge,wrappers}.rs`)
 
 ### Added
