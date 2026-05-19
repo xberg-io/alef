@@ -7,61 +7,119 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.68] - 2026-05-19
+
 ### Fixed
 
 - **alef-backend-java: emit `checkLastError()` after fallible primitive-return and void-return FFI invocations**. The Java FFI codegen called `checkLastError()` only on the pointer-return path (where a NULL sentinel triggered it); fallible functions whose Rust signature is `Result<T, Error>` with a primitive `T` (e.g. `pub fn download(...) -> Result<usize, Error>` → Java `long`) or with `T = ()` silently dropped errors on the floor because the primitive `0` or the empty return couldn't distinguish "successful no-op" from "FFI set last_error". Now, when `FunctionDef.error_type.is_some()`, both the primitive-return and void-return branches of `gen_sync_function_method` emit `checkLastError()` immediately after the FFI invoke and ptr-cleanup so Java throws the expected `*Exception` on failure. Surfaced on tree-sitter-language-pack `E2E (java)` where `DownloadTest.testDownloadInvalidLanguage` expected an exception for `download(List.of("zzz_definitely_not_a_real_language_xyz"))` but the bound `download` method returned 0 cleanly. (`crates/alef-backend-java/src/gen_bindings/ffi_class.rs`)
 
 - **alef-e2e: raise vitest `hookTimeout` to 120s and add explicit `teardownTimeout: 30s` in the typescript/wasm vitest.config templates**. Vitest 3.x has an internal worker RPC (`onTaskUpdate`) whose budget tracks `hookTimeout`; long single-file suites (the tslp `smoke.test.ts` runs 305 tests through `process()`, ~63s on macos-arm64) outran the default 10s hook budget and the worker shutdown handshake errored with `[vitest-worker]: Timeout calling "onTaskUpdate"` even though every test passed individually. Raising `hookTimeout` to 120s and pinning `teardownTimeout` at 30s gives the worker enough patience for long alef-generated suites without affecting per-test timing (still 30s via the existing `testTimeout`). (`crates/alef-e2e/templates/typescript/vitest.config.ts.jinja`, `crates/alef-e2e/templates/wasm/vitest.config.ts.jinja`)
 
+## [0.16.67] - 2026-05-19
+
+### Fixed
+
 - **alef-e2e mock-server: honour `MOCK_SERVER_NO_STDIN_WATCH=1` to wait on SIGTERM instead of stdin EOF**. The standalone mock-server binary's default lifecycle waits for stdin EOF (parent-controlled subprocess pattern, fine for Rust/Node/Python harnesses that spawn it directly). The Swift e2e GitHub Actions job uses a different pattern — it backgrounds the mock-server in a `Start mock-server` step, then expects it to survive across to the next `Run E2E tests` step. When the per-step bash exits the inherited stdin FD closes and the mock-server immediately reads EOF and exits, leaving the test step to fail every smoke test with `error sending request for url (...)`. Add an opt-in env switch that swaps the lifetime watcher to `tokio::signal::ctrl_c()` so the server runs until the job step explicitly terminates it. (`crates/alef-e2e/src/codegen/rust/mock_server.rs`)
+
+## [0.16.66] - 2026-05-19
 
 ### Fixed
 
 - **alef-backend-swift: share a single process-wide tokio runtime across all async wrappers instead of building one per call**. swift-bridge functions wrap async source calls with `Builder::new_current_thread().enable_all().build().block_on(...)` — fine for self-contained futures, but breaks `reqwest`. `reqwest::Client::builder().build()` lazily attaches its connection pool to the FIRST tokio runtime it sees, then the pool dies when that runtime drops. Every subsequent call (driven by a fresh runtime) hits an orphaned pool and fails with `error sending request for url (...)` — the exact symptom on liter-llm `E2E (swift)` smoke tests after v0.16.61 unblocked compile. Replace the per-call pattern with `crate::__alef_tokio_runtime()` — a `OnceLock<tokio::runtime::Runtime>` initialized once with `Builder::new_multi_thread()` so the pool stays alive for the process lifetime and works across reentrant host threads. Touches `gen_rust_crate/shims.rs` (top-level definition + accessor const), `gen_rust_crate/trait_bridge.rs`, and `gen_rust_crate/wrappers.rs`. Snapshot tests updated. (`crates/alef-backend-swift/src/gen_rust_crate/{mod,shims,trait_bridge,wrappers}.rs`)
 
+## [0.16.65] - 2026-05-19
+
 ### Added
 
 - **alef-e2e/swift: emit a shared `TestHelpers.swift` with a `RustString: CustomStringConvertible` extension so XCTest failures print the actual Rust error content**. swift-bridge's `RustString` is an opaque class without a `description`, so any error thrown from a bridge function (`throw RustString(ptr: val.ok_or_err!)`) surfaces in XCTest output as the bare type name — `caught error: "RustBridge.RustString"` — with the actual Rust error message hidden inside the unprinted instance. Every E2E (swift) failure across the polyglot repos was indecipherable as a result. Add a one-time `TestHelpers.swift` per test target with `extension RustString: @retroactive CustomStringConvertible { public var description: String { self.toString() } }`. Diagnostic-only change; no test code modifications, no semantic shift in passing/failing — but failures now print readable error text. (`crates/alef-e2e/src/codegen/swift.rs`)
+
+## [0.16.64] - 2026-05-19
 
 ### Fixed
 
 - **alef-e2e/swift: `swift_count_target` consults `SwiftFirstClassMap.vec_field_names` so `.count` on `RustVec` method-call accessors stays put**. v0.16.63's blanket `.toString()` injection (predicated only on the accessor ending in `)`) over-eagerly wrapped Vec-typed method-call accessors too — `result.output().toString().count` fails with `value of type 'RustVec<ResponseOutputItem>' has no member 'toString'`. Track per-IR `Vec<T>` (and `Option<Vec<T>>`) field names in a flat `vec_field_names: HashSet<String>` on `SwiftFirstClassMap`, expose `leaf_is_vec_via_swift_map` on `FieldResolver`, and have `swift_count_target` skip the wrap when the leaf is a Vec field. RustVec already exposes `.count` directly. Surfaced on liter-llm `E2E (swift)` ResponsesTests line 95 after v0.16.63. (`crates/alef-e2e/src/field_access.rs`, `crates/alef-e2e/src/codegen/swift.rs`)
 
+## [0.16.63] - 2026-05-19
+
+### Fixed
+
 - **alef-e2e/swift: pin opaque (method-call) syntax after any `ArrayField` segment + inject `.toString()` before `.count` on opaque method-call accessors**. v0.16.62 dispatched per-fixture first-class/opaque syntax for the root, but two follow-on misses remained on liter-llm `E2E (swift)`: (1) array-indexed elements were emitted with property syntax when the element type's first-class Codable struct existed (`_vec_data[0].object`), even though `RustVec[i]` always yields the opaque `RustBridge.T` (its first-class twin is a separate Codable struct used only at FFI boundaries — never produced by indexing). swift compile error: `method 'object' was used as a property; add () to call it` on `ListModelsTests`. (2) The not-empty / is-empty assertion path emitted `result.id().count` for opaque-rooted scalar string fields, but `RustString` does not expose `.count` — only Swift `String` does. swift compile error: `value of type 'RustString' has no member 'count'` on `ResponsesTests`. Fixes: (1) Carry a `via_rust_vec` flag in `render_swift_with_first_class_map` that flips to true on the first `ArrayField` segment and pins opaque syntax for every following segment (advance still tracks `current_type` so first-class metadata stays accurate for cleanups, but the property/method-call decision is overridden). (2) Add `swift_count_target` helper in the swift codegen that wraps an accessor with `.toString()` when it ends in `)` (the opaque method-call signature), leaving first-class property accessors untouched. Wired into both the `not_empty` and `is_empty` length-expression paths. (`crates/alef-e2e/src/field_access.rs`, `crates/alef-e2e/src/codegen/swift.rs`)
+
+## [0.16.62] - 2026-05-19
+
+### Fixed
 
 - **alef-e2e/swift: thread per-fixture `root_type` into `SwiftFirstClassMap` so each call's accessor dispatch reflects its actual return type**. v0.16.61 wired the per-segment first-class/opaque dispatcher but the `root_type` was derived once at codegen-build time (a single workspace-wide heuristic), so the dispatcher couldn't tell `chat()` (returns opaque `ChatCompletionResponse`) apart from `createFile()` (returns first-class `FileObject`). The map's default (`is_first_class(None) → true` → property access) was correct for first-class result types but emitted bare property syntax (`result.choices[0]`) for opaque types, surfacing as `function value was used as a property; add () to call it` and `method 'message' was used as a property` on liter-llm `E2E (swift)` SmokeTests/BatchesTests/ChatTests. Add `FieldResolver::with_swift_root_type` (clones the resolver with the map's `root_type` replaced) and `swift_call_result_type` in the Swift codegen which reads `call_config.overrides[<lang>].result_type` across `c, csharp, java, kotlin, go, php` (the same language-agnostic IR-name lookup PHP uses). Each fixture's call now gets its own resolver clone with the correct `root_type`, so opaque types route through method-call access and first-class types stay on property access. Also removed a stray `eprintln!` debug line in `render_test_method` that leaked build noise. (`crates/alef-e2e/src/field_access.rs`, `crates/alef-e2e/src/codegen/swift.rs`)
 
+## [0.16.61] - 2026-05-19
+
+### Added
+
 - **alef-e2e/swift: per-segment first-class/opaque dispatch via `SwiftFirstClassMap`**. v0.16.59 switched render_swift to property access for all field segments, fixing first-class Codable struct paths (FileObject, SystemMessage, etc.) but breaking paths that traverse into typealias-to-opaque types (BatchObject, ResponseObject, etc. where swift-bridge exposes fields as methods). E2E (swift) compile errors: `value of type '() -> RustString' has no member 'count'` and `method 'status' was used as a property; add () to call it`. Add a per-type `SwiftFirstClassMap` (analogous to `PhpGetterMap`) populated from the IR's TypeDef list: first-class types use property access, opaque/typealias types use method-call. Renderer tracks a `current_type` cursor through `field_types` so it picks the right syntax at each segment of a nested path like `result.data[0].id`. Surfaced on liter-llm `E2E (swift)` in BatchesTests after v0.16.59. (`crates/alef-e2e/src/field_access.rs`, `crates/alef-e2e/src/codegen/swift.rs`)
+
+## [0.16.60] - 2026-05-19
+
+### Fixed
 
 - **alef-backend-csharp: tagged-union enum-variant defaults now populate `tagged_union_enums` set from `api.enums`**. The v0.16.57 fix branched the default-value renderer on `complex_enums.contains(...)`, but `complex_enums` is intentionally empty (untagged enums emit as JsonElement-wrapper classes), so the new `new Base.Variant()` path never fired. Build a separate `tagged_union_enums` set from `api.enums` filtered to serde-tagged data enums and thread it into `gen_record_type`. Surfaced on liter-llm `E2E (csharp)` continuing to fail CS0119 on `CacheConfig.Backend = CacheBackend.Memory` after v0.16.57. (`crates/alef-backend-csharp/src/gen_bindings/mod.rs`, `crates/alef-backend-csharp/src/gen_bindings/types.rs`)
 
 - **alef-e2e/php: PhpGetterMap.needs_getter falls back to bare-name union when the recorded `root_type` does not declare the field**. The workspace-level `root_type` resolution is best-effort and can pick a wrong type for some fixtures (every call gets the same workspace root, but per-fixture calls have different return types). When a recorded `current_type` does not declare `field_name`, the renderer was returning `false` (no getter), causing `$result->data` instead of `$result->getData()` for non-scalar fields on the correct (per-call) return type. Track `all_fields` per type in `PhpGetterMap` and consult the owner-type classification ONLY when that type actually declares the field; otherwise fall through to the bare-name union. Surfaced on liter-llm `E2E (php)` (76 TypeErrors on `assertCount(N, $result->data)` where the workspace root_type was `ChatCompletionResponse` but `listBatches` returns `BatchListResponse`). (`crates/alef-e2e/src/field_access.rs`, `crates/alef-e2e/src/codegen/php.rs`, plus test data updated to populate `all_fields`)
 
+## [0.16.59] - 2026-05-18
+
+### Fixed
+
 - **alef-e2e/swift: use property access for field segments (no parens), matching first-class Codable struct emission**. `render_swift` and `render_swift_with_optionals` in `crates/alef-e2e/src/field_access.rs` historically added `()` after every field segment because swift-bridge exposed all Rust fields as methods. Since the v0.16.43+ first-class-struct emission, most binding DTOs are `public struct Foo: Codable { public let id: String }` — properties, not methods — and `.id()` raises `cannot call value of non-function type 'String'`. Switch to plain `.id` field access for all segments, drop `()` from array `[N]` and map `[key]` subscripts. Also updated the `.len()` → `.count` assertion paths in `crates/alef-e2e/src/codegen/swift.rs` for non-empty / is-empty checks. The remaining typealias-to-opaque types (request DTOs with Vec/Map/Named fields) are method inputs / streaming outputs in practice, not parents for field-access chains, so property syntax works. A future per-type `SwiftFirstClassMap` (analogous to `PhpGetterMap`) would be needed if a fixture asserts on a field chain rooted in an opaque type. Surfaced on liter-llm `E2E (swift)` with `cannot call value of non-function type 'String'` errors in FilesTests. (`crates/alef-e2e/src/field_access.rs`, `crates/alef-e2e/src/codegen/swift.rs`, plus matching test updates)
+
+## [0.16.58] - 2026-05-18
+
+### Fixed
 
 - **alef-backend-php: revert v0.16.55 camelCase Rust-ident attempt — restore `get_snake_case` and let ext-php-rs convert to camelCase**. v0.16.55 attempted to emit non-scalar field getters as `pub fn getCamelCase(...)` (camelCase Rust ident, no `#[php(getter)]` attribute). But ext-php-rs's `#[php_impl]` macro doesn't surface camelCase Rust idents as callable PHP methods reliably — runtime dispatch still fails with "Call to undefined method getCamelCase()". Revert to the snake_case `get_camel_case_field` Rust ident; ext-php-rs auto-converts that to camelCase `getCamelCaseField()` at the PHP boundary. The `#[php(getter)]` attribute stays dropped (per the v0.16.55 fix description) so the method is callable rather than registered solely as a (broken) property accessor. (`crates/alef-backend-php/src/gen_bindings/types.rs`)
 
+## [0.16.57] - 2026-05-18
+
+### Fixed
+
+- **alef-backend-csharp: tagged-union enum defaults emit `new Base.Variant()` instead of `Base.Variant`**. C# emits serde-tagged data enums as `public abstract record Base { public sealed record Variant() : Base; }` — under that shape `Base.Variant` is a TYPE, not an instance, so `public T Field { get; init; } = Base.Variant;` fails to compile (CS0119 "X is a type, which is not valid in the given context"). Detect via the `complex_enums` set (enums whose variants carry data) and emit `new Base.Variant()` instead. Surfaced when exposing `CacheConfig.backend` (default `Memory`) to C# via the Tower config DTOs. (`crates/alef-backend-csharp/src/gen_bindings/types.rs`)
+
 - **alef-e2e/php: key getter-field classification by `(owner_type, field_name)` instead of bare field name**. The previous `php_getter_fields: HashSet<String>` lumped every non-scalar field across every `TypeDef` into a single bare-name set, so when two types declared the same field name with different scalarness — e.g. kreuzcrawl `CrawlConfig.content: ContentConfig` (non-scalar) vs `MarkdownResult.content: String` (scalar) — every `->content` access on EVERY type emitted `->getContent()`, including on types where the field is a real PHP property. Generated assertions then fail with "Call to undefined method MarkdownResult::getContent()" on every fixture that asserts a markdown body. Replaced the flat set with a `PhpGetterMap { getters: HashMap<String, HashSet<String>>, field_types: HashMap<String, HashMap<String, String>>, root_type: Option<String> }`: the renderer tracks a "current type" cursor that starts at the resolved root type and advances through `field_types` at each path segment, looking up `(current_type, field)` in `getters` for the correct per-type classification. `PhpCodegen::generate` builds the map from `type_defs` using the existing `is_php_scalar` predicate (a re-implementation of `is_php_prop_scalar_with_enums` already lived in the codegen) and derives the root type from any backend's `result_type` override (`php`/`c`/`csharp`/`java`/`kotlin`/`go`) or by matching `result_fields` against `TypeDef.fields`. Falls back to the legacy bare-name union when no root type can be determined. Surfaced on kreuzcrawl `E2E (php)` (CI run 26056619876) with 5 errors in `MarkdownTest`. (`crates/alef-e2e/src/field_access.rs`, `crates/alef-e2e/src/codegen/php.rs`)
+
+## [0.16.56] - 2026-05-18
 
 ### Added
 
 - **alef-backend-magnus: Ruby `.rbs` stubs now propagate Rust `///` doc comments for fields and methods**. `gen_stubs.rs` was already emitting struct/enum-level doc comments (via `rbs_doc_block.jinja`) but field-level and method-level docs were silently dropped. Field docs now precede each `attr_accessor`/`attr_reader` line and method docs precede each `def ... : (...) -> T` signature. Multi-line docs render as multiple `#` lines; empty lines become bare `#` (matching RBS comment-block conventions). Brings Ruby `.rbs` coverage in line with Python `.pyi` (both now ship every public type/field/method docstring inherited from the upstream Rust source). (`crates/alef-backend-magnus/src/gen_stubs.rs`)
 
+## [0.16.55] - 2026-05-18
+
 ### Fixed
 
 - **alef-backend-php: non-scalar field getters now emit as plain PHP methods (`getCamelCase()`), not `#[php(getter)]` property accessors**. ext-php-rs-derive 0.11.7 leaves `get_method_props` as `todo!()`, so `#[php(getter)]` registers ONLY as a property accessor (the runtime callable method is never registered) AND the property accessor itself is broken for non-scalar return types — every `$obj->nonScalarField` and `$obj->getNonScalarField()` raises a fatal "Call to undefined method" error. Drop `#[php(getter)]` from non-scalar field getters and emit a regular `pub fn getCamelCase(&self) -> T` so ext-php-rs surfaces them as callable PHP methods. The Rust ident is now `getPascalCase` (e.g. `getToolCalls`) so the PHP-side name matches the `$obj->getToolCalls()` shape `alef-e2e/src/codegen/php.rs` already emits for non-scalar fields. Property-style `$obj->camelCase` access for non-scalar fields is forgone as a result of the ext-php-rs limitation. Surfaced on liter-llm `E2E (php)` with 76 runtime errors on `getChoices()`, `getData()`, etc. (`crates/alef-backend-php/src/gen_bindings/types.rs`)
+
+## [0.16.54] - 2026-05-18
+
+### Fixed
 
 - **alef-backend-csharp: tagged-enum file headers now `using System.Collections.Generic;`**. `gen_tagged_union` in `crates/alef-backend-csharp/src/gen_bindings/enums.rs` emitted `using System; using System.IO; using System.Text.Json; using System.Text.Json.Serialization;` but not `System.Collections.Generic`. Variants with `Dictionary<K, V>` fields (e.g. `CacheBackend.OpenDal { Dictionary<string, string> Config }`) then fail to compile with CS0246 "type or namespace name 'Dictionary<,>' could not be found". Added the missing using statement. Surfaced when exposing `CacheBackend` to C# via the Tower config DTOs. (`crates/alef-backend-csharp/src/gen_bindings/enums.rs`)
 
 - **alef-backend-magnus: unit-variant subclasses no longer emit orphan `sig { void }`**. The generator unconditionally emitted `# @return [void]` + `sig { void }` + `def initialize() super() end` for every variant subclass, but rubocop's `Lint/UselessMethodDefinition` rule strips the trivial `def initialize` body during the regen format pass. The orphan `sig { void }` that remains then trips Sorbet's runtime check ("You called sig twice without declaring a method in between") and the entire `require 'liter_llm'` fails for any consumer of tagged data enums that have unit variants (e.g. `ResponseFormatText`, `ResponseFormatJsonObject`, `ResponseFormatJsonSchema`). Skip the initialize emission entirely when `variant.fields.is_empty()` so unit variants inherit the parent's no-arg initialize, with no orphan sig left behind. Surfaced on liter-llm `E2E (ruby)` (`ResponseFormatText` triggering `RuntimeError: You called sig twice…`). (`crates/alef-backend-magnus/src/gen_bindings/mod.rs`)
 
+## [0.16.53] - 2026-05-18
+
 ### Added
 
 - **alef-backend-pyo3: propagate Rust `///` doc comments into Python `.pyi` stubs as `"""..."""` docstrings**. `gen_stubs.rs` previously emitted only signatures (`class Foo:`, `model: str`) without any docstrings, leaving Python IDE hovers / `help()` output blank for every binding type and field. Added a small `pyi_docstring` helper that takes a Rust doc string, extracts the first paragraph, joins multi-line text with spaces, sanitises Unicode quote/dash characters via the existing `sanitize_python_doc` helper, escapes embedded `"""` and backslashes, and emits a single-line `"""…"""` indented for class-body inclusion. Hooked it into struct-class headers, struct field annotations, unit-enum class headers, and unit-enum variant declarations. Liter-llm regen now ships ~140 Python class/field docstrings inherited from the upstream Rust source. (`crates/alef-backend-pyo3/src/gen_stubs.rs`, `crates/alef-backend-pyo3/src/gen_bindings/enums.rs` — `sanitize_python_doc` and `class_name_to_docstring` promoted to `pub(crate)`)
 
+## [0.16.52] - 2026-05-18
+
 ### Fixed
 
 - **alef-backend-wasm: tagged-enum variant Map fields now bridge through `serde_wasm_bindgen` in both directions**. v0.16.51 added the core→binding `to_value` path for `tagged_enum_core_to_binding_expr` but the symmetric `tagged_enum_binding_to_core_expr` still emitted `val.field.clone().unwrap_or_default()` for non-optional Map fields, producing E0308 in the opposite direction ("expected `HashMap<String, String>`, found `JsValue`"). Added `TypeRef::Map` arms that deserialise the binding `Option<JsValue>` via `serde_wasm_bindgen::from_value` with a `Default` fallback. Surfaced when exposing `liter_llm::tower::CacheBackend::OpenDal { config: HashMap<String, String> }` as a Wasm DTO — the v0.16.51 fix unblocked the From<core> impl but the From<WasmCacheBackend> impl still failed. (`crates/alef-backend-wasm/src/gen_bindings/enums.rs`)
+
+## [0.16.51] - 2026-05-18
+
+### Fixed
 
 - **alef-backend-wasm: tagged-enum variant Map fields now use `serde_wasm_bindgen::to_value` instead of passing the raw HashMap**. `tagged_enum_core_to_binding_expr` in `crates/alef-backend-wasm/src/gen_bindings/enums.rs` handled `Named` and `Optional<Named>` field shapes for enum variants emitted as flat-struct (the `ConversionConfig::map_uses_jsvalue` path used elsewhere), but `Map<K, V>` (`HashMap`) fell through to the catch-all and the generated `From<core::Enum> for WasmEnum` impl emitted `Some(hashmap)` against an `Option<JsValue>` binding field, producing E0308 ("expected `JsValue`, found `HashMap<...>`"). Added explicit `TypeRef::Map` arms (optional and non-optional, plus the wrapped-Optional case) that serialise the HashMap via `serde_wasm_bindgen::to_value`. Surfaced when exposing `liter_llm::tower::CacheBackend::OpenDal { config: HashMap<String, String> }` as a Wasm DTO. (`crates/alef-backend-wasm/src/gen_bindings/enums.rs`)
 
