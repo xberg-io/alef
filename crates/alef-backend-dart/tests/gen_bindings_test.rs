@@ -349,7 +349,12 @@ fn simple_sync_function_emits_static_method() {
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = files
         .iter()
-        .find(|f| f.path.to_string_lossy().ends_with("/src/demo_crate.dart"))
+        .find(|f| {
+            f.path
+                .to_string_lossy()
+                .replace('\\', "/")
+                .ends_with("/src/demo_crate.dart")
+        })
         .map(|f| f.content.as_str())
         .expect("missing src/demo_crate.dart");
     // FRB style: wrappers are always-async (Future<...>) and call into the
@@ -405,7 +410,12 @@ fn async_function_emits_future_return_and_async_keyword() {
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = files
         .iter()
-        .find(|f| f.path.to_string_lossy().ends_with("/src/demo_crate.dart"))
+        .find(|f| {
+            f.path
+                .to_string_lossy()
+                .replace('\\', "/")
+                .ends_with("/src/demo_crate.dart")
+        })
         .map(|f| f.content.as_str())
         .expect("missing src/demo_crate.dart");
     // dart:async is no longer needed: Dart's core Future is in dart:core (auto-imported).
@@ -452,7 +462,12 @@ fn error_returning_function_emits_doc_comment() {
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = files
         .iter()
-        .find(|f| f.path.to_string_lossy().ends_with("/src/demo_crate.dart"))
+        .find(|f| {
+            f.path
+                .to_string_lossy()
+                .replace('\\', "/")
+                .ends_with("/src/demo_crate.dart")
+        })
         .map(|f| f.content.as_str())
         .expect("missing src/demo_crate.dart");
     assert!(

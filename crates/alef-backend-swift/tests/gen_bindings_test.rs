@@ -155,7 +155,12 @@ fn rust_bridge_constructor_omits_binding_excluded_fields() {
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let rust_bridge = files
         .iter()
-        .find(|file| file.path.to_string_lossy().ends_with("packages/swift/rust/src/lib.rs"))
+        .find(|file| {
+            file.path
+                .to_string_lossy()
+                .replace('\\', "/")
+                .ends_with("packages/swift/rust/src/lib.rs")
+        })
         .expect("generated Rust bridge file must exist");
 
     assert!(
