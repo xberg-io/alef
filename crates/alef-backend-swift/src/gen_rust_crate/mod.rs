@@ -231,6 +231,16 @@ fn emit_lib_rs(
     out.push_str("    clippy::inherent_to_string,\n");
     out.push_str(")]\n\n");
 
+    // Emit the process-wide tokio runtime accessor. Async swift-bridge wrappers
+    // share this single runtime instead of building one per call — the per-call
+    // pattern orphans reqwest's connection pool when its host runtime drops,
+    // surfacing as `error sending request for url (...)` on every subsequent
+    // call. The accessor is only used by async-shim emission; for crates with
+    // no async source functions it's harmless dead code (the `unused` lint
+    // already suppressed at the top of the file).
+    out.push_str(shims::ALEF_TOKIO_RUNTIME_DEFINITION);
+    out.push('\n');
+
     let visible_types: Vec<&TypeDef> = api
         .types
         .iter()

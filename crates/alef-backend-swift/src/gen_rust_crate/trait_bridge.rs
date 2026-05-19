@@ -472,17 +472,15 @@ pub(crate) fn emit_trait_method_body(
     };
 
     if method.is_async {
+        // Use the process-wide tokio runtime — see shims.rs for the rationale
+        // (per-call runtimes orphan reqwest's connection pool).
         let await_expr = format!("{source_call}.await");
         if method.error_type.is_some() {
             let enveloped = envelope_result_expr(await_expr);
-            format!(
-                "    ::tokio::runtime::Builder::new_current_thread()\n        .enable_all()\n        .build()\n        .expect(\"build tokio runtime\")\n        .block_on(async {{ {enveloped} }})\n"
-            )
+            format!("    crate::__alef_tokio_runtime().block_on(async {{ {enveloped} }})\n")
         } else {
             let inner = wrap_return(await_expr);
-            format!(
-                "    ::tokio::runtime::Builder::new_current_thread()\n        .enable_all()\n        .build()\n        .expect(\"build tokio runtime\")\n        .block_on(async {{ {inner} }})\n"
-            )
+            format!("    crate::__alef_tokio_runtime().block_on(async {{ {inner} }})\n")
         }
     } else if method.error_type.is_some() {
         let enveloped = envelope_result_expr(source_call.to_string());

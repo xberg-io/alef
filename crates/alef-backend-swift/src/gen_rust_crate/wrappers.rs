@@ -975,13 +975,9 @@ pub(crate) fn emit_type_method_shims(
             } else {
                 wrap_return(format!("{method_call}.await"))
             };
-            format!(
-                "    ::tokio::runtime::Builder::new_current_thread()\n        \
-                 .enable_all()\n        \
-                 .build()\n        \
-                 .expect(\"build tokio runtime\")\n        \
-                 .block_on(async {{ {chain} }})"
-            )
+            // Share the process-wide tokio runtime — see shims.rs for the
+            // rationale (orphaned reqwest connection pools).
+            format!("    crate::__alef_tokio_runtime().block_on(async {{ {chain} }})")
         } else if method.error_type.is_some() {
             let ok_wrap = if json_wrap_ok {
                 ".map(|v| serde_json::to_string(&v).expect(\"serializable return\"))".to_string()

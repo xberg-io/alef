@@ -450,20 +450,53 @@ pub(crate) fn emit_function_shim(
 
     // The wrapper is always sync — swift-bridge 0.1.59 doesn't support async
     // functions in extern blocks, so async source calls are blocked-on inside
-    // a tokio runtime. The runtime is created lazily on first call.
+    // a tokio runtime.
+    //
+    // The runtime is a process-wide static (initialized lazily on first call)
+    // rather than a per-call `Builder::new_current_thread().build()`. The
+    // per-call pattern works for self-contained async work but breaks reqwest:
+    // `reqwest::Client::builder().build()` lazily attaches its connection pool
+    // to the FIRST tokio runtime it sees, and that pool dies when its host
+    // runtime is dropped. Subsequent calls then fail with
+    // `error sending request for url (...)` because the orphaned pool can't
+    // service them. Sharing one persistent runtime keeps the pool alive.
+    //
+    // Uses `Builder::new_multi_thread()` (not `new_current_thread`) so the
+    // runtime can be re-entered from any host thread (Swift, JVM, Python's
+    // GIL release, etc.) without blocking on its own worker.
     if f.is_async {
         format!(
             "pub fn {fn_name}({params_str}) -> {return_ty} {{\n    \
-            ::tokio::runtime::Builder::new_current_thread()\n        \
-                .enable_all()\n        \
-                .build()\n        \
-                .expect(\"build tokio runtime\")\n        \
-                .block_on(async {{ {body} }})\n}}\n"
+            {ALEF_TOKIO_RUNTIME_ACCESSOR}.block_on(async {{ {body} }})\n}}\n"
         )
     } else {
         format!("pub fn {fn_name}({params_str}) -> {return_ty} {{\n    {body}\n}}\n")
     }
 }
+
+/// Snippet that resolves the process-wide tokio runtime. Emitted alongside the
+/// shim functions so async wrappers can `.block_on(...)` without rebuilding
+/// the runtime per call.
+pub(crate) const ALEF_TOKIO_RUNTIME_ACCESSOR: &str = "crate::__alef_tokio_runtime()";
+
+/// Top-of-crate snippet that defines `__alef_tokio_runtime()`, a lazily-
+/// initialized process-wide multi-thread runtime. Embedded once per crate.
+pub(crate) const ALEF_TOKIO_RUNTIME_DEFINITION: &str = r#"
+/// Process-wide tokio runtime shared across every swift-bridge async wrapper.
+///
+/// alef-emitted; see shims.rs for the rationale (orphaned reqwest connection
+/// pools when each call creates and drops its own current-thread runtime).
+fn __alef_tokio_runtime() -> &'static ::tokio::runtime::Runtime {
+    use std::sync::OnceLock;
+    static RT: OnceLock<::tokio::runtime::Runtime> = OnceLock::new();
+    RT.get_or_init(|| {
+        ::tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("build process-wide alef tokio runtime")
+    })
+}
+"#;
 
 #[cfg(test)]
 mod tests {
