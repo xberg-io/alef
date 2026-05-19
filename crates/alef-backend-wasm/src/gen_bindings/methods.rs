@@ -5,6 +5,7 @@ use ahash::AHashSet;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_codegen::{generators, naming::to_node_name, shared};
 use alef_core::ir::{MethodDef, TypeDef, TypeRef};
+use heck::ToPascalCase;
 
 use super::functions::{emit_rustdoc, format_param_unused, wasm_wrap_return};
 
@@ -19,6 +20,7 @@ pub(super) fn gen_method(
     prefix: &str,
     typ: &TypeDef,
     mutex_types: &AHashSet<String>,
+    streaming_item_types: &ahash::AHashMap<String, String>,
 ) -> String {
     // Check if the type has any RefMut methods (which means inner is wrapped in Mutex).
     let has_mut_methods = typ
@@ -53,7 +55,15 @@ pub(super) fn gen_method(
         })
         .collect();
 
-    let return_type = mapper.map_type(&method.return_type);
+    let adapter_key_for_stream = format!("{}.{}", type_name, method.name);
+    let stream_item = streaming_item_types.get(&adapter_key_for_stream);
+    let return_type = if stream_item.is_some() {
+        // For streaming methods, return the iterator struct (not the item type).
+        // The iterator struct name is {PascalCaseMethodName}Iterator.
+        format!("{}Iterator", method.name.to_pascal_case())
+    } else {
+        mapper.map_type(&method.return_type)
+    };
     let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
 
     let js_name = to_node_name(&method.name);

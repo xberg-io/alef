@@ -116,6 +116,7 @@ pub(super) fn gen_opaque_struct_methods(
     prefix: &str,
     adapter_bodies: &alef_adapters::AdapterBodies,
     mutex_types: &AHashSet<String>,
+    streaming_item_types: &ahash::AHashMap<String, String>,
 ) -> String {
     let js_name = format!("{prefix}{}", typ.name);
     let mut impl_builder = ImplBuilder::new(&js_name);
@@ -524,6 +525,7 @@ pub(super) fn gen_struct_methods(
     api_enums: &[EnumDef],
     prefix: &str,
     mutex_types: &AHashSet<String>,
+    streaming_item_types: &ahash::AHashMap<String, String>,
 ) -> String {
     use super::field_references_excluded_type;
 
@@ -601,6 +603,7 @@ pub(super) fn gen_struct_methods(
                 prefix,
                 typ,
                 mutex_types,
+                streaming_item_types,
             ));
         }
     }

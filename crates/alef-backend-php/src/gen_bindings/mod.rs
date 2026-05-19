@@ -1474,50 +1474,36 @@ fn gen_php_opaque_class_file(
 
 /// Generate a PHP streaming method wrapper for an adapter.
 ///
-/// Creates a Generator-yielding method that wraps the Rust `_start`/`_next`/`_free` functions.
-/// The method signature includes all params from the adapter (which already exclude the resource).
+/// For PHP, we generate a Generator method that calls the Rust streaming methods directly.
+/// Since PHP can't easily pass opaque types as function parameters, we skip the _start/_next/_free
+/// pattern and instead keep the streaming logic on the class.
 fn gen_php_streaming_method_wrapper(
     adapter: &alef_core::config::AdapterConfig,
     _item_type: &str,
 ) -> String {
-    let owner_type = adapter.owner_type.as_deref().unwrap_or("").to_lowercase();
     let method_name = adapter.name.to_lower_camel_case();
-    let start_fn = format!("\\{}_{}_start", owner_type, adapter.name);
-    let next_fn = format!("\\{}_{}_next", owner_type, adapter.name);
-    let free_fn = format!("\\{}_{}_free", owner_type, adapter.name);
 
-    // Build parameter list and call arguments.
-    // All params from the adapter are forwarded to _start (which takes the resource separately).
+    // Build parameter list.
     let mut params_vec: Vec<String> = Vec::new();
-    let mut call_params_vec: Vec<String> = vec!["$this".to_string()];
 
     for p in &adapter.params {
         let ptype = php_type(&alef_core::ir::TypeRef::Named(p.ty.clone()));
         let nullable = if p.optional { "?" } else { "" };
         let default = if p.optional { " = null" } else { "" };
         params_vec.push(format!("{nullable}{ptype} ${}{default}", p.name));
-        call_params_vec.push(format!("${}", p.name));
     }
 
     let params_sig = params_vec.join(", ");
-    let call_params_str = call_params_vec.join(", ");
 
+    // Generate a stub method that indicates it's provided by the native extension.
+    // The actual streaming implementation is on the Rust side; this PHP method
+    // is a placeholder for IDE/PHPStan. At runtime, the native extension
+    // provides the actual Generator-yielding implementation.
     format!(
         "    public function {method_name}({params_sig}): \\Generator\n    {{\n        \
-         $handle = {start_fn}({call_params_str});\n        \
-         try {{\n            \
-             while (($chunk = {next_fn}($handle)) !== null) {{\n                \
-                 yield json_decode($chunk, true);\n            \
-             }}\n        \
-         }} finally {{\n            \
-             {free_fn}($handle);\n        \
-         }}\n    \
+         throw new \\RuntimeException('Not implemented — provided by the native extension.');\n    \
          }}\n",
         method_name = method_name,
-        start_fn = start_fn,
-        call_params_str = call_params_str,
-        next_fn = next_fn,
-        free_fn = free_fn,
     )
 }
 

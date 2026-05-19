@@ -328,6 +328,20 @@ impl Backend for WasmBackend {
         // Build adapter body map before type iteration so bodies are available for method generation.
         let adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::Wasm)?;
 
+        // Map "OwnerType.method" -> streaming item type. The wasm backend needs to
+        // override the IR-declared return type with the iterator struct name
+        // for streaming adapters, since the generated body returns an iterator instance.
+        let streaming_item_types: ahash::AHashMap<String, String> = config
+            .adapters
+            .iter()
+            .filter(|a| matches!(a.pattern, alef_core::config::AdapterPattern::Streaming))
+            .filter_map(|a| {
+                let owner = a.owner_type.as_deref()?;
+                let item = a.item_type.as_deref()?;
+                Some((format!("{owner}.{}", a.name), item.to_string()))
+            })
+            .collect();
+
         // Emit adapter-generated standalone items (streaming iterators, callback bridges).
         for adapter in &config.adapters {
             match adapter.pattern {
@@ -375,6 +389,7 @@ impl Backend for WasmBackend {
                     &prefix,
                     &adapter_bodies,
                     &mutex_types,
+                    &streaming_item_types,
                 ));
                 // Client constructor — emit a #[wasm_bindgen(constructor)] impl
                 if let Some(ctor) = config.client_constructors.get(&typ.name) {
@@ -407,6 +422,7 @@ impl Backend for WasmBackend {
                     &api.enums,
                     &prefix,
                     &mutex_types,
+                    &streaming_item_types,
                 ));
             }
         }
