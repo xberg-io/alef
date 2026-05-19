@@ -126,9 +126,13 @@ pub struct PythonConfig {
     pub extra_init_imports: std::collections::BTreeMap<String, Vec<String>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct StubsConfig {
     pub output: PathBuf,
+    /// When true, emit Rust `///` doc comments as stub-level docstrings.
+    /// Default: false — ruff PYI021 flags docstrings in stub files.
+    #[serde(default)]
+    pub emit_docstrings: bool,
 }
 
 /// Configuration for a single capsule type entry in `NodeConfig::capsule_types`.

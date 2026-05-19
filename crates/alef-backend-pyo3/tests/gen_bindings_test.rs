@@ -1418,6 +1418,7 @@ fn test_return_type_exported_from_native_module_not_options() {
         async_runtime: None,
         stubs: Some(StubsConfig {
             output: std::path::PathBuf::from("packages/python/my_lib"),
+            emit_docstrings: false,
         }),
         features: None,
         serde_rename_all: None,
@@ -1662,6 +1663,7 @@ fn test_api_py_imports_config_dto_with_self_returning_method_from_options() {
         async_runtime: None,
         stubs: Some(StubsConfig {
             output: std::path::PathBuf::from("packages/python/my_lib"),
+            emit_docstrings: false,
         }),
         features: None,
         serde_rename_all: None,
@@ -2912,6 +2914,7 @@ fn test_api_py_uses_keyword_arguments() {
         async_runtime: None,
         stubs: Some(StubsConfig {
             output: std::path::PathBuf::from("packages/python/src/"),
+            emit_docstrings: false,
         }),
         features: None,
         serde_rename_all: None,
@@ -3006,6 +3009,7 @@ fn test_async_function_emits_async_def_and_await() {
         async_runtime: None,
         stubs: Some(StubsConfig {
             output: std::path::PathBuf::from("packages/python/src/"),
+            emit_docstrings: false,
         }),
         features: None,
         serde_rename_all: None,
@@ -3101,6 +3105,7 @@ fn test_trait_bridge_register_fns_in_api_py_and_all() {
         async_runtime: None,
         stubs: Some(StubsConfig {
             output: std::path::PathBuf::from("packages/python/src/"),
+            emit_docstrings: false,
         }),
         features: None,
         serde_rename_all: None,
@@ -3563,6 +3568,7 @@ fn test_capsule_types_end_to_end() {
     if let Some(ref mut py) = stubs_config.python {
         py.stubs = Some(alef_core::config::StubsConfig {
             output: std::path::PathBuf::from("packages/python/ts_pack"),
+            emit_docstrings: false,
         });
     }
     let stub_files = backend
@@ -3782,6 +3788,7 @@ fn test_capsule_types_in_methods() {
     if let Some(ref mut py) = stubs_config.python {
         py.stubs = Some(alef_core::config::StubsConfig {
             output: std::path::PathBuf::from("packages/python/ts_pack"),
+            emit_docstrings: false,
         });
     }
     let stub_files = backend
@@ -3995,6 +4002,7 @@ fn test_api_py_void_function_no_redundant_return() {
         async_runtime: None,
         stubs: Some(StubsConfig {
             output: std::path::PathBuf::from("packages/python/src/"),
+            emit_docstrings: false,
         }),
         features: None,
         serde_rename_all: None,
@@ -4127,6 +4135,7 @@ fn test_api_py_pep8_blank_lines_between_functions() {
         async_runtime: None,
         stubs: Some(StubsConfig {
             output: std::path::PathBuf::from("packages/python/src/"),
+            emit_docstrings: false,
         }),
         features: None,
         serde_rename_all: None,

@@ -68,6 +68,27 @@ output = "packages/ruby/sig/"
     )
 }
 
+/// Helper to create a ResolvedCrateConfig with Ruby, stubs, and emit_docstrings enabled.
+fn make_config_with_stubs_and_docs() -> ResolvedCrateConfig {
+    resolved_one(
+        r#"
+[workspace]
+languages = ["ruby"]
+
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[crates.ruby]
+gem_name = "test_lib"
+
+[crates.ruby.stubs]
+output = "packages/ruby/sig/"
+emit_docstrings = true
+"#,
+    )
+}
+
 #[test]
 fn test_basic_rbs_stubs() {
     let backend = MagnusBackend;
@@ -403,7 +424,7 @@ fn test_enum_stubs() {
         excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
-    let config = make_config_with_stubs();
+    let config = make_config_with_stubs_and_docs();
     let result = backend.generate_type_stubs(&api, &config);
 
     assert!(result.is_ok(), "Stub generation should succeed");
@@ -689,7 +710,7 @@ fn test_type_with_methods_and_fields() {
         excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
-    let config = make_config_with_stubs();
+    let config = make_config_with_stubs_and_docs();
     let result = backend.generate_type_stubs(&api, &config);
 
     assert!(result.is_ok(), "Stub generation should succeed");
@@ -794,7 +815,7 @@ fn test_multiline_doc_comment_is_valid_rbs() {
         excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
-    let config = make_config_with_stubs();
+    let config = make_config_with_stubs_and_docs();
     let result = backend.generate_type_stubs(&api, &config);
     assert!(result.is_ok(), "Stub generation should succeed");
 

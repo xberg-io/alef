@@ -156,6 +156,13 @@ pub fn gen_stubs(api: &ApiSurface, trait_bridges: &[TraitBridgeConfig], config: 
         .map(|p| p.capsule_types.keys().map(String::as_str).collect())
         .unwrap_or_default();
 
+    // Gate docstring emission behind config — ruff PYI021 flags docstrings in stub files.
+    let emit_docstrings = config
+        .python
+        .as_ref()
+        .and_then(|p| p.stubs.as_ref())
+        .is_some_and(|s| s.emit_docstrings);
+
     // Generate type stubs — collect opaque types separately so consecutive
     // one-liner class stubs are emitted without blank lines between them
     // (ruff strips those in .pyi files).
@@ -167,7 +174,7 @@ pub fn gen_stubs(api: &ApiSurface, trait_bridges: &[TraitBridgeConfig], config: 
 
     let mut body_lines: Vec<String> = Vec::new();
     for typ in &non_opaque {
-        body_lines.push(gen_type_stub(typ, api, config, &capsule_names, &options_field_bridges));
+        body_lines.push(gen_type_stub(typ, api, config, &capsule_names, &options_field_bridges, emit_docstrings));
         body_lines.push("".to_string());
     }
 
@@ -186,7 +193,7 @@ pub fn gen_stubs(api: &ApiSurface, trait_bridges: &[TraitBridgeConfig], config: 
 
     // Generate enum stubs
     for enum_def in &api.enums {
-        body_lines.push(gen_enum_stub(enum_def));
+        body_lines.push(gen_enum_stub(enum_def, emit_docstrings));
         body_lines.push("".to_string());
     }
 
@@ -321,14 +328,17 @@ fn gen_type_stub(
     config: &ResolvedCrateConfig,
     capsule_names: &std::collections::HashSet<&str>,
     options_field_bridges: &std::collections::HashMap<&str, (&str, Option<&str>)>,
+    emit_docstrings: bool,
 ) -> String {
     let mut lines = vec![];
 
     lines.push(format!("class {}:", typ.name));
 
-    // Class-level docstring from Rust doc comment.
-    if let Some(docstring) = pyi_docstring(&typ.doc, "    ") {
-        lines.push(docstring);
+    // Class-level docstring from Rust doc comment — gated behind emit_docstrings (ruff PYI021).
+    if emit_docstrings {
+        if let Some(docstring) = pyi_docstring(&typ.doc, "    ") {
+            lines.push(docstring);
+        }
     }
 
     // Add field type annotations.
@@ -352,9 +362,11 @@ fn gen_type_stub(
             .resolve_field_name(Language::Python, &typ.name, &field.name)
             .unwrap_or_else(|| field.name.clone());
         lines.push(format!("    {stub_field_name}: {field_type}"));
-        // Field-level docstring follows the type annotation (PEP-style).
-        if let Some(docstring) = pyi_docstring(&field.doc, "    ") {
-            lines.push(docstring);
+        // Field-level docstring follows the type annotation (PEP-style) — gated behind emit_docstrings.
+        if emit_docstrings {
+            if let Some(docstring) = pyi_docstring(&field.doc, "    ") {
+                lines.push(docstring);
+            }
         }
     }
 
@@ -603,7 +615,7 @@ fn to_python_screaming(name: &str) -> String {
 }
 
 /// Generate a Python enum stub.
-fn gen_enum_stub(enum_def: &EnumDef) -> String {
+fn gen_enum_stub(enum_def: &EnumDef, emit_docstrings: bool) -> String {
     use alef_codegen::generators::enum_has_data_variants;
     let mut lines = vec![];
 
@@ -612,8 +624,11 @@ fn gen_enum_stub(enum_def: &EnumDef) -> String {
         gen_data_enum_typeddicts(&mut lines, enum_def);
     } else {
         lines.push(format!("class {}:", enum_def.name));
-        if let Some(docstring) = pyi_docstring(&enum_def.doc, "    ") {
-            lines.push(docstring);
+        // Enum-level docstring — gated behind emit_docstrings (ruff PYI021).
+        if emit_docstrings {
+            if let Some(docstring) = pyi_docstring(&enum_def.doc, "    ") {
+                lines.push(docstring);
+            }
         }
         for variant in &enum_def.variants {
             // Emit UPPER_SNAKE_CASE attribute names to match the #[pyo3(name = "...")] rename
@@ -623,8 +638,11 @@ fn gen_enum_stub(enum_def: &EnumDef) -> String {
                 to_python_screaming(&variant.name),
                 enum_def.name
             ));
-            if let Some(docstring) = pyi_docstring(&variant.doc, "    ") {
-                lines.push(docstring);
+            // Variant-level docstring — gated behind emit_docstrings (ruff PYI021).
+            if emit_docstrings {
+                if let Some(docstring) = pyi_docstring(&variant.doc, "    ") {
+                    lines.push(docstring);
+                }
             }
         }
         lines.push("    def __init__(self, value: int | str) -> None: ...".to_string());

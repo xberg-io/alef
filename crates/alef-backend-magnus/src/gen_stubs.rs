@@ -3,7 +3,7 @@ use alef_codegen::shared::binding_fields;
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{ApiSurface, EnumDef, FunctionDef, MethodDef, TypeDef};
 
-pub fn gen_stubs(api: &ApiSurface, gem_name: &str) -> String {
+pub fn gen_stubs(api: &ApiSurface, gem_name: &str, emit_docstrings: bool) -> String {
     let header = hash::header(CommentStyle::Hash);
     let mut lines: Vec<String> = header.lines().map(str::to_string).collect();
     lines.push("".to_string());
@@ -17,17 +17,17 @@ pub fn gen_stubs(api: &ApiSurface, gem_name: &str) -> String {
     // Generate type stubs
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         if typ.is_opaque {
-            lines.push(gen_opaque_type_stub(typ));
+            lines.push(gen_opaque_type_stub(typ, emit_docstrings));
             lines.push("".to_string());
         } else {
-            lines.push(gen_type_stub(typ));
+            lines.push(gen_type_stub(typ, emit_docstrings));
             lines.push("".to_string());
         }
     }
 
     // Generate enum stubs
     for enum_def in &api.enums {
-        lines.push(gen_enum_stub(enum_def));
+        lines.push(gen_enum_stub(enum_def, emit_docstrings));
         lines.push("".to_string());
     }
 
@@ -50,12 +50,12 @@ fn get_module_name(crate_name: &str) -> String {
 }
 
 /// Generate a Ruby type stub for an opaque type (no fields, only methods).
-fn gen_opaque_type_stub(typ: &TypeDef) -> String {
+fn gen_opaque_type_stub(typ: &TypeDef, emit_docstrings: bool) -> String {
     let mut lines = vec![];
 
     lines.push(format!("  class {}", typ.name));
 
-    if !typ.doc.is_empty() {
+    if emit_docstrings && !typ.doc.is_empty() {
         let doc_lines: Vec<String> = typ.doc.lines().map(ToString::to_string).collect();
         lines.push(crate::template_env::render(
             "rbs_doc_block.jinja",
@@ -67,14 +67,14 @@ fn gen_opaque_type_stub(typ: &TypeDef) -> String {
     // Instance methods
     for method in &typ.methods {
         if !method.is_static {
-            lines.push(gen_method_stub(method, false));
+            lines.push(gen_method_stub(method, false, emit_docstrings));
         }
     }
 
     // Static methods
     for method in &typ.methods {
         if method.is_static {
-            lines.push(gen_method_stub(method, true));
+            lines.push(gen_method_stub(method, true, emit_docstrings));
         }
     }
 
@@ -84,13 +84,13 @@ fn gen_opaque_type_stub(typ: &TypeDef) -> String {
 }
 
 /// Generate a Ruby type stub for a struct.
-fn gen_type_stub(typ: &TypeDef) -> String {
+fn gen_type_stub(typ: &TypeDef, emit_docstrings: bool) -> String {
     let mut lines = vec![];
 
     lines.push(format!("  class {}", typ.name));
 
     // Add docstring if present
-    if !typ.doc.is_empty() {
+    if emit_docstrings && !typ.doc.is_empty() {
         let doc_lines: Vec<String> = typ.doc.lines().map(ToString::to_string).collect();
         lines.push(crate::template_env::render(
             "rbs_doc_block.jinja",
@@ -113,10 +113,8 @@ fn gen_type_stub(typ: &TypeDef) -> String {
         if typ.has_default && !field_type.ends_with('?') {
             field_type.push('?');
         }
-        // Field-level doc comment from the Rust source. RBS supports leading
-        // `#` comment lines before declarations; we emit each line of the doc
-        // separately so multi-line docs render correctly.
-        if !f.doc.is_empty() {
+        // Field-level doc comment from the Rust source. Gated behind emit_docstrings.
+        if emit_docstrings && !f.doc.is_empty() {
             for line in f.doc.lines() {
                 let line = line.trim();
                 if line.is_empty() {
@@ -153,14 +151,14 @@ fn gen_type_stub(typ: &TypeDef) -> String {
     // Add instance methods
     for method in &typ.methods {
         if !method.is_static {
-            lines.push(gen_method_stub(method, false));
+            lines.push(gen_method_stub(method, false, emit_docstrings));
         }
     }
 
     // Add static methods
     for method in &typ.methods {
         if method.is_static {
-            lines.push(gen_method_stub(method, true));
+            lines.push(gen_method_stub(method, true, emit_docstrings));
         }
     }
 
@@ -170,7 +168,7 @@ fn gen_type_stub(typ: &TypeDef) -> String {
 }
 
 /// Generate a method stub using RBS declaration syntax.
-fn gen_method_stub(method: &MethodDef, is_static: bool) -> String {
+fn gen_method_stub(method: &MethodDef, is_static: bool, emit_docstrings: bool) -> String {
     let params: Vec<String> = method
         .params
         .iter()
@@ -194,8 +192,8 @@ fn gen_method_stub(method: &MethodDef, is_static: bool) -> String {
     };
 
     // Prefix with the method's Rust doc comment, line by line. RBS allows free-form
-    // comments preceding method declarations.
-    if method.doc.is_empty() {
+    // comments preceding method declarations. Gated behind emit_docstrings.
+    if !emit_docstrings || method.doc.is_empty() {
         return sig_line;
     }
     let mut out = String::new();
@@ -214,14 +212,14 @@ fn gen_method_stub(method: &MethodDef, is_static: bool) -> String {
 /// Generate a Ruby enum stub.
 /// Unit-variant enums are represented as Ruby Symbols (e.g., :left_to_right).
 /// RBS stubs are minimal — actual return types use symbol unions in method signatures.
-fn gen_enum_stub(enum_def: &EnumDef) -> String {
+fn gen_enum_stub(enum_def: &EnumDef, emit_docstrings: bool) -> String {
     let mut lines = vec![];
 
     // Always emit class stub (even for unit enums, for Ruby introspection)
     lines.push(format!("  class {}", enum_def.name));
 
-    // Add docstring if present
-    if !enum_def.doc.is_empty() {
+    // Add docstring if present — gated behind emit_docstrings.
+    if emit_docstrings && !enum_def.doc.is_empty() {
         let doc_lines: Vec<String> = enum_def.doc.lines().map(ToString::to_string).collect();
         lines.push(crate::template_env::render(
             "rbs_doc_block.jinja",

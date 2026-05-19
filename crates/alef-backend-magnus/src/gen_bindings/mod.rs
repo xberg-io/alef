@@ -271,6 +271,12 @@ impl Backend for MagnusBackend {
                     impl_block.push_str("}\n");
                     builder.add_item(&impl_block);
                 }
+                // Client constructor
+                if let Some(ctor) = config.client_constructors.get(&typ.name) {
+                    let ctor_body = alef_codegen::generators::gen_opaque_constructor(ctor, &typ.name, &core_import, "");
+                    let ctor_impl = format!("impl {} {{\n{}}}", typ.name, ctor_body);
+                    builder.add_item(&ctor_impl);
+                }
             } else {
                 let generates_default =
                     typ.has_default && alef_codegen::generators::can_generate_default_impl(typ, &default_types);
@@ -538,7 +544,8 @@ impl Backend for MagnusBackend {
         };
 
         let gem_name = config.ruby_gem_name();
-        let content = crate::gen_stubs::gen_stubs(api, &gem_name);
+        let emit_docstrings = stubs_config.emit_docstrings;
+        let content = crate::gen_stubs::gen_stubs(api, &gem_name, emit_docstrings);
 
         let stubs_path = resolve_output_dir(
             Some(&stubs_config.output),
