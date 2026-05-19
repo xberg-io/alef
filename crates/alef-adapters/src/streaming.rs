@@ -12,6 +12,10 @@ pub fn generate_body(
     language: Language,
     config: &ResolvedCrateConfig,
 ) -> anyhow::Result<(String, Option<String>)> {
+    let lang_str = language.to_string();
+    if adapter.skip_languages.iter().any(|l| l == &lang_str) {
+        return Ok((String::new(), None));
+    }
     match language {
         Language::Python => Ok(gen_python_body(adapter, config)),
         Language::Node => Ok(gen_node_body(adapter, config)),

@@ -47,6 +47,8 @@ fn test_sync_function_python() {
         trait_method: None,
         detect_async: false,
         request_type: None,
+
+        skip_languages: vec![],
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Python).expect("build failed");
@@ -87,6 +89,8 @@ fn test_sync_function_node() {
         trait_method: None,
         detect_async: false,
         request_type: None,
+
+        skip_languages: vec![],
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Node).expect("build failed");
@@ -133,6 +137,8 @@ fn test_async_method_python() {
         trait_method: None,
         detect_async: false,
         request_type: None,
+
+        skip_languages: vec![],
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Python).expect("build failed");
@@ -176,6 +182,8 @@ fn test_async_method_node() {
         trait_method: None,
         detect_async: false,
         request_type: None,
+
+        skip_languages: vec![],
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Node).expect("build failed");
@@ -211,6 +219,8 @@ fn test_callback_bridge_python() {
         trait_method: Some("handle_event".to_string()),
         detect_async: false,
         request_type: None,
+
+        skip_languages: vec![],
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Python).expect("build failed");
@@ -270,6 +280,8 @@ fn test_callback_bridge_node() {
         trait_method: Some("handle".to_string()),
         detect_async: false,
         request_type: None,
+
+        skip_languages: vec![],
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Node).expect("build failed");
@@ -312,6 +324,8 @@ fn test_streaming_python() {
         trait_method: None,
         detect_async: false,
         request_type: None,
+
+        skip_languages: vec![],
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Python).expect("build failed");
@@ -366,6 +380,8 @@ fn test_streaming_node() {
         trait_method: None,
         detect_async: false,
         request_type: None,
+
+        skip_languages: vec![],
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Node).expect("build failed");
@@ -411,6 +427,8 @@ fn test_sync_function_ffi() {
         trait_method: None,
         detect_async: false,
         request_type: None,
+
+        skip_languages: vec![],
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Ffi).expect("build failed");
@@ -453,6 +471,8 @@ fn test_sync_function_go() {
         trait_method: None,
         detect_async: false,
         request_type: None,
+
+        skip_languages: vec![],
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Go).expect("build failed");
@@ -497,6 +517,8 @@ fn test_sync_function_java() {
         trait_method: None,
         detect_async: false,
         request_type: None,
+
+        skip_languages: vec![],
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Java).expect("build failed");
@@ -539,6 +561,8 @@ fn test_sync_function_csharp() {
         trait_method: None,
         detect_async: false,
         request_type: None,
+
+        skip_languages: vec![],
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Csharp).expect("build failed");
@@ -581,6 +605,8 @@ fn test_sync_function_ruby() {
         trait_method: None,
         detect_async: false,
         request_type: None,
+
+        skip_languages: vec![],
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Ruby).expect("build failed");
@@ -622,6 +648,8 @@ fn test_sync_function_php() {
         trait_method: None,
         detect_async: false,
         request_type: None,
+
+        skip_languages: vec![],
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Php).expect("build failed");
@@ -659,6 +687,8 @@ fn test_async_method_elixir() {
         trait_method: None,
         detect_async: false,
         request_type: None,
+
+        skip_languages: vec![],
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Elixir).expect("build failed");
@@ -700,6 +730,8 @@ fn test_sync_function_wasm() {
         trait_method: None,
         detect_async: false,
         request_type: None,
+
+        skip_languages: vec![],
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Wasm).expect("build failed");
@@ -737,6 +769,8 @@ fn test_sync_function_r() {
         trait_method: None,
         detect_async: false,
         request_type: None,
+
+        skip_languages: vec![],
     }];
 
     let bodies = build_adapter_bodies(&config, Language::R).expect("build failed");
@@ -781,6 +815,8 @@ fn test_sync_function_optional_params() {
         trait_method: None,
         detect_async: false,
         request_type: None,
+
+        skip_languages: vec![],
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Python).expect("build failed");
@@ -821,6 +857,8 @@ fn test_multiple_adapters() {
             trait_method: None,
             detect_async: false,
             request_type: None,
+
+            skip_languages: vec![],
         },
         AdapterConfig {
             name: "destroy".to_string(),
@@ -840,6 +878,8 @@ fn test_multiple_adapters() {
             trait_method: None,
             detect_async: false,
             request_type: None,
+
+            skip_languages: vec![],
         },
     ];
 
@@ -879,6 +919,8 @@ fn test_async_method_optional_params() {
         trait_method: None,
         detect_async: false,
         request_type: None,
+
+        skip_languages: vec![],
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Node).expect("build failed");
@@ -913,6 +955,8 @@ fn test_sync_function_python_gil_release() {
         trait_method: None,
         detect_async: false,
         request_type: None,
+
+        skip_languages: vec![],
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Python).expect("build failed");
@@ -967,6 +1011,8 @@ fn test_python_string_params() {
         trait_method: None,
         detect_async: false,
         request_type: None,
+
+        skip_languages: vec![],
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Python).expect("build failed");
@@ -1005,6 +1051,8 @@ fn test_ffi_string_conversion() {
         trait_method: None,
         detect_async: false,
         request_type: None,
+
+        skip_languages: vec![],
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Ffi).expect("build failed");
@@ -1048,6 +1096,8 @@ fn test_go_numeric_params() {
         trait_method: None,
         detect_async: false,
         request_type: None,
+
+        skip_languages: vec![],
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Go).expect("build failed");
@@ -1092,6 +1142,8 @@ fn two_streaming_adapters_on_one_owner() -> Vec<AdapterConfig> {
             trait_method: None,
             detect_async: false,
             request_type: Some("kreuzcrawl::CrawlStreamRequest".to_string()),
+
+            skip_languages: vec![],
         },
         AdapterConfig {
             name: "batch_crawl_stream".to_string(),
@@ -1111,6 +1163,8 @@ fn two_streaming_adapters_on_one_owner() -> Vec<AdapterConfig> {
             trait_method: None,
             detect_async: false,
             request_type: Some("kreuzcrawl::BatchCrawlStreamRequest".to_string()),
+
+            skip_languages: vec![],
         },
     ]
 }
@@ -1188,5 +1242,84 @@ fn test_two_streaming_adapters_share_owner_elixir_emits_distinct_handles() {
     assert!(
         struct_batch.contains("BatchCrawlStreamRequest"),
         "batch_crawl_stream must use its own request type. Got: {struct_batch}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// skip_languages tests
+// ---------------------------------------------------------------------------
+
+/// When an adapter has `skip_languages = ["wasm"]` the WASM backend must not
+/// receive any body entries for that adapter.
+#[test]
+fn test_skip_languages_wasm_suppresses_wasm_body() {
+    let mut config = make_config(vec![Language::Wasm]);
+    config.adapters = vec![AdapterConfig {
+        name: "crawl_stream".to_string(),
+        pattern: AdapterPattern::Streaming,
+        core_path: "crawl_stream".to_string(),
+        params: vec![AdapterParam {
+            name: "req".to_string(),
+            ty: "CrawlStreamRequest".to_string(),
+            optional: false,
+        }],
+        returns: None,
+        error_type: Some("CrawlError".to_string()),
+        owner_type: Some("CrawlEngineHandle".to_string()),
+        item_type: Some("CrawlEvent".to_string()),
+        gil_release: false,
+        trait_name: None,
+        trait_method: None,
+        detect_async: false,
+        request_type: Some("kreuzcrawl::CrawlStreamRequest".to_string()),
+        skip_languages: vec!["wasm".to_string()],
+    }];
+
+    let bodies = build_adapter_bodies(&config, Language::Wasm).expect("build_adapter_bodies failed");
+
+    assert!(
+        !bodies.contains_key("CrawlEngineHandle.crawl_stream"),
+        "WASM body must be suppressed when skip_languages contains 'wasm'. Keys: {:?}",
+        bodies.keys().collect::<Vec<_>>()
+    );
+    assert!(
+        !bodies.contains_key("CrawlEngineHandle.crawl_stream.__stream_struct__"),
+        "WASM struct def must also be suppressed. Keys: {:?}",
+        bodies.keys().collect::<Vec<_>>()
+    );
+}
+
+/// An adapter with skip_languages not containing a given language must still
+/// emit bodies for that language as normal.
+#[test]
+fn test_skip_languages_does_not_suppress_other_languages() {
+    let mut config = make_config(vec![Language::Python]);
+    config.adapters = vec![AdapterConfig {
+        name: "crawl_stream".to_string(),
+        pattern: AdapterPattern::Streaming,
+        core_path: "crawl_stream".to_string(),
+        params: vec![AdapterParam {
+            name: "req".to_string(),
+            ty: "CrawlStreamRequest".to_string(),
+            optional: false,
+        }],
+        returns: None,
+        error_type: Some("CrawlError".to_string()),
+        owner_type: Some("CrawlEngineHandle".to_string()),
+        item_type: Some("CrawlEvent".to_string()),
+        gil_release: false,
+        trait_name: None,
+        trait_method: None,
+        detect_async: false,
+        request_type: None,
+        skip_languages: vec!["wasm".to_string()],
+    }];
+
+    let bodies = build_adapter_bodies(&config, Language::Python).expect("build_adapter_bodies failed");
+
+    assert!(
+        bodies.contains_key("CrawlEngineHandle.crawl_stream"),
+        "Python body must still be emitted when skip_languages only contains 'wasm'. Keys: {:?}",
+        bodies.keys().collect::<Vec<_>>()
     );
 }

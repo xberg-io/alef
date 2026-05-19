@@ -250,6 +250,8 @@ fn make_demo_config_with_streaming() -> ResolvedCrateConfig {
         trait_method: None,
         detect_async: false,
         request_type: None,
+
+        skip_languages: vec![],
     });
     config
 }

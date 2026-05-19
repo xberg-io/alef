@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use super::extras::Language;
+use super::extras::{Language, is_known_language};
 use super::output::{BuildCommandConfig, GeneratedHeaderConfig, PrecommitConfig, ScaffoldConfig};
 use super::raw_crate::RawCrateConfig;
 use super::resolve_helpers::{merge_map, resolve_output_paths};
@@ -164,6 +164,22 @@ impl NewAlefConfig {
                 "crate `{}`: language `jni` requires `kotlin_android` to also be enabled in languages",
                 krate.name
             )));
+        }
+
+        // --- Adapter skip_languages validation ----------------------------------
+        // Reject unknown language names in adapter skip_languages early so
+        // typos like "wasm32" instead of "wasm" fail loudly at config-resolve time.
+        for adapter in &krate.adapters {
+            for lang in &adapter.skip_languages {
+                if !is_known_language(lang.as_str()) {
+                    return Err(ResolveError::InvalidConfig(format!(
+                        "crate `{}`: adapter `{}` has unknown language `{}` in skip_languages; \
+                         valid names are: python, node, ruby, php, elixir, wasm, ffi, go, java, \
+                         csharp, r, rust, kotlin, kotlin_android, swift, dart, gleam, zig, c, jni",
+                        krate.name, adapter.name, lang
+                    )));
+                }
+            }
         }
 
         Ok(ResolvedCrateConfig {
@@ -1014,5 +1030,54 @@ languages = ["node"]
         .unwrap();
         let resolved = cfg.resolve().unwrap();
         assert_eq!(resolved[0].languages, vec![Language::Node]);
+    }
+
+    #[test]
+    fn resolve_rejects_unknown_skip_languages_in_adapter() {
+        let cfg: NewAlefConfig = toml::from_str(
+            r#"
+[workspace]
+languages = ["python"]
+
+[[crates]]
+name = "spikard"
+sources = ["src/lib.rs"]
+
+[[crates.adapters]]
+name = "stream_data"
+pattern = "streaming"
+core_path = "my_crate::stream_data"
+skip_languages = ["wasm32"]
+"#,
+        )
+        .unwrap();
+        let err = cfg.resolve().unwrap_err();
+        assert!(
+            matches!(&err, ResolveError::InvalidConfig(msg) if msg.contains("wasm32")),
+            "expected InvalidConfig error mentioning the bad name, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn resolve_accepts_valid_skip_languages_in_adapter() {
+        let cfg: NewAlefConfig = toml::from_str(
+            r#"
+[workspace]
+languages = ["python"]
+
+[[crates]]
+name = "spikard"
+sources = ["src/lib.rs"]
+
+[[crates.adapters]]
+name = "stream_data"
+pattern = "streaming"
+core_path = "my_crate::stream_data"
+skip_languages = ["wasm", "kotlin"]
+"#,
+        )
+        .unwrap();
+        let resolved = cfg.resolve().expect("valid skip_languages should not fail");
+        assert_eq!(resolved[0].adapters[0].skip_languages, vec!["wasm", "kotlin"]);
     }
 }

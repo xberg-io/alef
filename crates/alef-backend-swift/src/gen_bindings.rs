@@ -168,6 +168,7 @@ impl Backend for SwiftBackend {
                 .adapters
                 .iter()
                 .filter(|a| matches!(a.pattern, AdapterPattern::Streaming))
+                .filter(|a| !a.skip_languages.iter().any(|l| l == "swift"))
                 .filter(|a| a.owner_type.as_deref() == Some(ty.name.as_str()))
                 .collect();
             if !streaming_adapters.is_empty() {

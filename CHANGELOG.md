@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **alef-core: `AdapterConfig` gains a `skip_languages` field that suppresses streaming/callback/async adapter emission for the listed backends.** Mirrors the existing `[[crates.e2e.calls.*]].skip_languages` precedent. Unknown language names fail at config-resolve time with a descriptive error. Useful when a consumer's core crate cannot compile a given binding target (e.g. kreuzcrawl's tokio-runtime engine on `wasm32-unknown-unknown` with no working fetch shim) — instead of force-removing the adapter's surface from `alef.toml` entirely, the adapter stays declared everywhere it works with explicit per-backend opt-out. The filter is applied in `build_adapter_bodies` (so adapter bodies are never inserted for skipped backends) and as a safety early-bail in `streaming::generate_body`. Per-backend collection sites in alef-backend-{php,java,magnus,kotlin,kotlin-android,swift} also skip matching adapters so streaming method registrations and import injections are consistent. Configured as `[[crates.adapters]] skip_languages = ["wasm", "kotlin"]`.
+
 ## [0.16.71] - 2026-05-19
 
 ### Fixed

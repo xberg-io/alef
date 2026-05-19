@@ -114,4 +114,97 @@ pub struct AdapterConfig {
     /// with a clear error if this field is absent on a streaming adapter.
     #[serde(default)]
     pub request_type: Option<String>,
+    /// Language backends for which this adapter should NOT be emitted.
+    ///
+    /// Mirrors the same field on `[[crates.e2e.calls.*]]`. Useful when a
+    /// consumer's core crate cannot compile on a given target (e.g.
+    /// `kreuzcrawl` on `wasm32-unknown-unknown` which has no working async
+    /// runtime for streaming). The adapter remains declared for every backend
+    /// where it works, with explicit per-backend opt-out rather than removing
+    /// the adapter entirely.
+    ///
+    /// Values must match the canonical TOML language names used in `languages`
+    /// (`"python"`, `"node"`, `"wasm"`, `"ruby"`, `"php"`, `"go"`,
+    /// `"java"`, `"csharp"`, `"elixir"`, `"kotlin"`, `"kotlin_android"`,
+    /// `"swift"`, `"dart"`, `"zig"`, `"ffi"`, `"r"`, `"gleam"`, `"c"`,
+    /// `"jni"`, `"rust"`). An unknown name fails at config-resolve time.
+    ///
+    /// Example: `skip_languages = ["wasm", "kotlin"]`
+    #[serde(default)]
+    pub skip_languages: Vec<String>,
+}
+
+/// Returns `true` when `lang_str` is a recognised canonical language name.
+pub fn is_known_language(lang_str: &str) -> bool {
+    matches!(
+        lang_str,
+        "python"
+            | "node"
+            | "ruby"
+            | "php"
+            | "elixir"
+            | "wasm"
+            | "ffi"
+            | "go"
+            | "java"
+            | "csharp"
+            | "r"
+            | "rust"
+            | "kotlin"
+            | "kotlin_android"
+            | "swift"
+            | "dart"
+            | "gleam"
+            | "zig"
+            | "c"
+            | "jni"
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn adapter_config_skip_languages_deserializes() {
+        let toml_str = r#"
+            name = "crawl_stream"
+            pattern = "streaming"
+            core_path = "kreuzcrawl_core::crawl_stream"
+            owner_type = "CrawlEngine"
+            item_type = "CrawlResult"
+            skip_languages = ["wasm", "kotlin"]
+        "#;
+        let config: AdapterConfig = toml::from_str(toml_str).expect("deserialization failed");
+        assert_eq!(config.skip_languages, vec!["wasm", "kotlin"]);
+        assert_eq!(config.name, "crawl_stream");
+    }
+
+    #[test]
+    fn adapter_config_skip_languages_defaults_to_empty() {
+        let toml_str = r#"
+            name = "crawl_stream"
+            pattern = "streaming"
+            core_path = "kreuzcrawl_core::crawl_stream"
+        "#;
+        let config: AdapterConfig = toml::from_str(toml_str).expect("deserialization failed");
+        assert!(config.skip_languages.is_empty());
+    }
+
+    #[test]
+    fn is_known_language_accepts_all_canonical_names() {
+        for name in &[
+            "python", "node", "ruby", "php", "elixir", "wasm", "ffi", "go", "java", "csharp",
+            "r", "rust", "kotlin", "kotlin_android", "swift", "dart", "gleam", "zig", "c", "jni",
+        ] {
+            assert!(is_known_language(name), "{name} should be recognised");
+        }
+    }
+
+    #[test]
+    fn is_known_language_rejects_unknown() {
+        assert!(!is_known_language("wasm32"));
+        assert!(!is_known_language("kotlin-android"));
+        assert!(!is_known_language(""));
+    }
 }

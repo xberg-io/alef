@@ -324,6 +324,7 @@ pub fn emit_jni_client_class(
         .adapters
         .iter()
         .filter(|a| matches!(a.pattern, AdapterPattern::Streaming))
+        .filter(|a| !a.skip_languages.iter().any(|l| l == "kotlin"))
         .filter(|a| {
             a.owner_type
                 .as_deref()

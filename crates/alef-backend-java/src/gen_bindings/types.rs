@@ -936,6 +936,7 @@ pub(crate) fn gen_opaque_handle_class(
                 && a.owner_type.as_deref() == Some(class_name.as_str())
                 && a.item_type.is_some()
                 && a.params.first().is_some_and(|p| !p.ty.is_empty())
+                && !a.skip_languages.iter().any(|l| l == "java")
         })
         .collect();
     let has_streaming = !streaming_adapters.is_empty();

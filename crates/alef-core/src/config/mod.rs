@@ -30,7 +30,7 @@ pub use dto::{
     RDtoStyle, RubyDtoStyle,
 };
 pub use e2e::E2eConfig;
-pub use extras::{AdapterConfig, AdapterParam, AdapterPattern, Language};
+pub use extras::{AdapterConfig, AdapterParam, AdapterPattern, Language, is_known_language};
 pub use languages::{
     CSharpConfig, CapsuleTypeConfig, CustomModulesConfig, CustomRegistration, CustomRegistrationsConfig, DartConfig,
     DartStyle, ElixirConfig, FfiConfig, GleamConfig, GleamElementConstructor, GleamElementField, GoConfig, JavaConfig,

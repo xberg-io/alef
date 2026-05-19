@@ -207,6 +207,7 @@ pub fn emit_jvm_client_class_with_package(
         .adapters
         .iter()
         .filter(|a| matches!(a.pattern, AdapterPattern::Streaming))
+        .filter(|a| !a.skip_languages.iter().any(|l| l == "kotlin"))
         .filter(|a| {
             a.owner_type
                 .as_deref()
@@ -287,6 +288,7 @@ pub fn emit_jvm_client_class_with_package(
         .adapters
         .iter()
         .filter(|a| matches!(a.pattern, AdapterPattern::Streaming))
+        .filter(|a| !a.skip_languages.iter().any(|l| l == "kotlin"))
         .collect();
 
     // Emit one class per client type. Each wraps a same-named Java instance so

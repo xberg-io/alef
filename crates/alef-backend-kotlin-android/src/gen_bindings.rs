@@ -243,6 +243,7 @@ fn emit_module_kt(
             .adapters
             .iter()
             .filter(|a| matches!(a.pattern, alef_core::config::AdapterPattern::Streaming))
+            .filter(|a| !a.skip_languages.iter().any(|l| l == "kotlin_android"))
             .filter(|a| {
                 a.owner_type
                     .as_deref()

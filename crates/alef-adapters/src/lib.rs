@@ -53,6 +53,13 @@ pub fn build_adapter_bodies(config: &ResolvedCrateConfig, language: Language) ->
                 bodies.insert(key, body);
             }
             AdapterPattern::Streaming => {
+                // Skip insertion entirely when this backend is in skip_languages.
+                // Backends that look up by key will find no entry and treat the
+                // adapter as absent for this language.
+                let lang_str = language.to_string();
+                if adapter.skip_languages.iter().any(|l| l == &lang_str) {
+                    continue;
+                }
                 let (method_body, struct_def) = streaming::generate_body(adapter, language, config)?;
                 bodies.insert(key, method_body);
                 if let Some(struct_code) = struct_def {

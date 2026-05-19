@@ -243,6 +243,8 @@ mod tests {
             trait_method: None,
             detect_async: false,
             request_type: Some(format!("{core_crate}::ChatCompletionRequest")),
+
+            skip_languages: vec![],
         }
     }
 
