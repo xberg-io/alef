@@ -487,6 +487,97 @@ fn gen_elixir_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (St
 }
 
 // ---------------------------------------------------------------------------
+// WASM (wasm-bindgen)
+// ---------------------------------------------------------------------------
+
+fn gen_wasm_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (String, Option<String>) {
+    let core_path = &adapter.core_path;
+    let prefix = config.wasm_type_prefix();
+    let raw_item = adapter.item_type.as_deref().unwrap_or("JsValue");
+    let item_type = if raw_item == "()" || raw_item == "JsValue" {
+        raw_item.to_string()
+    } else {
+        format!("{prefix}{raw_item}")
+    };
+    let core_import = config.core_import_name();
+    let iter_name = iterator_name(adapter);
+
+    let args = call_args(adapter);
+    let call_str = args.join(", ");
+
+    let let_bindings = core_let_bindings(adapter, &core_import);
+    let bindings_block = if let_bindings.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n    ", let_bindings.join("\n    "))
+    };
+
+    // The iterator forwards stream items through a futures mpsc channel populated by a
+    // background task spawned via wasm_bindgen_futures::spawn_local(). This avoids
+    // materializing the entire stream into a JS Array upfront, enabling truly lazy
+    // consumption: JavaScript code calls await iter.next() for each chunk.
+    // We use futures::mpsc instead of tokio::mpsc because WASM has no thread pool.
+
+    let struct_def = format!(
+        "#[wasm_bindgen]\n\
+         pub struct {iter_name} {{\n    \
+             // Receiver wrapped in RefCell for interior mutability (WASM is single-threaded)\n    \
+             receiver: std::cell::RefCell<futures::channel::mpsc::Receiver<Result<{item_type}, String>>>,\n\
+         }}\n\
+         \n\
+         #[wasm_bindgen]\n\
+         impl {iter_name} {{\n    \
+             #[wasm_bindgen]\n    \
+             pub async fn next(&self) -> Result<JsValue, JsValue> {{\n        \
+                 use futures::stream::StreamExt;\n        \
+                 let mut rx = self.receiver.borrow_mut();\n        \
+                 match rx.next().await {{\n            \
+                     Some(Ok(item)) => Ok(JsValue::from(item)),\n            \
+                     Some(Err(e)) => Err(JsValue::from_str(&e)),\n            \
+                     None => Ok(JsValue::null()),\n        \
+                 }}\n    \
+             }}\n\
+         }}"
+    );
+
+    let method_body = format!(
+        "let inner = self.inner.clone();\n    \
+         {bindings_block}\
+         let (tx, rx) = futures::channel::mpsc::channel(32);\n    \
+         wasm_bindgen_futures::spawn_local(async move {{\n        \
+             use futures_util::StreamExt;\n        \
+             use futures::sink::SinkExt;\n        \
+             let mut tx = tx;\n        \
+             match inner.{core_path}({call_str}).await {{\n            \
+                 Err(e) => {{\n                \
+                     let _ = tx.send(Err(e.to_string())).await;\n            \
+                 }}\n            \
+                 Ok(mut stream) => {{\n                \
+                     while let Some(chunk) = stream.next().await {{\n                    \
+                         let item = match chunk {{\n                        \
+                             Ok(c) => {item_type}::from(c),\n                        \
+                             Err(e) => {{\n                            \
+                                 let _ = tx.send(Err(e.to_string())).await;\n                            \
+                                 break;\n                        \
+                             }}\n                        \
+                         }};\n                    \
+                         if tx.send(Ok(item)).await.is_err() {{\n                        \
+                             break;\n                    \
+                         }}\n                \
+                     }}\n            \
+                 }}\n        \
+             }}\n    \
+         }});\n    \
+         let iter = {iter_name} {{\n        \
+             receiver: std::cell::RefCell::new(rx),\n    \
+         }};\n    \
+         Ok(iter)"
+    );
+
+    (method_body, Some(struct_def))
+}
+
+// ---------------------------------------------------------------------------
 // FFI (C ABI) -- Callback-based streaming
 // ---------------------------------------------------------------------------
 
