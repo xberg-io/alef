@@ -319,11 +319,13 @@ pub fn wasm_converter_fn_name(error: &ErrorDef) -> String {
 /// The struct follows the same `pub(crate) inner: CoreType` convention used by
 /// all other opaque WASM handles in the codebase.
 ///
+/// `wasm_prefix` is the full WASM type prefix string (from `config.wasm_type_prefix()`,
+/// e.g. `"Wasm"`).  The generated struct name is `{wasm_prefix}{error.name}`
+/// (e.g. `WasmLiterLlmError`).
+///
 /// Returns an empty string when `error.methods` is empty so callers can
 /// unconditionally append the result without adding noise to the output file.
-pub fn gen_wasm_error_methods(error: &ErrorDef, core_import: &str, prefix: &str) -> String {
-    use heck::ToPascalCase as _;
-
+pub fn gen_wasm_error_methods(error: &ErrorDef, core_import: &str, wasm_prefix: &str) -> String {
     if error.methods.is_empty() {
         return String::new();
     }
@@ -334,7 +336,9 @@ pub fn gen_wasm_error_methods(error: &ErrorDef, core_import: &str, prefix: &str)
         error.rust_path.replace('-', "_")
     };
 
-    let wasm_struct_name = format!("Wasm{}{}", prefix.to_pascal_case(), error.name);
+    // The struct name mirrors the convention used for other WASM opaque handles:
+    // `{wasm_type_prefix}{ErrorName}` (e.g. prefix="Wasm", name="LiterLlmError" → "WasmLiterLlmError").
+    let wasm_struct_name = format!("{wasm_prefix}{}", error.name);
 
     let struct_def = format!(
         "/// Opaque WASM handle for [`{rust_path}`] that exposes introspection methods.\n\
@@ -2356,15 +2360,17 @@ mod tests {
     #[test]
     fn test_gen_wasm_error_methods_struct_and_impl() {
         let error = error_with_methods();
-        let output = gen_wasm_error_methods(&error, "liter_llm", "liter_llm");
+        // wasm_prefix is the full type prefix, e.g. "Wasm" — the struct name is
+        // {wasm_prefix}{ErrorName} = "WasmLiterLlmError".
+        let output = gen_wasm_error_methods(&error, "liter_llm", "Wasm");
         // Struct definition
         assert!(
-            output.contains("pub struct WasmLiterLlmLiterLlmError"),
+            output.contains("pub struct WasmLiterLlmError"),
             "must emit opaque struct: {output}"
         );
         assert!(output.contains("pub(crate) inner: liter_llm::error::LiterLlmError"), "{output}");
         // Impl block
-        assert!(output.contains("#[wasm_bindgen]\nimpl WasmLiterLlmLiterLlmError"), "{output}");
+        assert!(output.contains("#[wasm_bindgen]\nimpl WasmLiterLlmError"), "{output}");
         // Methods with camelCase js_name
         assert!(output.contains("js_name = \"statusCode\""), "{output}");
         assert!(output.contains("pub fn status_code(&self) -> u16"), "{output}");
