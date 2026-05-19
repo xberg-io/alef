@@ -69,7 +69,7 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, kotlin_source_dir: &
 
     // Data classes, enums, and error types as pure Kotlin.
     for ty in &api.types {
-        if ty.is_opaque || ty.is_trait {
+        if ty.is_opaque || ty.is_trait || ty.binding_excluded {
             continue;
         }
         let mut imports: BTreeSet<String> = BTreeSet::new();
@@ -87,6 +87,9 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, kotlin_source_dir: &
     }
 
     for en in &api.enums {
+        if en.binding_excluded {
+            continue;
+        }
         let mut body = String::new();
         emit_enum_pub(en, &mut body, &package);
         if body.trim().is_empty() {

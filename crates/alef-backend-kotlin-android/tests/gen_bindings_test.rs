@@ -2146,3 +2146,205 @@ exclude_languages = ["kotlin_android"]
         "I<Trait>.kt must be suppressed when kotlin_android is excluded"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Regression: `binding_excluded` types and enums must not produce .kt files.
+//
+// The IR field `binding_excluded` is set by upstream `#[cfg_attr(alef, alef(skip))]`
+// (or `#[doc(hidden)]`) annotations on the Rust source. The kotlin-android emitter
+// must honour the flag for both DTOs and enums, matching the behaviour of every
+// other backend (PHP, WASM, NAPI, etc.). Without this filter, the kreuzberg AAR
+// ships ~28 stale wrapper files (`OcrTesseractConfig.kt`, `Table2.kt`,
+// `OcrPipelineConfig.kt`, …) corresponding to types the Rust source has marked
+// as binding-excluded.
+// ---------------------------------------------------------------------------
+
+fn make_minimal_config() -> ResolvedCrateConfig {
+    resolved_one(
+        r#"
+[workspace]
+languages = ["kotlin_android", "java", "ffi"]
+
+[[crates]]
+name = "demo"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "demo"
+
+[crates.java]
+package = "dev.kreuzberg"
+
+[crates.kotlin_android]
+package = "dev.kreuzberg.demo.android"
+namespace = "dev.kreuzberg.demo.android"
+artifact_id = "demo-android"
+group_id = "dev.kreuzberg"
+"#,
+    )
+}
+
+#[test]
+fn skipped_types_and_enums_are_not_emitted_as_kt_files() {
+    use alef_core::ir::{EnumDef, EnumVariant, FieldDef, TypeRef};
+
+    let included_type = TypeDef {
+        name: "IncludedDto".into(),
+        rust_path: "demo::IncludedDto".into(),
+        original_rust_path: String::new(),
+        fields: vec![FieldDef {
+            name: "value".into(),
+            ty: TypeRef::String,
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: Default::default(),
+            vec_inner_core_wrapper: Default::default(),
+            newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            original_type: None,
+        }],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        doc: String::new(),
+        cfg: None,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: true,
+        serde_rename_all: None,
+        has_serde: true,
+        super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+    let skipped_type = TypeDef {
+        name: "SkippedDto".into(),
+        rust_path: "demo::SkippedDto".into(),
+        original_rust_path: String::new(),
+        fields: vec![FieldDef {
+            name: "value".into(),
+            ty: TypeRef::String,
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: Default::default(),
+            vec_inner_core_wrapper: Default::default(),
+            newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            original_type: None,
+        }],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        doc: String::new(),
+        cfg: None,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: true,
+        serde_rename_all: None,
+        has_serde: true,
+        super_traits: vec![],
+        binding_excluded: true,
+        binding_exclusion_reason: Some("alef(skip)".into()),
+    };
+    let included_enum = EnumDef {
+        name: "IncludedMode".into(),
+        rust_path: "demo::IncludedMode".into(),
+        original_rust_path: String::new(),
+        variants: vec![EnumVariant {
+            name: "On".into(),
+            fields: vec![],
+            doc: String::new(),
+            is_default: false,
+            serde_rename: None,
+            is_tuple: false,
+        }],
+        doc: String::new(),
+        cfg: None,
+        is_copy: true,
+        has_serde: true,
+        serde_tag: None,
+        serde_untagged: false,
+        serde_rename_all: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+    let skipped_enum = EnumDef {
+        name: "SkippedMode".into(),
+        rust_path: "demo::SkippedMode".into(),
+        original_rust_path: String::new(),
+        variants: vec![EnumVariant {
+            name: "Off".into(),
+            fields: vec![],
+            doc: String::new(),
+            is_default: false,
+            serde_rename: None,
+            is_tuple: false,
+        }],
+        doc: String::new(),
+        cfg: None,
+        is_copy: true,
+        has_serde: true,
+        serde_tag: None,
+        serde_untagged: false,
+        serde_rename_all: None,
+        binding_excluded: true,
+        binding_exclusion_reason: Some("alef(skip)".into()),
+    };
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![included_type, skipped_type],
+        functions: vec![],
+        enums: vec![included_enum, skipped_enum],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+    let config = make_minimal_config();
+    let files = KotlinAndroidBackend.generate_bindings(&api, &config).unwrap();
+
+    let kt_names: Vec<String> = files
+        .iter()
+        .filter_map(|f| f.path.file_name().and_then(|n| n.to_str()).map(String::from))
+        .collect();
+
+    assert!(
+        kt_names.iter().any(|n| n == "IncludedDto.kt"),
+        "non-excluded DTO must be emitted; got: {kt_names:?}"
+    );
+    assert!(
+        kt_names.iter().any(|n| n == "IncludedMode.kt"),
+        "non-excluded enum must be emitted; got: {kt_names:?}"
+    );
+    assert!(
+        !kt_names.iter().any(|n| n == "SkippedDto.kt"),
+        "binding_excluded DTO must NOT be emitted; got: {kt_names:?}"
+    );
+    assert!(
+        !kt_names.iter().any(|n| n == "SkippedMode.kt"),
+        "binding_excluded enum must NOT be emitted; got: {kt_names:?}"
+    );
+}
