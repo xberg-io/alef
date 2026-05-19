@@ -85,7 +85,7 @@ bench = false
 {extra_deps_block}async-trait = "0.1"
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
-tokio = {{ version = "1", features = ["rt", "macros"] }}
+tokio = {{ version = "1", features = ["rt", "rt-multi-thread", "macros"] }}
 {streaming_deps}swift-bridge = "{swift_bridge_ver}"
 
 [build-dependencies]
