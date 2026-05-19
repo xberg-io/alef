@@ -16,17 +16,18 @@ use std::collections::{HashMap, HashSet};
 
 /// Skip methods that take opaque handle FFI pointers as first arg but operate on non-opaque types.
 /// These are validation/property functions that shouldn't be exposed as static methods.
-/// Examples: HeaderMetadataIsValid, ConversionOptionsLevel (getters on JSON-serializable types).
+/// Examples: header_metadata_is_valid, conversion_options_default (Rust naming, snake_case
+/// as stored in FunctionDef.name).
 fn should_skip_ffi_method(func: &FunctionDef) -> bool {
     let name = &func.name;
 
-    // Skip validation methods (IsValid suffix)
-    if name.ends_with("IsValid") || name.contains("IsValid") {
+    // Skip validation methods (is_valid suffix)
+    if name.ends_with("_is_valid") || name == "is_valid" {
         return true;
     }
 
-    // Skip default factory methods (*Default suffix)
-    if name.ends_with("Default") {
+    // Skip default factory methods (_default suffix from Default::default() impls)
+    if name.ends_with("_default") || name == "default" {
         return true;
     }
 
