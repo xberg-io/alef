@@ -604,9 +604,14 @@ impl Backend for PhpBackend {
             builder.add_item(&gen_flat_data_enum_from_impls(enum_def, &core_import));
         }
 
-        // Error converter functions
+        // Error converter functions + optional introspection method impl structs
         for error in &api.errors {
             builder.add_item(&alef_codegen::error_gen::gen_php_error_converter(error, &core_import));
+            // Emit #[php_class] + #[php_impl] block for errors with introspection methods.
+            let methods_impl = alef_codegen::error_gen::gen_php_error_methods_impl(error, &core_import);
+            if !methods_impl.is_empty() {
+                builder.add_item(&methods_impl);
+            }
         }
 
         // Serde default helpers for bool fields whose core default is `true`,
@@ -669,6 +674,14 @@ impl Backend for PhpBackend {
             class_registrations.push_str(&crate::template_env::render(
                 "php_class_registration.jinja",
                 context! { class_name => &enum_def.name },
+            ));
+        }
+        // Register error info classes for errors that expose introspection methods.
+        for error in api.errors.iter().filter(|e| !e.methods.is_empty()) {
+            let info_class = format!("{}Info", error.name);
+            class_registrations.push_str(&crate::template_env::render(
+                "php_class_registration.jinja",
+                context! { class_name => &info_class },
             ));
         }
         builder.add_item(&format!(
@@ -1204,6 +1217,38 @@ impl Backend for PhpBackend {
         content.push_str(
             "    public function getErrorCode(): int { throw new \\RuntimeException('Not implemented.'); }\n",
         );
+        // Emit introspection method stubs for errors that expose them.
+        // These are backed by #[php_method] impls in the generated native extension.
+        let has_status_code = api
+            .errors
+            .iter()
+            .any(|e| e.methods.iter().any(|m| m.name == "status_code"));
+        let has_is_transient = api
+            .errors
+            .iter()
+            .any(|e| e.methods.iter().any(|m| m.name == "is_transient"));
+        let has_error_type = api
+            .errors
+            .iter()
+            .any(|e| e.methods.iter().any(|m| m.name == "error_type"));
+        if has_status_code {
+            content.push_str(
+                "    /** HTTP status code for this error (0 means no associated status). */\n    \
+                 public function statusCode(): int { throw new \\RuntimeException('Not implemented.'); }\n",
+            );
+        }
+        if has_is_transient {
+            content.push_str(
+                "    /** Returns true if the error is transient and a retry may succeed. */\n    \
+                 public function isTransient(): bool { throw new \\RuntimeException('Not implemented.'); }\n",
+            );
+        }
+        if has_error_type {
+            content.push_str(
+                "    /** Machine-readable error category string for matching and logging. */\n    \
+                 public function errorType(): string { throw new \\RuntimeException('Not implemented.'); }\n",
+            );
+        }
         content.push_str("}\n\n");
 
         // Opaque handle classes are declared as per-type PHP files in
