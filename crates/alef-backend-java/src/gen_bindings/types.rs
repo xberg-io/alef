@@ -951,7 +951,16 @@ pub(crate) fn gen_opaque_handle_class(
         .filter(|m| !m.is_static)
         .filter(|m| !streaming_method_names.contains(&m.name.to_snake_case()))
         .collect();
+    // Static factory methods: receiver is None (no &self). These are constructors /
+    // preset factories (e.g. `Parser::default()`, `LanguageRegistry::default()`,
+    // `DownloadManager::new(version)`) that return a new instance of the type.
+    let static_factory_methods: Vec<&MethodDef> = typ
+        .methods
+        .iter()
+        .filter(|m| m.receiver.is_none())
+        .collect();
     let has_instance_methods = !instance_methods.is_empty();
+    let has_static_factories = !static_factory_methods.is_empty();
     let needs_helpers = has_streaming || has_instance_methods;
 
     // Check instance methods for List, Map, Optional return types using the
@@ -1006,6 +1015,15 @@ pub(crate) fn gen_opaque_handle_class(
         gen_instance_method(&mut body, method, prefix, &type_snake, main_class);
     }
 
+    // Emit static factory methods (constructors / preset factories with no receiver).
+    // These give callers a clean `Parser.ofDefault()`, `LanguageRegistry.ofDefault()`,
+    // `DownloadManager.create(version)` API without exposing the raw FFI handle.
+    if has_static_factories {
+        for method in &static_factory_methods {
+            gen_static_factory_method(&mut body, method, class_name, prefix, &type_snake, main_class);
+        }
+    }
+
     body.push_str("    @Override\n");
     body.push_str("    public void close() {\n");
     body.push_str("        if (handle != null && !handle.equals(MemorySegment.NULL)) {\n");
@@ -1030,15 +1048,12 @@ pub(crate) fn gen_opaque_handle_class(
     body.push_str("}\n");
 
     let mut imports: Vec<&str> = vec!["java.lang.foreign.MemorySegment"];
-    if needs_helpers {
-        // `Arena.ofShared()` is referenced by every helper / instance-method
-        // template even when the method body is a stub, so the import is
-        // always live in that branch.
+    if needs_helpers || has_static_factories {
+        // `Arena.ofShared()` is referenced by every helper / instance-method / static-factory
+        // template even when the method body is a stub, so the import is always live.
         imports.push("java.lang.foreign.Arena");
-        // `ValueLayout` only appears when an instance method or streaming
-        // helper actually marshals memory; stub methods (`unsupported return
-        // shape`) never reference it. Scan the rendered body to avoid an
-        // unused-import Checkstyle violation.
+        // `ValueLayout` only appears when an instance method, streaming helper, or static
+        // factory actually marshals memory; stub methods never reference it.
         if body.contains("ValueLayout") {
             imports.push("java.lang.foreign.ValueLayout");
         }
@@ -1414,6 +1429,192 @@ fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner
             method_name => method_name,
         },
     ));
+}
+
+/// Emit a static factory method on an opaque-handle class.
+///
+/// Static factories have no `self` receiver — they allocate a new native object and
+/// return it wrapped in the Java class.  Examples: `Parser::default()`,
+/// `LanguageRegistry::default()`, `DownloadManager::new(version)`.
+///
+/// The pattern mirrors `gen_instance_method` but:
+///  - the NIF call does NOT prepend `this.handle` to `call_args`
+///  - the result is wrapped in `new ClassName(handle)` rather than returned raw
+fn gen_static_factory_method(
+    out: &mut String,
+    method: &MethodDef,
+    class_name: &str,
+    prefix: &str,
+    owner_snake: &str,
+    main_class: &str,
+) {
+    let method_name = method.name.to_lower_camel_case();
+    let prefix_upper = prefix.to_uppercase();
+    let owner_upper = owner_snake.to_uppercase();
+    let method_upper = method.name.to_snake_case().to_uppercase();
+    let exception_class = format!("{main_class}Exception");
+    let ffi_handle = format!("NativeLib.{prefix_upper}_{owner_upper}_{method_upper}");
+
+    let params_sig: Vec<String> = method
+        .params
+        .iter()
+        .map(|p| {
+            let ptype = if p.optional {
+                java_boxed_type(&p.ty).to_string()
+            } else {
+                java_type(&p.ty).to_string()
+            };
+            format!("final {} {}", ptype, p.name.to_lower_camel_case())
+        })
+        .collect();
+
+    emit_javadoc(out, &method.doc, "    ");
+    out.push_str("    public static ");
+    out.push_str(class_name);
+    out.push(' ');
+    out.push_str(&method_name);
+    out.push('(');
+    out.push_str(&params_sig.join(", "));
+    out.push_str(") throws ");
+    out.push_str(&exception_class);
+    out.push_str(" {\n");
+
+    // Null checks for non-optional reference params.
+    for p in &method.params {
+        if !p.optional && param_needs_null_check(&p.ty) {
+            let pname = p.name.to_lower_camel_case();
+            out.push_str(&crate::template_env::render(
+                "stream_method_null_check.jinja",
+                minijinja::context! { param_name => pname },
+            ));
+        }
+    }
+
+    out.push_str("        try (var arena = Arena.ofShared()) {\n");
+
+    let mut named_ptr_frees: Vec<(String, String)> = Vec::new();
+    let mut call_args: Vec<String> = Vec::new();
+
+    // Marshal parameters (same logic as gen_instance_method but no receiver in call_args).
+    for p in &method.params {
+        let pname = p.name.to_lower_camel_case();
+        let cname = format!("c{}", to_class_name(&p.name));
+        match &p.ty {
+            TypeRef::String | TypeRef::Char | TypeRef::Json => {
+                out.push_str(&crate::template_env::render(
+                    "stream_method_string_param.jinja",
+                    minijinja::context! { c_name => cname, param_name => pname },
+                ));
+                call_args.push(cname);
+            }
+            TypeRef::Path => {
+                out.push_str(&crate::template_env::render(
+                    "marshal_path.jinja",
+                    minijinja::context! { cname => &cname, name => pname },
+                ));
+                call_args.push(cname);
+            }
+            TypeRef::Optional(inner)
+                if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char | TypeRef::Json) =>
+            {
+                out.push_str(&crate::template_env::render(
+                    "stream_method_optional_string_param.jinja",
+                    minijinja::context! { c_name => cname, param_name => pname },
+                ));
+                call_args.push(cname);
+            }
+            TypeRef::Named(type_name) => {
+                let req_snake = type_name.to_snake_case();
+                let req_upper = req_snake.to_uppercase();
+                let from_json = format!("NativeLib.{prefix_upper}_{req_upper}_FROM_JSON");
+                let req_free = format!("NativeLib.{prefix_upper}_{req_upper}_FREE");
+                if p.optional {
+                    out.push_str(&crate::template_env::render(
+                        "stream_method_optional_named_param.jinja",
+                        minijinja::context! {
+                            c_name => cname,
+                            param_name => pname,
+                            from_json => from_json,
+                            exception_class => exception_class,
+                            method_name => method_name,
+                        },
+                    ));
+                } else {
+                    out.push_str(&crate::template_env::render(
+                        "stream_method_named_param.jinja",
+                        minijinja::context! {
+                            c_name => cname,
+                            param_name => pname,
+                            from_json => from_json,
+                            exception_class => exception_class,
+                            method_name => method_name,
+                        },
+                    ));
+                }
+                named_ptr_frees.push((cname.clone(), req_free));
+                call_args.push(cname);
+            }
+            TypeRef::Primitive(_) | TypeRef::Duration => {
+                call_args.push(pname);
+            }
+            _ => {
+                // Unsupported param type for static factory — emit stub that throws.
+                out.push_str(&crate::template_env::render(
+                    "stream_method_unsupported_param.jinja",
+                    minijinja::context! {
+                        param_name => pname,
+                        exception_class => exception_class,
+                        method_name => method_name,
+                    },
+                ));
+                return;
+            }
+        }
+    }
+
+    let render_named_frees = |indent: &str| -> String {
+        let mut frees = String::new();
+        for (cname, free_handle) in &named_ptr_frees {
+            frees.push_str(&crate::template_env::render(
+                "stream_method_free_named_ptr.jinja",
+                minijinja::context! {
+                    indent => indent,
+                    c_name => cname,
+                    free_handle => free_handle,
+                },
+            ));
+        }
+        frees
+    };
+
+    let args_joined = call_args.join(", ");
+
+    // The return type for a static factory is always Self (the class being constructed).
+    // Emit: call FFI → check non-null → wrap in new ClassName(handle).
+    out.push_str(&format!(
+        "            var handle = (MemorySegment) {ffi_handle}.invoke({args_joined});\n"
+    ));
+    let named_frees_str = render_named_frees("            ");
+    if !named_frees_str.is_empty() {
+        out.push_str(&named_frees_str);
+    }
+    out.push_str(&format!(
+        "            if (handle == null || handle.equals(MemorySegment.NULL)) {{\n\
+                 throw new {exception_class}(\"{method_name} returned null\");\n            }}\n"
+    ));
+    out.push_str(&format!("            return new {class_name}(handle);\n"));
+    out.push_str("        }\n");
+    out.push_str("        catch (Throwable e) {\n");
+    out.push_str("            if (e instanceof ");
+    out.push_str(&exception_class);
+    out.push_str(") throw (");
+    out.push_str(&exception_class);
+    out.push_str(") e;\n");
+    out.push_str("            throw new RuntimeException(\"");
+    out.push_str(&method_name);
+    out.push_str(" failed: \" + e.getMessage(), e);\n");
+    out.push_str("        }\n");
+    out.push_str("    }\n\n");
 }
 
 /// True when the given `TypeRef` is a reference type whose Java representation may

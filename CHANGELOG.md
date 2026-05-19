@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **alef-backend-java: emit static factory methods on opaque-handle classes.** Opaque types in Java had no public constructors / static factories — users could only obtain a `Parser`, `LanguageRegistry`, or `DownloadManager` via top-level static helpers on the main class. Rust impl methods with no `&self` receiver and `-> Self` return (e.g. `Parser::default()`, `LanguageRegistry::default()`, `DownloadManager::new(version)`) now emit as `public static ClassName methodName(...)` on the opaque-handle class itself, with full Panama FFM marshaling. Mirrors the existing `gen_instance_method` pattern. New `gen_static_factory_method` in `crates/alef-backend-java/src/gen_bindings/types.rs`, called from `gen_opaque_handle_class` after instance-method emission.
+
 - **alef-backend-napi: emit DTO impl-method companions as `#[napi]` free functions.** Previously, `#[napi(object)]` structs (DTOs in the Node backend) dropped every `impl` method from the Rust source, because object-style structs can't carry methods on the JS side. The new `gen_dto_method_fns` in `crates/alef-backend-napi/src/gen_bindings/types.rs` emits each non-excluded impl method as a free function named `<typeName><MethodName>` (camelCase), serde-JSON round-tripping the receiver for instance "wither" methods. Static preset constructors (e.g. `ProcessConfig::all()`, `::minimal()`, `::default()`) and instance withers (e.g. `with_chunking(usize)`) are now callable from TypeScript. Call site added at `crates/alef-backend-napi/src/gen_bindings/mod.rs:438`, gated to the non-opaque branch.
 
 ### Fixed
