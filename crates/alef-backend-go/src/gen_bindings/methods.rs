@@ -160,7 +160,10 @@ pub(super) fn gen_method_wrapper(
         } else {
             // Non-optional types stay scalar (not wrapped in pointer); only Optional and reference types use go_optional_type.
             // This avoids Rust Option<T> leakage: plain bool stays bool, not *bool.
-            let ret_go_type = if matches!(method.return_type, TypeRef::Optional(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Bytes) {
+            let ret_go_type = if matches!(
+                method.return_type,
+                TypeRef::Optional(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Bytes
+            ) {
                 go_optional_type(&method.return_type).into_owned()
             } else {
                 go_type(&method.return_type).into_owned()
