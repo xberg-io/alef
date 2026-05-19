@@ -989,6 +989,10 @@ fn emit_record_methods(out: &mut String, typ: &TypeDef, class_name: &str, _prefi
     let native_type_prefix = class_name;
 
     for method in &typ.methods {
+        if !matches!(&method.return_type, TypeRef::Named(name) if name == &typ.name) {
+            continue;
+        }
+
         let method_cs_name = to_csharp_name(&method.name);
         // NativeMethods follows the pattern {TypeName}{MethodName}
         let native_method_name = format!("{native_type_prefix}{method_cs_name}");

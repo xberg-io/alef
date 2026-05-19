@@ -6,6 +6,7 @@ use alef_codegen::generators::{self, RustBindingConfig};
 use alef_codegen::shared::{binding_fields, partition_methods};
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::ir::{EnumDef, EnumVariant, FieldDef, TypeDef, TypeRef};
+use heck::ToLowerCamelCase;
 
 use super::functions::{
     gen_async_instance_method, gen_async_static_method, gen_instance_method, gen_instance_method_non_opaque,
@@ -94,6 +95,29 @@ pub(crate) fn gen_opaque_struct_methods_with_exclude(
                 adapter_bodies,
                 mutex_types,
             ));
+        }
+    }
+
+    // Emit streaming methods (which come from adapters, not the IR methods list).
+    // These return Vec<String> (chunks) to be wrapped by the PHP-side Generator.
+    for streaming_key in streaming_method_keys.iter() {
+        if streaming_key.starts_with(&format!("{}.", typ.name)) {
+            if let Some(body) = adapter_bodies.get(streaming_key) {
+                let method_name = streaming_key.strip_prefix(&format!("{}.", typ.name))
+                    .unwrap_or("");
+                if !method_name.is_empty() {
+                    let method_code = format!(
+                        "    #[php(name = \"{}\")]\n    \
+                         pub fn {}(&self) -> std::result::Result<Vec<String>, ext_php_rs::exception::PhpException> {{\n    \
+                         {}\n    \
+                         }}",
+                        method_name.to_lower_camel_case(),
+                        method_name,
+                        body
+                    );
+                    impl_builder.add_method(&method_code);
+                }
+            }
         }
     }
     for method in &statics {
