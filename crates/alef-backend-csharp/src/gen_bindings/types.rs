@@ -1002,7 +1002,7 @@ fn emit_record_methods(out: &mut String, typ: &TypeDef, class_name: &str, _prefi
                 let pname = p.name.to_lower_camel_case();
                 let ptype = if p.optional {
                     let t = csharp_type(&p.ty);
-                    if t.ends_with('?') { t } else { format!("{t}?") }
+                    if t.ends_with('?') { t.to_string() } else { format!("{t}?") }
                 } else {
                     csharp_type(&p.ty).to_string()
                 };
