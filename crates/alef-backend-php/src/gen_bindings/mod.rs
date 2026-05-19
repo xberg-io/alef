@@ -681,7 +681,6 @@ impl Backend for PhpBackend {
             }
         }
 
-
         // Error converter functions + optional introspection method impl structs
         for error in &api.errors {
             builder.add_item(&alef_codegen::error_gen::gen_php_error_converter(error, &core_import));

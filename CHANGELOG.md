@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-05-19
+
 ### Added
 
 - **alef-backend-kotlin-android / alef-backend-jni / alef-backend-kotlin**: emit trait-bridge plumbing for every `[[crates.trait_bridges]]` entry so the Android AAR has the same plugin-registration API surface as the JVM Panama backend. The Kotlin JNI bridge object gains one `@Throws external fun nativeRegister<Trait>(impl: <pkg>.I<Trait>)`, `external fun nativeUnregister<Trait>(name: String)`, and `external fun nativeClear<Trait>s()` declaration per configured bridge; a paired `I<Trait>.kt` interface file is emitted alongside the bridge (with canonical `name`/`version`/`initialize`/`shutdown` lifecycle methods when the trait has a super-trait, plus one suspend/normal `fun` per IR method). The Rust JNI shim crate now emits matching `Java_*` extern functions — `nativeUnregister<Trait>` and `nativeClear<Trait>s` delegate to the configured host `unregister_fn`/`clear_fn`, while `nativeRegister<Trait>` is a documented placeholder that throws "not yet implemented" pending the upcall trampoline work. Bridges that list `kotlin_android` in `exclude_languages` are honoured by both emitters. (`crates/alef-backend-kotlin/src/gen_bindings/jni_emitter.rs`, `crates/alef-backend-kotlin-android/src/gen_bindings.rs`, `crates/alef-backend-jni/src/gen_shims.rs`)

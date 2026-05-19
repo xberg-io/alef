@@ -472,11 +472,7 @@ fn error_sealed_class_with_methods_emits_abstract_properties() {
     // emit_error_type_pub is the public re-export of emit_error_type_with_imports.
     let mut out = String::new();
     let mut imports = std::collections::BTreeSet::new();
-    emit_error_type_pub(
-        api.errors.first().unwrap(),
-        &mut out,
-        &mut imports,
-    );
+    emit_error_type_pub(api.errors.first().unwrap(), &mut out, &mut imports);
 
     assert!(
         out.contains("abstract val statusCode: Short"),

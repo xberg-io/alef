@@ -351,27 +351,21 @@ pub fn gen_wasm_error_methods(error: &ErrorDef, core_import: &str, wasm_prefix: 
     let mut method_bodies = Vec::new();
     for method in &error.methods {
         let method_src = match method.name.as_str() {
-            "status_code" => {
-                "    /// HTTP status code for this error variant.\n    \
+            "status_code" => "    /// HTTP status code for this error variant.\n    \
                  #[wasm_bindgen(js_name = \"statusCode\")]\n    \
                  pub fn status_code(&self) -> u16 {\n        \
                  self.inner.status_code()\n    }"
-                    .to_string()
-            }
-            "is_transient" => {
-                "    /// Returns `true` if the error is transient and a retry may succeed.\n    \
+                .to_string(),
+            "is_transient" => "    /// Returns `true` if the error is transient and a retry may succeed.\n    \
                  #[wasm_bindgen(js_name = \"isTransient\")]\n    \
                  pub fn is_transient(&self) -> bool {\n        \
                  self.inner.is_transient()\n    }"
-                    .to_string()
-            }
-            "error_type" => {
-                "    /// Returns a machine-readable error category string.\n    \
+                .to_string(),
+            "error_type" => "    /// Returns a machine-readable error category string.\n    \
                  #[wasm_bindgen(js_name = \"errorType\")]\n    \
                  pub fn error_type(&self) -> String {\n        \
                  self.inner.error_type().to_string()\n    }"
-                    .to_string()
-            }
+                .to_string(),
             other => {
                 // Unrecognised whitelisted method — emit a dead-code stub so the binding
                 // still compiles and the method name remains visible to reviewers.
@@ -509,10 +503,7 @@ pub fn gen_pyo3_error_methods_impl(error: &ErrorDef) -> String {
         fields.join("\n")
     );
 
-    let impl_block = format!(
-        "#[pymethods]\nimpl {struct_name} {{\n{}\n}}",
-        getters.join("\n\n")
-    );
+    let impl_block = format!("#[pymethods]\nimpl {struct_name} {{\n{}\n}}", getters.join("\n\n"));
 
     let free_fn = format!(
         "/// Build a `{struct_name}` from any exception raised by the `{error_name}` hierarchy.\n\
@@ -619,17 +610,12 @@ pub fn gen_napi_error_class(error: &ErrorDef, core_import: &str) -> String {
                 ctor_assignments.push("        error_type: e.error_type().to_string(),".to_string());
             }
             other => {
-                methods.push(format!(
-                    "    // TODO: emit #[napi] method `{other}` on `{struct_name}`"
-                ));
+                methods.push(format!("    // TODO: emit #[napi] method `{other}` on `{struct_name}`"));
             }
         }
     }
 
-    let struct_def = format!(
-        "#[napi]\npub struct {struct_name} {{\n{}\n}}",
-        fields.join("\n")
-    );
+    let struct_def = format!("#[napi]\npub struct {struct_name} {{\n{}\n}}", fields.join("\n"));
 
     let from_fn = format!(
         "#[allow(dead_code)]\nfn {snake_name}_info(e: &{rust_path}) -> {struct_name} {{\n    {struct_name} {{\n{}\n    }}\n}}",
@@ -637,10 +623,7 @@ pub fn gen_napi_error_class(error: &ErrorDef, core_import: &str) -> String {
         snake_name = to_snake_case(&error.name),
     );
 
-    let impl_block = format!(
-        "#[napi]\nimpl {struct_name} {{\n{}\n}}",
-        methods.join("\n\n")
-    );
+    let impl_block = format!("#[napi]\nimpl {struct_name} {{\n{}\n}}", methods.join("\n\n"));
 
     format!("{struct_def}\n\n{from_fn}\n\n{impl_block}")
 }
@@ -858,9 +841,7 @@ pub fn gen_php_error_methods_impl(error: &ErrorDef, core_import: &str) -> String
                 ctor_assignments.push("        error_type: e.error_type().to_string(),".to_string());
             }
             other => {
-                methods.push(format!(
-                    "    // TODO: emit method for `{other}` on `{struct_name}`"
-                ));
+                methods.push(format!("    // TODO: emit method for `{other}` on `{struct_name}`"));
             }
         }
     }
@@ -1329,9 +1310,8 @@ fn typeref_to_java_type(ty: &alef_core::ir::TypeRef) -> &'static str {
 /// Convert a snake_case method name to a Java getter name.
 /// E.g. `status_code` → `getStatusCode`, `is_transient` → `isTransient`.
 fn java_getter_name(snake: &str) -> String {
-    if snake.starts_with("is_") {
+    if let Some(rest) = snake.strip_prefix("is_") {
         // is_transient → isTransient
-        let rest = &snake[3..];
         let pascal = to_pascal_case(rest);
         format!("is{pascal}")
     } else {
@@ -1978,9 +1958,18 @@ mod tests {
         assert!(output.contains("StatusCode uint16"), "StatusCode field: {output}");
         assert!(output.contains("IsTransient bool"), "IsTransient field: {output}");
         assert!(output.contains("ErrorType string"), "ErrorType field: {output}");
-        assert!(output.contains("func (e Error) StatusCode() uint16 { return e.StatusCode }"), "{output}");
-        assert!(output.contains("func (e Error) IsTransient() bool { return e.IsTransient }"), "{output}");
-        assert!(output.contains("func (e Error) ErrorType() string { return e.ErrorType }"), "{output}");
+        assert!(
+            output.contains("func (e Error) StatusCode() uint16 { return e.StatusCode }"),
+            "{output}"
+        );
+        assert!(
+            output.contains("func (e Error) IsTransient() bool { return e.IsTransient }"),
+            "{output}"
+        );
+        assert!(
+            output.contains("func (e Error) ErrorType() string { return e.ErrorType }"),
+            "{output}"
+        );
     }
 
     #[test]
@@ -2002,12 +1991,30 @@ mod tests {
         let files = gen_java_error_types(&error, "dev.kreuzberg.literllm");
         assert_eq!(files.len(), 1); // base only, no variants
         let base = &files[0].1;
-        assert!(base.contains("private final int statusCode;"), "statusCode field: {base}");
-        assert!(base.contains("private final boolean isTransient;"), "isTransient field: {base}");
-        assert!(base.contains("private final String errorType;"), "errorType field: {base}");
-        assert!(base.contains("public int getStatusCode()"), "getStatusCode getter: {base}");
-        assert!(base.contains("public boolean isTransient()"), "isTransient getter: {base}");
-        assert!(base.contains("public String getErrorType()"), "getErrorType getter: {base}");
+        assert!(
+            base.contains("private final int statusCode;"),
+            "statusCode field: {base}"
+        );
+        assert!(
+            base.contains("private final boolean isTransient;"),
+            "isTransient field: {base}"
+        );
+        assert!(
+            base.contains("private final String errorType;"),
+            "errorType field: {base}"
+        );
+        assert!(
+            base.contains("public int getStatusCode()"),
+            "getStatusCode getter: {base}"
+        );
+        assert!(
+            base.contains("public boolean isTransient()"),
+            "isTransient getter: {base}"
+        );
+        assert!(
+            base.contains("public String getErrorType()"),
+            "getErrorType getter: {base}"
+        );
         // Simple no-args constructor still present
         assert!(
             base.contains("public LiterLlmErrorException(final String message)"),
@@ -2026,7 +2033,10 @@ mod tests {
         let files = gen_java_error_types(&error, "dev.kreuzberg.test");
         let base = &files[0].1;
         assert!(!base.contains("private final"), "no fields when no methods: {base}");
-        assert!(base.contains("public ConversionErrorException(final String message)"), "{base}");
+        assert!(
+            base.contains("public ConversionErrorException(final String message)"),
+            "{base}"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -2039,9 +2049,18 @@ mod tests {
         let files = gen_csharp_error_types(&error, "Kreuzberg.LiterLlm", None);
         assert_eq!(files.len(), 1); // base only, no variants
         let base = &files[0].1;
-        assert!(base.contains("public ushort StatusCode { get; }"), "StatusCode prop: {base}");
-        assert!(base.contains("public bool IsTransient { get; }"), "IsTransient prop: {base}");
-        assert!(base.contains("public string ErrorType { get; }"), "ErrorType prop: {base}");
+        assert!(
+            base.contains("public ushort StatusCode { get; }"),
+            "StatusCode prop: {base}"
+        );
+        assert!(
+            base.contains("public bool IsTransient { get; }"),
+            "IsTransient prop: {base}"
+        );
+        assert!(
+            base.contains("public string ErrorType { get; }"),
+            "ErrorType prop: {base}"
+        );
         // Simple constructor (with defaults)
         assert!(
             base.contains("public LiterLlmErrorException(string message) : base(message)"),
@@ -2060,7 +2079,10 @@ mod tests {
         let files = gen_csharp_error_types(&error, "Kreuzberg.Test", None);
         let base = &files[0].1;
         assert!(!base.contains("{ get; }"), "no properties when no methods: {base}");
-        assert!(base.contains("public ConversionErrorException(string message) : base(message) { }"), "{base}");
+        assert!(
+            base.contains("public ConversionErrorException(string message) : base(message) { }"),
+            "{base}"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -2451,7 +2473,10 @@ mod tests {
             output.contains("pub struct WasmLiterLlmError"),
             "must emit opaque struct: {output}"
         );
-        assert!(output.contains("pub(crate) inner: liter_llm::error::LiterLlmError"), "{output}");
+        assert!(
+            output.contains("pub(crate) inner: liter_llm::error::LiterLlmError"),
+            "{output}"
+        );
         // Impl block
         assert!(output.contains("#[wasm_bindgen]\nimpl WasmLiterLlmError"), "{output}");
         // Methods with camelCase js_name
@@ -2485,7 +2510,10 @@ mod tests {
             output.contains("pub unsafe extern \"C\" fn literllm_liter_llm_error_status_code("),
             "must emit status_code fn: {output}"
         );
-        assert!(output.contains("err: *const liter_llm::error::LiterLlmError"), "{output}");
+        assert!(
+            output.contains("err: *const liter_llm::error::LiterLlmError"),
+            "{output}"
+        );
         assert!(output.contains("-> u16"), "{output}");
         assert!(output.contains("(*err).status_code()"), "{output}");
         assert!(output.contains("if err.is_null()"), "{output}");

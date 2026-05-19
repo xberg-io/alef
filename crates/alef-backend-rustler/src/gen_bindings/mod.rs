@@ -5,10 +5,10 @@ mod types;
 use crate::template_env;
 use crate::type_map::RustlerMapper;
 use ahash::AHashSet;
-use alef_codegen::type_mapper::TypeMapper;
 use alef_codegen::builder::RustFileBuilder;
 use alef_codegen::generators;
 use alef_codegen::shared::binding_fields;
+use alef_codegen::type_mapper::TypeMapper;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{BridgeBinding, Language, ResolvedCrateConfig, resolve_output_dir};
 use alef_core::ir::ApiSurface;
@@ -1333,13 +1333,11 @@ impl Backend for RustlerBackend {
         for error in &api.errors {
             for method in error.methods.iter().filter(|m| !m.sanitized) {
                 let nif_fn_name = format!("{}_{}", error.name.to_lowercase(), method.name);
-                let return_spec =
-                    elixir_return_typespec(&method.return_type, false, &opaque_types, &default_types);
+                let return_spec = elixir_return_typespec(&method.return_type, false, &opaque_types, &default_types);
                 let doc_line = if method.doc.is_empty() {
                     format!("Returns the `{}` value for the given error message.", method.name)
                 } else {
-                    alef_codegen::doc_emission::doc_first_paragraph_joined(&method.doc)
-                        .replace('"', "\\\"")
+                    alef_codegen::doc_emission::doc_first_paragraph_joined(&method.doc).replace('"', "\\\"")
                 };
                 content.push_str(&template_env::render(
                     "elixir_doc_line.jinja",
@@ -1470,9 +1468,7 @@ fn rustler_default_for_type(ty: &alef_core::ir::TypeRef) -> &'static str {
     match ty {
         TypeRef::Primitive(PrimitiveType::Bool) => "false",
         TypeRef::Primitive(_) => "0",
-        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => {
-            "String::new()"
-        }
+        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => "String::new()",
         _ => "Default::default()",
     }
 }

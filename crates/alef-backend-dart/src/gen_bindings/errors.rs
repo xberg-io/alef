@@ -63,9 +63,7 @@ pub(super) fn emit_error(error: &ErrorDef, out: &mut String, imports: &mut BTree
         .collect();
     let methods_ctx: Vec<minijinja::Value> = method_entries
         .iter()
-        .map(|(ty, name)| {
-            minijinja::Value::from_iter([("return_type", ty.as_str()), ("name", name.as_str())])
-        })
+        .map(|(ty, name)| minijinja::Value::from_iter([("return_type", ty.as_str()), ("name", name.as_str())]))
         .collect();
     out.push_str(&template_env::render(
         "error_sealed_class.jinja",

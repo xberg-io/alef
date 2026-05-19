@@ -727,12 +727,18 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
         // Emit From impls for unit-variant enums that appear in fields of types we've
         // already emitted From impls for. These are needed because binding code calls
         // `.map(Into::into)` on Option<enum> fields (e.g., Option<TextDirection>).
-        for typ in api.types.iter().filter(|t| !t.is_trait && emitted_binding_to_core.contains(&t.name)) {
+        for typ in api
+            .types
+            .iter()
+            .filter(|t| !t.is_trait && emitted_binding_to_core.contains(&t.name))
+        {
             for field in &typ.fields {
                 // Recursively extract enum names from field types (e.g., Option<TextDirection> → TextDirection)
                 fn collect_enum_names(ty: &TypeRef, enums: &mut AHashSet<String>) {
                     match ty {
-                        TypeRef::Named(name) => { enums.insert(name.clone()); },
+                        TypeRef::Named(name) => {
+                            enums.insert(name.clone());
+                        }
                         TypeRef::Optional(inner) | TypeRef::Vec(inner) => collect_enum_names(inner, enums),
                         TypeRef::Map(_k, v) => collect_enum_names(v, enums),
                         _ => {}

@@ -1,7 +1,7 @@
 use alef_codegen::shared::binding_fields;
-use alef_core::ir::{EnumDef, ErrorDef, TypeDef};
+use alef_core::ir::{EnumDef, ErrorDef, FieldDef, PrimitiveType, TypeDef, TypeRef};
 
-use super::conversions::{frb_rust_type, frb_rust_type_inner};
+use super::conversions::{frb_rust_type, frb_rust_type_inner, primitive_name};
 
 /// Emit rustdoc `///` lines above the next item.
 ///
@@ -168,19 +168,177 @@ pub(crate) fn emit_mirror_enum(out: &mut String, en: &EnumDef) {
     }
 }
 
-/// Emit a `#[frb(mirror(ErrorName))]` enum + `impl ErrorName` block with `#[frb]`
-/// introspection methods that delegate to the core error type.
+/// Return the conversion expression to reconstruct a real-type field value from a
+/// mirror field binding.
+///
+/// Mirror fields use FRB-widened types: integers → `i64`, floats → `f64`,
+/// `Duration` → `i64` millis, and optional primitive/Duration fields collapse to
+/// their non-optional widened form. String/Bytes/Vec optional fields retain
+/// `Option<...>` wrapping in the mirror because FRB handles those correctly.
+///
+/// `field_expr` is the pattern-binding identifier (e.g. `"f_status"`). The
+/// caller binds it via `ref f_<name>` so its type is `&MirrorFieldType`.
+fn field_from_expr(field: &FieldDef, field_expr: &str) -> String {
+    match &field.ty {
+        TypeRef::Primitive(prim) => {
+            let native = primitive_name(prim);
+            // Mirror binding is &i64 / &f64 / &bool — deref with *.
+            let base = match prim {
+                PrimitiveType::I64 | PrimitiveType::F64 | PrimitiveType::Bool => {
+                    format!("*{field_expr}")
+                }
+                _ => format!("*{field_expr} as {native}"),
+            };
+            // Primitive optional fields land in the mirror as bare i64 (not
+            // Option<i64>), so wrap with Some when the real field is optional.
+            if field.optional { format!("Some({base})") } else { base }
+        }
+        TypeRef::Duration => {
+            // FRB maps Duration → i64 millis. Mirror binding is &i64 (non-optional
+            // regardless of real-field optionality).
+            let base = format!("std::time::Duration::from_millis(*{field_expr} as u64)");
+            if field.optional { format!("Some({base})") } else { base }
+        }
+        TypeRef::String | TypeRef::Bytes => {
+            // emit_mirror_error uses frb_rust_type_inner which ignores the optional
+            // flag, so the mirror field is always bare `String`/`Vec<u8>` (never
+            // `Option<String>`). Wrap with Some when the real field is optional.
+            if field.optional {
+                format!("Some({field_expr}.clone())")
+            } else {
+                format!("{field_expr}.clone()")
+            }
+        }
+        TypeRef::Char => {
+            let base = format!("{field_expr}.chars().next().unwrap_or('\\0')");
+            if field.optional { format!("Some({base})") } else { base }
+        }
+        TypeRef::Optional(inner) => {
+            let inner_field = FieldDef {
+                name: field.name.clone(),
+                ty: *inner.clone(),
+                optional: false,
+                ..field.clone()
+            };
+            let inner_expr = field_from_expr(&inner_field, "v");
+            format!("{field_expr}.as_ref().map(|v| {inner_expr})")
+        }
+        TypeRef::Vec(inner) => {
+            let inner_field = FieldDef {
+                name: "_x".to_string(),
+                ty: *inner.clone(),
+                optional: false,
+                ..field.clone()
+            };
+            let inner_expr = field_from_expr(&inner_field, "x");
+            format!("{field_expr}.iter().map(|x| {inner_expr}).collect()")
+        }
+        // Named, Path, Json, Map, Unit — clone is the safe fallback.
+        _ => format!("{field_expr}.clone()"),
+    }
+}
+
+/// Return true if every field in the variant can be safely reconstructed in the
+/// `From<&MirrorEnum>` impl.
+///
+/// Sanitized fields represent types that were erased to `String` during
+/// extraction (e.g. `serde_json::Error`). Such originals cannot be recovered
+/// from the mirror, so the entire variant must be skipped in the From impl.
+fn variant_is_reconstructible(fields: &[FieldDef]) -> bool {
+    fields.iter().all(|f| !f.sanitized)
+}
+
+/// Emit a safe `impl From<&MirrorEnum> for CorePath` conversion.
+///
+/// Each reconstructible variant is matched arm-by-arm with explicit field casts
+/// from FRB-widened types (i64/f64) to the real primitive widths. Variants whose
+/// fields include sanitized (erased) types are skipped — a wildcard arm with
+/// `unreachable!` is emitted to cover them so the match stays exhaustive.
+/// `#[allow(unreachable_patterns)]` is emitted unconditionally to suppress the
+/// compiler warning when all variants are in fact reconstructible.
+fn emit_from_impl(out: &mut String, error: &ErrorDef, core_path: &str) {
+    let any_skipped = error
+        .variants
+        .iter()
+        .any(|v| !v.is_unit && !v.fields.is_empty() && !variant_is_reconstructible(&v.fields));
+
+    out.push_str(&format!(
+        "\n#[allow(unreachable_patterns)]\nimpl From<&{name}> for {core_path} {{\n    fn from(m: &{name}) -> Self {{\n        match m {{\n",
+        name = error.name,
+    ));
+    for variant in &error.variants {
+        let vname = &variant.name;
+        if variant.is_unit || variant.fields.is_empty() {
+            out.push_str(&format!(
+                "            {name}::{vname} => Self::{vname},\n",
+                name = error.name
+            ));
+        } else if !variant_is_reconstructible(&variant.fields) {
+            // Sanitized fields cannot be reconstructed — skip this arm and rely
+            // on the wildcard below for exhaustiveness.
+            continue;
+        } else {
+            // Collect field names (matching emit_mirror_error's tuple-rename logic).
+            let field_names: Vec<String> = variant
+                .fields
+                .iter()
+                .enumerate()
+                .map(|(idx, f)| {
+                    if f.name.is_empty() || f.name.starts_with('_') {
+                        format!("field{idx}")
+                    } else {
+                        f.name.clone()
+                    }
+                })
+                .collect();
+
+            // Pattern binding: `Name::Variant { field0: ref f_field0, ... }`
+            let pat_fields: String = field_names
+                .iter()
+                .map(|fname| format!("{fname}: ref f_{fname}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            out.push_str(&format!(
+                "            {name}::{vname} {{ {pat_fields} }} => {{\n",
+                name = error.name,
+            ));
+
+            // Reconstruct real-type fields with correct casts.
+            let mut real_fields: Vec<String> = Vec::new();
+            for (i, f) in variant.fields.iter().enumerate() {
+                let fname = &field_names[i];
+                let expr = field_from_expr(f, &format!("f_{fname}"));
+                real_fields.push(format!("                    {fname}: {expr}"));
+            }
+            out.push_str(&format!(
+                "                Self::{vname} {{\n{},\n                }}\n",
+                real_fields.join(",\n"),
+            ));
+            out.push_str("            }\n");
+        }
+    }
+    // Wildcard arm for skipped sanitized variants — panics with a clear message
+    // rather than producing silent garbage at the call site.
+    if any_skipped {
+        out.push_str(
+            "            _ => unreachable!(\"mirror variant has sanitized fields and cannot be converted to the core error type\"),\n",
+        );
+    }
+    out.push_str("        }\n    }\n}\n");
+}
+
+/// Emit a `#[frb(mirror(ErrorName))]` enum + safe `impl From` conversion +
+/// `impl ErrorName` block with `#[frb]` introspection methods.
 ///
 /// flutter_rust_bridge translates the mirrored enum into a Dart sealed class with
 /// per-variant subclasses. The `impl` block methods annotated with `#[frb]` are
 /// surfaced as Dart instance methods on the sealed class.
 ///
-/// # SAFETY
-///
-/// Each introspection method casts `self` to the core error type via a raw pointer
-/// transmute. This is sound because `#[frb(mirror(T))]` guarantees that the local
-/// mirror enum has the same memory layout as the core type `T` — FRB's codegen
-/// relies on this invariant and panics at compile time if layouts differ.
+/// Introspection methods convert `self` to the core error type via a safe
+/// `From<&MirrorEnum>` impl that reconstructs each variant field-by-field with
+/// explicit primitive casts. This avoids the unsound raw-pointer transmute that
+/// would arise from mismatched field widths (e.g. `i64` in the mirror vs `u16`
+/// in the real type).
 pub(crate) fn emit_mirror_error(out: &mut String, error: &ErrorDef, source_crate_name: &str) {
     use crate::template_env;
 
@@ -251,41 +409,38 @@ pub(crate) fn emit_mirror_error(out: &mut String, error: &ErrorDef, source_crate
         error.rust_path.replace('-', "_")
     };
 
+    // Emit a safe From<&MirrorEnum> for CoreType impl. Each variant is reconstructed
+    // field-by-field with explicit casts from FRB-widened types (i64/f64) to the real
+    // primitive widths. This replaces the former unsound raw-pointer transmute.
+    emit_from_impl(out, error, &core_path);
+
     out.push_str(&format!("\nimpl {} {{\n", error.name));
     for method in bridge_methods {
         emit_rust_doc(&method.doc, "    ", out);
         let ret_ty = frb_rust_type_inner(&method.return_type);
         out.push_str("    #[frb]\n");
         out.push_str(&format!("    pub fn {}(&self) -> {ret_ty} {{\n", method.name));
-        // SAFETY: `#[frb(mirror(T))]` guarantees identical layout between
-        // the local mirror enum and the core type `T`. Casting `self` via a
-        // raw pointer is equivalent to the transmute FRB itself performs when
-        // encoding/decoding values across the bridge.
-        out.push_str(&format!(
-            "        // SAFETY: mirror layout is identical to {core_path} (FRB invariant).\n"
-        ));
-        // Build any coercion suffix needed to reconcile the core return type with the FRB
-        // bridge return type declared above:
+        // Build any coercion suffix needed to reconcile the core return type with the
+        // FRB bridge return type declared above:
         //   - `&str` (returns_ref=true + String TypeRef) → `.to_string()`
         //   - narrow integer or float (e.g. u16) → ` as i64` / ` as f64`
-        let call_suffix: String =
-            if method.returns_ref && matches!(method.return_type, alef_core::ir::TypeRef::String) {
-                // Core returns &str; bridge declares String.
-                ".to_string()".to_string()
-            } else if let alef_core::ir::TypeRef::Primitive(ref prim) = method.return_type {
-                use super::conversions::primitive_name;
-                let native = primitive_name(prim);
-                let frb_ty = frb_rust_type_inner(&method.return_type);
-                if native != frb_ty.as_str() {
-                    format!(" as {frb_ty}")
-                } else {
-                    String::new()
-                }
+        let call_suffix: String = if method.returns_ref && matches!(method.return_type, alef_core::ir::TypeRef::String)
+        {
+            // Core returns &str; bridge declares String.
+            ".to_string()".to_string()
+        } else if let alef_core::ir::TypeRef::Primitive(ref prim) = method.return_type {
+            let native = primitive_name(prim);
+            let frb_ty = frb_rust_type_inner(&method.return_type);
+            if native != frb_ty.as_str() {
+                format!(" as {frb_ty}")
             } else {
                 String::new()
-            };
+            }
+        } else {
+            String::new()
+        };
         out.push_str(&format!(
-            "        unsafe {{ &*(self as *const Self as *const {core_path}) }}.{}(){call_suffix}\n",
+            "        let real: {core_path} = self.into();\n        real.{}(){call_suffix}\n",
             method.name
         ));
         out.push_str("    }\n");

@@ -1127,9 +1127,7 @@ fn emit_error(error: &ErrorDef, module_name: &str, out: &mut String, mapper: &Sw
                 } else {
                     default_val.clone()
                 };
-                out.push_str(&format!(
-                    "        case .{case_name}{wildcard}: return {ret_expr}\n"
-                ));
+                out.push_str(&format!("        case .{case_name}{wildcard}: return {ret_expr}\n"));
             }
             out.push_str("        }\n");
             out.push_str("    }\n");

@@ -121,7 +121,13 @@ pub(crate) fn emit_bridge_fn(
     let call = format!("{resolved_path}({})", call_args.join(", "));
 
     // Determine if the return type needs a mirror-transmute (Named or Vec<Named> or Option<Named>).
-    let ret_transmute = return_transmute_expr(&f.return_type, source_crate_name, type_paths, opaque_type_names, f.returns_ref);
+    let ret_transmute = return_transmute_expr(
+        &f.return_type,
+        source_crate_name,
+        type_paths,
+        opaque_type_names,
+        f.returns_ref,
+    );
 
     // Build suffix cast for primitives / Strings.
     let result_cast = if ret_transmute.is_empty() {

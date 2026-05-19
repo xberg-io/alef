@@ -907,10 +907,7 @@ fn error_enum_with_methods_emits_extension_properties() {
         "missing errorType property: {content}"
     );
     // switch self must be emitted inside each property.
-    assert!(
-        content.contains("switch self {"),
-        "missing switch self: {content}"
-    );
+    assert!(content.contains("switch self {"), "missing switch self: {content}");
 }
 
 // ── convenience wrapper tests ─────────────────────────────────────────────────

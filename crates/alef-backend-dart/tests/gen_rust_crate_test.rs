@@ -2,8 +2,8 @@ use alef_backend_dart::DartBackend;
 use alef_core::backend::Backend;
 use alef_core::config::{ResolvedCrateConfig, TraitBridgeConfig, new_config::NewAlefConfig};
 use alef_core::ir::{
-    ApiSurface, CoreWrapper, EnumDef, EnumVariant, FieldDef, FunctionDef, MethodDef, ParamDef, PrimitiveType,
-    ReceiverKind, TypeDef, TypeRef,
+    ApiSurface, CoreWrapper, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef, MethodDef, ParamDef,
+    PrimitiveType, ReceiverKind, TypeDef, TypeRef,
 };
 use alef_core::template_versions::cargo as tv;
 
@@ -1791,5 +1791,99 @@ fn mirror_multi_line_rustdoc_emits_one_triple_slash_per_line() {
     assert!(
         lib.contains("/// First line.\n///\n/// Second line after a blank.\n#[frb(mirror(MultiDoc))]"),
         "blank lines in rustdoc must round-trip as `///` (no trailing space): {lib}"
+    );
+}
+
+#[test]
+fn mirror_error_introspection_uses_safe_from_conversion_not_transmute() {
+    // Verify that when an error type has whitelisted introspection methods, the
+    // generated lib.rs contains a safe `From<&ErrorName> for core::ErrorName` impl
+    // and that the introspection method body uses `self.into()` rather than an
+    // unsafe raw-pointer cast. This guards against the unsoundness introduced by
+    // directly casting &MirrorEnum to &RealEnum when the mirror uses i64 for fields
+    // that are u16 in the real type.
+    let error = ErrorDef {
+        name: "AppError".to_string(),
+        rust_path: "demo_crate::error::AppError".to_string(),
+        original_rust_path: String::new(),
+        variants: vec![
+            ErrorVariant {
+                name: "Auth".to_string(),
+                message_template: None,
+                fields: vec![
+                    make_field("message", TypeRef::String, false),
+                    make_field("status", TypeRef::Primitive(PrimitiveType::U16), false),
+                ],
+                has_source: false,
+                has_from: false,
+                is_unit: false,
+                doc: String::new(),
+            },
+            ErrorVariant {
+                name: "Timeout".to_string(),
+                message_template: None,
+                fields: vec![],
+                has_source: false,
+                has_from: false,
+                is_unit: true,
+                doc: String::new(),
+            },
+        ],
+        doc: String::new(),
+        methods: vec![MethodDef {
+            name: "status_code".to_string(),
+            params: vec![],
+            return_type: TypeRef::Primitive(PrimitiveType::U16),
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: None,
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![error],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
+    let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
+
+    // Safe From impl must be present.
+    assert!(
+        lib.contains("impl From<&AppError> for demo_crate::error::AppError"),
+        "safe From<&MirrorEnum> impl must be emitted for error types with methods: {lib}"
+    );
+    // The introspection method must use the safe into() conversion.
+    assert!(
+        lib.contains("let real: demo_crate::error::AppError = self.into();"),
+        "introspection method must use safe self.into() conversion: {lib}"
+    );
+    // No unsafe raw-pointer cast must appear.
+    assert!(
+        !lib.contains("as *const Self as *const"),
+        "unsafe raw-pointer transmute must NOT appear in mirror error impl: {lib}"
+    );
+    // The u16 field must be cast correctly in the From impl.
+    assert!(
+        lib.contains("status: *f_status as u16"),
+        "u16 field must be cast from i64 with `as u16` in From impl: {lib}"
     );
 }

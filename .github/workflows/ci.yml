@@ -30,7 +30,7 @@ jobs:
           components: "rustfmt, clippy"
           install-llvm-cov: "false"
           macos-dynamic-lookup: "false"
-      - uses: taiki-e/install-action@v2.79.1
+      - uses: taiki-e/install-action@v2.79.2
         with:
           tool: cargo-deny,cargo-machete,cargo-sort
       - name: Check formatting
