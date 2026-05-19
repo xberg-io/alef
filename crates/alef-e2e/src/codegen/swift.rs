@@ -128,6 +128,25 @@ impl E2eCodegen for SwiftE2eCodegen {
         // Resolve client_factory override for swift (enables client-instance dispatch).
         let client_factory: Option<&str> = overrides.and_then(|o| o.client_factory.as_deref());
 
+        // Emit a shared TestHelpers.swift that gives `RustString` a
+        // `CustomStringConvertible` conformance. swift-bridge generates the
+        // `RustString` opaque class but does NOT make it print readably — so
+        // any error thrown from a bridge function (the `throw RustString(...)`
+        // branches) surfaces in XCTest's failure output as the bare type name
+        // `"RustBridge.RustString"`, with the actual Rust error message
+        // hidden inside the unprinted instance. The retroactive extension
+        // here pulls `.toString()` into `.description` so failures print
+        // something diagnostic. Single file per test target; idempotent
+        // across regens.
+        files.push(GeneratedFile {
+            path: tests_base
+                .join("Tests")
+                .join(format!("{module_name}E2ETests"))
+                .join("TestHelpers.swift"),
+            content: render_test_helpers_swift(),
+            generated_header: true,
+        });
+
         // One test file per fixture group.
         for group in groups {
             let active: Vec<&Fixture> = group
@@ -177,6 +196,31 @@ impl E2eCodegen for SwiftE2eCodegen {
 // ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
+
+/// Render the shared `TestHelpers.swift` file emitted into each Swift e2e
+/// test target. Adds a `CustomStringConvertible` conformance to swift-bridge's
+/// `RustString` so error messages from bridge throws print their actual Rust
+/// content instead of the bare class name.
+fn render_test_helpers_swift() -> String {
+    let header = hash::header(CommentStyle::DoubleSlash);
+    format!(
+        r#"{header}import Foundation
+import RustBridge
+
+// Make `RustString` print its content in XCTest failure output. Without this,
+// every error thrown from the swift-bridge layer surfaces as
+// `caught error: "RustBridge.RustString"` with the actual message hidden
+// inside the opaque class instance. The `@retroactive` keyword acknowledges
+// that the conformed-to protocol (`CustomStringConvertible`) and the
+// conforming type (`RustString`) both live outside this module — required by
+// Swift 6 to silence the retroactive-conformance warning. swift-bridge does
+// not give `RustString` a `description` of its own, so there is no conflict.
+extension RustString: @retroactive CustomStringConvertible {{
+    public var description: String {{ self.toString() }}
+}}
+"#
+    )
+}
 
 fn render_package_swift(
     module_name: &str,

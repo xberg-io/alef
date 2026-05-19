@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **alef-e2e/swift: emit a shared `TestHelpers.swift` with a `RustString: CustomStringConvertible` extension so XCTest failures print the actual Rust error content**. swift-bridge's `RustString` is an opaque class without a `description`, so any error thrown from a bridge function (`throw RustString(ptr: val.ok_or_err!)`) surfaces in XCTest output as the bare type name — `caught error: "RustBridge.RustString"` — with the actual Rust error message hidden inside the unprinted instance. Every E2E (swift) failure across the polyglot repos was indecipherable as a result. Add a one-time `TestHelpers.swift` per test target with `extension RustString: @retroactive CustomStringConvertible { public var description: String { self.toString() } }`. Diagnostic-only change; no test code modifications, no semantic shift in passing/failing — but failures now print readable error text. (`crates/alef-e2e/src/codegen/swift.rs`)
+
 ### Fixed
 
 - **alef-e2e/swift: `swift_count_target` consults `SwiftFirstClassMap.vec_field_names` so `.count` on `RustVec` method-call accessors stays put**. v0.16.63's blanket `.toString()` injection (predicated only on the accessor ending in `)`) over-eagerly wrapped Vec-typed method-call accessors too — `result.output().toString().count` fails with `value of type 'RustVec<ResponseOutputItem>' has no member 'toString'`. Track per-IR `Vec<T>` (and `Option<Vec<T>>`) field names in a flat `vec_field_names: HashSet<String>` on `SwiftFirstClassMap`, expose `leaf_is_vec_via_swift_map` on `FieldResolver`, and have `swift_count_target` skip the wrap when the leaf is a Vec field. RustVec already exposes `.count` directly. Surfaced on liter-llm `E2E (swift)` ResponsesTests line 95 after v0.16.63. (`crates/alef-e2e/src/field_access.rs`, `crates/alef-e2e/src/codegen/swift.rs`)
