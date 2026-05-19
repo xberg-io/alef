@@ -452,12 +452,14 @@ fn gen_unregistration_fn(bridge_cfg: &TraitBridgeConfig, ffi_prefix: &str, trait
     }
 
     let c_function = format!("{}_unregister_{}", ffi_prefix, trait_snake);
+    // Convert fn_name to PascalCase for Go (e.g., "unregister_ocr_backend" → "UnregisterOcrBackend")
+    let go_fn_name = fn_name.to_pascal_case();
 
     let mut out = String::new();
     out.push_str(&crate::template_env::render(
         "unregister_fn_header.jinja",
         minijinja::context! {
-            fn_name => fn_name,
+            fn_name => &go_fn_name,
             trait_name => trait_name,
         },
     ));
@@ -484,12 +486,14 @@ fn gen_clear_fn(bridge_cfg: &TraitBridgeConfig, ffi_prefix: &str, trait_name: &s
     };
     let trait_snake = heck::AsSnakeCase(trait_name).to_string();
     let c_function = format!("{}_clear_{}", ffi_prefix, trait_snake);
+    // Convert fn_name to PascalCase for Go (e.g., "clear_ocr_backends" → "ClearOcrBackends")
+    let go_fn_name = fn_name.to_pascal_case();
 
     let mut out = String::new();
     out.push_str(&crate::template_env::render(
         "clear_function_header.jinja",
         minijinja::context! {
-            fn_name => fn_name,
+            fn_name => &go_fn_name,
             name => trait_name,
         },
     ));
@@ -1248,7 +1252,7 @@ mod tests {
             "expected non-empty output when unregister_fn is set"
         );
         assert!(
-            result.contains("func remove_ocr_backend(name string) error"),
+            result.contains("func RemoveOcrBackend(name string) error"),
             "generated function signature not found in:\n{result}"
         );
         assert!(
@@ -1280,7 +1284,7 @@ mod tests {
         let result = gen_clear_fn(&cfg, "kreuzberg", "OcrBackend");
         assert!(!result.is_empty(), "expected non-empty output when clear_fn is set");
         assert!(
-            result.contains("func clear_ocr_backends() error"),
+            result.contains("func ClearOcrBackends() error"),
             "generated function signature not found in:\n{result}"
         );
         assert!(
