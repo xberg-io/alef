@@ -63,8 +63,16 @@ enum Commands {
         /// Ignore cache, regenerate everything.
         #[arg(long)]
         clean: bool,
-        /// Run post-generation formatters on emitted files (off by default).
-        #[arg(long)]
+        /// Run post-generation formatters on emitted files. Default: true so the
+        /// emitted bindings are formatter-stable before hash finalisation and prek
+        /// hooks (ruff, mix format, gofmt, etc.) are no-ops on a fresh `alef generate`.
+        #[arg(
+            long,
+            default_value_t = true,
+            default_missing_value = "true",
+            num_args = 0..=1,
+            action = clap::ArgAction::Set,
+        )]
         format: bool,
     },
     /// Generate type stubs (.pyi, .rbs).
@@ -203,8 +211,14 @@ enum Commands {
         /// Comma-separated list of languages.
         #[arg(long, value_delimiter = ',')]
         lang: Option<Vec<String>>,
-        /// Run post-generation formatters on emitted files (off by default).
-        #[arg(long)]
+        /// Run post-generation formatters on emitted files. Default: true.
+        #[arg(
+            long,
+            default_value_t = true,
+            default_missing_value = "true",
+            num_args = 0..=1,
+            action = clap::ArgAction::Set,
+        )]
         format: bool,
     },
     /// Migrate legacy alef.toml schema to new [workspace] / [[crates]] layout.
