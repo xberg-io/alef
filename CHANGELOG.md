@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.71] - 2026-05-19
+
 ### Fixed
 
 - **alef-backend-napi: emit trait-bridge registration functions (`unregister_*`, `clear_*`) in TypeScript declarations.** The NAPI backend was generating the Rust implementations of trait-bridge functions (`#[napi(js_name = "unregisterOcrBackend")]`, etc.) in `lib.rs` but omitting their declarations from `index.d.ts`, making them invisible to TypeScript callers. The `.d.ts` generator now iterates over `config.trait_bridges`, emitting `export declare function unregister*(name: string): void;` and `export declare function clear*(): void;` declarations for each bridge's `unregister_fn` and `clear_fn`. Fix in `crates/alef-backend-napi/src/gen_bindings/errors.rs::gen_dts`.
