@@ -941,7 +941,15 @@ impl Backend for PhpBackend {
         // (before Composer autoload runs), so these userland files are never
         // included at runtime — the native class always wins.
         for typ in api.types.iter().filter(|t| t.is_opaque && !t.is_trait) {
-            let opaque_file = gen_php_opaque_class_file(typ, &namespace);
+            let streaming_adapters: Vec<&alef_core::config::AdapterConfig> = config
+                .adapters
+                .iter()
+                .filter(|a| {
+                    matches!(a.pattern, alef_core::config::AdapterPattern::Streaming)
+                        && a.owner_type.as_deref() == Some(&typ.name)
+                })
+                .collect();
+            let opaque_file = gen_php_opaque_class_file(typ, &namespace, &streaming_adapters);
             files.push(GeneratedFile {
                 path: PathBuf::from(&output_dir).join(format!("{}.php", typ.name)),
                 content: opaque_file,
@@ -1331,7 +1339,11 @@ fn php_type_fq(ty: &TypeRef, namespace: &str) -> String {
 /// (before Composer autoload runs), so this userland file is never included at
 /// runtime — the native class always wins. The file is consumed by PHPStan and
 /// IDEs as the authoritative declaration of the type's public API surface.
-fn gen_php_opaque_class_file(typ: &alef_core::ir::TypeDef, namespace: &str) -> String {
+fn gen_php_opaque_class_file(
+    typ: &alef_core::ir::TypeDef,
+    namespace: &str,
+    streaming_adapters: &[&alef_core::config::AdapterConfig],
+) -> String {
     let mut content = String::new();
     content.push_str(&crate::template_env::render(
         "php_file_header.jinja",
@@ -1439,8 +1451,69 @@ fn gen_php_opaque_class_file(typ: &alef_core::ir::TypeDef, namespace: &str) -> S
         content.push_str(body);
     }
 
+    // Streaming wrapper methods: convert _start/_next/_free Rust functions to PHP Generators.
+    for adapter in streaming_adapters {
+        let item_type = adapter.item_type.as_deref().unwrap_or("array");
+        content.push_str(&gen_php_streaming_method_wrapper(adapter, item_type));
+        content.push('\n');
+    }
+
     content.push_str("}\n");
     content
+}
+
+/// Generate a PHP streaming method wrapper for an adapter.
+///
+/// Creates a Generator-yielding method that wraps the Rust `_start`/`_next`/`_free` functions.
+/// The method signature matches the adapter's signature (minus the resource, which is `$this`).
+fn gen_php_streaming_method_wrapper(
+    adapter: &alef_core::config::AdapterConfig,
+    _item_type: &str,
+) -> String {
+    let owner_type = adapter.owner_type.as_deref().unwrap_or("").to_lowercase();
+    let method_name = adapter.name.to_lower_camel_case();
+    let start_fn = format!("\\{}_{}_start", owner_type, adapter.name);
+    let next_fn = format!("\\{}_{}_next", owner_type, adapter.name);
+    let free_fn = format!("\\{}_{}_free", owner_type, adapter.name);
+
+    // Build parameter list and call arguments.
+    // The first param is the resource (ZendObject), which becomes `$this`.
+    // Remaining params are forwarded as-is.
+    let mut params_vec: Vec<String> = Vec::new();
+    let mut call_params_vec: Vec<String> = vec!["$this".to_string()];
+
+    for (idx, p) in adapter.params.iter().enumerate() {
+        if idx == 0 {
+            // Skip the resource param — it's not exposed in the PHP signature.
+            continue;
+        }
+        let ptype = php_type(&alef_core::ir::TypeRef::Named(p.ty.clone()));
+        let nullable = if p.optional { "?" } else { "" };
+        let default = if p.optional { " = null" } else { "" };
+        params_vec.push(format!("{nullable}{ptype} ${}{default}", p.name));
+        call_params_vec.push(format!("${}", p.name));
+    }
+
+    let params_sig = params_vec.join(", ");
+    let call_params_str = call_params_vec.join(", ");
+
+    format!(
+        "    public function {method_name}({params_sig}): \\Generator\n    {{\n        \
+         $handle = {start_fn}({call_params_str});\n        \
+         try {{\n            \
+             while (($chunk = {next_fn}($handle)) !== null) {{\n                \
+                 yield json_decode($chunk, true);\n            \
+             }}\n        \
+         }} finally {{\n            \
+             {free_fn}($handle);\n        \
+         }}\n    \
+         }}\n",
+        method_name = method_name,
+        start_fn = start_fn,
+        call_params_str = call_params_str,
+        next_fn = next_fn,
+        free_fn = free_fn,
+    )
 }
 
 /// Map an IR [`TypeRef`] to a PHP type-hint string.
