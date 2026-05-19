@@ -1,7 +1,7 @@
 use crate::gen_bindings::enums::sanitize_python_doc;
 use crate::type_map::python_type;
 use alef_codegen::shared::binding_fields;
-use alef_core::config::{Language, ResolvedCrateConfig, TraitBridgeConfig};
+use alef_core::config::{AdapterPattern, Language, ResolvedCrateConfig, TraitBridgeConfig};
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{ApiSurface, EnumDef, FunctionDef, MethodDef, TypeDef, TypeRef};
 
@@ -148,6 +148,20 @@ pub fn gen_stubs(api: &ApiSurface, trait_bridges: &[TraitBridgeConfig], config: 
         })
         .collect();
 
+    // Build a streaming-adapter lookup: (owner_type, method_name) → item_type.
+    // Used to override return types in method/function stubs with AsyncIterator[ItemType].
+    // Key is (Option<owner_type>, adapter_name); value is the Python item type string.
+    // When owner_type is None the adapter is a free function; otherwise it is a method.
+    let streaming_return_types: std::collections::HashMap<(Option<String>, String), String> = config
+        .adapters
+        .iter()
+        .filter(|a| matches!(a.pattern, AdapterPattern::Streaming))
+        .map(|a| {
+            let item = a.item_type.as_deref().unwrap_or("Any").to_string();
+            ((a.owner_type.clone(), a.name.clone()), item)
+        })
+        .collect();
+
     // Collect capsule type names so we can skip their opaque class stubs and replace
     // any return/param type references with `Any` (they live in third-party packages).
     let capsule_names: std::collections::HashSet<&str> = config
@@ -181,6 +195,7 @@ pub fn gen_stubs(api: &ApiSurface, trait_bridges: &[TraitBridgeConfig], config: 
             &capsule_names,
             &options_field_bridges,
             emit_docstrings,
+            &streaming_return_types,
         ));
         body_lines.push("".to_string());
     }
@@ -193,7 +208,7 @@ pub fn gen_stubs(api: &ApiSurface, trait_bridges: &[TraitBridgeConfig], config: 
         .collect();
     if !opaque_non_capsule.is_empty() {
         for typ in &opaque_non_capsule {
-            body_lines.push(gen_opaque_type_stub(typ, &capsule_names));
+            body_lines.push(gen_opaque_type_stub(typ, &capsule_names, &streaming_return_types));
         }
         body_lines.push("".to_string());
     }
@@ -211,6 +226,7 @@ pub fn gen_stubs(api: &ApiSurface, trait_bridges: &[TraitBridgeConfig], config: 
             &bridge_param_names,
             &capsule_names,
             &options_field_bridges,
+            &streaming_return_types,
         ));
     }
 
@@ -218,7 +234,7 @@ pub fn gen_stubs(api: &ApiSurface, trait_bridges: &[TraitBridgeConfig], config: 
     // so unused-import lint (F401) stays clean even when a particular API surface doesn't
     // need every helper.
     let body_joined = body_lines.join("\n");
-    let used_typing: Vec<&str> = ["Any", "Literal", "TypeAlias", "TypedDict"]
+    let used_typing: Vec<&str> = ["Any", "AsyncIterator", "Literal", "TypeAlias", "TypedDict"]
         .iter()
         .copied()
         .filter(|name| contains_word(&body_joined, name))
@@ -301,7 +317,11 @@ fn substitute_capsule_type(type_str: &str, capsule_names: &std::collections::Has
 }
 
 /// Generate a Python type stub for an opaque type (no fields, only methods).
-fn gen_opaque_type_stub(typ: &TypeDef, capsule_names: &std::collections::HashSet<&str>) -> String {
+fn gen_opaque_type_stub(
+    typ: &TypeDef,
+    capsule_names: &std::collections::HashSet<&str>,
+    streaming_return_types: &std::collections::HashMap<(Option<String>, String), String>,
+) -> String {
     let mut lines = vec![];
 
     lines.push(format!("class {}:", typ.name));
@@ -309,14 +329,14 @@ fn gen_opaque_type_stub(typ: &TypeDef, capsule_names: &std::collections::HashSet
     // Instance methods
     for method in &typ.methods {
         if !method.is_static {
-            lines.push(gen_method_stub(method, false, capsule_names));
+            lines.push(gen_method_stub(method, false, capsule_names, Some(&typ.name), streaming_return_types));
         }
     }
 
     // Static methods
     for method in &typ.methods {
         if method.is_static {
-            lines.push(gen_method_stub(method, true, capsule_names));
+            lines.push(gen_method_stub(method, true, capsule_names, Some(&typ.name), streaming_return_types));
         }
     }
 
@@ -336,6 +356,7 @@ fn gen_type_stub(
     capsule_names: &std::collections::HashSet<&str>,
     options_field_bridges: &std::collections::HashMap<&str, (&str, Option<&str>)>,
     emit_docstrings: bool,
+    streaming_return_types: &std::collections::HashMap<(Option<String>, String), String>,
 ) -> String {
     let mut lines = vec![];
 
@@ -383,14 +404,14 @@ fn gen_type_stub(
     // Add instance methods
     for method in &typ.methods {
         if !method.is_static {
-            lines.push(gen_method_stub(method, false, capsule_names));
+            lines.push(gen_method_stub(method, false, capsule_names, Some(&typ.name), streaming_return_types));
         }
     }
 
     // Add static methods
     for method in &typ.methods {
         if method.is_static {
-            lines.push(gen_method_stub(method, true, capsule_names));
+            lines.push(gen_method_stub(method, true, capsule_names, Some(&typ.name), streaming_return_types));
         }
     }
 
@@ -495,7 +516,13 @@ fn gen_type_init_stub(
 }
 
 /// Generate a method stub.
-fn gen_method_stub(method: &MethodDef, is_static: bool, capsule_names: &std::collections::HashSet<&str>) -> String {
+fn gen_method_stub(
+    method: &MethodDef,
+    is_static: bool,
+    capsule_names: &std::collections::HashSet<&str>,
+    owner_type: Option<&str>,
+    streaming_return_types: &std::collections::HashMap<(Option<String>, String), String>,
+) -> String {
     // Partition params into required (non-optional) and optional
     let (required, optional): (Vec<_>, Vec<_>) = method.params.iter().partition(|p| !p.optional);
 
@@ -518,7 +545,15 @@ fn gen_method_stub(method: &MethodDef, is_static: bool, capsule_names: &std::col
         format!("{}: {} = None", p.name, param_type)
     }));
 
-    let return_type = substitute_capsule_type(&python_type(&method.return_type), capsule_names);
+    // Check whether this method has a streaming adapter. When it does, override the
+    // return type with `AsyncIterator[ItemType]` so the stub matches the real async
+    // iterator emitted by the Rust shim rather than the buffered placeholder type.
+    let streaming_key = (owner_type.map(str::to_string), method.name.clone());
+    let return_type = if let Some(item_type) = streaming_return_types.get(&streaming_key) {
+        format!("AsyncIterator[{item_type}]")
+    } else {
+        substitute_capsule_type(&python_type(&method.return_type), capsule_names)
+    };
     let indent = "    ";
     let safe_name = python_safe_name(&method.name);
     // pyo3 async methods return a Python awaitable (via `pyo3_async_runtimes::*::future_into_py`).
@@ -754,6 +789,7 @@ fn gen_function_stub(
     bridge_param_names: &std::collections::HashSet<&str>,
     capsule_names: &std::collections::HashSet<&str>,
     options_field_bridges: &std::collections::HashMap<&str, (&str, Option<&str>)>,
+    streaming_return_types: &std::collections::HashMap<(Option<String>, String), String>,
 ) -> String {
     // Partition params into required (non-optional) and optional
     let (required, optional): (Vec<_>, Vec<_>) = func.params.iter().partition(|p| !p.optional);
@@ -806,7 +842,15 @@ fn gen_function_stub(
         params.push(format!("{kwarg_name}: {visitor_type} | None = None"));
     }
 
-    let return_type = substitute_capsule_type(&python_type(&func.return_type), capsule_names);
+    // Check whether this function has a streaming adapter (free-function form: owner_type == None).
+    // When it does, override the return type with `AsyncIterator[ItemType]` so the stub matches
+    // the real async iterator emitted by the Rust shim rather than the buffered placeholder type.
+    let streaming_key = (None::<String>, func.name.clone());
+    let return_type = if let Some(item_type) = streaming_return_types.get(&streaming_key) {
+        format!("AsyncIterator[{item_type}]")
+    } else {
+        substitute_capsule_type(&python_type(&func.return_type), capsule_names)
+    };
     let safe_name = python_safe_name(&func.name);
     // pyo3 async functions return a Python awaitable (via `pyo3_async_runtimes::*::future_into_py`),
     // not the bare value. The .pyi stub must reflect that with `async def` so callers using the

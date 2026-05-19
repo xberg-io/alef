@@ -47,6 +47,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-backend-pyo3: .pyi stub generator now emits AsyncIterator[T] return type for streaming methods (was emitting the buffered placeholder return type, mismatching the real async iterator emitted in the Rust shim).** The `gen_stubs` function now builds a lookup from `config.adapters` for `Streaming` pattern entries and overrides the return type of matching methods and free functions. `AsyncIterator` is added to the `from typing import` line automatically when at least one streaming method is present.
+
 - **alef-backend-php: streaming methods now emit a lazy PHP `\Generator` instead of an eager-collected JSON string.** The PHP backend now emits three free functions per streaming adapter (`{owner}_{name}_start`, `_next`, `_free`) that expose an opaque handle to PHP, plus a high-level `public function {method}(...): \Generator` on the owning class that drives the handle via `yield json_decode($chunk, true)`. The originally-emitted eager method body is suppressed for streaming adapters via a `streaming_method_keys` filter in `crates/alef-backend-php/src/gen_bindings/types.rs` so callers see only the Generator. Mirrors the Elixir `Stream.unfold` and Python `AsyncIterator` architectures already in place.
 
 - **alef-adapters: Node streaming methods now return a `#[napi]` iterator class instead of materializing the entire stream into a Vec.** Callers consume items via `await iter.next()` (returns `null` at end-of-stream), matching the existing Python AsyncIterator pattern. The previous behavior collected every chunk into a JS Array eagerly, defeating the point of streaming.
