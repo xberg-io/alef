@@ -315,10 +315,37 @@ fn gen_ruby_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Stri
 // PHP (ext-php-rs)
 // ---------------------------------------------------------------------------
 
+/// Streaming adapter for PHP (ext-php-rs).
+///
+/// Emits a pair of standalone `#[php_function]` functions plus a per-adapter
+/// handle resource. The pair is `{owner_lc}_{name}_start` (returns the opaque handle id)
+/// and `{owner_lc}_{name}_next` (returns chunk JSON or null on end-of-stream).
+/// The PHP wrapper drives the pair via a `Generator` that `yield`s decoded chunks.
+///
+/// The corresponding method on the owner type is suppressed in the PHP backend
+/// (via the `streaming_method_keys` exclusion) to avoid double-emitting for the same method name.
 fn gen_php_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (String, Option<String>) {
     let core_path = &adapter.core_path;
     let item_type = adapter.item_type.as_deref().unwrap_or("()");
+    let error_type = adapter.error_type.as_deref().unwrap_or("anyhow::Error");
     let core_import = config.core_import_name();
+    let owner_type = adapter.owner_type.as_deref().unwrap_or("");
+    let owner_lc = owner_type.to_lowercase();
+    let adapter_name = &adapter.name;
+    let handle_struct = format!("{}{}Handle", to_pascal_case(owner_type), to_pascal_case(adapter_name));
+    let start_fn = format!("{owner_lc}_{adapter_name}_start");
+    let next_fn = format!("{owner_lc}_{adapter_name}_next");
+    let free_fn = format!("{owner_lc}_{adapter_name}_free");
+    let req_param_name = adapter
+        .params
+        .first()
+        .map(|p| p.name.clone())
+        .unwrap_or_else(|| "req".to_string());
+    let req_param_type = adapter
+        .params
+        .first()
+        .map(|p| p.ty.clone())
+        .unwrap_or_else(|| "ext_php_rs::types::ZendObject".to_string());
 
     let args = call_args(adapter);
     let call_str = args.join(", ");
@@ -331,24 +358,92 @@ fn gen_php_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Strin
         format!("{}\n    ", let_bindings.join("\n    "))
     };
 
+    // Stub method body — never used because the PHP backend skips streaming
+    // methods. We keep something compilable in case the suppression is bypassed.
     let body = format!(
-        "use futures_util::StreamExt;\n    \
-         {bindings_block}\
-         WORKER_RUNTIME.block_on(async {{\n        \
-             let stream = self.inner.{core_path}({call_str}).await\n            \
-                 .map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n        \
-             let chunks: Vec<{item_type}> = stream\n            \
-                 .collect::<Vec<_>>().await\n            \
-                 .into_iter()\n            \
-                 .collect::<std::result::Result<Vec<_>, _>>()\n            \
-                 .map(|v| v.into_iter().map({item_type}::from).collect())\n            \
-                 .map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n        \
-             serde_json::to_string(&chunks)\n            \
-                 .map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))\n    \
-         }})"
+        "Err::<String, String>(\"streaming method emitted as standalone functions ({start_fn}/{next_fn}/{free_fn})\".to_string())"
     );
 
-    (body, None)
+    let struct_def = format!(
+        "/// Streaming handle for `{owner_type}::{core_path}` — owns the live `BoxStream` plus any async state.\n\
+         pub struct {handle_struct} {{\n    \
+             stream: std::sync::Mutex<Option<futures_util::stream::BoxStream<'static, std::result::Result<{core_import}::{item_type}, {core_import}::{error_type}>>>>,\n\
+         }}\n\
+         \n\
+         /// Open a streaming `{core_path}` request. Returns an opaque handle (as u64)\n\
+         /// which the PHP wrapper drives via Generator + next calls.\n\
+         #[php_function]\n\
+         pub fn {start_fn}(\n    \
+             resource: ext_php_rs::types::Zval,\n    \
+             {req_param_name}: {req_param_type},\n\
+         ) -> ext_php_rs::prelude::Result<i64> {{\n    \
+             {bindings_block}\
+             let resource_obj = resource.try_into::<{owner_type}>()\n        \
+                 .map_err(|e| ext_php_rs::exception::PhpException::default(format!(\"invalid resource: {{}}\", e)))?;\n    \
+             let stream = WORKER_RUNTIME.block_on(async {{\n        \
+                 resource_obj.inner.{core_path}({call_str}).await\n    \
+             }})\n        \
+                 .map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n    \
+             let handle = {handle_struct} {{\n        \
+                 stream: std::sync::Mutex::new(Some(stream)),\n    \
+             }};\n    \
+             let boxed = Box::new(handle);\n    \
+             let ptr = Box::into_raw(boxed) as u64;\n    \
+             Ok(ptr as i64)\n\
+         }}\n\
+         \n\
+         /// Pull the next chunk from a streaming handle. Returns the chunk JSON\n\
+         /// (to be decoded by the PHP wrapper via `json_decode()`) or null to\n\
+         /// signal end-of-stream. After end-of-stream the inner stream is dropped.\n\
+         #[php_function]\n\
+         pub fn {next_fn}(handle: i64) -> ext_php_rs::prelude::Result<Option<String>> {{\n    \
+             use futures_util::StreamExt;\n    \
+             if handle <= 0 {{\n        \
+                 return Err(ext_php_rs::exception::PhpException::default(\"invalid handle\".to_string()));\n    \
+             }}\n    \
+             let handle_ptr = handle as u64 as *mut {handle_struct};\n    \
+             // SAFETY: caller guarantees `handle_ptr` is valid (returned by {start_fn}) and\n    \
+             // not yet freed. The PHP wrapper owns the handle lifecycle.\n    \
+             let handle_ref = unsafe {{ &*handle_ptr }};\n    \
+             let mut guard = handle_ref.stream.lock()\n        \
+                 .map_err(|_| ext_php_rs::exception::PhpException::default(\"lock failed\".to_string()))?;\n    \
+             let stream_ref = match guard.as_mut() {{\n        \
+                 Some(s) => s,\n        \
+                 None => return Ok(None),\n    \
+             }};\n    \
+             match WORKER_RUNTIME.block_on(stream_ref.next()) {{\n        \
+                 Some(Ok(chunk)) => {{\n            \
+                     let json = serde_json::to_string(&chunk)\n                \
+                         .map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n            \
+                     Ok(Some(json))\n        \
+                 }}\n        \
+                 Some(Err(e)) => {{\n            \
+                     *guard = None;\n            \
+                     Err(ext_php_rs::exception::PhpException::default(e.to_string()))\n        \
+                 }}\n        \
+                 None => {{\n            \
+                     *guard = None;\n            \
+                     Ok(None)\n        \
+                 }}\n    \
+             }}\n\
+         }}\n\
+         \n\
+         /// Free a streaming handle. Must be called after iteration is complete.\n\
+         #[php_function]\n\
+         pub fn {free_fn}(handle: i64) -> ext_php_rs::prelude::Result<()> {{\n    \
+             if handle <= 0 {{\n        \
+                 return Ok(());\n    \
+             }}\n    \
+             let handle_ptr = handle as u64 as *mut {handle_struct};\n    \
+             // SAFETY: caller guarantees `handle_ptr` is valid and this is the only call to free it.\n    \
+             unsafe {{\n        \
+                 drop(Box::from_raw(handle_ptr));\n    \
+             }}\n    \
+             Ok(())\n\
+         }}"
+    );
+
+    (body, Some(struct_def))
 }
 
 // ---------------------------------------------------------------------------

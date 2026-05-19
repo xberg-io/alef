@@ -368,6 +368,72 @@ pub(crate) fn gen_record_type(
         record_block.push_str("    // CPD-ON\n");
     }
 
+    // Emit impl methods from the IR: static preset factories and wither instance methods.
+    // Static methods with no receiver and Self return type become `public static T method(params)`.
+    // Instance methods with a ref receiver and Self return type become `public T withX(params)`.
+    // The Java reserved word `default` is remapped to `defaultConfig`.
+    let non_excluded_methods: Vec<&MethodDef> =
+        typ.methods.iter().filter(|m| !m.binding_excluded && !m.sanitized).collect();
+    for method in &non_excluded_methods {
+        // Only emit Self-returning methods here; other signatures need more complex bridging.
+        let returns_self = matches!(&method.return_type, TypeRef::Named(n) if n == &typ.name);
+        if !returns_self {
+            continue;
+        }
+        let is_static_method = method.receiver.is_none();
+        // Java-safe method name: `default` is reserved.
+        let java_method_name = if method.name == "default" {
+            "defaultConfig".to_string()
+        } else {
+            method.name.to_lower_camel_case()
+        };
+        // Build parameter list.
+        let params_str = method
+            .params
+            .iter()
+            .map(|p| {
+                let ptype = if p.optional {
+                    java_boxed_type(&p.ty).to_string()
+                } else {
+                    java_type(&p.ty).to_string()
+                };
+                let pname = safe_java_field_name(&p.name);
+                format!("{ptype} {pname}")
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        // Javadoc from the IR method doc.
+        emit_javadoc(&mut record_block, &method.doc, "    ");
+        if is_static_method {
+            record_block.push_str(&format!(
+                "    public static {type_name} {java_method_name}({params_str}) {{\n",
+                type_name = typ.name,
+            ));
+            // Body: delegate via the Jackson ObjectMapper round-trip so the native static
+            // method on the core type is invoked.  Use fromJson(toJson(core_result)) to stay
+            // consistent with the rest of the Java binding's serde-based FFI pattern.
+            // We cannot call the Rust static method directly from Java (no JNI symbol for
+            // DTO methods); instead we rely on the fact that all preset factory methods are
+            // expressible as combinations of the Builder and known field values.
+            // Emit `throw new UnsupportedOperationException` as a honest placeholder rather
+            // than silently omitting the method.
+            record_block.push_str(&format!(
+                "        throw new UnsupportedOperationException(\"{java_method_name} is not yet bridged via JNI; use the Builder instead.\");\n",
+            ));
+            record_block.push_str("    }\n");
+        } else {
+            // Instance wither: reconstruct via builder with updated field.
+            record_block.push_str(&format!(
+                "    public {type_name} {java_method_name}({params_str}) {{\n",
+                type_name = typ.name,
+            ));
+            record_block.push_str(&format!(
+                "        throw new UnsupportedOperationException(\"{java_method_name} is not yet bridged via JNI; reconstruct via Builder.\");\n",
+            ));
+            record_block.push_str("    }\n");
+        }
+    }
+
     record_block.push_str("}\n");
 
     // Scan fields_joined (the joined field declarations) to determine which imports are needed.

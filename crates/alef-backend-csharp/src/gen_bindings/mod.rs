@@ -1,9 +1,9 @@
+use alef_codegen::naming::csharp_type_name;
 use alef_codegen::shared::binding_fields;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{AdapterPattern, Language, ResolvedCrateConfig, resolve_output_dir};
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{ApiSurface, FieldDef, TypeRef};
-use heck::ToPascalCase;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
@@ -171,7 +171,7 @@ impl Backend for CsharpBackend {
         let mut files = Vec::new();
 
         // Fallback generic exception class name (used by GetLastError and as base for typed errors)
-        let exception_class_name = format!("{}Exception", api.crate_name.to_pascal_case());
+        let exception_class_name = format!("{}Exception", csharp_type_name(&api.crate_name));
 
         // 1. Generate NativeMethods.cs
         files.push(GeneratedFile {
@@ -223,7 +223,7 @@ impl Backend for CsharpBackend {
         }
 
         // 3. Generate main wrapper class
-        let base_class_name = api.crate_name.to_pascal_case();
+        let base_class_name = csharp_type_name(&api.crate_name);
         let wrapper_class_name = if namespace == base_class_name {
             format!("{}Lib", base_class_name)
         } else {
@@ -350,7 +350,7 @@ impl Backend for CsharpBackend {
         }
 
         // Collect enum names so record generation can distinguish enum fields from class fields.
-        let enum_names: HashSet<String> = api.enums.iter().map(|e| e.name.to_pascal_case()).collect();
+        let enum_names: HashSet<String> = api.enums.iter().map(|e| csharp_type_name(&e.name)).collect();
 
         // Collect all opaque type names (pascal-cased) so methods on one opaque type that
         // return another opaque type are wrapped correctly rather than JSON-serialized.
@@ -358,13 +358,13 @@ impl Backend for CsharpBackend {
             .types
             .iter()
             .filter(|t| t.is_opaque)
-            .map(|t| t.name.to_pascal_case())
+            .map(|t| csharp_type_name(&t.name))
             .collect();
 
         // 4. Generate opaque handle classes
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if typ.is_opaque {
-                let type_filename = typ.name.to_pascal_case();
+                let type_filename = csharp_type_name(&typ.name);
                 let client_ctor = config.client_constructors.get(&typ.name);
                 files.push(GeneratedFile {
                     path: base_path.join(format!("{}.cs", type_filename)),
@@ -397,7 +397,7 @@ impl Backend for CsharpBackend {
             .enums
             .iter()
             .filter(|e| e.serde_tag.is_some() && e.variants.iter().any(|v| !v.fields.is_empty()))
-            .map(|e| e.name.to_pascal_case())
+            .map(|e| csharp_type_name(&e.name))
             .collect();
 
         // Collect enums that require a custom JsonConverter (non-standard serialized names only).
@@ -435,7 +435,7 @@ impl Backend for CsharpBackend {
                     }
                 })
             })
-            .map(|e| e.name.to_pascal_case())
+            .map(|e| csharp_type_name(&e.name))
             .collect();
 
         // Resolve the language-level serde rename_all strategy (always wins over IR type-level).
@@ -456,14 +456,15 @@ impl Backend for CsharpBackend {
                     continue;
                 }
 
-                let type_filename = typ.name.to_pascal_case();
+                let type_filename = csharp_type_name(&typ.name);
                 let excluded_types: HashSet<String> =
-                    api.excluded_type_paths.keys().map(|n| n.to_pascal_case()).collect();
+                    api.excluded_type_paths.keys().map(|n| csharp_type_name(n)).collect();
                 files.push(GeneratedFile {
                     path: base_path.join(format!("{}.cs", type_filename)),
                     content: strip_trailing_whitespace(&types::gen_record_type(
                         typ,
                         &namespace,
+                        &prefix,
                         &enum_names,
                         &complex_enums,
                         &custom_converter_enums,
@@ -484,7 +485,7 @@ impl Backend for CsharpBackend {
             if has_visitor_callbacks && bridge_associated_types.contains(enum_def.name.as_str()) {
                 continue;
             }
-            let enum_filename = enum_def.name.to_pascal_case();
+            let enum_filename = csharp_type_name(&enum_def.name);
             files.push(GeneratedFile {
                 path: base_path.join(format!("{}.cs", enum_filename)),
                 content: strip_trailing_whitespace(&enums::gen_enum(enum_def, &namespace)),
@@ -828,12 +829,12 @@ pub(super) fn emit_named_param_setup(
                 if true_opaque_types.contains(type_name) {
                     continue;
                 }
-                let from_json_method = format!("{}FromJson", type_name.to_pascal_case());
+                let from_json_method = format!("{}FromJson", csharp_type_name(type_name));
 
                 // Config parameters: always treat as optional and default null to new instance
                 let is_config_param = param.name == "config";
                 let param_to_serialize = if is_config_param {
-                    let type_pascal = type_name.to_pascal_case();
+                    let type_pascal = csharp_type_name(type_name);
                     format!("({} ?? new {}())", param_name, type_pascal)
                 } else {
                     param_name.to_string()
@@ -912,7 +913,7 @@ pub(super) fn emit_named_param_teardown(
                     // Caller owns the opaque handle — do not free it here.
                     continue;
                 }
-                let free_method = format!("{}Free", type_name.to_pascal_case());
+                let free_method = format!("{}Free", csharp_type_name(type_name));
                 out.push_str(&crate::template_env::render(
                     "named_param_teardown_free.jinja",
                     minijinja::context! { indent => "        ", free_method => &free_method, handle_var => &handle_var },
@@ -951,7 +952,7 @@ pub(super) fn emit_named_param_teardown_indented(
                     // Caller owns the opaque handle — do not free it here.
                     continue;
                 }
-                let free_method = format!("{}Free", type_name.to_pascal_case());
+                let free_method = format!("{}Free", csharp_type_name(type_name));
                 out.push_str(&crate::template_env::render(
                     "named_param_teardown_free.jinja",
                     minijinja::context! { indent, free_method => &free_method, handle_var => &handle_var },

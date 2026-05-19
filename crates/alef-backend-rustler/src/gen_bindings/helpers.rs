@@ -1309,13 +1309,28 @@ pub(super) fn elixir_typespec(
 }
 
 /// Map a return TypeRef to an Elixir typespec for `@spec` return annotations.
+///
+/// For `Named` types that are in `default_types` (i.e. they are passed *into* NIFs as
+/// JSON strings), the **input** typespec is `String.t() | nil`.  But when such a type
+/// appears as a **return** type the NIF returns the fully-deserialised struct/map —
+/// never a raw JSON string — so the correct return spec is `map()`, not `String.t()`.
 pub(super) fn elixir_return_typespec(
     ty: &TypeRef,
     has_error: bool,
     opaque_types: &AHashSet<String>,
     default_types: &AHashSet<String>,
 ) -> String {
-    let base = elixir_typespec(ty, opaque_types, default_types);
+    // For Named types that belong to default_types: as input they are passed as JSON
+    // strings, but as return values the NIF always deserialises and returns the struct.
+    // Use `map()` instead of `String.t() | nil` to reflect the actual runtime shape.
+    let base = match ty {
+        TypeRef::Named(name) if default_types.contains(name) => "map()".to_string(),
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(name) if default_types.contains(name) => "map() | nil".to_string(),
+            _ => elixir_typespec(ty, opaque_types, default_types),
+        },
+        _ => elixir_typespec(ty, opaque_types, default_types),
+    };
     if has_error {
         format!("{{:ok, {}}} | {{:error, String.t()}}", base)
     } else {

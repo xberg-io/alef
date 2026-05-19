@@ -6,11 +6,11 @@ use super::{
     emit_named_param_teardown_indented, is_tuple_field, returns_ptr,
 };
 use crate::type_map::csharp_type;
-use alef_codegen::naming::to_csharp_name;
+use alef_codegen::naming::{csharp_type_name, to_csharp_name};
 use alef_codegen::shared::binding_fields;
 use alef_core::config::workspace::ClientConstructorConfig;
 use alef_core::ir::{DefaultValue, MethodDef, PrimitiveType, TypeDef, TypeRef};
-use heck::{ToLowerCamelCase, ToPascalCase};
+use heck::ToLowerCamelCase;
 use std::collections::{HashMap, HashSet};
 
 #[allow(clippy::too_many_arguments)]
@@ -52,7 +52,7 @@ pub(super) fn gen_opaque_handle(
                 .iter()
                 .any(|m| m.is_async && !streaming_methods.contains(&m.name)));
 
-    let class_name = typ.name.to_pascal_case();
+    let class_name = csharp_type_name(&typ.name);
     let free_method = format!("{}Free", class_name);
 
     // Prepare doc lines if present
@@ -227,14 +227,14 @@ fn gen_opaque_streaming_method(
 
     let cs_method_name = to_csharp_name(&method.name);
     let cs_type_name = class_name.to_string();
-    let item_pascal = meta.item_type.to_pascal_case();
+    let item_pascal = csharp_type_name(&meta.item_type);
 
     // Resolve the request parameter: first Named parameter is the JSON-serialised request payload.
     // (Streaming adapters in liter-llm pass exactly one `req: ChatCompletionRequest` argument.)
     let req_param = method.params.iter().find(|p| matches!(&p.ty, TypeRef::Named(_)));
     let (req_pascal, req_param_name) = match req_param {
         Some(p) => match &p.ty {
-            TypeRef::Named(n) => (n.to_pascal_case(), p.name.to_lower_camel_case()),
+            TypeRef::Named(n) => (csharp_type_name(n), p.name.to_lower_camel_case()),
             _ => (item_pascal.clone(), "req".to_string()),
         },
         None => (item_pascal.clone(), "req".to_string()),
@@ -578,6 +578,7 @@ fn gen_opaque_method(
 pub(super) fn gen_record_type(
     typ: &TypeDef,
     namespace: &str,
+    prefix: &str,
     enum_names: &HashSet<String>,
     complex_enums: &HashSet<String>,
     custom_converter_enums: &HashSet<String>,
@@ -611,7 +612,7 @@ pub(super) fn gen_record_type(
         ));
     }
 
-    let class_name = typ.name.to_pascal_case();
+    let class_name = csharp_type_name(&typ.name);
     out.push_str(&render("record_class_header.jinja", minijinja::context! { class_name }));
     out.push_str("{\n");
 
@@ -653,9 +654,9 @@ pub(super) fn gen_record_type(
         // [JsonConverter] attribute. This ensures the custom converter takes precedence
         // over the global JsonStringEnumConverter registered in JsonSerializerOptions.
         let field_base_type = match &field.ty {
-            TypeRef::Named(n) => Some(n.to_pascal_case()),
+            TypeRef::Named(n) => Some(csharp_type_name(n)),
             TypeRef::Optional(inner) => match inner.as_ref() {
-                TypeRef::Named(n) => Some(n.to_pascal_case()),
+                TypeRef::Named(n) => Some(csharp_type_name(n)),
                 _ => None,
             },
             _ => None,
@@ -707,7 +708,7 @@ pub(super) fn gen_record_type(
         // an excluded type (marked with #[alef(skip)] or #[doc(hidden)]).
         // These can't be simple C# enums — use JsonElement for flexible deserialization.
         let is_complex = matches!(&field.ty, TypeRef::Named(n) if {
-            let pascal = n.to_pascal_case();
+            let pascal = csharp_type_name(n);
             complex_enums.contains(&pascal) || excluded_types.contains(&pascal)
         });
 
@@ -790,7 +791,7 @@ pub(super) fn gen_record_type(
                     // collapsed to its serde JSON tag), emit the variant tag as a string literal
                     // rather than `string.VariantName` which would resolve to a missing static.
                     if base_type == "string" || base_type == "string?" {
-                        format!("\"{}\"", v.to_pascal_case())
+                        format!("\"{}\"", to_csharp_name(v))
                     } else if base_type == "JsonElement" || base_type == "JsonElement?" {
                         // Complex enums mapped to JsonElement have no static variant members —
                         // default to null so the field is left unset (deserialized from JSON).
@@ -804,9 +805,9 @@ pub(super) fn gen_record_type(
                         // valid in the given context").
                         let base_naked = base_type.trim_end_matches('?');
                         if tagged_union_enums.contains(base_naked) {
-                            format!("new {}.{}()", base_naked, v.to_pascal_case())
+                            format!("new {}.{}()", base_naked, to_csharp_name(v))
                         } else {
-                            format!("{}.{}", base_type, v.to_pascal_case())
+                            format!("{}.{}", base_type, to_csharp_name(v))
                         }
                     }
                 }
@@ -824,7 +825,7 @@ pub(super) fn gen_record_type(
                         _ => "0".to_string(),
                     },
                     TypeRef::Named(name) => {
-                        let pascal = name.to_pascal_case();
+                        let pascal = csharp_type_name(name);
                         if complex_enums.contains(&pascal) {
                             // Tagged unions (complex enums) should default to null
                             "null".to_string()
@@ -965,9 +966,149 @@ pub(super) fn gen_record_type(
     out.push_str("        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },\n");
     out.push_str("    };\n");
 
+    // Emit record-level methods (static factories and instance withers).
+    // These supersede the IntPtr-leaking counterparts on the static wrapper class:
+    //   - Static method (no receiver)  → `public static ClassName Method(params)`
+    //   - Instance method (has receiver) → `public ClassName Method(params)` serialising `this`
+    emit_record_methods(&mut out, typ, &class_name, prefix, exception_class);
+
     out.push_str("}\n");
 
     out
+}
+
+/// Emit record-level method wrappers for a DTO (non-opaque) type.
+///
+/// Static factories (no `self` receiver) are emitted as `public static {Class} Method(...)`.
+/// Instance withers (`&self` receiver returning `Self`) are emitted as `public {Class} Method(...)`.
+///
+/// Both patterns serialise the DTO to JSON, call the FFI shim via `NativeMethods`, then
+/// deserialise the returned JSON back to the record type — keeping the `IntPtr` entirely
+/// internal to this method body and invisible to callers.
+fn emit_record_methods(out: &mut String, typ: &TypeDef, class_name: &str, _prefix: &str, exception_class: &str) {
+    let native_type_prefix = class_name;
+
+    for method in &typ.methods {
+        let method_cs_name = to_csharp_name(&method.name);
+        // NativeMethods follows the pattern {TypeName}{MethodName}
+        let native_method_name = format!("{native_type_prefix}{method_cs_name}");
+        let has_receiver = method.receiver.is_some();
+
+        // Build param list for signature and call args.
+        let params_sig: Vec<String> = method
+            .params
+            .iter()
+            .map(|p| {
+                let pname = p.name.to_lower_camel_case();
+                let ptype = if p.optional {
+                    let t = csharp_type(&p.ty);
+                    if t.ends_with('?') { t } else { format!("{t}?") }
+                } else {
+                    csharp_type(&p.ty).to_string()
+                };
+                format!("{ptype} {pname}")
+            })
+            .collect();
+
+        // Doc comment
+        if !method.doc.is_empty() {
+            let first_line = method.doc.lines().next().unwrap_or("").replace('"', "\\\"");
+            out.push_str(&format!("\n    /// <summary>\n    /// {first_line}\n    /// </summary>\n"));
+        } else {
+            out.push('\n');
+        }
+
+        if has_receiver {
+            // Instance wither: `public ClassName Method(params)`
+            out.push_str(&format!("    public {class_name} {method_cs_name}("));
+        } else {
+            // Static factory: `public static ClassName Method(params)`
+            out.push_str(&format!("    public static {class_name} {method_cs_name}("));
+        }
+
+        out.push_str(&params_sig.join(", "));
+        out.push_str(")\n    {\n");
+
+        if method.error_type.is_some() {
+            // Methods that may fail: wrap in try/catch and surface as exception.
+            if has_receiver {
+                // Obtain handle by serialising this instance.
+                out.push_str(&format!(
+                    "        var selfJson = JsonSerializer.Serialize(this, JsonOptions);\n\
+                             var selfHandle = NativeMethods.{native_type_prefix}FromJson(selfJson);\n\
+                             if (selfHandle == global::System.IntPtr.Zero) throw new {exception_class}(\"Failed to serialise {class_name}\");\n\
+                             try\n        {{\n"
+                ));
+                let mut call_args = vec!["selfHandle".to_string()];
+                call_args.extend(method.params.iter().map(|p| p.name.to_lower_camel_case().to_string()));
+                let args_str = call_args.join(", ");
+                out.push_str(&format!(
+                    "            var nativeResult = NativeMethods.{native_method_name}({args_str});\n\
+                                 if (nativeResult == global::System.IntPtr.Zero) throw new {exception_class}(\"Method {method_cs_name} failed\");\n"
+                ));
+                out.push_str(&format!(
+                    "            var jsonPtr = NativeMethods.{native_type_prefix}ToJson(nativeResult);\n\
+                                 var json = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(jsonPtr);\n\
+                                 NativeMethods.FreeString(jsonPtr);\n\
+                                 NativeMethods.{native_type_prefix}Free(nativeResult);\n\
+                                 return JsonSerializer.Deserialize<{class_name}>(json ?? \"null\", JsonOptions)!;\n\
+                         }}\n\
+                         finally\n        {{\n\
+                             NativeMethods.{native_type_prefix}Free(selfHandle);\n\
+                         }}\n"
+                ));
+            } else {
+                let call_args: Vec<String> = method.params.iter().map(|p| p.name.to_lower_camel_case().to_string()).collect();
+                let args_str = call_args.join(", ");
+                out.push_str(&format!(
+                    "        var nativeResult = NativeMethods.{native_method_name}({args_str});\n\
+                             if (nativeResult == global::System.IntPtr.Zero) throw new {exception_class}(\"Method {method_cs_name} failed\");\n\
+                             var jsonPtr = NativeMethods.{native_type_prefix}ToJson(nativeResult);\n\
+                             var json = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(jsonPtr);\n\
+                             NativeMethods.FreeString(jsonPtr);\n\
+                             NativeMethods.{native_type_prefix}Free(nativeResult);\n\
+                             return JsonSerializer.Deserialize<{class_name}>(json ?? \"null\", JsonOptions)!;\n"
+                ));
+            }
+        } else {
+            // Infallible methods (no error_type).
+            if has_receiver {
+                out.push_str(&format!(
+                    "        var selfJson = JsonSerializer.Serialize(this, JsonOptions);\n\
+                             var selfHandle = NativeMethods.{native_type_prefix}FromJson(selfJson);\n\
+                             try\n        {{\n"
+                ));
+                let mut call_args = vec!["selfHandle".to_string()];
+                call_args.extend(method.params.iter().map(|p| p.name.to_lower_camel_case().to_string()));
+                let args_str = call_args.join(", ");
+                out.push_str(&format!(
+                    "            var nativeResult = NativeMethods.{native_method_name}({args_str});\n\
+                                 var jsonPtr = NativeMethods.{native_type_prefix}ToJson(nativeResult);\n\
+                                 var json = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(jsonPtr);\n\
+                                 NativeMethods.FreeString(jsonPtr);\n\
+                                 NativeMethods.{native_type_prefix}Free(nativeResult);\n\
+                                 return JsonSerializer.Deserialize<{class_name}>(json ?? \"null\", JsonOptions)!;\n\
+                         }}\n\
+                         finally\n        {{\n\
+                             NativeMethods.{native_type_prefix}Free(selfHandle);\n\
+                         }}\n"
+                ));
+            } else {
+                let call_args: Vec<String> = method.params.iter().map(|p| p.name.to_lower_camel_case().to_string()).collect();
+                let args_str = call_args.join(", ");
+                out.push_str(&format!(
+                    "        var nativeResult = NativeMethods.{native_method_name}({args_str});\n\
+                             var jsonPtr = NativeMethods.{native_type_prefix}ToJson(nativeResult);\n\
+                             var json = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(jsonPtr);\n\
+                             NativeMethods.FreeString(jsonPtr);\n\
+                             NativeMethods.{native_type_prefix}Free(nativeResult);\n\
+                             return JsonSerializer.Deserialize<{class_name}>(json ?? \"null\", JsonOptions)!;\n"
+                ));
+            }
+        }
+
+        out.push_str("    }\n");
+    }
 }
 
 /// Generate a `ByteArrayToIntArrayConverter` class for the given namespace.

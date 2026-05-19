@@ -683,7 +683,12 @@ fn gen_go_file(
             continue;
         }
         for method in &typ.methods {
-            if method.is_static && matches!(method.return_type, TypeRef::Named(_)) {
+            // For opaque types skip static methods that return Named types — the opaque
+            // handle conversion pipeline is not implemented for those. For non-opaque DTO
+            // types, static preset constructors (e.g. All(), Minimal(), Default()) are
+            // emitted as package-level free functions via gen_method_wrapper and must not
+            // be suppressed.
+            if typ.is_opaque && method.is_static && matches!(method.return_type, TypeRef::Named(_)) {
                 continue;
             }
             if let Some(item_type) = streaming_methods.get(&(typ.name.clone(), method.name.clone())) {

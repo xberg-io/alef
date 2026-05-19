@@ -7,10 +7,10 @@
 //! 4. Static registration helpers: `RegisterOcrBackend(IOcrBackend impl)`, `UnregisterOcrBackend(string name)`
 
 use crate::type_map::csharp_type;
-use alef_codegen::naming::to_csharp_name;
+use alef_codegen::naming::{csharp_type_name, to_csharp_name};
 use alef_core::config::{BridgeBinding, TraitBridgeConfig};
 use alef_core::ir::{TypeDef, TypeRef};
-use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
+use heck::{ToLowerCamelCase, ToSnakeCase};
 use std::collections::HashSet;
 
 /// Maps a TypeRef to its C# representation, substituting non-visible Named types with string.
@@ -161,7 +161,7 @@ fn gen_single_trait_bridge(
     use crate::template_env::render;
     use minijinja::Value;
 
-    let trait_pascal = trait_name.to_pascal_case();
+    let trait_pascal = csharp_type_name(trait_name);
     let _trait_snake = trait_name.to_snake_case();
     let has_super_trait = bridge_cfg.super_trait.is_some();
     let has_bytes_param = trait_def

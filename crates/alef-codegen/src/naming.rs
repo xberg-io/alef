@@ -25,21 +25,21 @@ pub fn to_elixir_name(name: &str) -> String {
     name.to_snake_case()
 }
 
-/// Well-known Go acronyms that must be fully uppercased per Go naming conventions.
+/// Well-known initialisms that must be fully uppercased per Go and C# naming conventions.
 /// See: https://go.dev/wiki/CodeReviewComments#initialisms
-const GO_ACRONYMS: &[&str] = &[
-    "API", "ASCII", "CPU", "CSS", "DNS", "EOF", "FTP", "GID", "GUI", "HTML", "HTTP", "HTTPS", "ID", "IMAP", "IP",
-    "JSON", "LHS", "MFA", "POP", "QPS", "RAM", "RHS", "RPC", "SLA", "SMTP", "SQL", "SSH", "SSL", "TCP", "TLS", "TTL",
-    "UDP", "UI", "UID", "UUID", "URI", "URL", "UTF8", "VM", "XML", "XMPP", "XSRF", "XSS",
+const INITIALISMS: &[&str] = &[
+    "API", "ASCII", "CPU", "CSS", "DNS", "EOF", "FTP", "GID", "GraphQL", "GUI", "HTML", "HTTP", "HTTPS", "ID", "IMAP",
+    "IP", "JSON", "LHS", "MFA", "POP", "QPS", "RAM", "RHS", "RPC", "SLA", "SMTP", "SQL", "SSH", "SSL", "TCP", "TLS",
+    "TTL", "UDP", "UI", "UID", "UUID", "URI", "URL", "UTF8", "VM", "XML", "XMPP", "XSRF", "XSS",
 ];
 
-/// Apply Go acronym uppercasing to a PascalCase name.
+/// Apply initialism uppercasing to a PascalCase name using the provided list.
 ///
 /// Scans word boundaries in the PascalCase string and replaces any run of
-/// characters that matches a known Go acronym (case-insensitively) with the
-/// all-caps form. For example `ImageUrl` becomes `ImageURL` and `UserId`
-/// becomes `UserID`.
-fn apply_go_acronyms(name: &str) -> String {
+/// characters that matches a known initialism (case-insensitively) with the
+/// canonical form from the list. For example `ImageUrl` becomes `ImageURL`,
+/// `UserId` becomes `UserID`, and `GraphQlRouteConfig` becomes `GraphQLRouteConfig`.
+fn apply_initialisms(name: &str, list: &[&str]) -> String {
     if name.is_empty() {
         return name.to_string();
     }
@@ -57,22 +57,40 @@ fn apply_go_acronyms(name: &str) -> String {
     }
     words.push(&name[word_start..]);
 
-    // For each word, check if it matches a known acronym (case-insensitive).
+    // For each word, check if it matches a known initialism (case-insensitive).
     let mut result = String::with_capacity(name.len());
     let mut i = 0;
     while i < words.len() {
-        // Try to match as many consecutive words as possible to a single acronym
-        // (handles acronyms like "UTF8" which span one word but look like two parts).
-        let word = words[i];
-        let upper = word.to_ascii_uppercase();
-        if GO_ACRONYMS.contains(&upper.as_str()) {
-            result.push_str(&upper);
-        } else {
-            result.push_str(word);
+        // Try to match the longest possible span of consecutive words to a known initialism
+        // (longest-match first). This handles multi-segment initialisms like "GraphQL" which
+        // heck splits into "Graph" + "Ql".
+        let mut matched = false;
+        for span in (1..=(words.len() - i)).rev() {
+            let candidate: String = words[i..i + span].concat();
+            let candidate_upper = candidate.to_ascii_uppercase();
+            if let Some(&canonical) = list.iter().find(|&&s| s.to_ascii_uppercase() == candidate_upper) {
+                result.push_str(canonical);
+                i += span;
+                matched = true;
+                break;
+            }
         }
-        i += 1;
+        if !matched {
+            result.push_str(words[i]);
+            i += 1;
+        }
     }
     result
+}
+
+/// Apply Go initialism uppercasing to a PascalCase name.
+///
+/// Scans word boundaries in the PascalCase string and replaces any run of
+/// characters that matches a known initialism (case-insensitively) with the
+/// all-caps form. For example `ImageUrl` becomes `ImageURL` and `UserId`
+/// becomes `UserID`.
+fn apply_go_acronyms(name: &str) -> String {
+    apply_initialisms(name, INITIALISMS)
 }
 
 /// Convert a Rust snake_case name to Go PascalCase convention with acronym uppercasing.
@@ -150,9 +168,28 @@ pub fn to_java_name(name: &str) -> String {
     name.to_lower_camel_case()
 }
 
-/// Convert a Rust snake_case name to C# PascalCase convention.
+/// Convert a Rust snake_case name to C# PascalCase convention with initialism uppercasing.
+///
+/// Converts snake_case to PascalCase via `heck` and then restores known initialisms so that
+/// e.g. `graphql_route_config` → `GraphQLRouteConfig` (not `GraphqlRouteConfig`) and
+/// `http_status` → `HTTPStatus` (not `HttpStatus`).
 pub fn to_csharp_name(name: &str) -> String {
-    name.to_pascal_case()
+    apply_initialisms(&name.to_pascal_case(), INITIALISMS)
+}
+
+/// Apply initialism uppercasing to a name that is already in PascalCase (e.g. an IR type name).
+///
+/// IR type names come directly from Rust PascalCase (e.g. `GraphQLRouteConfig`, `ImageUrl`).
+/// When such names have been processed by `heck::ToPascalCase` they may lose initialism
+/// capitalisation (e.g. `GraphQLRouteConfig` → `GraphQlRouteConfig`). This function restores
+/// the canonical form regardless of whether the input is already correct or heck-corrupted.
+///
+/// Examples:
+/// - `GraphQlRouteConfig`   → `GraphQLRouteConfig`
+/// - `GraphQLRouteConfig`   → `GraphQLRouteConfig`  (idempotent)
+/// - `HttpStatus`           → `HTTPStatus`
+pub fn csharp_type_name(name: &str) -> String {
+    apply_initialisms(name, INITIALISMS)
 }
 
 /// Convert a Rust name to a C-style prefixed snake_case identifier (e.g. `prefix_name`).
@@ -384,5 +421,41 @@ mod tests {
     #[test]
     fn pascal_to_screaming_snake_my_type() {
         assert_eq!(pascal_to_screaming_snake("MyType"), "MY_TYPE");
+    }
+
+    // --- to_csharp_name (snake_case → C# PascalCase with initialism uppercasing) ---
+
+    #[test]
+    fn test_to_csharp_name_graphql_route_config() {
+        assert_eq!(to_csharp_name("graphql_route_config"), "GraphQLRouteConfig");
+    }
+
+    #[test]
+    fn test_to_csharp_name_http_status() {
+        assert_eq!(to_csharp_name("http_status"), "HTTPStatus");
+    }
+
+    #[test]
+    fn test_to_csharp_name_plain() {
+        assert_eq!(to_csharp_name("my_field"), "MyField");
+    }
+
+    // --- csharp_type_name (PascalCase → C# PascalCase with initialism uppercasing) ---
+
+    #[test]
+    fn test_csharp_type_name_heck_corrupted() {
+        // heck produces "GraphQlRouteConfig" from "GraphQLRouteConfig" — we must restore it
+        assert_eq!(csharp_type_name("GraphQlRouteConfig"), "GraphQLRouteConfig");
+    }
+
+    #[test]
+    fn test_csharp_type_name_already_correct() {
+        // Input that already has the correct form is preserved idempotently
+        assert_eq!(csharp_type_name("GraphQLRouteConfig"), "GraphQLRouteConfig");
+    }
+
+    #[test]
+    fn test_csharp_type_name_http_status() {
+        assert_eq!(csharp_type_name("HttpStatus"), "HTTPStatus");
     }
 }

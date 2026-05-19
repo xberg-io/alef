@@ -34,7 +34,7 @@ fn sanitize_php_enum_case(name: &str) -> String {
 use helpers::{gen_enum_tainted_from_binding_to_core, gen_tokio_runtime, has_enum_named_field, references_named_type};
 use types::{
     gen_enum_constants, gen_flat_data_enum, gen_flat_data_enum_from_impls, gen_flat_data_enum_methods,
-    gen_opaque_struct_methods, gen_php_struct, is_tagged_data_enum, is_untagged_data_enum,
+    gen_php_struct, is_tagged_data_enum, is_untagged_data_enum,
 };
 
 pub struct PhpBackend;
@@ -264,6 +264,17 @@ impl Backend for PhpBackend {
         // Build adapter body map before type iteration so bodies are available for method generation.
         let adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::Php)?;
 
+        // Streaming-adapter method keys ("Owner.method_name") — these methods are emitted
+        // as a triple of standalone functions (start/next/free) from the adapter struct hook, so the
+        // regular method-iteration loop must skip them to avoid double-emitting a function
+        // with the same name.
+        let streaming_method_keys: AHashSet<String> = config
+            .adapters
+            .iter()
+            .filter(|a| matches!(a.pattern, alef_core::config::AdapterPattern::Streaming))
+            .filter_map(|a| a.owner_type.as_deref().map(|owner| format!("{owner}.{}", a.name)))
+            .collect();
+
         // Emit adapter-generated standalone items (streaming iterators, callback bridges).
         for adapter in &config.adapters {
             match adapter.pattern {
@@ -304,13 +315,14 @@ impl Backend for PhpBackend {
                     ..cfg
                 };
                 builder.add_item(&generators::gen_opaque_struct(typ, &opaque_cfg));
-                builder.add_item(&gen_opaque_struct_methods(
+                builder.add_item(&types::gen_opaque_struct_methods_with_exclude(
                     typ,
                     &mapper,
                     &opaque_types,
                     &core_import,
                     &adapter_bodies,
                     &mutex_types,
+                    &streaming_method_keys,
                 ));
                 // Client constructor — emit a #[php_method] impl
                 if let Some(ctor) = config.client_constructors.get(&typ.name) {
@@ -1046,6 +1058,44 @@ impl Backend for PhpBackend {
                 "php_constructor_method.jinja",
                 context! { params => &params.join(",\n") },
             ));
+
+            // Emit method stubs for impl methods declared on this DTO type.
+            // PHPStan can only see methods that appear in the stub; without these,
+            // static preset factories (e.g. `all()`, `minimal()`) and withers
+            // (e.g. `withChunking()`) are flagged as "Call to undefined method".
+            let non_excluded_methods: Vec<&alef_core::ir::MethodDef> =
+                typ.methods.iter().filter(|m| !m.binding_excluded && !m.sanitized).collect();
+            for method in non_excluded_methods {
+                let method_name = method.name.to_lower_camel_case();
+                let is_static = method.receiver.is_none();
+                let return_type = php_type(&method.return_type);
+                let first_optional_idx = method.params.iter().position(|p| p.optional);
+                let params: Vec<String> = method
+                    .params
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, p)| {
+                        let ptype = php_type(&p.ty);
+                        if p.optional || first_optional_idx.is_some_and(|first| idx >= first) {
+                            let nullable = if ptype.starts_with('?') { "" } else { "?" };
+                            format!("{nullable}{ptype} ${} = null", p.name)
+                        } else {
+                            format!("{} ${}", ptype, p.name)
+                        }
+                    })
+                    .collect();
+                let static_kw = if is_static { "static " } else { "" };
+                let is_void = matches!(&method.return_type, TypeRef::Unit);
+                let stub_body = if is_void {
+                    "{ }".to_string()
+                } else {
+                    "{ throw new \\RuntimeException('Not implemented — provided by the native extension.'); }".to_string()
+                };
+                content.push_str(&format!(
+                    "    public {static_kw}function {method_name}({}): {return_type}\n    {stub_body}\n",
+                    params.join(", ")
+                ));
+            }
 
             content.push_str("}\n\n");
         }

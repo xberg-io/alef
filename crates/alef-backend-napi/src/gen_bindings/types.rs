@@ -626,6 +626,154 @@ pub(super) fn gen_static_method(
     )
 }
 
+/// Generate standalone `#[napi]` free functions for DTO (non-opaque) impl methods.
+///
+/// `#[napi(object)]` structs cannot have `#[napi]` impl blocks — NAPI-RS enforces this.
+/// The idiomatic workaround is to surface the methods as module-level free functions
+/// whose `js_name` encodes the type name as a namespace prefix.  NAPI-RS emits them in
+/// `index.d.ts` as top-level exports; callers group them via a TypeScript value-namespace
+/// declaration (`export const ProcessConfig = { all, minimal, default: defaultConfig, … }`).
+///
+/// Naming convention:
+/// - static (no receiver): `{type_name}_{method_name}` → camelCase JS `{typeName}{MethodName}`
+/// - instance wither (&self, → Self): `{type_name}_{method_name}` same scheme but receives
+///   the instance as an extra first param (JS: `processConfigWithChunking(cfg, n)`)
+pub(super) fn gen_dto_method_fns(
+    typ: &TypeDef,
+    mapper: &NapiMapper,
+    cfg: &alef_codegen::generators::RustBindingConfig<'_>,
+    opaque_types: &ahash::AHashSet<String>,
+    prefix: &str,
+    mutex_types: &ahash::AHashSet<String>,
+) -> String {
+    let methods: Vec<&alef_core::ir::MethodDef> = typ
+        .methods
+        .iter()
+        .filter(|m| !m.binding_excluded && !m.sanitized)
+        .collect();
+    if methods.is_empty() {
+        return String::new();
+    }
+
+    let core_type_path = typ.rust_path.replace('-', "_");
+    let type_js_name = to_node_name(&typ.name);
+    let mut out = String::new();
+
+    for method in methods {
+        // Only emit Self-returning methods; other signatures are currently out of scope
+        // for this DTO namespace approach.
+        let returns_self = matches!(&method.return_type, TypeRef::Named(n) if n == &typ.name);
+        if !returns_self {
+            continue;
+        }
+
+        let is_static = method.receiver.is_none();
+        let method_js = to_node_name(&method.name);
+        // JS name: e.g. `processConfigAll`, `processConfigWithChunking`
+        let js_name_upper = {
+            let mut s = method_js.clone();
+            if let Some(first) = s.get_mut(0..1) {
+                first.make_ascii_uppercase();
+            }
+            s
+        };
+        let full_js_name = format!("{type_js_name}{js_name_upper}");
+        let full_rust_name = format!("{}_{}", heck::AsSnakeCase(&typ.name), heck::AsSnakeCase(&method.name));
+
+        // The binding DTO type name (Js-prefixed if prefix is non-empty).
+        let binding_type = format!("{prefix}{}", typ.name);
+        let return_annotation = mapper.map_type(&method.return_type);
+        let return_annotation = mapper.wrap_return(&return_annotation, method.error_type.is_some());
+
+        // Build parameter list.  For instance withers, the receiver struct is the first param.
+        let mut param_parts: Vec<String> = vec![];
+        if !is_static {
+            param_parts.push(format!("cfg: {binding_type}"));
+        }
+        for p in &method.params {
+            let ptype = mapper.map_type(&p.ty);
+            let ptype = if p.optional { format!("Option<{ptype}>") } else { ptype };
+            param_parts.push(format!("{}: {}", p.name, ptype));
+        }
+        let params_str = param_parts.join(", ");
+
+        // Build the core call arguments.
+        let call_args: Vec<String> = method
+            .params
+            .iter()
+            .map(|p| {
+                let go = napi_gen_call_args(&[p.clone()], opaque_types);
+                go
+            })
+            .collect();
+        let call_args_str = call_args.join(", ");
+
+        // Build the function body.
+        let body = if is_static {
+            // Static preset: call core::TypeName::method(args) and wrap into binding type.
+            let core_call = format!("{core_type_path}::{}({call_args_str})", method.name);
+            napi_wrap_return(
+                &core_call,
+                &method.return_type,
+                &typ.name,
+                opaque_types,
+                false,
+                method.returns_ref,
+                prefix,
+                mutex_types,
+            )
+        } else {
+            // Wither: convert cfg back to core, call method, convert result back to binding.
+            let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))";
+            if cfg.has_serde {
+                // Round-trip through serde JSON: binding → JSON → core, call method, core → binding
+                let indent = "    ";
+                let core_ty = &core_type_path;
+                let mut body_parts = String::new();
+                body_parts.push_str(&format!("{indent}let _json = serde_json::to_string(&cfg){err_conv}?;\n"));
+                body_parts.push_str(&format!(
+                    "{indent}let _core: {core_ty} = serde_json::from_str(&_json){err_conv}?;\n"
+                ));
+                body_parts.push_str(&format!(
+                    "{indent}let _result = _core.{}({call_args_str});\n",
+                    method.name
+                ));
+                body_parts.push_str(&format!(
+                    "{indent}let _out_json = serde_json::to_string(&_result){err_conv}?;\n"
+                ));
+                body_parts.push_str(&format!(
+                    "{indent}serde_json::from_str(&_out_json){err_conv}"
+                ));
+                body_parts
+            } else {
+                format!(
+                    "    todo!(\"wither {} requires serde to round-trip through JSON\")",
+                    method.name
+                )
+            }
+        };
+
+        // Emit the function.
+        let mut attrs = String::new();
+        alef_codegen::doc_emission::emit_rustdoc(&mut attrs, &method.doc, "");
+        if method.error_type.is_some() || !is_static {
+            attrs.push_str("#[allow(clippy::missing_errors_doc)]\n");
+        }
+        let returns_result = method.error_type.is_some() || !is_static;
+        let final_return_ann = if returns_result && !return_annotation.starts_with("napi::Result") {
+            format!("napi::Result<{return_annotation}>")
+        } else {
+            return_annotation.clone()
+        };
+
+        out.push_str(&format!(
+            "{attrs}#[napi(js_name = \"{full_js_name}\")]\npub fn {full_rust_name}({params_str}) -> {final_return_ann} {{\n{body}\n}}\n\n",
+        ));
+    }
+
+    out
+}
+
 /// Generate a NAPI enum definition using string_enum with Js prefix.
 /// Generate a NAPI enum definition.
 /// For simple enums (no variant fields): generates `#[napi(string_enum)]`.

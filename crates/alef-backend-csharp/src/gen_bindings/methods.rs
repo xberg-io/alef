@@ -9,9 +9,9 @@ use super::{
 use crate::type_map::csharp_type;
 use alef_codegen::doc_emission;
 use alef_codegen::generators::trait_bridge::find_bridge_field;
-use alef_codegen::naming::to_csharp_name;
+use alef_codegen::naming::{csharp_type_name, to_csharp_name};
 use alef_core::ir::{ApiSurface, FunctionDef, MethodDef, TypeRef};
-use heck::{ToLowerCamelCase, ToPascalCase};
+use heck::ToLowerCamelCase;
 use std::collections::{HashMap, HashSet};
 
 #[allow(clippy::too_many_arguments)]
@@ -46,7 +46,7 @@ pub(super) fn gen_wrapper_class(
     out.push('\n');
 
     // Enum names: used to distinguish opaque struct handles from enum return types.
-    let enum_names: HashSet<String> = api.enums.iter().map(|e| e.name.to_pascal_case()).collect();
+    let enum_names: HashSet<String> = api.enums.iter().map(|e| csharp_type_name(&e.name)).collect();
 
     // Truly opaque types (is_opaque = true) — returned/passed as handles, no JSON serialization.
     let true_opaque_types: HashSet<String> = api
@@ -853,7 +853,7 @@ fn gen_wrapper_method(
         }
     }
 
-    let cs_native_name = format!("{}{}", type_name.to_pascal_case(), to_csharp_name(&method.name));
+    let cs_native_name = format!("{}{}", csharp_type_name(type_name), to_csharp_name(&method.name));
 
     // Result<Vec<u8>> uses the out-param convention — emit specialized body and return early.
     if is_bytes_result_method(method) {

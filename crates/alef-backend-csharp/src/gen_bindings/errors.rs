@@ -85,7 +85,7 @@ pub(super) fn emit_return_marshalling_indented(
     use super::{returns_bool_via_int, returns_json_object, returns_string};
     use crate::template_env::render;
     use crate::type_map::csharp_type;
-    use heck::ToPascalCase;
+    use alef_codegen::naming::csharp_type_name;
 
     if *return_type == TypeRef::Unit {
         return;
@@ -99,7 +99,7 @@ pub(super) fn emit_return_marshalling_indented(
         // C int → bool
         out.push_str(&render("return_bool_from_int.jinja", minijinja::context! { indent }));
     } else if let TypeRef::Named(type_name) = return_type {
-        let pascal = type_name.to_pascal_case();
+        let pascal = csharp_type_name(type_name);
         if true_opaque_types.contains(type_name)
             || true_opaque_types.contains(&pascal)
             || handle_returned_types.contains(type_name)
@@ -163,7 +163,7 @@ pub(super) fn emit_return_marshalling_indented(
             // Optional<Named<T>>: route either through the opaque-handle wrapper (no serde)
             // or through the to_json round-trip (serde-capable data struct returned as *mut T).
             if let TypeRef::Named(type_name) = inner.as_ref() {
-                let pascal = type_name.to_pascal_case();
+                let pascal = csharp_type_name(type_name);
                 if true_opaque_types.contains(type_name)
                     || true_opaque_types.contains(&pascal)
                     || handle_returned_types.contains(type_name)

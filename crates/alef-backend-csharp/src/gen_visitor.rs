@@ -72,15 +72,15 @@ fn snake_to_lower_camel(s: &str) -> String {
 /// expressions) from `TypeRef` + `optional` flag. Methods with unsupported parameter
 /// types are skipped with a warning.
 pub(crate) fn callback_specs_from_trait(trait_def: &alef_core::ir::TypeDef) -> Vec<CallbackSpec> {
+    use alef_codegen::naming::to_csharp_name;
     use alef_core::ir::{PrimitiveType, TypeRef};
-    use heck::ToPascalCase;
 
     let mut specs = Vec::with_capacity(trait_def.methods.len());
     'methods: for m in &trait_def.methods {
         if m.trait_source.is_some() {
             continue;
         }
-        let cs_method = m.name.to_pascal_case();
+        let cs_method = to_csharp_name(&m.name);
         let first_line = m.doc.lines().next().unwrap_or("").trim().to_string();
         let doc = if first_line.is_empty() {
             format!("Called for {} elements.", m.name.replace('_', " "))

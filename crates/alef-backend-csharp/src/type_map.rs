@@ -1,8 +1,8 @@
 use std::borrow::Cow;
 
+use alef_codegen::naming::csharp_type_name;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::ir::{PrimitiveType, TypeRef};
-use heck::ToPascalCase;
 
 /// TypeMapper for C# bindings.
 ///
@@ -70,7 +70,7 @@ impl TypeMapper for CsharpMapper {
     }
 
     fn named<'a>(&self, name: &'a str) -> Cow<'a, str> {
-        Cow::Owned(name.to_pascal_case())
+        Cow::Owned(csharp_type_name(name))
     }
 
     fn error_wrapper(&self) -> &str {
@@ -178,9 +178,19 @@ mod tests {
     #[test]
     fn test_named() {
         assert_eq!(CsharpMapper.map_type(&TypeRef::Named("MyType".to_string())), "MyType");
+        // IR type names in PascalCase are preserved with initialism uppercasing.
         assert_eq!(
             CsharpMapper.map_type(&TypeRef::Named("GraphQLRouteConfig".to_string())),
-            "GraphQlRouteConfig"
+            "GraphQLRouteConfig"
+        );
+        // heck-corrupted input is restored to canonical initialism form.
+        assert_eq!(
+            CsharpMapper.map_type(&TypeRef::Named("GraphQlRouteConfig".to_string())),
+            "GraphQLRouteConfig"
+        );
+        assert_eq!(
+            CsharpMapper.map_type(&TypeRef::Named("HttpStatus".to_string())),
+            "HTTPStatus"
         );
     }
 

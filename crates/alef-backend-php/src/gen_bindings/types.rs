@@ -51,14 +51,15 @@ fn is_php_copy_type(ty: &TypeRef) -> bool {
     }
 }
 
-/// Generate ext-php-rs methods for an opaque struct (delegates to self.inner).
-pub(crate) fn gen_opaque_struct_methods(
+/// Generate ext-php-rs methods for an opaque struct, excluding streaming methods.
+pub(crate) fn gen_opaque_struct_methods_with_exclude(
     typ: &TypeDef,
     mapper: &PhpMapper,
     opaque_types: &AHashSet<String>,
     core_import: &str,
     adapter_bodies: &AdapterBodies,
     mutex_types: &AHashSet<String>,
+    streaming_method_keys: &AHashSet<String>,
 ) -> String {
     let mut impl_builder = ImplBuilder::new(&typ.name);
     impl_builder.add_attr("php_impl");
@@ -66,6 +67,11 @@ pub(crate) fn gen_opaque_struct_methods(
     let (instance, statics) = partition_methods(&typ.methods);
 
     for method in &instance {
+        let method_key = format!("{}.{}", typ.name, method.name);
+        if streaming_method_keys.contains(&method_key) {
+            continue;
+        }
+
         if method.is_async {
             impl_builder.add_method(&gen_async_instance_method(
                 method,
@@ -91,6 +97,11 @@ pub(crate) fn gen_opaque_struct_methods(
         }
     }
     for method in &statics {
+        let method_key = format!("{}.{}", typ.name, method.name);
+        if streaming_method_keys.contains(&method_key) {
+            continue;
+        }
+
         if method.is_async {
             impl_builder.add_method(&gen_async_static_method(method, mapper, opaque_types));
         } else {

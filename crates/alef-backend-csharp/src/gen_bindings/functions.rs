@@ -1,11 +1,11 @@
 //! C# NativeMethods (P/Invoke) code generation.
 
 use super::{StreamingMethodMeta, is_bridge_param, pinvoke_param_type, pinvoke_return_type};
-use alef_codegen::naming::to_csharp_name;
+use alef_codegen::naming::{csharp_type_name, to_csharp_name};
 use alef_core::config::TraitBridgeConfig;
 use alef_core::config::workspace::ClientConstructorConfig;
 use alef_core::ir::{ApiSurface, FunctionDef, MethodDef, TypeRef};
-use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
+use heck::{ToLowerCamelCase, ToSnakeCase};
 use std::collections::{HashMap, HashSet};
 
 /// Map a Rust FFI type string to the C# P/Invoke parameter declaration.
@@ -148,7 +148,7 @@ pub(super) fn gen_native_methods(
     for type_name in sorted_true_opaque_types {
         let snake = type_name.to_snake_case();
         let free_entry = format!("{prefix}_{snake}_free");
-        let free_cs = format!("{}Free", type_name.to_pascal_case());
+        let free_cs = format!("{}Free", csharp_type_name(type_name));
         if emitted.insert(free_entry.clone()) {
             out.push_str(&render(
                 "dll_import_attr.jinja",
@@ -170,7 +170,7 @@ pub(super) fn gen_native_methods(
         let ctor = &client_constructors[type_name];
         let snake = type_name.to_snake_case();
         let new_entry = format!("{prefix}_{snake}_new");
-        let new_cs = format!("{}New", type_name.to_pascal_case());
+        let new_cs = format!("{}New", csharp_type_name(type_name));
         if emitted.insert(new_entry.clone()) {
             // Build the P/Invoke param list with appropriate marshalling attributes.
             let params_str: String = ctor
@@ -196,7 +196,7 @@ pub(super) fn gen_native_methods(
         let snake = type_name.to_snake_case();
         if !true_opaque_types.contains(type_name) {
             let from_json_entry = format!("{prefix}_{snake}_from_json");
-            let from_json_cs = format!("{}FromJson", type_name.to_pascal_case());
+            let from_json_cs = format!("{}FromJson", csharp_type_name(type_name));
             if emitted.insert(from_json_entry.clone()) {
                 out.push_str(&render(
                     "dll_import_attr.jinja",
@@ -210,7 +210,7 @@ pub(super) fn gen_native_methods(
             }
         }
         let free_entry = format!("{prefix}_{snake}_free");
-        let free_cs = format!("{}Free", type_name.to_pascal_case());
+        let free_cs = format!("{}Free", csharp_type_name(type_name));
         if emitted.insert(free_entry.clone()) {
             out.push_str(&render(
                 "dll_import_attr.jinja",
@@ -232,7 +232,7 @@ pub(super) fn gen_native_methods(
         let snake = type_name.to_snake_case();
         if !true_opaque_types.contains(type_name) {
             let to_json_entry = format!("{prefix}_{snake}_to_json");
-            let to_json_cs = format!("{}ToJson", type_name.to_pascal_case());
+            let to_json_cs = format!("{}ToJson", csharp_type_name(type_name));
             if emitted.insert(to_json_entry.clone()) {
                 out.push_str(&render(
                     "dll_import_attr.jinja",
@@ -246,7 +246,7 @@ pub(super) fn gen_native_methods(
             }
         }
         let free_entry = format!("{prefix}_{snake}_free");
-        let free_cs = format!("{}Free", type_name.to_pascal_case());
+        let free_cs = format!("{}Free", csharp_type_name(type_name));
         if emitted.insert(free_entry.clone()) {
             out.push_str(&render(
                 "dll_import_attr.jinja",
@@ -286,7 +286,7 @@ pub(super) fn gen_native_methods(
             // Use a type-prefixed C# method name to avoid collisions when different types
             // share a method with the same name (e.g. BrowserConfig::default and CrawlConfig::default
             // would both produce "Default" without the prefix, but have different FFI entry points).
-            let cs_method_name = format!("{}{}", typ.name.to_pascal_case(), to_csharp_name(&method.name));
+            let cs_method_name = format!("{}{}", csharp_type_name(&typ.name), to_csharp_name(&method.name));
             if emitted.insert(c_method_name.clone()) {
                 out.push_str(&gen_pinvoke_for_method(&c_method_name, &cs_method_name, method));
             }
@@ -303,7 +303,7 @@ pub(super) fn gen_native_methods(
             if !streaming_methods.contains(&method.name) {
                 continue;
             }
-            let cs_type = typ.name.to_pascal_case();
+            let cs_type = csharp_type_name(&typ.name);
             let cs_method = to_csharp_name(&method.name);
 
             let start_entry = format!("{}_{}_{}_start", prefix, type_snake, method.name.to_lowercase());

@@ -2,9 +2,8 @@
 
 use super::{csharp_file_header, is_tuple_field};
 use crate::type_map::csharp_type;
-use alef_codegen::naming::to_csharp_name;
+use alef_codegen::naming::{csharp_type_name, to_csharp_name};
 use alef_core::ir::EnumDef;
-use heck::ToPascalCase;
 
 /// Apply a serde `rename_all` strategy to a variant name.
 pub(super) fn apply_rename_all(name: &str, rename_all: Option<&str>) -> String {
@@ -66,7 +65,7 @@ pub(super) fn gen_enum(enum_def: &EnumDef, namespace: &str) -> String {
             }
         });
 
-    let enum_pascal = enum_def.name.to_pascal_case();
+    let enum_pascal = csharp_type_name(&enum_def.name);
 
     // Collect variant data with doc lines for template rendering
     let variant_list: Vec<(String, String)> = enum_def
@@ -77,7 +76,7 @@ pub(super) fn gen_enum(enum_def: &EnumDef, namespace: &str) -> String {
                 .serde_rename
                 .clone()
                 .unwrap_or_else(|| apply_rename_all(&v.name, enum_def.serde_rename_all.as_deref()));
-            let pascal_name = v.name.to_pascal_case();
+            let pascal_name = to_csharp_name(&v.name);
             (json_name, pascal_name)
         })
         .collect();
@@ -90,7 +89,7 @@ pub(super) fn gen_enum(enum_def: &EnumDef, namespace: &str) -> String {
                 .serde_rename
                 .clone()
                 .unwrap_or_else(|| apply_rename_all(&v.name, enum_def.serde_rename_all.as_deref()));
-            let pascal_name = v.name.to_pascal_case();
+            let pascal_name = to_csharp_name(&v.name);
             let doc_lines: Vec<String> = if !v.doc.is_empty() {
                 v.doc.lines().map(|l| l.to_string()).collect()
             } else {
@@ -152,7 +151,7 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
     use crate::template_env::render;
 
     let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
-    let enum_pascal = enum_def.name.to_pascal_case();
+    let enum_pascal = csharp_type_name(&enum_def.name);
     // Namespace prefix used to fully-qualify inner types when their short name is shadowed
     // by a nested record of the same name (e.g. ContentPart.ImageUrl shadows ImageUrl).
     let ns = namespace;
@@ -168,14 +167,14 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
 
     // Collect all variant pascal names to check for field-name-to-variant-name clashes
     let variant_names: std::collections::HashSet<String> =
-        enum_def.variants.iter().map(|v| v.name.to_pascal_case()).collect();
+        enum_def.variants.iter().map(|v| to_csharp_name(&v.name)).collect();
 
     // Precompute discriminator values for each variant (used for [JsonDerivedType] when not using custom converter)
     let _discriminators: Vec<(String, String)> = enum_def
         .variants
         .iter()
         .map(|v| {
-            let pascal = v.name.to_pascal_case();
+            let pascal = to_csharp_name(&v.name);
             let disc = v
                 .serde_rename
                 .clone()
@@ -212,7 +211,7 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
 
     // Nested sealed records for each variant (no [JsonDerivedType] here — it's on the base)
     for variant in &enum_def.variants {
-        let pascal = variant.name.to_pascal_case();
+        let pascal = to_csharp_name(&variant.name);
 
         if !variant.doc.is_empty() {
             let doc_lines: Vec<String> = variant.doc.lines().map(ToString::to_string).collect();
@@ -324,7 +323,7 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
         if variant.fields.len() != 1 || !is_tuple_field(&variant.fields[0]) {
             continue;
         }
-        let pascal = variant.name.to_pascal_case();
+        let pascal = to_csharp_name(&variant.name);
         let return_type = csharp_type(&variant.fields[0].ty);
         let return_type_nullable = format!("{return_type}?");
         out.push_str(&render(
@@ -368,12 +367,12 @@ fn gen_sealed_union_converter(out: &mut String, _namespace: &str, enum_def: &Enu
     use crate::template_env::render;
     use minijinja::Value;
 
-    let class_name = enum_def.name.to_pascal_case();
+    let class_name = csharp_type_name(&enum_def.name);
     let variants: Vec<Value> = enum_def
         .variants
         .iter()
         .map(|v| {
-            let pascal = v.name.to_pascal_case();
+            let pascal = to_csharp_name(&v.name);
             let discriminator = v
                 .serde_rename
                 .clone()
@@ -411,7 +410,7 @@ fn gen_untagged_wrapper(enum_def: &EnumDef, namespace: &str) -> String {
     use crate::template_env::render;
     use minijinja::Value;
 
-    let class_name = enum_def.name.to_pascal_case();
+    let class_name = csharp_type_name(&enum_def.name);
     let doc_lines: Vec<String> = if !enum_def.doc.is_empty() {
         enum_def.doc.lines().map(|l| l.to_string()).collect()
     } else {
