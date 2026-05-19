@@ -471,6 +471,11 @@ mod tests {
     }
 
     fn minimal_config(root: &Path) -> ResolvedCrateConfig {
+        // Normalize to forward slashes so the path is a valid TOML basic string
+        // even when `root` is a Windows path containing backslashes (TOML treats
+        // `\` as the start of an escape sequence — e.g. `\U` triggers a unicode
+        // escape diagnostic).
+        let root_str = root.display().to_string().replace('\\', "/");
         let content = format!(
             r#"
 [workspace]
@@ -478,9 +483,8 @@ languages = ["python", "node"]
 [[crates]]
 name = "mylib"
 sources = ["src/lib.rs"]
-version_from = "{root}/Cargo.toml"
+version_from = "{root_str}/Cargo.toml"
 "#,
-            root = root.display()
         );
         let cfg: alef_core::config::NewAlefConfig = toml::from_str(&content).unwrap();
         cfg.resolve().unwrap().remove(0)

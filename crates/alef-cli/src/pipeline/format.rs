@@ -149,8 +149,14 @@ fn get_default_formatter(config: &ResolvedCrateConfig, lang: Language) -> Option
                 .output_for("wasm")
                 .map(resolve_crate_dir)
                 .unwrap_or_else(|| Path::new("crates").join(format!("{}-wasm", config.name)));
-            let manifest_path = crate_dir.join("Cargo.toml").to_string_lossy().into_owned();
-            let crate_dir_str = crate_dir.to_string_lossy().into_owned();
+            // Cargo accepts / on every platform; emit POSIX-style paths so CI
+            // behaviour on Windows matches Linux/macOS and the snapshot tests.
+            let manifest_path = crate_dir
+                .join("Cargo.toml")
+                .to_string_lossy()
+                .into_owned()
+                .replace('\\', "/");
+            let crate_dir_str = crate_dir.to_string_lossy().into_owned().replace('\\', "/");
             Some(FormatterSpec {
                 commands: vec![
                     FormatterCommand {

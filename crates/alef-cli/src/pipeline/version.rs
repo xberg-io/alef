@@ -1918,9 +1918,10 @@ BUNDLED WITH
         .expect("write crates/mylib-node/package.json");
 
         // Drop a minimal alef.toml so we can resolve a config.
+        // Normalize backslashes to / so the path is a valid TOML basic string on Windows.
         let alef_toml = format!(
             "[workspace]\nlanguages = [\"node\"]\n[[crates]]\nname = \"mylib\"\nsources = []\nversion_from = \"{}\"\n",
-            root.join("Cargo.toml").display()
+            root.join("Cargo.toml").display().to_string().replace('\\', "/")
         );
         let alef_toml_path = root.join("alef.toml");
         std::fs::write(&alef_toml_path, &alef_toml).expect("write alef.toml");
@@ -2139,9 +2140,10 @@ tokio = { version = "1.0", features = ["full"] }
             "[package]\nname = \"beta\"\nversion = \"5.0.0-rc.1\"\n\n[dependencies]\nalpha = { path = \"../alpha\", version = \"5.0.0-rc.1\", optional = true }\nserde = \"1.0\"\n\n[dev-dependencies]\nalpha = { path = \"../alpha\", version = \"5.0.0-rc.1\" }\ntempfile = \"3\"\n\n[build-dependencies]\nalpha = { path = \"../alpha\", version = \"5.0.0-rc.1\" }\n\n[target.'cfg(unix)'.dependencies]\nalpha = { path = \"../alpha\", version = \"5.0.0-rc.1\", features = [\"unix\"] }\nlibc = \"0.2\"\n",
         );
 
+        // Normalize backslashes to / so the path is a valid TOML basic string on Windows.
         let alef_toml_content = format!(
             "[workspace]\nlanguages = [\"node\"]\n[[crates]]\nname = \"alpha\"\nsources = []\nversion_from = \"{}\"\n",
-            root.join("Cargo.toml").display()
+            root.join("Cargo.toml").display().to_string().replace('\\', "/")
         );
         write_file(root, "alef.toml", &alef_toml_content);
         let alef_toml_path = root.join("alef.toml");
