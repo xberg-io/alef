@@ -1629,6 +1629,7 @@ exclude_types = ["FfiHidden"]
                     },
                 ],
                 doc: "Errors from the conversion API.".to_string(),
+                methods: vec![],
                 binding_excluded: false,
                 binding_exclusion_reason: None,
             }],

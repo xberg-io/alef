@@ -156,6 +156,7 @@ fn make_basic_api() -> ApiSurface {
                 },
             ],
             doc: "Errors emitted by demo operations.".to_string(),
+            methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
         }],

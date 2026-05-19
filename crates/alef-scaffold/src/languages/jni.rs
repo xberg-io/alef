@@ -10,16 +10,25 @@ use std::path::PathBuf;
 /// `../<core-crate-dir>` inside the same workspace; features come from
 /// `[crates.kotlin_android] features` if present.
 ///
-/// The output directory is `crates/<config.name>-jni/`, matching the path
-/// chosen by `alef-backend-jni::gen_shims::jni_output_path` for `src/lib.rs`.
+/// The output directory is `crates/<jni_crate_base>-jni/`, where
+/// `jni_crate_base` is `[crates.jni] crate_dir` when explicitly set,
+/// otherwise `config.name`.  This matches the path chosen by
+/// `alef-backend-jni::gen_shims::jni_output_path` for `src/lib.rs`.
+///
+/// Consumers whose `config.name` carries a language suffix (e.g.
+/// `"html-to-markdown-rs"`) can set `[crates.jni] crate_dir = "html-to-markdown"`
+/// to produce `crates/html-to-markdown-jni/` — matching every other binding
+/// crate — while the umbrella dep entry still uses `config.name` as the Cargo
+/// package key with `path = "../<core_crate_dir>"` for the on-disk location.
+///
 /// When `core_crate_dir` (derived from `sources`) differs from `config.name`
 /// — e.g. tslp's `name = "tree-sitter-language-pack"` with
 /// `sources = ["crates/ts-pack-core/src/lib.rs"]` — the path dependency on
 /// the umbrella crate uses `core_crate_dir` (the directory) while the JNI
-/// crate's own directory follows `config.name`.
+/// crate's own directory follows `jni_crate_base`.
 pub(crate) fn scaffold_jni(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let core_crate_dir = config.core_crate_dir();
-    let jni_crate_name = format!("{}-jni", config.name);
+    let jni_crate_name = format!("{}-jni", config.jni_crate_base());
     let jni_lib_name = config.jni_lib_name(); // matches Kotlin Bridge loadLibrary
 
     // Prefer kotlin_android features, then empty.
@@ -209,6 +218,65 @@ namespace = "dev.kreuzberg.plain"
         assert!(
             cargo_toml.contains("name = \"plain_pkg_jni\""),
             "expected `name = \"plain_pkg_jni\"` for default case; got:\n{cargo_toml}"
+        );
+    }
+
+    /// When `[crates.jni] crate_dir` is set, the JNI scaffold uses the
+    /// override for both the crate directory and `[package] name`, while the
+    /// umbrella dep key remains `config.name` (the Cargo package name) with
+    /// `path = "../<core_crate_dir>"`.
+    ///
+    /// This covers the html-to-markdown case: `name = "html-to-markdown-rs"`,
+    /// `sources = ["crates/html-to-markdown/src/lib.rs"]`,
+    /// `[crates.jni] crate_dir = "html-to-markdown"` — the JNI crate lands at
+    /// `crates/html-to-markdown-jni/` (matching `*-node`, `*-py`, `*-wasm`, etc.)
+    /// rather than `crates/html-to-markdown-rs-jni/`.
+    #[test]
+    fn scaffold_jni_crate_dir_override_controls_output_path() {
+        let config = resolved_one(
+            r#"
+[workspace]
+languages = ["kotlin_android", "jni"]
+
+[[crates]]
+name = "html-to-markdown-rs"
+sources = ["crates/html-to-markdown/src/lib.rs"]
+
+[crates.jni]
+crate_dir = "html-to-markdown"
+
+[crates.kotlin_android]
+package = "dev.kreuzberg.htmltomarkdown.android"
+namespace = "dev.kreuzberg.htmltomarkdown.android"
+"#,
+        );
+
+        let api = ApiSurface::default();
+        let files = scaffold_jni(&api, &config).unwrap();
+        assert_eq!(files.len(), 1);
+        let path = files[0].path.to_string_lossy();
+        let cargo_toml = &files[0].content;
+
+        assert_eq!(
+            path, "crates/html-to-markdown-jni/Cargo.toml",
+            "JNI scaffold path must follow [crates.jni] crate_dir override; got: {path}"
+        );
+        assert!(
+            cargo_toml.contains("name = \"html-to-markdown-jni\""),
+            "[package] name must follow crate_dir override; got:\n{cargo_toml}"
+        );
+        // Umbrella dep key is the Cargo package name (config.name), not the crate_dir.
+        assert!(
+            cargo_toml.contains("html-to-markdown-rs = { path = \"../html-to-markdown\""),
+            "umbrella dep key must be cargo package name, path must be core_crate_dir; got:\n{cargo_toml}"
+        );
+        assert!(
+            !cargo_toml.contains("html-to-markdown = { path = \"../html-to-markdown\""),
+            "umbrella dep key must NOT be the crate_dir override; got:\n{cargo_toml}"
+        );
+        assert!(
+            !cargo_toml.contains("html-to-markdown-rs-jni"),
+            "crate name must NOT contain the -rs suffix; got:\n{cargo_toml}"
         );
     }
 }

@@ -1138,6 +1138,7 @@ fn make_tuple_error_api() -> ApiSurface {
                 },
             ],
             doc: "Conversion errors.".to_string(),
+            methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
         }],

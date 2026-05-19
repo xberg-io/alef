@@ -326,6 +326,7 @@ fn unit_error_variant_emits_sealed_class() {
                 },
             ],
             doc: String::new(),
+            methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
         }],
@@ -365,6 +366,7 @@ fn error_variant_with_fields_emits_data_class() {
                 doc: String::new(),
             }],
             doc: String::new(),
+            methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
         }],
@@ -947,6 +949,7 @@ fn make_error_def(name: &str, variants: Vec<ErrorVariant>) -> ErrorDef {
         original_rust_path: String::new(),
         variants,
         doc: String::new(),
+        methods: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
     }

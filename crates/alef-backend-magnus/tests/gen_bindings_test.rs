@@ -602,6 +602,7 @@ fn test_error_types() {
                 },
             ],
             doc: "Validation error type".to_string(),
+            methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
         }],

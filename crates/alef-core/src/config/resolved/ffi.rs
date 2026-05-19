@@ -5,6 +5,22 @@ use crate::config::KotlinFfiStyle;
 use super::ResolvedCrateConfig;
 
 impl ResolvedCrateConfig {
+    /// Get the base name used to derive the JNI crate directory and package name.
+    ///
+    /// Resolution order:
+    /// 1. `[crates.jni] crate_dir` explicit override — allows consumers whose
+    ///    `config.name` carries a language suffix (e.g. `"html-to-markdown-rs"`)
+    ///    to place the JNI crate at `crates/<override>-jni/` instead.
+    /// 2. `config.name` fallback — preserves the existing behaviour and keeps
+    ///    tslp's `tree-sitter-language-pack-jni` working correctly even though
+    ///    its `core_crate_dir()` differs (`ts-pack-core`).
+    pub fn jni_crate_base(&self) -> &str {
+        self.jni
+            .as_ref()
+            .and_then(|j| j.crate_dir.as_deref())
+            .unwrap_or(&self.name)
+    }
+
     /// Get the JNI native library name used by Android JNI Bridge objects.
     ///
     /// Returns `<ffi_prefix>_jni`, parallel to [`Self::ffi_lib_name`].

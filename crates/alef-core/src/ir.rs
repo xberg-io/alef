@@ -378,6 +378,12 @@ pub struct ErrorDef {
     pub original_rust_path: String,
     pub variants: Vec<ErrorVariant>,
     pub doc: String,
+    /// Whitelisted introspection methods on the error enum (e.g. `status_code`,
+    /// `is_transient`, `error_type`). Only methods explicitly opted in via the
+    /// extractor whitelist are populated here — Rust-only ergonomic helpers are
+    /// intentionally excluded so backends do not accidentally expose them.
+    #[serde(default)]
+    pub methods: Vec<MethodDef>,
     /// True when source metadata explicitly excludes this error type from generated
     /// polyglot binding surfaces (via `#[cfg_attr(alef, alef(skip))]` or `#[doc(hidden)]`).
     #[serde(default)]

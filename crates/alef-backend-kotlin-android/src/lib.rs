@@ -33,13 +33,78 @@ pub mod gen_proguard;
 pub mod gen_settings_gradle;
 pub mod naming;
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{KotlinFfiStyle, Language, ResolvedCrateConfig};
-use alef_core::ir::ApiSurface;
+use alef_core::ir::{ApiSurface, TypeRef};
 
 use crate::naming::package_path;
+
+/// Collect all type names excluded for the `kotlin_android` language from both
+/// the per-language `[crates.kotlin_android].exclude_types` list and the shared
+/// `[crates.ffi].exclude_types` list (mirroring the Java backend pattern).
+fn effective_exclude_types(config: &ResolvedCrateConfig) -> HashSet<String> {
+    let mut exclude_types: HashSet<String> = config
+        .ffi
+        .as_ref()
+        .map(|ffi| ffi.exclude_types.iter().cloned().collect())
+        .unwrap_or_default();
+    if let Some(ka) = &config.kotlin_android {
+        exclude_types.extend(ka.exclude_types.iter().cloned());
+    }
+    exclude_types
+}
+
+/// Return true when `ty` references any type name in `exclude_types`.
+fn references_excluded_type(ty: &TypeRef, exclude_types: &HashSet<String>) -> bool {
+    exclude_types.iter().any(|name| ty.references_named(name))
+}
+
+/// Return true when any parameter type or the return type references an
+/// excluded type name.
+fn signature_references_excluded_type(
+    params: &[alef_core::ir::ParamDef],
+    return_type: &TypeRef,
+    exclude_types: &HashSet<String>,
+) -> bool {
+    references_excluded_type(return_type, exclude_types)
+        || params
+            .iter()
+            .any(|param| references_excluded_type(&param.ty, exclude_types))
+}
+
+/// Build a filtered copy of `api` with all excluded types (and any
+/// fields / methods / functions that reference them) removed.
+fn api_without_excluded_types(api: &ApiSurface, exclude_types: &HashSet<String>) -> ApiSurface {
+    let mut filtered = api.clone();
+    filtered.types.retain(|typ| !exclude_types.contains(&typ.name));
+    for typ in &mut filtered.types {
+        typ.fields
+            .retain(|field| !references_excluded_type(&field.ty, exclude_types));
+        typ.methods.retain(|method| {
+            !signature_references_excluded_type(&method.params, &method.return_type, exclude_types)
+        });
+    }
+    filtered
+        .enums
+        .retain(|enum_def| !exclude_types.contains(&enum_def.name));
+    for enum_def in &mut filtered.enums {
+        for variant in &mut enum_def.variants {
+            variant
+                .fields
+                .retain(|field| !references_excluded_type(&field.ty, exclude_types));
+        }
+    }
+    filtered.functions.retain(|func| {
+        !signature_references_excluded_type(&func.params, &func.return_type, exclude_types)
+    });
+    filtered
+        .errors
+        .retain(|error| !exclude_types.contains(&error.name));
+    filtered
+}
 
 /// Default output root when the workspace does not configure
 /// `[crates.output].kotlin_android` explicitly.
@@ -79,6 +144,17 @@ impl Backend for KotlinAndroidBackend {
         // Always force JNI mode: the Android AAR does not ship a Java/Panama facade.
         let config = config.clone().with_kotlin_ffi_style(KotlinFfiStyle::Jni);
         let config = &config;
+
+        // Apply per-language exclude_types filter before any emission.
+        let exclude_types = effective_exclude_types(config);
+        let filtered_api;
+        let api = if exclude_types.is_empty() {
+            api
+        } else {
+            filtered_api = api_without_excluded_types(api, &exclude_types);
+            &filtered_api
+        };
+
         let layout = ProjectLayout::resolve(config);
 
         let mut files = vec![

@@ -336,6 +336,7 @@ fn native_fallible_function_checks_error_code() {
                 has_from: false,
                 doc: String::new(),
             }],
+            methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
         }],

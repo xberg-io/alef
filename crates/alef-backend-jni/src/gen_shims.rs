@@ -79,9 +79,14 @@ impl Backend for JniBackend {
 // Output path resolution
 // ---------------------------------------------------------------------------
 
-/// Default output directory: `crates/<crate-name>-jni/src/lib.rs`
+/// Default output directory: `crates/<crate-base>-jni/src/lib.rs`
+///
+/// `crate-base` is `config.jni_crate_base()`: `[crates.jni] crate_dir` when
+/// set, otherwise `config.name`.  The override lets consumers whose name
+/// carries a language suffix (e.g. `"html-to-markdown-rs"`) produce a crate
+/// at `crates/html-to-markdown-jni/` that matches all other binding crates.
 fn jni_output_path(config: &ResolvedCrateConfig) -> PathBuf {
-    let jni_crate = format!("{}-jni", config.name);
+    let jni_crate = format!("{}-jni", config.jni_crate_base());
     PathBuf::from(format!("crates/{jni_crate}/src/lib.rs"))
 }
 

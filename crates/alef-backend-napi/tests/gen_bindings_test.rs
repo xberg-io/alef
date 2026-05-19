@@ -771,6 +771,7 @@ fn test_error_types() {
                 },
             ],
             doc: "Processing error".to_string(),
+            methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
         }],

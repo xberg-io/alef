@@ -493,6 +493,7 @@ fn mpp_error_sealed_class_in_common_main() {
                 is_unit: true,
                 doc: String::new(),
             }],
+            methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
         }],

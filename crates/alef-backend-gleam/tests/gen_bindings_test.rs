@@ -274,6 +274,7 @@ fn error_emits_custom_type() {
                 },
             ],
             doc: String::new(),
+            methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
         }],
@@ -666,6 +667,7 @@ fn trait_bridge_response_shim_uses_typed_return_and_error() {
         original_rust_path: String::new(),
         variants: vec![],
         doc: String::new(),
+        methods: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
     };
@@ -705,6 +707,7 @@ fn trait_bridge_response_shim_unit_return_emits_nil() {
         original_rust_path: String::new(),
         variants: vec![],
         doc: String::new(),
+        methods: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
     };

@@ -556,6 +556,7 @@ fn test_error_types() {
                 },
             ],
             doc: "Errors during processing".to_string(),
+            methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
         }],
@@ -642,6 +643,7 @@ fn test_async_function() {
                 is_unit: true,
             }],
             doc: "Fetch error".to_string(),
+            methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
         }],
@@ -850,6 +852,7 @@ fn test_multiple_types_with_shared_error() {
             },
         ],
         doc: "Shared error type".to_string(),
+        methods: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
     };

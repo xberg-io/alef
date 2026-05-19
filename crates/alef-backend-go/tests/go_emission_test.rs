@@ -89,6 +89,7 @@ fn test_error_method_uses_value_receiver() {
                 },
             ],
             doc: String::new(),
+            methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
         }],

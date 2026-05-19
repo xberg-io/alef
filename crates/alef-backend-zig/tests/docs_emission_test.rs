@@ -224,6 +224,7 @@ fn tagged_enum_variants_emit_zig_doc_comments() {
             original_rust_path: String::new(),
             variants: vec![],
             doc: String::new(),
+            methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
         }],

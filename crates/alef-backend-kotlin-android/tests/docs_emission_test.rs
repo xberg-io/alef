@@ -219,6 +219,7 @@ fn module_free_function_facade_carries_kdoc() {
             original_rust_path: String::new(),
             variants: vec![],
             doc: String::new(),
+            methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
         }],

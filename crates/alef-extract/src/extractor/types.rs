@@ -303,6 +303,7 @@ pub(crate) fn extract_error_enum(item: &syn::ItemEnum, crate_name: &str, module_
         original_rust_path: String::new(),
         variants,
         doc,
+        methods: Vec::new(),
         binding_excluded,
         binding_exclusion_reason,
     })

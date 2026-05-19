@@ -77,6 +77,19 @@ impl Backend for SwiftBackend {
 
         let mut body = String::new();
 
+        // Build the set of all DTO type names in this API surface (non-opaque, has_serde,
+        // non-trait, non-excluded).  This set is passed to `can_emit_first_class_struct`
+        // so that `Named(S)` fields can be accepted when S refers to another DTO in the
+        // same API — even before it is known whether S itself becomes first-class.
+        // Enum names are also included so that enum-typed fields are considered known.
+        let known_dto_names: std::collections::HashSet<String> = api
+            .types
+            .iter()
+            .filter(|t| !t.is_trait && !t.is_opaque && t.has_serde && !exclude_types.contains(&t.name))
+            .map(|t| t.name.clone())
+            .chain(api.enums.iter().filter(|e| !exclude_types.contains(&e.name)).map(|e| e.name.clone()))
+            .collect();
+
         // Emit typealiases for all struct types exposed by swift-bridge.
         // swift-bridge exposes types that are declared in the extern "Rust" block,
         // so we generate typealiases for all non-excluded types to provide a
@@ -90,8 +103,8 @@ impl Backend for SwiftBackend {
             .filter(|t| t.methods.is_empty() || !t.is_opaque && t.has_serde)
         {
             emit_doc_comment(&ty.doc, "", &mut body);
-            if can_emit_first_class_struct(ty, &mapper, &exclude_fields) {
-                emit_first_class_struct(ty, &mapper, &exclude_fields, &mut body);
+            if can_emit_first_class_struct(ty, &mapper, &exclude_fields, &known_dto_names) {
+                emit_first_class_struct(ty, &mapper, &exclude_fields, &known_dto_names, &mut body);
             } else {
                 body.push_str(&crate::template_env::render(
                     "typealias.jinja",
@@ -132,14 +145,14 @@ impl Backend for SwiftBackend {
             .unwrap_or_default();
         // Collect first-class struct type names for streaming chunk decode dispatch.
         // Must match the actual emission decision in `can_emit_first_class_struct`
-        // (Codable struct with all-primitive/optional fields + emittable bulk constructor).
+        // (Codable struct with all-supported fields).
         // Types failing that check are emitted as typealiases to RustBridge.X and so
         // do not have a `func intoRust()` extension or auto-derived Codable conformance.
         let first_class_types: std::collections::HashSet<String> = api
             .types
             .iter()
             .filter(|t| !t.is_trait && !exclude_types.contains(&t.name))
-            .filter(|t| can_emit_first_class_struct(t, &mapper, &exclude_fields))
+            .filter(|t| can_emit_first_class_struct(t, &mapper, &exclude_fields, &known_dto_names))
             .map(|t| t.name.clone())
             .collect();
         for ty in api.types.iter().filter(|t| {
@@ -342,20 +355,46 @@ impl Backend for SwiftBackend {
 
 fn can_emit_first_class_struct(
     ty: &alef_core::ir::TypeDef,
-    mapper: &SwiftMapper,
-    exclude_fields: &std::collections::HashSet<String>,
+    _mapper: &SwiftMapper,
+    _exclude_fields: &std::collections::HashSet<String>,
+    known_dto_names: &std::collections::HashSet<String>,
 ) -> bool {
     !ty.is_opaque
         && ty.has_serde
         && !ty.fields.is_empty()
-        && binding_fields(&ty.fields).all(|field| first_class_field_supported(&field.ty))
-        && emit_into_rust_direct_call(ty, mapper, exclude_fields, &ty.name).is_some()
+        && binding_fields(&ty.fields).all(|field| first_class_field_supported(&field.ty, known_dto_names))
+    // Note: we no longer require emit_into_rust_direct_call to succeed.  Types whose
+    // fields include Vec<Named>, Named, or Map fall back to the JSON roundtrip path in
+    // intoRust() automatically (the same `{type_snake}_from_json` shim is emitted by
+    // the Rust crate side for all types where has_constructor_extern returns false).
+    // The exclude_fields parameter is retained in the signature for the intoRust emitter.
+    && !ty.fields.iter().all(|f| f.binding_excluded)
 }
 
-fn first_class_field_supported(ty: &TypeRef) -> bool {
+/// Returns `true` when a field type can be represented as a stored property in a first-class
+/// Swift struct and marshaled through the RustBridge FFI layer.
+///
+/// Accepted:
+/// - Primitives and Bool
+/// - String
+/// - Named(S) where S is a known DTO or enum in the same API
+/// - Vec<T> where T is itself accepted (Vec<Primitive>, Vec<String>, Vec<Named(S)>)
+/// - Optional<T> (via TypeRef::Optional) where T is accepted — covers Optional<String>,
+///   Optional<Primitive>, Optional<Named>, Optional<Vec<T>>
+/// - field.optional = true is handled at the call site; this function only sees the TypeRef
+///
+/// Rejected (fall through to typealias):
+/// - Map<K, V> — bridge layer serialises maps to JSON String; per-field JSON decode is
+///   complex and rarely worth the ergonomic gain vs the typealias
+/// - Path, Bytes, Duration, Char, Json — not representable as idiomatic Swift stored props
+///   without additional infra
+fn first_class_field_supported(ty: &TypeRef, known_dto_names: &std::collections::HashSet<String>) -> bool {
     match ty {
         TypeRef::Primitive(_) | TypeRef::String => true,
-        TypeRef::Optional(inner) => first_class_field_supported(inner),
+        TypeRef::Named(name) => known_dto_names.contains(name),
+        TypeRef::Vec(inner) => first_class_field_supported(inner, known_dto_names),
+        TypeRef::Optional(inner) => first_class_field_supported(inner, known_dto_names),
+        // Map, Path, Bytes, Duration, Char, Json, Unit — not yet supported
         _ => false,
     }
 }
@@ -372,6 +411,7 @@ fn emit_first_class_struct(
     ty: &alef_core::ir::TypeDef,
     mapper: &SwiftMapper,
     exclude_fields: &std::collections::HashSet<String>,
+    known_dto_names: &std::collections::HashSet<String>,
     out: &mut String,
 ) {
     use alef_codegen::type_mapper::TypeMapper;
@@ -461,7 +501,7 @@ fn emit_first_class_struct(
         let swift_field = swift_case_ident(&field.name.to_lower_camel_case());
         let rust_accessor = swift_ident(&field.name.to_snake_case());
         let is_optional = field.optional || matches!(&field.ty, TypeRef::Optional(_));
-        let expr = swift_ffi_read_expr(&field.ty, is_optional, &rust_accessor);
+        let expr = swift_ffi_read_expr(&field.ty, is_optional, &rust_accessor, known_dto_names);
         out.push_str(&format!("        self.{swift_field} = {expr}\n"));
     }
     out.push_str("    }\n");
@@ -643,18 +683,101 @@ fn emit_vec_arg(elem: &alef_core::ir::TypeRef, self_property: &str, local: &str)
 /// Returns the Swift expression to read a field value from a `RustBridge` accessor call.
 ///
 /// swift-bridge exposes Rust struct fields as method calls: `.field_name()`.
-/// For `String` fields the return type is `RustString`, so `.toString()` is needed.
-/// `Optional<String>` accessors return `Optional<RustString>`, so `?.toString()` is used.
-fn swift_ffi_read_expr(ty: &alef_core::ir::TypeRef, field_optional: bool, accessor: &str) -> String {
+///
+/// Type-specific conversions:
+/// - `String` → `.toString()` (RustString → Swift String)
+/// - `Named(S)` → `try S(rb.field())` (RustBridge.S → first-class Swift struct via init)
+/// - `Vec<String>` → `rb.field().map { $0.toString() }` (RustVec<RustString> → [String])
+/// - `Vec<Primitive>` → `Array(rb.field())` (RustVec<T> → [T], RustVec is a Collection)
+/// - `Vec<Named(S)>` → `try rb.field().map { try S($0) }` (RustVec<RustBridge.S> → [S])
+/// - Optional variants use `?` chains accordingly.
+///
+/// `field_optional` is true when `field.optional == true` (extractor-unwrapped IR form).
+/// `TypeRef::Optional(inner)` is the TypeRef-wrapped form — both are handled.
+fn swift_ffi_read_expr(
+    ty: &alef_core::ir::TypeRef,
+    field_optional: bool,
+    accessor: &str,
+    known_dto_names: &std::collections::HashSet<String>,
+) -> String {
     use alef_core::ir::TypeRef;
+
+    // When the field is optional in the extractor-unwrapped IR form (field.optional == true
+    // but TypeRef is NOT Optional), the swift-bridge getter returns `T?` natively.
+    // We compose the same `?`-chain logic as for TypeRef::Optional.
+    let opt = field_optional && !matches!(ty, TypeRef::Optional(_));
+
     match ty {
-        TypeRef::String if field_optional => format!("rb.{accessor}()?.toString()"),
+        // String fields: getter returns RustString; call .toString().
+        TypeRef::String if opt => format!("rb.{accessor}()?.toString()"),
         TypeRef::String => format!("rb.{accessor}().toString()"),
+
+        // Named(S) where S is a first-class struct: getter returns RustBridge.S (or S?).
+        // Convert with the symmetric `init(_ rb:) throws` on the first-class struct.
+        TypeRef::Named(name) if known_dto_names.contains(name) && opt => {
+            format!("try rb.{accessor}().map {{ try {name}($0) }}")
+        }
+        TypeRef::Named(name) if known_dto_names.contains(name) => {
+            format!("try {name}(rb.{accessor}())")
+        }
+
+        // Vec<T>: getter returns RustVec<T> (a Swift Collection/Sequence).
+        TypeRef::Vec(inner) if opt => {
+            let map_expr = vec_elem_convert_expr(inner, known_dto_names);
+            // The getter return type for optional Vec is RustVec<T>? when the field is
+            // declared optional via `field.optional` (not TypeRef::Optional).
+            // Use `?.map` for the optional chain.
+            match inner.as_ref() {
+                TypeRef::Primitive(_) => format!("rb.{accessor}().map {{ Array($0) }}"),
+                TypeRef::String => format!("rb.{accessor}()?.map {{ $0.toString() }}"),
+                TypeRef::Named(name) if known_dto_names.contains(name) => {
+                    format!("try rb.{accessor}()?.map {{ try {name}($0) }}")
+                }
+                _ => format!("rb.{accessor}()?.map {{ {map_expr} }}"),
+            }
+        }
+        TypeRef::Vec(inner) => {
+            match inner.as_ref() {
+                TypeRef::Primitive(_) => format!("Array(rb.{accessor}())"),
+                TypeRef::String => format!("rb.{accessor}().map {{ $0.toString() }}"),
+                TypeRef::Named(name) if known_dto_names.contains(name) => {
+                    format!("try rb.{accessor}().map {{ try {name}($0) }}")
+                }
+                _ => format!("rb.{accessor}()"),
+            }
+        }
+
+        // TypeRef::Optional(inner) — the extractor-wrapped nullable form.
         TypeRef::Optional(inner) => match inner.as_ref() {
             TypeRef::String => format!("rb.{accessor}()?.toString()"),
+            TypeRef::Named(name) if known_dto_names.contains(name) => {
+                format!("try rb.{accessor}().map {{ try {name}($0) }}")
+            }
+            TypeRef::Vec(elem) => match elem.as_ref() {
+                TypeRef::String => format!("rb.{accessor}()?.map {{ $0.toString() }}"),
+                TypeRef::Named(name) if known_dto_names.contains(name) => {
+                    format!("try rb.{accessor}()?.map {{ try {name}($0) }}")
+                }
+                TypeRef::Primitive(_) => format!("rb.{accessor}().map {{ Array($0) }}"),
+                _ => format!("rb.{accessor}()"),
+            },
             _ => format!("rb.{accessor}()"),
         },
+
+        // Primitives, and anything else the bridge passes through directly.
         _ => format!("rb.{accessor}()"),
+    }
+}
+
+/// Returns the element-level Swift expression used in a `.map { ... }` closure when
+/// converting a `RustVec<T>` element to its first-class Swift equivalent.
+fn vec_elem_convert_expr(inner: &alef_core::ir::TypeRef, known_dto_names: &std::collections::HashSet<String>) -> String {
+    use alef_core::ir::TypeRef;
+    match inner {
+        TypeRef::String => "$0.toString()".to_string(),
+        TypeRef::Named(name) if known_dto_names.contains(name) => format!("try {name}($0)"),
+        TypeRef::Primitive(_) => "$0".to_string(),
+        _ => "$0".to_string(),
     }
 }
 
@@ -1309,11 +1432,20 @@ fn emit_from_json_forwarders(
     out.push_str("// First-class struct types (Codable) use JSONDecoder directly.\n");
     out.push_str("// Opaque RustBridge types forward to RustBridge.\n\n");
 
+    // Build the known-DTO names set needed by can_emit_first_class_struct.
+    let known_dto_names_fwd: std::collections::HashSet<String> = api
+        .types
+        .iter()
+        .filter(|t| !t.is_trait && !t.is_opaque && t.has_serde && !exclude_types.contains(&t.name))
+        .map(|t| t.name.clone())
+        .chain(api.enums.iter().filter(|e| !exclude_types.contains(&e.name)).map(|e| e.name.clone()))
+        .collect();
+
     // First-class structs have serde + non-empty fields — decode with JSONDecoder.
     let first_class_set: std::collections::HashSet<&str> = api
         .types
         .iter()
-        .filter(|t| !t.is_trait && can_emit_first_class_struct(t, mapper, exclude_fields))
+        .filter(|t| !t.is_trait && can_emit_first_class_struct(t, mapper, exclude_fields, &known_dto_names_fwd))
         .map(|t| t.name.as_str())
         .collect();
 

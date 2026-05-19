@@ -890,6 +890,7 @@ mod tests {
                 },
             ],
             doc: "Error type for conversion operations.".to_string(),
+            methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
         }
@@ -941,6 +942,7 @@ mod tests {
                 doc: String::new(),
             }],
             doc: String::new(),
+            methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
         };
@@ -966,6 +968,7 @@ mod tests {
                 doc: String::new(),
             }],
             doc: String::new(),
+            methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
         };
@@ -1021,6 +1024,7 @@ mod tests {
                 doc: String::new(),
             }],
             doc: String::new(),
+            methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
         };
@@ -1244,6 +1248,7 @@ mod tests {
                 },
             ],
             doc: String::new(),
+            methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
         };

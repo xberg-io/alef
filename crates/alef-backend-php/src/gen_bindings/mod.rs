@@ -421,24 +421,24 @@ impl Backend for PhpBackend {
             for bridge_cfg in &config.trait_bridges {
                 if let Some(register_fn) = bridge_cfg.register_fn.as_deref() {
                     method_items.push(format!(
-                        "#[php_method]\npub fn {}(backend: &mut ext_php_rs::types::ZendObject) -> ext_php_rs::prelude::PhpResult<()> {{\n    \
-                        {}(backend)\n}}",
+                        "pub fn {}(backend: &mut ext_php_rs::types::ZendObject) -> ext_php_rs::prelude::PhpResult<()> {{\n    \
+                        crate::{}(backend)\n}}",
                         register_fn,
                         register_fn
                     ));
                 }
                 if let Some(unregister_fn) = bridge_cfg.unregister_fn.as_deref() {
                     method_items.push(format!(
-                        "#[php_method]\npub fn {}(name: String) -> ext_php_rs::prelude::PhpResult<()> {{\n    \
-                        {}(name)\n}}",
+                        "pub fn {}(name: String) -> ext_php_rs::prelude::PhpResult<()> {{\n    \
+                        crate::{}(name)\n}}",
                         unregister_fn,
                         unregister_fn
                     ));
                 }
                 if let Some(clear_fn) = bridge_cfg.clear_fn.as_deref() {
                     method_items.push(format!(
-                        "#[php_method]\npub fn {}() -> ext_php_rs::prelude::PhpResult<()> {{\n    \
-                        {}()\n}}",
+                        "pub fn {}() -> ext_php_rs::prelude::PhpResult<()> {{\n    \
+                        crate::{}()\n}}",
                         clear_fn,
                         clear_fn
                     ));

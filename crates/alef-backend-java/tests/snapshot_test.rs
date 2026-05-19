@@ -300,6 +300,7 @@ fn print_generated_java_code() {
                 },
             ],
             doc: "Error types".to_string(),
+            methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
         }],
