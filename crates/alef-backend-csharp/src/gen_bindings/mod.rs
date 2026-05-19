@@ -222,6 +222,14 @@ impl Backend for CsharpBackend {
             });
         }
 
+        // Collect all opaque type names (pascal-cased) for instance method detection
+        let all_opaque_type_names: HashSet<String> = api
+            .types
+            .iter()
+            .filter(|t| t.is_opaque)
+            .map(|t| csharp_type_name(&t.name))
+            .collect();
+
         // 3. Generate main wrapper class
         let base_class_name = to_csharp_name(&api.crate_name);
         let wrapper_class_name = if namespace == base_class_name {
@@ -244,6 +252,7 @@ impl Backend for CsharpBackend {
                 &streaming_methods_meta,
                 &exclude_functions,
                 &config.trait_bridges,
+                &all_opaque_type_names,
             )),
             generated_header: true,
         });
@@ -351,15 +360,6 @@ impl Backend for CsharpBackend {
 
         // Collect enum names so record generation can distinguish enum fields from class fields.
         let enum_names: HashSet<String> = api.enums.iter().map(|e| csharp_type_name(&e.name)).collect();
-
-        // Collect all opaque type names (pascal-cased) so methods on one opaque type that
-        // return another opaque type are wrapped correctly rather than JSON-serialized.
-        let all_opaque_type_names: HashSet<String> = api
-            .types
-            .iter()
-            .filter(|t| t.is_opaque)
-            .map(|t| csharp_type_name(&t.name))
-            .collect();
 
         // 4. Generate opaque handle classes
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
