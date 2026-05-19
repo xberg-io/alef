@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **alef-backend-pyo3: emit `@dataclass(frozen=True, slots=True)` for Python DTO classes.** Modern Python 3.10+ best practice is `slots=True`, which reduces memory overhead and improves attribute access performance with no behavioral change for users. All alef-generated dataclasses now include `slots=True` in the decorator on all `@dataclass` types emitted to `options.py`. The types generated are composed only of primitives and standard collections (no self-referential defaults), so slots compatibility is guaranteed.
+
 ### Fixed
 
 - **alef-extract: skip `From`/`Into`/`TryFrom`/`TryInto` trait method extraction.** These conversion-trait impls reference Rust-only counterpart types (e.g. `impl From<tree_sitter::Point> for Point` references `tree_sitter::Point`, which has no representation in any target language). Emitting them produced nonsensical signatures like `Point.from(Point p)` in Java/C# and uncompilable code in napi where the input type was ambiguous between the JsX wrapper and the Rust counterpart. `Default` is intentionally retained — `Default::default()` is a legitimate preset constructor we want emitted. Fix in `crates/alef-extract/src/extractor/functions.rs::extract_trait_impl_methods`.

@@ -343,7 +343,7 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
         if use_typeddict {
             out.push_str(&gen_typeddict(typ, &enum_names, &data_enum_names));
         } else {
-            out.push_str("@dataclass\n");
+            out.push_str("@dataclass(frozen=True, slots=True)\n");
             out.push_str(&crate::template_env::render(
                 "dataclass_header.jinja",
                 minijinja::context! { name => &typ.name },
