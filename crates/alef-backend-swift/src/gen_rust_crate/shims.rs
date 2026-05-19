@@ -396,7 +396,14 @@ pub(crate) fn emit_function_shim(
         match &wrap_shape {
             Some(WrapShape::Direct(t)) => format!(".map({})", wrap_named(t)),
             Some(WrapShape::OptMap(t)) => format!(".map(|v| v.map({}))", wrap_named(t)),
-            Some(WrapShape::VecMap(t)) => format!(".map(|v| v.into_iter().map({}).collect::<Vec<_>>())", wrap_named(t)),
+            Some(WrapShape::VecMap(t)) => {
+                if f.returns_ref {
+                    // v is &[T]; iter() yields &T — must clone before wrapping.
+                    format!(".map(|v| v.iter().map(|x| {}(x.clone())).collect::<Vec<_>>())", t)
+                } else {
+                    format!(".map(|v| v.into_iter().map({}).collect::<Vec<_>>())", wrap_named(t))
+                }
+            }
             None => {
                 // Apply coercions for &str → String and Vec<&str> → Vec<String>
                 // in Result-returning functions, same as for direct returns.
@@ -419,7 +426,14 @@ pub(crate) fn emit_function_shim(
         match &wrap_shape {
             Some(WrapShape::Direct(t)) => wrap_named_direct(t, &source),
             Some(WrapShape::OptMap(t)) => format!("({source}).map({})", wrap_named(t)),
-            Some(WrapShape::VecMap(t)) => format!("({source}).into_iter().map({}).collect::<Vec<_>>()", wrap_named(t)),
+            Some(WrapShape::VecMap(t)) => {
+                if f.returns_ref {
+                    // source is &[T]; iter() yields &T — must clone before wrapping.
+                    format!("({source}).iter().map(|x| {t}(x.clone())).collect::<Vec<_>>()")
+                } else {
+                    format!("({source}).into_iter().map({}).collect::<Vec<_>>()", wrap_named(t))
+                }
+            }
             None => {
                 // No wrapping needed — but the kreuzberg function might return `&str`
                 // when the IR says `String`, or `Vec<&str>` when the IR says `Vec<String>`.
