@@ -383,6 +383,116 @@ fn error_variant_with_fields_emits_data_class() {
 }
 
 #[test]
+fn error_sealed_class_with_methods_emits_abstract_properties() {
+    use alef_core::ir::ReceiverKind;
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![ErrorDef {
+            name: "ApiError".into(),
+            rust_path: "demo::ApiError".into(),
+            original_rust_path: String::new(),
+            variants: vec![ErrorVariant {
+                name: "NotFound".into(),
+                message_template: Some("not found".into()),
+                fields: vec![],
+                has_source: false,
+                has_from: false,
+                is_unit: true,
+                doc: String::new(),
+            }],
+            doc: String::new(),
+            methods: vec![
+                MethodDef {
+                    name: "status_code".into(),
+                    params: vec![],
+                    return_type: TypeRef::Primitive(PrimitiveType::U16),
+                    is_async: false,
+                    is_static: false,
+                    error_type: None,
+                    doc: String::new(),
+                    receiver: Some(ReceiverKind::Ref),
+                    sanitized: false,
+                    trait_source: None,
+                    returns_ref: false,
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    has_default_impl: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                },
+                MethodDef {
+                    name: "is_transient".into(),
+                    params: vec![],
+                    return_type: TypeRef::Primitive(PrimitiveType::Bool),
+                    is_async: false,
+                    is_static: false,
+                    error_type: None,
+                    doc: String::new(),
+                    receiver: Some(ReceiverKind::Ref),
+                    sanitized: false,
+                    trait_source: None,
+                    returns_ref: false,
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    has_default_impl: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                },
+                MethodDef {
+                    name: "error_type".into(),
+                    params: vec![],
+                    return_type: TypeRef::String,
+                    is_async: false,
+                    is_static: false,
+                    error_type: None,
+                    doc: String::new(),
+                    receiver: Some(ReceiverKind::Ref),
+                    sanitized: false,
+                    trait_source: None,
+                    returns_ref: false,
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    has_default_impl: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                },
+            ],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    // emit_error_type_pub is the public re-export of emit_error_type_with_imports.
+    let mut out = String::new();
+    let mut imports = std::collections::BTreeSet::new();
+    emit_error_type_pub(
+        api.errors.first().unwrap(),
+        &mut out,
+        &mut imports,
+    );
+
+    assert!(
+        out.contains("abstract val statusCode: Short"),
+        "missing statusCode abstract property: {out}"
+    );
+    assert!(
+        out.contains("abstract val isTransient: Boolean"),
+        "missing isTransient abstract property: {out}"
+    );
+    assert!(
+        out.contains("abstract val errorType: String"),
+        "missing errorType abstract property: {out}"
+    );
+}
+
+#[test]
 fn function_imports_native_facade() {
     let api = ApiSurface {
         crate_name: "demo".into(),

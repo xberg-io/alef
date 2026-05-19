@@ -823,6 +823,15 @@ pub(crate) fn emit_error_type_with_imports(
             }
         }
     }
+    // Emit abstract property declarations for each whitelisted introspection
+    // method (status_code, is_transient, error_type).  Each data-class variant
+    // in the sealed hierarchy must provide a concrete override; the JNI bridge
+    // fills the values during Rust→Kotlin error conversion.
+    for method in error.methods.iter().filter(|m| !m.sanitized) {
+        let prop_name = to_lower_camel(&method.name);
+        let ty_str = kotlin_type_with_string_imports(&method.return_type, false, imports);
+        out.push_str(&format!("    abstract val {prop_name}: {ty_str}\n"));
+    }
     out.push_str("}\n");
 }
 
