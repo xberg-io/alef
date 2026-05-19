@@ -67,6 +67,36 @@ pub(crate) fn emit_bridge_fn(
         return;
     }
 
+    // When the return type was sanitized (a Named core type collapsed to String because
+    // the type is not exported through the Dart binding surface), the core fn still
+    // returns the real type which is not `.to_string()`-able. Calling the core fn and
+    // then trying to coerce its result into the sanitized binding type would fail to
+    // compile (e.g. `Option<EmbeddingPreset>.map(|s| s.to_string())` where
+    // `EmbeddingPreset: !Display`). Emit a default-value stub instead — the function is
+    // unreachable through the binding surface anyway because the input/output types are
+    // not visible to Dart callers.
+    if f.return_sanitized {
+        let suppress = if f.params.is_empty() {
+            String::new()
+        } else {
+            let names: Vec<&str> = f.params.iter().map(|p| p.name.as_str()).collect();
+            if names.len() == 1 {
+                format!("    let _ = {};\n", names[0])
+            } else {
+                format!("    let _ = ({});\n", names.join(", "))
+            }
+        };
+        let default_value = sanitized_return_default(&f.return_type);
+        let body = if has_error {
+            format!("{suppress}    Ok({default_value})\n")
+        } else {
+            format!("{suppress}    {default_value}\n")
+        };
+        out.push_str(&body);
+        out.push_str("}\n");
+        return;
+    }
+
     // Build call-site arguments. Named types (structs/enums declared with
     // `#[frb(mirror(T))]`) are received as the local mirror type but the core fn
     // expects source-crate `T`. For types without sanitized fields, transmute is sound
@@ -393,6 +423,32 @@ fn return_transmute_expr(
             }
         }
         _ => String::new(),
+    }
+}
+
+/// Build a Rust default-value expression for a type sanitized from a core Named type.
+///
+/// Mirrors `gen_unimplemented_body` in `alef-codegen` for primitive/string returns: a
+/// sanitized return collapses the core Named type to `String`/`Option<String>`/etc., and
+/// the dart bridge stubs the body because the core value cannot be expressed in the
+/// sanitized type without `serde_json::to_string` (which requires Serialize bounds the
+/// extract pass cannot verify here).
+fn sanitized_return_default(ty: &TypeRef) -> String {
+    match ty {
+        TypeRef::Unit => "()".to_string(),
+        TypeRef::String | TypeRef::Char | TypeRef::Path => "String::new()".to_string(),
+        TypeRef::Bytes => "Vec::new()".to_string(),
+        TypeRef::Primitive(p) => match p {
+            alef_core::ir::PrimitiveType::Bool => "false".to_string(),
+            alef_core::ir::PrimitiveType::F32 => "0.0f32".to_string(),
+            alef_core::ir::PrimitiveType::F64 => "0.0f64".to_string(),
+            _ => "0".to_string(),
+        },
+        TypeRef::Optional(_) => "None".to_string(),
+        TypeRef::Vec(_) => "Vec::new()".to_string(),
+        TypeRef::Map(_, _) => "Default::default()".to_string(),
+        TypeRef::Duration => "0".to_string(),
+        TypeRef::Named(_) | TypeRef::Json => "Default::default()".to_string(),
     }
 }
 
