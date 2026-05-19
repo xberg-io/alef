@@ -421,8 +421,8 @@ impl Backend for PhpBackend {
             for bridge_cfg in &config.trait_bridges {
                 if let Some(register_fn) = bridge_cfg.register_fn.as_deref() {
                     method_items.push(format!(
-                        "#[php_method]\npub fn {}(impl: &mut ext_php_rs::types::ZendObject) -> ext_php_rs::prelude::PhpResult<()> {{\n    \
-                        {}(impl)\n}}",
+                        "#[php_method]\npub fn {}(backend: &mut ext_php_rs::types::ZendObject) -> ext_php_rs::prelude::PhpResult<()> {{\n    \
+                        {}(backend)\n}}",
                         register_fn,
                         register_fn
                     ));
@@ -979,6 +979,138 @@ impl Backend for PhpBackend {
                 "php_method_end.jinja",
                 minijinja::Value::default(),
             ));
+        }
+
+        // Emit trait-bridge registration methods in the PHP facade
+        for bridge_cfg in &config.trait_bridges {
+            if let Some(register_fn) = bridge_cfg.register_fn.as_deref() {
+                let method_name = register_fn.to_lower_camel_case();
+                content.push_str(&crate::template_env::render(
+                    "php_phpdoc_block_start.jinja",
+                    minijinja::Value::default(),
+                ));
+                content.push_str(&crate::template_env::render(
+                    "php_phpdoc_text_line.jinja",
+                    context! { text => &format!("{}.", method_name) },
+                ));
+                content.push_str(&crate::template_env::render(
+                    "php_phpdoc_empty_line.jinja",
+                    minijinja::Value::default(),
+                ));
+                let interface_name = &bridge_cfg.trait_name;
+                content.push_str(&crate::template_env::render(
+                    "php_phpdoc_param_line.jinja",
+                    context! {
+                        nullable_prefix => "",
+                        param_type => interface_name,
+                        param_name => "backend",
+                    },
+                ));
+                content.push_str(&crate::template_env::render(
+                    "php_phpdoc_return_line.jinja",
+                    context! { return_type => "void" },
+                ));
+                content.push_str(&crate::template_env::render(
+                    "php_phpdoc_block_end.jinja",
+                    minijinja::Value::default(),
+                ));
+                content.push_str(&crate::template_env::render(
+                    "php_method_signature_start.jinja",
+                    context! { method_name => &method_name },
+                ));
+                content.push_str(&format!("{} $backend = null) : void", interface_name));
+                let call_expr = format!("\\{namespace}\\{class_name}Api::{register_fn}($backend)");
+                content.push_str(&crate::template_env::render(
+                    "php_method_call_statement.jinja",
+                    context! { call_expr => &call_expr },
+                ));
+                content.push_str(&crate::template_env::render(
+                    "php_method_end.jinja",
+                    minijinja::Value::default(),
+                ));
+            }
+            if let Some(unregister_fn) = bridge_cfg.unregister_fn.as_deref() {
+                let method_name = unregister_fn.to_lower_camel_case();
+                content.push_str(&crate::template_env::render(
+                    "php_phpdoc_block_start.jinja",
+                    minijinja::Value::default(),
+                ));
+                content.push_str(&crate::template_env::render(
+                    "php_phpdoc_text_line.jinja",
+                    context! { text => &format!("{}.", method_name) },
+                ));
+                content.push_str(&crate::template_env::render(
+                    "php_phpdoc_empty_line.jinja",
+                    minijinja::Value::default(),
+                ));
+                content.push_str(&crate::template_env::render(
+                    "php_phpdoc_param_line.jinja",
+                    context! {
+                        nullable_prefix => "",
+                        param_type => "string",
+                        param_name => "name",
+                    },
+                ));
+                content.push_str(&crate::template_env::render(
+                    "php_phpdoc_return_line.jinja",
+                    context! { return_type => "void" },
+                ));
+                content.push_str(&crate::template_env::render(
+                    "php_phpdoc_block_end.jinja",
+                    minijinja::Value::default(),
+                ));
+                content.push_str(&crate::template_env::render(
+                    "php_method_signature_start.jinja",
+                    context! { method_name => &method_name },
+                ));
+                content.push_str("string $name) : void");
+                let call_expr = format!("\\{namespace}\\{class_name}Api::{unregister_fn}($name)");
+                content.push_str(&crate::template_env::render(
+                    "php_method_call_statement.jinja",
+                    context! { call_expr => &call_expr },
+                ));
+                content.push_str(&crate::template_env::render(
+                    "php_method_end.jinja",
+                    minijinja::Value::default(),
+                ));
+            }
+            if let Some(clear_fn) = bridge_cfg.clear_fn.as_deref() {
+                let method_name = clear_fn.to_lower_camel_case();
+                content.push_str(&crate::template_env::render(
+                    "php_phpdoc_block_start.jinja",
+                    minijinja::Value::default(),
+                ));
+                content.push_str(&crate::template_env::render(
+                    "php_phpdoc_text_line.jinja",
+                    context! { text => &format!("{}.", method_name) },
+                ));
+                content.push_str(&crate::template_env::render(
+                    "php_phpdoc_empty_line.jinja",
+                    minijinja::Value::default(),
+                ));
+                content.push_str(&crate::template_env::render(
+                    "php_phpdoc_return_line.jinja",
+                    context! { return_type => "void" },
+                ));
+                content.push_str(&crate::template_env::render(
+                    "php_phpdoc_block_end.jinja",
+                    minijinja::Value::default(),
+                ));
+                content.push_str(&crate::template_env::render(
+                    "php_method_signature_start.jinja",
+                    context! { method_name => &method_name },
+                ));
+                content.push_str(") : void");
+                let call_expr = format!("\\{namespace}\\{class_name}Api::{clear_fn}()");
+                content.push_str(&crate::template_env::render(
+                    "php_method_call_statement.jinja",
+                    context! { call_expr => &call_expr },
+                ));
+                content.push_str(&crate::template_env::render(
+                    "php_method_end.jinja",
+                    minijinja::Value::default(),
+                ));
+            }
         }
 
         content.push_str(&crate::template_env::render(
