@@ -292,10 +292,12 @@ fn emit_from_impl(out: &mut String, error: &ErrorDef, core_path: &str) {
                 })
                 .collect();
 
-            // Pattern binding: `Name::Variant { field0: ref f_field0, ... }`
+            // Pattern binding: `Name::Variant { field0: f_field0, ... }`
+            // The impl takes `&MirrorEnum` so the match arm implicitly borrows all
+            // fields — `ref` is redundant and rejected by rustc (Rust 2024 edition).
             let pat_fields: String = field_names
                 .iter()
-                .map(|fname| format!("{fname}: ref f_{fname}"))
+                .map(|fname| format!("{fname}: f_{fname}"))
                 .collect::<Vec<_>>()
                 .join(", ");
             out.push_str(&format!(

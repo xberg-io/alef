@@ -1887,3 +1887,137 @@ fn mirror_error_introspection_uses_safe_from_conversion_not_transmute() {
         "u16 field must be cast from i64 with `as u16` in From impl: {lib}"
     );
 }
+
+#[test]
+fn mirror_error_from_impl_handles_optional_string_duration_and_sanitized_fields() {
+    // Verifies three edge cases in the From<&Mirror> impl:
+    // 1. Optional String field → wrapped with Some(f_x.clone()) since the mirror
+    //    uses bare String (frb_rust_type_inner ignores optional).
+    // 2. Optional Duration field → wrapped with Some(Duration::from_millis(*f_x as u64))
+    //    since the mirror collapses Duration to i64.
+    // 3. Sanitized field → variant is skipped with a wildcard/unreachable arm.
+    use alef_core::ir::CoreWrapper;
+    let make_error_field = |name: &str, ty: TypeRef, optional: bool, sanitized: bool| FieldDef {
+        name: name.to_string(),
+        ty,
+        optional,
+        default: None,
+        doc: String::new(),
+        sanitized,
+        is_boxed: false,
+        type_rust_path: None,
+        cfg: None,
+        typed_default: None,
+        core_wrapper: CoreWrapper::None,
+        vec_inner_core_wrapper: CoreWrapper::None,
+        newtype_wrapper: None,
+        serde_rename: None,
+        serde_flatten: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        original_type: None,
+    };
+
+    let status_code_method = MethodDef {
+        name: "code".to_string(),
+        params: vec![],
+        return_type: TypeRef::Primitive(PrimitiveType::I64),
+        is_async: false,
+        is_static: false,
+        error_type: None,
+        doc: String::new(),
+        receiver: None,
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+
+    let error = ErrorDef {
+        name: "ApiErr".to_string(),
+        rust_path: "demo_crate::ApiErr".to_string(),
+        original_rust_path: String::new(),
+        variants: vec![
+            // Variant with optional String field.
+            ErrorVariant {
+                name: "Budget".to_string(),
+                message_template: None,
+                fields: vec![
+                    make_error_field("message", TypeRef::String, false, false),
+                    make_error_field("model", TypeRef::String, true, false), // optional String
+                ],
+                has_source: false,
+                has_from: false,
+                is_unit: false,
+                doc: String::new(),
+            },
+            // Variant with optional Duration field.
+            ErrorVariant {
+                name: "RateLimit".to_string(),
+                message_template: None,
+                fields: vec![
+                    make_error_field("message", TypeRef::String, false, false),
+                    make_error_field("retry_after", TypeRef::Duration, true, false), // optional Duration
+                ],
+                has_source: false,
+                has_from: false,
+                is_unit: false,
+                doc: String::new(),
+            },
+            // Variant with sanitized field — must be skipped.
+            ErrorVariant {
+                name: "Serialization".to_string(),
+                message_template: None,
+                fields: vec![
+                    make_error_field("field0", TypeRef::String, false, true), // sanitized
+                ],
+                has_source: true,
+                has_from: true,
+                is_unit: false,
+                doc: String::new(),
+            },
+        ],
+        doc: String::new(),
+        methods: vec![status_code_method],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![error],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
+    let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
+
+    // Optional String must be wrapped with Some.
+    assert!(
+        lib.contains("model: Some(f_model.clone())"),
+        "optional String field must be wrapped with Some(...) in From impl: {lib}"
+    );
+    // Optional Duration must be converted and wrapped with Some.
+    assert!(
+        lib.contains("retry_after: Some(std::time::Duration::from_millis(*f_retry_after as u64))"),
+        "optional Duration field must become Some(Duration::from_millis(...)) in From impl: {lib}"
+    );
+    // Sanitized variant must be absent from match arms, replaced by unreachable wildcard.
+    assert!(
+        lib.contains("unreachable!"),
+        "sanitized variant must produce unreachable wildcard arm in From impl: {lib}"
+    );
+    assert!(
+        !lib.contains("ApiErr::Serialization {"),
+        "sanitized variant arm must not appear in From impl: {lib}"
+    );
+}

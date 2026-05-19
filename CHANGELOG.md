@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-backend-dart: replace unsound raw-pointer transmute in mirror error introspection with safe variant-by-variant `From` conversion.** The `emit_mirror_error` function previously delegated introspection methods (`status_code`, `is_transient`, `error_type`) by casting `self` from `&MirrorEnum` to `&RealEnum` via raw pointer. This is unsound: the mirror uses FRB-widened types (`i64` for all integers, `i64` for `Duration`) while the real type uses native widths (`u16`, `u64`, `Option<Duration>`), so the pointer cast reads garbage bytes at runtime despite `cargo check` passing. The `SAFETY` comment was also incorrect — `#[frb(mirror(T))]` is a codegen directive, not a layout guarantee. Fix: emit an `impl From<&MirrorEnum> for RealType` that reconstructs each variant field-by-field with explicit casts (`*f_status as u16`, `Duration::from_millis(*f_retry_after as u64)`, `Some(f_model.clone())` for optional-in-real-but-bare-in-mirror fields). Variants with sanitized fields (types erased to `String` whose originals cannot be recovered, e.g. `serde_json::Error`) are skipped and covered by an `unreachable!` wildcard arm. Introspection methods now use `let real: CorePath = self.into(); real.method()` — fully safe, no `unsafe` block. (`crates/alef-backend-dart/src/gen_rust_crate/mirror.rs`)
+
 ## [0.17.0] - 2026-05-19
 
 ### Added
