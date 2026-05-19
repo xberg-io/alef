@@ -490,12 +490,17 @@ impl Backend for MagnusBackend {
             }
         }
 
-        // Error converter functions
+        // Error converter functions + optional introspection method structs
         for error in &api.errors {
             builder.add_item(&alef_codegen::error_gen::gen_magnus_error_converter(
                 error,
                 &core_import,
             ));
+            // Emit Magnus-wrapped struct for errors with whitelisted introspection methods.
+            let methods_struct = alef_codegen::error_gen::gen_magnus_error_methods_struct(error, &core_import);
+            if !methods_struct.is_empty() {
+                builder.add_item(&methods_struct);
+            }
         }
 
         // Build adapter body map (consumed by generators via body substitution)

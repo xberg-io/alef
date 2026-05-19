@@ -37,6 +37,24 @@ pub fn gen_stubs(api: &ApiSurface, gem_name: &str, emit_docstrings: bool) -> Str
         lines.push("".to_string());
     }
 
+    // Generate error info class stubs for errors with introspection methods.
+    for error in api.errors.iter().filter(|e| !e.methods.is_empty()) {
+        let class_name = format!("{}Info", error.name);
+        let mut class_lines = vec![format!("  class {class_name}")];
+        for method in &error.methods {
+            let (rbs_name, rbs_ret): (&str, &str) = match method.name.as_str() {
+                "status_code" => ("status_code", "Integer"),
+                "is_transient" => ("transient?", "bool"),
+                "error_type" => ("error_type", "String"),
+                _ => continue,
+            };
+            class_lines.push(format!("    def {rbs_name}: () -> {rbs_ret}"));
+        }
+        class_lines.push("  end".to_string());
+        lines.push(class_lines.join("\n"));
+        lines.push("".to_string());
+    }
+
     lines.push("end".to_string());
 
     lines.join("\n")

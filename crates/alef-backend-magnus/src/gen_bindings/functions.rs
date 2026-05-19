@@ -1085,6 +1085,16 @@ pub(super) fn gen_module_init(
         }
     }
 
+    // Register error info classes for errors with introspection methods.
+    // Each class is defined as a Ruby class on the module and gets define_method
+    // calls for status_code, transient?, and error_type.
+    for error in &api.errors {
+        let regs = alef_codegen::error_gen::magnus_error_methods_registrations(error);
+        for reg_line in regs {
+            lines.push(reg_line);
+        }
+    }
+
     lines.push("".to_string());
     lines.push("    Ok(())".to_string());
     lines.push("}".to_string());
