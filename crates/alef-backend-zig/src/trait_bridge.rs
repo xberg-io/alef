@@ -828,6 +828,62 @@ mod tests {
     }
 
     #[test]
+    fn emit_trait_bridge_emits_clear_fn_when_configured() {
+        let trait_def = make_trait_def(
+            "OcrBackend",
+            vec![make_method(
+                "process",
+                vec![make_param("input", TypeRef::String)],
+                TypeRef::String,
+                Some("OcrError"),
+            )],
+        );
+        let mut bridge_cfg = make_bridge_cfg("OcrBackend", Some("kreuzberg::plugins::Plugin"));
+        bridge_cfg.clear_fn = Some("clear_ocr_backends".to_string());
+
+        let mut out = String::new();
+        emit_trait_bridge("kreuzberg", &bridge_cfg, &trait_def, &mut out);
+
+        assert!(
+            out.contains("pub fn clear_ocr_backends(out_error: ?*?[*c]u8) i32"),
+            "missing clear_ocr_backends signature: {out}"
+        );
+        // C symbol uses the singular trait-snake suffix to match kreuzberg-ffi naming.
+        assert!(
+            out.contains("c.kreuzberg_clear_ocr_backend(out_error)"),
+            "wrong C symbol target for clear wrapper: {out}"
+        );
+        // Doc comment present.
+        assert!(
+            out.contains("/// Remove ALL registered `OcrBackend` plugins"),
+            "missing clear doc comment: {out}"
+        );
+    }
+
+    #[test]
+    fn emit_trait_bridge_omits_clear_fn_when_not_configured() {
+        let trait_def = make_trait_def(
+            "OcrBackend",
+            vec![make_method(
+                "process",
+                vec![make_param("input", TypeRef::String)],
+                TypeRef::String,
+                Some("OcrError"),
+            )],
+        );
+        let bridge_cfg = make_bridge_cfg("OcrBackend", Some("kreuzberg::plugins::Plugin"));
+        // clear_fn left as None.
+
+        let mut out = String::new();
+        emit_trait_bridge("kreuzberg", &bridge_cfg, &trait_def, &mut out);
+
+        assert!(
+            !out.contains("pub fn clear_"),
+            "should not emit any clear_* fn when clear_fn is None: {out}"
+        );
+    }
+
+    #[test]
     fn multi_method_trait_with_super_trait_emits_lifecycle_slots() {
         let trait_def = make_trait_def(
             "OcrBackend",
