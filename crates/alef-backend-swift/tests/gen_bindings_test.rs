@@ -785,6 +785,134 @@ fn error_enum_named_error_is_renamed_to_module_error() {
     assert!(content.contains("case notFound\n"), "missing notFound case: {content}");
 }
 
+#[test]
+fn error_enum_with_methods_emits_extension_properties() {
+    use alef_core::ir::{MethodDef, ReceiverKind};
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![ErrorDef {
+            name: "ApiError".into(),
+            rust_path: "demo::ApiError".into(),
+            original_rust_path: String::new(),
+            variants: vec![
+                ErrorVariant {
+                    name: "NotFound".into(),
+                    message_template: Some("not found".into()),
+                    fields: vec![],
+                    has_source: false,
+                    has_from: false,
+                    is_unit: true,
+                    doc: String::new(),
+                },
+                ErrorVariant {
+                    name: "ServerError".into(),
+                    message_template: Some("server error".into()),
+                    fields: vec![make_field("status", TypeRef::Primitive(PrimitiveType::U16), false)],
+                    has_source: false,
+                    has_from: false,
+                    is_unit: false,
+                    doc: String::new(),
+                },
+            ],
+            doc: String::new(),
+            methods: vec![
+                MethodDef {
+                    name: "status_code".into(),
+                    params: vec![],
+                    return_type: TypeRef::Primitive(PrimitiveType::U16),
+                    is_async: false,
+                    is_static: false,
+                    error_type: None,
+                    doc: String::new(),
+                    receiver: Some(ReceiverKind::Ref),
+                    sanitized: false,
+                    trait_source: None,
+                    returns_ref: false,
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    has_default_impl: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                },
+                MethodDef {
+                    name: "is_transient".into(),
+                    params: vec![],
+                    return_type: TypeRef::Primitive(PrimitiveType::Bool),
+                    is_async: false,
+                    is_static: false,
+                    error_type: None,
+                    doc: String::new(),
+                    receiver: Some(ReceiverKind::Ref),
+                    sanitized: false,
+                    trait_source: None,
+                    returns_ref: false,
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    has_default_impl: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                },
+                MethodDef {
+                    name: "error_type".into(),
+                    params: vec![],
+                    return_type: TypeRef::String,
+                    is_async: false,
+                    is_static: false,
+                    error_type: None,
+                    doc: String::new(),
+                    receiver: Some(ReceiverKind::Ref),
+                    sanitized: false,
+                    trait_source: None,
+                    returns_ref: false,
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    has_default_impl: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                },
+            ],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+
+    // Extension block must be emitted after the enum.
+    assert!(
+        content.contains("extension ApiError {"),
+        "missing extension block: {content}"
+    );
+    // statusCode property as UInt16.
+    assert!(
+        content.contains("public var statusCode: UInt16 {"),
+        "missing statusCode property: {content}"
+    );
+    // isTransient property as Bool.
+    assert!(
+        content.contains("public var isTransient: Bool {"),
+        "missing isTransient property: {content}"
+    );
+    // errorType property as String.
+    assert!(
+        content.contains("public var errorType: String {"),
+        "missing errorType property: {content}"
+    );
+    // switch self must be emitted inside each property.
+    assert!(
+        content.contains("switch self {"),
+        "missing switch self: {content}"
+    );
+}
+
 // ── convenience wrapper tests ─────────────────────────────────────────────────
 
 /// Helper: build a FunctionDef with no error type and not async.

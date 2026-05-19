@@ -1076,6 +1076,82 @@ fn emit_error(error: &ErrorDef, module_name: &str, out: &mut String, mapper: &Sw
         }
     }
     out.push_str("}\n");
+    // Emit a public extension with computed properties for each whitelisted
+    // introspection method (e.g. `status_code`, `is_transient`, `error_type`).
+    // Each property switches over `self` and delegates to the per-variant
+    // associated values or returns a sensible default when the variant carries
+    // no such field.  Backends that wire a swift-bridge free function can
+    // replace these stubs in a subsequent code-generation pass.
+    if !error.methods.is_empty() {
+        out.push('\n');
+        out.push_str(&format!("extension {name} {{\n"));
+        for method in &error.methods {
+            let prop_name = swift_case_ident(&method.name.to_lower_camel_case());
+            let return_ty = swift_type_name(&method.return_type);
+            let default_val = swift_default_for_type(&method.return_type);
+            out.push_str(&format!("    public var {prop_name}: {return_ty} {{\n"));
+            out.push_str("        switch self {\n");
+            for variant in &error.variants {
+                let case_name = swift_case_ident(&variant.name.to_lower_camel_case());
+                // Check whether this variant carries an associated value whose
+                // name matches the method (e.g. `status_code` ↔ `status`).
+                let field_match = variant.fields.iter().find(|f| {
+                    let camel = f.name.to_lower_camel_case();
+                    let prop_snake = method.name.as_str();
+                    // Exact match or common abbreviation (status_code → status).
+                    camel == prop_name
+                        || f.name == prop_snake
+                        || (prop_snake == "status_code" && (f.name == "status" || camel == "status"))
+                });
+                let wildcard = if variant.is_unit || variant.fields.is_empty() {
+                    String::new()
+                } else {
+                    let args: Vec<String> = variant
+                        .fields
+                        .iter()
+                        .enumerate()
+                        .map(|(i, f)| {
+                            let label = swift_associated_label(&f.name, i);
+                            if let Some(fm) = &field_match {
+                                if fm.name == f.name {
+                                    return format!("{label}: let matched");
+                                }
+                            }
+                            format!("{label}: _")
+                        })
+                        .collect();
+                    format!("({})", args.join(", "))
+                };
+                let ret_expr = if field_match.is_some() && !variant.is_unit && !variant.fields.is_empty() {
+                    "matched".to_string()
+                } else {
+                    default_val.clone()
+                };
+                out.push_str(&format!(
+                    "        case .{case_name}{wildcard}: return {ret_expr}\n"
+                ));
+            }
+            out.push_str("        }\n");
+            out.push_str("    }\n");
+        }
+        out.push_str("}\n");
+    }
+}
+
+/// Returns the Swift zero/default literal for a given `TypeRef`.
+fn swift_default_for_type(ty: &TypeRef) -> String {
+    match ty {
+        TypeRef::Primitive(p) => {
+            use alef_core::ir::PrimitiveType;
+            match p {
+                PrimitiveType::Bool => "false".to_string(),
+                _ => "0".to_string(),
+            }
+        }
+        TypeRef::String => "\"\"".to_string(),
+        TypeRef::Optional(_) => "nil".to_string(),
+        _ => "nil".to_string(),
+    }
 }
 
 /// Emits a Swift `public final class` wrapper for an opaque Rust type that exposes methods.
