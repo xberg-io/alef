@@ -2,8 +2,8 @@ use alef_backend_rustler::RustlerBackend;
 use alef_core::backend::Backend;
 use alef_core::config::{ResolvedCrateConfig, new_config::NewAlefConfig};
 use alef_core::ir::{
-    ApiSurface, CoreWrapper, DefaultValue, EnumDef, EnumVariant, FieldDef, FunctionDef, MethodDef, ParamDef,
-    PrimitiveType, ReceiverKind, TypeDef, TypeRef,
+    ApiSurface, CoreWrapper, DefaultValue, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef,
+    MethodDef, ParamDef, PrimitiveType, ReceiverKind, TypeDef, TypeRef,
 };
 
 /// Build a minimal ResolvedCrateConfig for elixir tests.
@@ -1311,5 +1311,161 @@ fn test_wrapper_module_doc_uses_full_first_paragraph_summary() {
     assert!(
         !content.contains("Convert HTML to Markdown, returning\n"),
         "wrapper @doc must not retain the physical newline mid-paragraph; content:\n{content}"
+    );
+}
+
+fn make_error_with_methods() -> ErrorDef {
+    ErrorDef {
+        name: "DemoError".into(),
+        rust_path: "demo::DemoError".into(),
+        original_rust_path: String::new(),
+        variants: vec![ErrorVariant {
+            name: "NotFound".into(),
+            message_template: Some("not found".into()),
+            fields: vec![],
+            has_source: false,
+            has_from: false,
+            is_unit: true,
+            doc: String::new(),
+        }],
+        doc: String::new(),
+        methods: vec![
+            MethodDef {
+                name: "status_code".into(),
+                params: vec![],
+                return_type: TypeRef::Primitive(PrimitiveType::U16),
+                is_async: false,
+                is_static: false,
+                error_type: None,
+                doc: String::new(),
+                receiver: Some(ReceiverKind::Ref),
+                sanitized: false,
+                trait_source: None,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+            MethodDef {
+                name: "is_transient".into(),
+                params: vec![],
+                return_type: TypeRef::Primitive(PrimitiveType::Bool),
+                is_async: false,
+                is_static: false,
+                error_type: None,
+                doc: String::new(),
+                receiver: Some(ReceiverKind::Ref),
+                sanitized: false,
+                trait_source: None,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+            MethodDef {
+                name: "error_type".into(),
+                params: vec![],
+                return_type: TypeRef::String,
+                is_async: false,
+                is_static: false,
+                error_type: None,
+                doc: String::new(),
+                receiver: Some(ReceiverKind::Ref),
+                sanitized: false,
+                trait_source: None,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+        ],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    }
+}
+
+#[test]
+fn error_methods_emit_nif_shims_in_lib_rs() {
+    let backend = RustlerBackend;
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![make_error_with_methods()],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+    let config = make_config("demo");
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let lib_rs = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("lib.rs"))
+        .expect("lib.rs must be generated");
+    let content = &lib_rs.content;
+    assert!(
+        content.contains("fn demoerror_status_code(_msg: String) -> u16"),
+        "status_code NIF shim missing:\n{content}"
+    );
+    assert!(
+        content.contains("fn demoerror_is_transient(_msg: String) -> bool"),
+        "is_transient NIF shim missing:\n{content}"
+    );
+    assert!(
+        content.contains("fn demoerror_error_type(_msg: String) -> String"),
+        "error_type NIF shim missing:\n{content}"
+    );
+}
+
+#[test]
+fn error_methods_emit_elixir_spec_and_def_wrappers() {
+    let backend = RustlerBackend;
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![make_error_with_methods()],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+    let config = make_config("demo");
+    let files = backend.generate_public_api(&api, &config).unwrap();
+    let ex_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("demo.ex"))
+        .expect("demo.ex must be generated");
+    let content = &ex_file.content;
+    assert!(
+        content.contains("@spec demoerror_status_code(String.t()) :: non_neg_integer()"),
+        "status_code @spec missing:\n{content}"
+    );
+    assert!(
+        content.contains("@spec demoerror_is_transient(String.t()) :: boolean()"),
+        "is_transient @spec missing:\n{content}"
+    );
+    assert!(
+        content.contains("@spec demoerror_error_type(String.t()) :: String.t()"),
+        "error_type @spec missing:\n{content}"
+    );
+    assert!(
+        content.contains("def demoerror_status_code(msg)"),
+        "status_code def missing:\n{content}"
+    );
+    assert!(
+        content.contains("def demoerror_is_transient(msg)"),
+        "is_transient def missing:\n{content}"
+    );
+    assert!(
+        content.contains("def demoerror_error_type(msg)"),
+        "error_type def missing:\n{content}"
     );
 }
