@@ -80,6 +80,23 @@ pub(super) fn gen_dts(
         .collect();
     sorted_fns.sort_by(|a, b| a.name.cmp(&b.name));
 
+    // Trait-bridge registration functions → `export declare function`
+    // For each trait bridge, emit unregister and clear functions.
+    let mut trait_bridge_fns: Vec<(String, String, String)> = Vec::new();
+    for bridge in trait_bridges {
+        // unregister_{trait_name_lower}
+        if let Some(unregister) = &bridge.unregister_fn {
+            let js_name = alef_codegen::naming::to_node_name(unregister);
+            trait_bridge_fns.push((js_name, format!("name: string"), "void".to_string()));
+        }
+        // clear_{trait_name_lower}s
+        if let Some(clear) = &bridge.clear_fn {
+            let js_name = alef_codegen::naming::to_node_name(clear);
+            trait_bridge_fns.push((js_name, String::new(), "void".to_string()));
+        }
+    }
+    trait_bridge_fns.sort_by(|a, b| a.0.cmp(&b.0));
+
     // Build a merged list of all declarations sorted by their Js-prefixed name so the
     // output is fully alphabetical (matching the committed index.d.ts format).
     enum Decl<'a> {
@@ -88,6 +105,11 @@ pub(super) fn gen_dts(
         VisitorInterface(&'a TypeDef),
         Enum(&'a EnumDef),
         Function(&'a FunctionDef),
+        TraitBridgeFunction {
+            name: String,
+            params: String,
+            return_type: String,
+        },
     }
 
     let mut all_decls: Vec<(String, Decl<'_>)> = Vec::new();
@@ -105,6 +127,16 @@ pub(super) fn gen_dts(
     }
     for f in &sorted_fns {
         all_decls.push((to_node_name(&f.name), Decl::Function(f)));
+    }
+    for (name, params, ret) in trait_bridge_fns {
+        all_decls.push((
+            name.clone(),
+            Decl::TraitBridgeFunction {
+                name,
+                params,
+                return_type: ret,
+            },
+        ));
     }
     all_decls.sort_by_key(|a| a.0.to_lowercase());
 
@@ -242,6 +274,13 @@ pub(super) fn gen_dts(
                 );
                 lines.extend(format_jsdoc(&func.doc, ""));
                 lines.push(format!("export declare function {js_name}({params}): {ret};"));
+            }
+            Decl::TraitBridgeFunction {
+                name,
+                params,
+                return_type,
+            } => {
+                lines.push(format!("export declare function {name}({params}): {return_type};"));
             }
         }
     }
