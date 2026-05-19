@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **alef-backend-napi: emit DTO impl-method companions as `#[napi]` free functions.** Previously, `#[napi(object)]` structs (DTOs in the Node backend) dropped every `impl` method from the Rust source, because object-style structs can't carry methods on the JS side. The new `gen_dto_method_fns` in `crates/alef-backend-napi/src/gen_bindings/types.rs` emits each non-excluded impl method as a free function named `<typeName><MethodName>` (camelCase), serde-JSON round-tripping the receiver for instance "wither" methods. Static preset constructors (e.g. `ProcessConfig::all()`, `::minimal()`, `::default()`) and instance withers (e.g. `with_chunking(usize)`) are now callable from TypeScript. Call site added at `crates/alef-backend-napi/src/gen_bindings/mod.rs:438`, gated to the non-opaque branch.
+
 ### Fixed
 
 - **C# backend**: preserve initialisms in type names (e.g. `GraphQLRouteConfig` instead of `GraphQlRouteConfig`), matching Go behaviour. A new `csharp_type_name` function in `alef-codegen/src/naming.rs` applies longest-match initialism restoration to PascalCase IR type names, handling multi-segment initialisms like `GraphQL` that `heck` splits into `Graph`+`Ql`. All C# class name, enum name, and `TypeRef::Named` call sites in `alef-backend-csharp` now route through `csharp_type_name`. `to_csharp_name` (snake_case → PascalCase) also applies the same initialism handling so e.g. `graphql_route_config` → `GraphQLRouteConfig`.
