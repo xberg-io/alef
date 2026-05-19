@@ -558,22 +558,10 @@ fn test_main_module_has_method_wrappers() {
         "Should define MyLib module; content:\n{content}"
     );
 
-    // Should have wrapper for static method config_default/0
+    // Methods should NOT be in main module; they're in type modules now
     assert!(
-        content.contains("def config_default"),
-        "Should have config_default/0 wrapper; content:\n{content}"
-    );
-
-    // Wrapper should call Native
-    assert!(
-        content.contains("MyLib.Native.config_default()"),
-        "Should delegate to MyLib.Native.config_default(); content:\n{content}"
-    );
-
-    // Should have wrapper for instance method config_validate/1
-    assert!(
-        content.contains("def config_validate("),
-        "Should have config_validate wrapper; content:\n{content}"
+        !content.contains("def config_default"),
+        "Methods should NOT be in main module; got:\n{content}"
     );
 }
 

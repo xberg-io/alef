@@ -664,20 +664,14 @@ fn gen_method_stub(
     }
 }
 
-/// Convert a Rust PascalCase variant name to `UPPER_SNAKE_CASE` for Python enum stubs.
+/// Convert a Rust PascalCase variant name to Python-idiomatic snake_case for enum stubs.
 ///
-/// Mirrors the logic in `alef-codegen::generators::enums::to_pyo3_screaming` so that
-/// `.pyi` stub attribute names match the `#[pyo3(name = "...")]` rename emitted on the
-/// Rust pyclass variant.  Handles leading-acronym names (e.g. `RDFa` → `RDFA`).
-fn to_python_screaming(name: &str) -> String {
-    use heck::ToShoutySnakeCase;
-    let chars: Vec<char> = name.chars().collect();
-    let upper_prefix_len = chars.iter().take_while(|c| c.is_uppercase()).count();
-    if upper_prefix_len >= 2 && chars[upper_prefix_len..].iter().all(|c| c.is_lowercase() || *c == '_') {
-        name.to_ascii_uppercase()
-    } else {
-        name.to_shouty_snake_case()
-    }
+/// Python enums use snake_case member names (PEP 8), matching the #[pyo3(name = "...")]
+/// rename emitted on the Rust pyclass variant. This allows Python users to write:
+/// `ConversionOptions(heading_style="atx_closed")` using the bare string value.
+fn to_python_enum_variant(name: &str) -> String {
+    use heck::ToSnakeCase;
+    name.to_snake_case()
 }
 
 /// Generate a Python enum stub.
@@ -697,11 +691,11 @@ fn gen_enum_stub(enum_def: &EnumDef, emit_docstrings: bool) -> String {
             }
         }
         for variant in &enum_def.variants {
-            // Emit UPPER_SNAKE_CASE attribute names to match the #[pyo3(name = "...")] rename
-            // on the Rust pyclass variant (PEP 8: enum members are UPPER_SNAKE_CASE).
+            // Emit snake_case attribute names to match the #[pyo3(name = "...")] rename
+            // on the Rust pyclass variant, following Python idiom (PEP 8: enum members are lowercase).
             lines.push(format!(
                 "    {}: {} = ...",
-                to_python_screaming(&variant.name),
+                to_python_enum_variant(&variant.name),
                 enum_def.name
             ));
             // Variant-level docstring — gated behind emit_docstrings (ruff PYI021).
