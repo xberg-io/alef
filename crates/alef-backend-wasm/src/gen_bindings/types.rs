@@ -109,6 +109,7 @@ pub(super) fn gen_opaque_struct(typ: &TypeDef, core_import: &str, prefix: &str) 
 }
 
 /// Generate wasm-bindgen methods for an opaque struct.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn gen_opaque_struct_methods(
     typ: &TypeDef,
     mapper: &WasmMapper,
@@ -179,6 +180,7 @@ pub(super) fn gen_opaque_struct_methods(
 }
 
 /// Generate a method for an opaque wasm-bindgen struct that delegates to self.inner.
+#[allow(clippy::too_many_arguments)]
 fn gen_opaque_method(
     method: &MethodDef,
     mapper: &WasmMapper,

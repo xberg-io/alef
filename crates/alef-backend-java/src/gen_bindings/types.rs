@@ -13,6 +13,7 @@ use super::helpers::{
 };
 use super::marshal::{is_ffi_string_return, java_ffi_return_cast};
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn gen_record_type(
     package: &str,
     typ: &TypeDef,
