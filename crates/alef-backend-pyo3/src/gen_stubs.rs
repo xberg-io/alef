@@ -670,12 +670,12 @@ fn gen_method_stub(
 /// rename emitted on the Rust pyclass variant. This allows Python users to write:
 /// `ConversionOptions(heading_style="atx_closed")` using the bare string value.
 ///
-/// Variant names whose snake_case form collides with a Python reserved keyword
-/// (e.g. `Del` → `del`) are escaped with a trailing underscore (`del_`) so the
-/// generated `.pyi` parses.
+/// Variant names whose snake_case form collides with a Python reserved keyword or
+/// `str` method name (e.g. `Del` → `del_`, `Title` → `title_`) are escaped with a
+/// trailing underscore so the generated `.pyi` parses and mypy is satisfied.
 fn to_python_enum_variant(name: &str) -> String {
     use heck::ToSnakeCase;
-    alef_core::keywords::python_ident(&name.to_snake_case())
+    alef_core::keywords::python_str_enum_ident(&name.to_snake_case())
 }
 
 /// Generate a Python enum stub.

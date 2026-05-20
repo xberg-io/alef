@@ -3971,8 +3971,9 @@ fn test_options_py_does_not_emit_screaming_alias_lines() {
 #[test]
 fn test_options_py_escapes_python_keyword_variant_names() {
     let backend = Pyo3Backend;
-    // Need a has_default type referencing the enum so it ends up in `needed_enums` and
-    // the StrEnum class body is emitted into options.py.
+    // Create two enums: one referenced by a has_default type (goes to needed_enums, gets
+    // imported) and one unreferenced (emitted as a (str, Enum) class in options.py).
+    // We test the unreferenced one to verify the (str, Enum) emission path.
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
@@ -3980,7 +3981,7 @@ fn test_options_py_escapes_python_keyword_variant_names() {
             name: "ConversionOptions".to_string(),
             rust_path: "test_lib::ConversionOptions".to_string(),
             original_rust_path: String::new(),
-            fields: vec![make_field("node", TypeRef::Named("NodeType".to_string()), false)],
+            fields: vec![make_field("heading", TypeRef::Named("HeadingStyle".to_string()), false)],
             methods: vec![],
             is_opaque: false,
             is_clone: true,
@@ -3998,7 +3999,12 @@ fn test_options_py_escapes_python_keyword_variant_names() {
             binding_exclusion_reason: None,
         }],
         functions: vec![],
-        enums: vec![make_unit_enum_def("NodeType", &["Del", "Ins"])],
+        enums: vec![
+            make_unit_enum_def("HeadingStyle", &["Atx", "Setext"]),
+            // This enum is not referenced by any has_default type, so it will be emitted
+            // as a (str, Enum) class in options.py, allowing us to test the escaping.
+            make_unit_enum_def("NodeType", &["Del", "Ins", "Title"]),
+        ],
         errors: vec![],
         excluded_type_paths: HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
@@ -4031,6 +4037,11 @@ fn test_options_py_escapes_python_keyword_variant_names() {
     assert!(
         options_py.contains("ins = \"ins\"") || options_py.contains("ins = 'ins'"),
         "non-keyword variants must still emit unescaped (ins), got:\n{}",
+        options_py
+    );
+    assert!(
+        options_py.contains("title_ = \"title\"") || options_py.contains("title_ = 'title'"),
+        "options.py must escape str-method variant Title → title_ (with original 'title' as value), got:\n{}",
         options_py
     );
 }

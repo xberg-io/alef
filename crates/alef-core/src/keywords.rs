@@ -21,6 +21,62 @@ pub const PYTHON_KEYWORDS: &[&str] = &[
     "not", "or", "pass", "raise", "return", "try", "type", "while", "with", "yield",
 ];
 
+/// Python `str` instance methods that an enum member name can shadow.
+///
+/// `StrEnum` inherits from `str`, so variant names that match `str` instance methods
+/// (e.g., `Title` → `title`) shadow the inherited method and trigger mypy [assignment]
+/// errors at the class body. This constant lists all such methods that must be escaped
+/// with a trailing underscore when used as enum member names (e.g., `title_`).
+pub const PYTHON_STR_METHODS: &[&str] = &[
+    "capitalize",
+    "casefold",
+    "center",
+    "count",
+    "encode",
+    "endswith",
+    "expandtabs",
+    "find",
+    "format",
+    "format_map",
+    "index",
+    "isalnum",
+    "isalpha",
+    "isascii",
+    "isdecimal",
+    "isdigit",
+    "isidentifier",
+    "islower",
+    "isnumeric",
+    "isprintable",
+    "isspace",
+    "istitle",
+    "isupper",
+    "join",
+    "ljust",
+    "lower",
+    "lstrip",
+    "maketrans",
+    "partition",
+    "removeprefix",
+    "removesuffix",
+    "replace",
+    "rfind",
+    "rindex",
+    "rjust",
+    "rpartition",
+    "rsplit",
+    "rstrip",
+    "split",
+    "splitlines",
+    "startswith",
+    "strip",
+    "swapcase",
+    "title",
+    "translate",
+    "upper",
+    "zfill",
+];
+
 /// Java reserved keywords (including all contextual/reserved identifiers).
 pub const JAVA_KEYWORDS: &[&str] = &[
     "abstract",
@@ -644,6 +700,25 @@ pub fn python_ident(name: &str) -> String {
     python_safe_name(name).unwrap_or_else(|| name.to_string())
 }
 
+/// Returns `Some(escaped_name)` if `name` is either a Python reserved keyword
+/// OR a `str` instance method name that would shadow in a `StrEnum` context.
+///
+/// Use this for `StrEnum` variant names to prevent mypy [assignment] errors.
+/// Escaping appends a trailing underscore (e.g., `title` → `title_`).
+pub fn python_str_enum_safe_name(name: &str) -> Option<String> {
+    if PYTHON_KEYWORDS.contains(&name) || PYTHON_STR_METHODS.contains(&name) {
+        Some(format!("{name}_"))
+    } else {
+        None
+    }
+}
+
+/// Like `python_str_enum_safe_name` but always returns a `String`, using the original
+/// when no escaping is needed. Convenience wrapper for `StrEnum` variant names.
+pub fn python_str_enum_ident(name: &str) -> String {
+    python_str_enum_safe_name(name).unwrap_or_else(|| name.to_string())
+}
+
 /// Returns `Some(escaped_name)` if `name` is a Kotlin reserved keyword, else `None`.
 pub fn kotlin_safe_name(name: &str) -> Option<String> {
     if KOTLIN_KEYWORDS.contains(&name) {
@@ -859,5 +934,44 @@ mod tests {
                 "expected {kw:?} to be a Python reserved keyword"
             );
         }
+    }
+
+    #[test]
+    fn python_str_enum_ident_escapes_str_methods() {
+        // str method-name collisions must be escaped with trailing underscore
+        assert_eq!(python_str_enum_ident("title"), "title_");
+        assert_eq!(python_str_enum_ident("lower"), "lower_");
+        assert_eq!(python_str_enum_ident("upper"), "upper_");
+        assert_eq!(python_str_enum_ident("count"), "count_");
+        assert_eq!(python_str_enum_ident("capitalize"), "capitalize_");
+        assert_eq!(python_str_enum_ident("split"), "split_");
+    }
+
+    #[test]
+    fn python_str_enum_ident_escapes_python_keywords() {
+        // Python keywords should still be escaped (del is a keyword, not a method)
+        assert_eq!(python_str_enum_ident("del"), "del_");
+        assert_eq!(python_str_enum_ident("class"), "class_");
+        assert_eq!(python_str_enum_ident("return"), "return_");
+    }
+
+    #[test]
+    fn python_str_enum_ident_passes_through_ordinary_names() {
+        // Names that are neither keywords nor str methods pass through unchanged
+        assert_eq!(python_str_enum_ident("body"), "body");
+        assert_eq!(python_str_enum_ident("div"), "div");
+        assert_eq!(python_str_enum_ident("paragraph"), "paragraph");
+    }
+
+    #[test]
+    fn python_str_enum_safe_name_returns_some_for_reserved() {
+        assert_eq!(python_str_enum_safe_name("title"), Some("title_".to_string()));
+        assert_eq!(python_str_enum_safe_name("del"), Some("del_".to_string()));
+    }
+
+    #[test]
+    fn python_str_enum_safe_name_returns_none_for_ordinary() {
+        assert_eq!(python_str_enum_safe_name("body"), None);
+        assert_eq!(python_str_enum_safe_name("content"), None);
     }
 }
