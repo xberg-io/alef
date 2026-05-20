@@ -641,6 +641,16 @@ pub(crate) fn php_wrap_return(
                     returns_cow,
                 )
             }
+            // Vec<Named> (non-opaque): when core returns &[T], use .iter().cloned() to avoid
+            // clippy::into_iter_on_ref — `.into_iter()` on a slice reference is equivalent to
+            // `.iter()` and does not consume it.
+            TypeRef::Named(n) if !opaque_types.contains(n.as_str()) => {
+                if returns_ref {
+                    format!("{expr}.iter().cloned().map(Into::into).collect()")
+                } else {
+                    format!("{expr}.into_iter().map(Into::into).collect()")
+                }
+            }
             _ => {
                 // Fall back to shared wrap_return for other Vec types
                 use alef_codegen::generators;
