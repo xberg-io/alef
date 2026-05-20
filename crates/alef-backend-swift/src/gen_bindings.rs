@@ -2775,7 +2775,11 @@ fn emit_single_free_function_forwarder(
     for line in &conversion_lines {
         out.push_str(&format!("    {line}\n"));
     }
-    let return_suffix = forwarder_return_conversion_suffix(&func.return_type, known_dto_names);
+    let return_suffix = forwarder_return_conversion_suffix_with_throws(
+        &func.return_type,
+        known_dto_names,
+        func.error_type.is_some(),
+    );
     // The outer return expression must use `try` when either the bridge call
     // throws (`func.error_type.is_some()`) or the value-conversion suffix
     // contains a throwing call (Named DTO via `init(_ rb:) throws`).
@@ -2942,7 +2946,31 @@ fn forwarder_return_conversion_suffix(
     ty: &TypeRef,
     known_dto_names: &std::collections::HashSet<String>,
 ) -> String {
+    forwarder_return_conversion_suffix_inner(ty, known_dto_names, false)
+}
+
+fn forwarder_return_conversion_suffix_with_throws(
+    ty: &TypeRef,
+    known_dto_names: &std::collections::HashSet<String>,
+    throws: bool,
+) -> String {
+    forwarder_return_conversion_suffix_inner(ty, known_dto_names, throws)
+}
+
+fn forwarder_return_conversion_suffix_inner(
+    ty: &TypeRef,
+    known_dto_names: &std::collections::HashSet<String>,
+    throws: bool,
+) -> String {
     match ty {
+        // swift-bridge transports the value through `RustString` whenever the
+        // Rust function returns `Result<T, E>` (`throws` from Swift's POV), so
+        // a bare `String` return still arrives as `RustString` and needs
+        // `.toString()` to coerce to the native Swift `String` declared on the
+        // forwarder signature. Non-throwing functions map `String` directly to
+        // Swift-native `String` — no conversion needed (pinned by
+        // `bytes_overload_with_string_return_does_not_append_to_string`).
+        TypeRef::String if throws => ".toString()".to_string(),
         TypeRef::Bytes => ".map { $0 }".to_string(),
         TypeRef::Vec(inner) => match inner.as_ref() {
             // RustVec<RustString> iteration yields `RustStringRef` (borrowed).

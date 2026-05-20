@@ -30,5 +30,5 @@ public enum DemoError: Swift.Error {
 
 /// Process input and return a result.
 public func process(input: String, count: UInt32) throws -> String {
-    return try RustBridge.process(input, count)
+    return try RustBridge.process(input, count).toString()
 }

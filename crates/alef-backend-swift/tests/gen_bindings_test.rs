@@ -1010,15 +1010,16 @@ fn bytes_first_param_skips_overload_when_name_shadows_bridge() {
 }
 
 #[test]
-fn bytes_overload_with_string_return_does_not_append_to_string() {
-    // IR: detect_mime_type_from_bytes_sync(content: Bytes) -> String
+fn bytes_overload_with_string_return_appends_to_string_for_throws() {
+    // IR: detect_mime_type_from_bytes_sync(content: Bytes) -> Result<String, E>
     //
-    // Bug regression: prior versions appended `.toString()` to the inner call,
-    // assuming swift-bridge mapped Rust `String` returns to `RustString`. In
-    // fact swift-bridge maps `String` (and `Result<String, _>`) directly to a
-    // Swift-native `String` — `.toString()` is a no-op at best and a compile
-    // error against the actual Swift `String` type. The convenience overload
-    // must return the bridge result verbatim.
+    // swift-bridge maps `Result<String, _>` to `throws -> RustString` (NOT
+    // Swift-native String — the error path forces the union through the
+    // RustString ABI). The forwarder must call `.toString()` on the bridge
+    // result to coerce to the native Swift `String` declared on the public
+    // signature. Without this the Swift compiler rejects the body with
+    // `cannot convert return expression of type 'RustString' to return
+    // type 'String'`.
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -1043,16 +1044,10 @@ fn bytes_overload_with_string_return_does_not_append_to_string() {
         "missing detectMime String overload: {content}"
     );
 
-    // Bridge result is returned verbatim — no `.toString()` suffix.
+    // Bridge result must have `.toString()` appended to coerce RustString → String.
     assert!(
-        !content.contains(".toString()"),
-        "must not append .toString() to a Swift `String` return: {content}"
-    );
-
-    // Inner call delegates to the suffixed bridge name without conversion.
-    assert!(
-        content.contains("return try detectMimeSync(makeByteVec(Array(content.utf8)))\n"),
-        "inner call should return verbatim without conversion: {content}"
+        content.contains("return try RustBridge.detectMimeSync(_rb_content).toString()"),
+        "must append .toString() to coerce RustString to Swift String: {content}"
     );
 }
 
