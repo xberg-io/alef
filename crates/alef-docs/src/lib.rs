@@ -1882,7 +1882,8 @@ exclude_types = ["FfiHidden"]
 
     #[test]
     fn test_render_type_with_multiple_methods_have_same_heading_level() {
-        use alef_core::ir::ParamDef;
+        use alef_core::ir::PrimitiveType;
+        use crate::test_helpers::make_method;
         let api = ApiSurface {
             crate_name: "mylib".to_string(),
             version: "0.1.0".to_string(),
@@ -1892,14 +1893,15 @@ exclude_types = ["FfiHidden"]
                 original_rust_path: String::new(),
                 fields: vec![],
                 methods: vec![
-                    make_method("first_method", vec![], TypeRef::Bool, false, false, None),
-                    make_method("second_method", vec![], TypeRef::Bool, false, false, None),
-                    make_method("third_method", vec![], TypeRef::Bool, false, false, None),
+                    make_method("first_method", vec![], TypeRef::Primitive(PrimitiveType::Bool), false, false, None),
+                    make_method("second_method", vec![], TypeRef::Primitive(PrimitiveType::Bool), false, false, None),
+                    make_method("third_method", vec![], TypeRef::Primitive(PrimitiveType::Bool), false, false, None),
                 ],
                 doc: "A trait with multiple methods.".to_string(),
                 is_opaque: false,
                 cfg: None,
                 is_copy: false,
+                is_clone: false,
                 is_trait: false,
                 has_default: false,
                 has_stripped_cfg_fields: false,
