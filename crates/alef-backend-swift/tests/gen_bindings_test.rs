@@ -2338,3 +2338,199 @@ fn complex_dto_with_optional_vec_named_field_emits_first_class_struct() {
         "init must convert Optional<Vec<Tool>> via ?.map; got:\n{content}"
     );
 }
+
+// ── forwarder regression tests for v0.17.9 swift codegen bug ──────────────────
+
+/// Repro of the tslp `detectLanguageFromExtension` bug: a non-throwing free
+/// function whose return type is `Option<String>` must apply `?.toString()` to
+/// the bridge result. swift-bridge maps `Option<String>` to `RustString?`
+/// regardless of throws-ness — there is no native `String?` bridge — so without
+/// the suffix Swift rejects the body with "cannot convert return expression of
+/// type 'RustString?' to return type 'String?'".
+#[test]
+fn forwarder_optional_string_return_appends_optional_chained_to_string() {
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "detect_language_from_extension".into(),
+            rust_path: "demo::detect_language_from_extension".into(),
+            original_rust_path: String::new(),
+            params: vec![make_param("ext", TypeRef::String)],
+            return_type: TypeRef::Optional(Box::new(TypeRef::String)),
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+
+    assert!(
+        content.contains("public func detectLanguageFromExtension(ext: String) -> String?"),
+        "forwarder signature must declare Optional String return:\n{content}"
+    );
+    assert!(
+        content.contains("return RustBridge.detectLanguageFromExtension(ext)?.toString()"),
+        "forwarder must apply `?.toString()` to coerce RustString? to String?:\n{content}"
+    );
+    assert!(
+        !content.contains("return RustBridge.detectLanguageFromExtension(ext)\n"),
+        "forwarder must NOT return the raw RustString? bridge value:\n{content}"
+    );
+}
+
+/// Repro of the tslp `process(source:config:)` bug: a free function taking a
+/// host-facing Named DTO struct param must convert it via `try param.intoRust()`
+/// before calling the swift-bridge extern, which expects the low-level
+/// `RustBridge.{Dto}` class. Without this Swift rejects the call with "cannot
+/// convert value of type '{Module}.{Dto}' to expected argument type
+/// 'RustBridge.{Dto}'".
+#[test]
+fn forwarder_named_dto_param_calls_into_rust_before_bridge_call() {
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![
+            {
+                let mut ty = make_type(
+                    "ProcessConfig",
+                    vec![make_field("strict", TypeRef::Primitive(PrimitiveType::Bool), false)],
+                );
+                ty.has_serde = true;
+                ty.is_return_type = true;
+                ty
+            },
+            {
+                let mut ty = make_type(
+                    "ProcessResult",
+                    vec![make_field("ok", TypeRef::Primitive(PrimitiveType::Bool), false)],
+                );
+                ty.has_serde = true;
+                ty.is_return_type = true;
+                ty
+            },
+        ],
+        functions: vec![FunctionDef {
+            name: "process".into(),
+            rust_path: "demo::process".into(),
+            original_rust_path: String::new(),
+            params: vec![
+                make_param("source", TypeRef::String),
+                make_param("config", TypeRef::Named("ProcessConfig".into())),
+            ],
+            return_type: TypeRef::Named("ProcessResult".into()),
+            is_async: false,
+            error_type: Some("DemoError".into()),
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+
+    assert!(
+        content.contains("public func process(source: String, config: ProcessConfig) throws -> ProcessResult"),
+        "forwarder signature must declare ProcessConfig (host DTO) — not RustBridge.ProcessConfig:\n{content}"
+    );
+    assert!(
+        content.contains("let _rb_config = try config.intoRust()"),
+        "forwarder must materialise the bridge value via intoRust() before the bridge call:\n{content}"
+    );
+    assert!(
+        content.contains("RustBridge.process(source, _rb_config)"),
+        "forwarder must pass the converted `_rb_config` local to the bridge:\n{content}"
+    );
+    assert!(
+        !content.contains("RustBridge.process(source, config)"),
+        "forwarder must NOT pass the host DTO directly — bridge expects RustBridge.ProcessConfig:\n{content}"
+    );
+}
+
+/// Repro of `Optional<Named DTO>` param handling: the forwarder must apply
+/// `try param?.intoRust()` to promote the host struct into the low-level bridge
+/// type, preserving the optional. The function-level `throws` clause must widen
+/// even if the bridge call itself does not throw, because `intoRust()` is
+/// throwing.
+#[test]
+fn forwarder_optional_named_dto_param_uses_optional_chained_into_rust() {
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![{
+            let mut ty = make_type(
+                "Options",
+                vec![make_field("verbose", TypeRef::Primitive(PrimitiveType::Bool), false)],
+            );
+            ty.has_serde = true;
+            ty.is_return_type = true;
+            ty
+        }],
+        functions: vec![FunctionDef {
+            name: "run".into(),
+            rust_path: "demo::run".into(),
+            original_rust_path: String::new(),
+            params: vec![make_optional_param("opts", TypeRef::Named("Options".into()))],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            // Non-throwing bridge call to verify the throws clause widens
+            // purely from the param-conversion path.
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+
+    assert!(
+        content.contains("public func run(opts: Options?) throws"),
+        "throws clause must widen to cover the throwing intoRust() param conversion:\n{content}"
+    );
+    assert!(
+        content.contains("let _rb_opts = try opts?.intoRust()"),
+        "forwarder must use optional-chained intoRust() for Optional<Named DTO> params:\n{content}"
+    );
+    assert!(
+        content.contains("RustBridge.run(_rb_opts)"),
+        "forwarder must forward the converted `_rb_opts` to the bridge call:\n{content}"
+    );
+}

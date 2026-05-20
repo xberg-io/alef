@@ -2942,11 +2942,17 @@ fn emit_single_free_function_forwarder(
     known_dto_names: &std::collections::HashSet<String>,
     out: &mut String,
 ) {
-    // `throws_clause` widens to `throws` when either the function itself returns a
-    // `Result<_, _>` or the return-value conversion can throw (Named DTO conversions
-    // go through `init(_ rb: RustBridge.{Name}) throws`).
+    // `throws_clause` widens to `throws` when the function itself returns a
+    // `Result<_, _>`, when the return-value conversion can throw (Named DTO
+    // conversions go through `init(_ rb: RustBridge.{Name}) throws`), or when
+    // any parameter conversion can throw (Named DTO params go through
+    // `intoRust() throws`).
     let return_conversion_throws = return_value_conversion_throws(&func.return_type, known_dto_names);
-    let throws_clause = if func.error_type.is_some() || return_conversion_throws {
+    let any_param_throws = func
+        .params
+        .iter()
+        .any(|p| param_conversion_throws(&p.ty, known_dto_names));
+    let throws_clause = if func.error_type.is_some() || return_conversion_throws || any_param_throws {
         " throws"
     } else {
         ""
@@ -2968,7 +2974,8 @@ fn emit_single_free_function_forwarder(
 
     for param in &func.params {
         let swift_param_name = swift_ident(&param.name.to_lower_camel_case());
-        let (swift_ty, local_expr) = forwarder_param_signature(&param.ty, &swift_param_name, param.optional);
+        let (swift_ty, local_expr) =
+            forwarder_param_signature(&param.ty, &swift_param_name, param.optional, known_dto_names);
         sig_params.push(format!("{swift_param_name}: {swift_ty}"));
         if let Some(line) = local_expr.setup_line.clone() {
             conversion_lines.push(line);
@@ -3075,7 +3082,12 @@ struct ForwarderArg {
 /// public free functions are materialised. Anything not handled defaults to
 /// passing the Swift value through unchanged (sufficient for `String`,
 /// primitives, opaque `Named` types).
-fn forwarder_param_signature(ty: &TypeRef, swift_param_name: &str, optional: bool) -> (String, ForwarderArg) {
+fn forwarder_param_signature(
+    ty: &TypeRef,
+    swift_param_name: &str,
+    optional: bool,
+    known_dto_names: &std::collections::HashSet<String>,
+) -> (String, ForwarderArg) {
     let inner_ty = if optional {
         if let TypeRef::Optional(inner) = ty {
             inner.as_ref().clone()
@@ -3169,6 +3181,33 @@ fn forwarder_param_signature(ty: &TypeRef, swift_param_name: &str, optional: boo
                 )
             }
         },
+        // Host-facing Named DTO params: the public forwarder accepts the
+        // high-level Swift struct (Codable/Sendable), but the swift-bridge
+        // `RustBridge.{fn}` extern declares the low-level `RustBridge.{Dto}`
+        // class. Bridge the gap with the symmetric `intoRust()` initializer
+        // that every first-class DTO emits (see `emit_into_rust_direct_call`).
+        // Without this conversion Swift rejects the call with "cannot convert
+        // value of type '{Module}.{Dto}' to expected argument type
+        // 'RustBridge.{Dto}'".
+        TypeRef::Named(name) if known_dto_names.contains(name) => {
+            let swift_ty = make_optional(&swift_type_name(&inner_ty));
+            let local = format!("_rb_{swift_param_name}");
+            // `intoRust()` is `throws -> RustBridge.{Dto}`. The Optional
+            // overload uses optional-chained call which still propagates the
+            // throw out of the surrounding throwing context.
+            let setup = if optional || matches!(ty, TypeRef::Optional(_)) {
+                Some(format!("let {local} = try {swift_param_name}?.intoRust()"))
+            } else {
+                Some(format!("let {local} = try {swift_param_name}.intoRust()"))
+            };
+            (
+                swift_ty,
+                ForwarderArg {
+                    setup_line: setup,
+                    arg_expr: local,
+                },
+            )
+        }
         _ => {
             let swift_ty = make_optional(&swift_type_name(&inner_ty));
             (
@@ -3179,6 +3218,21 @@ fn forwarder_param_signature(ty: &TypeRef, swift_param_name: &str, optional: boo
                 },
             )
         }
+    }
+}
+
+/// Returns true when emitting the forwarder argument expression for `ty` requires
+/// a throwing context. Mirrors the conversion logic in
+/// [`forwarder_param_signature`]: only Named-DTO params (bare or `Optional`)
+/// invoke the throwing `intoRust()` initializer.
+fn param_conversion_throws(ty: &TypeRef, known_dto_names: &std::collections::HashSet<String>) -> bool {
+    match ty {
+        TypeRef::Named(name) => known_dto_names.contains(name),
+        TypeRef::Optional(inner) => matches!(
+            inner.as_ref(),
+            TypeRef::Named(name) if known_dto_names.contains(name)
+        ),
+        _ => false,
     }
 }
 
@@ -3257,6 +3311,13 @@ fn forwarder_return_conversion_suffix_inner(
             TypeRef::Named(name) if known_dto_names.contains(name) => {
                 format!(".map {{ try {name}($0) }}")
             }
+            // swift-bridge maps `Option<String>` to a Swift `RustString?` regardless
+            // of whether the function throws — there is no native-`String?` bridge
+            // path. Coerce to `String?` via optional-chained `.toString()` so the
+            // value matches the declared forwarder return type `String?`. Without
+            // this suffix Swift rejects the body with "cannot convert return
+            // expression of type 'RustString?' to return type 'String?'".
+            TypeRef::String => "?.toString()".to_string(),
             _ => String::new(),
         },
         // Bare Named DTO return is currently emitted via a per-call wrapper in
