@@ -2,6 +2,7 @@ use crate::gen_bindings::enums::sanitize_python_doc;
 use crate::type_map::python_type;
 use alef_codegen::shared::binding_fields;
 use alef_core::config::{AdapterPattern, Language, ResolvedCrateConfig, TraitBridgeConfig};
+use alef_core::config::workspace::ClientConstructorConfig;
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{ApiSurface, EnumDef, FunctionDef, MethodDef, TypeDef, TypeRef};
 
@@ -91,6 +92,24 @@ pub fn is_python_builtin_name(name: &str) -> bool {
         "copyright",
     ];
     BUILTINS.contains(&name)
+}
+
+/// Map a raw Rust type string from [`ClientConstructorConfig`] to its Python equivalent.
+///
+/// Constructor params come from `alef.toml` as raw Rust type strings (e.g. `"&str"`).
+/// Falls back to `Any` for types that cannot be translated statically so the stub
+/// remains valid Python even when exotic Rust types appear.
+fn constructor_rust_type_to_python(rust_type: &str) -> &str {
+    match rust_type {
+        "String" | "&str" | "&'static str" | "std::string::String" => "str",
+        "bytes::Bytes" | "Vec<u8>" | "&[u8]" => "bytes",
+        "bool" => "bool",
+        "i8" | "i16" | "i32" | "i64" | "i128" | "isize" |
+        "u8" | "u16" | "u32" | "u64" | "u128" | "usize" => "int",
+        "f32" | "f64" => "float",
+        "()" => "None",
+        _ => "Any",
+    }
 }
 
 /// For constructor parameters, use the enum type name for enum fields.
@@ -208,7 +227,8 @@ pub fn gen_stubs(api: &ApiSurface, trait_bridges: &[TraitBridgeConfig], config: 
         .collect();
     if !opaque_non_capsule.is_empty() {
         for typ in &opaque_non_capsule {
-            body_lines.push(gen_opaque_type_stub(typ, &capsule_names, &streaming_return_types));
+            let ctor = config.client_constructors.get(&typ.name);
+            body_lines.push(gen_opaque_type_stub(typ, &capsule_names, &streaming_return_types, ctor));
         }
         body_lines.push("".to_string());
     }
@@ -317,14 +337,46 @@ fn substitute_capsule_type(type_str: &str, capsule_names: &std::collections::Has
 }
 
 /// Generate a Python type stub for an opaque type (no fields, only methods).
+///
+/// When `ctor` is `Some`, a `def __init__(self, ...) -> None: ...` stub is emitted
+/// immediately after the class header so mypy accepts `TypeName(param, ...)` call
+/// sites.  The constructor params are translated from their raw Rust type strings to
+/// Python equivalents; unknown types fall back to `Any` (permissive, never a hard
+/// error).  Without this stub mypy infers `def __init__(self) -> None` (no args) and
+/// rejects every construction call site with "Too many arguments".
 fn gen_opaque_type_stub(
     typ: &TypeDef,
     capsule_names: &std::collections::HashSet<&str>,
     streaming_return_types: &std::collections::HashMap<(Option<String>, String), String>,
+    ctor: Option<&ClientConstructorConfig>,
 ) -> String {
     let mut lines = vec![];
 
     lines.push(format!("class {}:", typ.name));
+
+    // Emit __init__ stub when the type has a client constructor so mypy
+    // recognises `TypeName(params...)` construction call sites.
+    if let Some(ctor) = ctor {
+        let mut params: Vec<String> = ctor
+            .params
+            .iter()
+            .map(|p| {
+                let py_type = constructor_rust_type_to_python(&p.ty);
+                format!("{}: {}", p.name, py_type)
+            })
+            .collect();
+        let single = format!("    def __init__(self, {}) -> None: ...", params.join(", "));
+        if single.len() <= 100 {
+            lines.push(single);
+        } else {
+            let mut wrapped = String::from("    def __init__(\n        self,\n");
+            for param in &mut params {
+                wrapped.push_str(&format!("        {},\n", param));
+            }
+            wrapped.push_str("    ) -> None: ...");
+            lines.push(wrapped);
+        }
+    }
 
     // Instance methods
     for method in &typ.methods {
@@ -352,8 +404,8 @@ fn gen_opaque_type_stub(
         }
     }
 
-    // If no methods at all, emit as a one-liner (ruff collapses `class Foo:\n    ...` to `class Foo: ...`)
-    if typ.methods.is_empty() {
+    // If no methods and no constructor, emit as a one-liner.
+    if typ.methods.is_empty() && ctor.is_none() {
         return format!("class {}: ...", typ.name);
     }
 

@@ -1415,3 +1415,157 @@ fn test_pyi_stub_escapes_python_keyword_variant_names() {
         content
     );
 }
+
+
+/// Opaque types that have a `[workspace.client_constructors.TypeName]` entry must emit
+/// a `def __init__(self, ...) -> None: ...` stub so mypy accepts `TypeName(params...)`
+/// call sites.  Without this stub mypy infers `def __init__(self) -> None` (no args)
+/// and rejects every construction call site with "Too many arguments".
+#[test]
+fn test_opaque_type_with_constructor_emits_init_stub() {
+    let backend = Pyo3Backend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "DefaultClient".to_string(),
+            rust_path: "test_lib::DefaultClient".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![MethodDef {
+                name: "chat".to_string(),
+                params: vec![],
+                return_type: TypeRef::Unit,
+                is_async: true,
+                is_static: false,
+                error_type: None,
+                doc: String::new(),
+                receiver: Some(ReceiverKind::Ref),
+                sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                trait_source: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            is_opaque: true,
+            is_clone: false,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: "Opaque client handle".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    // Config declares a constructor for DefaultClient with two params.
+    let cfg: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["python"]
+
+[workspace.client_constructors.DefaultClient]
+body = "{source_path}::new(api_key, base_url)"
+
+[[workspace.client_constructors.DefaultClient.params]]
+name = "api_key"
+type = "&str"
+
+[[workspace.client_constructors.DefaultClient.params]]
+name = "base_url"
+type = "String"
+
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[crates.python]
+module_name = "_test_lib"
+
+[crates.python.stubs]
+output = "packages/python/src/"
+"#,
+    )
+    .unwrap();
+    let config = cfg.resolve().unwrap().remove(0);
+
+    let result = backend.generate_type_stubs(&api, &config);
+    assert!(result.is_ok(), "stub generation must succeed");
+
+    let content = result.unwrap().into_iter().next().unwrap().content;
+
+    // The __init__ stub must be present with the constructor params.
+    assert!(
+        content.contains("def __init__(self, api_key: str, base_url: str) -> None: ..."),
+        "opaque type with constructor must emit __init__ stub. Got:\n{content}"
+    );
+
+    // The ordinary instance method must still be emitted.
+    assert!(
+        content.contains("async def chat(self)"),
+        "instance methods must still be emitted after __init__. Got:\n{content}"
+    );
+}
+
+/// Opaque types WITHOUT a client_constructor entry must NOT emit a spurious __init__
+/// stub (the Python default `__init__(self) -> None` is correct for them).
+#[test]
+fn test_opaque_type_without_constructor_omits_init_stub() {
+    let backend = Pyo3Backend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "OpaqueHandle".to_string(),
+            rust_path: "test_lib::OpaqueHandle".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![],
+            is_opaque: true,
+            is_clone: false,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let config = make_config_with_stubs();
+    let result = backend.generate_type_stubs(&api, &config);
+    assert!(result.is_ok());
+    let content = result.unwrap().into_iter().next().unwrap().content;
+
+    assert!(
+        !content.contains("def __init__"),
+        "opaque type without constructor must NOT emit __init__. Got:\n{content}"
+    );
+}

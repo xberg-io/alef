@@ -568,9 +568,14 @@ fn render_test_file(
         imports.push(format!("import {binding_pkg_for_imports}.VisitResult;"));
     }
 
-    // Import Optional when using builder expressions with optional fields
+    // Import Optional when using builder expressions with optional fields.
+    // Also import JsonUtil for `JsonUtil.fromJson(json, Type.class)` calls emitted when
+    // options_via resolves to "from_json" (the default whenever an options_type is present).
     if !all_options_types.is_empty() {
         imports.push("import java.util.Optional;".to_string());
+        if !binding_pkg_for_imports.is_empty() {
+            imports.push(format!("import {binding_pkg_for_imports}.JsonUtil;"));
+        }
     }
 
     // Import ChatCompletionChunk when any fixture is streaming (uses chat_stream
@@ -1092,15 +1097,16 @@ fn render_test_method(
                 let val = super::resolve_field(&fixture.input, &arg.field);
                 if !val.is_null() && !val.is_array() {
                     if options_via == "from_json" {
-                        // Build the typed POJO via static fromJson(String) method.
-                        // Java uses snake_case wire format (matches Rust's serde default),
-                        // so pass through the canonical snake_case fixture keys as-is.
+                        // Build the typed POJO via `JsonUtil.fromJson(json, Type.class)`.
+                        // The Java backend centralizes JSON deserialization in JsonUtil rather
+                        // than per-DTO static methods.  Java uses snake_case wire format
+                        // (matches Rust's serde default), so pass through fixture keys as-is.
                         let normalized = super::transform_json_keys_for_language(val, "snake_case");
                         let json_str = serde_json::to_string(&normalized).unwrap_or_default();
                         let escaped = escape_java(&json_str);
                         let var_name = &arg.name;
                         builder_expressions.push_str(&format!(
-                            "        var {var_name} = {opts_type}.fromJson(\"{escaped}\");\n",
+                            "        var {var_name} = JsonUtil.fromJson(\"{escaped}\", {opts_type}.class);\n",
                         ));
                     } else if let Some(obj) = val.as_object() {
                         // Generate builder expression: TypeName.builder().withFieldName(value)...build()
