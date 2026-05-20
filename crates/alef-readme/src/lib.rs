@@ -148,9 +148,17 @@ fn try_template_readme(
         return Ok(None);
     }
 
-    // Set up minijinja environment
+    // Set up minijinja environment.
+    //
+    // Match `template_env::make_env()`: strip the newline after `{% ... %}` tags and the leading
+    // whitespace before them, and preserve the trailing newline of loaded template files. Without
+    // these, every Jinja control tag leaks a newline into the output and `{% include %}` drops the
+    // trailing newline of the partial, both of which corrupt spacing around `## Heading` sections.
     let abs_template_dir_owned = abs_template_dir.to_path_buf();
     let mut env = Environment::new();
+    env.set_trim_blocks(true);
+    env.set_lstrip_blocks(true);
+    env.set_keep_trailing_newline(true);
     env.set_loader(move |name: &str| {
         let path = abs_template_dir_owned.join(name);
         match fs::read_to_string(&path) {
@@ -191,12 +199,18 @@ fn try_template_readme(
         path.exists()
     });
 
-    // Build template context
+    // Build template context.
+    //
+    // Multi-line TOML strings (`description = """..."""`) preserve a trailing newline. Combined
+    // with `{{ description }}<blank line>## Heading` in the template, that renders as a double
+    // blank line in the output (independent of `trim_blocks` because `{{ ... }}` is an output
+    // tag, not a block tag). Trim it so the template controls the surrounding whitespace.
     let name = &config.name;
     let description = config
         .scaffold
         .as_ref()
         .and_then(|s| s.description.clone())
+        .map(|s| s.trim_end().to_string())
         .unwrap_or_else(|| format!("Bindings for {name}"));
     let repository = config.github_repo();
     let license = config
