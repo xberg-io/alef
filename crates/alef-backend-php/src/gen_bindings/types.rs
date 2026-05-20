@@ -681,8 +681,11 @@ fn gen_struct_methods_impl(
     // Note: Clone is derived automatically and works correctly for both Arc<T> and Arc<Mutex<T>>
     // since Arc::clone() and Mutex::clone() both increment refcounts without wrapping.
 
-    // Generate getter methods for non-scalar fields. Scalar fields already have
-    // #[php(prop)] on the struct field itself.
+    // Generate getter methods for all fields (both scalar and non-scalar).
+    //
+    // Scalar fields have `#[php(prop)]` on the struct field itself which exposes them as
+    // PHP properties, but readonly class DTOs also need getter methods for the e2e tests
+    // which call methods like `$result->getContent()` rather than accessing properties.
     //
     // Historical note: this code used to emit `#[php(getter)] pub fn get_camelCase(...)` so
     // PHP could access `$obj->camelCase` as a magic property. But ext-php-rs-derive 0.11.7
@@ -692,70 +695,66 @@ fn gen_struct_methods_impl(
     // path itself is broken for non-scalar return types, raising a fatal "Call to undefined
     // method" error at every site.
     //
-    // The new approach drops `#[php(getter)]` entirely and emits a regular `pub fn` with a
-    // `getCamelCase` Rust ident, which ext-php-rs surfaces as a callable PHP method named
-    // `getCamelCase()`. Property-style access via `$obj->camelCase` is forgone for non-scalar
-    // fields; consumers call `$obj->getCamelCase()` instead. Matches the
-    // `alef-e2e/src/codegen/php.rs` field-access dispatch which already emits the
-    // `->getCamelCase()` shape for non-scalar fields.
+    // The approach emits a regular `pub fn` with a `get_snake_case` Rust ident, which
+    // ext-php-rs surfaces as a callable PHP method named `getCamelCase()`. Matches the
+    // `alef-e2e/src/codegen/php.rs` field-access dispatch which emits the `->getCamelCase()`
+    // shape for all fields.
     //
     // Cfg-gated fields stay in the binding struct (gen_struct keeps them with #[serde(skip)])
     // so PHP also needs a getter to access them — do not skip them here.
     for field in binding_fields(&typ.fields) {
         let effective_ty = &field.ty;
-        if !is_php_prop_scalar_with_enums(effective_ty, enum_names) {
-            // Use a snake_case Rust ident — ext-php-rs's `#[php_impl]` macro auto-converts
-            // `get_camel_case` (snake_case Rust) to `getCamelCase()` (camelCase PHP method).
-            // The previous v0.16.55 attempt at a camelCase Rust ident was not surfaced
-            // correctly by ext-php-rs (the resulting PHP method dispatch failed at runtime
-            // with "Call to undefined method getCamelCase()").
-            let getter_ident = format!("get_{}", field.name);
+        // Use a snake_case Rust ident — ext-php-rs's `#[php_impl]` macro auto-converts
+        // `get_camel_case` (snake_case Rust) to `getCamelCase()` (camelCase PHP method).
+        // The previous v0.16.55 attempt at a camelCase Rust ident was not surfaced
+        // correctly by ext-php-rs (the resulting PHP method dispatch failed at runtime
+        // with "Call to undefined method getCamelCase()").
+        let getter_ident = format!("get_{}", field.name);
 
-            // Untagged data enums and `TypeRef::Json` both map to `serde_json::Value` in
-            // the binding struct, but ext-php-rs has no IntoZval impl for `serde_json::Value`.
-            // Emit a JSON-string getter (Option<String>) so PHP can introspect the serialized
-            // form, while the actual round-trip through `from_json` uses the Value field directly.
-            // Map<_, Json> and Optional<Map<_, Json>> are caught here too — ext-php-rs 0.15.12+
-            // tightened HashMap IntoZval bounds to require V: IntoZval, which Value does not impl.
-            fn ty_is_or_wraps_json(t: &TypeRef) -> bool {
-                match t {
-                    TypeRef::Json => true,
-                    TypeRef::Optional(inner) | TypeRef::Vec(inner) => ty_is_or_wraps_json(inner),
-                    TypeRef::Map(_, v) => matches!(v.as_ref(), TypeRef::Json),
-                    _ => false,
-                }
+        // Untagged data enums and `TypeRef::Json` both map to `serde_json::Value` in
+        // the binding struct, but ext-php-rs has no IntoZval impl for `serde_json::Value`.
+        // Emit a JSON-string getter (Option<String>) so PHP can introspect the serialized
+        // form, while the actual round-trip through `from_json` uses the Value field directly.
+        // Map<_, Json> and Optional<Map<_, Json>> are caught here too — ext-php-rs 0.15.12+
+        // tightened HashMap IntoZval bounds to require V: IntoZval, which Value does not impl.
+        fn ty_is_or_wraps_json(t: &TypeRef) -> bool {
+            match t {
+                TypeRef::Json => true,
+                TypeRef::Optional(inner) | TypeRef::Vec(inner) => ty_is_or_wraps_json(inner),
+                TypeRef::Map(_, v) => matches!(v.as_ref(), TypeRef::Json),
+                _ => false,
             }
-            let is_json_field = ty_is_or_wraps_json(&field.ty);
-            if ty_references_untagged_data_enum(&field.ty, &mapper.untagged_data_enum_names) || is_json_field {
-                let body = if field.optional {
-                    format!(
-                        "self.{name}.as_ref().and_then(|v| serde_json::to_string(v).ok())",
-                        name = field.name
-                    )
-                } else {
-                    format!("serde_json::to_string(&self.{name}).ok()", name = field.name)
-                };
-                let getter_method = format!("pub fn {getter_ident}(&self) -> Option<String> {{\n    {body}\n}}");
-                impl_builder.add_method(&getter_method);
-                continue;
-            }
-            let map_fn = |ty: &alef_core::ir::TypeRef| mapper.map_type(ty);
-            let rust_return_type = if field.optional {
-                mapper.optional(&mapper.map_type(&field.ty))
-            } else {
-                map_fn(&field.ty)
-            };
-            let getter_method = format!(
-                "pub fn {getter_ident}(&self) -> {ret} {{\n    self.{field_name}.clone()\n}}",
-                field_name = field.name,
-                ret = rust_return_type,
-            );
-            impl_builder.add_method(&getter_method);
-
-            // Note: setters for Named/Vec/Map fields are not generated because
-            // ext-php-rs doesn't support &T: FromZval for #[php(setter)] parameters.
-            // Config types with complex fields should be constructed via fromJson().
         }
+        let is_json_field = ty_is_or_wraps_json(&field.ty);
+        if ty_references_untagged_data_enum(&field.ty, &mapper.untagged_data_enum_names) || is_json_field {
+            let body = if field.optional {
+                format!(
+                    "self.{name}.as_ref().and_then(|v| serde_json::to_string(v).ok())",
+                    name = field.name
+                )
+            } else {
+                format!("serde_json::to_string(&self.{name}).ok()", name = field.name)
+            };
+            let getter_method = format!("pub fn {getter_ident}(&self) -> Option<String> {{\n    {body}\n}}");
+            impl_builder.add_method(&getter_method);
+            continue;
+        }
+        let map_fn = |ty: &alef_core::ir::TypeRef| mapper.map_type(ty);
+        let rust_return_type = if field.optional {
+            mapper.optional(&mapper.map_type(&field.ty))
+        } else {
+            map_fn(&field.ty)
+        };
+        let getter_method = format!(
+            "pub fn {getter_ident}(&self) -> {ret} {{\n    self.{field_name}.clone()\n}}",
+            field_name = field.name,
+            ret = rust_return_type,
+        );
+        impl_builder.add_method(&getter_method);
+
+        // Note: setters for Named/Vec/Map fields are not generated because
+        // ext-php-rs doesn't support &T: FromZval for #[php(setter)] parameters.
+        // Config types with complex fields should be constructed via fromJson().
     }
 
     // Non-opaque structs don't have adapter bodies — adapters apply to opaque types only.
