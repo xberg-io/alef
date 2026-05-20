@@ -470,6 +470,12 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
             if exclude_functions.contains(&func.name) {
                 continue;
             }
+            if alef_codegen::generators::trait_bridge::is_trait_bridge_managed_fn(
+                &func.name,
+                &config.trait_bridges,
+            ) {
+                continue;
+            }
             let bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges);
             let options_field_bridge = crate::trait_bridge::find_options_field_binding(func, &config.trait_bridges)
                 // Only use the options-field path when the bridge field actually survives

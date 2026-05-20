@@ -384,6 +384,12 @@ impl Backend for PhpBackend {
             // a #[php_impl] block which handles registration via the class machinery).
             let mut method_items: Vec<String> = Vec::new();
             for func in included_functions {
+                if alef_codegen::generators::trait_bridge::is_trait_bridge_managed_fn(
+                    &func.name,
+                    &config.trait_bridges,
+                ) {
+                    continue;
+                }
                 let bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges);
                 if let Some((param_idx, bridge_cfg)) = bridge_param {
                     let bridge_handle_path = bridge_handle_path(api, bridge_cfg, &core_import);
