@@ -564,6 +564,15 @@ pub(super) fn gen_elixir_struct_module(
         out.push_str("  end\n\n");
     }
 
+    // Add valid?/1 instance method for HeaderMetadata-like types with is_valid in Rust.
+    if typ.name == "HeaderMetadata" {
+        out.push_str("  @doc \"Validate that the header level is within valid range (1-6).\"\n");
+        out.push_str("  @spec valid?(t()) :: boolean()\n");
+        out.push_str("  def valid?(%__MODULE__{level: level}) do\n");
+        out.push_str("    level >= 1 and level <= 6\n");
+        out.push_str("  end\n\n");
+    }
+
     out.push_str(&template_env::render(
         "struct_module_footer.jinja",
         minijinja::context! {},
