@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **alef-e2e: add `stream.has_page_event`, `stream.has_error_event`, `stream.has_complete_event`, and `stream.event_count_min` virtual fields for streaming-fixture assertions.** Streaming fixtures previously had no way to assert against per-event-type presence or minimum event counts without relying on `not_empty`-style synthetic assertions that every backend had to emit as `// skipped`. The new virtual fields are resolved by `streaming_assertions.rs` with per-language accessors (Python list comprehensions, TypeScript `Array.some`/`.filter`, Rust iterator combinators, etc.), unskipping streaming assertions across every backend's streaming test suite. (`crates/alef-e2e/src/codegen/streaming_assertions.rs`)
+
 - **alef-e2e: normalize `pages_crawled` / `min_pages` assertion aliases to `count_equals` / `count_min` on the `pages` field.** Fixtures commonly use `crawl.pages_crawled` (or bare `pages_crawled`) with `equals` and `crawl.min_pages` with `greater_than_or_equal` to assert the number of pages a crawl yielded. Neither is a struct field on the call's result type, so every backend was emitting `// skipped: field 'crawl.pages_crawled' not available on result type` for these assertions. A new post-load `normalize_assertions` pass rewrites the alias to a `count_*` assertion targeting the `pages` field that the `crawl`-shaped calls already expose via `result_fields`, letting every backend render the assertion through its existing `count_equals` / `count_min` paths. (`crates/alef-e2e/src/fixture.rs`)
 
 ### Changed

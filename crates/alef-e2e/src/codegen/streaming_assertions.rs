@@ -38,6 +38,14 @@ pub const STREAMING_VIRTUAL_FIELDS: &[&str] = &[
     "no_chunks_after_done",
     "tool_calls",
     "finish_reason",
+    // Crawl-stream event-variant predicates: resolve against the collected
+    // `chunks` list where each item is a tagged-union CrawlEvent (`page` /
+    // `error` / `complete`). `event_count_min` is a synonym for the chunk
+    // count, used with `greater_than_or_equal` to assert "at least N events".
+    "stream.has_page_event",
+    "stream.has_error_event",
+    "stream.has_complete_event",
+    "stream.event_count_min",
 ];
 
 /// The set of streaming-virtual root names that may have deep-path continuations.
@@ -103,6 +111,10 @@ const STREAMING_ONLY_AUTO_DETECT_FIELDS: &[&str] = &[
     "stream_content",
     "stream_complete",
     "no_chunks_after_done",
+    "stream.has_page_event",
+    "stream.has_error_event",
+    "stream.has_complete_event",
+    "stream.event_count_min",
 ];
 
 /// Resolve whether a fixture should be treated as streaming, honoring the
@@ -294,6 +306,24 @@ impl StreamingFieldResolver {
                 "php" => "true".to_string(),
                 _ => "true".to_string(),
             }),
+
+            // Crawl-stream event-variant predicates.
+            //
+            // Each chunk is a tagged union (CrawlEvent::Page / Error / Complete).
+            // The accessor returns a language-native boolean expression that is
+            // `true` iff any chunk in the collected list matches the variant.
+            //
+            // PHP and WASM intentionally return `None`: PHP's crawl-stream is
+            // exposed as eager JSON (see `chunks_var` collect_snippet) and WASM
+            // does not support streaming on `wasm32` targets.
+            "stream.has_page_event" => has_event_variant_accessor(lang, chunks_var, EventVariant::Page),
+            "stream.has_error_event" => has_event_variant_accessor(lang, chunks_var, EventVariant::Error),
+            "stream.has_complete_event" => has_event_variant_accessor(lang, chunks_var, EventVariant::Complete),
+
+            // event_count_min is the collected chunks count — used with
+            // `greater_than_or_equal` assertions on the chunk count.  Mirrors
+            // `chunks.length` per-language.
+            "stream.event_count_min" => Self::accessor("chunks.length", lang, chunks_var),
 
             "tool_calls" => Some(match lang {
                 "rust" => {
@@ -648,6 +678,112 @@ impl StreamingFieldResolver {
             chunk_free = chunk_free,
             free_string = free_string,
         )
+    }
+}
+
+/// Identifies a `CrawlEvent` variant for `stream.has_*_event` accessors.
+#[derive(Debug, Clone, Copy)]
+enum EventVariant {
+    Page,
+    Error,
+    Complete,
+}
+
+impl EventVariant {
+    /// Lower-case JSON-wire tag value for the `type` discriminator.
+    fn tag(self) -> &'static str {
+        match self {
+            EventVariant::Page => "page",
+            EventVariant::Error => "error",
+            EventVariant::Complete => "complete",
+        }
+    }
+
+    /// Upper-camel variant name as used in most language bindings
+    /// (e.g. `CrawlEvent_Page`, `CrawlEventPage`, `CrawlEvent.Page`).
+    fn upper_camel(self) -> &'static str {
+        match self {
+            EventVariant::Page => "Page",
+            EventVariant::Error => "Error",
+            EventVariant::Complete => "Complete",
+        }
+    }
+}
+
+/// Emit a language-native boolean expression that is `true` iff any chunk in
+/// `chunks_var` matches the given `CrawlEvent` variant.
+///
+/// Returns `None` for languages where streaming `CrawlEvent` matching is not
+/// expressible (PHP — eager-JSON, WASM — no streaming on wasm32).
+fn has_event_variant_accessor(lang: &str, chunks_var: &str, variant: EventVariant) -> Option<String> {
+    let tag = variant.tag();
+    let camel = variant.upper_camel();
+    match lang {
+        // Python: CrawlEvent exposes `.type` returning the lower-case wire tag.
+        "python" => Some(format!("any(e.type == \"{tag}\" for e in {chunks_var})")),
+        // Node / TypeScript / WASM JS: deserialized CrawlEvent objects expose
+        // a `type` discriminator field with the lower-case wire tag.
+        "node" | "typescript" => Some(format!(
+            "{chunks_var}.some((e: any) => e?.type === \"{tag}\")"
+        )),
+        // Ruby: each variant class exposes `<tag>?` predicates.
+        "ruby" => Some(format!("{chunks_var}.any? {{ |e| e.{tag}? }}")),
+        // Go: variants are concrete struct types (CrawlEventPage, etc.) that
+        // implement the `CrawlEvent` interface.  Use a type switch via an
+        // anonymous IIFE so the accessor remains an expression.
+        "go" => Some(format!(
+            "func() bool {{ for _, e := range {chunks_var} {{ if _, _ok := e.(pkg.CrawlEvent{camel}); _ok {{ return true }} }}; return false }}()"
+        )),
+        // Java: sealed interface CrawlEvent with nested records (Page/Error/Complete).
+        "java" => Some(format!(
+            "{chunks_var}.stream().anyMatch(e -> e instanceof CrawlEvent.{camel})"
+        )),
+        // C#: abstract record CrawlEvent with nested sealed records.
+        "csharp" => Some(format!(
+            "{chunks_var}.Any(e => e is global::Kreuzcrawl.CrawlEvent.{camel})"
+        )),
+        // Swift: enum CrawlEvent with associated values.  `if case .<tag> = e`
+        // is a statement, not an expression — wrap in a `contains(where:)` call
+        // with a switch-returning-bool closure.
+        "swift" => Some(format!(
+            "{chunks_var}.contains(where: {{ e in if case .{tag} = e {{ return true }} else {{ return false }} }})"
+        )),
+        // Elixir: each event is a map with a `:type` atom discriminator.
+        "elixir" => Some(format!(
+            "Enum.any?({chunks_var}, fn e -> Map.get(e, :type) == :{tag} end)"
+        )),
+        // Kotlin (Java records via typealias): same shape as Java.
+        "kotlin" => Some(format!(
+            "{chunks_var}.any {{ it is CrawlEvent.{camel} }}"
+        )),
+        // kotlin-android: native sealed class with the same nested variants.
+        "kotlin_android" => Some(format!(
+            "{chunks_var}.any {{ it is CrawlEvent.{camel} }}"
+        )),
+        // Dart (freezed): variants are CrawlEvent_Page / CrawlEvent_Error /
+        // CrawlEvent_Complete (underscored).
+        "dart" => Some(format!(
+            "{chunks_var}.any((e) => e is CrawlEvent_{camel})"
+        )),
+        // Zig: collected chunks are JSON strings (see Zig collect_snippet); check
+        // for the wire-format `"type":"<tag>"` substring on any item.  Substring
+        // matching is safe because the JSON is produced by the FFI marshaller
+        // with a fixed key ordering and the tag values do not collide.
+        "zig" => Some(format!(
+            "blk: {{ for ({chunks_var}.items) |_e| {{ if (std.mem.indexOf(u8, _e, \"\\\"type\\\":\\\"{tag}\\\"\") != null) break :blk true; }} break :blk false; }}"
+        )),
+        // Rust: CrawlEvent is a tagged enum (`#[serde(tag = "type")]`) with
+        // struct-style variants `Page { result }`, `Error { url, error }`,
+        // `Complete { pages_crawled }`.  Use `matches!` for the predicate so
+        // we don't bind the variant payload.
+        "rust" => Some(format!(
+            "{chunks_var}.iter().any(|e| matches!(e, kreuzcrawl::CrawlEvent::{camel} {{ .. }}))"
+        )),
+        // PHP: crawl-stream is delivered as eager JSON (see PHP collect_snippet)
+        // and the kreuzcrawl PHP binding does not expose typed CrawlEvent objects.
+        // WASM: streaming is unavailable on wasm32 targets.
+        "php" | "wasm" => None,
+        _ => None,
     }
 }
 
