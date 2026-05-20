@@ -218,6 +218,7 @@ impl E2eCodegen for PhpCodegen {
                 result_is_simple,
                 php_client_factory,
                 options_via,
+                &config.adapters,
             );
             files.push(GeneratedFile {
                 path: tests_base.join(filename),
@@ -508,7 +509,6 @@ require $phpunitPath;
 }
 
 #[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_arguments)]
 fn render_test_file(
     category: &str,
     fixtures: &[&Fixture],
@@ -523,6 +523,7 @@ fn render_test_file(
     result_is_simple: bool,
     php_client_factory: Option<&str>,
     options_via: &str,
+    adapters: &[alef_core::config::extras::AdapterConfig],
 ) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
 
@@ -601,6 +602,7 @@ fn render_test_file(
                 result_is_simple,
                 php_client_factory,
                 options_via,
+                adapters,
             );
         }
         if i + 1 < fixtures.len() {
@@ -929,6 +931,7 @@ fn render_test_method(
     result_is_simple: bool,
     php_client_factory: Option<&str>,
     options_via: &str,
+    adapters: &[alef_core::config::extras::AdapterConfig],
 ) {
     // Resolve per-fixture call config: supports named calls via fixture.call field.
     let call_config = e2e_config.resolve_call_for_fixture(
@@ -988,6 +991,11 @@ fn render_test_method(
             .and_then(|o| o.options_type.as_deref())
     });
 
+    let adapter_request_type: Option<String> = adapters
+        .iter()
+        .find(|a| a.name == call_config.function.as_str())
+        .and_then(|a| a.request_type.as_deref())
+        .map(|rt| rt.rsplit("::").next().unwrap_or(rt).to_string());
     let (mut setup_lines, args_str) = build_args_and_setup(
         &fixture.input,
         args,
@@ -996,6 +1004,7 @@ fn render_test_method(
         fixture,
         options_via,
         call_options_type,
+        adapter_request_type.as_deref(),
     );
 
     // Check for skip_languages early
@@ -1198,6 +1207,7 @@ fn emit_php_batch_item_array(arr: &serde_json::Value, elem_type: &str) -> String
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_args_and_setup(
     input: &serde_json::Value,
     args: &[crate::config::ArgMapping],
@@ -1206,6 +1216,7 @@ fn build_args_and_setup(
     fixture: &crate::fixture::Fixture,
     options_via: &str,
     options_type: Option<&str>,
+    adapter_request_type: Option<&str>,
 ) -> (Vec<String>, String) {
     let fixture_id = &fixture.id;
     if args.is_empty() {
@@ -1257,7 +1268,13 @@ fn build_args_and_setup(
                     arg.name,
                 ));
             }
-            parts.push(format!("${}", arg.name));
+            if let Some(req_type) = adapter_request_type {
+                let req_var = format!("${}_req", arg.name);
+                setup_lines.push(format!("{req_var} = new {req_type}(${});", arg.name));
+                parts.push(req_var);
+            } else {
+                parts.push(format!("${}", arg.name));
+            }
             continue;
         }
 

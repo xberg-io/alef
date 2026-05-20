@@ -173,6 +173,7 @@ impl E2eCodegen for RubyCodegen {
                 result_is_simple,
                 e2e_config,
                 has_file_fixtures || has_http_fixtures,
+                &config.adapters,
             );
             files.push(GeneratedFile {
                 path: spec_base.join(filename),
@@ -307,6 +308,7 @@ fn render_spec_file(
     result_is_simple: bool,
     e2e_config: &E2eConfig,
     needs_spec_helper: bool,
+    adapters: &[alef_core::config::extras::AdapterConfig],
 ) -> String {
     // Resolve client_factory from ruby override.
     let client_factory = e2e_config
@@ -432,6 +434,11 @@ fn render_spec_file(
                 // `[crates.e2e.call.overrides.ruby]` map only carries chat-shape entries.
                 let fixture_enum_fields: &HashMap<String, String> =
                     fixture_call_overrides.map(|o| &o.enum_fields).unwrap_or(enum_fields);
+                let adapter_req_type_owned: Option<String> = adapters
+                    .iter()
+                    .find(|a| a.name == fixture_call.function.as_str())
+                    .and_then(|a| a.request_type.as_deref())
+                    .map(|rt| rt.rsplit("::").next().unwrap_or(rt).to_string());
                 let example = if is_streaming {
                     render_chat_stream_example(
                         fixture,
@@ -444,6 +451,7 @@ fn render_spec_file(
                         e2e_config,
                         fixture_client_factory,
                         &fixture_extra_args,
+                        adapter_req_type_owned.as_deref(),
                     )
                 } else {
                     render_example(
@@ -462,6 +470,7 @@ fn render_spec_file(
                         e2e_config,
                         fixture_client_factory,
                         &fixture_extra_args,
+                        adapter_req_type_owned.as_deref(),
                     )
                 };
                 examples.push(example);
@@ -747,6 +756,7 @@ fn render_chat_stream_example(
     e2e_config: &E2eConfig,
     client_factory: Option<&str>,
     extra_args: &[String],
+    adapter_request_type: Option<&str>,
 ) -> String {
     let test_name = sanitize_ident(&fixture.id);
     let description = fixture.description.replace('\'', "\\'");
@@ -762,6 +772,7 @@ fn render_chat_stream_example(
         enum_fields,
         false,
         fixture,
+        adapter_request_type,
     );
 
     let mut final_args = args_str;
@@ -1044,6 +1055,7 @@ fn render_example(
     e2e_config: &E2eConfig,
     client_factory: Option<&str>,
     extra_args: &[String],
+    adapter_request_type: Option<&str>,
 ) -> String {
     let test_name = sanitize_ident(&fixture.id);
     let description = fixture.description.replace('\'', "\\'");
@@ -1059,6 +1071,7 @@ fn render_example(
         enum_fields,
         result_is_simple,
         fixture,
+        adapter_request_type,
     );
 
     // Build visitor if present and add to setup
@@ -1215,6 +1228,7 @@ fn build_args_and_setup(
     enum_fields: &HashMap<String, String>,
     result_is_simple: bool,
     fixture: &crate::fixture::Fixture,
+    adapter_request_type: Option<&str>,
 ) -> (Vec<String>, String) {
     let fixture_id = &fixture.id;
     if args.is_empty() {
@@ -1257,7 +1271,18 @@ fn build_args_and_setup(
                     arg.name,
                 ));
             }
-            parts.push(arg.name.clone());
+            if let Some(req_type) = adapter_request_type {
+                let req_var = format!("{}_req", arg.name);
+                // Derive the module qualifier from module_name (e.g. "Kreuzcrawl")
+                let mod_qualifier = ruby_module_name(module_name);
+                setup_lines.push(format!(
+                    "{req_var} = {mod_qualifier}::{req_type}.new(url: {})",
+                    arg.name
+                ));
+                parts.push(req_var);
+            } else {
+                parts.push(arg.name.clone());
+            }
             continue;
         }
 
@@ -1409,6 +1434,7 @@ fn build_args_and_setup(
     (setup_lines, parts.join(", "))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_assertion(
     out: &mut String,
     assertion: &Assertion,

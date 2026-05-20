@@ -166,6 +166,7 @@ impl E2eCodegen for CSharpCodegen {
                 e2e_config,
                 enum_fields,
                 &effective_nested_types,
+                &config.adapters,
             );
             files.push(GeneratedFile {
                 path: tests_base.join(filename),
@@ -405,6 +406,7 @@ fn render_test_file(
     e2e_config: &E2eConfig,
     enum_fields: &HashMap<String, String>,
     nested_types: &HashMap<String, String>,
+    adapters: &[alef_core::config::extras::AdapterConfig],
 ) -> String {
     // Collect using imports
     let mut using_imports = String::new();
@@ -446,6 +448,7 @@ fn render_test_file(
             e2e_config,
             enum_fields,
             nested_types,
+            adapters,
         );
         if i + 1 < fixtures.len() {
             fixtures_body.push('\n');
@@ -750,6 +753,7 @@ fn render_test_method(
     e2e_config: &E2eConfig,
     enum_fields: &HashMap<String, String>,
     nested_types: &HashMap<String, String>,
+    adapters: &[alef_core::config::extras::AdapterConfig],
 ) {
     let method_name = fixture.id.to_upper_camel_case();
     let description = &fixture.description;
@@ -810,6 +814,7 @@ fn render_test_method(
             enum_fields,
             nested_types,
             exception_class,
+            adapters,
         );
         return;
     }
@@ -863,6 +868,11 @@ fn render_test_method(
         .and_then(|o| o.options_via.as_deref())
         .or(top_level_options_via);
 
+    let adapter_request_type_owned: Option<String> = adapters
+        .iter()
+        .find(|a| a.name == call_config.function.as_str())
+        .and_then(|a| a.request_type.as_deref())
+        .map(|rt| rt.rsplit("::").next().unwrap_or(rt).to_string());
     let (mut setup_lines, args_str) = build_args_and_setup(
         &fixture.input,
         args,
@@ -872,6 +882,7 @@ fn render_test_method(
         enum_fields,
         nested_types,
         fixture,
+        adapter_request_type_owned.as_deref(),
     );
 
     // Build visitor if present: instantiate in method body, declare class at file scope.
@@ -1074,6 +1085,7 @@ fn render_chat_stream_test_method(
     enum_fields: &HashMap<String, String>,
     nested_types: &HashMap<String, String>,
     exception_class: &str,
+    adapters: &[alef_core::config::extras::AdapterConfig],
 ) {
     let method_name = fixture.id.to_upper_camel_case();
     let description = &fixture.description;
@@ -1103,6 +1115,11 @@ fn render_chat_stream_test_method(
         .and_then(|o| o.options_via.as_deref())
         .or(top_level_options_via);
 
+    let adapter_request_type_cs: Option<String> = adapters
+        .iter()
+        .find(|a| a.name == call_config.function.as_str())
+        .and_then(|a| a.request_type.as_deref())
+        .map(|rt| rt.rsplit("::").next().unwrap_or(rt).to_string());
     let (setup_lines, args_str) = build_args_and_setup(
         &fixture.input,
         args,
@@ -1112,6 +1129,7 @@ fn render_chat_stream_test_method(
         enum_fields,
         nested_types,
         fixture,
+        adapter_request_type_cs.as_deref(),
     );
 
     let client_factory = cs_overrides.and_then(|o| o.client_factory.as_deref()).or_else(|| {
@@ -1418,6 +1436,7 @@ fn build_args_and_setup(
     enum_fields: &HashMap<String, String>,
     nested_types: &HashMap<String, String>,
     fixture: &crate::fixture::Fixture,
+    adapter_request_type: Option<&str>,
 ) -> (Vec<String>, String) {
     let fixture_id = &fixture.id;
     if args.is_empty() {
@@ -1475,7 +1494,16 @@ fn build_args_and_setup(
                     arg.name,
                 ));
             }
-            parts.push(arg.name.clone());
+            if let Some(req_type) = adapter_request_type {
+                let req_var = format!("{}Req", arg.name);
+                setup_lines.push(format!(
+                    "var {req_var} = new {class_name}.{req_type} {{ Url = {} }};",
+                    arg.name
+                ));
+                parts.push(req_var);
+            } else {
+                parts.push(arg.name.clone());
+            }
             continue;
         }
 
