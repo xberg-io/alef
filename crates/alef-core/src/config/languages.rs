@@ -492,6 +492,31 @@ pub struct FfiConfig {
     /// trait-bridged plugins can ignore this knob entirely.
     #[serde(default)]
     pub plugin_error_constructor: Option<String>,
+    /// Per-target overrides for the core-crate dependency emitted into the
+    /// generated FFI Cargo.toml. Used when some `cfg(...)` target requires a
+    /// reduced feature set (e.g. the `x86_64-linux-android` emulator cannot
+    /// link ONNX Runtime, so kreuzberg ships an `android-target` feature
+    /// flag that drops every ORT-dependent extractor).
+    ///
+    /// When this list is non-empty the scaffold emits
+    /// `[target.'cfg(not(<any-cfg>))'.dependencies]` for the default branch
+    /// plus one `[target.'cfg(<cfg>)'.dependencies]` block per override,
+    /// instead of the unconditional `[dependencies]` block.
+    #[serde(default)]
+    pub target_dep_overrides: Vec<FfiTargetDepOverride>,
+}
+
+/// A per-target replacement for the core-crate feature set emitted into the
+/// generated FFI Cargo.toml. See [`FfiConfig::target_dep_overrides`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FfiTargetDepOverride {
+    /// Cargo cfg expression, without the surrounding `cfg(...)`.
+    /// Example: `all(target_os = "android", target_arch = "x86_64")`.
+    pub cfg: String,
+    /// Replacement feature set used for the core-crate dependency when this
+    /// target matches. An empty list means "no features".
+    #[serde(default)]
+    pub features: Vec<String>,
 }
 
 fn default_error_style() -> String {

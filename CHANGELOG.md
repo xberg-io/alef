@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.17.7] - 2026-05-20
 
+### Added
+
+- **alef-scaffold + alef-core: support per-target replacement of the core-crate dependency feature set in the generated FFI Cargo.toml.** New `[crates.ffi.target_dep_overrides]` array (Vec of `{ cfg, features }`) on `FfiConfig` instructs the FFI scaffold to emit the default branch under `[target.'cfg(not(any(<all-cfgs>)))'.dependencies]` and one `[target.'cfg(<cfg>)'.dependencies]` block per override, instead of a single unconditional `[dependencies]` block. Without it, downstream kreuzberg's `kreuzberg-ffi/Cargo.toml` always pulled `kreuzberg` with the full ORT-dependent feature set (`paddle-ocr`, `layout-detection`, `embeddings`, `auto-rotate`), and `cargo ndk --target x86_64 -- check -p kreuzberg-ffi` failed with `ort-sys: ort does not provide prebuilt binaries for the target x86_64-linux-android`. With the override pointing the Android x86_64 emulator triple at kreuzberg's `android-target` feature set the same check succeeds. The empty-overrides path is byte-identical to the previous output. New regression test `test_scaffold_ffi_target_dep_overrides_emit_cfg_blocks` in `crates/alef-scaffold/src/tests.rs`. (`crates/alef-scaffold/src/languages/ffi.rs`, `crates/alef-core/src/config/languages.rs`, `crates/alef-core/src/config/mod.rs`)
+
 ### Fixed
 
 - **alef-codegen: detect rustdoc test-attribute fences (`no_run`, `ignore`, `should_panic`, `compile_fail`, `edition*`) as Rust code, drop bodies for foreign-language targets.** Downstream tslp `index.d.ts` had 32 remaining `use tree_sitter_language_pack::...` / `.unwrap()` leaks because the source rustdoc uses ` ```no_run ` fences that v0.17.5's sanitizer didn't recognise as Rust. `is_rust_fence_tag` now matches the full set of rustdoc test-attribute-only tags (including `edition2018`, `edition2021`, etc.) in both `sanitize_rust_idioms_inner` and `detect_first_fence_lang`. Non-Rust language fences (`python`, `javascript`, `typescript`, `php`, …) are unaffected. 13 new unit tests added. (`crates/alef-codegen/src/doc_emission.rs`)

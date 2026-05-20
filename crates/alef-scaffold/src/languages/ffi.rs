@@ -1,9 +1,61 @@
 use crate::{cargo_package_header, core_dep_features, detect_workspace_inheritance, scaffold_meta};
 use alef_core::backend::GeneratedFile;
-use alef_core::config::{AdapterPattern, Language, ResolvedCrateConfig};
+use alef_core::config::{AdapterPattern, FfiTargetDepOverride, Language, ResolvedCrateConfig};
 use alef_core::ir::ApiSurface;
 use alef_core::template_versions as tv;
 use std::path::PathBuf;
+
+/// Render the core-crate dependency portion of the FFI Cargo.toml.
+///
+/// Returns a tuple of `(core_dep_line, target_blocks)` where:
+/// - `core_dep_line` is the single TOML line that goes inside the main
+///   `[dependencies]` table (empty string when target overrides are in use).
+/// - `target_blocks` contains any `[target.'cfg(...)'.dependencies]` sections
+///   that follow the main `[dependencies]` table (empty string by default).
+///
+/// When `overrides` is empty the behaviour matches the historical output:
+/// a single `{crate} = { path = ..., features = [...] }` line lives next to
+/// `serde_json` / `tokio` inside `[dependencies]`. When overrides are
+/// present the core-crate dependency moves out into per-cfg target blocks;
+/// the default branch is wrapped in `cfg(not(any(<cfg1>, <cfg2>, ...)))` so
+/// that exactly one variant matches on any given build (most importantly
+/// `x86_64-linux-android`, which has no ONNX Runtime prebuilt).
+fn render_core_dep(
+    crate_name: &str,
+    core_crate_dir: &str,
+    default_features: &str,
+    overrides: &[FfiTargetDepOverride],
+) -> (String, String) {
+    if overrides.is_empty() {
+        let line = format!("{crate_name} = {{ path = \"../{core_crate_dir}\"{default_features} }}");
+        return (line, String::new());
+    }
+
+    let cfgs: Vec<String> = overrides.iter().map(|o| o.cfg.clone()).collect();
+    let combined_cfg = if cfgs.len() == 1 {
+        cfgs[0].clone()
+    } else {
+        format!("any({})", cfgs.join(", "))
+    };
+
+    let mut blocks = String::new();
+    blocks.push_str(&format!(
+        "[target.'cfg(not({combined_cfg}))'.dependencies]\n{crate_name} = {{ path = \"../{core_crate_dir}\"{default_features} }}\n"
+    ));
+    for override_ in overrides {
+        let features_str = if override_.features.is_empty() {
+            String::new()
+        } else {
+            let quoted: Vec<String> = override_.features.iter().map(|f| format!("\"{f}\"")).collect();
+            format!(", features = [{}]", quoted.join(", "))
+        };
+        blocks.push_str(&format!(
+            "\n[target.'cfg({})'.dependencies]\n{crate_name} = {{ path = \"../{core_crate_dir}\"{features_str} }}\n",
+            override_.cfg
+        ));
+    }
+    (String::new(), blocks)
+}
 
 pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
@@ -79,6 +131,31 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
         .collect::<Vec<_>>()
         .join(", ");
 
+    let target_overrides: &[FfiTargetDepOverride] = config
+        .ffi
+        .as_ref()
+        .map(|c| c.target_dep_overrides.as_slice())
+        .unwrap_or(&[]);
+    let (core_dep_line, target_blocks) = render_core_dep(
+        &config.name,
+        &core_crate_dir,
+        &core_dep_features(config, Language::Ffi),
+        target_overrides,
+    );
+    // Prepend a newline when the core-crate dep stays inside `[dependencies]`
+    // so the generated TOML matches the historical layout exactly.
+    let core_dep_line_block = if core_dep_line.is_empty() {
+        String::new()
+    } else {
+        format!("{core_dep_line}\n")
+    };
+    // Separate the main [dependencies] table from any per-target tables.
+    let target_blocks_section = if target_blocks.is_empty() {
+        String::new()
+    } else {
+        format!("\n{target_blocks}\n")
+    };
+
     let content = format!(
         r#"{pkg_header}
 repository = "{repository}"
@@ -87,10 +164,9 @@ repository = "{repository}"
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
-{crate_name} = {{ path = "../{core_crate_dir}"{features} }}
-serde_json = "1"
+{core_dep_line_block}serde_json = "1"
 tokio = {{ version = "1", features = ["full"] }}{extra_deps_block}
-
+{target_blocks_section}
 # `serde_json` and `tokio` are emitted unconditionally above so the manifest
 # is stable across regens (and so the C FFI codegen can pull them in when an
 # async / Result-typed function appears in the API surface), but for umbrella
@@ -113,9 +189,8 @@ tempfile = "{tempfile}"
 "#,
         pkg_header = pkg_header,
         repository = meta.repository,
-        crate_name = &config.name,
-        core_crate_dir = core_crate_dir,
-        features = core_dep_features(config, Language::Ffi),
+        core_dep_line_block = core_dep_line_block,
+        target_blocks_section = target_blocks_section,
         cbindgen = tv::cargo::CBINDGEN,
         tempfile = tv::cargo::TEMPFILE,
         extra_deps_block = extra_deps_block,

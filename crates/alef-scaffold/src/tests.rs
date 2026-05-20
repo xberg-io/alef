@@ -328,6 +328,75 @@ fn test_scaffold_ffi_merges_extra_dependencies() {
 }
 
 #[test]
+fn test_scaffold_ffi_target_dep_overrides_emit_cfg_blocks() {
+    // When FfiConfig.target_dep_overrides is configured, the core-crate
+    // dependency moves out of the main [dependencies] table into per-cfg
+    // [target.'cfg(...)'.dependencies] tables. This is the only shape that
+    // satisfies targets whose feature set differs from the default, e.g.
+    // x86_64-linux-android (no ONNX Runtime prebuilt) needs the
+    // `android-target` feature instead of `full`.
+    use alef_core::config::FfiTargetDepOverride;
+    use alef_core::config::languages::FfiConfig;
+
+    let mut config = test_config();
+    config.features = vec!["full".to_string(), "ocr".to_string()];
+    config.ffi = Some(FfiConfig {
+        prefix: None,
+        error_style: "last_error".to_string(),
+        header_name: None,
+        lib_name: None,
+        visitor_callbacks: false,
+        features: None,
+        serde_rename_all: None,
+        exclude_functions: vec![],
+        exclude_types: vec![],
+        rename_fields: Default::default(),
+        plugin_error_constructor: None,
+        target_dep_overrides: vec![FfiTargetDepOverride {
+            cfg: "all(target_os = \"android\", target_arch = \"x86_64\")".to_string(),
+            features: vec!["android-target".to_string()],
+        }],
+    });
+
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Ffi]).unwrap();
+    let files = language_files(&all_files);
+    let cargo_toml = &files[0].content;
+
+    // The default branch is wrapped in cfg(not(<override-cfg>)).
+    assert!(
+        cargo_toml.contains(
+            "[target.'cfg(not(all(target_os = \"android\", target_arch = \"x86_64\")))'.dependencies]"
+        ),
+        "expected default-branch target table with cfg(not(...)), got:\n{cargo_toml}"
+    );
+    assert!(
+        cargo_toml.contains("my-lib = { path = \"../my-lib\", features = [\"full\", \"ocr\"] }"),
+        "default branch should keep the full feature set, got:\n{cargo_toml}"
+    );
+
+    // The override branch keeps the explicit cfg and a reduced feature set.
+    assert!(
+        cargo_toml.contains(
+            "[target.'cfg(all(target_os = \"android\", target_arch = \"x86_64\"))'.dependencies]"
+        ),
+        "expected override target table, got:\n{cargo_toml}"
+    );
+    assert!(
+        cargo_toml.contains("my-lib = { path = \"../my-lib\", features = [\"android-target\"] }"),
+        "override branch should emit android-target feature, got:\n{cargo_toml}"
+    );
+
+    // The main [dependencies] table still exists for serde_json/tokio but
+    // no longer contains the core-crate line.
+    assert!(cargo_toml.contains("[dependencies]\nserde_json = \"1\""));
+    assert!(
+        !cargo_toml.contains("\n[dependencies]\nmy-lib ="),
+        "core-crate dep should have moved out of [dependencies], got:\n{cargo_toml}"
+    );
+}
+
+#[test]
 fn test_scaffold_go_production_format() {
     let config = test_config();
     let api = test_api();
