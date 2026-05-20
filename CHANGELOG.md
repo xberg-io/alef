@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-backend-magnus: drop duplicate trait-bridge `clear_fn` registration.** The fix in 0.17.1 stopped emitting two `pub fn clear_*` definitions, but the Ruby module registration loop (`module.define_module_function(...)`) still emitted the call twice: once from the regular `api.functions` registration pass and once from the trait-bridge registration loop. Skip trait-bridge-managed names in the regular pass so the function is registered exactly once. (`crates/alef-backend-magnus/src/gen_bindings/functions.rs`)
+
 - **alef-backend-zig: align synthetic `unregister_{snake}` template with `KreuzbergError!void` body.** The bdceae1e migration converted the body and the configured-name signature template to `KreuzbergError!void` style, but the synthetic-name `unregister_fn_signature.jinja` was missed and still emitted `pub fn unregister_{snake}(name: [*c]const u8, out_error: ?*?[*c]u8) i32`. Because the zig backend never instantiates `ZigTraitBridgeGenerator`, only the synthetic path runs, leaving the `out_error` parameter unused and breaking the build with `error: unused function parameter`. Drop the `out_error` parameter and return `KreuzbergError!void` to match the body. (`crates/alef-backend-zig/templates/unregister_fn_signature.jinja`)
 
 - **alef-backend-swift: skip regular emission for trait-bridge `clear_fn` names.** Mirror the go/dart/php/napi/magnus/rustler fix. `__swift_bridge__clear_*` was emitted twice — once via the regular function-emission loop and once via the trait-bridge wrappers — breaking `cargo build -p kreuzberg-swift` with `E0428: __swift_bridge__clear_*` is defined multiple times. (`crates/alef-backend-swift/src/gen_rust_crate/mod.rs`)

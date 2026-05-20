@@ -1013,6 +1013,11 @@ pub(super) fn gen_module_init(
         if super::is_reserved_fn(&func.name) || exclude_functions.contains(func.name.as_str()) {
             continue;
         }
+        // Skip trait-bridge-managed names (clear_fn) — they get a dedicated
+        // registration in the trait_bridge loop below.
+        if alef_codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&func.name, &config.trait_bridges) {
+            continue;
+        }
         // Functions with a trait_bridge param use fixed-arity signatures, while
         // options_field bindings use variadic arity. For bridge_param, register fixed arity
         // since those functions don't use scan_args. For options_field, register variadic
