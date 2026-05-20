@@ -7,11 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.17.6] - 2026-05-20
+## [0.17.7] - 2026-05-20
 
 ### Fixed
 
 - **alef-codegen: detect rustdoc test-attribute fences (`no_run`, `ignore`, `should_panic`, `compile_fail`, `edition*`) as Rust code, drop bodies for foreign-language targets.** Downstream tslp `index.d.ts` had 32 remaining `use tree_sitter_language_pack::...` / `.unwrap()` leaks because the source rustdoc uses ` ```no_run ` fences that v0.17.5's sanitizer didn't recognise as Rust. `is_rust_fence_tag` now matches the full set of rustdoc test-attribute-only tags (including `edition2018`, `edition2021`, etc.) in both `sanitize_rust_idioms_inner` and `detect_first_fence_lang`. Non-Rust language fences (`python`, `javascript`, `typescript`, `php`, …) are unaffected. 13 new unit tests added. (`crates/alef-codegen/src/doc_emission.rs`)
+
+## [0.17.6] - 2026-05-20
+
+### Fixed
 
 - **alef-readme: configure the template-driven README minijinja `Environment` to match `template_env::make_env()` and trim the multi-line TOML `description` before rendering.** `try_template_readme` in `crates/alef-readme/src/lib.rs` constructed its `Environment` via `Environment::new()` without `set_trim_blocks(true)` / `set_lstrip_blocks(true)` / `set_keep_trailing_newline(true)`, so every Jinja control tag (`{% if %}`, `{% include %}`, `{% endif %}`) leaked its trailing newline into the rendered README and every `{% include 'partials/_*.md' %}` dropped the trailing newline of the partial file. The result was double blank lines around every `## Heading` and a missing blank line between hand-included blocks (e.g. between the badges `<div>` and the description paragraph). Compounding the issue, TOML basic multi-line strings (`description = """..."""`) preserve a trailing newline, so `{{ description }}<blank line>## Installation` rendered as `<desc>\n\n\n## Installation` (one extra blank line) before the next section — independent of `trim_blocks` because `{{ … }}` is an output tag, not a block tag. `try_template_readme` now enables the three whitespace settings on the local environment and `.map(|s| s.trim_end().to_string())` strips the description's trailing whitespace before insertion into the template context. Downstream html-to-markdown's `task generate-readme:check` CI step (which runs `alef readme && rumdl fmt && git diff --exit-code`) failed on every regen because rumdl accepts both spacings but the committed READMEs no longer matched the regenerated output. (`crates/alef-readme/src/lib.rs`)
 
