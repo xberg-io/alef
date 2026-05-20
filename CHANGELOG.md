@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-e2e validate: stop emitting "missing required input field 'input'" warnings when the call's arg uses the top-level 'input' field (the whole fixture.input is the arg's value — no sub-key lookup applies). Sub-path arg checks (e.g., field = "input.path") still fire correctly.**
+
+- **alef-e2e validate: suppress "skipped for all languages" warning when the fixture's category is in [crates.e2e].exclude_categories — those fixtures are intentionally excluded at the category level, so empty skip.languages with no reason is the correct shape.**
+
 - **alef-publish: skip Jni language in validate() — JNI is a transitive (Java/Kotlin) binding with no standalone package directory.**
 
 - **alef-backend-php: emit .iter().cloned().map(Into::into) instead of .into_iter().map(|v| v.clone().into()) for slice-to-owned conversions — fixes clippy::into_iter_on_ref on -D warnings.**

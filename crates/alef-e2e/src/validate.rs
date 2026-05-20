@@ -109,8 +109,14 @@ pub fn validate_fixtures_semantic(
             if arg.optional {
                 continue;
             }
-            // Extract the input field name from the field path (e.g., "input.path" -> "path")
-            let input_field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+            // When the arg's field is exactly the top-level "input" path (no dot),
+            // the whole fixture.input object IS the JSON value for that arg — no
+            // sub-key lookup applies. Only dotted paths like "input.foo" require a
+            // specific key to exist inside fixture.input.
+            if !arg.field.starts_with("input.") {
+                continue;
+            }
+            let input_field = arg.field.strip_prefix("input.").expect("starts_with checked above");
             if !fixture.input.is_null() {
                 if let Some(obj) = fixture.input.as_object() {
                     if !obj.contains_key(input_field) {
