@@ -178,6 +178,7 @@ impl E2eCodegen for ElixirCodegen {
                 enum_fields,
                 handle_struct_type.as_deref(),
                 handle_atom_list_fields,
+                &config.adapters,
             );
             files.push(GeneratedFile {
                 path: output_base.join("test").join(filename),
@@ -332,6 +333,7 @@ fn render_test_file(
     enum_fields: &HashMap<String, String>,
     handle_struct_type: Option<&str>,
     handle_atom_list_fields: &std::collections::HashSet<String>,
+    adapters: &[alef_core::config::extras::AdapterConfig],
 ) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::Hash));
@@ -418,6 +420,7 @@ fn render_test_file(
                 enum_fields,
                 handle_struct_type,
                 handle_atom_list_fields,
+                adapters,
             );
         }
         if i + 1 < fixtures.len() {
@@ -689,6 +692,7 @@ fn render_test_case(
     enum_fields: &HashMap<String, String>,
     handle_struct_type: Option<&str>,
     handle_atom_list_fields: &std::collections::HashSet<String>,
+    adapters: &[alef_core::config::extras::AdapterConfig],
 ) {
     let test_name = sanitize_ident(&fixture.id);
     let test_label = fixture.id.replace('"', "\\\"");
@@ -843,6 +847,11 @@ fn render_test_case(
     };
 
     let test_documents_path = e2e_config.test_documents_relative_from(0);
+    let adapter_request_type: Option<String> = adapters
+        .iter()
+        .find(|a| a.name == call_config.function.as_str())
+        .and_then(|a| a.request_type.as_deref())
+        .map(|rt| rt.rsplit("::").next().unwrap_or(rt).to_string());
     let (mut setup_lines, args_str) = build_args_and_setup(
         &fixture.input,
         resolved_args,
@@ -854,6 +863,7 @@ fn render_test_case(
         resolved_handle_struct_type,
         resolved_handle_atom_list_fields_ref,
         &test_documents_path,
+        adapter_request_type.as_deref(),
     );
 
     // Build visitor if present — it will be injected into the options map.
@@ -1184,6 +1194,7 @@ fn build_args_and_setup(
     _handle_struct_type: Option<&str>,
     _handle_atom_list_fields: &std::collections::HashSet<String>,
     test_documents_path: &str,
+    adapter_request_type: Option<&str>,
 ) -> (Vec<String>, String) {
     let fixture_id = &fixture.id;
     if args.is_empty() {
@@ -1218,7 +1229,16 @@ fn build_args_and_setup(
                     arg.name,
                 ));
             }
-            parts.push(arg.name.clone());
+            if let Some(req_type) = adapter_request_type {
+                let req_var = format!("{}_req", arg.name);
+                setup_lines.push(format!(
+                    "{req_var} = %Kreuzcrawl.{req_type}{{url: {}}}",
+                    arg.name,
+                ));
+                parts.push(req_var);
+            } else {
+                parts.push(arg.name.clone());
+            }
             continue;
         }
 

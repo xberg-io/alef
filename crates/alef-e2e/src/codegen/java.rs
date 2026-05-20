@@ -162,6 +162,7 @@ impl E2eCodegen for JavaCodegen {
                 e2e_config,
                 &effective_nested_types,
                 nested_types_optional,
+                &config.adapters,
             );
             files.push(GeneratedFile {
                 path: test_base.join(class_file_name),
@@ -413,6 +414,7 @@ fn render_test_file(
     e2e_config: &E2eConfig,
     nested_types: &std::collections::HashMap<String, String>,
     nested_types_optional: bool,
+    adapters: &[alef_core::config::extras::AdapterConfig],
 ) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
     let test_class_name = format!("{}Test", sanitize_filename(category).to_upper_camel_case());
@@ -605,6 +607,7 @@ fn render_test_file(
             e2e_config,
             nested_types,
             nested_types_optional,
+            adapters,
         );
         if i + 1 < fixtures.len() {
             fixtures_body.push('\n');
@@ -956,6 +959,7 @@ fn render_test_method(
     e2e_config: &E2eConfig,
     nested_types: &std::collections::HashMap<String, String>,
     nested_types_optional: bool,
+    adapters: &[alef_core::config::extras::AdapterConfig],
 ) {
     // Delegate HTTP fixtures to the HTTP-specific renderer.
     if let Some(http) = &fixture.http {
@@ -1118,8 +1122,19 @@ fn render_test_method(
         }
     }
 
-    let (mut setup_lines, args_str) =
-        build_args_and_setup(&fixture.input, args, class_name, effective_options_type, fixture);
+    let adapter_request_type: Option<String> = adapters
+        .iter()
+        .find(|a| a.name == call_config.function.as_str())
+        .and_then(|a| a.request_type.as_deref())
+        .map(|rt| rt.rsplit("::").next().unwrap_or(rt).to_string());
+    let (mut setup_lines, args_str) = build_args_and_setup(
+        &fixture.input,
+        args,
+        class_name,
+        effective_options_type,
+        fixture,
+        adapter_request_type.as_deref(),
+    );
 
     // Per-language `extra_args` from call overrides — verbatim trailing
     // expressions appended after the configured args (e.g. `null` for an
@@ -1310,6 +1325,7 @@ fn build_args_and_setup(
     class_name: &str,
     options_type: Option<&str>,
     fixture: &crate::fixture::Fixture,
+    adapter_request_type: Option<&str>,
 ) -> (Vec<String>, String) {
     let fixture_id = &fixture.id;
     if args.is_empty() {
@@ -1332,7 +1348,13 @@ fn build_args_and_setup(
                     arg.name,
                 ));
             }
-            parts.push(arg.name.clone());
+            if let Some(req_type) = adapter_request_type {
+                let req_var = format!("{}Req", arg.name);
+                setup_lines.push(format!("var {req_var} = new {req_type}({});", arg.name));
+                parts.push(req_var);
+            } else {
+                parts.push(arg.name.clone());
+            }
             continue;
         }
 
