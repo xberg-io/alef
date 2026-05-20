@@ -997,6 +997,21 @@ fn render_test_file(
             }
         }
 
+        // Per-call field resolver: overrides the top-level resolver when this call
+        // declares its own result_fields / fields / fields_optional / fields_array.
+        // Without this, `pages.length` on a `crawl` call would skip because the
+        // default `result_fields` (configured for the top-level `scrape` call)
+        // does not contain `pages`.
+        let per_call_field_resolver = FieldResolver::new(
+            e2e_config.effective_fields(fixture_call),
+            e2e_config.effective_fields_optional(fixture_call),
+            e2e_config.effective_result_fields(fixture_call),
+            e2e_config.effective_fields_array(fixture_call),
+            &std::collections::HashSet::new(),
+        );
+        let _ = field_resolver; // top-level resolver retained for compat; per-call wins
+        let field_resolver = &per_call_field_resolver;
+
         render_test_function(
             &mut out,
             fixture,

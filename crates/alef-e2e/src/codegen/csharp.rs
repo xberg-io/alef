@@ -747,7 +747,7 @@ fn render_test_method(
     exception_class: &str,
     _result_var: &str,
     _args: &[crate::config::ArgMapping],
-    field_resolver: &FieldResolver,
+    _field_resolver: &FieldResolver,
     result_is_simple: bool,
     _is_async: bool,
     e2e_config: &E2eConfig,
@@ -792,6 +792,19 @@ fn render_test_method(
         &fixture.tags,
         &fixture.input,
     );
+    // Per-call field resolver: overrides the top-level resolver when this call
+    // declares its own result_fields / fields / fields_optional / fields_array.
+    // Without this, fields like `pages.length` on a `crawl` call would be skipped
+    // because the default `result_fields` (configured for the top-level `scrape`
+    // call) does not contain `pages`.
+    let call_field_resolver = FieldResolver::new(
+        e2e_config.effective_fields(call_config),
+        e2e_config.effective_fields_optional(call_config),
+        e2e_config.effective_result_fields(call_config),
+        e2e_config.effective_fields_array(call_config),
+        &std::collections::HashSet::new(),
+    );
+    let field_resolver = &call_field_resolver;
     let lang = "csharp";
     let cs_overrides = call_config.overrides.get(lang);
 
