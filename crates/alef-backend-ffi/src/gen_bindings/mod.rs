@@ -1721,6 +1721,95 @@ let value = "triple """ quote";
         );
     }
 
+    /// Every error type whose accessor functions are emitted must also have a
+    /// forward `typedef struct` in the cbindgen.toml `after_includes` block.
+    /// Without it cbindgen produces an "unknown type name" compile error because
+    /// the accessor signature references `*const ErrorType` but no opaque struct
+    /// is declared in the header.
+    #[test]
+    fn test_error_type_with_methods_gets_opaque_typedef_in_cbindgen_toml() {
+        let mut api = sample_api();
+        // Add an error type with a whitelisted method — this is what triggers
+        // gen_ffi_error_methods to emit `*const GraphQLError` in the accessor.
+        api.errors.push(ErrorDef {
+            name: "GraphQLError".to_string(),
+            rust_path: "my_lib::GraphQLError".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![],
+            doc: "GraphQL execution error.".to_string(),
+            methods: vec![MethodDef {
+                name: "status_code".to_string(),
+                params: vec![],
+                return_type: TypeRef::Primitive(alef_core::ir::PrimitiveType::U16),
+                is_async: false,
+                is_static: false,
+                error_type: None,
+                doc: "HTTP status code for the error.".to_string(),
+                receiver: Some(ReceiverKind::Ref),
+                sanitized: false,
+                trait_source: None,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        });
+
+        let config = sample_config();
+        let backend = FfiBackend;
+        let files = backend.generate_bindings(&api, &config).unwrap();
+
+        let cbindgen = files.iter().find(|f| f.path.ends_with("cbindgen.toml")).unwrap();
+
+        // The accessor function references *const MY_LIBGraphQLError — the typedef must exist.
+        assert!(
+            cbindgen.content.contains("typedef struct MY_LIBGraphQLError MY_LIBGraphQLError;"),
+            "expected opaque typedef for error type with methods, got:\n{}",
+            cbindgen.content
+        );
+
+        // Also verify the accessor itself is emitted in lib.rs.
+        let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+        assert!(
+            lib.content.contains("my_lib_graph_q_l_error_status_code"),
+            "expected accessor fn for error type, got:\n{}",
+            lib.content
+        );
+    }
+
+    /// Error types without any whitelisted methods must NOT produce a spurious
+    /// typedef — the accessor function is not emitted so there is nothing to
+    /// declare.
+    #[test]
+    fn test_error_type_without_methods_does_not_get_typedef_in_cbindgen_toml() {
+        let mut api = sample_api();
+        api.errors.push(ErrorDef {
+            name: "SilentError".to_string(),
+            rust_path: "my_lib::SilentError".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![],
+            doc: String::new(),
+            methods: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        });
+
+        let config = sample_config();
+        let backend = FfiBackend;
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let cbindgen = files.iter().find(|f| f.path.ends_with("cbindgen.toml")).unwrap();
+
+        assert!(
+            !cbindgen.content.contains("SilentError"),
+            "error type with no methods must not appear in cbindgen.toml, got:\n{}",
+            cbindgen.content
+        );
+    }
+
     #[test]
     fn test_generates_build_rs() {
         let api = sample_api();
