@@ -723,9 +723,7 @@ fn has_event_variant_accessor(lang: &str, chunks_var: &str, variant: EventVarian
         "python" => Some(format!("any(e.type == \"{tag}\" for e in {chunks_var})")),
         // Node / TypeScript / WASM JS: deserialized CrawlEvent objects expose
         // a `type` discriminator field with the lower-case wire tag.
-        "node" | "typescript" => Some(format!(
-            "{chunks_var}.some((e: any) => e?.type === \"{tag}\")"
-        )),
+        "node" | "typescript" => Some(format!("{chunks_var}.some((e: any) => e?.type === \"{tag}\")")),
         // Ruby: each variant class exposes `<tag>?` predicates.
         "ruby" => Some(format!("{chunks_var}.any? {{ |e| e.{tag}? }}")),
         // Go: variants are concrete struct types (CrawlEventPage, etc.) that
@@ -753,18 +751,12 @@ fn has_event_variant_accessor(lang: &str, chunks_var: &str, variant: EventVarian
             "Enum.any?({chunks_var}, fn e -> Map.get(e, :type) == :{tag} end)"
         )),
         // Kotlin (Java records via typealias): same shape as Java.
-        "kotlin" => Some(format!(
-            "{chunks_var}.any {{ it is CrawlEvent.{camel} }}"
-        )),
+        "kotlin" => Some(format!("{chunks_var}.any {{ it is CrawlEvent.{camel} }}")),
         // kotlin-android: native sealed class with the same nested variants.
-        "kotlin_android" => Some(format!(
-            "{chunks_var}.any {{ it is CrawlEvent.{camel} }}"
-        )),
+        "kotlin_android" => Some(format!("{chunks_var}.any {{ it is CrawlEvent.{camel} }}")),
         // Dart (freezed): variants are CrawlEvent_Page / CrawlEvent_Error /
         // CrawlEvent_Complete (underscored).
-        "dart" => Some(format!(
-            "{chunks_var}.any((e) => e is CrawlEvent_{camel})"
-        )),
+        "dart" => Some(format!("{chunks_var}.any((e) => e is CrawlEvent_{camel})")),
         // Zig: collected chunks are JSON strings (see Zig collect_snippet); check
         // for the wire-format `"type":"<tag>"` substring on any item.  Substring
         // matching is safe because the JSON is produced by the FFI marshaller

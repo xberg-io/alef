@@ -321,7 +321,8 @@ impl Backend for MagnusBackend {
 
         for func in &api.functions {
             if !is_reserved_fn(&func.name) && !exclude_functions.contains(func.name.as_str()) {
-                if alef_codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&func.name, &config.trait_bridges) {
+                if alef_codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&func.name, &config.trait_bridges)
+                {
                     continue;
                 }
                 let bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges);
@@ -552,9 +553,19 @@ impl Backend for MagnusBackend {
             None => return Ok(vec![]),
         };
 
+        let core_import = config.core_import_name();
         let gem_name = config.ruby_gem_name();
         let emit_docstrings = stubs_config.emit_docstrings;
-        let content = crate::gen_stubs::gen_stubs(api, &gem_name, emit_docstrings);
+
+        // Build streaming method names for RBS generation
+        let streaming_adapters: Vec<_> = config
+            .adapters
+            .iter()
+            .filter_map(|a| streaming::StreamingAdapter::from_config(a, &get_module_name(&gem_name), &core_import))
+            .collect();
+        let streaming_method_names: AHashSet<String> = streaming_adapters.iter().map(|a| a.name.to_string()).collect();
+
+        let content = crate::gen_stubs::gen_stubs(api, &gem_name, emit_docstrings, &streaming_method_names);
 
         let stubs_path = resolve_output_dir(
             Some(&stubs_config.output),

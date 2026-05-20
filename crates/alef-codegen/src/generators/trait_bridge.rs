@@ -779,9 +779,7 @@ pub fn visitor_param_type(ty: &TypeRef, is_ref: bool, optional: bool, tp: &HashM
 /// `clear_fn` takes no parameters, so without this guard backends emit two wrappers
 /// for the same name (regular + trait-bridge), producing duplicate-definition errors.
 pub fn is_trait_bridge_managed_fn(func_name: &str, bridges: &[TraitBridgeConfig]) -> bool {
-    bridges
-        .iter()
-        .any(|b| b.clear_fn.as_deref() == Some(func_name))
+    bridges.iter().any(|b| b.clear_fn.as_deref() == Some(func_name))
 }
 
 /// Find the first function parameter that matches a trait bridge configuration

@@ -384,10 +384,8 @@ impl Backend for PhpBackend {
             // a #[php_impl] block which handles registration via the class machinery).
             let mut method_items: Vec<String> = Vec::new();
             for func in included_functions {
-                if alef_codegen::generators::trait_bridge::is_trait_bridge_managed_fn(
-                    &func.name,
-                    &config.trait_bridges,
-                ) {
+                if alef_codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&func.name, &config.trait_bridges)
+                {
                     continue;
                 }
                 let bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges);
@@ -911,10 +909,7 @@ impl Backend for PhpBackend {
             // Skip trait-bridge-managed names (clear_fn) — the trait-bridge loop below
             // emits its own static method, and duplicating it here would cause a
             // PHP fatal "Cannot redeclare" at load time.
-            if alef_codegen::generators::trait_bridge::is_trait_bridge_managed_fn(
-                &func.name,
-                &config.trait_bridges,
-            ) {
+            if alef_codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&func.name, &config.trait_bridges) {
                 continue;
             }
             // PHP method names are based on the Rust source name (camelCased).

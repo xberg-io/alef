@@ -689,9 +689,8 @@ mod tests {
 
     #[test]
     fn normalize_assertions_rewrites_pages_crawled_to_count_equals_on_pages() {
-        let mut fixture = make_fixture_with_assertion(
-            r#"{"type": "equals", "field": "crawl.pages_crawled", "value": 3}"#,
-        );
+        let mut fixture =
+            make_fixture_with_assertion(r#"{"type": "equals", "field": "crawl.pages_crawled", "value": 3}"#);
         normalize_assertions(&mut fixture);
         assert_eq!(fixture.assertions[0].assertion_type, "count_equals");
         assert_eq!(fixture.assertions[0].field.as_deref(), Some("pages"));
@@ -707,9 +706,8 @@ mod tests {
 
     #[test]
     fn normalize_assertions_rewrites_min_pages_to_count_min_on_pages() {
-        let mut fixture = make_fixture_with_assertion(
-            r#"{"type": "greater_than_or_equal", "field": "crawl.min_pages", "value": 2}"#,
-        );
+        let mut fixture =
+            make_fixture_with_assertion(r#"{"type": "greater_than_or_equal", "field": "crawl.min_pages", "value": 2}"#);
         normalize_assertions(&mut fixture);
         assert_eq!(fixture.assertions[0].assertion_type, "count_min");
         assert_eq!(fixture.assertions[0].field.as_deref(), Some("pages"));
