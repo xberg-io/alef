@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-backend-go, alef-backend-dart: extend trait-bridge `clear_fn` skip to Go and Dart dispatchers.** Mirror the 0.17.1 magnus/rustler/0.17.2 napi/php fix. Without this filter the Go binding refused to compile (`Clear* redeclared in this block`) and the Dart binding triggered noisy "still multiple objects with same key" warnings from `flutter_rust_bridge_codegen` on every regen. (`crates/alef-backend-go/src/gen_bindings/mod.rs`, `crates/alef-backend-dart/src/gen_rust_crate/mod.rs`)
+
 - **alef-backend-napi, alef-backend-php: extend trait-bridge `clear_fn` skip to NAPI-RS and ext-php-rs dispatchers.** Mirror the 0.17.1 magnus/rustler fix — call `alef_codegen::generators::trait_bridge::is_trait_bridge_managed_fn(name, bridges)` in the napi and php backend dispatchers so trait-bridge `clear_*` functions are not emitted twice. Without this filter the napi crate would refuse to compile (`E0428` duplicate definition) and the ext-php-rs crate would emit colliding method names. (`crates/alef-backend-napi/src/gen_bindings/mod.rs`, `crates/alef-backend-php/src/gen_bindings/mod.rs`)
 
 ## [0.17.1] - 2026-05-20

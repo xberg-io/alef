@@ -458,6 +458,13 @@ fn emit_lib_rs(
         // Stub methods emit `unimplemented!()` bodies and do not attempt argument conversion,
         // so their unbridgeable parameters are irrelevant.
         .filter(|f| !has_unbridgeable_param(f) || stub_methods.contains(&f.name))
+        // Skip functions whose name matches a trait_bridge.clear_fn — the trait-bridge
+        // emission path emits its own forwarder; a duplicate `pub fn clear_*` here
+        // would either fail to compile or be silently de-duped by frb_codegen
+        // (which logs noisy warnings on every regen).
+        .filter(|f| {
+            !alef_codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&f.name, &config.trait_bridges)
+        })
     {
         content.push('\n');
         emit_bridge_fn(
