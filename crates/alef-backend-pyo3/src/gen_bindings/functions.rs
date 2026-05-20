@@ -138,6 +138,17 @@ pub(super) fn gen_api_py(
         for param in &adapter.params {
             all_type_imports.insert(param.ty.clone());
         }
+        // AsyncMethod adapters reference the return type as a bare name in their
+        // `async def foo(...) -> ReturnType` signature; without this entry the
+        // generated api.py raises F821 / NameError at import time. Skip names
+        // that map to Python builtins (str, bytes, None) — those don't need
+        // imports.
+        if let Some(returns) = adapter.returns.as_deref() {
+            let mapped = adapter_param_python_type(returns);
+            if !matches!(mapped, "str" | "bytes" | "None" | "int" | "float" | "bool") {
+                all_type_imports.insert(returns.to_string());
+            }
+        }
     }
     // Also collect type_alias names from options-field bridges so they can be used in
     // function signature annotations for visitor parameters.
