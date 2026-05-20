@@ -1290,7 +1290,7 @@ fn snapshot_into_rust_bulk_constructor_nested() {
     assert!(
         swift_file
             .content
-            .contains("return RustBridge.Diagnostic(self.message, try self.span.intoRust())"),
+            .contains("return RustBridge.Diagnostic(RustString(self.message), try self.span.intoRust())"),
         "Diagnostic.intoRust must use direct bulk constructor with nested intoRust:\n{}",
         swift_file.content
     );
@@ -1324,7 +1324,7 @@ fn snapshot_into_rust_bulk_constructor_nested() {
 /// column: u32 }`, `ByteRange { start: usize, end: usize }`) must still get a
 /// positional `fn new(...)` constructor extern emitted to the swift-bridge
 /// extern block — and the Swift `intoRust()` must call it directly rather than
-/// routing through a JSON-roundtrip path whose Rust shim was never emitted.
+/// routing through a JSON-roundtrip path.
 #[test]
 fn snapshot_intorust_bulk_constructor_primitive_no_default() {
     let api = ApiSurface {
@@ -1382,10 +1382,11 @@ fn snapshot_intorust_bulk_constructor_primitive_no_default() {
         "primitive-only serde DTO without Default must still declare a bulk-constructor extern:\n{}",
         lib_rs.content
     );
-    // Rust crate side: no JSON-roundtrip shim emitted (it would be linkable but pointless).
+    // Rust crate side: from_json shim emitted so the top-level Swift fromJson
+    // forwarder has a matching bridge symbol even though intoRust stays direct.
     assert!(
-        !lib_rs.content.contains("fn point_from_json("),
-        "primitive-only DTO must NOT also emit a JSON-roundtrip shim:\n{}",
+        lib_rs.content.contains("fn point_from_json("),
+        "primitive-only DTO must emit a JSON-roundtrip shim for the fromJson forwarder:\n{}",
         lib_rs.content
     );
 

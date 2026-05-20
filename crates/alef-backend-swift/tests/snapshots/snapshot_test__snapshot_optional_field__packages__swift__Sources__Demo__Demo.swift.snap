@@ -25,7 +25,7 @@ internal extension SystemMessage {
         self.name = rb.name()?.toString()
     }
     func intoRust() throws -> RustBridge.SystemMessage {
-        return RustBridge.SystemMessage(self.content, self.name)
+        return RustBridge.SystemMessage(RustString(self.content), self.name.map(RustString.init))
     }
 }
 

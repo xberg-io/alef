@@ -75,17 +75,22 @@ pub fn validate_fixtures_semantic(
     // Per-fixture checks
     for fixture in fixtures {
         // Check 1: skip-all detection
-        if let Some(skip) = &fixture.skip {
-            if skip.languages.is_empty() {
-                let reason = skip.reason.as_deref().unwrap_or("no reason given");
-                errors.push(ValidationError {
-                    file: fixture.source.clone(),
-                    message: format!(
-                        "fixture '{}' is skipped for all languages (skip.languages is empty). Reason: {}",
-                        fixture.id, reason
-                    ),
-                    severity: Severity::Warning,
-                });
+        // Fixtures in excluded categories are intentionally excluded at the
+        // category level; empty skip.languages with no reason is the correct
+        // shape there. Do not warn for them.
+        if !e2e_config.exclude_categories.contains(&fixture.resolved_category()) {
+            if let Some(skip) = &fixture.skip {
+                if skip.languages.is_empty() {
+                    let reason = skip.reason.as_deref().unwrap_or("no reason given");
+                    errors.push(ValidationError {
+                        file: fixture.source.clone(),
+                        message: format!(
+                            "fixture '{}' is skipped for all languages (skip.languages is empty). Reason: {}",
+                            fixture.id, reason
+                        ),
+                        severity: Severity::Warning,
+                    });
+                }
             }
         }
 
@@ -383,5 +388,87 @@ mod tests {
         // Only check for errors/warnings beyond the expected "missing input" ones
         // (default call config has no args, so no input field checks)
         assert!(errors.is_empty());
+    }
+
+    /// Bare `field = "input"` (no dot) must NOT emit a "missing required input
+    /// field 'input'" warning — the whole fixture.input IS the arg value.
+    #[test]
+    fn test_bare_input_field_no_false_positive_warning() {
+        use alef_core::config::e2e::ArgMapping;
+
+        let fixture = Fixture {
+            id: "basic_chat".to_string(),
+            category: None,
+            description: "Chat completion".to_string(),
+            tags: vec![],
+            skip: None,
+            env: None,
+            call: Some("chat".to_string()),
+            input: serde_json::json!({"model": "gpt-4", "messages": []}),
+            mock_response: None,
+            visitor: None,
+            assertions: vec![],
+            source: "smoke/basic_chat.json".to_string(),
+            http: None,
+        };
+        let call = CallConfig {
+            function: "chat".to_string(),
+            args: vec![ArgMapping {
+                name: "request".to_string(),
+                // Bare "input" — the whole fixture.input is the arg value
+                field: "input".to_string(),
+                arg_type: "ChatCompletionRequest".to_string(),
+                optional: false,
+                owned: true,
+                element_type: None,
+                go_type: None,
+            }],
+            ..Default::default()
+        };
+        let config = make_e2e_config(vec![("chat", call)]);
+        let errors = validate_fixtures_semantic(&[fixture], &config, &["rust".to_string()]);
+        assert!(
+            !errors
+                .iter()
+                .any(|e| e.message.contains("missing required input field 'input'")),
+            "bare 'input' field should not produce a false-positive missing-field warning; got: {:?}",
+            errors
+        );
+    }
+
+    /// A fixture in an excluded category with empty `skip.languages` must NOT
+    /// emit a "skipped for all languages" warning — the exclusion is intentional
+    /// at the category level.
+    #[test]
+    fn test_excluded_category_no_skip_all_warning() {
+        use std::collections::HashSet;
+
+        let fixture = Fixture {
+            id: "budget_enforced".to_string(),
+            category: None,
+            description: "Budget enforcement test".to_string(),
+            tags: vec![],
+            skip: Some(SkipDirective {
+                languages: vec![], // empty — would normally trigger the warning
+                reason: None,
+            }),
+            env: None,
+            call: Some("chat".to_string()),
+            input: serde_json::json!({"model": "gpt-4", "messages": []}),
+            mock_response: None,
+            visitor: None,
+            assertions: vec![],
+            // resolved_category() derives "budget" from this path
+            source: "budget/budget_enforced.json".to_string(),
+            http: None,
+        };
+        let mut config = make_e2e_config(vec![]);
+        config.exclude_categories = HashSet::from(["budget".to_string()]);
+        let errors = validate_fixtures_semantic(&[fixture], &config, &["rust".to_string()]);
+        assert!(
+            !errors.iter().any(|e| e.message.contains("skipped for all languages")),
+            "excluded-category fixture should not trigger skip-all warning; got: {:?}",
+            errors
+        );
     }
 }

@@ -50,6 +50,16 @@ mod ffi {
         fn to_string(&self) -> String;
     }
 
+    extern "Rust" {
+
+        #[swift_bridge(swift_name = "chunkFromJson")]
+        fn chunk_from_json(json: String) -> Result<Chunk, String>;
+    }
+    extern "Rust" {
+
+        #[swift_bridge(swift_name = "streamEventFromJson")]
+        fn stream_event_from_json(json: String) -> Result<StreamEvent, String>;
+    }
 }
 
 pub struct Chunk(pub demo::Chunk);
@@ -85,4 +95,16 @@ impl StreamEvent {
             Self::Unknown => "unknown".to_string(),
         }
     }
+}
+
+pub fn chunk_from_json(json: String) -> Result<Chunk, String> {
+    serde_json::from_str::<demo::Chunk>(&json)
+        .map(Chunk)
+        .map_err(|e| e.to_string())
+}
+
+pub fn stream_event_from_json(json: String) -> Result<StreamEvent, String> {
+    serde_json::from_str::<demo::StreamEvent>(&json)
+        .map(StreamEvent::from)
+        .map_err(|e| e.to_string())
 }

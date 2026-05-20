@@ -102,9 +102,14 @@ pub fn go_optional_type(ty: &TypeRef) -> Cow<'static, str> {
         // Already optional or reference types — use direct mapping
         TypeRef::Optional(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Bytes => go_type(ty),
         // String types and all other types are wrapped in pointer for optionality
-        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json | TypeRef::Named(_) | TypeRef::Primitive(_) | TypeRef::Duration | TypeRef::Unit => {
-            Cow::Owned(format!("*{}", GoMapper.map_type(ty)))
-        }
+        TypeRef::String
+        | TypeRef::Char
+        | TypeRef::Path
+        | TypeRef::Json
+        | TypeRef::Named(_)
+        | TypeRef::Primitive(_)
+        | TypeRef::Duration
+        | TypeRef::Unit => Cow::Owned(format!("*{}", GoMapper.map_type(ty))),
     }
 }
 

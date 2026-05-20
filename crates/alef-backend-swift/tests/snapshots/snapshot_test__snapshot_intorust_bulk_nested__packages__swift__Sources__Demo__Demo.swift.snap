@@ -50,7 +50,7 @@ internal extension Diagnostic {
         self.span = try Span(rb.span())
     }
     func intoRust() throws -> RustBridge.Diagnostic {
-        return RustBridge.Diagnostic(self.message, try self.span.intoRust())
+        return RustBridge.Diagnostic(RustString(self.message), try self.span.intoRust())
     }
 }
 
@@ -78,7 +78,7 @@ internal extension ProcessResult {
         for __elem in self.diagnostics { __diagnostics.push(value: try __elem.intoRust()) }
         let __tags = RustVec<RustString>()
         for __elem in self.tags { __tags.push(value: RustString(__elem)) }
-        return RustBridge.ProcessResult(self.language, __diagnostics, __tags)
+        return RustBridge.ProcessResult(RustString(self.language), __diagnostics, __tags)
     }
 }
 

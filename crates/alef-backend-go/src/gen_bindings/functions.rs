@@ -91,7 +91,10 @@ pub(super) fn gen_function_wrapper(
     } else if can_return_error {
         if matches!(func.return_type, TypeRef::Unit) {
             "error".to_string()
-        } else if matches!(func.return_type, TypeRef::Primitive(_) | TypeRef::Duration | TypeRef::String | TypeRef::Char | TypeRef::Path) {
+        } else if matches!(
+            func.return_type,
+            TypeRef::Primitive(_) | TypeRef::Duration | TypeRef::String | TypeRef::Char | TypeRef::Path
+        ) {
             // Scalar value types (primitives and strings) use value-form `(T, error)`.
             // `go_return_expr` emits `ptr != 0` for bool, `uint(ptr)` for numeric primitives, and
             // `C.GoString(ptr)` for strings — all producing bare values, not pointers.
@@ -101,7 +104,10 @@ pub(super) fn gen_function_wrapper(
         }
     } else if matches!(func.return_type, TypeRef::Unit) {
         "".to_string()
-    } else if matches!(func.return_type, TypeRef::Primitive(_) | TypeRef::Duration | TypeRef::String | TypeRef::Char | TypeRef::Path) {
+    } else if matches!(
+        func.return_type,
+        TypeRef::Primitive(_) | TypeRef::Duration | TypeRef::String | TypeRef::Char | TypeRef::Path
+    ) {
         // Non-error case: scalar value types use bare form because `go_return_expr`
         // produces bare values for all scalar types.
         go_type(&func.return_type).into_owned()

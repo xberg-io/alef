@@ -81,6 +81,11 @@ mod ffi {
         #[swift_bridge(swift_name = "ocrConfigFromJson")]
         fn ocr_config_from_json(json: String) -> Result<OcrConfig, String>;
     }
+    extern "Rust" {
+
+        #[swift_bridge(swift_name = "extractionResultFromJson")]
+        fn extraction_result_from_json(json: String) -> Result<ExtractionResult, String>;
+    }
 }
 
 pub struct OcrConfig(pub demo::OcrConfig);
@@ -225,5 +230,11 @@ pub fn unregister_ocr_backend(name: String) -> Result<(), String> {
 pub fn ocr_config_from_json(json: String) -> Result<OcrConfig, String> {
     serde_json::from_str::<demo::OcrConfig>(&json)
         .map(OcrConfig)
+        .map_err(|e| e.to_string())
+}
+
+pub fn extraction_result_from_json(json: String) -> Result<ExtractionResult, String> {
+    serde_json::from_str::<demo::ExtractionResult>(&json)
+        .map(ExtractionResult)
         .map_err(|e| e.to_string())
 }

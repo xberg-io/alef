@@ -571,7 +571,41 @@ fn emit_first_class_struct(
         // `gen_rust_crate::extern_block::emit_extern_block_for_type`).
         let rust_accessor = swift_ident(&field.name.to_lower_camel_case());
         let is_optional = field.optional || matches!(&field.ty, TypeRef::Optional(_));
-        let expr = swift_ffi_read_expr(&field.ty, is_optional, &rust_accessor, known_dto_names, unit_enum_names);
+
+        // If the wrapper-side getter is unbridgeable (skipped by
+        // `is_unbridgeable_getter`), the Rust crate emits no accessor at all —
+        // calling `rb.{field}()` would fail to compile. Fall back to a sensible
+        // default: nil for optional fields, JSONDecoder roundtrip of an empty
+        // value for required ones (the public struct still surfaces the field
+        // for direct construction / JSON decode paths).
+        let expr = if is_field_unbridgeable_for_init(ty, field, exclude_fields, known_dto_names) {
+            if is_optional {
+                "nil".to_string()
+            } else {
+                // Fields here are non-optional and unbridgeable — extraordinarily rare
+                // in practice. Emit a JSONDecoder-of-default placeholder so the file
+                // compiles; the JSON path on `intoRust()` covers the round-trip.
+                let swift_ty = mapper.map_type(&field.ty);
+                format!("try JSONDecoder().decode({swift_ty}.self, from: Data(\"null\".utf8))")
+            }
+        } else if needs_json_bridge_for_swift(&field.ty) {
+            // Field is bridged as a JSON string at the Rust boundary — the getter
+            // returns a non-optional `RustString` whose contents are the JSON-
+            // encoded value (`"null"` when the source field was None). Decode
+            // through JSONDecoder so the Swift property receives the typed value.
+            let swift_ty = mapper.map_type(&field.ty);
+            let swift_ty_with_opt = if is_optional && !matches!(&field.ty, TypeRef::Optional(_)) {
+                format!("{swift_ty}?")
+            } else {
+                swift_ty
+            };
+            format!(
+                "try JSONDecoder().decode({swift_ty_with_opt}.self, from: \
+                 (rb.{rust_accessor}().toString().data(using: .utf8) ?? Data(\"null\".utf8)))"
+            )
+        } else {
+            swift_ffi_read_expr(&field.ty, is_optional, &rust_accessor, known_dto_names, unit_enum_names)
+        };
         out.push_str(&format!("        self.{swift_field} = {expr}\n"));
     }
     out.push_str("    }\n");
@@ -701,10 +735,17 @@ fn field_intorust_arg(
         // `Optional<T>` variants.
         TypeRef::Primitive(_) => Some(FieldArg::Direct(format!("self.{self_property}"))),
 
-        // String fields go straight in (Swift `String` conforms to `IntoRustString`,
-        // including the `Optional<GenericIntoRustString>` form).
-        TypeRef::String if !is_optional => Some(FieldArg::Direct(format!("self.{self_property}"))),
-        TypeRef::String => Some(FieldArg::Direct(format!("self.{self_property}"))),
+        // String fields must be wrapped with `RustString(...)`. swift-bridge 0.1.59 emits
+        // the convenience init using a *single* `GenericIntoRustString: IntoRustString`
+        // type parameter shared across every String-like argument in the signature
+        // (including `RustVec<GenericIntoRustString>` for `Vec<String>` fields). When any
+        // field forces `RustString` (via the Vec path in `emit_vec_arg`), every other
+        // String arg must also be `RustString` — Swift `String` cannot unify with
+        // `RustString` under the shared generic. Wrapping unconditionally keeps the
+        // init linkable regardless of which other fields appear.
+        // Optional `String?` -> `self.foo.map(RustString.init)` — preserves nil.
+        TypeRef::String if !is_optional => Some(FieldArg::Direct(format!("RustString(self.{self_property})"))),
+        TypeRef::String => Some(FieldArg::Direct(format!("self.{self_property}.map(RustString.init)"))),
 
         // Nested struct field: recurse via the symmetric `intoRust()` method on the
         // first-class struct. swift-bridge takes the wrapper class (e.g. `RustBridge.Span`).
@@ -3631,6 +3672,89 @@ fn prepend_rust_bridge_c_import(content: &str) -> String {
         (false, true) => format!("{IMPORT}\n\n{content}"),
         (false, false) => format!("{IGNORE}\n{IMPORT}\n\n{content}"),
     }
+}
+
+/// Mirror of `gen_rust_crate::type_bridge::needs_json_bridge` (kept private here to
+/// avoid bringing the Rust-crate emission module into the Swift-binding module's
+/// dependency graph). A field type that needs the JSON bridge on the Rust side
+/// will surface as a `RustString` accessor return on the Swift side — the init
+/// path must decode the JSON string back into the typed Swift property.
+fn needs_json_bridge_for_swift(ty: &alef_core::ir::TypeRef) -> bool {
+    use alef_core::ir::TypeRef;
+    fn is_leaf(ty: &TypeRef) -> bool {
+        matches!(
+            ty,
+            TypeRef::Primitive(_)
+                | TypeRef::String
+                | TypeRef::Char
+                | TypeRef::Path
+                | TypeRef::Json
+                | TypeRef::Unit
+                | TypeRef::Duration
+                | TypeRef::Bytes
+                | TypeRef::Named(_),
+        )
+    }
+    match ty {
+        TypeRef::Map(_, _) => true,
+        // Vec is JSON-bridged only when the inner type is not a "leaf" (Vec<Vec<…>>,
+        // Vec<Option<…>>, Vec<Map<…>>). Plain Vec<T> for leaf T crosses as RustVec<T>.
+        TypeRef::Vec(inner) => !is_leaf(inner),
+        // Plain Optional<T> for primitives/strings crosses natively (`Option<T>`),
+        // so it is NOT JSON-bridged. Only Optional wrapping a JSON-bridged inner
+        // (Optional<Vec<Vec<…>>>, Optional<Map<…>>) needs JSON decoding.
+        TypeRef::Optional(inner) => needs_json_bridge_for_swift(inner),
+        _ => false,
+    }
+}
+
+/// Returns `true` when the wrapper-side getter for `field` is skipped by the
+/// Rust crate (via `is_unbridgeable_getter`) — in which case the Swift `init(rb:)`
+/// must not call `rb.{field}()` because the accessor does not exist.
+fn is_field_unbridgeable_for_init(
+    ty: &alef_core::ir::TypeDef,
+    field: &alef_core::ir::FieldDef,
+    exclude_fields: &std::collections::HashSet<String>,
+    known_dto_names: &std::collections::HashSet<String>,
+) -> bool {
+    use alef_core::ir::TypeRef;
+    use heck::ToSnakeCase;
+    let name = field.name.to_snake_case();
+    let field_key = format!("{}.{}", ty.name, name);
+    if field.binding_excluded || exclude_fields.contains(&field_key) {
+        return true;
+    }
+    // Sanitized Vec field whose inner is not a primitive/bytes — wrapper skips emit.
+    if let TypeRef::Vec(inner) = &field.ty
+        && field.sanitized
+        && !matches!(inner.as_ref(), TypeRef::Primitive(_) | TypeRef::Bytes)
+    {
+        return true;
+    }
+    // Vec<Named> on non-serde struct — wrapper skips emit.
+    if !ty.has_serde
+        && let TypeRef::Vec(inner) = &field.ty
+        && !matches!(inner.as_ref(), TypeRef::Primitive(_) | TypeRef::Bytes)
+    {
+        return true;
+    }
+    // JSON-bridge with inner Named where the wrapper does not exist.
+    if needs_json_bridge_for_swift(&field.ty) {
+        let inner_named = match &field.ty {
+            TypeRef::Optional(inner) | TypeRef::Vec(inner) => match inner.as_ref() {
+                TypeRef::Named(n) => Some(n.as_str()),
+                _ => None,
+            },
+            TypeRef::Named(n) => Some(n.as_str()),
+            _ => None,
+        };
+        if let Some(n) = inner_named
+            && !known_dto_names.contains(n)
+        {
+            return true;
+        }
+    }
+    false
 }
 
 #[cfg(test)]
