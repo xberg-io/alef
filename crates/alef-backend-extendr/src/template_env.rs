@@ -92,6 +92,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     ),
     ("r_s3_generic.jinja", include_str!("../templates/r_s3_generic.jinja")),
     ("r_s3_method.jinja", include_str!("../templates/r_s3_method.jinja")),
+    (
+        "r_namespace_s3method_named.jinja",
+        include_str!("../templates/r_namespace_s3method_named.jinja"),
+    ),
     ("r_use_dyn_lib.jinja", include_str!("../templates/r_use_dyn_lib.jinja")),
     (
         "r_namespace_use_dyn_lib.jinja",

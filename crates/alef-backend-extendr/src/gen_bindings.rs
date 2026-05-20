@@ -2535,6 +2535,23 @@ fn gen_namespace(api: &ApiSurface, package_name: &str, trait_bridge_fns: &[Trait
         ));
     }
 
+    // S3 generics emitted in extendr-wrappers.R are exposed through the same NAMESPACE.
+    // Without `export(name)` + `S3method(name, Type)` entries R loads the wrappers but
+    // refuses to dispatch — `is_valid(meta)` raises `could not find function "is_valid"`.
+    let s3_pairs = collect_s3_methods(api, trait_bridge_fns);
+    for generic_name in unique_s3_generic_names(&s3_pairs) {
+        out.push_str(&crate::template_env::render(
+            "r_namespace_export.jinja",
+            minijinja::context! { name => &generic_name },
+        ));
+    }
+    for (method_name, type_name) in &s3_pairs {
+        out.push_str(&crate::template_env::render(
+            "r_namespace_s3method_named.jinja",
+            minijinja::context! { method_name => method_name, type_name => type_name },
+        ));
+    }
+
     out
 }
 
@@ -3050,6 +3067,30 @@ package_name = "testlib"
         assert!(
             content.contains("is_valid.LinkMetadata <- function(x, ...) x$is_valid(...)"),
             "S3 method for LinkMetadata must be emitted:\n{content}"
+        );
+    }
+
+    #[test]
+    fn namespace_exports_s3_generics_and_methods_for_instance_methods() {
+        // S3 generics + class methods emitted into extendr-wrappers.R need matching
+        // `export(name)` + `S3method(name, Type)` NAMESPACE entries. Without them R
+        // refuses to dispatch `is_valid(meta)` even though the function is loaded.
+        let backend = ExtendrBackend;
+        let config = make_config();
+        let api = make_api_with_instance_method();
+        let files = backend.generate_public_api(&api, &config).unwrap();
+        let namespace = files
+            .iter()
+            .find(|f| f.path.to_string_lossy().ends_with("NAMESPACE"))
+            .expect("NAMESPACE must be generated");
+        let content = &namespace.content;
+        assert!(
+            content.contains("export(is_valid)"),
+            "S3 generic must be exported by name: {content}"
+        );
+        assert!(
+            content.contains("S3method(is_valid, HeaderMetadata)"),
+            "S3 class method must be registered: {content}"
         );
     }
 
