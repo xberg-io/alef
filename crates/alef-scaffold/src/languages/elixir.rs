@@ -107,6 +107,8 @@ pub(crate) fn scaffold_elixir_cargo(
     let content = format!(
         r#"{pkg_header}
 
+[workspace]
+
 [lib]
 name = "{nif_name}"
 {lib_path_line}
@@ -114,8 +116,6 @@ crate-type = ["cdylib"]
 
 [dependencies]
 {deps_section}
-
-[workspace]
 "#,
         pkg_header = pkg_header,
         nif_name = nif_name,

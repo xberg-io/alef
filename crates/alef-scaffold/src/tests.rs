@@ -2283,3 +2283,57 @@ fn test_scaffold_r_cargo_deps_sorted_no_trait_bridges() {
         "r Cargo.toml [dependencies] must be alphabetically sorted (no trait bridges); got: {keys:?}"
     );
 }
+
+/// Helper: extract TOML section headers in the order they appear, skipping
+/// inline sub-tables (lines that don't start with `[`).
+fn section_headers_in_order(cargo_toml: &str) -> Vec<&str> {
+    cargo_toml
+        .lines()
+        .filter_map(|line| {
+            let t = line.trim();
+            if t.starts_with('[') && !t.starts_with("[[") {
+                Some(t)
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+#[test]
+fn test_scaffold_elixir_cargo_section_order_is_cargo_sort_canonical() {
+    // cargo-sort canonical order for a NIF crate: [package] → [workspace] → [lib] → [dependencies]
+    let config = test_config();
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Elixir]).unwrap();
+    let files = language_files(&all_files);
+    let cargo_toml = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
+
+    let headers = section_headers_in_order(&cargo_toml.content);
+    // [workspace] must appear before [lib], which must appear before [dependencies].
+    let workspace_pos = headers.iter().position(|h| *h == "[workspace]");
+    let lib_pos = headers.iter().position(|h| *h == "[lib]");
+    let deps_pos = headers.iter().position(|h| *h == "[dependencies]");
+
+    assert!(
+        workspace_pos.is_some(),
+        "Elixir NIF Cargo.toml must contain a [workspace] section; headers: {headers:?}"
+    );
+    assert!(
+        lib_pos.is_some(),
+        "Elixir NIF Cargo.toml must contain a [lib] section; headers: {headers:?}"
+    );
+    assert!(
+        deps_pos.is_some(),
+        "Elixir NIF Cargo.toml must contain a [dependencies] section; headers: {headers:?}"
+    );
+
+    assert!(
+        workspace_pos < lib_pos,
+        "[workspace] must come before [lib] (cargo-sort canonical); headers: {headers:?}"
+    );
+    assert!(
+        lib_pos < deps_pos,
+        "[lib] must come before [dependencies] (cargo-sort canonical); headers: {headers:?}"
+    );
+}
