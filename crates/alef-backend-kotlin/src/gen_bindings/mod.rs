@@ -51,6 +51,14 @@ fn effective_kotlin_exclude_types(config: &ResolvedCrateConfig) -> std::collecti
     if let Some(kotlin) = &config.kotlin {
         exclude_types.extend(kotlin.exclude_types.iter().cloned());
     }
+    // In JVM mode the Kotlin wrapper classes delegate to the sibling Java facade
+    // (`dev.<pkg>.<ClassName>`). Any type excluded by the Java backend is therefore
+    // un-referenceable from Kotlin — emitting a wrapper for it would compile to a
+    // dangling `dev.<pkg>.Router` import. Mirror Java's exclude list here so the
+    // two backends stay in lockstep without per-binding TOML duplication.
+    if let Some(java) = &config.java {
+        exclude_types.extend(java.exclude_types.iter().cloned());
+    }
     exclude_types
 }
 
@@ -106,20 +114,32 @@ pub fn emit_function_jvm(f: &FunctionDef, out: &mut String, imports: &mut BTreeS
     object_wrapper::emit_function(f, out, imports, java_package, &std::collections::HashSet::new())
 }
 
-/// Emit a `DefaultClient` Kotlin class for types that have non-empty `methods`.
+/// Emit one Kotlin coroutine-wrapper file per opaque client type.
 ///
-/// Returns `None` when no type in the API surface has methods (flat-function APIs
-/// like kreuzberg keep working unchanged).  When Some, the returned
-/// [`GeneratedFile`] should be appended to the JVM output list.
+/// Returns an empty `Vec` when no type in the API surface has methods (flat-function
+/// APIs like kreuzberg keep working unchanged). Otherwise, returns one
+/// [`GeneratedFile`] per client type, each named after the wrapped type
+/// (e.g. `Router.kt`, `GraphQLRouteConfig.kt`, `DefaultClient.kt`).
 ///
-/// The emitted Kotlin class wraps the sibling Java facade type (same simple
+/// Splitting per type — instead of bundling unrelated wrappers into a single
+/// `DefaultClient.kt` — prevents two failure modes that the bundled form invited:
+///   1. Stale-orphan duplication: when the set of qualifying client types shrank
+///      between alef versions (e.g. a type moved into `[crates.exclude]`), the
+///      bundled `DefaultClient.kt` from the old run was overwritten in place but
+///      any per-type files from older alef versions lingered with duplicate
+///      `class Foo : AutoCloseable` declarations (compile error: "Redeclaration").
+///   2. Misleading file naming: `DefaultClient.kt` containing `class Router` /
+///      `class GraphQLRouteConfig` is unintuitive for IDE navigation and
+///      file-grep workflows.
+///
+/// Each emitted Kotlin class wraps the sibling Java facade type (same simple
 /// name) and re-exposes each instance method as a Kotlin `suspend` function
 /// that hops onto `Dispatchers.IO` before the blocking JNI call. Streaming
 /// adapters (pattern = `streaming`) whose `owner_type` matches a client type
 /// are also emitted as plain (non-suspend) wrapper methods that return
-/// `Iterator<ItemType>` — iteration is lazy and blocking, so the caller
-/// controls the thread context.
-pub fn emit_jvm_client_class(api: &ApiSurface, config: &ResolvedCrateConfig) -> Option<GeneratedFile> {
+/// `Flow<ChunkType>` — iteration uses `callbackFlow`, so the caller controls
+/// the thread context.
+pub fn emit_jvm_client_class(api: &ApiSurface, config: &ResolvedCrateConfig) -> Vec<GeneratedFile> {
     emit_jvm_client_class_with_package(api, config, None)
 }
 
@@ -133,7 +153,7 @@ pub fn emit_jvm_client_class_with_package(
     api: &ApiSurface,
     config: &ResolvedCrateConfig,
     kotlin_package_override: Option<&str>,
-) -> Option<GeneratedFile> {
+) -> Vec<GeneratedFile> {
     // A type qualifies for a coroutine-friendly wrapper class only when:
     //   * it is opaque-handle (constructed via a factory and freed via close),
     //   * AND it is not a trait (trait types are not emitted as concrete
@@ -152,7 +172,7 @@ pub fn emit_jvm_client_class_with_package(
     };
     let client_types: Vec<&TypeDef> = api.types.iter().filter(is_client_type).collect();
     if client_types.is_empty() {
-        return None;
+        return Vec::new();
     }
 
     let java_package = config.java_package();
@@ -172,50 +192,67 @@ pub fn emit_jvm_client_class_with_package(
     let kotlin_root_path = std::path::PathBuf::from(&kotlin_root);
     let package_path = package.replace('.', "/");
 
+    // All streaming adapters (for any owner type).
+    let streaming_adapters: Vec<&alef_core::config::AdapterConfig> = config
+        .adapters
+        .iter()
+        .filter(|a| matches!(a.pattern, AdapterPattern::Streaming))
+        .filter(|a| !a.skip_languages.iter().any(|l| l == "kotlin"))
+        .collect();
+
+    let needs_java_pkg_imports = package != java_package;
+
+    client_types
+        .iter()
+        .map(|ty| {
+            emit_client_type_file(
+                ty,
+                &package,
+                &java_package,
+                &package_path,
+                &kotlin_root_path,
+                config,
+                &exclude_types,
+                &streaming_adapters,
+                needs_java_pkg_imports,
+            )
+        })
+        .collect()
+}
+
+/// Emit a single `<ClassName>.kt` file wrapping one opaque Java facade type.
+#[allow(clippy::too_many_arguments)]
+fn emit_client_type_file(
+    ty: &TypeDef,
+    package: &str,
+    java_package: &str,
+    package_path: &str,
+    kotlin_root_path: &std::path::Path,
+    config: &ResolvedCrateConfig,
+    exclude_types: &std::collections::HashSet<String>,
+    streaming_adapters: &[&alef_core::config::AdapterConfig],
+    needs_java_pkg_imports: bool,
+) -> GeneratedFile {
+    let class_name = &ty.name;
     let mut content = String::new();
     content.push_str("// Generated by alef. Do not edit by hand.\n\n");
     content.push_str(&format!("package {package}\n\n"));
 
-    // Imports needed by method signatures. The Java facade types are aliased per
-    // client so we can keep method bodies short without leaking FQNs.
     let mut imports: BTreeSet<String> = BTreeSet::new();
 
-    // Method signatures and bodies reference DTO types (`ChatCompletionRequest`,
-    // `CrawlConfig`, …) by their simple name. Those DTOs live in
-    // `java_package` (emitted by the Java backend / bundled into the AAR by
-    // kotlin-android). When the Kotlin file's package differs (either via
-    // the `.kt` sub-package fallback when they were originally equal, or via
-    // a kotlin-android override like `dev.kreuzberg.kreuzcrawl.android`),
-    // Kotlin does NOT inherit symbols from the parent package — so without
-    // explicit per-type imports every bare type reference is unresolved.
-    // (ktlint forbids wildcard imports under `standard:no-wildcard-imports`.)
-    // The actual imports are added below once `client_types` + streaming
-    // adapter metadata are scanned for `Named` types.
-    let needs_java_pkg_imports = package != java_package;
-
-    let has_async = client_types
-        .iter()
-        .any(|t| t.methods.iter().any(|m| !m.sanitized && m.is_async));
+    let has_async = ty.methods.iter().any(|m| !m.sanitized && m.is_async);
     if has_async {
         imports.insert("import kotlinx.coroutines.Dispatchers".to_string());
         imports.insert("import kotlinx.coroutines.withContext".to_string());
     }
 
-    // Collect streaming adapters and add required Flow imports when any adapter
-    // is owned by one of the client types.
-    let streaming_adapters_for_clients: Vec<&alef_core::config::AdapterConfig> = config
-        .adapters
+    // Streaming adapters owned by THIS client type.
+    let owned_streaming_adapters: Vec<&alef_core::config::AdapterConfig> = streaming_adapters
         .iter()
-        .filter(|a| matches!(a.pattern, AdapterPattern::Streaming))
-        .filter(|a| !a.skip_languages.iter().any(|l| l == "kotlin"))
-        .filter(|a| {
-            a.owner_type
-                .as_deref()
-                .map(|owner| client_types.iter().any(|t| t.name == owner))
-                .unwrap_or(false)
-        })
+        .copied()
+        .filter(|a| a.owner_type.as_deref() == Some(class_name.as_str()))
         .collect();
-    if !streaming_adapters_for_clients.is_empty() {
+    if !owned_streaming_adapters.is_empty() {
         imports.insert("import kotlinx.coroutines.Dispatchers".to_string());
         imports.insert("import kotlinx.coroutines.withContext".to_string());
         imports.insert("import kotlinx.coroutines.flow.Flow".to_string());
@@ -224,42 +261,37 @@ pub fn emit_jvm_client_class_with_package(
     }
 
     // Pre-scan return + param types so we collect every import the body needs.
-    // We deliberately walk only non-sanitized methods — sanitized ones are
-    // skipped during emission and any imports they would have required are
-    // therefore unused.
     let mut scan_imports: BTreeSet<String> = BTreeSet::new();
-    for ty in &client_types {
-        for m in ty
-            .methods
-            .iter()
-            .filter(|m| !m.sanitized && !m.is_static && !method_references_excluded(m, &exclude_types))
-        {
-            kotlin_type_str_pub(&m.return_type, false, &mut scan_imports);
-            for p in &m.params {
-                format_param_pub(p, &mut scan_imports);
-            }
+    for m in ty
+        .methods
+        .iter()
+        .filter(|m| !m.sanitized && !m.is_static && !method_references_excluded(m, exclude_types))
+    {
+        kotlin_type_str_pub(&m.return_type, false, &mut scan_imports);
+        for p in &m.params {
+            format_param_pub(p, &mut scan_imports);
         }
     }
     imports.extend(scan_imports);
 
     // Emit per-user-type imports for the Java DTO package when the Kotlin
-    // file lives in a different package. See the `needs_java_pkg_imports`
-    // declaration above for rationale.
+    // file lives in a different package. Kotlin does NOT inherit symbols
+    // from the parent package, so bare references to DTO types
+    // (`ChatCompletionRequest`, `CrawlConfig`, …) would be unresolved
+    // without these imports.
     if needs_java_pkg_imports {
         let mut user_types: BTreeSet<String> = BTreeSet::new();
-        for ty in &client_types {
-            for m in ty
-                .methods
-                .iter()
-                .filter(|m| !m.sanitized && !m.is_static && !method_references_excluded(m, &exclude_types))
-            {
-                collect_user_types(&m.return_type, &mut user_types);
-                for p in &m.params {
-                    collect_user_types(&p.ty, &mut user_types);
-                }
+        for m in ty
+            .methods
+            .iter()
+            .filter(|m| !m.sanitized && !m.is_static && !method_references_excluded(m, exclude_types))
+        {
+            collect_user_types(&m.return_type, &mut user_types);
+            for p in &m.params {
+                collect_user_types(&p.ty, &mut user_types);
             }
         }
-        for adapter in &streaming_adapters_for_clients {
+        for adapter in &owned_streaming_adapters {
             if let Some(item) = adapter.item_type.as_deref() {
                 user_types.insert(item.to_string());
             }
@@ -270,8 +302,8 @@ pub fn emit_jvm_client_class_with_package(
                 }
             }
         }
-        for ty in &user_types {
-            imports.insert(format!("import {java_package}.{ty}"));
+        for ty_name in &user_types {
+            imports.insert(format!("import {java_package}.{ty_name}"));
         }
     }
 
@@ -283,73 +315,46 @@ pub fn emit_jvm_client_class_with_package(
         content.push('\n');
     }
 
-    // All streaming adapters (for any owner type).
-    let streaming_adapters: Vec<&alef_core::config::AdapterConfig> = config
-        .adapters
+    // Emit the wrapper class.
+    let java_fqn = format!("{java_package}.{class_name}");
+    content.push_str(&format!(
+        "/** Coroutine-friendly wrapper around the Java `{java_fqn}` facade. */\n"
+    ));
+    content.push_str(&format!(
+        "class {class_name} internal constructor(internal val inner: {java_fqn}) : AutoCloseable {{\n"
+    ));
+
+    let mut method_imports: BTreeSet<String> = BTreeSet::new();
+    for method in ty
+        .methods
         .iter()
-        .filter(|a| matches!(a.pattern, AdapterPattern::Streaming))
-        .filter(|a| !a.skip_languages.iter().any(|l| l == "kotlin"))
-        .collect();
-
-    // Emit one class per client type. Each wraps a same-named Java instance so
-    // construction is delegated to a Kotlin-side facade factory (see the
-    // `LiterLlm` object emitted by the flat-function pass) that produces a
-    // configured Java client to pass to `DefaultClient(javaInstance)`.
-    for ty in &client_types {
-        let class_name = &ty.name;
-        let java_fqn = format!("{java_package}.{class_name}");
-        content.push_str(&format!(
-            "/** Coroutine-friendly wrapper around the Java `{java_fqn}` facade. */\n"
-        ));
-        content.push_str(&format!(
-            "class {class_name} internal constructor(internal val inner: {java_fqn}) : AutoCloseable {{\n"
-        ));
-
-        let mut method_imports: BTreeSet<String> = BTreeSet::new();
-        for method in ty
-            .methods
-            .iter()
-            .filter(|m| !m.sanitized && !m.is_static && !method_references_excluded(m, &exclude_types))
-        {
-            emit_client_method(method, &mut content, &mut method_imports);
-        }
-
-        // Emit callbackFlow wrappers for streaming adapters owned by this client
-        // type. These adapters are not in the IR `methods` list — they are
-        // declared in `config.adapters` and bridge via JNI native methods on the
-        // Java facade class. Each wrapper returns `Flow<ChunkType>` so Android
-        // callers can use idiomatic coroutine collection.
-        for adapter in streaming_adapters
-            .iter()
-            .filter(|a| a.owner_type.as_deref() == Some(class_name.as_str()))
-        {
-            emit_streaming_client_method(adapter, class_name, &java_package, &mut content);
-        }
-
-        content.push_str("    override fun close() { inner.close() }\n");
-        content.push_str("}\n");
+        .filter(|m| !m.sanitized && !m.is_static && !method_references_excluded(m, exclude_types))
+    {
+        emit_client_method(method, &mut content, &mut method_imports);
     }
 
-    let client_file_name = if client_types.len() == 1 {
-        format!("{}.kt", client_types[0].name)
-    } else {
-        "DefaultClient.kt".to_string()
-    };
+    for adapter in &owned_streaming_adapters {
+        emit_streaming_client_method(adapter, class_name, java_package, &mut content);
+    }
 
+    content.push_str("    override fun close() { inner.close() }\n");
+    content.push_str("}\n");
+
+    let client_file_name = format!("{class_name}.kt");
     let path = if config.explicit_output.kotlin.is_some() {
         kotlin_root_path.join(&client_file_name)
     } else {
         kotlin_root_path
             .join("src/main/kotlin")
-            .join(&package_path)
+            .join(package_path)
             .join(&client_file_name)
     };
 
-    Some(GeneratedFile {
+    GeneratedFile {
         path,
         content,
         generated_header: false,
-    })
+    }
 }
 
 /// Emit a single method on a client class, delegating to `inner.<method>(args)`.
@@ -762,10 +767,8 @@ fn generate_jvm(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
         generated_header: false,
     }];
 
-    // Emit DefaultClient.kt when the API surface contains types with methods.
-    if let Some(client_file) = emit_jvm_client_class(api, config) {
-        files.push(client_file);
-    }
+    // Emit one `<ClassName>.kt` file per opaque client type with instance methods.
+    files.extend(emit_jvm_client_class(api, config));
 
     Ok(files)
 }

@@ -900,6 +900,253 @@ target = "jvm"
     );
 }
 
+/// Regression test for the spikard duplicate-class bug.
+///
+/// When an API surface has multiple opaque client types each with instance
+/// methods (e.g. spikard's `Router` and `GraphQLRouteConfig`), the Kotlin
+/// backend MUST emit ONE FILE PER TYPE (`Router.kt`, `GraphQLRouteConfig.kt`)
+/// — never a bundled `DefaultClient.kt` containing both classes. Bundling
+/// invites stale-orphan duplication: if an older alef ran with only one
+/// client type, it emitted `GraphQLRouteConfig.kt` directly; a later alef
+/// version that bundled into `DefaultClient.kt` left the older per-type
+/// file behind, producing a Kotlin redeclaration error.
+#[test]
+fn jvm_multiple_client_types_each_get_own_file() {
+    use alef_core::ir::MethodDef;
+
+    let config = resolved_one(
+        r#"
+[workspace]
+languages = ["kotlin", "java", "ffi"]
+
+[[crates]]
+name = "demo-crate"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "demo"
+
+[crates.java]
+package = "dev.kreuzberg"
+
+[crates.kotlin]
+package = "dev.kreuzberg"
+target = "jvm"
+"#,
+    );
+
+    fn opaque_with_method(name: &str, method: &str) -> TypeDef {
+        TypeDef {
+            name: name.into(),
+            rust_path: format!("demo::{name}"),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![MethodDef {
+                name: method.into(),
+                params: vec![],
+                return_type: TypeRef::Primitive(PrimitiveType::U64),
+                is_async: false,
+                is_static: false,
+                error_type: None,
+                doc: String::new(),
+                receiver: None,
+                sanitized: false,
+                trait_source: None,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            is_opaque: true,
+            is_clone: false,
+            is_copy: false,
+            doc: String::new(),
+            cfg: None,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }
+    }
+
+    let router = opaque_with_method("Router", "route_count");
+    let graphql_config = opaque_with_method("GraphQLRouteConfig", "playground_enabled");
+
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![router, graphql_config],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
+    let names: Vec<&str> = files
+        .iter()
+        .filter_map(|f| f.path.file_name().and_then(|n| n.to_str()))
+        .collect();
+
+    assert!(
+        names.contains(&"Router.kt"),
+        "Router.kt must be emitted (one file per client type): {names:?}"
+    );
+    assert!(
+        names.contains(&"GraphQLRouteConfig.kt"),
+        "GraphQLRouteConfig.kt must be emitted (one file per client type): {names:?}"
+    );
+    assert!(
+        !names.contains(&"DefaultClient.kt"),
+        "DefaultClient.kt must NOT be emitted when no client type is literally named \
+         `DefaultClient` — bundling unrelated classes into a single file causes stale-orphan \
+         duplication when the client-type set changes between alef versions. Got: {names:?}"
+    );
+
+    // Each generated wrapper file must contain exactly one `class X : AutoCloseable` declaration
+    // matching the file name — never the wrong class.
+    let router_file = files
+        .iter()
+        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("Router.kt"))
+        .expect("Router.kt should exist");
+    assert!(
+        router_file.content.contains("class Router internal constructor"),
+        "Router.kt must contain `class Router`: {}",
+        router_file.content
+    );
+    assert!(
+        !router_file.content.contains("class GraphQLRouteConfig"),
+        "Router.kt must NOT contain `class GraphQLRouteConfig`: {}",
+        router_file.content
+    );
+
+    let graphql_file = files
+        .iter()
+        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("GraphQLRouteConfig.kt"))
+        .expect("GraphQLRouteConfig.kt should exist");
+    assert!(
+        graphql_file
+            .content
+            .contains("class GraphQLRouteConfig internal constructor"),
+        "GraphQLRouteConfig.kt must contain `class GraphQLRouteConfig`: {}",
+        graphql_file.content
+    );
+    assert!(
+        !graphql_file.content.contains("class Router"),
+        "GraphQLRouteConfig.kt must NOT contain `class Router`: {}",
+        graphql_file.content
+    );
+}
+
+/// Regression test for the spikard Router-unresolved bug.
+///
+/// When a type is listed in `[crates.java].exclude_types`, the Java backend
+/// skips emitting `<Type>.java`. The Kotlin backend, in JVM mode, delegates to
+/// the sibling Java facade — so emitting a Kotlin wrapper that imports the
+/// missing `dev.<pkg>.<Type>` would fail to compile.
+///
+/// `effective_kotlin_exclude_types` therefore merges `[crates.java].exclude_types`
+/// into the Kotlin client-type filter, keeping the two backends in lockstep
+/// without forcing users to duplicate the same exclude in both TOML sections.
+#[test]
+fn jvm_client_wrapper_respects_java_exclude_types() {
+    use alef_core::ir::MethodDef;
+
+    let config = resolved_one(
+        r#"
+[workspace]
+languages = ["kotlin", "java", "ffi"]
+
+[[crates]]
+name = "demo-crate"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "demo"
+
+[crates.java]
+package = "dev.kreuzberg"
+exclude_types = ["Router"]
+
+[crates.kotlin]
+package = "dev.kreuzberg"
+target = "jvm"
+"#,
+    );
+
+    fn opaque(name: &str) -> TypeDef {
+        TypeDef {
+            name: name.into(),
+            rust_path: format!("demo::{name}"),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![MethodDef {
+                name: "route_count".into(),
+                params: vec![],
+                return_type: TypeRef::Primitive(PrimitiveType::U64),
+                is_async: false,
+                is_static: false,
+                error_type: None,
+                doc: String::new(),
+                receiver: None,
+                sanitized: false,
+                trait_source: None,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            is_opaque: true,
+            is_clone: false,
+            is_copy: false,
+            doc: String::new(),
+            cfg: None,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }
+    }
+
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![opaque("Router")],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
+    let names: Vec<&str> = files
+        .iter()
+        .filter_map(|f| f.path.file_name().and_then(|n| n.to_str()))
+        .collect();
+    assert!(
+        !names.contains(&"Router.kt"),
+        "Router.kt MUST NOT be emitted when `Router` is in [crates.java].exclude_types — \
+         the Java facade `dev.kreuzberg.Router` is absent, so any Kotlin wrapper would \
+         fail to compile with an unresolved import. Got: {names:?}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // ktfmt single-line vs multi-line data-class emission
 // ---------------------------------------------------------------------------

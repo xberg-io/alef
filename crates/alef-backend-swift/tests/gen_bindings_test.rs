@@ -523,6 +523,234 @@ fn unit_enum_escapes_swift_keyword_variants_with_backticks() {
     );
 }
 
+/// Repro of the spikard `SecuritySchemeInfo` bug: a serde-derived data-variant
+/// enum whose associated values are bridge-safe primitives (String + Option<String>)
+/// must be emitted as a `Codable` Swift enum so the generated `*FromJson`
+/// JSONDecoder round-trip compiles. Without `Codable` conformance the generated
+/// `intoRust()` extension and the `securitySchemeInfoFromJson(_:)` forwarder both
+/// fail to compile because `JSONEncoder().encode(self)` requires `Encodable` and
+/// `JSONDecoder().decode(SecuritySchemeInfo.self, ...)` requires `Decodable`.
+#[test]
+fn data_variant_serde_enum_with_bridge_safe_fields_emits_codable() {
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "SecuritySchemeInfo".into(),
+            rust_path: "demo::SecuritySchemeInfo".into(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Http".into(),
+                    fields: vec![
+                        make_field("scheme", TypeRef::String, false),
+                        make_field("bearer_format", TypeRef::Optional(Box::new(TypeRef::String)), true),
+                    ],
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                    is_tuple: false,
+                },
+                EnumVariant {
+                    name: "ApiKey".into(),
+                    fields: vec![
+                        make_field("location", TypeRef::String, false),
+                        make_field("name", TypeRef::String, false),
+                    ],
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                    is_tuple: false,
+                },
+            ],
+            doc: String::new(),
+            cfg: None,
+            serde_tag: Some("type".into()),
+            serde_untagged: false,
+            serde_rename_all: Some("lowercase".into()),
+            is_copy: false,
+            has_serde: true,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+
+    assert!(
+        content.contains("public enum SecuritySchemeInfo: Codable"),
+        "data-variant serde enum with bridge-safe fields must conform to Codable so JSONEncoder/JSONDecoder round-trip compiles. Got:\n{content}"
+    );
+    assert!(
+        !content.contains("public enum SecuritySchemeInfo {\n"),
+        "must NOT emit bare `public enum SecuritySchemeInfo {{` without Codable conformance:\n{content}"
+    );
+}
+
+/// When a data-variant serde enum references a Named type that is NOT in
+/// `known_dto_names`, `emit_enum` falls back to a typealias to the opaque
+/// `RustBridge.{Enum}` class (Swift cannot synthesise `Codable` for the data
+/// variant). In that case the `*FromJson` forwarder must NOT use `JSONDecoder`
+/// — opaque bridge classes are not Codable — and must instead forward to the
+/// `RustBridge.{enum}FromJson` shim that the Rust crate emits.
+#[test]
+fn data_variant_serde_enum_with_opaque_field_falls_back_to_rust_bridge_from_json() {
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "TaggedPayload".into(),
+            rust_path: "demo::TaggedPayload".into(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Plain".into(),
+                    fields: vec![make_field("text", TypeRef::String, false)],
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                    is_tuple: false,
+                },
+                EnumVariant {
+                    // `OpaqueHandle` is not declared anywhere, so it is not in
+                    // `known_dto_names`; `all_variants_codable_safe` returns false.
+                    name: "Handle".into(),
+                    fields: vec![make_field("handle", TypeRef::Named("OpaqueHandle".into()), false)],
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                    is_tuple: false,
+                },
+            ],
+            doc: String::new(),
+            cfg: None,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: None,
+            is_copy: false,
+            has_serde: true,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+
+    // The enum itself falls back to a typealias.
+    assert!(
+        content.contains("public typealias TaggedPayload = RustBridge.TaggedPayload"),
+        "data-variant enum with non-Codable-safe fields must fall back to typealias:\n{content}"
+    );
+    // The `*FromJson` forwarder must NOT JSONDecoder-decode an opaque bridge
+    // class — it must forward to the Rust-side shim.
+    assert!(
+        content.contains("public func taggedPayloadFromJson(_ json: String) throws -> TaggedPayload"),
+        "fromJson forwarder must still be emitted for typealiased serde enums:\n{content}"
+    );
+    assert!(
+        content.contains("return try RustBridge.taggedPayloadFromJson(json)"),
+        "fromJson forwarder must forward to RustBridge.*FromJson for typealiased enums:\n{content}"
+    );
+    assert!(
+        !content.contains("JSONDecoder().decode(TaggedPayload.self"),
+        "must NOT JSONDecoder-decode an opaque RustBridge typealias enum:\n{content}"
+    );
+}
+
+/// Repro of the spikard `schemaQueryOnly()` bug: a non-throwing free function
+/// whose return type is a first-class DTO must wrap the bridge call in the
+/// `try {Dto}(_:)` converter, otherwise Swift rejects the body with
+/// `cannot convert return expression of type 'RustBridge.QueryOnlyConfig' to
+/// return type '{module}.QueryOnlyConfig'`. The forwarder signature widens to
+/// `throws` because the converter is throwing.
+#[test]
+fn nullary_free_function_returning_named_dto_wraps_bridge_call_in_converter() {
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![TypeDef {
+            name: "QueryOnlyConfig".to_string(),
+            rust_path: "demo::QueryOnlyConfig".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                make_field("name", TypeRef::String, false),
+                make_field("limit", TypeRef::Primitive(PrimitiveType::U32), false),
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            doc: "Schema config.".to_string(),
+            cfg: None,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: true,
+            serde_rename_all: None,
+            // has_serde + non-empty primitive fields → first-class Codable
+            // struct emission, which seeds `known_dto_names`.
+            has_serde: true,
+            super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![FunctionDef {
+            name: "schema_query_only".into(),
+            rust_path: "demo::schema_query_only".into(),
+            original_rust_path: String::new(),
+            params: vec![],
+            return_type: TypeRef::Named("QueryOnlyConfig".to_string()),
+            is_async: false,
+            error_type: None,
+            doc: "Default schema config.".to_string(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+
+    assert!(
+        content.contains("public func schemaQueryOnly() throws -> QueryOnlyConfig"),
+        "free function returning a Named DTO must declare `throws` because the converter is throwing:\n{content}"
+    );
+    assert!(
+        content.contains("let _rb = RustBridge.schemaQueryOnly()"),
+        "forwarder must bind the bridge result to a local before the converter call:\n{content}"
+    );
+    assert!(
+        content.contains("return try QueryOnlyConfig(_rb)"),
+        "forwarder must wrap the bridge value in the `try {{Dto}}(_:)` converter:\n{content}"
+    );
+    assert!(
+        !content.contains("return RustBridge.schemaQueryOnly()"),
+        "forwarder must NOT return the low-level `RustBridge.{{Dto}}` value directly — it does not satisfy the declared type:\n{content}"
+    );
+}
+
 // ── function tests ────────────────────────────────────────────────────────────
 
 #[test]

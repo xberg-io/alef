@@ -90,25 +90,19 @@ pub(super) fn gen_enum(enum_def: &EnumDef, namespace: &str) -> String {
                 .clone()
                 .unwrap_or_else(|| apply_rename_all(&v.name, enum_def.serde_rename_all.as_deref()));
             let pascal_name = to_csharp_name(&v.name);
-            let doc_lines: Vec<String> = if !v.doc.is_empty() {
-                v.doc.lines().map(|l| l.to_string()).collect()
-            } else {
-                vec![]
-            };
+            let doc_lines = super::sanitize_doc_lines_for_csharp(&v.doc);
+            let has_doc = !doc_lines.is_empty();
             Value::from_serialize(serde_json::json!({
                 "json_name": json_name,
                 "pascal_name": pascal_name,
-                "doc": !v.doc.is_empty(),
+                "doc": has_doc,
                 "doc_lines": doc_lines,
             }))
         })
         .collect();
 
-    let doc_lines: Vec<String> = if !enum_def.doc.is_empty() {
-        enum_def.doc.lines().map(|l| l.to_string()).collect()
-    } else {
-        vec![]
-    };
+    let doc_lines = super::sanitize_doc_lines_for_csharp(&enum_def.doc);
+    let has_doc = !doc_lines.is_empty();
 
     let mut out = render(
         "enum_header.jinja",
@@ -116,7 +110,7 @@ pub(super) fn gen_enum(enum_def: &EnumDef, namespace: &str) -> String {
             "namespace": namespace,
             "enum_pascal": enum_pascal,
             "needs_custom_converter": needs_custom_converter,
-            "doc": !enum_def.doc.is_empty(),
+            "doc": has_doc,
             "doc_lines": doc_lines,
             "variants": variants,
         })),
@@ -184,14 +178,14 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
         .collect();
 
     // Doc comment
-    if !enum_def.doc.is_empty() {
-        let doc_lines: Vec<String> = enum_def.doc.lines().map(ToString::to_string).collect();
+    let enum_doc_lines = super::sanitize_doc_lines_for_csharp(&enum_def.doc);
+    if !enum_doc_lines.is_empty() {
         out.push_str(&render(
             "doc_comment_block.jinja",
             minijinja::context! {
                 has_doc => true,
                 indent => "",
-                doc_lines => doc_lines,
+                doc_lines => enum_doc_lines,
             },
         ));
     }
@@ -213,14 +207,14 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
     for variant in &enum_def.variants {
         let pascal = to_csharp_name(&variant.name);
 
-        if !variant.doc.is_empty() {
-            let doc_lines: Vec<String> = variant.doc.lines().map(ToString::to_string).collect();
+        let variant_doc_lines = super::sanitize_doc_lines_for_csharp(&variant.doc);
+        if !variant_doc_lines.is_empty() {
             out.push_str(&render(
                 "doc_comment_block.jinja",
                 minijinja::context! {
                     has_doc => true,
                     indent => "    ",
-                    doc_lines => doc_lines,
+                    doc_lines => variant_doc_lines,
                 },
             ));
         }
@@ -411,18 +405,15 @@ fn gen_untagged_wrapper(enum_def: &EnumDef, namespace: &str) -> String {
     use minijinja::Value;
 
     let class_name = csharp_type_name(&enum_def.name);
-    let doc_lines: Vec<String> = if !enum_def.doc.is_empty() {
-        enum_def.doc.lines().map(|l| l.to_string()).collect()
-    } else {
-        vec![]
-    };
+    let doc_lines = super::sanitize_doc_lines_for_csharp(&enum_def.doc);
+    let has_doc = !doc_lines.is_empty();
 
     render(
         "untagged_union_wrapper.jinja",
         Value::from_serialize(serde_json::json!({
             "namespace": namespace,
             "class_name": class_name,
-            "doc": !enum_def.doc.is_empty(),
+            "doc": has_doc,
             "doc_lines": doc_lines,
         })),
     )

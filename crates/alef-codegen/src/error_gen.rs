@@ -1390,7 +1390,14 @@ pub fn gen_csharp_error_types(
     // Inherit from the generic library exception when provided so that
     // `Assert.ThrowsAny<LibException>()` catches typed errors too.
     let base_parent = fallback_class.unwrap_or("Exception");
-    let error_doc_lines: Vec<&str> = error.doc.lines().collect();
+    // Sanitise rustdoc-style markup so the resulting C# XML doc parses cleanly.
+    // The base error doc routinely contains `# Examples`, ```ignore code fences,
+    // `Self::error_code`, `Result<T, E>` and other Rust idioms that Roslyn rejects
+    // when leaked verbatim into `<summary>`.
+    let sanitized_error_doc =
+        crate::doc_emission::sanitize_rust_idioms(&error.doc, crate::doc_emission::DocTarget::CSharpDoc);
+    let error_doc_lines: Vec<&str> = sanitized_error_doc.lines().collect();
+    let error_has_doc = !sanitized_error_doc.trim().is_empty();
 
     // Build per-method info for the template.
     // Each entry: { prop_name, cs_type, param_name, doc }
@@ -1402,12 +1409,22 @@ pub fn gen_csharp_error_types(
             let prop_name = to_pascal_case(&m.name);
             let param_name = java_field_name(&m.name); // camelCase ctor parameter
             let default_value = csharp_default_value(&m.return_type);
+            // Per-method docs are emitted inline as a single-line `<summary>`,
+            // so collapse multi-line sanitised output to its first paragraph.
+            let sanitized_method_doc =
+                crate::doc_emission::sanitize_rust_idioms(&m.doc, crate::doc_emission::DocTarget::CSharpDoc);
+            let inline_doc = sanitized_method_doc
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>()
+                .join(" ");
             serde_json::json!({
                 "prop_name": prop_name,
                 "cs_type": cs_type,
                 "param_name": param_name,
                 "default_value": default_value,
-                "doc": m.doc,
+                "doc": inline_doc,
             })
         })
         .collect();
@@ -1421,7 +1438,7 @@ pub fn gen_csharp_error_types(
                 namespace => namespace,
                 base_name => base_name.as_str(),
                 base_parent => base_parent,
-                doc => !error.doc.is_empty(),
+                doc => error_has_doc,
                 doc_lines => error_doc_lines,
                 methods => method_infos,
                 has_methods => has_methods,
@@ -1433,7 +1450,10 @@ pub fn gen_csharp_error_types(
     // Per-variant exception classes
     for variant in &error.variants {
         let class_name = format!("{}Exception", variant.name);
-        let variant_doc_lines: Vec<&str> = variant.doc.lines().collect();
+        let sanitized_variant_doc =
+            crate::doc_emission::sanitize_rust_idioms(&variant.doc, crate::doc_emission::DocTarget::CSharpDoc);
+        let variant_doc_lines: Vec<&str> = sanitized_variant_doc.lines().collect();
+        let variant_has_doc = !sanitized_variant_doc.trim().is_empty();
 
         let out = crate::template_env::render(
             "error_gen/csharp_error_variant.jinja",
@@ -1441,7 +1461,7 @@ pub fn gen_csharp_error_types(
                 namespace => namespace,
                 class_name => class_name.as_str(),
                 base_name => base_name.as_str(),
-                doc => !variant.doc.is_empty(),
+                doc => variant_has_doc,
                 doc_lines => variant_doc_lines,
                 has_methods => has_methods,
             },
@@ -2137,6 +2157,60 @@ mod tests {
         assert!(
             base.contains("public ConversionErrorException(string message) : base(message) { }"),
             "{base}"
+        );
+    }
+
+    /// Regression: the GraphQLErrorException base doc previously leaked raw rustdoc
+    /// (`# Examples` heading, ```ignore code fence containing `Self::error_code`,
+    /// `Result<T, E>`, intra-doc links) into the `<summary>` element, causing
+    /// CS1002/CS1519 Roslyn errors. The sanitizer must strip all of that.
+    #[test]
+    fn test_gen_csharp_error_types_strips_rust_idioms_in_doc() {
+        let mut error = error_with_methods();
+        error.name = "GraphQLError".to_string();
+        error.doc = "Errors that can occur during GraphQL operations\n\n\
+            These errors are compatible with async-graphql error handling.\n"
+            .to_string();
+        // Mirror the real `status_code()` rustdoc from spikard-graphql: it has a
+        // `# Examples` section with a ```ignore fence referencing `Self::error_code`,
+        // `Result<T, E>`, intra-doc links, and a `::` path separator — everything
+        // that previously leaked into a one-line `<summary>` attribute.
+        error.methods[0].doc = "Convert error to HTTP status code\n\n\
+            Public alias for the same codes returned by [`Self::error_code`].\n\n\
+            # Examples\n\n\
+            ```ignore\n\
+            use spikard_graphql::error::GraphQLError;\n\
+            let error = GraphQLError::AuthenticationError(\"Invalid token\".to_string());\n\
+            assert_eq!(error.status_code(), 401);\n\
+            ```\n"
+            .to_string();
+        let files = gen_csharp_error_types(&error, "Spikard", None);
+        let base = &files[0].1;
+        // Per-method `<summary>` is single-line — must not contain raw fence markers,
+        // intra-doc square brackets, `::`, or unescaped `<`/`>`.
+        assert!(
+            !base.contains("```"),
+            "code fence markers must not leak into <summary>: {base}"
+        );
+        assert!(!base.contains("# Examples"), "section heading must be stripped: {base}");
+        assert!(
+            !base.contains("Self::error_code"),
+            "Self::method must be normalised: {base}"
+        );
+        assert!(!base.contains("[`"), "intra-doc link brackets must be stripped: {base}");
+        assert!(
+            !base.contains("GraphQLError::AuthenticationError"),
+            "rust path inside fence must be dropped: {base}"
+        );
+        // The first line of prose survives.
+        assert!(
+            base.contains("Convert error to HTTP status code"),
+            "first prose line survives: {base}"
+        );
+        // The base error doc survives sanitised.
+        assert!(
+            base.contains("Errors that can occur during GraphQL operations"),
+            "base error prose survives: {base}"
         );
     }
 

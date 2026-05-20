@@ -638,6 +638,97 @@ fn test_error_helper_preserves_base_error_acronym_class_name() {
     assert!(!wrapper.content.contains("GraphQlErrorException"));
 }
 
+/// Regression test for the GraphQLErrorException case in spikard: rustdoc with
+/// `# Examples`, ```ignore code fence, `Self::error_code`, `Result<T, E>` and
+/// intra-doc links must not leak verbatim into the generated `<summary>` element.
+/// Without sanitisation Roslyn rejected the result with CS1002/CS1519 errors.
+#[test]
+fn test_error_class_doc_strips_rust_idioms_and_sections() {
+    let backend = CsharpBackend;
+    let config = minimal_csharp_config("test");
+    let api = ApiSurface {
+        crate_name: "test".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![ErrorDef {
+            name: "GraphQLError".to_string(),
+            rust_path: "test::GraphQLError".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![],
+            doc: "Errors that can occur during GraphQL operations\n\n\
+                These errors are compatible with async-graphql error handling.\n"
+                .to_string(),
+            methods: vec![MethodDef {
+                name: "status_code".to_string(),
+                params: vec![],
+                return_type: TypeRef::Primitive(PrimitiveType::U16),
+                is_async: false,
+                is_static: false,
+                error_type: None,
+                doc: "Convert error to HTTP status code\n\n\
+                    Public alias for codes returned by [`Self::error_code`].\n\n\
+                    # Examples\n\n\
+                    ```ignore\n\
+                    use spikard_graphql::error::GraphQLError;\n\
+                    let error = GraphQLError::AuthenticationError(\"x\".to_string());\n\
+                    assert_eq!(error.status_code(), 401);\n\
+                    ```\n"
+                    .to_string(),
+                receiver: Some(ReceiverKind::Ref),
+                sanitized: false,
+                trait_source: None,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let exception_file = files
+        .iter()
+        .find(|file| file.path.ends_with("GraphQLErrorException.cs"))
+        .expect("GraphQLErrorException.cs must be emitted");
+    let content = &exception_file.content;
+
+    // Sentinel rustdoc markup that previously broke Roslyn parsing must be gone.
+    assert!(!content.contains("```"), "code fence markers must not leak: {content}");
+    assert!(
+        !content.contains("# Examples"),
+        "section heading must be stripped: {content}"
+    );
+    assert!(
+        !content.contains("Self::error_code"),
+        "Self::method path must be normalised: {content}"
+    );
+    assert!(
+        !content.contains("[`"),
+        "intra-doc link square brackets must be stripped: {content}"
+    );
+    assert!(
+        !content.contains("GraphQLError::AuthenticationError"),
+        "rust code inside fence must be dropped: {content}"
+    );
+    // The high-level prose survives.
+    assert!(
+        content.contains("Errors that can occur during GraphQL operations"),
+        "base error prose survives: {content}"
+    );
+    assert!(
+        content.contains("Convert error to HTTP status code"),
+        "method first line survives: {content}"
+    );
+}
+
 #[test]
 fn test_namespace_resolution() {
     let backend = CsharpBackend;

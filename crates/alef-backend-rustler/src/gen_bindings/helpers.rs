@@ -370,6 +370,22 @@ pub(super) fn gen_native_ex(
         let _ = write_nif_stub(&mut out, &from_json_fn_name, &params, false);
     }
 
+    // Stubs for whitelisted error-introspection NIF shims (e.g. `<errname>_status_code`,
+    // `<errname>_is_transient`, `<errname>_error_type`). These mirror the Rust NIFs
+    // emitted by `generate_bindings` so rustler-precompiled's on_load can resolve every
+    // declared NIF — without these stubs, BEAM aborts loading with `:bad_lib`.
+    for error in &api.errors {
+        for method in error.methods.iter().filter(|m| !m.sanitized) {
+            let nif_fn_name = format!("{}_{}", error.name.to_lowercase(), method.name);
+            let params = vec!["_msg".to_string()];
+            if !out.is_empty() && !out.ends_with("\n\n") {
+                out.push('\n');
+            }
+            out.push_str("  @doc false\n");
+            let _ = write_nif_stub(&mut out, &nif_fn_name, &params, false);
+        }
+    }
+
     out.push_str(&template_env::render(
         "native_module_footer.jinja",
         minijinja::context! {},
