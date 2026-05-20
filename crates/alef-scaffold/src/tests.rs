@@ -1537,18 +1537,62 @@ fn test_scaffold_swift() {
         readme.unwrap().content.contains("swift build"),
         "README.md must document build process"
     );
+    // .editorconfig and .swiftformat must both declare 2-space indent to match
+    // `swift-format` defaults, so editors and the formatter stay in sync.
     let editorconfig = files
         .iter()
-        .find(|f| f.path == Path::new("packages/swift/.editorconfig"));
-    assert!(editorconfig.is_some(), ".editorconfig should be generated");
+        .find(|f| f.path == Path::new("packages/swift/.editorconfig"))
+        .expect(".editorconfig should be generated");
+    assert!(
+        editorconfig.content.contains("indent_size = 2"),
+        ".editorconfig must use 2-space indent; got: {}",
+        editorconfig.content
+    );
     let swiftformat = files
         .iter()
-        .find(|f| f.path == Path::new("packages/swift/.swiftformat"));
-    assert!(swiftformat.is_some(), ".swiftformat should be generated");
+        .find(|f| f.path == Path::new("packages/swift/.swiftformat"))
+        .expect(".swiftformat should be generated");
+    assert!(
+        swiftformat.content.contains("indent = 2"),
+        ".swiftformat must use 2-space indent; got: {}",
+        swiftformat.content
+    );
+
+    // Package.swift must use 2-space indentation — `swift-format` rewrites 4-space to 2.
+    assert!(
+        package_swift.content.contains("\n  name:"),
+        "Package.swift must use 2-space indentation; got: {}",
+        package_swift.content
+    );
+    // Single-element products array must not have a trailing comma (swift-format removes it).
+    assert!(
+        !package_swift.content.contains(".library(name: \"MyLib\", targets: [\"MyLib\"]),"),
+        "Package.swift single-element products array must not have trailing comma; got: {}",
+        package_swift.content
+    );
+
+    // Test stub must emit a blank line between import groups (swift-format requirement).
+    let test_stub = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("Tests") && f.path.extension().is_some_and(|e| e == "swift"))
+        .expect("test stub .swift should be generated");
+    assert!(
+        test_stub.content.contains("import XCTest\n\n@testable"),
+        "test stub must have blank line between import groups; got: {}",
+        test_stub.content
+    );
+
+    // Demo must use 2-space indentation.
     let demo = files
         .iter()
-        .find(|f| f.path == Path::new("packages/swift/Examples/Demo/main.swift"));
-    assert!(demo.is_some(), "Demo example should be generated");
+        .find(|f| f.path == Path::new("packages/swift/Examples/Demo/main.swift"))
+        .expect("Demo example should be generated");
+    assert!(
+        demo.content.contains("\n  static func main()"),
+        "Demo must use 2-space indentation; got: {}",
+        demo.content
+    );
+
     assert!(
         files.iter().all(|f| !f.path.starts_with(".github/workflows")),
         "Swift scaffold must not emit GitHub workflows"

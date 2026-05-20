@@ -42,6 +42,8 @@ pub(crate) fn scaffold_swift(_api: &ApiSurface, config: &ResolvedCrateConfig) ->
     // dependency by other packages. That is acceptable: the canonical distribution
     // channel for Apple platforms is a pre-built XCFramework. The linkerSettings
     // here only support the in-tree `swift test` workflow.
+    // 2-space indentation and no trailing comma on single-element array literals match
+    // `swift-format` defaults so the generated file is lint-clean without a post-pass.
     let package_swift = format!(
         r#"// swift-tools-version: 6.0
 import PackageDescription
@@ -50,47 +52,47 @@ import PackageDescription
 // The build step generates Swift + C bridge sources; copy them into Sources/RustBridge
 // and Sources/RustBridgeC before building. See README.md for the full workflow.
 let package = Package(
-    name: "{module}",
-    platforms: [
-        .macOS(.v{min_macos}),
-        .iOS(.v{min_ios}),
-    ],
-    products: [
-        .library(name: "{module}", targets: ["{module}"]),
-    ],
-    targets: [
-        // RustBridgeC: pure C/headers target. Swift files in RustBridge import this
-        // to access C types (RustStr, etc.) produced by swift-bridge.
-        // publicHeadersPath: "." exposes RustBridgeC.h to dependents.
-        .target(
-            name: "RustBridgeC",
-            path: "Sources/RustBridgeC",
-            publicHeadersPath: "."
-        ),
-        // RustBridge: Swift wrapper around the Rust static library.
-        // Depends on RustBridgeC so the generated Swift files can use the C types.
-        // linkerSettings wire the Rust staticlib (lib{binding_underscore}.a) produced by
-        // `cargo build -p {binding_crate}` so `swift build` / `swift test` can resolve
-        // the `__swift_bridge__$*` C symbols. Both target/release and target/debug are
-        // searched so either cargo profile works.
-        .target(
-            name: "RustBridge",
-            dependencies: ["RustBridgeC"],
-            path: "Sources/RustBridge",
-            linkerSettings: [
-                .unsafeFlags([
-                    "-L../../target/release",
-                    "-L../../target/debug",
-                ]),
-                .linkedLibrary("{binding_underscore}"),
-                .linkedFramework("Security", .when(platforms: [.macOS, .iOS])),
-                .linkedFramework("CoreFoundation", .when(platforms: [.macOS, .iOS])),
-                .linkedFramework("SystemConfiguration", .when(platforms: [.macOS])),
-            ]
-        ),
-        .target(name: "{module}", dependencies: ["RustBridge"], path: "Sources/{module}"),
-        .testTarget(name: "{module}Tests", dependencies: ["{module}"], path: "Tests/{module}Tests"),
-    ]
+  name: "{module}",
+  platforms: [
+    .macOS(.v{min_macos}),
+    .iOS(.v{min_ios}),
+  ],
+  products: [
+    .library(name: "{module}", targets: ["{module}"])
+  ],
+  targets: [
+    // RustBridgeC: pure C/headers target. Swift files in RustBridge import this
+    // to access C types (RustStr, etc.) produced by swift-bridge.
+    // publicHeadersPath: "." exposes RustBridgeC.h to dependents.
+    .target(
+      name: "RustBridgeC",
+      path: "Sources/RustBridgeC",
+      publicHeadersPath: "."
+    ),
+    // RustBridge: Swift wrapper around the Rust static library.
+    // Depends on RustBridgeC so the generated Swift files can use the C types.
+    // linkerSettings wire the Rust staticlib (lib{binding_underscore}.a) produced by
+    // `cargo build -p {binding_crate}` so `swift build` / `swift test` can resolve
+    // the `__swift_bridge__$*` C symbols. Both target/release and target/debug are
+    // searched so either cargo profile works.
+    .target(
+      name: "RustBridge",
+      dependencies: ["RustBridgeC"],
+      path: "Sources/RustBridge",
+      linkerSettings: [
+        .unsafeFlags([
+          "-L../../target/release",
+          "-L../../target/debug",
+        ]),
+        .linkedLibrary("{binding_underscore}"),
+        .linkedFramework("Security", .when(platforms: [.macOS, .iOS])),
+        .linkedFramework("CoreFoundation", .when(platforms: [.macOS, .iOS])),
+        .linkedFramework("SystemConfiguration", .when(platforms: [.macOS])),
+      ]
+    ),
+    .target(name: "{module}", dependencies: ["RustBridge"], path: "Sources/{module}"),
+    .testTarget(name: "{module}Tests", dependencies: ["{module}"], path: "Tests/{module}Tests"),
+  ]
 )
 "#,
         module = module,
@@ -102,10 +104,11 @@ let package = Package(
 
     let gitignore = ".build/\nPackages/\nxcuserdata/\nDerivedData/\n.swiftpm/\n*.xcodeproj\n";
 
-    // 2-space indentation matches `swift format` defaults — keeps the scaffolded
-    // file lint-clean against `swift format lint`.
+    // 2-space indentation matches `swift-format` defaults and a blank line between
+    // import groups is required by `swift-format`'s import-ordering rules.
     let test_stub = format!(
         r#"import XCTest
+
 @testable import {module}
 
 final class {module}Tests: XCTestCase {{
@@ -145,9 +148,10 @@ public enum RustBridgePlaceholder {{}}
     // documentation purposes. It is not strictly required.
     let module_modulemap = "// This modulemap is unused — the RustBridgeC target provides the C types.\n// SwiftPM discovers RustBridgeC.h via the publicHeadersPath setting.\n";
 
-    let editorconfig = "[*]\ncharset = utf-8\nend_of_line = lf\ninsert_final_newline = true\n\n[*.swift]\nindent_style = space\nindent_size = 4\n";
+    // 2-space indent matches `swift-format` defaults so editors and the formatter agree.
+    let editorconfig = "[*]\ncharset = utf-8\nend_of_line = lf\ninsert_final_newline = true\n\n[*.swift]\nindent_style = space\nindent_size = 2\n";
 
-    let swiftformat = "lineLength = 120\nindent = 4\nusesTabs = false\n";
+    let swiftformat = "lineLength = 120\nindent = 2\nusesTabs = false\n";
 
     let readme = format!(
         r#"# {module}
@@ -190,15 +194,16 @@ rewritten after each Cargo clean or rebuild.
         license = meta.license,
     );
 
+    // 2-space indentation matches `swift-format` defaults.
     let demo_swift = format!(
         r#"import {module}
 
 @main
 struct Demo {{
-    static func main() {{
-        print("Demo: {module} loaded successfully")
-        // Add your API calls here after code generation
-    }}
+  static func main() {{
+    print("Demo: {module} loaded successfully")
+    // Add your API calls here after code generation
+  }}
 }}
 "#,
         module = module,
