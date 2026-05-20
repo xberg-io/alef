@@ -103,6 +103,30 @@ pub fn go_optional_type(ty: &TypeRef) -> Cow<'static, str> {
     }
 }
 
+/// Returns the Go zero-value expression for a return-type, used in `return <zero>, fmt.Errorf(...)`
+/// early exits.
+///
+/// Must stay in sync with the return-signature logic in `gen_bindings::methods` and
+/// `gen_bindings::functions`: scalar primitives and Duration stay as value types and
+/// need an explicit zero literal (`0`, `false`); everything else (Named, String, Json,
+/// Vec, Map, Bytes, Optional) is emitted as a pointer or reference type whose zero is `nil`.
+pub fn go_zero_value(ty: &TypeRef) -> String {
+    match ty {
+        TypeRef::Primitive(PrimitiveType::Bool) => "false".to_string(),
+        TypeRef::Primitive(_) | TypeRef::Duration => "0".to_string(),
+        TypeRef::String
+        | TypeRef::Char
+        | TypeRef::Path
+        | TypeRef::Json
+        | TypeRef::Bytes
+        | TypeRef::Vec(_)
+        | TypeRef::Map(_, _)
+        | TypeRef::Optional(_)
+        | TypeRef::Named(_)
+        | TypeRef::Unit => "nil".to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

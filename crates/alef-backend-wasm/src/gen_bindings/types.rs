@@ -659,7 +659,6 @@ fn gen_zero_arg_constructor(typ: &TypeDef, prefix: &str) -> String {
     )
 }
 
-
 /// Extract the inner type of an `Optional` wrapper, or return the type itself.
 /// `FieldDef::optional` + `FieldDef::ty` can be:
 /// - `optional=true, ty=Named(X)`      → inner is Named(X)  (Optional<> added by mapping)

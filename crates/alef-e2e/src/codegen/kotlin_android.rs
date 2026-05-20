@@ -7,7 +7,6 @@
 
 use crate::config::E2eConfig;
 use crate::escape::sanitize_filename;
-use crate::field_access::FieldResolver;
 use crate::fixture::{Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::ResolvedCrateConfig;
@@ -158,13 +157,6 @@ impl E2eCodegen for KotlinAndroidE2eCodegen {
 
         // Resolve options_type from override.
         let options_type = overrides.and_then(|o| o.options_type.clone());
-        let field_resolver = FieldResolver::new(
-            &e2e_config.fields,
-            &e2e_config.fields_optional,
-            &e2e_config.result_fields,
-            &e2e_config.fields_array,
-            &HashSet::new(),
-        );
 
         // Build a map from TypeDef name → set of field names whose Rust type
         // is a `Named(T)` reference where `T` is NOT itself a known struct.
@@ -210,9 +202,7 @@ impl E2eCodegen for KotlinAndroidE2eCodegen {
                 result_var,
                 &e2e_config.call.args,
                 options_type.as_deref(),
-                &field_resolver,
                 result_is_simple,
-                &e2e_config.fields_enum,
                 e2e_config,
                 &type_enum_fields,
             );

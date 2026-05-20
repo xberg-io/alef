@@ -31,11 +31,24 @@ pub(super) fn render_test_function(
     enum_fields: &HashMap<String, String>,
     handle_nested_types: &HashMap<String, String>,
     handle_dict_types: &HashSet<String>,
-    field_resolver: &FieldResolver,
 ) {
     let fn_name = sanitize_ident(&fixture.id);
     let description = &fixture.description;
-    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
+    let call_config = e2e_config.resolve_call_for_fixture(
+        fixture.call.as_deref(),
+        &fixture.id,
+        &fixture.resolved_category(),
+        &fixture.tags,
+        &fixture.input,
+    );
+    let call_field_resolver = FieldResolver::new(
+        e2e_config.effective_fields(call_config),
+        e2e_config.effective_fields_optional(call_config),
+        e2e_config.effective_result_fields(call_config),
+        e2e_config.effective_fields_array(call_config),
+        &std::collections::HashSet::new(),
+    );
+    let field_resolver = &call_field_resolver;
     let function_name = resolve_function_name_for_call(call_config);
     let result_var = &call_config.result_var;
 
@@ -400,7 +413,7 @@ fn emit_result_and_assertions(
         let _ = writeln!(out, "    {py_result_var} = {call_expr}");
     }
 
-    let fields_enum = &e2e_config.fields_enum;
+    let fields_enum = e2e_config.effective_fields_enum(call_config);
     let assert_enum_fields = resolve_assert_enum_fields(call_config);
     for assertion in &fixture.assertions {
         if assertion.assertion_type == "not_error" {
@@ -923,16 +936,6 @@ mod tests {
     use super::*;
     use std::collections::{HashMap, HashSet};
 
-    fn empty_resolver() -> FieldResolver {
-        FieldResolver::new(
-            &HashMap::new(),
-            &HashSet::new(),
-            &HashSet::new(),
-            &HashSet::new(),
-            &HashSet::new(),
-        )
-    }
-
     #[test]
     fn build_args_and_setup_empty_args_returns_empty_vecs() {
         use crate::fixture::Fixture;
@@ -1025,7 +1028,6 @@ mod tests {
             tags: Vec::new(),
         };
         let e2e_config = crate::config::E2eConfig::default();
-        let resolver = empty_resolver();
         let mut out = String::new();
         render_test_function(
             &mut out,
@@ -1036,7 +1038,6 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &HashSet::new(),
-            &resolver,
         );
         assert!(out.contains("pytest.mark.skip"), "got: {out}");
         assert!(out.contains("not supported"), "got: {out}");

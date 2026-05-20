@@ -142,7 +142,13 @@ impl E2eCodegen for PhpCodegen {
 
         // Check if any fixture uses file_path or bytes args (needs chdir to test_documents).
         let has_file_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| {
-            let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+            let cc = e2e_config.resolve_call_for_fixture(
+                f.call.as_deref(),
+                &f.id,
+                &f.resolved_category(),
+                &f.tags,
+                &f.input,
+            );
             cc.args
                 .iter()
                 .any(|a| a.arg_type == "file_path" || a.arg_type == "bytes")
@@ -184,17 +190,6 @@ impl E2eCodegen for PhpCodegen {
         // property — see kreuzcrawl regression where `MarkdownResult::getContent()`
         // does not exist.
         let php_enum_names: HashSet<String> = enums.iter().map(|e| e.name.clone()).collect();
-        let php_getter_map = build_php_getter_map(type_defs, &php_enum_names, call, &e2e_config.result_fields);
-
-        let field_resolver = FieldResolver::new_with_php_getters(
-            &e2e_config.fields,
-            &e2e_config.fields_optional,
-            &e2e_config.result_fields,
-            &e2e_config.fields_array,
-            &HashSet::new(),
-            &HashMap::new(),
-            php_getter_map,
-        );
 
         for group in groups {
             let active: Vec<&Fixture> = group
@@ -217,7 +212,8 @@ impl E2eCodegen for PhpCodegen {
                 &namespace,
                 &class_name,
                 &test_class,
-                &field_resolver,
+                type_defs,
+                &php_enum_names,
                 enum_fields,
                 result_is_simple,
                 php_client_factory,
@@ -512,6 +508,7 @@ require $phpunitPath;
 }
 
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 fn render_test_file(
     category: &str,
     fixtures: &[&Fixture],
@@ -520,7 +517,8 @@ fn render_test_file(
     namespace: &str,
     class_name: &str,
     test_class: &str,
-    field_resolver: &FieldResolver,
+    type_defs: &[alef_core::ir::TypeDef],
+    php_enum_names: &HashSet<String>,
     enum_fields: &HashMap<String, String>,
     result_is_simple: bool,
     php_client_factory: Option<&str>,
@@ -530,7 +528,8 @@ fn render_test_file(
 
     // Determine if any handle arg has a non-null config (needs CrawlConfig import).
     let needs_crawl_config_import = fixtures.iter().any(|f| {
-        let call = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+        let call =
+            e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
         call.args.iter().filter(|a| a.arg_type == "handle").any(|a| {
             let v = f.input.get(&a.field).unwrap_or(&serde_json::Value::Null);
             !(v.is_null() || v.is_object() && v.as_object().is_some_and(|o| o.is_empty()))
@@ -544,7 +543,13 @@ fn render_test_file(
     let mut options_type_imports: Vec<String> = fixtures
         .iter()
         .flat_map(|f| {
-            let call = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+            let call = e2e_config.resolve_call_for_fixture(
+                f.call.as_deref(),
+                &f.id,
+                &f.resolved_category(),
+                &f.tags,
+                &f.input,
+            );
             let php_override = call.overrides.get(lang);
             let opt_type = php_override.and_then(|o| o.options_type.as_deref()).or_else(|| {
                 e2e_config
@@ -590,7 +595,8 @@ fn render_test_file(
                 lang,
                 namespace,
                 class_name,
-                field_resolver,
+                type_defs,
+                php_enum_names,
                 enum_fields,
                 result_is_simple,
                 php_client_factory,
@@ -917,14 +923,38 @@ fn render_test_method(
     lang: &str,
     namespace: &str,
     class_name: &str,
-    field_resolver: &FieldResolver,
+    type_defs: &[alef_core::ir::TypeDef],
+    php_enum_names: &HashSet<String>,
     enum_fields: &HashMap<String, String>,
     result_is_simple: bool,
     php_client_factory: Option<&str>,
     options_via: &str,
 ) {
     // Resolve per-fixture call config: supports named calls via fixture.call field.
-    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
+    let call_config = e2e_config.resolve_call_for_fixture(
+        fixture.call.as_deref(),
+        &fixture.id,
+        &fixture.resolved_category(),
+        &fixture.tags,
+        &fixture.input,
+    );
+    // Build per-call PHP getter map and field resolver using the effective field sets.
+    let per_call_getter_map = build_php_getter_map(
+        type_defs,
+        php_enum_names,
+        call_config,
+        e2e_config.effective_result_fields(call_config),
+    );
+    let call_field_resolver = FieldResolver::new_with_php_getters(
+        e2e_config.effective_fields(call_config),
+        e2e_config.effective_fields_optional(call_config),
+        e2e_config.effective_result_fields(call_config),
+        e2e_config.effective_fields_array(call_config),
+        &HashSet::new(),
+        &HashMap::new(),
+        per_call_getter_map,
+    );
+    let field_resolver = &call_field_resolver;
     let call_overrides = call_config.overrides.get(lang);
     let has_override = call_overrides.is_some_and(|o| o.function.is_some());
     // Per-call result_is_simple override wins over the language-level default,

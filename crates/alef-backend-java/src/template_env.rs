@@ -52,10 +52,7 @@ static TEMPLATES: &[(&str, &str)] = &[
         "exception_class.jinja",
         include_str!("../templates/exception_class.jinja"),
     ),
-    (
-        "json_util.jinja",
-        include_str!("../templates/json_util.jinja"),
-    ),
+    ("json_util.jinja", include_str!("../templates/json_util.jinja")),
     (
         "infrastructure_exception.jinja",
         include_str!("../templates/infrastructure_exception.jinja"),

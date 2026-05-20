@@ -4371,13 +4371,11 @@ fn test_adapter_wrapper_functions() {
         trait_name: None,
         trait_method: None,
         detect_async: false,
-        params: vec![
-            AdapterParam {
-                name: "url".to_string(),
-                ty: "String".to_string(),
-                optional: false,
-            },
-        ],
+        params: vec![AdapterParam {
+            name: "url".to_string(),
+            ty: "String".to_string(),
+            optional: false,
+        }],
         skip_languages: vec![],
     }];
 
@@ -4392,7 +4390,9 @@ fn test_adapter_wrapper_functions() {
         .expect("api.py not generated");
 
     assert!(
-        api_py.content.contains("async def test_stream(engine: Handle, url: String) -> AsyncIterator[StreamEvent]:"),
+        api_py
+            .content
+            .contains("async def test_stream(engine: Handle, url: String) -> AsyncIterator[StreamEvent]:"),
         "api.py must contain adapter wrapper function signature; content:\n{}",
         api_py.content
     );

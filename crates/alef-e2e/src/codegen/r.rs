@@ -102,21 +102,7 @@ impl E2eCodegen for RCodegen {
             }
 
             let filename = format!("test_{}.R", sanitize_filename(&group.category));
-            let field_resolver = FieldResolver::new(
-                &e2e_config.fields,
-                &e2e_config.fields_optional,
-                &e2e_config.result_fields,
-                &e2e_config.fields_array,
-                &std::collections::HashSet::new(),
-            );
-            let content = render_test_file(
-                &group.category,
-                &active,
-                &field_resolver,
-                result_is_simple,
-                result_is_r_list,
-                e2e_config,
-            );
+            let content = render_test_file(&group.category, &active, result_is_simple, result_is_r_list, e2e_config);
             files.push(GeneratedFile {
                 path: output_base.join("tests").join(filename),
                 content,
@@ -221,7 +207,6 @@ fn render_test_runner(pkg_path: &str, dep_mode: crate::config::DependencyMode) -
 fn render_test_file(
     category: &str,
     fixtures: &[&Fixture],
-    field_resolver: &FieldResolver,
     result_is_simple: bool,
     result_is_r_list: bool,
     e2e_config: &E2eConfig,
@@ -232,14 +217,7 @@ fn render_test_file(
     let _ = writeln!(out);
 
     for (i, fixture) in fixtures.iter().enumerate() {
-        render_test_case(
-            &mut out,
-            fixture,
-            e2e_config,
-            field_resolver,
-            result_is_simple,
-            result_is_r_list,
-        );
+        render_test_case(&mut out, fixture, e2e_config, result_is_simple, result_is_r_list);
         if i + 1 < fixtures.len() {
             let _ = writeln!(out);
         }
@@ -259,11 +237,24 @@ fn render_test_case(
     out: &mut String,
     fixture: &Fixture,
     e2e_config: &E2eConfig,
-    field_resolver: &FieldResolver,
     default_result_is_simple: bool,
     default_result_is_r_list: bool,
 ) {
-    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
+    let call_config = e2e_config.resolve_call_for_fixture(
+        fixture.call.as_deref(),
+        &fixture.id,
+        &fixture.resolved_category(),
+        &fixture.tags,
+        &fixture.input,
+    );
+    let call_field_resolver = FieldResolver::new(
+        e2e_config.effective_fields(call_config),
+        e2e_config.effective_fields_optional(call_config),
+        e2e_config.effective_result_fields(call_config),
+        e2e_config.effective_fields_array(call_config),
+        &std::collections::HashSet::new(),
+    );
+    let field_resolver = &call_field_resolver;
     let function_name = &call_config.function;
     let result_var = &call_config.result_var;
     // Per-fixture call configs (e.g. `list_document_extractors`) may set

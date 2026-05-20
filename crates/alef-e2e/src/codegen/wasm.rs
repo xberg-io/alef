@@ -10,7 +10,7 @@
 
 use crate::config::E2eConfig;
 use crate::escape::sanitize_filename;
-use crate::field_access::FieldResolver;
+
 use crate::fixture::{Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::ResolvedCrateConfig;
@@ -142,7 +142,13 @@ impl E2eCodegen for WasmCodegen {
         // file_path / bytes args are read off disk by the generated code at runtime;
         // we add a setup.ts chdir to test_documents so relative paths resolve.
         let has_file_fixtures = active_per_group.iter().flatten().any(|f| {
-            let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+            let cc = e2e_config.resolve_call_for_fixture(
+                f.call.as_deref(),
+                &f.id,
+                &f.resolved_category(),
+                &f.tags,
+                &f.input,
+            );
             cc.args
                 .iter()
                 .any(|a| a.arg_type == "file_path" || a.arg_type == "bytes")
@@ -220,13 +226,6 @@ impl E2eCodegen for WasmCodegen {
 
         // Resolve options_type from override (e.g. `WasmExtractionConfig`).
         let options_type = overrides.and_then(|o| o.options_type.clone());
-        let field_resolver = FieldResolver::new(
-            &e2e_config.fields,
-            &e2e_config.fields_optional,
-            &e2e_config.result_fields,
-            &e2e_config.fields_array,
-            &std::collections::HashSet::new(),
-        );
 
         // Generate test files per category. We delegate the per-fixture rendering
         // to the typescript codegen (`render_test_file`), which already handles
@@ -249,7 +248,6 @@ impl E2eCodegen for WasmCodegen {
                 &function_name,
                 &e2e_config.call.args,
                 options_type.as_deref(),
-                &field_resolver,
                 client_factory,
                 e2e_config,
                 type_defs,

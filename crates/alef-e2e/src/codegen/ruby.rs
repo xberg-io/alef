@@ -16,7 +16,7 @@ use alef_core::hash::{self, CommentStyle};
 use alef_core::template_versions as tv;
 use anyhow::Result;
 use heck::ToSnakeCase;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
 
@@ -94,7 +94,13 @@ impl E2eCodegen for RubyCodegen {
 
         // Check if any fixture uses file_path or bytes args (needs chdir to test_documents).
         let has_file_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| {
-            let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+            let cc = e2e_config.resolve_call_for_fixture(
+                f.call.as_deref(),
+                &f.id,
+                &f.resolved_category(),
+                &f.tags,
+                &f.input,
+            );
             cc.args
                 .iter()
                 .any(|a| a.arg_type == "file_path" || a.arg_type == "bytes")
@@ -127,42 +133,41 @@ impl E2eCodegen for RubyCodegen {
                 continue;
             }
 
-            let field_resolver_pre = FieldResolver::new(
-                &e2e_config.fields,
-                &e2e_config.fields_optional,
-                &e2e_config.result_fields,
-                &e2e_config.fields_array,
-                &std::collections::HashSet::new(),
-            );
             // Skip the entire file if no fixture in this category produces output.
             let has_any_output = active.iter().any(|f| {
                 // HTTP tests always produce output.
                 if f.is_http_test() {
                     return true;
                 }
+                let cc = e2e_config.resolve_call_for_fixture(
+                    f.call.as_deref(),
+                    &f.id,
+                    &f.resolved_category(),
+                    &f.tags,
+                    &f.input,
+                );
+                let fr = FieldResolver::new(
+                    e2e_config.effective_fields(cc),
+                    e2e_config.effective_fields_optional(cc),
+                    e2e_config.effective_result_fields(cc),
+                    e2e_config.effective_fields_array(cc),
+                    &std::collections::HashSet::new(),
+                );
                 let expects_error = f.assertions.iter().any(|a| a.assertion_type == "error");
                 let has_not_error = f.assertions.iter().any(|a| a.assertion_type == "not_error");
-                expects_error || has_not_error || has_usable_assertion(f, &field_resolver_pre, result_is_simple)
+                expects_error || has_not_error || has_usable_assertion(f, &fr, result_is_simple)
             });
             if !has_any_output {
                 continue;
             }
 
             let filename = format!("{}_spec.rb", sanitize_filename(&group.category));
-            let field_resolver = FieldResolver::new(
-                &e2e_config.fields,
-                &e2e_config.fields_optional,
-                &e2e_config.result_fields,
-                &e2e_config.fields_array,
-                &std::collections::HashSet::new(),
-            );
             let content = render_spec_file(
                 &group.category,
                 &active,
                 &module_path,
                 class_name.as_deref(),
                 &gem_name,
-                &field_resolver,
                 options_type.as_deref(),
                 enum_fields,
                 result_is_simple,
@@ -297,7 +302,6 @@ fn render_spec_file(
     module_path: &str,
     class_name: Option<&str>,
     gem_name: &str,
-    field_resolver: &FieldResolver,
     options_type: Option<&str>,
     enum_fields: &HashMap<String, String>,
     result_is_simple: bool,
@@ -326,11 +330,25 @@ fn render_spec_file(
 
     // Check for array contains assertions
     let has_array_contains = fixtures.iter().any(|fixture| {
+        let cc = e2e_config.resolve_call_for_fixture(
+            fixture.call.as_deref(),
+            &fixture.id,
+            &fixture.resolved_category(),
+            &fixture.tags,
+            &fixture.input,
+        );
+        let fr = FieldResolver::new(
+            e2e_config.effective_fields(cc),
+            e2e_config.effective_fields_optional(cc),
+            e2e_config.effective_result_fields(cc),
+            e2e_config.effective_fields_array(cc),
+            &std::collections::HashSet::new(),
+        );
         fixture.assertions.iter().any(|a| {
             matches!(a.assertion_type.as_str(), "contains" | "contains_all" | "not_contains")
                 && a.field
                     .as_deref()
-                    .is_some_and(|f| !f.is_empty() && field_resolver.is_array(field_resolver.resolve(f)))
+                    .is_some_and(|f| !f.is_empty() && fr.is_array(fr.resolve(f)))
         })
     });
 
@@ -344,7 +362,22 @@ fn render_spec_file(
             examples.push(out);
         } else {
             // Resolve per-fixture call config so we can detect streaming up front.
-            let fixture_call = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
+            let fixture_call = e2e_config.resolve_call_for_fixture(
+                fixture.call.as_deref(),
+                &fixture.id,
+                &fixture.resolved_category(),
+                &fixture.tags,
+                &fixture.input,
+            );
+            // Build per-call field resolver using the effective field sets for this call.
+            let fixture_call_resolver = FieldResolver::new(
+                e2e_config.effective_fields(fixture_call),
+                e2e_config.effective_fields_optional(fixture_call),
+                e2e_config.effective_result_fields(fixture_call),
+                e2e_config.effective_fields_array(fixture_call),
+                &std::collections::HashSet::new(),
+            );
+            let field_resolver = &fixture_call_resolver;
             let fixture_call_overrides = fixture_call.overrides.get("ruby");
             let raw_function_name = fixture_call_overrides
                 .and_then(|o| o.function.as_ref())
@@ -423,6 +456,7 @@ fn render_spec_file(
                         field_resolver,
                         fixture_options_type,
                         fixture_enum_fields,
+                        e2e_config.effective_fields_enum(fixture_call),
                         fixture_result_is_simple,
                         fixture_call.returns_void,
                         e2e_config,
@@ -1004,6 +1038,7 @@ fn render_example(
     field_resolver: &FieldResolver,
     options_type: Option<&str>,
     enum_fields: &HashMap<String, String>,
+    fields_enum: &HashSet<String>,
     result_is_simple: bool,
     returns_void: bool,
     e2e_config: &E2eConfig,
@@ -1070,6 +1105,7 @@ fn render_example(
             field_resolver,
             result_is_simple,
             e2e_config,
+            fields_enum,
             enum_fields,
         );
     }
@@ -1377,6 +1413,7 @@ fn render_assertion(
     field_resolver: &FieldResolver,
     result_is_simple: bool,
     e2e_config: &E2eConfig,
+    fields_enum: &HashSet<String>,
     per_call_enum_fields: &HashMap<String, String>,
 ) {
     // For simple-result methods (e.g. `speech` returning bytes), every field-based
@@ -1594,8 +1631,8 @@ fn render_assertion(
     // Java/C#/Python sides should apply here too without a Ruby-only duplicate.
     let field_is_enum = assertion.field.as_deref().filter(|f| !f.is_empty()).is_some_and(|f| {
         let resolved = field_resolver.resolve(f);
-        e2e_config.fields_enum.contains(f)
-            || e2e_config.fields_enum.contains(resolved)
+        fields_enum.contains(f)
+            || fields_enum.contains(resolved)
             || per_call_enum_fields.contains_key(f)
             || per_call_enum_fields.contains_key(resolved)
     });

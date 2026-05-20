@@ -165,13 +165,6 @@ impl E2eCodegen for GleamE2eCodegen {
             }
 
             let filename = format!("{}_test.gleam", sanitize_filename(&group.category));
-            let field_resolver = FieldResolver::new(
-                &e2e_config.fields,
-                &e2e_config.fields_optional,
-                &e2e_config.result_fields,
-                &e2e_config.fields_array,
-                &e2e_config.fields_method_calls,
-            );
             // Look up gleam-specific config for element_type → record-constructor
             // recipes. Empty slice when the downstream hasn't configured any.
             let element_constructors: &[alef_core::config::GleamElementConstructor] = config
@@ -191,8 +184,6 @@ impl E2eCodegen for GleamE2eCodegen {
                 &function_name,
                 result_var,
                 &e2e_config.call.args,
-                &field_resolver,
-                &e2e_config.fields_enum,
                 element_constructors,
                 json_object_wrapper,
             );
@@ -305,8 +296,6 @@ fn render_test_file(
     function_name: &str,
     result_var: &str,
     args: &[crate::config::ArgMapping],
-    field_resolver: &FieldResolver,
-    enum_fields: &HashSet<String>,
     element_constructors: &[alef_core::config::GleamElementConstructor],
     json_object_wrapper: Option<&str>,
 ) -> String {
@@ -337,7 +326,13 @@ fn render_test_file(
         // mock_url args use envoy.get("MOCK_SERVER_URL") — need envoy import.
         let needs_envoy_for_binding = !has_http_fixtures
             && fixtures.iter().filter(|f| !f.is_http_test()).any(|f| {
-                let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+                let cc = e2e_config.resolve_call_for_fixture(
+                    f.call.as_deref(),
+                    &f.id,
+                    &f.resolved_category(),
+                    &f.tags,
+                    &f.input,
+                );
                 cc.args.iter().any(|a| a.arg_type == "mock_url")
             });
         if needs_envoy_for_binding {
@@ -355,7 +350,21 @@ fn render_test_file(
             continue; // Skip HTTP fixtures for assertion analysis.
         }
         // Determine if any args use `bytes` arg type — requires e2e_gleam file reader.
-        let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
+        let call_config = e2e_config.resolve_call_for_fixture(
+            fixture.call.as_deref(),
+            &fixture.id,
+            &fixture.resolved_category(),
+            &fixture.tags,
+            &fixture.input,
+        );
+        let call_field_resolver = FieldResolver::new(
+            e2e_config.effective_fields(call_config),
+            e2e_config.effective_fields_optional(call_config),
+            e2e_config.effective_result_fields(call_config),
+            e2e_config.effective_fields_array(call_config),
+            e2e_config.effective_fields_method_calls(call_config),
+        );
+        let field_resolver = &call_field_resolver;
         let has_bytes_arg = call_config.args.iter().any(|a| a.arg_type == "bytes");
         // Optional string args emit option.Some(...)/option.None — need option import.
         let has_optional_string_arg = call_config.args.iter().any(|a| a.arg_type == "string" && a.optional);
@@ -513,8 +522,6 @@ fn render_test_file(
                 function_name,
                 result_var,
                 args,
-                field_resolver,
-                enum_fields,
                 element_constructors,
                 json_object_wrapper,
             );
@@ -755,13 +762,27 @@ fn render_test_case(
     _function_name: &str,
     _result_var: &str,
     _args: &[crate::config::ArgMapping],
-    field_resolver: &FieldResolver,
-    enum_fields: &HashSet<String>,
     element_constructors: &[alef_core::config::GleamElementConstructor],
     json_object_wrapper: Option<&str>,
 ) {
     // Resolve per-fixture call config.
-    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
+    let call_config = e2e_config.resolve_call_for_fixture(
+        fixture.call.as_deref(),
+        &fixture.id,
+        &fixture.resolved_category(),
+        &fixture.tags,
+        &fixture.input,
+    );
+    // Build per-call field resolver using the effective field sets for this call.
+    let call_field_resolver = FieldResolver::new(
+        e2e_config.effective_fields(call_config),
+        e2e_config.effective_fields_optional(call_config),
+        e2e_config.effective_result_fields(call_config),
+        e2e_config.effective_fields_array(call_config),
+        e2e_config.effective_fields_method_calls(call_config),
+    );
+    let field_resolver = &call_field_resolver;
+    let enum_fields = e2e_config.effective_fields_enum(call_config);
     let lang = "gleam";
     let call_overrides = call_config.overrides.get(lang);
     let function_name = call_overrides

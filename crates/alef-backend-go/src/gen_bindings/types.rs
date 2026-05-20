@@ -1625,13 +1625,14 @@ fn go_return_expr_inner(
 ) -> String {
     match ty {
         TypeRef::Primitive(prim) => match prim {
-            alef_core::ir::PrimitiveType::Bool => {
-                format!("func() *bool {{ v := {} != 0; return &v }}()", var_name)
-            }
+            alef_core::ir::PrimitiveType::Bool => format!("{var_name} != 0"),
             _ => {
-                // Numeric primitives: cast and take address
+                // Numeric primitives: plain cast. Non-Optional fallible methods use this
+                // expression in the value position of `return value, nil`; Optional(Primitive)
+                // returns wrap this in a `func() *T { v := <expr>; return &v }()` closure
+                // (handled in the Optional branch below).
                 let go_ty = go_type(ty);
-                format!("func() *{go_ty} {{ v := {go_ty}({var_name}); return &v }}()")
+                format!("{go_ty}({var_name})")
             }
         },
         TypeRef::Named(name) => {
@@ -1680,7 +1681,19 @@ fn go_return_expr_inner(
         TypeRef::Bytes => {
             format!("unmarshalBytes({})", var_name)
         }
-        TypeRef::Optional(inner) => go_return_expr_inner(inner, var_name, ffi_prefix, opaque_names, _value_only_types),
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            // Optional(Primitive): wrap the plain primitive expression in a closure that
+            // takes its address. The Primitive branch above emits plain `T(var)` / `var != 0`,
+            // which would be a value (not a pointer); Optional callers want `*T`.
+            TypeRef::Primitive(alef_core::ir::PrimitiveType::Bool) => {
+                format!("func() *bool {{ v := {var_name} != 0; return &v }}()")
+            }
+            TypeRef::Primitive(_) => {
+                let go_ty = go_type(inner);
+                format!("func() *{go_ty} {{ v := {go_ty}({var_name}); return &v }}()")
+            }
+            _ => go_return_expr_inner(inner, var_name, ffi_prefix, opaque_names, _value_only_types),
+        },
         TypeRef::Vec(inner) => {
             // Vec types are returned as JSON strings from FFI. Deserialize inline.
             // Return []T (not *[]T) — slices are already reference types in Go.

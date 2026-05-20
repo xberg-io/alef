@@ -105,10 +105,22 @@ impl E2eCodegen for GoCodegen {
                     ) && {
                         if a.field.as_ref().is_none_or(|f| f.is_empty()) {
                             e2e_config
-                                .resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input)
+                                .resolve_call_for_fixture(
+                                    f.call.as_deref(),
+                                    &f.id,
+                                    &f.resolved_category(),
+                                    &f.tags,
+                                    &f.input,
+                                )
                                 .result_is_array
                         } else {
-                            let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+                            let cc = e2e_config.resolve_call_for_fixture(
+                                f.call.as_deref(),
+                                &f.id,
+                                &f.resolved_category(),
+                                &f.tags,
+                                &f.input,
+                            );
                             let per_call_resolver = FieldResolver::new(
                                 e2e_config.effective_fields(cc),
                                 e2e_config.effective_fields_optional(cc),
@@ -149,7 +161,13 @@ impl E2eCodegen for GoCodegen {
                 if f.needs_mock_server() {
                     return true;
                 }
-                let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+                let cc = e2e_config.resolve_call_for_fixture(
+                    f.call.as_deref(),
+                    &f.id,
+                    &f.resolved_category(),
+                    &f.tags,
+                    &f.input,
+                );
                 let go_override = cc.overrides.get("go").or_else(|| e2e_config.call.overrides.get("go"));
                 go_override.and_then(|o| o.client_factory.as_deref()).is_some()
             });
@@ -175,13 +193,7 @@ impl E2eCodegen for GoCodegen {
             }
 
             let filename = format!("{}_test.go", sanitize_filename(&group.category));
-            let content = render_test_file(
-                &group.category,
-                &active,
-                &module_path,
-                &import_alias,
-                e2e_config,
-            );
+            let content = render_test_file(&group.category, &active, &module_path, &import_alias, e2e_config);
             files.push(GeneratedFile {
                 path: output_base.join(filename),
                 content,
@@ -430,7 +442,8 @@ fn render_test_file(
         if !emits_executable_test(f) {
             return false;
         }
-        let call_config = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+        let call_config =
+            e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
         let go_override = call_config
             .overrides
             .get("go")
@@ -478,11 +491,23 @@ fn render_test_file(
                     if a.field.as_ref().is_none_or(|f| f.is_empty()) {
                         // No field specified: check if result is an array
                         e2e_config
-                            .resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input)
+                            .resolve_call_for_fixture(
+                                f.call.as_deref(),
+                                &f.id,
+                                &f.resolved_category(),
+                                &f.tags,
+                                &f.input,
+                            )
                             .result_is_array
                     } else {
                         // Field specified: check if that field is an array
-                        let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+                        let cc = e2e_config.resolve_call_for_fixture(
+                            f.call.as_deref(),
+                            &f.id,
+                            &f.resolved_category(),
+                            &f.tags,
+                            &f.input,
+                        );
                         let per_call_resolver = FieldResolver::new(
                             e2e_config.effective_fields(cc),
                             e2e_config.effective_fields_optional(cc),
@@ -523,7 +548,8 @@ fn render_test_file(
             return false;
         }
 
-        let call = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+        let call =
+            e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
         let call_args = &call.args;
         // handle args with non-null config value
         let has_handle = call_args.iter().any(|a| a.arg_type == "handle") && {
@@ -592,14 +618,26 @@ fn render_test_file(
                     if a.field.as_ref().is_none_or(|f| f.is_empty()) {
                         // No field: fmt.Sprint only if result is not an array
                         !e2e_config
-                            .resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input)
+                            .resolve_call_for_fixture(
+                                f.call.as_deref(),
+                                &f.id,
+                                &f.resolved_category(),
+                                &f.tags,
+                                &f.input,
+                            )
                             .result_is_array
                     } else {
                         // Field specified: fmt.Sprint only if that field is not an array
                         // and the field is actually valid for the result type (otherwise
                         // the assertion is skipped and fmt.Sprint is never emitted).
                         let field = a.field.as_deref().unwrap_or("");
-                        let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+                        let cc = e2e_config.resolve_call_for_fixture(
+                            f.call.as_deref(),
+                            &f.id,
+                            &f.resolved_category(),
+                            &f.tags,
+                            &f.input,
+                        );
                         let per_call_resolver = FieldResolver::new(
                             e2e_config.effective_fields(cc),
                             e2e_config.effective_fields_optional(cc),
@@ -620,7 +658,8 @@ fn render_test_file(
         if !emits_executable_test(f) {
             return false;
         }
-        let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+        let cc =
+            e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
         let per_call_resolver = FieldResolver::new(
             e2e_config.effective_fields(cc),
             e2e_config.effective_fields_optional(cc),
@@ -663,7 +702,8 @@ fn render_test_file(
         // accessor table, not the result type. Treat any streaming-virtual field
         // reference as `field_valid`.
         let is_streaming_fixture = f.is_streaming_mock();
-        let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+        let cc =
+            e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
         let per_call_resolver = FieldResolver::new(
             e2e_config.effective_fields(cc),
             e2e_config.effective_fields_optional(cc),
@@ -812,7 +852,13 @@ fn fixture_has_go_callable(fixture: &Fixture, e2e_config: &crate::config::E2eCon
     if fixture.is_http_test() {
         return false;
     }
-    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
+    let call_config = e2e_config.resolve_call_for_fixture(
+        fixture.call.as_deref(),
+        &fixture.id,
+        &fixture.resolved_category(),
+        &fixture.tags,
+        &fixture.input,
+    );
     // Honor per-call `skip_languages`: when the resolved call's `skip_languages`
     // contains `"go"`, the Go binding doesn't expose this function.
     if call_config.skip_languages.iter().any(|l| l == "go") {
@@ -868,7 +914,13 @@ fn render_test_function(
     }
 
     // Resolve call config per-fixture (supports named calls via fixture.call).
-    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
+    let call_config = e2e_config.resolve_call_for_fixture(
+        fixture.call.as_deref(),
+        &fixture.id,
+        &fixture.resolved_category(),
+        &fixture.tags,
+        &fixture.input,
+    );
     // Per-call field resolver: uses effective fields/result_fields from the resolved call.
     let call_field_resolver = FieldResolver::new(
         e2e_config.effective_fields(call_config),
@@ -3370,7 +3422,6 @@ fn method_to_camel(snake: &str) -> String {
 mod tests {
     use super::*;
     use crate::config::{CallConfig, E2eConfig};
-    use crate::field_access::FieldResolver;
     use crate::fixture::{Assertion, Fixture};
 
     fn make_fixture(id: &str) -> Fixture {
@@ -3416,15 +3467,8 @@ mod tests {
         };
 
         let fixture = make_fixture("basic_text");
-        let resolver = FieldResolver::new(
-            &std::collections::HashMap::new(),
-            &std::collections::HashSet::new(),
-            &std::collections::HashSet::new(),
-            &std::collections::HashSet::new(),
-            &std::collections::HashSet::new(),
-        );
         let mut out = String::new();
-        render_test_function(&mut out, &fixture, "kreuzberg", &resolver, &e2e_config);
+        render_test_function(&mut out, &fixture, "kreuzberg", &e2e_config);
 
         assert!(
             out.contains("kreuzberg.CleanExtractedText("),
@@ -3467,16 +3511,8 @@ mod tests {
             ..E2eConfig::default()
         };
 
-        let resolver = FieldResolver::new(
-            &std::collections::HashMap::new(),
-            &std::collections::HashSet::new(),
-            &std::collections::HashSet::new(),
-            &std::collections::HashSet::new(),
-            &std::collections::HashSet::new(),
-        );
-
         let mut out = String::new();
-        render_test_function(&mut out, &fixture, "pkg", &resolver, &e2e_config);
+        render_test_function(&mut out, &fixture, "pkg", &e2e_config);
 
         assert!(out.contains("stream, err :="), "should use stream binding, got:\n{out}");
         assert!(
@@ -3537,16 +3573,8 @@ mod tests {
             ..E2eConfig::default()
         };
 
-        let resolver = FieldResolver::new(
-            &std::collections::HashMap::new(),
-            &std::collections::HashSet::new(),
-            &std::collections::HashSet::new(),
-            &std::collections::HashSet::new(),
-            &std::collections::HashSet::new(),
-        );
-
         let mut out = String::new();
-        render_test_function(&mut out, &fixture, "pkg", &resolver, &e2e_config);
+        render_test_function(&mut out, &fixture, "pkg", &e2e_config);
 
         eprintln!("generated:\n{out}");
         assert!(out.contains("stream, err :="), "should use stream binding, got:\n{out}");
@@ -3561,6 +3589,11 @@ mod tests {
     /// `result.Segments[0] != nil`, which is a compile error for a value-typed element.
     #[test]
     fn test_indexed_element_prefix_guard_uses_array_not_element() {
+        let mut optional_fields = std::collections::HashSet::new();
+        optional_fields.insert("segments".to_string());
+        let mut array_fields = std::collections::HashSet::new();
+        array_fields.insert("segments".to_string());
+
         let e2e_config = E2eConfig {
             call: CallConfig {
                 function: "transcribe".to_string(),
@@ -3569,6 +3602,8 @@ mod tests {
                 returns_result: true,
                 ..CallConfig::default()
             },
+            fields_optional: optional_fields,
+            fields_array: array_fields,
             ..E2eConfig::default()
         };
 
@@ -3604,23 +3639,8 @@ mod tests {
             visitor: None,
         };
 
-        let mut optional_fields = std::collections::HashSet::new();
-        // segments is Option<Vec<TranscriptionSegment>> — the whole field is optional.
-        optional_fields.insert("segments".to_string());
-
-        let mut array_fields = std::collections::HashSet::new();
-        array_fields.insert("segments".to_string());
-
-        let resolver = FieldResolver::new(
-            &std::collections::HashMap::new(),
-            &optional_fields,
-            &array_fields,
-            &std::collections::HashSet::new(),
-            &std::collections::HashSet::new(),
-        );
-
         let mut out = String::new();
-        render_test_function(&mut out, &fixture, "pkg", &resolver, &e2e_config);
+        render_test_function(&mut out, &fixture, "pkg", &e2e_config);
 
         eprintln!("generated:\n{out}");
 

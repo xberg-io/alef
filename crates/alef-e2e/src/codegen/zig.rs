@@ -76,13 +76,6 @@ impl E2eCodegen for ZigE2eCodegen {
         let ffi_prefix = config.ffi_prefix();
 
         // Generate build.zig - collect test file names first.
-        let field_resolver = FieldResolver::new(
-            &e2e_config.fields,
-            &e2e_config.fields_optional,
-            &e2e_config.result_fields,
-            &e2e_config.fields_array,
-            &e2e_config.fields_method_calls,
-        );
 
         // Whether any active fixture uses file-based args (`file_path` or
         // `bytes`). Only when true do the generated tests need the working
@@ -92,7 +85,13 @@ impl E2eCodegen for ZigE2eCodegen {
         // `FileNotFound` at spawn time because zig tries to `chdir` into a
         // directory that does not exist before execing the test binary.
         let has_file_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| {
-            let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+            let cc = e2e_config.resolve_call_for_fixture(
+                f.call.as_deref(),
+                &f.id,
+                &f.resolved_category(),
+                &f.tags,
+                &f.input,
+            );
             cc.args
                 .iter()
                 .any(|a| a.arg_type == "file_path" || a.arg_type == "bytes")
@@ -120,8 +119,6 @@ impl E2eCodegen for ZigE2eCodegen {
                 &function_name,
                 result_var,
                 &e2e_config.call.args,
-                &field_resolver,
-                &e2e_config.fields_enum,
                 &module_name,
                 &ffi_prefix,
             );
@@ -552,8 +549,6 @@ fn render_test_file(
     function_name: &str,
     result_var: &str,
     args: &[crate::config::ArgMapping],
-    field_resolver: &FieldResolver,
-    enum_fields: &HashSet<String>,
     module_name: &str,
     ffi_prefix: &str,
 ) -> String {
@@ -578,8 +573,6 @@ fn render_test_file(
                 function_name,
                 result_var,
                 args,
-                field_resolver,
-                enum_fields,
                 module_name,
                 ffi_prefix,
             );
@@ -598,13 +591,26 @@ fn render_test_fn(
     _function_name: &str,
     _result_var: &str,
     _args: &[crate::config::ArgMapping],
-    field_resolver: &FieldResolver,
-    enum_fields: &HashSet<String>,
     module_name: &str,
     ffi_prefix: &str,
 ) {
     // Resolve per-fixture call config.
-    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
+    let call_config = e2e_config.resolve_call_for_fixture(
+        fixture.call.as_deref(),
+        &fixture.id,
+        &fixture.resolved_category(),
+        &fixture.tags,
+        &fixture.input,
+    );
+    let call_field_resolver = FieldResolver::new(
+        e2e_config.effective_fields(call_config),
+        e2e_config.effective_fields_optional(call_config),
+        e2e_config.effective_result_fields(call_config),
+        e2e_config.effective_fields_array(call_config),
+        e2e_config.effective_fields_method_calls(call_config),
+    );
+    let field_resolver = &call_field_resolver;
+    let enum_fields = e2e_config.effective_fields_enum(call_config);
     let lang = "zig";
     let call_overrides = call_config.overrides.get(lang);
     let function_name = call_overrides

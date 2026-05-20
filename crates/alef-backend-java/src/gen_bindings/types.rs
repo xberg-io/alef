@@ -1931,7 +1931,9 @@ fn gen_builder_nested_class(typ: &TypeDef, has_visitor_pattern: bool) -> String 
         }
         body.push_str(&field_type);
         body.push_str(" value) {\n");
-        if is_visitor_field {
+        if is_visitor_field || field.optional {
+            // Builder stores optional fields as Optional<T> (see field declaration above);
+            // the setter accepts a plain @Nullable T for ergonomics, so wrap here.
             body.push_str("            this.");
             body.push_str(&field_name);
             body.push_str(" = Optional.ofNullable(value);\n");

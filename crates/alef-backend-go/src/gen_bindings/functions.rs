@@ -91,11 +91,19 @@ pub(super) fn gen_function_wrapper(
     } else if can_return_error {
         if matches!(func.return_type, TypeRef::Unit) {
             "error".to_string()
+        } else if matches!(func.return_type, TypeRef::Primitive(_) | TypeRef::Duration) {
+            // Mirror methods.rs: plain scalar primitives use value-form `(T, error)` because
+            // `go_return_expr` emits value expressions for primitives (`ptr != 0`, `uint(ptr)`).
+            format!("({}, error)", go_type(&func.return_type))
         } else {
             format!("({}, error)", go_optional_type(&func.return_type))
         }
     } else if matches!(func.return_type, TypeRef::Unit) {
         "".to_string()
+    } else if matches!(func.return_type, TypeRef::Primitive(_) | TypeRef::Duration) {
+        // Same value-form convention as the error-returning branch above — `go_return_expr`
+        // produces a plain value for primitives, so the signature must use the value type.
+        go_type(&func.return_type).into_owned()
     } else {
         go_optional_type(&func.return_type).into_owned()
     };
@@ -146,13 +154,18 @@ pub(super) fn gen_function_wrapper(
     // Convert parameters
     // Note: can_return_error is set above (includes synthesized error for marshal-requiring params).
     let returns_value_and_error = can_return_error && !matches!(func.return_type, TypeRef::Unit);
+    let param_err_return_prefix: String = if returns_value_and_error {
+        format!("{}, ", crate::type_map::go_zero_value(&func.return_type))
+    } else {
+        String::new()
+    };
     for param in func.params.iter() {
         if is_bridge_param(param, bridge_param_names, bridge_type_aliases) {
             continue;
         }
         out.push_str(&gen_param_to_c(
             param,
-            returns_value_and_error,
+            &param_err_return_prefix,
             can_return_error,
             ffi_prefix,
             opaque_names,
@@ -268,7 +281,12 @@ pub(super) fn gen_function_wrapper(
                     ));
                     out.push_str("\t\t}\n");
                 }
-                out.push_str("\t\treturn nil, err\n");
+                // Use the type-appropriate zero value: `nil` for pointer/slice/Named returns,
+                // `0`/`false`/`""` for scalar Primitive/Duration value-form returns.
+                out.push_str(&format!(
+                    "\t\treturn {}, err\n",
+                    crate::type_map::go_zero_value(&func.return_type)
+                ));
                 out.push_str("\t}\n");
             }
             // Free the FFI-allocated string after unmarshaling.

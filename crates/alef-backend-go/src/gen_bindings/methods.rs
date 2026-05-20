@@ -1,6 +1,6 @@
 use super::functions::{is_bytes_result_method, params_require_marshal};
 use super::types::{cgo_type_for_primitive, emit_type_doc, go_return_expr, primitive_max_sentinel};
-use crate::type_map::{go_optional_type, go_type};
+use crate::type_map::{go_optional_type, go_type, go_zero_value};
 use alef_codegen::naming::{go_param_name, go_type_name, to_go_name};
 use alef_core::ir::{MethodDef, ParamDef, TypeDef, TypeRef};
 use heck::ToSnakeCase;
@@ -68,7 +68,8 @@ pub(super) fn gen_streaming_method_wrapper(
     for param in &method.params {
         out.push_str(&gen_param_to_c(
             param,
-            /* returns_value_and_error = */ true,
+            /* err_return_prefix = */
+            "nil, ", // streaming returns (<-chan T, error); channel zero-value is nil
             /* can_return_error = */ true,
             ffi_prefix,
             opaque_names,
@@ -158,10 +159,27 @@ pub(super) fn gen_method_wrapper(
         if matches!(method.return_type, TypeRef::Unit) {
             "error".to_string()
         } else {
-            format!("({}, error)", go_optional_type(&method.return_type))
+            // Plain scalar primitives stay scalar in the (value, error) tuple — wrapping in
+            // a nullable pointer would leak Rust Option<T> semantics into the Go API even
+            // though the Rust source returns the value unconditionally.
+            // Named / String / Json / Optional / reference types keep go_optional_type
+            // because their conversion bodies produce pointer/slice values and the signature
+            // must match.
+            let ret_go_type = if matches!(method.return_type, TypeRef::Primitive(_) | TypeRef::Duration) {
+                go_type(&method.return_type).into_owned()
+            } else {
+                go_optional_type(&method.return_type).into_owned()
+            };
+            format!("({}, error)", ret_go_type)
         }
     } else if matches!(method.return_type, TypeRef::Unit) {
         "".to_string()
+    } else if matches!(method.return_type, TypeRef::Primitive(_) | TypeRef::Duration) {
+        // Mirrors the value-form scalar-return condition in the `method_can_return_error`
+        // branch above. The body emitter (`go_return_expr` in `types.rs`) produces a plain
+        // value expression for `TypeRef::Primitive` (e.g. `ptr != 0`, `uint(ptr)`), so the
+        // signature must use the value type — `*bool`/`*uint` here would mismatch the body.
+        go_type(&method.return_type).into_owned()
     } else {
         go_optional_type(&method.return_type).into_owned()
     };
@@ -227,10 +245,15 @@ pub(super) fn gen_method_wrapper(
         // Synchronous method - just convert params and call FFI
         // Note: method_can_return_error is set above (includes synthesized error for marshal-requiring methods).
         let returns_value_and_error = method_can_return_error && !matches!(method.return_type, TypeRef::Unit);
+        let param_err_return_prefix: String = if returns_value_and_error {
+            format!("{}, ", go_zero_value(&method.return_type))
+        } else {
+            String::new()
+        };
         for param in &method.params {
             out.push_str(&gen_param_to_c(
                 param,
-                returns_value_and_error,
+                &param_err_return_prefix,
                 method_can_return_error,
                 ffi_prefix,
                 opaque_names,
@@ -288,7 +311,14 @@ pub(super) fn gen_method_wrapper(
             }
         } else {
             // Non-opaque structs: marshal to JSON, create a temporary handle, use it, and free it.
-            let err_prefix = if returns_value_and_error { "nil, " } else { "" };
+            // err_prefix is the leading "<zero>, " in `return <zero>, fmt.Errorf(...)` early returns.
+            // For (value, error) signatures the zero value depends on the value type — `nil` for
+            // pointer/slice/map/Named, `0`/`false`/`""` for plain primitives/strings/bools.
+            let err_prefix = if returns_value_and_error {
+                format!("{}, ", go_zero_value(&method.return_type))
+            } else {
+                String::new()
+            };
             // method_can_return_error is always true here (receiver_requires_marshal is true for
             // non-opaque non-static methods), so we always emit fmt.Errorf, never panic.
             let err_action = format!("return {err_prefix}fmt.Errorf(\"failed to marshal receiver: %w\", err)");
@@ -396,7 +426,9 @@ pub(super) fn gen_method_wrapper(
                         ));
                         out.push_str("\t\t}\n");
                     }
-                    out.push_str("\t\treturn nil, err\n");
+                    // Use the type-appropriate zero value: `nil` for pointer/slice/Named returns,
+                    // `0`/`false`/`""` for scalar Primitive/Duration value-form returns.
+                    out.push_str(&format!("\t\treturn {}, err\n", go_zero_value(&method.return_type)));
                     out.push_str("\t}\n");
                 }
                 // Free the FFI-allocated string after unmarshaling.
@@ -530,13 +562,15 @@ pub(super) fn gen_method_wrapper(
 }
 
 /// Generate parameter conversion code from Go to C.
-/// `returns_value_and_error` should be true when the enclosing function returns `(*T, error)`,
-/// so that error paths emit `return nil, fmt.Errorf(...)` instead of `return fmt.Errorf(...)`.
+/// `err_return_prefix` is the leading `"<zero>, "` (or `""` for value-less returns) prepended to
+/// every `return ... fmt.Errorf(...)` early exit. Callers compute it from the enclosing function's
+/// return type — `"nil, "` for pointer/slice/channel returns, `"0, "` / `"false, "` / `"\"\", "`
+/// for plain primitive/string returns, and `""` when the function only returns `error`.
 /// `can_return_error` should be true when the enclosing function has `error` in its return type.
 /// When false, marshal failures are handled with `panic` since the function signature has no error return.
 pub(super) fn gen_param_to_c(
     param: &ParamDef,
-    returns_value_and_error: bool,
+    err_return_prefix: &str,
     can_return_error: bool,
     ffi_prefix: &str,
     opaque_names: &std::collections::HashSet<&str>,
@@ -546,7 +580,6 @@ pub(super) fn gen_param_to_c(
     // temporaries use the same stem with acronym uppercasing applied.
     let go_param = go_param_name(&param.name);
     let c_name = go_param_name(&format!("c_{}", param.name));
-    let err_return_prefix = if returns_value_and_error { "nil, " } else { "" };
 
     match &param.ty {
         TypeRef::String | TypeRef::Char => {
@@ -901,7 +934,7 @@ mod tests {
     fn test_gen_param_to_c_string_param_emits_cstring() {
         let param = simple_param("name", TypeRef::String);
         let opaque: std::collections::HashSet<&str> = std::collections::HashSet::new();
-        let out = gen_param_to_c(&param, false, false, "krz", &opaque);
+        let out = gen_param_to_c(&param, "", false, "krz", &opaque);
         assert!(out.contains("C.CString("));
         assert!(out.contains("defer C.free("));
     }
@@ -910,7 +943,7 @@ mod tests {
     fn test_gen_param_to_c_primitive_u64_emits_cgo_cast() {
         let param = simple_param("count", TypeRef::Primitive(PrimitiveType::U64));
         let opaque: std::collections::HashSet<&str> = std::collections::HashSet::new();
-        let out = gen_param_to_c(&param, false, false, "krz", &opaque);
+        let out = gen_param_to_c(&param, "", false, "krz", &opaque);
         assert!(out.contains("C.uint64_t("));
     }
 

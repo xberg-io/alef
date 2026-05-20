@@ -1123,6 +1123,7 @@ pub(crate) fn emit_streaming_adapter_shims(
              /// `Option<OpaqueRust>` support varies across versions, while `Result<String,\n\
              /// String>` is well-tested. An empty string `\"\"` is the EOF sentinel —\n\
              /// no valid JSON value is the empty string.\n\
+             #[allow(clippy::type_complexity)]\n\
              pub struct {handle_name} {{\n\
              \x20   rt: ::tokio::runtime::Runtime,\n\
              \x20   stream: ::std::sync::Mutex<\n\
@@ -1170,8 +1171,12 @@ pub(crate) fn emit_streaming_adapter_shims(
         ));
 
         // The `next` method on the handle drives the stream forward.
+        // #[allow(clippy::should_implement_trait)] — the method name `next` deliberately
+        // mirrors `Iterator::next` for ergonomic parity, but the signature is fallible
+        // (`Result<String, String>`) so it cannot implement the trait directly.
         out.push_str(&format!(
-            "impl {handle_name} {{\n\
+            "#[allow(clippy::should_implement_trait)]\n\
+             impl {handle_name} {{\n\
              \x20   /// Advance the stream and return the next chunk JSON, or `\"\"` on clean\n\
              \x20   /// end-of-stream. Returns `Err(message)` on a stream-level error.\n\
              \x20   pub fn next(&mut self) -> Result<String, String> {{\n\

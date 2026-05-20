@@ -1178,28 +1178,40 @@ mod tests {
 
     #[test]
     fn select_when_category_matches_exactly() {
-        let sel = SelectWhen { category: Some("crawl".to_string()), ..Default::default() };
+        let sel = SelectWhen {
+            category: Some("crawl".to_string()),
+            ..Default::default()
+        };
         assert!(sel.matches("any_id", "crawl", &[], &serde_json::Value::Null));
         assert!(!sel.matches("any_id", "scrape", &[], &serde_json::Value::Null));
     }
 
     #[test]
     fn select_when_id_prefix_matches() {
-        let sel = SelectWhen { id_prefix: Some("batch_crawl_".to_string()), ..Default::default() };
+        let sel = SelectWhen {
+            id_prefix: Some("batch_crawl_".to_string()),
+            ..Default::default()
+        };
         assert!(sel.matches("batch_crawl_events", "any", &[], &serde_json::Value::Null));
         assert!(!sel.matches("batch_scrape_basic", "any", &[], &serde_json::Value::Null));
     }
 
     #[test]
     fn select_when_id_glob_handles_star() {
-        let sel = SelectWhen { id_glob: Some("crawl_stream*".to_string()), ..Default::default() };
+        let sel = SelectWhen {
+            id_glob: Some("crawl_stream*".to_string()),
+            ..Default::default()
+        };
         assert!(sel.matches("crawl_stream_basic", "any", &[], &serde_json::Value::Null));
         assert!(!sel.matches("batch_crawl_stream", "any", &[], &serde_json::Value::Null));
     }
 
     #[test]
     fn select_when_tag_matches_any_tag_in_list() {
-        let sel = SelectWhen { tag: Some("streaming".to_string()), ..Default::default() };
+        let sel = SelectWhen {
+            tag: Some("streaming".to_string()),
+            ..Default::default()
+        };
         let tags = vec!["smoke".to_string(), "streaming".to_string()];
         assert!(sel.matches("fid", "cat", &tags, &serde_json::Value::Null));
         assert!(!sel.matches("fid", "cat", &["smoke".to_string()], &serde_json::Value::Null));
@@ -1267,7 +1279,10 @@ mod tests {
             },
         );
         let cfg = E2eConfig {
-            call: CallConfig { function: "scrape".to_string(), ..Default::default() },
+            call: CallConfig {
+                function: "scrape".to_string(),
+                ..Default::default()
+            },
             calls,
             ..Default::default()
         };
@@ -1276,5 +1291,177 @@ mod tests {
         assert_eq!(resolved.function, "crawl");
         let resolved = cfg.resolve_call_for_fixture(None, "scrape_basic", "scrape", &[], &input);
         assert_eq!(resolved.function, "scrape");
+    }
+
+    // --- effective_* resolver helpers ---
+
+    #[test]
+    fn effective_result_fields_returns_global_when_call_is_empty() {
+        let mut global = HashSet::new();
+        global.insert("url".to_string());
+        let cfg = E2eConfig { result_fields: global.clone(), ..Default::default() };
+        let call = CallConfig::default();
+        assert_eq!(cfg.effective_result_fields(&call), &global);
+    }
+
+    #[test]
+    fn effective_result_fields_call_override_wins_over_global() {
+        let mut global = HashSet::new();
+        global.insert("url".to_string());
+        let mut per_call = HashSet::new();
+        per_call.insert("pages".to_string());
+        per_call.insert("final_url".to_string());
+        let cfg = E2eConfig { result_fields: global, ..Default::default() };
+        let call = CallConfig { result_fields: per_call.clone(), ..Default::default() };
+        assert_eq!(cfg.effective_result_fields(&call), &per_call);
+    }
+
+    #[test]
+    fn effective_fields_returns_global_when_call_is_empty() {
+        let mut global = HashMap::new();
+        global.insert("metadata.title".to_string(), "metadata.document.title".to_string());
+        let cfg = E2eConfig { fields: global.clone(), ..Default::default() };
+        let call = CallConfig::default();
+        assert_eq!(cfg.effective_fields(&call), &global);
+    }
+
+    #[test]
+    fn effective_fields_call_override_wins_over_global() {
+        let mut global = HashMap::new();
+        global.insert("a".to_string(), "b".to_string());
+        let mut per_call = HashMap::new();
+        per_call.insert("x".to_string(), "y".to_string());
+        let cfg = E2eConfig { fields: global, ..Default::default() };
+        let call = CallConfig { fields: per_call.clone(), ..Default::default() };
+        assert_eq!(cfg.effective_fields(&call), &per_call);
+    }
+
+    #[test]
+    fn effective_fields_optional_returns_global_when_call_is_empty() {
+        let mut global = HashSet::new();
+        global.insert("segments".to_string());
+        let cfg = E2eConfig { fields_optional: global.clone(), ..Default::default() };
+        let call = CallConfig::default();
+        assert_eq!(cfg.effective_fields_optional(&call), &global);
+    }
+
+    #[test]
+    fn effective_fields_optional_call_override_wins_over_global() {
+        let mut global = HashSet::new();
+        global.insert("segments".to_string());
+        let mut per_call = HashSet::new();
+        per_call.insert("pages".to_string());
+        let cfg = E2eConfig { fields_optional: global, ..Default::default() };
+        let call = CallConfig { fields_optional: per_call.clone(), ..Default::default() };
+        assert_eq!(cfg.effective_fields_optional(&call), &per_call);
+    }
+
+    #[test]
+    fn effective_fields_array_returns_global_when_call_is_empty() {
+        let mut global = HashSet::new();
+        global.insert("choices".to_string());
+        let cfg = E2eConfig { fields_array: global.clone(), ..Default::default() };
+        let call = CallConfig::default();
+        assert_eq!(cfg.effective_fields_array(&call), &global);
+    }
+
+    #[test]
+    fn effective_fields_array_call_override_wins_over_global() {
+        let mut global = HashSet::new();
+        global.insert("choices".to_string());
+        let mut per_call = HashSet::new();
+        per_call.insert("pages".to_string());
+        let cfg = E2eConfig { fields_array: global, ..Default::default() };
+        let call = CallConfig { fields_array: per_call.clone(), ..Default::default() };
+        assert_eq!(cfg.effective_fields_array(&call), &per_call);
+    }
+
+    #[test]
+    fn effective_fields_method_calls_returns_global_when_call_is_empty() {
+        let mut global = HashSet::new();
+        global.insert("metadata.format".to_string());
+        let cfg = E2eConfig { fields_method_calls: global.clone(), ..Default::default() };
+        let call = CallConfig::default();
+        assert_eq!(cfg.effective_fields_method_calls(&call), &global);
+    }
+
+    #[test]
+    fn effective_fields_method_calls_call_override_wins_over_global() {
+        let mut global = HashSet::new();
+        global.insert("metadata.format".to_string());
+        let mut per_call = HashSet::new();
+        per_call.insert("pages.status".to_string());
+        let cfg = E2eConfig { fields_method_calls: global, ..Default::default() };
+        let call = CallConfig { fields_method_calls: per_call.clone(), ..Default::default() };
+        assert_eq!(cfg.effective_fields_method_calls(&call), &per_call);
+    }
+
+    #[test]
+    fn effective_fields_enum_returns_global_when_call_is_empty() {
+        let mut global = HashSet::new();
+        global.insert("choices.finish_reason".to_string());
+        let cfg = E2eConfig { fields_enum: global.clone(), ..Default::default() };
+        let call = CallConfig::default();
+        assert_eq!(cfg.effective_fields_enum(&call), &global);
+    }
+
+    #[test]
+    fn effective_fields_enum_call_override_wins_over_global() {
+        let mut global = HashSet::new();
+        global.insert("choices.finish_reason".to_string());
+        let mut per_call = HashSet::new();
+        per_call.insert("assets.category".to_string());
+        let cfg = E2eConfig { fields_enum: global, ..Default::default() };
+        let call = CallConfig { fields_enum: per_call.clone(), ..Default::default() };
+        assert_eq!(cfg.effective_fields_enum(&call), &per_call);
+    }
+
+    #[test]
+    fn effective_fields_c_types_returns_global_when_call_is_empty() {
+        let mut global = HashMap::new();
+        global.insert("conversion_result.metadata".to_string(), "HtmlMetadata".to_string());
+        let cfg = E2eConfig { fields_c_types: global.clone(), ..Default::default() };
+        let call = CallConfig::default();
+        assert_eq!(cfg.effective_fields_c_types(&call), &global);
+    }
+
+    #[test]
+    fn effective_fields_c_types_call_override_wins_over_global() {
+        let mut global = HashMap::new();
+        global.insert("conversion_result.metadata".to_string(), "HtmlMetadata".to_string());
+        let mut per_call = HashMap::new();
+        per_call.insert("crawl_result.pages".to_string(), "PageResult".to_string());
+        let cfg = E2eConfig { fields_c_types: global, ..Default::default() };
+        let call = CallConfig { fields_c_types: per_call.clone(), ..Default::default() };
+        assert_eq!(cfg.effective_fields_c_types(&call), &per_call);
+    }
+
+    #[test]
+    fn effective_resolver_helpers_deserialize_from_toml() {
+        let toml = r#"
+[call]
+function = "scrape"
+result_fields = ["url", "markdown"]
+fields_enum = ["status"]
+
+[call.fields]
+"meta.title" = "meta.document.title"
+
+[call.fields_c_types]
+"scrape_result.meta" = "MetaResult"
+"#;
+        let cfg: E2eConfig = toml::from_str(toml).expect("must deserialize");
+        let call = &cfg.call;
+        assert!(cfg.effective_result_fields(call).contains("url"));
+        assert!(cfg.effective_result_fields(call).contains("markdown"));
+        assert!(cfg.effective_fields_enum(call).contains("status"));
+        assert_eq!(
+            cfg.effective_fields(call).get("meta.title").map(String::as_str),
+            Some("meta.document.title")
+        );
+        assert_eq!(
+            cfg.effective_fields_c_types(call).get("scrape_result.meta").map(String::as_str),
+            Some("MetaResult")
+        );
     }
 }

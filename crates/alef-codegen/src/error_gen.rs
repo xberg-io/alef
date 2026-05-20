@@ -1133,11 +1133,21 @@ pub fn gen_go_error_struct(error: &ErrorDef, pkg_name: &str) -> String {
         .map(|m| {
             let go_type = typeref_to_go_type(&m.return_type);
             let method_name = to_pascal_case(&m.name);
+            // Collapse multi-line rustdoc to a single-line summary so the template's
+            // `// {{ method_name }} returns {{ doc }}.` does not emit unprefixed
+            // continuation lines (markdown body, fenced code, `# Examples`) which
+            // Go rejects as syntax errors.
+            let doc_summary = if m.doc.is_empty() {
+                String::new()
+            } else {
+                let first = crate::doc_emission::doc_first_paragraph_joined(&m.doc);
+                first.trim_end_matches('.').trim_end().to_string()
+            };
             serde_json::json!({
                 "field_name": method_name,
                 "go_type": go_type,
                 "method_name": method_name,
-                "doc": m.doc,
+                "doc": doc_summary,
             })
         })
         .collect();

@@ -2778,7 +2778,10 @@ fn test_public_api_sanitizes_rust_syntax_from_docstrings() {
     let content = &facade.content;
 
     // Verify Rust syntax is NOT in the docstring
-    assert!(!content.contains("use test_lib::convert;"), "Rust 'use' statement must not leak into PHPDoc");
+    assert!(
+        !content.contains("use test_lib::convert;"),
+        "Rust 'use' statement must not leak into PHPDoc"
+    );
     assert!(!content.contains(".unwrap()"), ".unwrap() must not leak into PHPDoc");
     assert!(!content.contains("```rust"), "Raw Rust fence must not appear in PHPDoc");
 
@@ -2789,6 +2792,9 @@ fn test_public_api_sanitizes_rust_syntax_from_docstrings() {
     );
 
     // Verify @param/@return tags are present (emitted separately)
-    assert!(content.contains("@param"), "@param tag must be present for documented parameters");
+    assert!(
+        content.contains("@param"),
+        "@param tag must be present for documented parameters"
+    );
     assert!(content.contains("@return"), "@return tag must be present");
 }

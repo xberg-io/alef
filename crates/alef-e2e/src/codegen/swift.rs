@@ -115,15 +115,7 @@ impl E2eCodegen for SwiftE2eCodegen {
         // mirrors `can_emit_first_class_struct` in alef-backend-swift.
         let swift_first_class_map = build_swift_first_class_map(type_defs, e2e_config);
 
-        let field_resolver = FieldResolver::new_with_swift_first_class(
-            &e2e_config.fields,
-            &e2e_config.fields_optional,
-            &e2e_config.result_fields,
-            &e2e_config.fields_array,
-            &e2e_config.fields_method_calls,
-            &HashMap::new(),
-            swift_first_class_map,
-        );
+        let swift_first_class_map_ref = swift_first_class_map;
 
         // Resolve client_factory override for swift (enables client-instance dispatch).
         let client_factory: Option<&str> = overrides.and_then(|o| o.client_factory.as_deref());
@@ -170,10 +162,9 @@ impl E2eCodegen for SwiftE2eCodegen {
                 &function_name,
                 result_var,
                 &e2e_config.call.args,
-                &field_resolver,
                 result_is_simple,
-                &e2e_config.fields_enum,
                 client_factory,
+                &swift_first_class_map_ref,
             );
             files.push(GeneratedFile {
                 path: tests_base
@@ -301,10 +292,9 @@ fn render_test_file(
     function_name: &str,
     result_var: &str,
     args: &[crate::config::ArgMapping],
-    field_resolver: &FieldResolver,
     result_is_simple: bool,
-    enum_fields: &HashSet<String>,
     client_factory: Option<&str>,
+    swift_first_class_map: &SwiftFirstClassMap,
 ) -> String {
     // Detect whether any fixture in this group uses a file_path or bytes arg — if so
     // the test class chdir's to <repo>/test_documents at setUp time so the
@@ -313,7 +303,8 @@ fn render_test_file(
     // `FIXTURES_DIR` first, otherwise resolve against the current directory.
     // Mirrors the Ruby/Python conftest pattern that chdirs to test_documents.
     let needs_chdir = fixtures.iter().any(|f| {
-        let call_config = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+        let call_config =
+            e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
         call_config
             .args
             .iter()
@@ -375,10 +366,9 @@ fn render_test_file(
                 function_name,
                 result_var,
                 args,
-                field_resolver,
                 result_is_simple,
-                enum_fields,
                 client_factory,
+                swift_first_class_map,
             );
         }
         let _ = writeln!(out);
@@ -619,13 +609,30 @@ fn render_test_method(
     _function_name: &str,
     _result_var: &str,
     _args: &[crate::config::ArgMapping],
-    field_resolver: &FieldResolver,
     result_is_simple: bool,
-    enum_fields: &HashSet<String>,
     global_client_factory: Option<&str>,
+    swift_first_class_map: &SwiftFirstClassMap,
 ) {
     // Resolve per-fixture call config.
-    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
+    let call_config = e2e_config.resolve_call_for_fixture(
+        fixture.call.as_deref(),
+        &fixture.id,
+        &fixture.resolved_category(),
+        &fixture.tags,
+        &fixture.input,
+    );
+    // Build per-call field resolver using the effective field sets for this call.
+    let call_field_resolver = FieldResolver::new_with_swift_first_class(
+        e2e_config.effective_fields(call_config),
+        e2e_config.effective_fields_optional(call_config),
+        e2e_config.effective_result_fields(call_config),
+        e2e_config.effective_fields_array(call_config),
+        e2e_config.effective_fields_method_calls(call_config),
+        &HashMap::new(),
+        swift_first_class_map.clone(),
+    );
+    let field_resolver = &call_field_resolver;
+    let enum_fields = e2e_config.effective_fields_enum(call_config);
     let lang = "swift";
     let call_overrides = call_config.overrides.get(lang);
     let function_name = call_overrides

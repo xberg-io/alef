@@ -83,7 +83,13 @@ impl E2eCodegen for ElixirCodegen {
                 if f.needs_mock_server() {
                     return true;
                 }
-                let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+                let cc = e2e_config.resolve_call_for_fixture(
+                    f.call.as_deref(),
+                    &f.id,
+                    &f.resolved_category(),
+                    &f.tags,
+                    &f.input,
+                );
                 let elixir_override = cc
                     .overrides
                     .get("elixir")
@@ -159,13 +165,6 @@ impl E2eCodegen for ElixirCodegen {
             }
 
             let filename = format!("{}_test.exs", sanitize_filename(&group.category));
-            let field_resolver = FieldResolver::new(
-                &e2e_config.fields,
-                &e2e_config.fields_optional,
-                &e2e_config.result_fields,
-                &e2e_config.fields_array,
-                &std::collections::HashSet::new(),
-            );
             let content = render_test_file(
                 &group.category,
                 &active,
@@ -174,7 +173,6 @@ impl E2eCodegen for ElixirCodegen {
                 &function_name,
                 result_var,
                 &e2e_config.call.args,
-                &field_resolver,
                 options_type.as_deref(),
                 options_default_fn.as_deref(),
                 enum_fields,
@@ -329,7 +327,6 @@ fn render_test_file(
     function_name: &str,
     result_var: &str,
     args: &[crate::config::ArgMapping],
-    field_resolver: &FieldResolver,
     options_type: Option<&str>,
     options_default_fn: Option<&str>,
     enum_fields: &HashMap<String, String>,
@@ -362,11 +359,25 @@ fn render_test_file(
     // Emit a shared helper for array field contains assertions — extracts string
     // representations from each item's attributes so String.contains? works on struct lists.
     let has_array_contains = fixtures.iter().any(|fixture| {
+        let cc = e2e_config.resolve_call_for_fixture(
+            fixture.call.as_deref(),
+            &fixture.id,
+            &fixture.resolved_category(),
+            &fixture.tags,
+            &fixture.input,
+        );
+        let fr = FieldResolver::new(
+            e2e_config.effective_fields(cc),
+            e2e_config.effective_fields_optional(cc),
+            e2e_config.effective_result_fields(cc),
+            e2e_config.effective_fields_array(cc),
+            &std::collections::HashSet::new(),
+        );
         fixture.assertions.iter().any(|a| {
             matches!(a.assertion_type.as_str(), "contains" | "contains_all" | "not_contains")
                 && a.field
                     .as_deref()
-                    .is_some_and(|f| !f.is_empty() && field_resolver.is_array(field_resolver.resolve(f)))
+                    .is_some_and(|f| !f.is_empty() && fr.is_array(fr.resolve(f)))
         })
     });
     if has_array_contains {
@@ -402,7 +413,6 @@ fn render_test_file(
                 function_name,
                 result_var,
                 args,
-                field_resolver,
                 options_type,
                 options_default_fn,
                 enum_fields,
@@ -674,7 +684,6 @@ fn render_test_case(
     default_function_name: &str,
     default_result_var: &str,
     args: &[crate::config::ArgMapping],
-    field_resolver: &FieldResolver,
     options_type: Option<&str>,
     options_default_fn: Option<&str>,
     enum_fields: &HashMap<String, String>,
@@ -704,7 +713,22 @@ fn render_test_case(
     }
 
     // Resolve per-fixture call config (falls back to default if fixture.call is None).
-    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
+    let call_config = e2e_config.resolve_call_for_fixture(
+        fixture.call.as_deref(),
+        &fixture.id,
+        &fixture.resolved_category(),
+        &fixture.tags,
+        &fixture.input,
+    );
+    // Build per-call field resolver using the effective field sets for this call.
+    let call_field_resolver = FieldResolver::new(
+        e2e_config.effective_fields(call_config),
+        e2e_config.effective_fields_optional(call_config),
+        e2e_config.effective_result_fields(call_config),
+        e2e_config.effective_fields_array(call_config),
+        &std::collections::HashSet::new(),
+    );
+    let field_resolver = &call_field_resolver;
     let lang = "elixir";
     let call_overrides = call_config.overrides.get(lang);
 
@@ -1090,7 +1114,7 @@ fn render_test_case(
             if is_streaming { chunks_var } else { &result_var },
             field_resolver,
             &module_path,
-            &e2e_config.fields_enum,
+            e2e_config.effective_fields_enum(call_config),
             resolved_enum_fields_ref,
             result_is_simple,
             is_streaming,
@@ -1327,9 +1351,7 @@ fn build_args_and_setup(
                         continue;
                     }
                     // When options_type is set but options_via is NOT, emit struct-literal form.
-                    if let (Some(opts_type), None, Some(obj)) =
-                        (options_type, options_default_fn, v.as_object())
-                    {
+                    if let (Some(opts_type), None, Some(obj)) = (options_type, options_default_fn, v.as_object()) {
                         let options_var = "options";
                         let mut field_strs = Vec::new();
                         for (k, vv) in obj.iter() {
@@ -2098,7 +2120,13 @@ fn fixture_has_elixir_callable(fixture: &Fixture, e2e_config: &E2eConfig) -> boo
     if fixture.is_http_test() {
         return false;
     }
-    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
+    let call_config = e2e_config.resolve_call_for_fixture(
+        fixture.call.as_deref(),
+        &fixture.id,
+        &fixture.resolved_category(),
+        &fixture.tags,
+        &fixture.input,
+    );
     let elixir_override = call_config
         .overrides
         .get("elixir")

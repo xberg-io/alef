@@ -306,7 +306,7 @@ fn dart_call_arg_with_mirror_transmute(
             }
             if p.optional {
                 return format!(
-                    "{name}.map(|v| unsafe {{ std::mem::transmute::<Vec<{type_name}>, Vec<{core_ty}>>(v) }})"
+                    "{name}.map(|v| v.into_iter().map(|x| unsafe {{ std::mem::transmute::<{type_name}, {core_ty}>(x) }}).collect::<Vec<_>>())"
                 );
             }
             if p.is_ref {
@@ -315,7 +315,9 @@ fn dart_call_arg_with_mirror_transmute(
                     "unsafe {{ std::mem::transmute::<*const {type_name}, *const {core_ty}>({name}.as_ptr()) }}"
                 );
             }
-            return format!("unsafe {{ std::mem::transmute::<Vec<{type_name}>, Vec<{core_ty}>>({name}) }}");
+            return format!(
+                "{name}.into_iter().map(|x| unsafe {{ std::mem::transmute::<{type_name}, {core_ty}>(x) }}).collect::<Vec<_>>()"
+            );
         }
     }
 

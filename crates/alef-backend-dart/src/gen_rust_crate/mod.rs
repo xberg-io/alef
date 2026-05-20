@@ -183,6 +183,9 @@ fn emit_lib_rs(
     // `From` conversion instead of `transmute` for these types.
     // Also include types with Duration or Path fields: the FRB mirror maps Duration→i64 (8B vs 16B)
     // and Path→String, creating layout mismatches that make transmute unsound for these types.
+    // Both structs and enums are checked — sanitized enum variant fields (e.g.
+    // `Scroll { selector: Option<String> }` sanitized to `Scroll { selector: String }`)
+    // change the enum's discriminant payload size and make Vec/single transmute UB.
     let types_with_direct_sanitized_fields: HashSet<String> = api
         .types
         .iter()
@@ -193,6 +196,26 @@ fn emit_lib_rs(
                 .any(|f| f.sanitized || has_duration_or_path_field(&f.ty))
         })
         .map(|t| t.name.clone())
+        .chain(
+            api.enums
+                .iter()
+                .filter(|e| !exclude_types.contains(&e.name))
+                .filter(|e| {
+                    e.variants.iter().any(|v| {
+                        v.fields.iter().any(|f| {
+                            // FRB mirror enum variants emit `frb_rust_type_inner(field.ty)`
+                            // which strips Option wrappers — `Option<String>` becomes bare
+                            // `String` in the mirror. That makes the mirror enum's variant
+                            // payload smaller than core's, so transmute is UB. Treat any
+                            // variant field that's optional in core (or otherwise layout-
+                            // shifting like Duration/Path) as evidence the enum needs
+                            // `From<Mirror> for Core` instead of a transmute.
+                            f.sanitized || f.optional || has_duration_or_path_field(&f.ty)
+                        })
+                    })
+                })
+                .map(|e| e.name.clone()),
+        )
         .collect();
 
     // Compute the transitive closure: types that DIRECTLY or INDIRECTLY contain a type
@@ -512,6 +535,12 @@ fn compute_types_containing_sanitized(
         .filter(|t| !exclude_types.contains(&t.name) && !t.is_trait && !t.is_opaque)
         .map(|t| (t.name.as_str(), t))
         .collect();
+    let enum_by_name: std::collections::HashMap<&str, &EnumDef> = api
+        .enums
+        .iter()
+        .filter(|e| !exclude_types.contains(&e.name))
+        .map(|e| (e.name.as_str(), e))
+        .collect();
 
     // Start with all directly-sanitized types and expand to any type that contains them.
     let mut result: HashSet<String> = direct_sanitized.clone();
@@ -522,13 +551,29 @@ fn compute_types_containing_sanitized(
             if result.contains(&ty.name) {
                 continue;
             }
-            // Check if any field references a type already in result.
             let references_sanitized = ty
                 .fields
                 .iter()
                 .any(|f| collect_named_types(&f.ty).iter().any(|n| result.contains(n)));
             if references_sanitized {
                 result.insert(ty.name.clone());
+                changed = true;
+            }
+        }
+        // Enums also "contain" their variant field types — a Vec<EnumE> bridge argument
+        // is layout-incompatible if any variant references a type whose mirror layout
+        // differs from core.
+        for en in enum_by_name.values() {
+            if result.contains(&en.name) {
+                continue;
+            }
+            let references_sanitized = en.variants.iter().any(|v| {
+                v.fields
+                    .iter()
+                    .any(|f| collect_named_types(&f.ty).iter().any(|n| result.contains(n)))
+            });
+            if references_sanitized {
+                result.insert(en.name.clone());
                 changed = true;
             }
         }

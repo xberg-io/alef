@@ -81,14 +81,6 @@ impl E2eCodegen for BrewCodegen {
             })
             .collect();
 
-        let field_resolver = FieldResolver::new(
-            &e2e_config.fields,
-            &e2e_config.fields_optional,
-            &e2e_config.result_fields,
-            &e2e_config.fields_array,
-            &std::collections::HashSet::new(),
-        );
-
         let mut files = Vec::new();
 
         // Generate run_tests.sh.
@@ -114,7 +106,6 @@ impl E2eCodegen for BrewCodegen {
                 &static_cli_args,
                 &cli_flags,
                 &e2e_config.call.args,
-                &field_resolver,
                 e2e_config,
             );
             files.push(GeneratedFile {
@@ -303,7 +294,6 @@ fn render_category_file(
     static_cli_args: &[String],
     cli_flags: &std::collections::HashMap<String, String>,
     args: &[crate::config::ArgMapping],
-    field_resolver: &FieldResolver,
     e2e_config: &E2eConfig,
 ) -> String {
     let safe_category = sanitize_filename(category);
@@ -323,7 +313,6 @@ fn render_category_file(
             static_cli_args,
             cli_flags,
             args,
-            field_resolver,
             e2e_config,
         );
         let _ = writeln!(out);
@@ -349,7 +338,6 @@ fn render_test_function(
     static_cli_args: &[String],
     cli_flags: &std::collections::HashMap<String, String>,
     _args: &[crate::config::ArgMapping],
-    field_resolver: &FieldResolver,
     e2e_config: &E2eConfig,
 ) {
     let fn_name = sanitize_ident(&fixture.id);
@@ -361,7 +349,21 @@ fn render_test_function(
     let _ = writeln!(out, "    # {description}");
 
     // Resolve fixture-specific call config if provided, otherwise use defaults.
-    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
+    let call_config = e2e_config.resolve_call_for_fixture(
+        fixture.call.as_deref(),
+        &fixture.id,
+        &fixture.resolved_category(),
+        &fixture.tags,
+        &fixture.input,
+    );
+    let call_field_resolver = FieldResolver::new(
+        e2e_config.effective_fields(call_config),
+        e2e_config.effective_fields_optional(call_config),
+        e2e_config.effective_result_fields(call_config),
+        e2e_config.effective_fields_array(call_config),
+        &std::collections::HashSet::new(),
+    );
+    let field_resolver = &call_field_resolver;
 
     // Build the CLI command using the resolved call config.
     let cmd_parts = build_cli_command(

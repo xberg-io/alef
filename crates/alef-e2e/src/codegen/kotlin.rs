@@ -130,13 +130,6 @@ impl E2eCodegen for KotlinE2eCodegen {
 
         // Resolve options_type from override.
         let options_type = overrides.and_then(|o| o.options_type.clone());
-        let field_resolver = FieldResolver::new(
-            &e2e_config.fields,
-            &e2e_config.fields_optional,
-            &e2e_config.result_fields,
-            &e2e_config.fields_array,
-            &HashSet::new(),
-        );
 
         // Build a map from TypeDef name → set of field names whose Rust type
         // is a `Named(T)` reference where `T` is NOT itself a known struct.
@@ -182,9 +175,7 @@ impl E2eCodegen for KotlinE2eCodegen {
                 result_var,
                 &e2e_config.call.args,
                 options_type.as_deref(),
-                &field_resolver,
                 result_is_simple,
-                &e2e_config.fields_enum,
                 e2e_config,
                 &type_enum_fields,
             );
@@ -481,9 +472,7 @@ pub(crate) fn render_test_file(
     result_var: &str,
     args: &[crate::config::ArgMapping],
     options_type: Option<&str>,
-    field_resolver: &FieldResolver,
     result_is_simple: bool,
-    enum_fields: &HashSet<String>,
     e2e_config: &E2eConfig,
     type_enum_fields: &std::collections::HashMap<String, HashSet<String>>,
 ) -> String {
@@ -496,9 +485,7 @@ pub(crate) fn render_test_file(
         result_var,
         args,
         options_type,
-        field_resolver,
         result_is_simple,
-        enum_fields,
         e2e_config,
         type_enum_fields,
         false,
@@ -529,9 +516,7 @@ pub(crate) fn render_test_file_android(
     result_var: &str,
     args: &[crate::config::ArgMapping],
     options_type: Option<&str>,
-    field_resolver: &FieldResolver,
     result_is_simple: bool,
-    enum_fields: &HashSet<String>,
     e2e_config: &E2eConfig,
     type_enum_fields: &std::collections::HashMap<String, HashSet<String>>,
 ) -> String {
@@ -544,9 +529,7 @@ pub(crate) fn render_test_file_android(
         result_var,
         args,
         options_type,
-        field_resolver,
         result_is_simple,
-        enum_fields,
         e2e_config,
         type_enum_fields,
         true,
@@ -563,9 +546,7 @@ fn render_test_file_inner(
     result_var: &str,
     args: &[crate::config::ArgMapping],
     options_type: Option<&str>,
-    field_resolver: &FieldResolver,
     result_is_simple: bool,
-    enum_fields: &HashSet<String>,
     e2e_config: &E2eConfig,
     type_enum_fields: &std::collections::HashMap<String, HashSet<String>>,
     kotlin_android_style: bool,
@@ -595,7 +576,8 @@ fn render_test_file_inner(
         if f.is_http_test() {
             return false;
         }
-        let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+        let cc =
+            e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
         let per_call_factory = cc.overrides.get("kotlin").and_then(|o| o.client_factory.as_deref());
         let global_factory = e2e_config
             .call
@@ -610,7 +592,8 @@ fn render_test_file_inner(
     // Each entry is a json_object arg's options_type — we need to import each one.
     let mut per_fixture_options_types: HashSet<String> = HashSet::new();
     for f in fixtures.iter() {
-        let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+        let cc =
+            e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
         let call_overrides = cc.overrides.get("kotlin");
         let effective_opts: Option<String> = call_overrides
             .and_then(|o| o.options_type.clone())
@@ -664,7 +647,13 @@ fn render_test_file_inner(
             if f.is_http_test() {
                 return false;
             }
-            let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+            let cc = e2e_config.resolve_call_for_fixture(
+                f.call.as_deref(),
+                &f.id,
+                &f.resolved_category(),
+                &f.tags,
+                &f.input,
+            );
             crate::codegen::streaming_assertions::resolve_is_streaming(f, cc.streaming)
         });
 
@@ -731,7 +720,8 @@ fn render_test_file_inner(
     // array arg (element_type) — the test code constructs these directly.
     let mut batch_elem_imports: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for f in fixtures.iter() {
-        let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+        let cc =
+            e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
         let fixture_args = if cc.args.is_empty() { args } else { cc.args.as_slice() };
         for arg in fixture_args.iter() {
             if arg.arg_type != "json_object" {
@@ -784,9 +774,7 @@ fn render_test_file_inner(
             result_var,
             args,
             options_type,
-            field_resolver,
             result_is_simple,
-            enum_fields,
             e2e_config,
             type_enum_fields,
             kotlin_android_style,
@@ -1046,9 +1034,7 @@ fn render_test_method(
     _result_var: &str,
     _args: &[crate::config::ArgMapping],
     options_type: Option<&str>,
-    field_resolver: &FieldResolver,
     result_is_simple: bool,
-    enum_fields: &HashSet<String>,
     e2e_config: &E2eConfig,
     type_enum_fields: &std::collections::HashMap<String, HashSet<String>>,
     kotlin_android_style: bool,
@@ -1060,7 +1046,23 @@ fn render_test_method(
     }
 
     // Resolve per-fixture call config (supports named calls via fixture.call field).
-    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
+    let call_config = e2e_config.resolve_call_for_fixture(
+        fixture.call.as_deref(),
+        &fixture.id,
+        &fixture.resolved_category(),
+        &fixture.tags,
+        &fixture.input,
+    );
+    // Build per-call field resolver using the effective field sets for this call.
+    let call_field_resolver = FieldResolver::new(
+        e2e_config.effective_fields(call_config),
+        e2e_config.effective_fields_optional(call_config),
+        e2e_config.effective_result_fields(call_config),
+        e2e_config.effective_fields_array(call_config),
+        &HashSet::new(),
+    );
+    let field_resolver = &call_field_resolver;
+    let enum_fields = e2e_config.effective_fields_enum(call_config);
     let lang = "kotlin";
     let call_overrides = call_config.overrides.get(lang);
 
@@ -1330,7 +1332,7 @@ fn render_test_method(
                 result_is_simple,
                 result_is_option,
                 enum_fields,
-                &e2e_config.fields_c_types,
+                e2e_config.effective_fields_c_types(call_config),
                 is_streaming,
                 kotlin_android_style,
             );
@@ -2494,14 +2496,6 @@ mod tests {
             call: CallConfig::default(),
             ..E2eConfig::default()
         };
-        let resolver = FieldResolver::new(
-            &HashMap::new(),
-            &HashSet::new(),
-            &HashSet::new(),
-            &HashSet::new(),
-            &HashSet::new(),
-        );
-
         // kotlin_android_style=true must emit the import.
         let out_android = render_test_file_inner(
             "streaming",
@@ -2512,9 +2506,7 @@ mod tests {
             "result",
             &[],
             None,
-            &resolver,
             false,
-            &HashSet::new(),
             &e2e_config,
             &HashMap::new(),
             true,
@@ -2534,9 +2526,7 @@ mod tests {
             "result",
             &[],
             None,
-            &resolver,
             false,
-            &HashSet::new(),
             &e2e_config,
             &HashMap::new(),
             false,
@@ -2601,14 +2591,6 @@ mod tests {
             call: CallConfig::default(),
             ..E2eConfig::default()
         };
-        let resolver = FieldResolver::new(
-            &HashMap::new(),
-            &HashSet::new(),
-            &HashSet::new(),
-            &HashSet::new(),
-            &HashSet::new(),
-        );
-
         // kotlin_android_style=true must emit registerKotlinModule import and call.
         let out_android = render_test_file_inner(
             "configuration",
@@ -2619,9 +2601,7 @@ mod tests {
             "result",
             &[],
             None,
-            &resolver,
             false,
-            &HashSet::new(),
             &e2e_config,
             &HashMap::new(),
             true,
@@ -2645,9 +2625,7 @@ mod tests {
             "result",
             &[],
             None,
-            &resolver,
             false,
-            &HashSet::new(),
             &e2e_config,
             &HashMap::new(),
             false,

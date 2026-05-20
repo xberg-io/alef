@@ -1173,7 +1173,12 @@ fn emit_adapter_wrapper(
 
     // For now, the adapter method takes params directly.
     // Build the method call: delegate to the engine handle's method, passing all params.
-    let params_list = adapter.params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ");
+    let params_list = adapter
+        .params
+        .iter()
+        .map(|p| p.name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
     let method_call = if params_list.is_empty() {
         format!("    async for item in engine.{}():\n", adapter_name)
     } else {

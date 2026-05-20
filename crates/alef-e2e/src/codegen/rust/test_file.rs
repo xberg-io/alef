@@ -85,7 +85,13 @@ pub fn render_test_file(
             return true;
         }
         if f.http.is_none() && f.mock_response.is_none() {
-            let call_config = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+            let call_config = e2e_config.resolve_call_for_fixture(
+                f.call.as_deref(),
+                &f.id,
+                &f.resolved_category(),
+                &f.tags,
+                &f.input,
+            );
             let fn_name = resolve_function_name_for_call(call_config);
             return !fn_name.is_empty();
         }
@@ -107,13 +113,25 @@ pub fn render_test_file(
                 return true;
             }
             if f.http.is_none() && f.mock_response.is_none() {
-                let call_config = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+                let call_config = e2e_config.resolve_call_for_fixture(
+                    f.call.as_deref(),
+                    &f.id,
+                    &f.resolved_category(),
+                    &f.tags,
+                    &f.input,
+                );
                 let fn_name = resolve_function_name_for_call(call_config);
                 return !fn_name.is_empty();
             }
             false
         }) {
-            let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
+            let call_config = e2e_config.resolve_call_for_fixture(
+                fixture.call.as_deref(),
+                &fixture.id,
+                &fixture.resolved_category(),
+                &fixture.tags,
+                &fixture.input,
+            );
             let fn_name = resolve_function_name_for_call(call_config);
             let mod_name = resolve_module_for_call(call_config, dep_name);
             imported.insert((mod_name, fn_name));
@@ -142,13 +160,7 @@ pub fn render_test_file(
     // imports trips `-D unused_imports` in the consumer crate.
     let mut body_buf = String::new();
     for fixture in fixtures {
-        render_test_function(
-            &mut body_buf,
-            fixture,
-            e2e_config,
-            dep_name,
-            client_factory,
-        );
+        render_test_function(&mut body_buf, fixture, e2e_config, dep_name, client_factory);
         let _ = writeln!(body_buf);
     }
 
@@ -244,13 +256,25 @@ pub fn render_test_file(
                 return true;
             }
             if f.http.is_none() && f.mock_response.is_none() {
-                let call_config = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+                let call_config = e2e_config.resolve_call_for_fixture(
+                    f.call.as_deref(),
+                    &f.id,
+                    &f.resolved_category(),
+                    &f.tags,
+                    &f.input,
+                );
                 let fn_name = resolve_function_name_for_call(call_config);
                 return !fn_name.is_empty();
             }
             false
         }) {
-            let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
+            let call_config = e2e_config.resolve_call_for_fixture(
+                fixture.call.as_deref(),
+                &fixture.id,
+                &fixture.resolved_category(),
+                &fixture.tags,
+                &fixture.input,
+            );
             for arg in &call_config.args {
                 if arg.arg_type == "json_object" {
                     if let Some(ref elem_type) = arg.element_type {
@@ -319,7 +343,13 @@ pub fn render_test_function(
     //  - plain function-call fixtures (e.g. kreuzberg::extract_file) with a configured
     //    `[e2e.call]` → fall through to the real function-call code path below.
     if fixture.http.is_none() && fixture.mock_response.is_none() {
-        let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
+        let call_config = e2e_config.resolve_call_for_fixture(
+            fixture.call.as_deref(),
+            &fixture.id,
+            &fixture.resolved_category(),
+            &fixture.tags,
+            &fixture.input,
+        );
         let resolved_fn_name = resolve_function_name_for_call(call_config);
         if resolved_fn_name.is_empty() {
             let fn_name = crate::escape::sanitize_ident(&fixture.id);
@@ -339,7 +369,13 @@ pub fn render_test_function(
 
     let fn_name = crate::escape::sanitize_ident(&fixture.id);
     let description = &fixture.description;
-    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
+    let call_config = e2e_config.resolve_call_for_fixture(
+        fixture.call.as_deref(),
+        &fixture.id,
+        &fixture.resolved_category(),
+        &fixture.tags,
+        &fixture.input,
+    );
     // Per-call field resolver: overrides the file-level resolver when this call
     // declares its own result_fields / fields / fields_optional / fields_array /
     // fields_method_calls.

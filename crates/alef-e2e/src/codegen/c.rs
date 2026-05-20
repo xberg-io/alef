@@ -363,7 +363,13 @@ fn resolve_call_info(call: &CallConfig, lang: &str) -> ResolvedCallInfo {
 /// setting. We fall back to the default `[e2e.call]` override's client_factory so that
 /// all methods on the same client use the same pattern.
 fn resolve_fixture_call_info(fixture: &Fixture, e2e_config: &E2eConfig, lang: &str) -> ResolvedCallInfo {
-    let call = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
+    let call = e2e_config.resolve_call_for_fixture(
+        fixture.call.as_deref(),
+        &fixture.id,
+        &fixture.resolved_category(),
+        &fixture.tags,
+        &fixture.input,
+    );
     let mut info = resolve_call_info(call, lang);
 
     let default_overrides = e2e_config.call.overrides.get(lang);
@@ -978,7 +984,13 @@ fn render_test_file(
         // context-dependent paths (BatchObject.status is BatchStatus, but
         // ResponseObject.status is plain String).
         let mut effective_fields_enum = e2e_config.fields_enum.clone();
-        let fixture_call = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
+        let fixture_call = e2e_config.resolve_call_for_fixture(
+            fixture.call.as_deref(),
+            &fixture.id,
+            &fixture.resolved_category(),
+            &fixture.tags,
+            &fixture.input,
+        );
         if let Some(co) = fixture_call.overrides.get(lang) {
             for k in co.enum_fields.keys() {
                 effective_fields_enum.insert(k.clone());

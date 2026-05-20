@@ -36,7 +36,6 @@ pub fn render_test_file(
     function_name: &str,
     args: &[ArgMapping],
     options_type: Option<&str>,
-    field_resolver: &FieldResolver,
     client_factory: Option<&str>,
     e2e_config: &E2eConfig,
     type_defs: &[TypeDef],
@@ -77,7 +76,13 @@ pub fn render_test_file(
         all_options_types.insert(opts.to_string());
     }
     for fixture in fixtures.iter() {
-        let cc = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
+        let cc = e2e_config.resolve_call_for_fixture(
+            fixture.call.as_deref(),
+            &fixture.id,
+            &fixture.resolved_category(),
+            &fixture.tags,
+            &fixture.input,
+        );
         if let Some(o) = cc.overrides.get(lang) {
             if let Some(opts) = &o.options_type {
                 all_options_types.insert(opts.clone());
@@ -131,7 +136,13 @@ pub fn render_test_file(
     let needs_options_import = !all_options_types.is_empty()
         && (has_visitor_fixtures
             || fixtures.iter().any(|f| {
-                let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+                let cc = e2e_config.resolve_call_for_fixture(
+                    f.call.as_deref(),
+                    &f.id,
+                    &f.resolved_category(),
+                    &f.tags,
+                    &f.input,
+                );
                 cc.args.iter().any(|arg| {
                     let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
                     let val = if field == "input" {
@@ -163,7 +174,13 @@ pub fn render_test_file(
         // Also import any additional function names used by per-fixture call overrides or
         // select_when auto-selected calls.
         for fixture in fixtures.iter().filter(|f| !f.is_http_test()) {
-            let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
+            let call_config = e2e_config.resolve_call_for_fixture(
+                fixture.call.as_deref(),
+                &fixture.id,
+                &fixture.resolved_category(),
+                &fixture.tags,
+                &fixture.input,
+            );
             let fixture_fn = resolve_node_function_name(call_config);
             if client_factory.is_none() && !imports.contains(&fixture_fn) {
                 imports.push(fixture_fn);
@@ -193,7 +210,13 @@ pub fn render_test_file(
 
         // Detect batch item types (BatchBytesItem, BatchFileItem) used in any fixture
         for fixture in fixtures.iter() {
-            let cc = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
+            let cc = e2e_config.resolve_call_for_fixture(
+                fixture.call.as_deref(),
+                &fixture.id,
+                &fixture.resolved_category(),
+                &fixture.tags,
+                &fixture.input,
+            );
             for arg in &cc.args {
                 if let Some(elem_type) = &arg.element_type {
                     if (elem_type == "BatchBytesItem" || elem_type == "BatchFileItem") && !imports.contains(elem_type) {
@@ -248,7 +271,13 @@ pub fn render_test_file(
             }
             // Also import handle config types for WASM
             for fixture in fixtures.iter() {
-                let cc = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
+                let cc = e2e_config.resolve_call_for_fixture(
+                    fixture.call.as_deref(),
+                    &fixture.id,
+                    &fixture.resolved_category(),
+                    &fixture.tags,
+                    &fixture.input,
+                );
                 if let Some(o) = cc.overrides.get("wasm") {
                     if let Some(config_type) = &o.handle_config_type {
                         if !imports.contains(config_type) {
@@ -328,7 +357,6 @@ pub fn render_test_file(
                 fixture,
                 client_factory,
                 options_type,
-                field_resolver,
                 e2e_config,
                 lang,
                 &nested_types,
@@ -543,7 +571,6 @@ fn render_test_case(
     fixture: &Fixture,
     client_factory: Option<&str>,
     options_type: Option<&str>,
-    field_resolver: &FieldResolver,
     e2e_config: &E2eConfig,
     lang: &str,
     nested_types: &std::collections::HashMap<String, String>,
@@ -553,7 +580,21 @@ fn render_test_case(
     enums: &[EnumDef],
     wasm_type_prefix: &str,
 ) {
-    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
+    let call_config = e2e_config.resolve_call_for_fixture(
+        fixture.call.as_deref(),
+        &fixture.id,
+        &fixture.resolved_category(),
+        &fixture.tags,
+        &fixture.input,
+    );
+    let call_field_resolver = FieldResolver::new(
+        e2e_config.effective_fields(call_config),
+        e2e_config.effective_fields_optional(call_config),
+        e2e_config.effective_result_fields(call_config),
+        e2e_config.effective_fields_array(call_config),
+        &std::collections::HashSet::new(),
+    );
+    let field_resolver = &call_field_resolver;
     let function_name = resolve_node_function_name(call_config);
     let result_var = &call_config.result_var;
     let call_is_async = call_config.r#async;
@@ -1520,7 +1561,13 @@ fn build_args_and_setup(
 /// Returns (has_clean_cache, has_configure).
 fn detect_cache_isolation_needs(fixtures: &[&Fixture], e2e_config: &E2eConfig) -> (bool, bool) {
     let has_clean_cache = fixtures.iter().any(|fixture| {
-        let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
+        let call_config = e2e_config.resolve_call_for_fixture(
+            fixture.call.as_deref(),
+            &fixture.id,
+            &fixture.resolved_category(),
+            &fixture.tags,
+            &fixture.input,
+        );
         resolve_node_function_name(call_config) == "cleanCache"
     });
 

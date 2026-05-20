@@ -7,7 +7,7 @@ mod test_file;
 mod visitors;
 
 use crate::config::E2eConfig;
-use crate::field_access::FieldResolver;
+
 use crate::fixture::{Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::ResolvedCrateConfig;
@@ -71,7 +71,13 @@ impl E2eCodegen for TypeScriptCodegen {
         let has_http_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.is_http_test());
 
         let has_file_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| {
-            let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+            let cc = e2e_config.resolve_call_for_fixture(
+                f.call.as_deref(),
+                &f.id,
+                &f.resolved_category(),
+                &f.tags,
+                &f.input,
+            );
             cc.args
                 .iter()
                 .any(|a| a.arg_type == "file_path" || a.arg_type == "bytes")
@@ -130,13 +136,6 @@ impl E2eCodegen for TypeScriptCodegen {
         }
 
         let options_type = overrides.and_then(|o| o.options_type.clone());
-        let field_resolver = FieldResolver::new(
-            &e2e_config.fields,
-            &e2e_config.fields_optional,
-            &e2e_config.result_fields,
-            &e2e_config.fields_array,
-            &std::collections::HashSet::new(),
-        );
 
         for group in groups {
             let active: Vec<_> = group
@@ -159,7 +158,6 @@ impl E2eCodegen for TypeScriptCodegen {
                 &function_name,
                 &e2e_config.call.args,
                 options_type.as_deref(),
-                &field_resolver,
                 client_factory,
                 e2e_config,
                 type_defs,
