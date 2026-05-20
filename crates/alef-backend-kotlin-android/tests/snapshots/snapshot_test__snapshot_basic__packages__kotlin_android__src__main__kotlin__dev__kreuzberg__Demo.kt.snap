@@ -26,8 +26,6 @@ expression: "&file.content"
 package dev.kreuzberg
 
 object Demo {
-    /**
-     * Process input and return a result.
-     */
+    /** Process input and return a result. */
     fun process(input: String, count: Int): String = DemoBridge.nativeProcess(input, count)
 }

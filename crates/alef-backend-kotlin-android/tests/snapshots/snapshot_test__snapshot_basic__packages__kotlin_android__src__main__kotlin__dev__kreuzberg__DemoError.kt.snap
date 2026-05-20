@@ -25,9 +25,7 @@ expression: "&file.content"
 
 package dev.kreuzberg
 
-/**
- * Errors emitted by demo operations.
- */
+/** Errors emitted by demo operations. */
 sealed class DemoError(message: String) : Exception(message) {
     object InvalidInput : DemoError("invalid input provided")
     object ProcessingFailed : DemoError("processing failed")
