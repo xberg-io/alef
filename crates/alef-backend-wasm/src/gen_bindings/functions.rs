@@ -914,7 +914,9 @@ pub(super) fn wasm_wrap_return_fn(
             }
             TypeRef::Named(_) => {
                 if returns_ref {
-                    format!("{expr}.into_iter().map(|v| v.clone().into()).collect()")
+                    // `&[T]` → `Vec<U>`: use `.iter()` not `.into_iter()` to
+                    // avoid clippy::into_iter_on_ref under -D warnings.
+                    format!("{expr}.iter().map(|v| v.clone().into()).collect()")
                 } else {
                     format!("{expr}.into_iter().map(Into::into).collect()")
                 }
