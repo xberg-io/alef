@@ -1973,16 +1973,53 @@ fn emit_from_json_forwarders(
         }
     }
 
-    // All serde-enabled enums are emitted as native Swift `Codable` enums by
-    // `emit_enum`, so JSONDecoder handles both the unit (`String` raw value) and
-    // data-variant (`enum X: Codable` with associated values) cases.
+    // Serde-enabled enums are emitted either as native Swift `Codable` enums
+    // (unit-only or data-variant with bridge-safe associated values) or as
+    // typealiases to the opaque `RustBridge.{Enum}` wrapper when the data
+    // variants reference non-Codable-synthesisable types. The `*FromJson`
+    // forwarder routes accordingly: Codable enums use `JSONDecoder`; typealias
+    // enums forward to the Rust-side `RustBridge.{enum}FromJson` shim because
+    // `JSONDecoder().decode(RustBridge.{Enum}.self, ...)` would fail (opaque
+    // bridge classes are not Codable). The Rust-side shim is unconditionally
+    // emitted for every serde-enabled enum by `gen_rust_crate::emit_lib_rs`.
+    let codable_enum_set: std::collections::HashSet<&str> = api
+        .enums
+        .iter()
+        .filter(|e| e.has_serde && enum_emits_codable(e, known_dto_names))
+        .map(|e| e.name.as_str())
+        .collect();
     for enum_name in enum_candidates {
         let enum_snake = AsSnakeCase(enum_name).to_string();
         let swift_name = format!("{enum_snake}_from_json").to_lower_camel_case();
-        out.push_str(&format!(
-            "public func {swift_name}(_ json: String) throws -> {enum_name} {{\n    let data = json.data(using: .utf8) ?? Data()\n    return try JSONDecoder().decode({enum_name}.self, from: data)\n}}\n\n"
-        ));
+        if codable_enum_set.contains(enum_name) {
+            out.push_str(&format!(
+                "public func {swift_name}(_ json: String) throws -> {enum_name} {{\n    let data = json.data(using: .utf8) ?? Data()\n    return try JSONDecoder().decode({enum_name}.self, from: data)\n}}\n\n"
+            ));
+        } else {
+            out.push_str(&format!(
+                "public func {swift_name}(_ json: String) throws -> {enum_name} {{\n    return try RustBridge.{swift_name}(json)\n}}\n\n"
+            ));
+        }
     }
+}
+
+/// Returns `true` when `emit_enum` would emit `en` as a native Codable Swift
+/// enum (either `enum X: String, Codable` for all-unit serde enums or
+/// `enum X: Codable` with associated values for bridge-safe data variants),
+/// rather than falling back to the `typealias X = RustBridge.X` opaque path.
+///
+/// This must mirror the conditional logic in [`emit_enum`] exactly so that the
+/// `*FromJson` forwarder's JSONDecoder-vs-RustBridge routing decision lines up
+/// with the actual Swift declaration of the enum.
+fn enum_emits_codable(en: &alef_core::ir::EnumDef, known_dto_names: &std::collections::HashSet<String>) -> bool {
+    if !en.has_serde {
+        return false;
+    }
+    let all_unit = en.variants.iter().all(|v| v.fields.is_empty());
+    if all_unit {
+        return true;
+    }
+    all_variants_codable_safe(en, known_dto_names)
 }
 
 /// Returns `true` when the api surface exposes the legacy extraction e2e helper
@@ -2975,12 +3012,35 @@ fn emit_single_free_function_forwarder(
         out.push_str(&format!(
             "    return try JSONDecoder().decode({decode_ty}.self, from: _rb_data)\n"
         ));
+    } else if bare_named_dto_return(&func.return_type, known_dto_names) {
+        // Bare Named DTO return: the bridge call yields a `RustBridge.{Dto}` value,
+        // but the forwarder signature declares the high-level `{Dto}` struct/enum
+        // (Codable/Sendable). There is no chainable conversion expression for the
+        // `init(_ rb:) throws` initializer on a non-Optional/non-Sequence value, so
+        // we bind the bridge result to a local and call the initializer separately.
+        // This covers nullary default-config getters like `schemaQueryOnly()` →
+        // `QueryOnlyConfig` whose body would otherwise return the low-level
+        // `RustBridge.QueryOnlyConfig` and fail to satisfy the declared type.
+        let bridge_call_try = if func.error_type.is_some() { "try " } else { "" };
+        let dto_name = swift_type_name(&func.return_type);
+        out.push_str(&format!(
+            "    let _rb = {bridge_call_try}RustBridge.{swift_name}({args})\n"
+        ));
+        out.push_str(&format!("    return try {dto_name}(_rb)\n"));
     } else {
         out.push_str(&format!(
             "    return {effective_try}RustBridge.{swift_name}({args}){return_suffix}\n"
         ));
     }
     out.push_str("}\n\n");
+}
+
+/// Returns `true` when `ty` is a bare `Named(name)` reference whose Swift mirror
+/// is a known first-class DTO (i.e. has an `init(_ rb:) throws` converter). Bare
+/// in the sense of not wrapped in `Optional` / `Vec` / `Map` / etc. — those have
+/// their own chainable suffixes via [`forwarder_return_conversion_suffix_inner`].
+fn bare_named_dto_return(ty: &TypeRef, known_dto_names: &std::collections::HashSet<String>) -> bool {
+    matches!(ty, TypeRef::Named(name) if known_dto_names.contains(name))
 }
 
 /// True if swift-bridge transports the function's return value through a
@@ -3220,14 +3280,18 @@ fn forwarder_return_conversion_suffix_inner(
 /// are pure expressions that never fail.
 fn return_value_conversion_throws(ty: &TypeRef, known_dto_names: &std::collections::HashSet<String>) -> bool {
     match ty {
-        // Only `Optional<Named-DTO>` returns currently emit a throwing
-        // suffix (`Optional.map { try {Name}($0) }`). Bare Named returns and
-        // `Vec<Named>` returns emit no suffix today — see the corresponding
-        // arms in [`forwarder_return_conversion_suffix_inner`].
+        // `Optional<Named-DTO>` returns emit a throwing suffix
+        // (`Optional.map { try {Name}($0) }`). Bare `Named(DTO)` returns route
+        // through the local-binding body form (`let _rb = ...; return try
+        // {Name}(_rb)`) which is also throwing. `Vec<Named>` returns emit no
+        // suffix today — see the corresponding arms in
+        // [`forwarder_return_conversion_suffix_inner`] and
+        // [`bare_named_dto_return`].
         TypeRef::Optional(inner) => matches!(
             inner.as_ref(),
             TypeRef::Named(name) if known_dto_names.contains(name)
         ),
+        TypeRef::Named(name) => known_dto_names.contains(name),
         _ => false,
     }
 }

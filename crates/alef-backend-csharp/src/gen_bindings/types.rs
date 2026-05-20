@@ -56,11 +56,8 @@ pub(super) fn gen_opaque_handle(
     let free_method = format!("{}Free", class_name);
 
     // Prepare doc lines if present
-    let doc_lines: Vec<String> = if !typ.doc.is_empty() {
-        typ.doc.lines().map(|l| l.to_string()).collect()
-    } else {
-        vec![]
-    };
+    let doc_lines = super::sanitize_doc_lines_for_csharp(&typ.doc);
+    let has_doc = !doc_lines.is_empty();
 
     let mut out = render(
         "opaque_handle_header.jinja",
@@ -72,7 +69,7 @@ pub(super) fn gen_opaque_handle(
             "needs_list": needs_list,
             "needs_async": needs_async,
             "needs_streaming": has_streaming,
-            "doc": !typ.doc.is_empty(),
+            "doc": has_doc,
             "doc_lines": doc_lines,
         })),
     );
@@ -249,11 +246,12 @@ fn gen_opaque_streaming_method(
     let item_to_json = format!("{item_pascal}ToJson");
     let item_free = format!("{item_pascal}Free");
 
-    let doc_lines: Vec<String> = method.doc.lines().map(ToString::to_string).collect();
+    let doc_lines = super::sanitize_doc_lines_for_csharp(&method.doc);
+    let has_doc = !doc_lines.is_empty();
     render(
         "opaque_streaming_method.jinja",
         Value::from_serialize(serde_json::json!({
-            "has_doc": !method.doc.is_empty(),
+            "has_doc": has_doc,
             "doc_lines": doc_lines,
             "method_name": cs_method_name,
             "item_type": item_pascal,
@@ -289,14 +287,14 @@ fn gen_opaque_method(
     let visible_params: Vec<alef_core::ir::ParamDef> = method.params.clone();
 
     // XML doc comment.
-    if !method.doc.is_empty() {
-        let doc_lines: Vec<String> = method.doc.lines().map(ToString::to_string).collect();
+    let method_doc_lines = super::sanitize_doc_lines_for_csharp(&method.doc);
+    if !method_doc_lines.is_empty() {
         out.push_str(&render(
             "doc_comment_block.jinja",
             minijinja::context! {
                 has_doc => true,
                 indent => "    ",
-                doc_lines => doc_lines,
+                doc_lines => method_doc_lines,
             },
         ));
     }
@@ -608,14 +606,14 @@ pub(super) fn gen_record_type(
     out.push('\n');
 
     // Generate doc comment if available
-    if !typ.doc.is_empty() {
-        let doc_lines: Vec<String> = typ.doc.lines().map(ToString::to_string).collect();
+    let typ_doc_lines = super::sanitize_doc_lines_for_csharp(&typ.doc);
+    if !typ_doc_lines.is_empty() {
         out.push_str(&render(
             "doc_comment_block.jinja",
             minijinja::context! {
                 has_doc => true,
                 indent => "",
-                doc_lines => doc_lines,
+                doc_lines => typ_doc_lines,
             },
         ));
     }
@@ -631,14 +629,14 @@ pub(super) fn gen_record_type(
         }
 
         // Doc comment for field
-        if !field.doc.is_empty() {
-            let doc_lines: Vec<String> = field.doc.lines().map(ToString::to_string).collect();
+        let field_doc_lines = super::sanitize_doc_lines_for_csharp(&field.doc);
+        if !field_doc_lines.is_empty() {
             out.push_str(&render(
                 "doc_comment_block.jinja",
                 minijinja::context! {
                     has_doc => true,
                     indent => "    ",
-                    doc_lines => doc_lines,
+                    doc_lines => field_doc_lines,
                 },
             ));
         }
@@ -1027,8 +1025,9 @@ fn emit_record_methods(out: &mut String, typ: &TypeDef, class_name: &str, _prefi
             .collect();
 
         // Doc comment
-        if !method.doc.is_empty() {
-            let first_line = method.doc.lines().next().unwrap_or("").replace('"', "\\\"");
+        let sanitized_method_doc = super::sanitize_rust_syntax_for_csharp(&method.doc);
+        if !sanitized_method_doc.trim().is_empty() {
+            let first_line = sanitized_method_doc.lines().next().unwrap_or("").replace('"', "\\\"");
             out.push_str(&format!(
                 "\n    /// <summary>\n    /// {first_line}\n    /// </summary>\n"
             ));

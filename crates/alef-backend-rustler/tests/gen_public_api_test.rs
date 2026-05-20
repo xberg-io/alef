@@ -1505,3 +1505,56 @@ fn error_methods_emit_elixir_spec_and_def_wrappers() {
         "error_type def missing:\n{content}"
     );
 }
+
+/// Regression test: every Rust NIF emitted for error introspection methods
+/// (`<errname>_status_code`, `<errname>_is_transient`, `<errname>_error_type`) must
+/// have a matching `:erlang.nif_error(:nif_not_loaded)` stub in the `<App>.Native`
+/// Elixir module. Without these stubs, rustler-precompiled's `on_load` fails with
+/// `{:error, {:bad_lib, ~c"Function not found ..."}}` and the BEAM aborts module load.
+#[test]
+fn error_methods_emit_matching_native_ex_stubs() {
+    let backend = RustlerBackend;
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![make_error_with_methods()],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+    let config = make_config("demo");
+
+    // Rust NIF emission side
+    let bindings = backend.generate_bindings(&api, &config).unwrap();
+    let lib_rs = bindings
+        .iter()
+        .find(|f| f.path.to_string_lossy().replace('\\', "/").ends_with("lib.rs"))
+        .expect("lib.rs must be generated");
+    let rust_content = &lib_rs.content;
+    assert!(
+        rust_content.contains("fn demoerror_status_code(_msg: String) -> u16"),
+        "Rust NIF status_code shim missing — test premise broken:\n{rust_content}"
+    );
+
+    // Matching Elixir Native stub side — the actual fix.
+    let public = backend.generate_public_api(&api, &config).unwrap();
+    let native_ex = public
+        .iter()
+        .find(|f| f.path.to_string_lossy().replace('\\', "/").ends_with("native.ex"))
+        .expect("native.ex must be generated");
+    let native_content = &native_ex.content;
+    assert!(
+        native_content.contains("def demoerror_status_code(_msg), do: :erlang.nif_error(:nif_not_loaded)"),
+        "native.ex stub demoerror_status_code missing:\n{native_content}"
+    );
+    assert!(
+        native_content.contains("def demoerror_is_transient(_msg), do: :erlang.nif_error(:nif_not_loaded)"),
+        "native.ex stub demoerror_is_transient missing:\n{native_content}"
+    );
+    assert!(
+        native_content.contains("def demoerror_error_type(_msg), do: :erlang.nif_error(:nif_not_loaded)"),
+        "native.ex stub demoerror_error_type missing:\n{native_content}"
+    );
+}

@@ -54,7 +54,36 @@ pub fn emit_csharp_doc(out: &mut String, doc: &str, indent: &str, exception_clas
     if doc.is_empty() {
         return;
     }
-    let sections = parse_rustdoc_sections(doc);
+    // Parse sections from the raw rustdoc first (so `# Examples` / `# Arguments`
+    // / `# Returns` / `# Errors` are routed into structured XML tags), then
+    // sanitise each section body to strip Rust idioms and XML-escape `<`/`>`/`&`.
+    let raw_sections = parse_rustdoc_sections(doc);
+    let sections = RustdocSections {
+        summary: sanitize_rust_idioms_keep_sections(&raw_sections.summary, DocTarget::CSharpDoc),
+        arguments: raw_sections
+            .arguments
+            .as_deref()
+            .map(|s| sanitize_rust_idioms_keep_sections(s, DocTarget::CSharpDoc)),
+        returns: raw_sections
+            .returns
+            .as_deref()
+            .map(|s| sanitize_rust_idioms_keep_sections(s, DocTarget::CSharpDoc)),
+        errors: raw_sections
+            .errors
+            .as_deref()
+            .map(|s| sanitize_rust_idioms_keep_sections(s, DocTarget::CSharpDoc)),
+        panics: raw_sections
+            .panics
+            .as_deref()
+            .map(|s| sanitize_rust_idioms_keep_sections(s, DocTarget::CSharpDoc)),
+        safety: raw_sections
+            .safety
+            .as_deref()
+            .map(|s| sanitize_rust_idioms_keep_sections(s, DocTarget::CSharpDoc)),
+        // Examples typically contain Rust code that doesn't compile as C#; drop the body
+        // entirely rather than risk leaking unparseable code into `<example>`.
+        example: None,
+    };
     let any_section = sections.arguments.is_some()
         || sections.returns.is_some()
         || sections.errors.is_some()
@@ -63,10 +92,13 @@ pub fn emit_csharp_doc(out: &mut String, doc: &str, indent: &str, exception_clas
         // Backwards-compatible path: plain `<summary>` for prose-only docs.
         out.push_str(indent);
         out.push_str("/// <summary>\n");
-        for line in doc.lines() {
+        for line in sections.summary.lines() {
             out.push_str(indent);
             out.push_str("/// ");
-            out.push_str(&escape_csharp_doc_line(line));
+            // Note: sanitise_rust_idioms_keep_sections already XML-escaped <, >, & for
+            // the CSharpDoc target. We deliberately do NOT call escape_csharp_doc_line
+            // here because that would double-encode (e.g. `&amp;` → `&amp;amp;`).
+            out.push_str(line);
             out.push('\n');
         }
         out.push_str(indent);
@@ -84,11 +116,6 @@ pub fn emit_csharp_doc(out: &mut String, doc: &str, indent: &str, exception_clas
         out.push_str(line);
         out.push('\n');
     }
-}
-
-/// Escape C# XML doc line: handle XML special characters.
-fn escape_csharp_doc_line(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
 /// Emit Elixir documentation comments (@doc)
@@ -1228,6 +1255,13 @@ pub enum DocTarget {
     TsDoc,
     /// JSDoc (`/** ... */`), JavaScript variant.
     JsDoc,
+    /// C# XML doc (`/// <summary>...</summary>`).
+    ///
+    /// Strips Rust code fences and section headings (`# Examples`,
+    /// `# Arguments`, `# Returns`, etc.), drops Rust trait-bound prose,
+    /// and XML-escapes any remaining `<` / `>` / `&` so the result is
+    /// safe to embed inside a `<summary>` element.
+    CSharpDoc,
 }
 
 /// Sanitize Rust-specific idioms in a prose string for the given foreign-language
@@ -1257,12 +1291,49 @@ pub enum DocTarget {
 /// - `.unwrap()`, `.expect("…")` → stripped.
 /// - ` ```rust ` fences → dropped entirely (TS/JS) or tag removed (PHP/Java).
 pub fn sanitize_rust_idioms(text: &str, target: DocTarget) -> String {
+    // For C# XML doc the default is to drop rustdoc section headings
+    // (`# Examples`, `# Arguments`, …) and the remainder of the comment,
+    // because those bodies routinely contain content that cannot be embedded
+    // safely inside `<summary>`. Callers that have already extracted sections
+    // (`emit_csharp_doc`) sanitise each section body via [`sanitize_rust_idioms_keep_sections`].
+    sanitize_rust_idioms_inner(text, target, true)
+}
+
+/// Same as [`sanitize_rust_idioms`] but never drops rustdoc section headings.
+///
+/// Used by emitters that have already split the doc into sections and need to
+/// sanitise each body fragment independently (e.g. C# XML doc emission with
+/// per-section `<param>` / `<returns>` / `<exception>` tags).
+pub fn sanitize_rust_idioms_keep_sections(text: &str, target: DocTarget) -> String {
+    sanitize_rust_idioms_inner(text, target, false)
+}
+
+fn sanitize_rust_idioms_inner(text: &str, target: DocTarget, drop_csharp_sections: bool) -> String {
     let mut out = String::with_capacity(text.len());
     let mut in_rust_fence = false;
     let mut in_other_fence = false;
+    // For C# XML doc: once a `# Examples` / `# Arguments` / etc. heading is
+    // encountered, drop the entire remainder of the comment. Rustdoc section
+    // headings cannot be safely embedded inside `<summary>` and the per-section
+    // content (code fences, intra-doc links, generics) is the leading cause
+    // of CS1002/CS1519 leakage. The plain `<summary>` path collapses to the
+    // top-level prose only.
+    let mut csharp_section_dropped = false;
 
     for line in text.lines() {
+        if csharp_section_dropped {
+            continue;
+        }
         let trimmed = line.trim_start();
+        if drop_csharp_sections
+            && matches!(target, DocTarget::CSharpDoc)
+            && !in_rust_fence
+            && !in_other_fence
+            && is_rustdoc_section_heading(trimmed)
+        {
+            csharp_section_dropped = true;
+            continue;
+        }
 
         // Detect code fence boundaries.
         if let Some(rest) = trimmed.strip_prefix("```") {
@@ -1270,7 +1341,7 @@ pub fn sanitize_rust_idioms(text: &str, target: DocTarget) -> String {
                 // Closing fence of a rust block.
                 in_rust_fence = false;
                 match target {
-                    DocTarget::TsDoc | DocTarget::JsDoc => {
+                    DocTarget::TsDoc | DocTarget::JsDoc | DocTarget::CSharpDoc => {
                         // Entire rust block dropped — don't emit closing fence.
                     }
                     DocTarget::PhpDoc | DocTarget::JavaDoc => {
@@ -1293,7 +1364,7 @@ pub fn sanitize_rust_idioms(text: &str, target: DocTarget) -> String {
             if is_rust {
                 in_rust_fence = true;
                 match target {
-                    DocTarget::TsDoc | DocTarget::JsDoc => {
+                    DocTarget::TsDoc | DocTarget::JsDoc | DocTarget::CSharpDoc => {
                         // Drop the entire rust fence block — skip opening line.
                     }
                     DocTarget::PhpDoc | DocTarget::JavaDoc => {
@@ -1318,7 +1389,7 @@ pub fn sanitize_rust_idioms(text: &str, target: DocTarget) -> String {
         // Inside a rust fence.
         if in_rust_fence {
             match target {
-                DocTarget::TsDoc | DocTarget::JsDoc => {
+                DocTarget::TsDoc | DocTarget::JsDoc | DocTarget::CSharpDoc => {
                     // Drop content of rust fences.
                 }
                 DocTarget::PhpDoc | DocTarget::JavaDoc => {
@@ -1352,6 +1423,50 @@ pub fn sanitize_rust_idioms(text: &str, target: DocTarget) -> String {
     // Trim trailing newline added by the loop (preserve internal newlines).
     if out.ends_with('\n') && !text.ends_with('\n') {
         out.pop();
+    }
+
+    // For C# XML doc, escape any remaining `<`, `>`, `&` so the result is
+    // safe to embed inside `<summary>...</summary>`. By this point the
+    // Rust-idiom substitutions have replaced `Vec<T>` / `Option<T>` /
+    // `HashMap<K, V>` / `Result<T, E>` with their idiomatic forms, but
+    // unrecognised generic constructs (e.g. trait-object references) may
+    // still contain raw angle brackets that would break C# XML parsing.
+    if matches!(target, DocTarget::CSharpDoc) {
+        out = xml_escape_for_csharp(&out);
+    }
+
+    out
+}
+
+/// Return `true` if `line` (already left-trimmed) is a Rustdoc section heading
+/// such as `# Examples`, `# Arguments`, `# Returns`, `# Errors`, `# Panics`,
+/// or `# Safety`. Case-insensitive on the heading name.
+fn is_rustdoc_section_heading(trimmed: &str) -> bool {
+    let Some(rest) = trimmed.strip_prefix("# ") else {
+        return false;
+    };
+    let head = rest.trim().to_ascii_lowercase();
+    matches!(
+        head.as_str(),
+        "arguments" | "args" | "returns" | "errors" | "panics" | "safety" | "example" | "examples"
+    )
+}
+
+/// XML-escape `<`, `>`, `&` for safe embedding inside a C# `<summary>` element.
+///
+/// `<` / `>` may legitimately appear in prose after Rust-idiom substitution
+/// when the substitutions produce C#-friendly forms (e.g. `Dictionary<K, V>`).
+/// Those are still XML-significant characters and must be entity-escaped for
+/// XML parsers (Roslyn, doxygen) to accept the resulting `<summary>` block.
+fn xml_escape_for_csharp(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            _ => out.push(ch),
+        }
     }
     out
 }
@@ -1699,6 +1814,7 @@ fn replace_type_wrappers(s: &str, target: DocTarget) -> String {
         DocTarget::PhpDoc => "string",
         DocTarget::JavaDoc => "byte[]",
         DocTarget::TsDoc | DocTarget::JsDoc => "Uint8Array",
+        DocTarget::CSharpDoc => "byte[]",
     };
     out = replace_generic1(&out, "Vec", "u8", vec_u8_replacement);
 
@@ -1707,6 +1823,7 @@ fn replace_type_wrappers(s: &str, target: DocTarget) -> String {
         DocTarget::PhpDoc => format!("array<{k}, {v}>"),
         DocTarget::JavaDoc => format!("Map<{k}, {v}>"),
         DocTarget::TsDoc | DocTarget::JsDoc => format!("Record<{k}, {v}>"),
+        DocTarget::CSharpDoc => format!("Dictionary<{k}, {v}>"),
     };
     out = replace_generic2(&out, "HashMap", &map_replacement_fn);
 
@@ -1718,8 +1835,17 @@ fn replace_type_wrappers(s: &str, target: DocTarget) -> String {
         DocTarget::PhpDoc => format!("{inner}?"),
         DocTarget::JavaDoc => format!("{inner} | null"),
         DocTarget::TsDoc | DocTarget::JsDoc => format!("{inner} | undefined"),
+        DocTarget::CSharpDoc => format!("{inner}?"),
     };
     out = replace_generic1_passthrough(&out, "Option", option_replacement_fn);
+
+    // Result<T, E> — drop the error type, keep the success type.
+    // C# has no Result type; the binding throws exceptions, so just the success type
+    // is meaningful in prose. We do this for C# only; other targets historically left
+    // `Result<T, E>` unchanged (their tests assert nothing about it).
+    if matches!(target, DocTarget::CSharpDoc) {
+        out = replace_generic2(&out, "Result", &|t: &str, _e: &str| t.to_string());
+    }
 
     // Smart pointer wrappers: strip to inner type.
     for wrapper in &["Arc", "Box", "Mutex", "RwLock", "Rc", "Cell", "RefCell"] {
@@ -1926,7 +2052,7 @@ fn replace_some_keyword_in_prose(s: &str) -> String {
 /// Replace `None` (at word boundaries, uppercase) with the target-appropriate nil.
 fn replace_none_keyword(s: &str, target: DocTarget) -> String {
     let replacement = match target {
-        DocTarget::PhpDoc | DocTarget::JavaDoc => "null",
+        DocTarget::PhpDoc | DocTarget::JavaDoc | DocTarget::CSharpDoc => "null",
         DocTarget::TsDoc | DocTarget::JsDoc => "undefined",
     };
     let keyword = b"None";
@@ -2881,5 +3007,129 @@ mod tests {
         let input = "Unlike NoneType in Python.";
         let out = sanitize_rust_idioms(input, DocTarget::JavaDoc);
         assert!(out.contains("NoneType"), "NoneType must not be replaced, got: {out}");
+    }
+
+    // --- CSharpDoc target tests ---
+
+    #[test]
+    fn sanitize_csharp_drops_rust_section_headings_and_example_body() {
+        // The GraphQLErrorException case: `# Examples` heading followed by a
+        // ```ignore code fence containing `Self::error_code`, `Result<T, E>`,
+        // intra-doc links — all of which previously leaked into `<summary>`.
+        let input = "Convert error to HTTP status code\n\n\
+            Maps GraphQL error types to status codes.\n\n\
+            # Examples\n\n\
+            ```ignore\n\
+            use spikard_graphql::error::GraphQLError;\n\
+            let error = GraphQLError::AuthenticationError(\"Invalid token\".to_string());\n\
+            assert_eq!(error.status_code(), 401);\n\
+            ```\n";
+        let out = sanitize_rust_idioms(input, DocTarget::CSharpDoc);
+        assert!(
+            out.contains("Convert error to HTTP status code"),
+            "summary preserved: {out}"
+        );
+        assert!(out.contains("Maps GraphQL error types"), "prose preserved: {out}");
+        assert!(!out.contains("# Examples"), "heading dropped: {out}");
+        assert!(!out.contains("```"), "code fence dropped: {out}");
+        assert!(!out.contains("Self::error_code"), "Self::method dropped: {out}");
+        assert!(
+            !out.contains("GraphQLError::AuthenticationError"),
+            "rust path dropped: {out}"
+        );
+    }
+
+    #[test]
+    fn sanitize_csharp_intradoc_link_with_path_separator() {
+        let input = "See [`Self::error_code`] for the variant codes.";
+        let out = sanitize_rust_idioms(input, DocTarget::CSharpDoc);
+        assert!(out.contains("`Self.error_code`"), "intra-doc link normalised: {out}");
+        assert!(!out.contains("[`"), "square brackets removed: {out}");
+        assert!(!out.contains("::"), ":: replaced with .: {out}");
+    }
+
+    #[test]
+    fn sanitize_csharp_result_type_keeps_success_drops_error() {
+        let input = "Returns Result<String, ConversionError> on failure.";
+        let out = sanitize_rust_idioms(input, DocTarget::CSharpDoc);
+        assert!(out.contains("String"), "success type kept: {out}");
+        assert!(!out.contains("Result<"), "Result wrapper dropped: {out}");
+        assert!(!out.contains("ConversionError"), "error type dropped: {out}");
+    }
+
+    #[test]
+    fn sanitize_csharp_option_becomes_nullable() {
+        let input = "Returns Option<String>.";
+        let out = sanitize_rust_idioms(input, DocTarget::CSharpDoc);
+        // After XML-escaping, the `?` survives but any surviving `<`/`>` get escaped.
+        assert!(out.contains("String?"), "Option<T> -> T?: {out}");
+        assert!(!out.contains("Option<"), "Option dropped: {out}");
+    }
+
+    #[test]
+    fn sanitize_csharp_vec_u8_becomes_byte_array() {
+        let input = "Accepts Vec<u8>.";
+        let out = sanitize_rust_idioms(input, DocTarget::CSharpDoc);
+        // `byte[]` survives — the `[` is not XML-significant.
+        assert!(out.contains("byte[]"), "Vec<u8> -> byte[]: {out}");
+    }
+
+    #[test]
+    fn sanitize_csharp_hashmap_becomes_dictionary() {
+        let input = "Holds HashMap<String, u32>.";
+        let out = sanitize_rust_idioms(input, DocTarget::CSharpDoc);
+        // The `<` / `>` produced by Dictionary<K, V> must be XML-escaped.
+        assert!(
+            out.contains("Dictionary&lt;String, u32&gt;"),
+            "HashMap -> Dictionary with XML-escaped brackets: {out}"
+        );
+    }
+
+    #[test]
+    fn sanitize_csharp_none_to_null() {
+        let input = "Returns None on miss.";
+        let out = sanitize_rust_idioms(input, DocTarget::CSharpDoc);
+        assert!(out.contains("null"), "None -> null: {out}");
+        assert!(!out.contains("None"), "None replaced: {out}");
+    }
+
+    #[test]
+    fn sanitize_csharp_escapes_raw_angle_brackets_and_amp() {
+        // Unrecognised `<...>` constructs (e.g. trait objects, generic params on
+        // unknown names) must still be XML-escaped so the result is valid inside
+        // `<summary>`.
+        let input = "Accepts Box<dyn Trait> and combines a & b.";
+        let out = sanitize_rust_idioms(input, DocTarget::CSharpDoc);
+        // Box<T> wrapper is stripped to inner type, leaving `dyn Trait`.
+        assert!(out.contains("dyn Trait"), "Box<T> stripped: {out}");
+        assert!(out.contains("&amp;"), "ampersand escaped: {out}");
+    }
+
+    #[test]
+    fn sanitize_csharp_drops_rust_code_fence_entirely() {
+        let input = "Intro.\n\n```rust\nlet x: Vec<u8> = vec![];\n```\n\nTrailer.";
+        let out = sanitize_rust_idioms(input, DocTarget::CSharpDoc);
+        assert!(!out.contains("let x"), "code fence body dropped: {out}");
+        assert!(!out.contains("```"), "fence markers dropped: {out}");
+        assert!(out.contains("Intro."), "prose before fence kept: {out}");
+        assert!(out.contains("Trailer."), "prose after fence kept: {out}");
+    }
+
+    #[test]
+    fn sanitize_csharp_keep_sections_does_not_drop_headings() {
+        // The sections-preserving variant leaves heading lines alone so callers
+        // that have already extracted sections can sanitise each body fragment.
+        let input = "Summary.\n\n# Arguments\n\n* `name` - the value.";
+        let out = sanitize_rust_idioms_keep_sections(input, DocTarget::CSharpDoc);
+        assert!(out.contains("# Arguments"), "heading preserved: {out}");
+        assert!(out.contains("name"), "body preserved: {out}");
+    }
+
+    #[test]
+    fn sanitize_csharp_idempotent() {
+        let input = "Returns Option<String> or None.";
+        let once = sanitize_rust_idioms(input, DocTarget::CSharpDoc);
+        let twice = sanitize_rust_idioms(&once, DocTarget::CSharpDoc);
+        assert_eq!(once, twice, "CSharpDoc sanitisation must be idempotent");
     }
 }

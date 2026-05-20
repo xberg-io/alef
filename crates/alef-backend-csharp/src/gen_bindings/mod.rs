@@ -25,6 +25,33 @@ pub(super) mod functions;
 pub(super) mod methods;
 pub(super) mod types;
 
+/// Sanitise a rustdoc string for safe embedding in C# XML doc comments.
+///
+/// Wraps [`alef_codegen::doc_emission::sanitize_rust_idioms`] with the
+/// [`alef_codegen::doc_emission::DocTarget::CSharpDoc`] target so every C#
+/// backend doc-emission site (templates that take `doc_lines`, helpers that
+/// emit `/// <summary>` blocks directly) routes through the same pipeline.
+pub(crate) fn sanitize_rust_syntax_for_csharp(doc: &str) -> String {
+    alef_codegen::doc_emission::sanitize_rust_idioms(doc, alef_codegen::doc_emission::DocTarget::CSharpDoc)
+}
+
+/// Sanitise a rustdoc string and split it into lines for `doc_lines` template variables.
+///
+/// Returns an empty `Vec` when the sanitised doc is empty. The companion
+/// `has_doc` flag should be set to `!doc_lines.is_empty()` rather than checking
+/// the raw input, because sanitisation may drop the entire body (e.g. a doc
+/// that is nothing but a rust code-fence example).
+pub(crate) fn sanitize_doc_lines_for_csharp(doc: &str) -> Vec<String> {
+    if doc.is_empty() {
+        return Vec::new();
+    }
+    let sanitized = sanitize_rust_syntax_for_csharp(doc);
+    if sanitized.trim().is_empty() {
+        return Vec::new();
+    }
+    sanitized.lines().map(ToString::to_string).collect()
+}
+
 pub struct CsharpBackend;
 
 impl CsharpBackend {
