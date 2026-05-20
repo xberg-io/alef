@@ -238,7 +238,11 @@ pub(super) fn gen_function(
     let mut attrs = String::new();
     // Doc comments on the function become JSDoc on the corresponding `export
     // declare function` in the generated .d.ts via napi-derive's typegen.
-    alef_codegen::doc_emission::emit_rustdoc(&mut attrs, &func.doc, "");
+    // Sanitize Rust-specific code examples (e.g. ```rust blocks) since they
+    // won't make sense in TypeScript and will break the .d.ts file.
+    let sanitized_doc =
+        alef_codegen::doc_emission::sanitize_rust_idioms(&func.doc, alef_codegen::doc_emission::DocTarget::TsDoc);
+    alef_codegen::doc_emission::emit_rustdoc(&mut attrs, &sanitized_doc, "");
     // Per-item clippy suppression: too_many_arguments when >7 params
     if func.params.len() > 7 {
         attrs.push_str("#[allow(clippy::too_many_arguments)]\n");

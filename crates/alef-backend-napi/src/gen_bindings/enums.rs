@@ -109,8 +109,11 @@ pub(super) fn gen_enum(enum_def: &EnumDef, prefix: &str, has_serde: bool) -> Str
         "#[derive(Clone)]".to_string()
     };
     // Emit rustdoc on the enum so napi-derive forwards it to JSDoc in the .d.ts.
+    // Sanitize Rust-specific code examples so they render properly in TypeScript.
     let mut enum_doc = String::new();
-    alef_codegen::doc_emission::emit_rustdoc(&mut enum_doc, &enum_def.doc, "");
+    let sanitized_enum_doc =
+        alef_codegen::doc_emission::sanitize_rust_idioms(&enum_def.doc, alef_codegen::doc_emission::DocTarget::TsDoc);
+    alef_codegen::doc_emission::emit_rustdoc(&mut enum_doc, &sanitized_enum_doc, "");
     let mut lines: Vec<String> = Vec::new();
     if !enum_doc.is_empty() {
         // Strip the trailing newline emit_rustdoc appends so the lines join doesn't double up.
@@ -123,7 +126,11 @@ pub(super) fn gen_enum(enum_def: &EnumDef, prefix: &str, has_serde: bool) -> Str
     for variant in &enum_def.variants {
         // Variant-level rustdoc → JSDoc on the corresponding TS enum member.
         let mut variant_doc = String::new();
-        alef_codegen::doc_emission::emit_rustdoc(&mut variant_doc, &variant.doc, "    ");
+        let sanitized_variant_doc = alef_codegen::doc_emission::sanitize_rust_idioms(
+            &variant.doc,
+            alef_codegen::doc_emission::DocTarget::TsDoc,
+        );
+        alef_codegen::doc_emission::emit_rustdoc(&mut variant_doc, &sanitized_variant_doc, "    ");
         if !variant_doc.is_empty() {
             lines.push(variant_doc.trim_end_matches('\n').to_string());
         }
@@ -220,8 +227,11 @@ pub(super) fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str, has_se
     let js_name = &enum_def.name;
     let mut lines: Vec<String> = Vec::new();
     // Emit rustdoc on the flattened struct so napi-derive forwards it to JSDoc.
+    // Sanitize Rust-specific code examples so they render properly in TypeScript.
     let mut enum_doc = String::new();
-    alef_codegen::doc_emission::emit_rustdoc(&mut enum_doc, &enum_def.doc, "");
+    let sanitized_enum_doc =
+        alef_codegen::doc_emission::sanitize_rust_idioms(&enum_def.doc, alef_codegen::doc_emission::DocTarget::TsDoc);
+    alef_codegen::doc_emission::emit_rustdoc(&mut enum_doc, &sanitized_enum_doc, "");
     if !enum_doc.is_empty() {
         lines.push(enum_doc.trim_end_matches('\n').to_string());
     }

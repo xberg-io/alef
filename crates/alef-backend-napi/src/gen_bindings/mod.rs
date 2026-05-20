@@ -389,7 +389,11 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
                         &format!("#[napi(js_name = \"{}\")]pub struct {struct_name}", typ.name),
                     );
                     let mut out = String::new();
-                    alef_codegen::doc_emission::emit_rustdoc(&mut out, &typ.doc, "");
+                    let sanitized_doc = alef_codegen::doc_emission::sanitize_rust_idioms(
+                        &typ.doc,
+                        alef_codegen::doc_emission::DocTarget::TsDoc,
+                    );
+                    alef_codegen::doc_emission::emit_rustdoc(&mut out, &sanitized_doc, "");
                     out.push_str(&body);
                     out
                 };

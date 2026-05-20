@@ -149,40 +149,6 @@ pub fn emit_rustdoc(out: &mut String, doc: &str, indent: &str) {
     }
 }
 
-/// Emit TypeScript JSDoc-style documentation comments (/** ... */)
-/// Used by NAPI-RS backends for TypeScript .d.ts type annotations and binding Rust doc comments.
-///
-/// Sanitizes Rust-specific idioms before translating rustdoc sections
-/// (`# Arguments` → `@param`, `# Returns` → `@returns`, `# Errors` → `@throws`,
-/// `# Example` → ` ```typescript ` fence) via [`render_jsdoc_sections`].
-pub fn emit_tsdoc(out: &mut String, doc: &str, indent: &str) {
-    if doc.is_empty() {
-        return;
-    }
-    // Sanitize Rust-specific idioms before processing sections.
-    let sanitized = sanitize_rust_idioms(doc, DocTarget::TsDoc);
-    let sections = parse_rustdoc_sections(&sanitized);
-    let any_section = sections.arguments.is_some()
-        || sections.returns.is_some()
-        || sections.errors.is_some()
-        || sections.example.is_some();
-    let body = if any_section {
-        render_jsdoc_sections(&sections)
-    } else {
-        sanitized
-    };
-    out.push_str(indent);
-    out.push_str("/**\n");
-    for line in body.lines() {
-        out.push_str(indent);
-        out.push_str(" * ");
-        out.push_str(line);
-        out.push('\n');
-    }
-    out.push_str(indent);
-    out.push_str(" */\n");
-}
-
 /// Escape Elixir doc line: handle triple-quote sequences that could close the heredoc early.
 fn escape_elixir_doc_line(s: &str) -> String {
     s.replace("\"\"\"", "\"\" \"")
@@ -2245,46 +2211,6 @@ mod tests {
         assert!(out.contains("/**"));
         assert!(out.contains("Kotlin documentation"));
         assert!(out.contains("*/"));
-    }
-
-    #[test]
-    fn test_emit_tsdoc() {
-        let mut out = String::new();
-        emit_tsdoc(&mut out, "TypeScript documentation", "    ");
-        assert!(out.contains("/**"));
-        assert!(out.contains("TypeScript documentation"));
-        assert!(out.contains("*/"));
-    }
-
-    #[test]
-    fn test_emit_tsdoc_strips_rust_code_blocks() {
-        // Verify that Rust code fences are stripped from TypeScript JSDoc.
-        let doc = "List all available languages.\n\n# Examples\n\n```rust\nuse tree_sitter_language_pack::available_languages;\nlet langs = available_languages();\nassert_eq!(langs.len(), 0);\n```";
-        let mut out = String::new();
-        emit_tsdoc(&mut out, doc, "");
-        // Should contain the summary and JSDoc structure.
-        assert!(out.contains("/**"));
-        assert!(out.contains("List all available languages"));
-        assert!(out.contains("*/"));
-        // Should NOT contain the Rust code or the ```rust fence.
-        assert!(!out.contains("use tree_sitter_language_pack"));
-        assert!(!out.contains("assert_eq!"));
-        assert!(!out.contains("```rust"));
-    }
-
-    #[test]
-    fn test_emit_tsdoc_strips_rust_idioms() {
-        // Verify that Rust idioms like .unwrap() and Some/None are sanitized.
-        let doc = "Get a language.\n\nReturns None if not found.\n\n# Example\n\n```typescript\nconst lang = getLanguage(\"rust\").unwrap();\n```";
-        let mut out = String::new();
-        emit_tsdoc(&mut out, doc, "");
-        // Should contain the summary and be valid JSDoc.
-        assert!(out.contains("/**"));
-        assert!(out.contains("Get a language"));
-        assert!(out.contains("*/"));
-        // Rust idioms should be sanitized in the prose.
-        assert!(out.contains("undefined")); // None -> undefined in TypeScript
-        // Note: .unwrap() in code fence stays as-is since it's inside backticks.
     }
 
     #[test]

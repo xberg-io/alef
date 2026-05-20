@@ -190,8 +190,11 @@ pub(super) fn gen_struct(
     let body = struct_builder.build();
     // Prepend rustdoc on the struct so napi-derive picks it up and writes
     // a `/** … */` JSDoc block above the `export interface` in index.d.ts.
+    // Sanitize Rust-specific code examples so they render properly in TypeScript.
     let mut out = String::new();
-    alef_codegen::doc_emission::emit_rustdoc(&mut out, &typ.doc, "");
+    let sanitized_doc =
+        alef_codegen::doc_emission::sanitize_rust_idioms(&typ.doc, alef_codegen::doc_emission::DocTarget::TsDoc);
+    alef_codegen::doc_emission::emit_rustdoc(&mut out, &sanitized_doc, "");
     out.push_str(&body);
     out
 }
@@ -499,7 +502,10 @@ pub(super) fn gen_opaque_instance_method(
     let mut attrs = String::new();
     // Doc comments on the method become JSDoc on the corresponding class method
     // in the generated .d.ts via napi-derive's typegen.
-    alef_codegen::doc_emission::emit_rustdoc(&mut attrs, &method.doc, "");
+    // Sanitize Rust-specific code examples so they render properly in TypeScript.
+    let sanitized_method_doc =
+        alef_codegen::doc_emission::sanitize_rust_idioms(&method.doc, alef_codegen::doc_emission::DocTarget::TsDoc);
+    alef_codegen::doc_emission::emit_rustdoc(&mut attrs, &sanitized_method_doc, "");
     // Per-item clippy suppression: too_many_arguments when >7 params (including &self)
     if method.params.len() + 1 > 7 {
         attrs.push_str("#[allow(clippy::too_many_arguments)]\n");
@@ -614,7 +620,10 @@ pub(super) fn gen_static_method(
     let mut attrs = String::new();
     // Doc comments on the static method become JSDoc on the class's static
     // method in the generated .d.ts via napi-derive's typegen.
-    alef_codegen::doc_emission::emit_rustdoc(&mut attrs, &method.doc, "");
+    // Sanitize Rust-specific code examples so they render properly in TypeScript.
+    let sanitized_method_doc =
+        alef_codegen::doc_emission::sanitize_rust_idioms(&method.doc, alef_codegen::doc_emission::DocTarget::TsDoc);
+    alef_codegen::doc_emission::emit_rustdoc(&mut attrs, &sanitized_method_doc, "");
     // Per-item clippy suppression: too_many_arguments when >7 params
     if method.params.len() > 7 {
         attrs.push_str("#[allow(clippy::too_many_arguments)]\n");
@@ -778,7 +787,9 @@ pub(super) fn gen_dto_method_fns(
 
         // Emit the function.
         let mut attrs = String::new();
-        alef_codegen::doc_emission::emit_rustdoc(&mut attrs, &method.doc, "");
+        let sanitized_method_doc =
+            alef_codegen::doc_emission::sanitize_rust_idioms(&method.doc, alef_codegen::doc_emission::DocTarget::TsDoc);
+        alef_codegen::doc_emission::emit_rustdoc(&mut attrs, &sanitized_method_doc, "");
         if method.error_type.is_some() || !is_static {
             attrs.push_str("#[allow(clippy::missing_errors_doc)]\n");
         }
