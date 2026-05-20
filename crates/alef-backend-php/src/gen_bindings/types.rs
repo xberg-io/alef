@@ -745,7 +745,13 @@ fn gen_struct_methods_impl(
         // `Option<Option<T>>`, which doesn't match the storage field's actual type.
         let mapped = mapper.map_type(&field.ty);
         let already_optional = matches!(field.ty, TypeRef::Optional(_));
-        let rust_return_type = if field.optional && !already_optional {
+        // The PHP struct emitter always enables option_duration_on_defaults, so Duration
+        // fields on Default structs are stored as Option<i64> in the binding struct.
+        // The getter return type must mirror the storage type — apply the same condition
+        // (`typ.has_default && !field.optional && Duration`) so the getter declares
+        // Option<i64> and not bare i64.
+        let force_optional = typ.has_default && !field.optional && matches!(field.ty, TypeRef::Duration);
+        let rust_return_type = if (field.optional || force_optional) && !already_optional {
             mapper.optional(&mapped)
         } else {
             map_fn(&field.ty)

@@ -2798,3 +2798,81 @@ fn test_public_api_sanitizes_rust_syntax_from_docstrings() {
     );
     assert!(content.contains("@return"), "@return tag must be present");
 }
+
+/// Regression test: a Duration field on a Default struct is stored as `Option<i64>` in the
+/// binding (via the `option_duration_on_defaults` path in the struct emitter). The getter
+/// return type must mirror the storage type and also be `Option<i64>`, not bare `i64`.
+///
+/// Before the fix the getter was emitted as `pub fn get_ttl(&self) -> i64 { self.ttl.clone() }`,
+/// which caused E0308 because `self.ttl` is `Option<i64>`.
+#[test]
+fn test_duration_field_on_default_struct_getter_returns_option() {
+    let backend = PhpBackend;
+
+    // Simulate a struct like `CacheConfig { ttl: Duration }` with `has_default = true`.
+    // The IR uses TypeRef::Duration for the field and has `optional = false`.
+    // The struct emitter wraps it in Option<i64> when option_duration_on_defaults is enabled;
+    // the getter must match.
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "CacheConfig".to_string(),
+            rust_path: "test_lib::CacheConfig".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                make_field("max_entries", TypeRef::Primitive(PrimitiveType::I64), false),
+                make_field("ttl", TypeRef::Duration, false),
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+            doc: "Cache configuration".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let config = make_config();
+    let result = backend.generate_bindings(&api, &config);
+    assert!(result.is_ok(), "generation must succeed: {:?}", result.err());
+
+    let files = result.unwrap();
+    let lib_rs = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("lib.rs"))
+        .unwrap();
+    let content = &lib_rs.content;
+
+    // The struct field must be Option<i64> (Duration → i64 ms, wrapped in Option).
+    assert!(
+        content.contains("pub ttl: Option<i64>"),
+        "Duration field on Default struct must be stored as Option<i64>; got:\n{content}"
+    );
+
+    // The getter must return Option<i64>, not bare i64, to match the storage type.
+    assert!(
+        content.contains("fn get_ttl") && content.contains("-> Option<i64>"),
+        "getter for Duration field on Default struct must return Option<i64>; got:\n{content}"
+    );
+
+    // Must NOT emit the wrong bare return type.
+    assert!(
+        !content.contains("fn get_ttl(&self) -> i64"),
+        "getter must not return bare i64 for a Duration-on-Default field; got:\n{content}"
+    );
+}
