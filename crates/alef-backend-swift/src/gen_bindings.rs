@@ -1547,9 +1547,7 @@ fn emit_streaming_free_functions(
                 "// MARK: - Sendable conformance for {owner_type} (streaming owner)\n"
             ));
             out.push_str("// swift-bridge opaque types are not automatically Sendable.\n");
-            out.push_str(
-                "// Captured by Task.detached in streaming free functions — Rust type is Send + Sync.\n",
-            );
+            out.push_str("// Captured by Task.detached in streaming free functions — Rust type is Send + Sync.\n");
             out.push_str(&format!(
                 "extension RustBridge.{owner_type}: @unchecked Sendable {{}}\n\n"
             ));
@@ -1564,12 +1562,8 @@ fn emit_streaming_free_functions(
                     out.push_str(&format!(
                         "// MARK: - Sendable conformance for {simple_ty} (streaming request param)\n"
                     ));
-                    out.push_str(
-                        "// swift-bridge opaque types are not automatically Sendable.\n",
-                    );
-                    out.push_str(
-                        "// Passed into Task.detached for streaming — Rust type is Send + Sync.\n",
-                    );
+                    out.push_str("// swift-bridge opaque types are not automatically Sendable.\n");
+                    out.push_str("// Passed into Task.detached for streaming — Rust type is Send + Sync.\n");
                     out.push_str(&format!(
                         "extension RustBridge.{simple_ty}: @unchecked Sendable {{}}\n\n"
                     ));
@@ -1586,8 +1580,7 @@ fn emit_streaming_free_functions(
         let start_fn_camel = swift_ident(&start_fn_snake.to_lower_camel_case());
 
         let item_type = adapter.item_type.as_deref().unwrap_or("String");
-        let item_type_from_json =
-            swift_ident(&format!("{}_from_json", AsSnakeCase(item_type)).to_lower_camel_case());
+        let item_type_from_json = swift_ident(&format!("{}_from_json", AsSnakeCase(item_type)).to_lower_camel_case());
 
         let owner_camel = swift_ident(&owner_type.to_lower_camel_case());
         let mut sig_params: Vec<String> = vec![format!("_ {owner_camel}: {owner_type}")];
@@ -1628,9 +1621,7 @@ fn emit_streaming_free_functions(
         out.push_str("                    let json = try handle.next().toString()\n");
         out.push_str("                    if json.isEmpty { break }\n");
         if first_class_types.contains(item_type) {
-            out.push_str(
-                "                    let chunkData = json.data(using: .utf8) ?? Data()\n",
-            );
+            out.push_str("                    let chunkData = json.data(using: .utf8) ?? Data()\n");
             out.push_str(&format!(
                 "                    let chunk = try JSONDecoder().decode({item_type}.self, from: chunkData)\n"
             ));
@@ -2775,11 +2766,8 @@ fn emit_single_free_function_forwarder(
     for line in &conversion_lines {
         out.push_str(&format!("    {line}\n"));
     }
-    let return_suffix = forwarder_return_conversion_suffix_with_throws(
-        &func.return_type,
-        known_dto_names,
-        func.error_type.is_some(),
-    );
+    let return_suffix =
+        forwarder_return_conversion_suffix_with_throws(&func.return_type, known_dto_names, func.error_type.is_some());
     // The outer return expression must use `try` when either the bridge call
     // throws (`func.error_type.is_some()`) or the value-conversion suffix
     // contains a throwing call (Named DTO via `init(_ rb:) throws`).
@@ -2972,10 +2960,7 @@ fn forwarder_return_type(ty: &TypeRef) -> String {
 /// For `RustVec<T>` returns the convention is `.map { $0 }` to materialise as a
 /// Swift `Array`; the closure receives the leaf swift-bridge type which can be
 /// converted further if needed.
-fn forwarder_return_conversion_suffix(
-    ty: &TypeRef,
-    known_dto_names: &std::collections::HashSet<String>,
-) -> String {
+fn forwarder_return_conversion_suffix(ty: &TypeRef, known_dto_names: &std::collections::HashSet<String>) -> String {
     forwarder_return_conversion_suffix_inner(ty, known_dto_names, false)
 }
 

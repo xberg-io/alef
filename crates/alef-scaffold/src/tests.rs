@@ -1566,7 +1566,9 @@ fn test_scaffold_swift() {
     );
     // Single-element products array must not have a trailing comma (swift-format removes it).
     assert!(
-        !package_swift.content.contains(".library(name: \"MyLib\", targets: [\"MyLib\"]),"),
+        !package_swift
+            .content
+            .contains(".library(name: \"MyLib\", targets: [\"MyLib\"]),"),
         "Package.swift single-element products array must not have trailing comma; got: {}",
         package_swift.content
     );

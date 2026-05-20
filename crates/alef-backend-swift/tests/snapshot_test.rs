@@ -1300,9 +1300,7 @@ fn snapshot_into_rust_bulk_constructor_nested() {
         swift_file.content
     );
     assert!(
-        swift_file
-            .content
-            .contains("rb.tags().map { $0.as_str().toString() }"),
+        swift_file.content.contains("rb.tags().map { $0.as_str().toString() }"),
         "ProcessResult init must convert Vec<String> via .map:\n{}",
         swift_file.content
     );

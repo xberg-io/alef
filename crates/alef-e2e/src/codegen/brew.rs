@@ -159,10 +159,7 @@ fn render_run_tests(categories: &[String]) -> String {
     let _ = writeln!(out, "assert_contains() {{");
     let _ = writeln!(out, "  local actual=\"$1\" expected=\"$2\" label=\"$3\"");
     let _ = writeln!(out, "  if [[ \"$actual\" != *\"$expected\"* ]]; then");
-    let _ = writeln!(
-        out,
-        "    echo \"FAIL [$label]: expected to contain '$expected'\" >&2"
-    );
+    let _ = writeln!(out, "    echo \"FAIL [$label]: expected to contain '$expected'\" >&2");
     let _ = writeln!(out, "    return 1");
     let _ = writeln!(out, "  fi");
     let _ = writeln!(out, "}}");
@@ -188,10 +185,7 @@ fn render_run_tests(categories: &[String]) -> String {
     let _ = writeln!(out);
     let _ = writeln!(out, "assert_greater_than() {{");
     let _ = writeln!(out, "  local val=\"$1\" threshold=\"$2\" label=\"$3\"");
-    let _ = writeln!(
-        out,
-        "  if [ \"$(echo \"$val > $threshold\" | bc -l)\" != \"1\" ]; then"
-    );
+    let _ = writeln!(out, "  if [ \"$(echo \"$val > $threshold\" | bc -l)\" != \"1\" ]; then");
     let _ = writeln!(out, "    echo \"FAIL [$label]: expected $val > $threshold\" >&2");
     let _ = writeln!(out, "    return 1");
     let _ = writeln!(out, "  fi");
@@ -565,10 +559,7 @@ fn render_assertion(out: &mut String, assertion: &Assertion, binary_name: &str, 
                     let safe_field = sanitize_ident(field);
                     let _ = writeln!(out, "  local val_{safe_field}");
                     let _ = writeln!(out, "  val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
-                    let _ = writeln!(
-                        out,
-                        "  assert_equals \"$val_{safe_field}\" '{expected_str}' '{field}'"
-                    );
+                    let _ = writeln!(out, "  assert_equals \"$val_{safe_field}\" '{expected_str}' '{field}'");
                 }
             }
         }
@@ -688,10 +679,7 @@ fn render_assertion(out: &mut String, assertion: &Assertion, binary_name: &str, 
                     let safe_field = sanitize_ident(field);
                     let _ = writeln!(out, "  local val_{safe_field}");
                     let _ = writeln!(out, "  val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
-                    let _ = writeln!(
-                        out,
-                        "  assert_less_than \"$val_{safe_field}\" '{threshold}' '{field}'"
-                    );
+                    let _ = writeln!(out, "  assert_less_than \"$val_{safe_field}\" '{threshold}' '{field}'");
                 }
             }
         }

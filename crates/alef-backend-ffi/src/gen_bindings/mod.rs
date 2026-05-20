@@ -1767,7 +1767,9 @@ let value = "triple """ quote";
 
         // The accessor function references *const MY_LIBGraphQLError — the typedef must exist.
         assert!(
-            cbindgen.content.contains("typedef struct MY_LIBGraphQLError MY_LIBGraphQLError;"),
+            cbindgen
+                .content
+                .contains("typedef struct MY_LIBGraphQLError MY_LIBGraphQLError;"),
             "expected opaque typedef for error type with methods, got:\n{}",
             cbindgen.content
         );

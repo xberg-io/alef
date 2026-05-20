@@ -824,9 +824,20 @@ fn apply_filters(mut api: ApiSurface, config: &ResolvedCrateConfig) -> ApiSurfac
     let exclude = &config.exclude;
     let include = &config.include;
 
-    // Apply includes first (whitelist), expanding to transitively referenced types
+    // Apply includes first (whitelist), expanding to transitively referenced types.
+    //
+    // The expansion seeds from BOTH `include.types` and the parameter/return types
+    // of `include.functions`. Without the function seed, wrapper return types like
+    // `BatchScrapeResults` (declared alongside the function that returns them) are
+    // silently dropped when the user lists only the per-element type in `include.types`
+    // — codegen then sees `return_type = String` after `sanitize_unknown_types` collapses
+    // the unknown Named reference, and every binding facade emits the wrong signature.
+    //
+    // Including types reachable from included functions is the conservative fix: the
+    // user already opted into the function via `include.functions`, so its public
+    // signature (return type + params) is implicitly part of the binding surface.
     if !include.types.is_empty() {
-        let expanded = expand_include_list(&api, &include.types);
+        let expanded = expand_include_list(&api, &include.types, &include.functions);
         api.types.retain(|t| expanded.contains(&t.name));
         api.enums.retain(|e| expanded.contains(&e.name));
         // Errors are NOT filtered by include list — they're always extracted

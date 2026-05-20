@@ -3,7 +3,12 @@ use alef_codegen::shared::binding_fields;
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{ApiSurface, EnumDef, FunctionDef, MethodDef, TypeDef};
 
-pub fn gen_stubs(api: &ApiSurface, gem_name: &str, emit_docstrings: bool) -> String {
+pub fn gen_stubs(
+    api: &ApiSurface,
+    gem_name: &str,
+    emit_docstrings: bool,
+    streaming_method_names: &ahash::AHashSet<String>,
+) -> String {
     let header = hash::header(CommentStyle::Hash);
     let mut lines: Vec<String> = header.lines().map(str::to_string).collect();
     lines.push("".to_string());
@@ -13,14 +18,21 @@ pub fn gen_stubs(api: &ApiSurface, gem_name: &str, emit_docstrings: bool) -> Str
     lines.push("".to_string());
     lines.push("  VERSION: String".to_string());
     lines.push("".to_string());
+    // Type alias for JSON values: any JSON-compatible type
+    lines.push(
+        "  type json_value = Hash[String, untyped] | Array[untyped] | String | Integer | Float | bool | nil"
+            .to_string(),
+    );
+    lines.push("  type JsonValue = json_value".to_string());
+    lines.push("".to_string());
 
     // Generate type stubs
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         if typ.is_opaque {
-            lines.push(gen_opaque_type_stub(typ, emit_docstrings));
+            lines.push(gen_opaque_type_stub(typ, emit_docstrings, streaming_method_names));
             lines.push("".to_string());
         } else {
-            lines.push(gen_type_stub(typ, emit_docstrings));
+            lines.push(gen_type_stub(typ, emit_docstrings, streaming_method_names));
             lines.push("".to_string());
         }
     }
@@ -33,7 +45,7 @@ pub fn gen_stubs(api: &ApiSurface, gem_name: &str, emit_docstrings: bool) -> Str
 
     // Generate function stubs (module methods)
     for func in &api.functions {
-        lines.push(gen_function_stub(func));
+        lines.push(gen_function_stub(func, streaming_method_names));
         lines.push("".to_string());
     }
 
@@ -68,7 +80,11 @@ fn get_module_name(crate_name: &str) -> String {
 }
 
 /// Generate a Ruby type stub for an opaque type (no fields, only methods).
-fn gen_opaque_type_stub(typ: &TypeDef, emit_docstrings: bool) -> String {
+fn gen_opaque_type_stub(
+    typ: &TypeDef,
+    emit_docstrings: bool,
+    streaming_method_names: &ahash::AHashSet<String>,
+) -> String {
     let mut lines = vec![];
 
     lines.push(format!("  class {}", typ.name));
@@ -85,14 +101,14 @@ fn gen_opaque_type_stub(typ: &TypeDef, emit_docstrings: bool) -> String {
     // Instance methods
     for method in &typ.methods {
         if !method.is_static {
-            lines.push(gen_method_stub(method, false, emit_docstrings));
+            lines.push(gen_method_stub(method, false, emit_docstrings, streaming_method_names));
         }
     }
 
     // Static methods
     for method in &typ.methods {
         if method.is_static {
-            lines.push(gen_method_stub(method, true, emit_docstrings));
+            lines.push(gen_method_stub(method, true, emit_docstrings, streaming_method_names));
         }
     }
 
@@ -102,7 +118,7 @@ fn gen_opaque_type_stub(typ: &TypeDef, emit_docstrings: bool) -> String {
 }
 
 /// Generate a Ruby type stub for a struct.
-fn gen_type_stub(typ: &TypeDef, emit_docstrings: bool) -> String {
+fn gen_type_stub(typ: &TypeDef, emit_docstrings: bool, streaming_method_names: &ahash::AHashSet<String>) -> String {
     let mut lines = vec![];
 
     lines.push(format!("  class {}", typ.name));
@@ -150,15 +166,22 @@ fn gen_type_stub(typ: &TypeDef, emit_docstrings: bool) -> String {
     }
 
     // Add initialize method
+    // For has_default types (config/builder), all fields are optional kwargs.
+    // For result types, required fields are required kwargs, optional fields are optional.
     let init_params: Vec<String> = typ
         .fields
         .iter()
         .filter(|f| !f.binding_excluded)
         .map(|f| {
             let field_type = rbs_type(&f.ty);
-            if f.optional {
+            if typ.has_default {
+                // Config types: all fields are optional kwargs in Ruby (defaults applied in Rust)
+                format!("?{}: {}", f.name, field_type)
+            } else if f.optional {
+                // Result types: optional fields are optional kwargs
                 format!("?{}: {}", f.name, field_type)
             } else {
+                // Result types: required fields are required kwargs
                 format!("{}: {}", f.name, field_type)
             }
         })
@@ -169,14 +192,14 @@ fn gen_type_stub(typ: &TypeDef, emit_docstrings: bool) -> String {
     // Add instance methods
     for method in &typ.methods {
         if !method.is_static {
-            lines.push(gen_method_stub(method, false, emit_docstrings));
+            lines.push(gen_method_stub(method, false, emit_docstrings, streaming_method_names));
         }
     }
 
     // Add static methods
     for method in &typ.methods {
         if method.is_static {
-            lines.push(gen_method_stub(method, true, emit_docstrings));
+            lines.push(gen_method_stub(method, true, emit_docstrings, streaming_method_names));
         }
     }
 
@@ -186,7 +209,13 @@ fn gen_type_stub(typ: &TypeDef, emit_docstrings: bool) -> String {
 }
 
 /// Generate a method stub using RBS declaration syntax.
-fn gen_method_stub(method: &MethodDef, is_static: bool, emit_docstrings: bool) -> String {
+/// Streaming methods return Enumerator[ItemType] instead of String.
+fn gen_method_stub(
+    method: &MethodDef,
+    is_static: bool,
+    emit_docstrings: bool,
+    streaming_method_names: &ahash::AHashSet<String>,
+) -> String {
     let params: Vec<String> = method
         .params
         .iter()
@@ -200,7 +229,25 @@ fn gen_method_stub(method: &MethodDef, is_static: bool, emit_docstrings: bool) -
         })
         .collect();
 
-    let return_type = rbs_type(&method.return_type);
+    let return_type = if streaming_method_names.contains(&method.name) {
+        // For streaming methods like crawl_stream, derive the iterator type name
+        // from the method name (e.g., crawl_stream → CrawlStreamIterator)
+        let pascal_name = method
+            .name
+            .split('_')
+            .map(|part| {
+                let mut chars = part.chars();
+                match chars.next() {
+                    None => String::new(),
+                    Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                }
+            })
+            .collect::<String>();
+        format!("Enumerator[{}Iterator]", pascal_name)
+    } else {
+        rbs_type(&method.return_type)
+    };
+
     let param_list = format!("({})", params.join(", "));
 
     let sig_line = if is_static {
@@ -275,7 +322,7 @@ fn to_snake_case(s: &str) -> String {
 }
 
 /// Generate a function stub (module method) using RBS declaration syntax.
-fn gen_function_stub(func: &FunctionDef) -> String {
+fn gen_function_stub(func: &FunctionDef, streaming_method_names: &ahash::AHashSet<String>) -> String {
     let params: Vec<String> = func
         .params
         .iter()
@@ -289,7 +336,24 @@ fn gen_function_stub(func: &FunctionDef) -> String {
         })
         .collect();
 
-    let return_type = rbs_type(&func.return_type);
+    let return_type = if streaming_method_names.contains(&func.name) {
+        // For streaming methods like batch_crawl_stream
+        let pascal_name = func
+            .name
+            .split('_')
+            .map(|part| {
+                let mut chars = part.chars();
+                match chars.next() {
+                    None => String::new(),
+                    Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                }
+            })
+            .collect::<String>();
+        format!("Enumerator[{}Iterator]", pascal_name)
+    } else {
+        rbs_type(&func.return_type)
+    };
+
     let param_list = format!("({})", params.join(", "));
 
     format!("  def self.{}: {} -> {}", func.name, param_list, return_type)
