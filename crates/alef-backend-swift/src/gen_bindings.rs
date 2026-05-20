@@ -2789,10 +2789,40 @@ fn emit_single_free_function_forwarder(
         ""
     };
     let _ = try_keyword; // superseded by `effective_try`
-    out.push_str(&format!(
-        "    return {effective_try}RustBridge.{swift_name}({args}){return_suffix}\n"
-    ));
+
+    // swift-bridge cannot natively bridge deeply-nested Vec (Vec<Vec<T>>) or
+    // Map across the throws boundary — it serializes to RustString via serde
+    // and exposes the function as `throws -> RustString`. Detect those cases
+    // and emit a JSON decode body instead of the single-expression return.
+    if func.error_type.is_some() && return_uses_json_bridge(&func.return_type) {
+        let decode_ty = forwarder_return_type(&func.return_type);
+        out.push_str(&format!(
+            "    let _rb_json = try RustBridge.{swift_name}({args}).toString()\n"
+        ));
+        out.push_str("    let _rb_data = _rb_json.data(using: .utf8) ?? Data()\n");
+        out.push_str(&format!(
+            "    return try JSONDecoder().decode({decode_ty}.self, from: _rb_data)\n"
+        ));
+    } else {
+        out.push_str(&format!(
+            "    return {effective_try}RustBridge.{swift_name}({args}){return_suffix}\n"
+        ));
+    }
     out.push_str("}\n\n");
+}
+
+/// True if swift-bridge transports the function's return value through a
+/// JSON-serialised `RustString` instead of a native bridge type. Applies only
+/// to `throws` functions whose return type is too complex for swift-bridge's
+/// built-in `RustVec<T>` / `RustString` / primitive mappings — specifically
+/// nested `Vec<Vec<_>>`, `Map<_, _>`, and `Json`.
+fn return_uses_json_bridge(ty: &TypeRef) -> bool {
+    match ty {
+        TypeRef::Vec(inner) => matches!(inner.as_ref(), TypeRef::Vec(_) | TypeRef::Map(_, _)),
+        TypeRef::Map(_, _) | TypeRef::Json => true,
+        TypeRef::Optional(inner) => return_uses_json_bridge(inner),
+        _ => false,
+    }
 }
 
 /// Capture both the inline argument expression and the optional setup line
