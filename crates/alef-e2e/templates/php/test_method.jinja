@@ -10,6 +10,7 @@
    - has_usable_assertions: boolean
    - call_expr: the complete function call expression
    - result_var: result variable name
+   - field_bindings: string with field binding statements (e.g., $chunks = $result->getChunks();)
    - assertions_body: string containing all rendered assertions
 #}
 
@@ -42,6 +43,7 @@
 {% if collect_snippet %}
         {{ collect_snippet }}
 {% endif %}
+{{ field_bindings }}
 {{ assertions_body }}
 {% endif %}
     }

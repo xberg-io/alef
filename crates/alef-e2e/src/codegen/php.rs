@@ -1112,6 +1112,30 @@ fn render_test_method(
         String::new()
     };
 
+    // Collect fields_array fields that are referenced in assertions
+    // so we can emit bindings for them (e.g., $chunks = $result->getChunks();)
+    let mut fields_array_bindings = std::collections::HashMap::new();
+    for assertion in &fixture.assertions {
+        if let Some(f) = &assertion.field {
+            if !f.is_empty() && field_resolver.is_array(f) {
+                // Only emit binding if not already added
+                if !fields_array_bindings.contains_key(f.as_str()) {
+                    let accessor = field_resolver.accessor(f, "php", &format!("${result_var}"));
+                    let var_name = f.to_lower_camel_case();
+                    fields_array_bindings.insert(f.clone(), (var_name, accessor));
+                }
+            }
+        }
+    }
+
+    // Generate field binding lines (e.g., $chunks = $result->getChunks();)
+    let mut field_bindings = String::new();
+    for (field_name, (var_name, accessor)) in &fields_array_bindings {
+        if field_name == "chunks" || field_name == "imports" || field_name == "structure" {
+            field_bindings.push_str(&format!("        ${} = {};\n", var_name, accessor));
+        }
+    }
+
     // Render assertions_body
     let mut assertions_body = String::new();
     for assertion in &fixture.assertions {
@@ -1122,11 +1146,12 @@ fn render_test_method(
             field_resolver,
             result_is_simple,
             call_config.result_is_array,
+            &fields_array_bindings,
         );
     }
 
     // Streaming fixtures whose only assertion is `not_error` produce an empty
-    // assertions_body even though the stream was drained successfully.  PHPUnit
+    // assertions_body even though the stream were drained successfully.  PHPUnit
     // flags such tests as "risky" (no assertions performed).  Emit a minimal
     // structural assertion against the drained chunk list so the test records
     // success without false-positive reliance on `expectNotToPerformAssertions`.
@@ -1147,6 +1172,7 @@ fn render_test_method(
             call_expr => call_expr,
             result_var => result_var,
             collect_snippet => collect_snippet,
+            field_bindings => field_bindings,
             assertions_body => assertions_body,
         },
     );
@@ -1507,6 +1533,7 @@ fn render_assertion(
     field_resolver: &FieldResolver,
     result_is_simple: bool,
     result_is_array: bool,
+    fields_array_bindings: &std::collections::HashMap<String, (String, String)>,
 ) {
     // Handle synthetic / derived fields before the is_valid_for_result check
     // so they are never treated as struct property accesses on the result.
@@ -1737,7 +1764,14 @@ fn render_assertion(
         // field access on it would fail. Treat all assertions as referring to the
         // result itself.
         _ if result_is_simple => format!("${result_var}"),
-        Some(f) if !f.is_empty() => field_resolver.accessor(f, "php", &format!("${result_var}")),
+        Some(f) if !f.is_empty() => {
+            // Check if this field_array field has been bound to a variable
+            if let Some((var_name, _)) = fields_array_bindings.get(f) {
+                format!("${}", var_name)
+            } else {
+                field_resolver.accessor(f, "php", &format!("${result_var}"))
+            }
+        }
         _ => format!("${result_var}"),
     };
 
