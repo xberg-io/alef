@@ -1114,7 +1114,7 @@ impl Backend for PhpBackend {
                     context! { method_name => &method_name },
                 ));
                 content.push_str(&format!("{} $backend = null) : void\n    {{\n", interface_name));
-                let call_expr = format!("\\{namespace}\\{class_name}Api::{register_fn}($backend)");
+                let call_expr = format!("\\{namespace}\\{class_name}Api::{method_name}($backend)");
                 content.push_str(&crate::template_env::render(
                     "php_method_call_statement.jinja",
                     context! { call_expr => &call_expr },
@@ -1159,7 +1159,7 @@ impl Backend for PhpBackend {
                     context! { method_name => &method_name },
                 ));
                 content.push_str("string $name) : void\n    {\n");
-                let call_expr = format!("\\{namespace}\\{class_name}Api::{unregister_fn}($name)");
+                let call_expr = format!("\\{namespace}\\{class_name}Api::{method_name}($name)");
                 content.push_str(&crate::template_env::render(
                     "php_method_call_statement.jinja",
                     context! { call_expr => &call_expr },
@@ -1196,7 +1196,7 @@ impl Backend for PhpBackend {
                     context! { method_name => &method_name },
                 ));
                 content.push_str(") : void\n    {\n");
-                let call_expr = format!("\\{namespace}\\{class_name}Api::{clear_fn}()");
+                let call_expr = format!("\\{namespace}\\{class_name}Api::{method_name}()");
                 content.push_str(&crate::template_env::render(
                     "php_method_call_statement.jinja",
                     context! { call_expr => &call_expr },
