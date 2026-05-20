@@ -266,4 +266,68 @@ mod tests {
         assert!(out.contains("[project]"), "got: {out}");
         assert!(out.contains("my-pkg-e2e"), "got: {out}");
     }
+
+    #[test]
+    fn render_pyproject_canonical_format_local() {
+        // Verify e2e pyproject.toml is emitted in pyproject-fmt canonical form:
+        // - build-backend before requires in [build-system]
+        // - array spacing with spaces: [ ... ]
+        // - dependencies in alphabetical order
+        let out = render_pyproject("my-pkg", "../../packages/python", "==0.5.0", DependencyMode::Local);
+
+        // Check build-system section has build-backend before requires
+        let build_section = out.split("[project]").next().unwrap();
+        let backend_idx = build_section.find("build-backend").unwrap();
+        let requires_idx = build_section.find("requires").unwrap();
+        assert!(
+            backend_idx < requires_idx,
+            "build-backend should come before requires in [build-system]"
+        );
+
+        // Check array spacing
+        assert!(
+            out.contains("requires = [ "),
+            "requires should have spaces inside brackets"
+        );
+
+        // Check dependencies are alphabetically sorted
+        // Order should be: my-pkg, pytest>=7.4, pytest-asyncio>=0.23, pytest-timeout>=2.1
+        let deps_line = out.lines().find(|l| l.contains("dependencies = ")).unwrap();
+        let pkg_idx = deps_line.find("my-pkg").unwrap();
+        let pytest_idx = deps_line.find("pytest>=7.4").unwrap();
+        let asyncio_idx = deps_line.find("pytest-asyncio").unwrap();
+        let timeout_idx = deps_line.find("pytest-timeout").unwrap();
+        assert!(
+            pkg_idx < pytest_idx && pytest_idx < asyncio_idx && asyncio_idx < timeout_idx,
+            "dependencies should be alphabetically sorted: my-pkg, pytest, pytest-asyncio, pytest-timeout. got: {}",
+            deps_line
+        );
+    }
+
+    #[test]
+    fn render_pyproject_canonical_format_registry() {
+        // Similar test for registry mode (no uv sources)
+        let out = render_pyproject("my-pkg", "../../packages/python", "==0.5.0", DependencyMode::Registry);
+
+        // Check array spacing
+        assert!(
+            out.contains("requires = [ "),
+            "requires should have spaces inside brackets"
+        );
+
+        // Check dependencies include package version specifier and are sorted
+        let deps_line = out.lines().find(|l| l.contains("dependencies = ")).unwrap();
+        assert!(
+            deps_line.contains("my-pkg==0.5.0"),
+            "registry mode should include version specifier. got: {}",
+            deps_line
+        );
+        let pkg_idx = deps_line.find("my-pkg").unwrap();
+        let pytest_idx = deps_line.find("pytest>=7.4").unwrap();
+        assert!(
+            pkg_idx < pytest_idx,
+            "my-pkg should come before pytest. got: {}",
+            deps_line
+        );
+    }
 }

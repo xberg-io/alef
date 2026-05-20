@@ -202,6 +202,61 @@ pub fn emit_kdoc(out: &mut String, doc: &str, indent: &str) {
     out.push_str(" */\n");
 }
 
+/// Emit KDoc-style documentation comments in ktfmt-canonical format.
+///
+/// ktfmt collapses short KDoc comments to single-line format (`/** ... */`)
+/// when they fit within the 100-character line width limit. This function
+/// generates KDoc in that canonical form to avoid unnecessary formatting
+/// diffs when the generated code is passed through ktfmt.
+///
+/// - Single-line comments that fit in 100 chars: emitted as `/** content */`
+/// - Multi-paragraph or longer comments: emitted with newlines and ` * ` prefixes
+/// - Preserves indent and respects line width boundary at 100 chars
+pub fn emit_kdoc_ktfmt_canonical(out: &mut String, doc: &str, indent: &str) {
+    const KTFMT_LINE_WIDTH: usize = 100;
+
+    if doc.is_empty() {
+        return;
+    }
+
+    let lines: Vec<&str> = doc.lines().collect();
+
+    // Check if this is a short, single-paragraph comment that fits on one line.
+    let is_short_single_paragraph = lines.len() == 1 && !lines[0].contains('\n');
+
+    if is_short_single_paragraph {
+        let trimmed = lines[0].trim();
+        // Calculate total length: indent + "/** " + content + " */"
+        let single_line_len = indent.len() + 4 + trimmed.len() + 3; // 4 for "/** ", 3 for " */"
+        if single_line_len <= KTFMT_LINE_WIDTH {
+            // Fits on one line in ktfmt-canonical format
+            out.push_str(indent);
+            out.push_str("/** ");
+            out.push_str(trimmed);
+            out.push_str(" */\n");
+            return;
+        }
+    }
+
+    // Multi-line format (default for long or multi-paragraph comments)
+    out.push_str(indent);
+    out.push_str("/**\n");
+    for line in lines {
+        let trimmed = line.trim_end();
+        if trimmed.is_empty() {
+            out.push_str(indent);
+            out.push_str(" *\n");
+        } else {
+            out.push_str(indent);
+            out.push_str(" * ");
+            out.push_str(trimmed);
+            out.push('\n');
+        }
+    }
+    out.push_str(indent);
+    out.push_str(" */\n");
+}
+
 /// Emit Dartdoc-style documentation comments (///)
 /// Used for Dart classes, methods, and properties.
 pub fn emit_dartdoc(out: &mut String, doc: &str, indent: &str) {
@@ -1625,5 +1680,115 @@ mod tests {
         assert!(!out.contains("```php"), "no PHP @example block for Rust source");
         assert!(!out.contains("```rust"), "raw Rust must not leak into PHPDoc");
         assert!(out.contains("@param"), "other sections must still be emitted");
+    }
+
+    // --- KDoc ktfmt-canonical format tests ---
+
+    #[test]
+    fn test_emit_kdoc_ktfmt_canonical_short_single_line() {
+        let mut out = String::new();
+        emit_kdoc_ktfmt_canonical(&mut out, "Simple doc.", "");
+        assert_eq!(
+            out, "/** Simple doc. */\n",
+            "short single-line comment should collapse to canonical format"
+        );
+    }
+
+    #[test]
+    fn test_emit_kdoc_ktfmt_canonical_short_with_indent() {
+        let mut out = String::new();
+        emit_kdoc_ktfmt_canonical(&mut out, "Text node (most frequent - 100+ per document)", "    ");
+        assert_eq!(out, "    /** Text node (most frequent - 100+ per document) */\n");
+    }
+
+    #[test]
+    fn test_emit_kdoc_ktfmt_canonical_long_comment_uses_multiline() {
+        let mut out = String::new();
+        let long_text = "This is a very long documentation comment that exceeds the 100-character line width limit and should therefore be emitted in multi-line format";
+        emit_kdoc_ktfmt_canonical(&mut out, long_text, "");
+        assert!(out.contains("/**\n"), "long comment should start with newline");
+        assert!(out.contains(" * "), "long comment should use multi-line format");
+        assert!(out.contains(" */\n"), "long comment should end with newline");
+    }
+
+    #[test]
+    fn test_emit_kdoc_ktfmt_canonical_multiline_comment() {
+        let mut out = String::new();
+        let doc = "First line.\n\nSecond paragraph.";
+        emit_kdoc_ktfmt_canonical(&mut out, doc, "");
+        assert!(out.contains("/**\n"), "multi-paragraph should use multi-line format");
+        assert!(out.contains(" * First line."), "first paragraph preserved");
+        assert!(out.contains(" *\n"), "blank line preserved");
+        assert!(out.contains(" * Second paragraph."), "second paragraph preserved");
+    }
+
+    #[test]
+    fn test_emit_kdoc_ktfmt_canonical_empty_doc() {
+        let mut out = String::new();
+        emit_kdoc_ktfmt_canonical(&mut out, "", "");
+        assert!(out.is_empty(), "empty doc should produce no output");
+    }
+
+    #[test]
+    fn test_emit_kdoc_ktfmt_canonical_fits_within_100_chars() {
+        let mut out = String::new();
+        // Construct exactly at the boundary: indent(0) + "/** " + content + " */" = 100 chars
+        // "/** " = 4 chars, " */" = 3 chars, so content can be 93 chars
+        let content = "a".repeat(93);
+        emit_kdoc_ktfmt_canonical(&mut out, &content, "");
+        let line = out.lines().next().unwrap();
+        assert_eq!(
+            line.len(),
+            100,
+            "should fit exactly at 100 chars and use single-line format"
+        );
+        assert!(out.starts_with("/**"), "should use single-line format");
+    }
+
+    #[test]
+    fn test_emit_kdoc_ktfmt_canonical_exceeds_100_chars() {
+        let mut out = String::new();
+        // Exceed 100 chars: content of 94 chars with "/** " + " */" = 101 chars
+        let content = "a".repeat(94);
+        emit_kdoc_ktfmt_canonical(&mut out, &content, "");
+        assert!(
+            out.contains("/**\n"),
+            "should use multi-line format when exceeding 100 chars"
+        );
+        assert!(out.contains(" * "), "multi-line format with ` * ` prefix");
+    }
+
+    #[test]
+    fn test_emit_kdoc_ktfmt_canonical_respects_indent() {
+        let mut out = String::new();
+        // With 4-char indent, max content is 89 chars (4 + 4 + 89 + 3 = 100)
+        let content = "a".repeat(89);
+        emit_kdoc_ktfmt_canonical(&mut out, &content, "    ");
+        let line = out.lines().next().unwrap();
+        assert_eq!(line.len(), 100, "should respect indent in 100-char calculation");
+        assert!(line.starts_with("    /** "), "should include indent");
+    }
+
+    #[test]
+    fn test_emit_kdoc_ktfmt_canonical_real_world_enum_variant() {
+        let mut out = String::new();
+        emit_kdoc_ktfmt_canonical(&mut out, "Text node (most frequent - 100+ per document)", "    ");
+        // This is from NodeType enum; should collapse to single-line
+        assert!(out.starts_with("    /** "), "should preserve 4-space indent");
+        assert!(out.contains(" */\n"), "should end with newline");
+        // Verify it's single-line format
+        let line_count = out.lines().count();
+        assert_eq!(line_count, 1, "should be single-line format");
+    }
+
+    #[test]
+    fn test_emit_kdoc_ktfmt_canonical_real_world_data_class_field() {
+        let mut out = String::new();
+        let doc = "Heading style to use in Markdown output (ATX `#` or Setext underline).";
+        emit_kdoc_ktfmt_canonical(&mut out, doc, "    ");
+        // This is from ConversionOptions data class; should collapse to single-line
+        let line_count = out.lines().count();
+        assert_eq!(line_count, 1, "should be single-line format");
+        assert!(out.starts_with("    /** "), "should have correct indent");
     }
 }

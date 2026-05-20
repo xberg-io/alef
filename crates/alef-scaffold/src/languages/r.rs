@@ -101,21 +101,35 @@ pub(crate) fn scaffold_r_cargo(api: &ApiSurface, config: &ResolvedCrateConfig) -
     // "cdylib" alone causes linker failures on macOS/Linux.
     let has_async =
         api.functions.iter().any(|f| f.is_async) || api.types.iter().any(|t| t.methods.iter().any(|m| m.is_async));
-    let tokio_dep = if has_async {
-        "\ntokio = { version = \"1\", features = [\"rt-multi-thread\"] }"
-    } else {
-        ""
-    };
     // Trait-bridge impls emitted under any `[[crates.trait_bridges]]` carry
     // `#[async_trait::async_trait]` on their methods — declare the crate here so
     // the macro resolves at compile time (other backends like PHP, Ruby already
     // declare it unconditionally for the same reason).
     let has_trait_bridges = !config.trait_bridges.is_empty();
-    let async_trait_dep = if has_trait_bridges {
-        "\nasync-trait = \"0.1\""
-    } else {
-        ""
-    };
+
+    // Collect all [dependencies] entries then sort alphabetically so the emitted
+    // Cargo.toml is cargo-sort canonical without a post-processing step.
+    let features_str = core_dep_features(config, Language::R);
+    let mut dep_lines: Vec<String> = vec![
+        format!(
+            "{crate_name} = {{ path = \"../../../../crates/{core_crate_dir}\"{features} }}",
+            crate_name = &config.name,
+            core_crate_dir = core_crate_dir,
+            features = features_str,
+        ),
+        format!("extendr-api = \"{}\"", tv::cargo::EXTENDR_API),
+        "serde = { version = \"1\", features = [\"derive\"] }".to_owned(),
+        "serde_json = \"1\"".to_owned(),
+    ];
+    if has_async {
+        dep_lines.push("tokio = { version = \"1\", features = [\"rt-multi-thread\"] }".to_owned());
+    }
+    if has_trait_bridges {
+        dep_lines.push("async-trait = \"0.1\"".to_owned());
+    }
+    dep_lines.sort();
+    let deps_section = dep_lines.join("\n");
+
     let cargo_content = format!(
         r#"{pkg_header}
 
@@ -123,18 +137,10 @@ pub(crate) fn scaffold_r_cargo(api: &ApiSurface, config: &ResolvedCrateConfig) -
 crate-type = ["staticlib", "lib"]
 
 [dependencies]
-{crate_name} = {{ path = "../../../../crates/{core_crate_dir}"{features} }}
-extendr-api = "{extendr_api}"
-serde = {{ version = "1", features = ["derive"] }}
-serde_json = "1"{tokio_dep}{async_trait_dep}
+{deps_section}
 "#,
         pkg_header = pkg_header,
-        crate_name = &config.name,
-        core_crate_dir = core_crate_dir,
-        features = core_dep_features(config, Language::R),
-        extendr_api = tv::cargo::EXTENDR_API,
-        tokio_dep = tokio_dep,
-        async_trait_dep = async_trait_dep,
+        deps_section = deps_section,
     );
 
     let r_package_name = config.r_package_name();

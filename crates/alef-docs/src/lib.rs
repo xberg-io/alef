@@ -29,7 +29,7 @@ use descriptions::{
     generate_enum_variant_description, generate_error_variant_description, generate_field_description,
     generate_param_description,
 };
-use doc_cleaning::{clean_doc_inline, extract_param_docs, wrap_bare_urls};
+use doc_cleaning::{clean_doc_inline, demote_headings, extract_param_docs, wrap_bare_urls};
 use formatting::{doc_type_with_optional, escape_table_cell, format_error_phrase, format_field_default};
 use naming::{
     enum_variant_name, field_name, func_name, lang_code_fence, lang_display_name, lang_slug, to_camel_case, type_name,
@@ -387,10 +387,13 @@ fn render_method(method: &MethodDef, type_name_str: &str, lang: Language, ffi_pr
 
     out.push_str(&template_env::render(
         "heading.jinja",
-        minijinja::context! { marker => "######", title => format!("{mname}()") },
+        minijinja::context! { marker => "####", title => format!("{mname}()") },
     ));
 
     let doc = clean_doc(&method.doc, lang);
+    // Demote any embedded headings in the method documentation by 2 levels
+    // to ensure they stay nested under the method heading (####).
+    let doc = demote_headings(&doc, 2);
     if !doc.is_empty() {
         out.push_str(&doc);
         out.push('\n');
@@ -424,6 +427,9 @@ fn render_type(ty: &TypeDef, lang: Language, api: &ApiSurface, ffi_prefix: &str)
     ));
 
     let doc = clean_doc(&ty.doc, lang);
+    // Demote any embedded headings in the type documentation by 2 levels
+    // to ensure they stay nested under the type heading (####).
+    let doc = demote_headings(&doc, 2);
     if !doc.is_empty() {
         out.push_str(&doc);
         out.push('\n');
@@ -468,7 +474,7 @@ fn render_type(ty: &TypeDef, lang: Language, api: &ApiSurface, ffi_prefix: &str)
         };
         out.push_str(&template_env::render(
             "heading.jinja",
-            minijinja::context! { marker => "#####", title => methods_heading },
+            minijinja::context! { marker => "###", title => methods_heading },
         ));
         for method in &ty.methods {
             out.push_str(&render_method(method, &ty.name, lang, ffi_prefix));
@@ -1865,5 +1871,75 @@ exclude_types = ["FfiHidden"]
             "bare URL must be wrapped by post-processing: {}",
             lang_file.content
         );
+    }
+
+    #[test]
+    fn test_render_type_with_multiple_methods_have_same_heading_level() {
+        use alef_core::ir::ParamDef;
+        let api = ApiSurface {
+            crate_name: "mylib".to_string(),
+            version: "0.1.0".to_string(),
+            types: vec![TypeDef {
+                name: "MyTraitType".to_string(),
+                rust_path: "mylib::MyTraitType".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![
+                    make_method("first_method", vec![], TypeRef::Bool, false, false, None),
+                    make_method("second_method", vec![], TypeRef::Bool, false, false, None),
+                    make_method("third_method", vec![], TypeRef::Bool, false, false, None),
+                ],
+                doc: "A trait with multiple methods.".to_string(),
+                is_opaque: false,
+                cfg: None,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: true,
+                super_traits: vec![],
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            functions: vec![],
+            enums: vec![],
+            errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
+        };
+        let config = make_test_config();
+        let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
+        let lang_file = files
+            .iter()
+            .find(|f| f.path.to_str().unwrap().contains("api-python"))
+            .unwrap();
+
+        // All method headings should be at #### level (H4)
+        assert!(
+            lang_file.content.contains("#### first_method()"),
+            "first method should be H4"
+        );
+        assert!(
+            lang_file.content.contains("#### second_method()"),
+            "second method should be H4"
+        );
+        assert!(
+            lang_file.content.contains("#### third_method()"),
+            "third method should be H4"
+        );
+
+        // Ensure no methods are at H5 or H6 (##### or ######)
+        let content = &lang_file.content;
+        if let Some(methods_pos) = content.find("### Methods") {
+            let after_methods = &content[methods_pos..];
+            // Count the heading markers to ensure they're all ####
+            let first_method_line = after_methods.lines().find(|l| l.contains("first_method")).unwrap_or("");
+            assert!(
+                first_method_line.starts_with("####"),
+                "methods should all be at H4 level"
+            );
+        }
     }
 }

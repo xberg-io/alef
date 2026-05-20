@@ -3,6 +3,46 @@ use alef_core::config::Language;
 /// Rust doc section headers that should be stripped for all non-Rust output.
 const RUST_ONLY_SECTIONS: &[&str] = &["example", "examples", "arguments", "fields"];
 
+/// Demote all markdown headings by a given number of levels.
+///
+/// For example, with `levels=2`, all `#` become `###`, `##` become `####`, etc.
+/// Headings inside code blocks are not modified.
+pub(crate) fn demote_headings(doc: &str, levels: usize) -> String {
+    if levels == 0 || doc.is_empty() {
+        return doc.to_string();
+    }
+    let mut out = String::new();
+    let mut in_code_block = false;
+    for line in doc.lines() {
+        if line.trim_start().starts_with("```") {
+            in_code_block = !in_code_block;
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+        if in_code_block || !line.starts_with('#') {
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+        // Count leading '#' characters
+        let heading_level = line.chars().take_while(|&c| c == '#').count();
+        if heading_level > 0 && heading_level <= 6 {
+            // Add demotion levels
+            let new_level = std::cmp::min(heading_level + levels, 6);
+            let demoted_hashes = "#".repeat(new_level);
+            let rest = &line[heading_level..];
+            out.push_str(&demoted_hashes);
+            out.push_str(rest);
+            out.push('\n');
+        } else {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out.trim_end().to_string()
+}
+
 /// Wrap bare `http://` and `https://` URLs in angle brackets to satisfy MD034.
 /// Skips URLs already inside markdown links `[...](url)` or angle brackets `<url>`.
 pub(crate) fn wrap_bare_urls(text: &str) -> String {
@@ -726,6 +766,60 @@ mod tests {
     #[test]
     fn test_wrap_bare_urls_empty_string() {
         assert_eq!(wrap_bare_urls(""), "");
+    }
+
+    #[test]
+    fn test_demote_headings_single_level() {
+        let doc = "# Heading 1\n\nSome text.\n\n## Heading 2";
+        let demoted = demote_headings(doc, 1);
+        assert!(demoted.contains("## Heading 1"), "H1 should become H2");
+        assert!(demoted.contains("### Heading 2"), "H2 should become H3");
+    }
+
+    #[test]
+    fn test_demote_headings_multiple_levels() {
+        let doc = "# Heading 1\n## Heading 2\n### Heading 3";
+        let demoted = demote_headings(doc, 2);
+        assert!(demoted.contains("### Heading 1"), "H1 should become H3");
+        assert!(demoted.contains("#### Heading 2"), "H2 should become H4");
+        assert!(demoted.contains("##### Heading 3"), "H3 should become H5");
+    }
+
+    #[test]
+    fn test_demote_headings_skips_code_blocks() {
+        let doc = "# Heading\n\n```rust\n# Not a heading\n```\n\nMore text.";
+        let demoted = demote_headings(doc, 1);
+        assert!(demoted.contains("## Heading"), "H1 outside code should become H2");
+        assert!(
+            demoted.contains("# Not a heading"),
+            "content inside code block should not be modified"
+        );
+    }
+
+    #[test]
+    fn test_demote_headings_zero_levels_unchanged() {
+        let doc = "# Heading\n## Subheading";
+        let demoted = demote_headings(doc, 0);
+        assert_eq!(demoted, doc, "zero demotion should return unchanged");
+    }
+
+    #[test]
+    fn test_demote_headings_caps_at_h6() {
+        let doc = "##### Heading 5";
+        let demoted = demote_headings(doc, 5);
+        assert!(demoted.contains("###### Heading 5"), "should not exceed H6");
+        let h6 = demote_headings("###### Heading 6", 1);
+        assert!(h6.contains("###### Heading 6"), "H6 should stay at H6");
+    }
+
+    #[test]
+    fn test_demote_headings_preserves_trailing_content() {
+        let doc = "# Title\n\nParagraph text.\n\n## Section\n\nMore text.";
+        let demoted = demote_headings(doc, 1);
+        assert!(demoted.contains("## Title"));
+        assert!(demoted.contains("Paragraph text."));
+        assert!(demoted.contains("### Section"));
+        assert!(demoted.contains("More text."));
     }
 }
 

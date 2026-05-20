@@ -28,39 +28,52 @@ pub(crate) fn scaffold_ruby_cargo(
 
     // Check if trait bridges are configured and add async-trait if needed
     let has_trait_bridges = !config.trait_bridges.is_empty();
-    let mut all_deps = extra_deps;
-    if has_trait_bridges && !all_deps.contains("async-trait") {
-        if !all_deps.is_empty() {
-            all_deps.push('\n');
-        }
-        all_deps.push_str("async-trait = \"0.1\"");
-    }
     // Streaming adapters require `futures` (BoxStream + StreamExt) in the
     // generated Magnus iterator wrapper.
     let has_streaming_adapter = config
         .adapters
         .iter()
         .any(|a| matches!(a.pattern, alef_core::config::AdapterPattern::Streaming));
-    if has_streaming_adapter && !all_deps.contains("futures") {
-        if !all_deps.is_empty() {
-            all_deps.push('\n');
-        }
-        all_deps.push_str("futures = \"0.3\"");
-    }
-
-    let extra_deps_section = if all_deps.is_empty() {
-        String::new()
-    } else {
-        format!("\n{all_deps}")
-    };
     let has_async =
         api.functions.iter().any(|f| f.is_async) || api.types.iter().any(|t| t.methods.iter().any(|m| m.is_async));
-    let tokio_dep = if has_async || has_trait_bridges {
-        "\ntokio = { version = \"1\", features = [\"rt-multi-thread\"] }"
-    } else {
-        ""
-    };
     let lib_name = format!("{}_rb", core_crate_dir.replace('-', "_"));
+
+    // Collect all [dependencies] entries then sort alphabetically so the emitted
+    // Cargo.toml is cargo-sort canonical without a post-processing step.
+    let features_str = core_dep_features(config, Language::Ruby);
+    let mut dep_lines: Vec<String> = vec![
+        format!(
+            "{crate_name} = {{ path = \"../../../../../crates/{core_crate_dir}\"{features} }}",
+            crate_name = &config.name,
+            core_crate_dir = core_crate_dir,
+            features = features_str,
+        ),
+        format!("magnus = \"{}\"", tv::cargo::MAGNUS),
+        "serde = { version = \"1\", features = [\"derive\"] }".to_owned(),
+        "serde_json = \"1\"".to_owned(),
+    ];
+    if has_async || has_trait_bridges {
+        dep_lines.push("tokio = { version = \"1\", features = [\"rt-multi-thread\"] }".to_owned());
+    }
+    if has_trait_bridges && !dep_lines.iter().any(|l| l.starts_with("async-trait")) {
+        dep_lines.push("async-trait = \"0.1\"".to_owned());
+    }
+    if has_streaming_adapter && !dep_lines.iter().any(|l| l.starts_with("futures")) {
+        dep_lines.push("futures = \"0.3\"".to_owned());
+    }
+    for line in extra_deps.lines() {
+        let trimmed = line.trim();
+        if !trimmed.is_empty()
+            && !dep_lines
+                .iter()
+                .any(|l| l.starts_with(trimmed.split('=').next().unwrap_or("")))
+        {
+            dep_lines.push(trimmed.to_owned());
+        }
+    }
+    dep_lines.sort();
+    let deps_section = dep_lines.join("\n");
+
     let content = format!(
         r#"{pkg_header}
 
@@ -70,19 +83,11 @@ path = "../src/lib.rs"
 crate-type = ["cdylib"]
 
 [dependencies]
-{crate_name} = {{ path = "../../../../../crates/{core_crate_dir}"{features} }}
-magnus = "{magnus}"
-serde = {{ version = "1", features = ["derive"] }}
-serde_json = "1"{tokio_dep}{extra_deps_section}
+{deps_section}
 "#,
         pkg_header = pkg_header,
         lib_name = lib_name,
-        crate_name = &config.name,
-        core_crate_dir = core_crate_dir,
-        features = core_dep_features(config, Language::Ruby),
-        magnus = tv::cargo::MAGNUS,
-        tokio_dep = tokio_dep,
-        extra_deps_section = extra_deps_section,
+        deps_section = deps_section,
     );
 
     Ok(vec![GeneratedFile {

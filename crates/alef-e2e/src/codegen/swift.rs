@@ -188,14 +188,28 @@ impl E2eCodegen for SwiftE2eCodegen {
 // Rendering
 // ---------------------------------------------------------------------------
 
+/// Directive telling Apple's `swift-format` to skip the file entirely.
+///
+/// The e2e generator emits Swift source with 4-space indentation, fixed import
+/// order (`XCTest, Foundation, <Module>, RustBridge`) and unwrapped long lines
+/// — all of which violate `swift-format`'s defaults (2-space indent, sorted
+/// imports, 100-char line width). Reformatting after every regen would force
+/// every consumer repo to either bake `swift-format` into their pre-commit set
+/// or eat noisy diffs. Marking the files as ignored is the same workaround the
+/// Swift binding backend uses for `HtmlToMarkdown.swift` (see
+/// `alef-backend-swift/src/gen_bindings.rs`) and keeps the file
+/// byte-identical between `alef generate` runs and `swift-format` hooks.
+const SWIFT_FORMAT_IGNORE_DIRECTIVE: &str = "// swift-format-ignore-file\n\n";
+
 /// Render the shared `TestHelpers.swift` file emitted into each Swift e2e
 /// test target. Adds a `CustomStringConvertible` conformance to swift-bridge's
 /// `RustString` so error messages from bridge throws print their actual Rust
 /// content instead of the bare class name.
 fn render_test_helpers_swift() -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
+    let ignore = SWIFT_FORMAT_IGNORE_DIRECTIVE;
     format!(
-        r#"{header}import Foundation
+        r#"{header}{ignore}import Foundation
 import RustBridge
 
 // Make `RustString` print its content in XCTest failure output. Without this,
@@ -313,6 +327,7 @@ fn render_test_file(
 
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
+    out.push_str(SWIFT_FORMAT_IGNORE_DIRECTIVE);
     let _ = writeln!(out, "import XCTest");
     let _ = writeln!(out, "import Foundation");
     let _ = writeln!(out, "import {module_name}");

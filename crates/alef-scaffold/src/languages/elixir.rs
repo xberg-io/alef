@@ -31,7 +31,7 @@ pub(crate) fn scaffold_elixir_cargo(
         &ws,
     );
 
-    let mut extra_deps = render_extra_deps(config, Language::Elixir);
+    let extra_deps = render_extra_deps(config, Language::Elixir);
     let has_async =
         api.functions.iter().any(|f| f.is_async) || api.types.iter().any(|t| t.methods.iter().any(|m| m.is_async));
     // Trait bridges generate async_trait impls and a tokio::sync::oneshot-based
@@ -49,27 +49,6 @@ pub(crate) fn scaffold_elixir_cargo(
         .adapters
         .iter()
         .any(|a| matches!(a.pattern, AdapterPattern::Streaming));
-    if has_streaming && !extra_deps.contains("futures-util = ") && !extra_deps.contains("futures-util =\"") {
-        if !extra_deps.is_empty() {
-            extra_deps.push('\n');
-        }
-        extra_deps.push_str("futures-util = \"0.3\"");
-    }
-    let extra_deps_section = if extra_deps.is_empty() {
-        String::new()
-    } else {
-        format!("\n{extra_deps}")
-    };
-    let async_trait_dep = if has_trait_bridges {
-        format!("\nasync-trait = \"{}\"", tv::cargo::ASYNC_TRAIT)
-    } else {
-        String::new()
-    };
-    let tokio_dep = if has_async || has_trait_bridges || has_streaming {
-        "\ntokio = { version = \"1\", features = [\"rt-multi-thread\", \"sync\"] }"
-    } else {
-        ""
-    };
     let lib_path_line = if let Some(elixir_out) = config.explicit_output.elixir.as_ref() {
         let output_dir = elixir_out.to_string_lossy();
         if output_dir.contains("/native/") {
@@ -88,6 +67,43 @@ pub(crate) fn scaffold_elixir_cargo(
     } else {
         String::new()
     };
+
+    // Collect all [dependencies] entries then sort alphabetically so the emitted
+    // Cargo.toml is cargo-sort canonical without a post-processing step.
+    let features_str = core_dep_features(config, Language::Elixir);
+    let mut dep_lines: Vec<String> = vec![
+        format!(
+            "{crate_name} = {{ path = \"../../../../crates/{core_crate_dir}\"{features} }}",
+            crate_name = &config.name,
+            core_crate_dir = core_crate_dir,
+            features = features_str,
+        ),
+        format!("rustler = \"{}\"", tv::cargo::RUSTLER),
+        "serde = { version = \"1\", features = [\"derive\"] }".to_owned(),
+        "serde_json = \"1\"".to_owned(),
+    ];
+    if has_trait_bridges {
+        dep_lines.push(format!("async-trait = \"{}\"", tv::cargo::ASYNC_TRAIT));
+    }
+    if has_async || has_trait_bridges || has_streaming {
+        dep_lines.push("tokio = { version = \"1\", features = [\"rt-multi-thread\", \"sync\"] }".to_owned());
+    }
+    if has_streaming && !dep_lines.iter().any(|l| l.starts_with("futures-util")) {
+        dep_lines.push("futures-util = \"0.3\"".to_owned());
+    }
+    for line in extra_deps.lines() {
+        let trimmed = line.trim();
+        if !trimmed.is_empty()
+            && !dep_lines
+                .iter()
+                .any(|l| l.starts_with(trimmed.split('=').next().unwrap_or("")))
+        {
+            dep_lines.push(trimmed.to_owned());
+        }
+    }
+    dep_lines.sort();
+    let deps_section = dep_lines.join("\n");
+
     let content = format!(
         r#"{pkg_header}
 
@@ -97,23 +113,14 @@ name = "{nif_name}"
 crate-type = ["cdylib"]
 
 [dependencies]
-{crate_name} = {{ path = "../../../../crates/{core_crate_dir}"{features} }}
-rustler = "{rustler}"
-serde = {{ version = "1", features = ["derive"] }}
-serde_json = "1"{async_trait_dep}{tokio_dep}{extra_deps_section}
+{deps_section}
 
 [workspace]
 "#,
         pkg_header = pkg_header,
         nif_name = nif_name,
         lib_path_line = lib_path_line,
-        crate_name = &config.name,
-        core_crate_dir = core_crate_dir,
-        features = core_dep_features(config, Language::Elixir),
-        rustler = tv::cargo::RUSTLER,
-        async_trait_dep = async_trait_dep,
-        tokio_dep = tokio_dep,
-        extra_deps_section = extra_deps_section,
+        deps_section = deps_section,
     );
 
     Ok(vec![GeneratedFile {

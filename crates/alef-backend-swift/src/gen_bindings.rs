@@ -3140,12 +3140,93 @@ fn swift_inbound_type(ty: &TypeRef, optional: bool) -> String {
 /// The crate-specific `{crate}-swift.swift` file has no imports at all and also
 /// requires the same import.
 ///
-/// Idempotent: if the file already starts with `import RustBridgeC` the line is not
+/// Also prepends a `// swift-format-ignore-file` directive so Apple's
+/// `swift-format` (typically wired into pre-commit on consumer repos) does not
+/// rewrite the swift-bridge output on every regen. swift-bridge's emitter does
+/// not honour swift-format's defaults (2-space indent, sorted imports, 100
+/// char line width) and is intentionally not under our control — we copy its
+/// output verbatim. Without the marker, every `alef all --clean` produces a
+/// non-canonical file that the next `swift-format` hook rewrites, creating
+/// noisy diffs and a stale-binding bisect trail.
+///
+/// Idempotent: if the file already starts with `import RustBridgeC` or the
+/// `swift-format-ignore-file` directive is already present, neither is
 /// duplicated.
 fn prepend_rust_bridge_c_import(content: &str) -> String {
     const IMPORT: &str = "import RustBridgeC";
-    if content.lines().take(3).any(|l| l.trim() == IMPORT) {
-        return content.to_string();
+    const IGNORE: &str = "// swift-format-ignore-file";
+
+    let head: Vec<&str> = content.lines().take(5).collect();
+    let has_import = head.iter().any(|l| l.trim() == IMPORT);
+    let has_ignore = head.iter().any(|l| l.trim() == IGNORE);
+
+    match (has_import, has_ignore) {
+        (true, true) => content.to_string(),
+        (true, false) => format!("{IGNORE}\n{content}"),
+        (false, true) => format!("{IMPORT}\n\n{content}"),
+        (false, false) => format!("{IGNORE}\n{IMPORT}\n\n{content}"),
     }
-    format!("{IMPORT}\n\n{content}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Fresh swift-bridge output (no import, no ignore directive) must receive
+    /// both prepends so the file is canonical for `swift-format` from the first
+    /// regen onwards.
+    #[test]
+    fn prepend_adds_ignore_and_import_for_fresh_content() {
+        let bridge_out = "import Foundation\n\npublic class Foo {}\n";
+        let result = prepend_rust_bridge_c_import(bridge_out);
+        assert!(
+            result.starts_with("// swift-format-ignore-file\nimport RustBridgeC\n\n"),
+            "expected ignore directive then RustBridgeC import as the file prologue, got: {result:?}",
+        );
+        assert!(result.contains("public class Foo {}"));
+    }
+
+    /// Re-running alef on a previously prepended file must be a no-op so the
+    /// embedded hash stays stable across regens.
+    #[test]
+    fn prepend_is_idempotent_when_both_present() {
+        let already_prepared =
+            "// swift-format-ignore-file\nimport RustBridgeC\n\nimport Foundation\n\npublic class Foo {}\n";
+        let result = prepend_rust_bridge_c_import(already_prepared);
+        assert_eq!(result, already_prepared, "second pass must not duplicate directives");
+    }
+
+    /// Older on-disk content that already carries the import (pre-fix) must
+    /// have only the missing ignore directive added — without re-importing.
+    #[test]
+    fn prepend_adds_only_ignore_when_import_present() {
+        let import_only = "import RustBridgeC\n\nimport Foundation\n\npublic class Foo {}\n";
+        let result = prepend_rust_bridge_c_import(import_only);
+        assert_eq!(
+            result, "// swift-format-ignore-file\nimport RustBridgeC\n\nimport Foundation\n\npublic class Foo {}\n",
+            "missing ignore directive must be prepended without duplicating the import line",
+        );
+        assert_eq!(
+            result.matches("import RustBridgeC").count(),
+            1,
+            "import RustBridgeC must appear exactly once",
+        );
+    }
+
+    /// Content with only the ignore directive (hypothetical) must have the
+    /// import added without duplicating the directive.
+    #[test]
+    fn prepend_adds_only_import_when_ignore_present() {
+        let ignore_only = "// swift-format-ignore-file\nimport Foundation\n\npublic class Foo {}\n";
+        let result = prepend_rust_bridge_c_import(ignore_only);
+        assert!(
+            result.starts_with("import RustBridgeC\n\n// swift-format-ignore-file\n"),
+            "expected import prepended ahead of pre-existing ignore directive, got: {result:?}",
+        );
+        assert_eq!(
+            result.matches("// swift-format-ignore-file").count(),
+            1,
+            "ignore directive must appear exactly once",
+        );
+    }
 }

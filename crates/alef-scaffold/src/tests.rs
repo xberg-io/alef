@@ -118,10 +118,109 @@ fn test_scaffold_python_production_features() {
     let api = test_api();
     let files = scaffold(&api, &config, &[Language::Python]).unwrap();
     let content = &files[0].content;
-    assert!(content.contains("[project.urls]"));
+    assert!(content.contains("urls.repository"));
     assert!(content.contains("repository ="));
     // Linter config (ruff) is included in the generated pyproject.toml
     assert!(content.contains("[tool.ruff]"));
+}
+
+#[test]
+fn test_scaffold_python_pyproject_canonical_format() {
+    // Verify pyproject.toml is emitted in pyproject-fmt canonical form:
+    // - build-backend before requires in [build-system]
+    // - arrays with spaces: [ "a", "b" ]
+    // - sorted keywords
+    // - dot-syntax for nested tables: urls.repository instead of [project.urls]
+    // - tool sections use dot-syntax: lint.* instead of [tool.ruff.lint]
+    let cfg: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["python"]
+
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
+
+[crates.scaffold]
+description = "Test library"
+license = "MIT"
+repository = "https://github.com/test/my-lib"
+authors = ["Bob"]
+keywords = ["zebra", "apple", "banana"]
+"#,
+    )
+    .unwrap();
+    let config = cfg.resolve().unwrap().remove(0);
+    let api = test_api();
+    let files = scaffold(&api, &config, &[Language::Python]).unwrap();
+    let content = &files[0].content;
+
+    // Check build-system section ordering: build-backend before requires
+    let build_system_section = content
+        .split("[project]")
+        .next()
+        .expect("should have [project] section");
+    let backend_idx = build_system_section
+        .find("build-backend")
+        .expect("should have build-backend");
+    let requires_idx = build_system_section.find("requires").expect("should have requires");
+    assert!(
+        backend_idx < requires_idx,
+        "build-backend should come before requires in [build-system]"
+    );
+
+    // Check array spacing: requires = [ ... ] not [ ...]
+    assert!(
+        content.contains("requires = [ \"maturin"),
+        "requires should have space after ["
+    );
+
+    // Check keywords are sorted: apple, banana, zebra (not zebra, apple, banana)
+    let keywords_section = content
+        .split("[project.urls]")
+        .next()
+        .expect("should have [project.urls] section");
+    let keywords_idx = keywords_section.find("keywords = [ ").expect("should have keywords");
+    let apple_idx = keywords_section[keywords_idx..]
+        .find("\"apple\"")
+        .map(|i| keywords_idx + i)
+        .expect("should have apple");
+    let banana_idx = keywords_section[keywords_idx..]
+        .find("\"banana\"")
+        .map(|i| keywords_idx + i)
+        .expect("should have banana");
+    let zebra_idx = keywords_section[keywords_idx..]
+        .find("\"zebra\"")
+        .map(|i| keywords_idx + i)
+        .expect("should have zebra");
+    assert!(
+        apple_idx < banana_idx && banana_idx < zebra_idx,
+        "keywords should be sorted alphabetically: apple, banana, zebra"
+    );
+
+    // Check dot-syntax for URLs: urls.repository instead of [project.urls]
+    assert!(
+        !content.contains("[project.urls]"),
+        "should use dot-syntax urls.repository, not [project.urls] section"
+    );
+    assert!(
+        content.contains("urls.repository = "),
+        "should have urls.repository in dot-syntax"
+    );
+
+    // Check tool.ruff uses dot-syntax for nested sections
+    assert!(
+        !content.contains("[tool.ruff.lint]"),
+        "should use dot-syntax lint.*, not [tool.ruff.lint]"
+    );
+    assert!(
+        content.contains("lint.select = "),
+        "should have lint.select in dot-syntax"
+    );
+    assert!(
+        content.contains("lint.mccabe.max-complexity"),
+        "should have lint.mccabe.max-complexity in dot-syntax"
+    );
 }
 
 #[test]

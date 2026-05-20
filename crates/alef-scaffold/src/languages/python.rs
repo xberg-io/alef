@@ -142,18 +142,16 @@ pub(crate) fn scaffold_python(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     let authors_toml = if meta.authors.is_empty() {
         String::new()
     } else {
-        let entries: Vec<String> = meta
-            .authors
-            .iter()
-            .map(|a| format!("    {{ name = \"{}\" }}", a))
-            .collect();
-        format!("authors = [\n{}\n]\n", entries.join(",\n"))
+        let entries: Vec<String> = meta.authors.iter().map(|a| format!("{{ name = \"{}\" }}", a)).collect();
+        format!("authors = [ {} ]\n", entries.join(", "))
     };
 
     let keywords_toml = if meta.keywords.is_empty() {
         String::new()
     } else {
-        let entries: Vec<String> = meta.keywords.iter().map(|k| format!("\"{}\"", k)).collect();
+        let mut sorted_keywords = meta.keywords.clone();
+        sorted_keywords.sort();
+        let entries: Vec<String> = sorted_keywords.iter().map(|k| format!("\"{}\"", k)).collect();
         format!("keywords = [ {} ]\n", entries.join(", "))
     };
 
@@ -171,17 +169,19 @@ pub(crate) fn scaffold_python(api: &ApiSurface, config: &ResolvedCrateConfig) ->
         _ => String::new(),
     };
 
+    let urls_line = format!("urls.repository = \"{}\"\n", meta.repository);
+
     let content = format!(
         r#"[build-system]
-requires = [ "{maturin_build_requires}" ]
 build-backend = "maturin"
+requires = [ "{maturin_build_requires}" ]
 
 [project]
 name = "{pip_name}"
 version = "{version}"
 description = "{description}"
-license = "{license}"
-requires-python = ">=3.10"
+{keywords}license = "{license}"
+{authors}requires-python = ">=3.10"
 classifiers = [
   "Programming Language :: Python :: 3 :: Only",
   "Programming Language :: Python :: 3.10",
@@ -190,8 +190,8 @@ classifiers = [
   "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3.14",
 ]
-{authors}{keywords}{homepage}{dependencies}[project.urls]
-repository = "{repository}"
+{urls_line}{homepage}{dependencies}[dependency-groups]
+dev = [ "mypy{mypy}", "ruff{ruff}" ]
 
 [tool.maturin]
 module-name = "{python_package}.{module_name}"
@@ -201,39 +201,24 @@ manifest-path = "../../crates/{crate_dir}-py/Cargo.toml"
 features = [ "pyo3/extension-module", "pyo3/abi3-py310" ]
 python-packages = [ "{python_package}" ]
 
-[dependency-groups]
-dev = [ "ruff{ruff}", "mypy{mypy}" ]
-
 [tool.ruff]
 target-version = "py310"
 line-length = 120
-
-[tool.ruff.lint]
-select = [ "ALL" ]
-ignore = [
+format.docstring-code-format = true
+format.docstring-code-line-length = 120
+lint.select = [ "ALL" ]
+lint.ignore = [
   "ANN401", "ASYNC109", "ASYNC110", "BLE001", "COM812",
   "D100", "D104", "D107", "D205", "E501", "EM",
   "FBT", "FIX", "ISC001", "PD011", "PGH003", "PLR2004",
   "PLW0603", "S104", "S110", "S603", "TD", "TRY",
 ]
-
-[tool.ruff.lint.mccabe]
-max-complexity = 15
-
-[tool.ruff.lint.pylint]
-max-args = 10
-max-branches = 15
-max-returns = 10
-
-[tool.ruff.lint.pydocstyle]
-convention = "google"
-
-[tool.ruff.lint.per-file-ignores]
-"tests/**" = [ "S101", "D103", "ANN", "PLR2004" ]
-
-[tool.ruff.format]
-docstring-code-line-length = 120
-docstring-code-format = true
+lint.mccabe.max-complexity = 15
+lint.per-file-ignores."tests/**" = [ "ANN", "D103", "PLR2004", "S101" ]
+lint.pydocstyle.convention = "google"
+lint.pylint.max-args = 10
+lint.pylint.max-branches = 15
+lint.pylint.max-returns = 10
 
 [tool.mypy]
 python_version = "3.10"
@@ -250,7 +235,7 @@ namespace_packages = true
         keywords = keywords_toml,
         homepage = homepage_toml,
         dependencies = dependencies_toml,
-        repository = meta.repository,
+        urls_line = urls_line,
         python_package = python_package,
         module_name = module_name,
         crate_dir = core_crate_dir,

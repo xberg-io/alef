@@ -246,13 +246,20 @@ pub fn render_test_file(
                         imports.push(opts_type.clone());
                     }
                 }
-                for nested_type in all_nested_types.values() {
+                // Sort values for deterministic import ordering — HashMap
+                // iteration order is non-deterministic and would thrash git
+                // on each regen.
+                let mut nested_type_values: Vec<&String> = all_nested_types.values().collect();
+                nested_type_values.sort();
+                for nested_type in nested_type_values {
                     if !imports.contains(nested_type) {
                         imports.push(nested_type.clone());
                     }
                 }
                 // Also import enum types referenced in this test file
-                for enum_type in all_enum_fields.values() {
+                let mut enum_field_values: Vec<&String> = all_enum_fields.values().collect();
+                enum_field_values.sort();
+                for enum_type in enum_field_values {
                     if !imports.contains(enum_type) {
                         imports.push(enum_type.clone());
                     }
@@ -303,13 +310,19 @@ pub fn render_test_file(
     // json_object arg in the fixture input.
     if lang == "wasm" && !all_nested_types.is_empty() {
         let mut additional_imports: Vec<String> = Vec::new();
-        for nested_type in all_nested_types.values() {
+        // Sort values for deterministic import ordering — HashMap iteration
+        // order is non-deterministic and would thrash git on each regen.
+        let mut nested_type_values: Vec<&String> = all_nested_types.values().collect();
+        nested_type_values.sort();
+        for nested_type in nested_type_values {
             if !import_modules.contains(nested_type) && !additional_imports.contains(nested_type) {
                 additional_imports.push(nested_type.clone());
             }
         }
         // Also import enum types that might be used in handle config
-        for enum_type in all_enum_fields.values() {
+        let mut enum_field_values: Vec<&String> = all_enum_fields.values().collect();
+        enum_field_values.sort();
+        for enum_type in enum_field_values {
             if !import_modules.contains(enum_type) && !additional_imports.contains(enum_type) {
                 additional_imports.push(enum_type.clone());
             }
