@@ -1668,10 +1668,8 @@ fn go_return_expr_inner(
             }
         }
         TypeRef::String | TypeRef::Char | TypeRef::Path => {
-            format!(
-                "func() *string {{ if {var} == nil {{ return nil }}; v := C.GoString({var}); return &v }}()",
-                var = var_name
-            )
+            // Non-optional String/Char/Path: return bare string value (C pointer conversion)
+            format!("C.GoString({})", var_name)
         }
         TypeRef::Json => {
             format!(

@@ -39,7 +39,7 @@ const INITIALISMS: &[&str] = &[
 /// excludes generic acronyms so they round-trip cleanly through heck's PascalCase
 /// (matching alef's hardcoded helper names like `{Type}ToJson`/`{Type}FromJson`),
 /// while still preserving product names like `GraphQL` that heck would mangle.
-const CSHARP_INITIALISMS: &[&str] = &["GraphQL", "ID", "UUID", "URI"];
+const CSHARP_INITIALISMS: &[&str] = &["GraphQL", "ID", "UUID"];
 
 /// Apply initialism uppercasing to a PascalCase name using the provided list.
 ///
@@ -188,6 +188,38 @@ pub fn to_csharp_name(name: &str) -> String {
     apply_initialisms(&name.to_pascal_case(), CSHARP_INITIALISMS)
 }
 
+/// Normalize 3+ letter acronyms at the start of a name to PascalCase.
+///
+/// C# convention: 3+ letter acronyms use PascalCase (Uri, Xml, Json) not all-caps (URI, XML, JSON).
+/// This function detects names like "URI", "XML", "JSON" and converts them to "Uri", "Xml", "Json".
+/// Leaves already-correct names like "Uri" unchanged, and preserves non-acronym names.
+///
+/// Examples:
+/// - `URI`  → `Uri`  (acronym → PascalCase)
+/// - `Uri`  → `Uri`  (already correct)
+/// - `XML`  → `Xml`
+/// - `Xml`  → `Xml`
+/// - `JSON` → `Json`
+/// - `Json` → `Json`
+/// - `HttpStatus` → `HttpStatus` (not an acronym)
+fn normalize_acronym_to_pascalcase(name: &str) -> String {
+    if name.is_empty() {
+        return name.to_string();
+    }
+
+    // Check if the name is all uppercase and 3+ letters (an acronym like "URI", "XML", "JSON")
+    if name.len() >= 3 && name.chars().all(|c| c.is_ascii_uppercase()) {
+        // Convert "URI" → "Uri", "XML" → "Xml", "JSON" → "Json"
+        let mut result = String::with_capacity(name.len());
+        result.push(name.chars().next().unwrap().to_ascii_uppercase());
+        result.extend(name.chars().skip(1).map(|c| c.to_ascii_lowercase()));
+        return result;
+    }
+
+    // Not an all-caps acronym — return as-is
+    name.to_string()
+}
+
 /// Apply C# initialism handling to a name that is already in PascalCase (e.g. an IR type name).
 ///
 /// IR type names come directly from Rust PascalCase (e.g. `GraphQLRouteConfig`, `HttpStatus`).
@@ -200,7 +232,10 @@ pub fn to_csharp_name(name: &str) -> String {
 /// - `GraphQLRouteConfig`   → `GraphQLRouteConfig`  (idempotent)
 /// - `HttpStatus`           → `HttpStatus`          (left alone — `Http` not in `CSHARP_INITIALISMS`)
 pub fn csharp_type_name(name: &str) -> String {
-    apply_initialisms(name, CSHARP_INITIALISMS)
+    // First normalize 3+ letter acronyms to PascalCase (URI → Uri, XML → Xml, JSON → Json)
+    let normalized = normalize_acronym_to_pascalcase(name);
+    // Then apply the preserved initialism rules (GraphQL, ID, UUID)
+    apply_initialisms(&normalized, CSHARP_INITIALISMS)
 }
 
 /// Convert a Rust name to a C-style prefixed snake_case identifier (e.g. `prefix_name`).
@@ -478,5 +513,16 @@ mod tests {
     fn test_csharp_type_name_http_status_no_acronym() {
         // `Http` is intentionally not in CSHARP_INITIALISMS — Microsoft style prefers `Http`.
         assert_eq!(csharp_type_name("HttpStatus"), "HttpStatus");
+    }
+
+    #[test]
+    fn test_csharp_type_name_three_letter_acronyms() {
+        // 3+ letter acronyms should NOT be uppercased (Uri not URI, Xml not XML, Json not JSON)
+        assert_eq!(csharp_type_name("Uri"), "Uri");
+        assert_eq!(csharp_type_name("URI"), "Uri");
+        assert_eq!(csharp_type_name("Xml"), "Xml");
+        assert_eq!(csharp_type_name("XML"), "Xml");
+        assert_eq!(csharp_type_name("Json"), "Json");
+        assert_eq!(csharp_type_name("JSON"), "Json");
     }
 }

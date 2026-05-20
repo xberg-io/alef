@@ -274,7 +274,13 @@ fn gen_wrapper_function(
     }
 
     out.push(' ');
-    out.push_str(&to_csharp_name(&func.name));
+    let func_name = to_csharp_name(&func.name);
+    if func.is_async && !func_name.ends_with("Async") {
+        out.push_str(&func_name);
+        out.push_str("Async");
+    } else {
+        out.push_str(&func_name);
+    }
     out.push('(');
 
     // Parameters (bridge params stripped from public signature)
@@ -633,7 +639,13 @@ fn gen_bridge_field_wrapper_function(
     }
 
     out.push(' ');
-    out.push_str(&to_csharp_name(&func.name));
+    let func_name = to_csharp_name(&func.name);
+    if func.is_async && !func_name.ends_with("Async") {
+        out.push_str(&func_name);
+        out.push_str("Async");
+    } else {
+        out.push_str(&func_name);
+    }
     out.push('(');
 
     // Parameters (all visible, since bridge is embedded in options param)
@@ -844,7 +856,12 @@ fn gen_wrapper_method(
     }
 
     // Prefix method name with type name to avoid collisions (e.g., MetadataConfigDefault)
-    let method_cs_name = format!("{}{}", type_name, to_csharp_name(&method.name));
+    let method_name = to_csharp_name(&method.name);
+    let method_cs_name = if method.is_async && !method_name.ends_with("Async") {
+        format!("{}{}Async", type_name, method_name)
+    } else {
+        format!("{}{}", type_name, method_name)
+    };
     out.push(' ');
     out.push_str(&method_cs_name);
     out.push('(');

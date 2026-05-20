@@ -159,13 +159,12 @@ pub(super) fn gen_method_wrapper(
         if matches!(method.return_type, TypeRef::Unit) {
             "error".to_string()
         } else {
-            // Plain scalar primitives stay scalar in the (value, error) tuple — wrapping in
-            // a nullable pointer would leak Rust Option<T> semantics into the Go API even
-            // though the Rust source returns the value unconditionally.
-            // Named / String / Json / Optional / reference types keep go_optional_type
-            // because their conversion bodies produce pointer/slice values and the signature
-            // must match.
-            let ret_go_type = if matches!(method.return_type, TypeRef::Primitive(_) | TypeRef::Duration) {
+            // Scalar types (primitives, Duration, String, Char, Path) stay scalar in the (value, error) tuple.
+            // Their conversion bodies produce value expressions or closures returning the bare Go type,
+            // so the signature must match.
+            // Named / Json / Optional / reference types keep go_optional_type because their conversion
+            // bodies produce pointer/slice values and the signature must match.
+            let ret_go_type = if matches!(method.return_type, TypeRef::Primitive(_) | TypeRef::Duration | TypeRef::String | TypeRef::Char | TypeRef::Path) {
                 go_type(&method.return_type).into_owned()
             } else {
                 go_optional_type(&method.return_type).into_owned()
@@ -174,11 +173,12 @@ pub(super) fn gen_method_wrapper(
         }
     } else if matches!(method.return_type, TypeRef::Unit) {
         "".to_string()
-    } else if matches!(method.return_type, TypeRef::Primitive(_) | TypeRef::Duration) {
+    } else if matches!(method.return_type, TypeRef::Primitive(_) | TypeRef::Duration | TypeRef::String | TypeRef::Char | TypeRef::Path) {
         // Mirrors the value-form scalar-return condition in the `method_can_return_error`
         // branch above. The body emitter (`go_return_expr` in `types.rs`) produces a plain
-        // value expression for `TypeRef::Primitive` (e.g. `ptr != 0`, `uint(ptr)`), so the
-        // signature must use the value type — `*bool`/`*uint` here would mismatch the body.
+        // value expression for `TypeRef::Primitive` (e.g. `ptr != 0`, `uint(ptr)`) and
+        // closures for string types that return the bare Go type, so the signature must use
+        // the value type — `*bool`/`*string` here would mismatch the body.
         go_type(&method.return_type).into_owned()
     } else {
         go_optional_type(&method.return_type).into_owned()

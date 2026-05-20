@@ -1076,11 +1076,40 @@ fn emit_record_methods(out: &mut String, typ: &TypeDef, class_name: &str, _prefi
                          }}\n"
                 ));
             } else {
-                let call_args: Vec<String> = method
-                    .params
-                    .iter()
-                    .map(|p| p.name.to_lower_camel_case().to_string())
-                    .collect();
+                // Static factory: check if any parameters are record types that need serialization
+                let mut setup_code = String::new();
+                let mut call_args: Vec<String> = Vec::new();
+                let mut cleanup_code = String::new();
+
+                for p in &method.params {
+                    let pname = p.name.to_lower_camel_case();
+                    // Check if this parameter is a named type (record/opaque/enum)
+                    if let TypeRef::Named(type_name) = &p.ty {
+                        // Check if it's an opaque type that should be passed as IntPtr
+                        // For now, assume any Named type parameter should be serialized to JSON
+                        let param_json_var = format!("{pname}Json");
+                        let param_handle_var = format!("{pname}Handle");
+                        setup_code.push_str(&format!(
+                            "        var {param_json_var} = JsonSerializer.Serialize({pname}, JsonOptions);\n\
+                             var {param_handle_var} = NativeMethods.{}FromJson({param_json_var});\n",
+                            csharp_type_name(type_name)
+                        ));
+                        cleanup_code.push_str(&format!(
+                            "        NativeMethods.{}Free({param_handle_var});\n",
+                            csharp_type_name(type_name)
+                        ));
+                        call_args.push(param_handle_var);
+                    } else {
+                        // Primitive type — pass directly
+                        call_args.push(pname);
+                    }
+                }
+
+                if !setup_code.is_empty() {
+                    out.push_str(&setup_code);
+                    out.push_str("        try\n        {\n");
+                }
+
                 let args_str = call_args.join(", ");
                 out.push_str(&format!(
                     "        var nativeResult = NativeMethods.{native_method_name}({args_str});\n\
@@ -1091,6 +1120,12 @@ fn emit_record_methods(out: &mut String, typ: &TypeDef, class_name: &str, _prefi
                              NativeMethods.{native_type_prefix}Free(nativeResult);\n\
                              return JsonSerializer.Deserialize<{class_name}>(json ?? \"null\", JsonOptions)!;\n"
                 ));
+
+                if !setup_code.is_empty() {
+                    out.push_str("        }\n        finally\n        {\n");
+                    out.push_str(&cleanup_code);
+                    out.push_str("        }\n");
+                }
             }
         } else {
             // Infallible methods (no error_type).
@@ -1116,11 +1151,40 @@ fn emit_record_methods(out: &mut String, typ: &TypeDef, class_name: &str, _prefi
                          }}\n"
                 ));
             } else {
-                let call_args: Vec<String> = method
-                    .params
-                    .iter()
-                    .map(|p| p.name.to_lower_camel_case().to_string())
-                    .collect();
+                // Static factory (infallible): check if any parameters are record types that need serialization
+                let mut setup_code = String::new();
+                let mut call_args: Vec<String> = Vec::new();
+                let mut cleanup_code = String::new();
+
+                for p in &method.params {
+                    let pname = p.name.to_lower_camel_case();
+                    // Check if this parameter is a named type (record/opaque/enum)
+                    if let TypeRef::Named(type_name) = &p.ty {
+                        // Check if it's an opaque type that should be passed as IntPtr
+                        // For now, assume any Named type parameter should be serialized to JSON
+                        let param_json_var = format!("{pname}Json");
+                        let param_handle_var = format!("{pname}Handle");
+                        setup_code.push_str(&format!(
+                            "        var {param_json_var} = JsonSerializer.Serialize({pname}, JsonOptions);\n\
+                             var {param_handle_var} = NativeMethods.{}FromJson({param_json_var});\n",
+                            csharp_type_name(type_name)
+                        ));
+                        cleanup_code.push_str(&format!(
+                            "        NativeMethods.{}Free({param_handle_var});\n",
+                            csharp_type_name(type_name)
+                        ));
+                        call_args.push(param_handle_var);
+                    } else {
+                        // Primitive type — pass directly
+                        call_args.push(pname);
+                    }
+                }
+
+                if !setup_code.is_empty() {
+                    out.push_str(&setup_code);
+                    out.push_str("        try\n        {\n");
+                }
+
                 let args_str = call_args.join(", ");
                 out.push_str(&format!(
                     "        var nativeResult = NativeMethods.{native_method_name}({args_str});\n\
@@ -1130,6 +1194,12 @@ fn emit_record_methods(out: &mut String, typ: &TypeDef, class_name: &str, _prefi
                              NativeMethods.{native_type_prefix}Free(nativeResult);\n\
                              return JsonSerializer.Deserialize<{class_name}>(json ?? \"null\", JsonOptions)!;\n"
                 ));
+
+                if !setup_code.is_empty() {
+                    out.push_str("        }\n        finally\n        {\n");
+                    out.push_str(&cleanup_code);
+                    out.push_str("        }\n");
+                }
             }
         }
 

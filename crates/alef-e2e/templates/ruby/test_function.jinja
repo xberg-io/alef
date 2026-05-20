@@ -14,6 +14,8 @@
    - client_factory: optional client factory expression
    - fixture_id: fixture ID (for client factory)
    - call_receiver: module or class name for the call
+   - is_clear_op: bool - whether this is a clear operation
+   - post_clear_list_call: expression to call the corresponding list function (empty if not a clear op)
 #}
   it '{{ test_name }}: {{ description }}' do
 {% if client_factory %}
@@ -54,7 +56,11 @@
     {{ result_var }} = {{ call_expr }}
 {% endif %}
 {{ assertions_rendered }}
-{% if not has_usable and not returns_void %}
+{% if is_clear_op %}
+    # Verify the list is empty after clear
+    list_result = {{ post_clear_list_call }}
+    expect(list_result).to be_empty
+{% elif not has_usable and not returns_void %}
     expect({{ result_var }}).not_to be_nil
 {% endif %}
 {% endif %}

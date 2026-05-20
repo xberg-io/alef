@@ -372,10 +372,10 @@ fn read_mix_exs_version(path: &Path) -> Option<String> {
 
 fn read_go_doc_version(path: &Path) -> Option<String> {
     let content = std::fs::read_to_string(path).ok()?;
-    // Look for patterns like `// targets Kreuzberg X.Y.Z` or `// version X.Y.Z`
+    // Look for patterns like `// targets <Project> X.Y.Z` or `// version X.Y.Z`.
     for line in content.lines() {
         let lower = line.to_lowercase();
-        if lower.contains("version") || lower.contains("targets") || lower.contains("kreuzberg") {
+        if lower.contains("version") || lower.contains("targets") {
             // Extract last version-like token (X.Y.Z possibly with -rc.N suffix).
             for token in line.split_whitespace().rev() {
                 if token.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) && token.contains('.') {

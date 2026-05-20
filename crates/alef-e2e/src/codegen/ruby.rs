@@ -1128,6 +1128,16 @@ fn render_example(
     let has_mock_and_key = has_mock && api_key_var.is_some();
     let has_not_error = fixture.assertions.iter().any(|a| a.assertion_type == "not_error");
     let is_only_not_error = has_not_error && !has_usable && !expects_error;
+
+    // Detect clear operations and emit post-clear list assertion
+    let is_clear_op = function_name.ends_with("_clear");
+    let post_clear_list_call = if is_clear_op {
+        let list_fn = function_name.replace("_clear", "_list");
+        format!("{}.{}()", call_receiver, list_fn)
+    } else {
+        String::new()
+    };
+
     crate::template_env::render(
         "ruby/test_function.jinja",
         minijinja::context! {
@@ -1147,6 +1157,8 @@ fn render_example(
             api_key_var => api_key_var,
             has_mock_and_key => has_mock_and_key,
             is_only_not_error => is_only_not_error,
+            is_clear_op => is_clear_op,
+            post_clear_list_call => post_clear_list_call,
         },
     )
 }

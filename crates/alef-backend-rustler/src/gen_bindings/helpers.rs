@@ -323,6 +323,8 @@ pub(super) fn gen_native_ex(
 
     // Stubs for streaming-adapter NIF pairs: `{owner_lc}_{name}_start(_obj, _req)`
     // and `{owner_lc}_{name}_next(_handle)`. Both NIFs are scheduled on DirtyCpu.
+    // These are internal implementation details (delegated to by the public streaming wrapper
+    // functions in the main module), so they are marked @doc false.
     for adapter in config
         .adapters
         .iter()
@@ -338,30 +340,34 @@ pub(super) fn gen_native_ex(
         for p in &adapter.params {
             start_params.push(format!("_{}", elixir_safe_param_name(&p.name)));
         }
-        // Look up the matching method on the owner type so the streaming NIF stubs
-        // inherit the source rustdoc rather than being completely undocumented.
-        let adapter_doc = api
-            .types
-            .iter()
-            .find(|t| t.name == owner)
-            .and_then(|t| t.methods.iter().find(|m| m.name == adapter.name))
-            .map(|m| m.doc.as_str())
-            .unwrap_or("");
-        if write_nif_doc(&mut out, adapter_doc, last_was_multiline) {
-            last_was_multiline = true;
+        // Streaming NIFs are internal — mark @doc false and skip inherited rustdoc.
+        // The public wrapper functions in the main module expose the high-level API.
+        if !out.is_empty() && !out.ends_with("\n\n") {
+            out.push('\n');
         }
-        last_was_multiline = write_nif_stub(&mut out, &start_fn, &start_params, last_was_multiline);
-        last_was_multiline = write_nif_stub(&mut out, &next_fn, &["_handle".to_string()], last_was_multiline);
+        out.push_str("  @doc false\n");
+        let _ = write_nif_stub(&mut out, &start_fn, &start_params, false);
+
+        if !out.is_empty() && !out.ends_with("\n\n") {
+            out.push('\n');
+        }
+        out.push_str("  @doc false\n");
+        let _ = write_nif_stub(&mut out, &next_fn, &["_handle".to_string()], false);
     }
 
     // Stubs for *_from_json helper NIFs (generated for all serde-capable types)
+    // These are internal test utilities — mark @doc false.
     for typ in api.types.iter().filter(|t| {
         !t.is_trait && !t.is_opaque && !t.fields.is_empty() && t.has_serde && !exclude_types.contains(t.name.as_str())
     }) {
         let from_json_fn_name = format!("{}_from_json", typ.name.to_snake_case());
         // *_from_json takes a JSON string and returns Result<Type, String>
         let params = vec!["_json".to_string()];
-        last_was_multiline = write_nif_stub(&mut out, &from_json_fn_name, &params, last_was_multiline);
+        if !out.is_empty() && !out.ends_with("\n\n") {
+            out.push('\n');
+        }
+        out.push_str("  @doc false\n");
+        let _ = write_nif_stub(&mut out, &from_json_fn_name, &params, false);
     }
 
     out.push_str(&template_env::render(
@@ -1337,6 +1343,9 @@ pub(super) fn elixir_typespec(
 /// JSON strings), the **input** typespec is `String.t() | nil`.  But when such a type
 /// appears as a **return** type the NIF returns the fully-deserialised struct/map —
 /// never a raw JSON string — so the correct return spec is `map()`, not `String.t()`.
+///
+/// Errors are returned as `{:error, atom, String.t()}` where the atom is the error kind
+/// and the string is the human-readable message.
 pub(super) fn elixir_return_typespec(
     ty: &TypeRef,
     has_error: bool,
@@ -1355,7 +1364,7 @@ pub(super) fn elixir_return_typespec(
         _ => elixir_typespec(ty, opaque_types, default_types),
     };
     if has_error {
-        format!("{{:ok, {}}} | {{:error, String.t()}}", base)
+        format!("{{:ok, {}}} | {{:error, atom, String.t()}}", base)
     } else {
         base
     }

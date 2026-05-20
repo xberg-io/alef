@@ -3499,3 +3499,68 @@ fn test_extract_cfg_gated_generic_async_fn_embed_texts_async_shape() {
     );
     assert_eq!(func.error_type.as_deref(), Some("KreuzbergError"));
 }
+
+#[test]
+fn wrapper_struct_alongside_per_element_struct_is_extracted() {
+    // Regression for kreuzcrawl's BatchScrapeResults: a wrapper struct
+    // declared in the same module as the per-element struct and the
+    // function returning it must appear in surface.types so codegen
+    // resolves the function's return type to Named, not String.
+    let source = r#"
+        #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+        pub struct BatchScrapeResult {
+            pub url: String,
+            pub error: Option<String>,
+        }
+
+        #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+        pub struct BatchScrapeResults {
+            pub results: Vec<BatchScrapeResult>,
+            pub total_count: usize,
+            pub completed_count: usize,
+            pub failed_count: usize,
+        }
+
+        impl From<Vec<BatchScrapeResult>> for BatchScrapeResults {
+            fn from(results: Vec<BatchScrapeResult>) -> Self {
+                let total_count = results.len();
+                Self { results, total_count, completed_count: 0, failed_count: 0 }
+            }
+        }
+
+        pub async fn batch_scrape(urls: Vec<String>) -> Result<BatchScrapeResults, MyError> {
+            todo!()
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    let names: Vec<&str> = surface.types.iter().map(|t| t.name.as_str()).collect();
+    assert!(
+        names.contains(&"BatchScrapeResult"),
+        "per-element struct must be extracted; got: {names:?}"
+    );
+    assert!(
+        names.contains(&"BatchScrapeResults"),
+        "wrapper struct must be extracted; got: {names:?}"
+    );
+
+    let wrapper = surface
+        .types
+        .iter()
+        .find(|t| t.name == "BatchScrapeResults")
+        .expect("wrapper present");
+    let field_names: Vec<&str> = wrapper.fields.iter().map(|f| f.name.as_str()).collect();
+    assert_eq!(field_names, vec!["results", "total_count", "completed_count", "failed_count"]);
+    assert!(!wrapper.is_opaque, "wrapper struct must not be opaque");
+
+    let func = surface
+        .functions
+        .iter()
+        .find(|f| f.name == "batch_scrape")
+        .expect("batch_scrape extracted");
+    assert_eq!(
+        func.return_type,
+        TypeRef::Named("BatchScrapeResults".into()),
+        "return_type must resolve to Named, not String"
+    );
+}

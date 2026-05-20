@@ -76,54 +76,11 @@ pub(crate) fn escape_javadoc_line(s: &str) -> String {
 }
 
 /// Sanitize Rust-specific syntax in docstrings.
-/// Replaces Rust idioms with Java-friendly equivalents or removes them.
+///
+/// Delegates to the shared [`alef_codegen::doc_emission::sanitize_rust_idioms`]
+/// implementation with the [`alef_codegen::doc_emission::DocTarget::JavaDoc`] target.
 fn sanitize_rust_syntax(s: &str) -> String {
-    let mut result = s.to_string();
-
-    // Replace :: (Rust namespace separator) with . (Java package separator)
-    result = result.replace("::", ".");
-
-    // Remove Rust-specific error handling idioms that have no Java equivalent
-    // .unwrap() / .expect(...) / .unwrap_or(...) are Rust-specific
-    result = result.replace(".unwrap()", "");
-    result = result.replace(".unwrap_or(", ".orElse(");
-
-    // Remove .expect(...) calls (Rust panicking assertion)
-    let mut cleaned = String::new();
-    let mut chars = result.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch == '.' {
-            // Check if this is the start of .expect( or similar
-            let remaining: String = chars.clone().take_while(|_| true).collect();
-            if remaining.starts_with("expect(") {
-                // Skip to the closing paren
-                let mut depth = 0;
-                let mut found_close = false;
-                for _ in 0..remaining.len() {
-                    if let Some(c) = chars.next() {
-                        if c == '(' {
-                            depth += 1;
-                        } else if c == ')' {
-                            depth -= 1;
-                            if depth == 0 {
-                                found_close = true;
-                                break;
-                            }
-                        }
-                    }
-                }
-                if !found_close {
-                    // Malformed; just skip the .expect
-                    cleaned.push('.');
-                }
-                // Otherwise we've consumed the .expect(...) text
-                continue;
-            }
-        }
-        cleaned.push(ch);
-    }
-
-    cleaned
+    alef_codegen::doc_emission::sanitize_rust_idioms(s, alef_codegen::doc_emission::DocTarget::JavaDoc)
 }
 
 pub(crate) fn is_tuple_field_name(name: &str) -> bool {

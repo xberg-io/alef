@@ -66,3 +66,4 @@ ureq = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
+walkdir = { workspace = true }

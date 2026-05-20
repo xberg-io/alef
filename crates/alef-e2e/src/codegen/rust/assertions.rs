@@ -33,6 +33,45 @@ pub fn render_assertion(
     result_is_option: bool,
     returns_result: bool,
 ) {
+    render_assertion_with_streaming(
+        out,
+        assertion,
+        result_var,
+        module,
+        dep_name,
+        is_error_context,
+        unwrapped_fields,
+        field_resolver,
+        result_is_tree,
+        result_is_simple,
+        result_is_vec,
+        result_is_option,
+        returns_result,
+        false,
+    )
+}
+
+/// Same as [`render_assertion`], but with an `is_streaming` flag so the streaming-virtual
+/// field arm can fire when `result_var` is the raw call result rather than the collected
+/// `chunks` variable.  Callers that already drained the stream into a `chunks: Vec<_>`
+/// local should pass `is_streaming = true`.
+#[allow(clippy::too_many_arguments)]
+pub fn render_assertion_with_streaming(
+    out: &mut String,
+    assertion: &Assertion,
+    result_var: &str,
+    module: &str,
+    dep_name: &str,
+    is_error_context: bool,
+    unwrapped_fields: &[(String, String)], // (fixture_field, local_var)
+    field_resolver: &FieldResolver,
+    result_is_tree: bool,
+    result_is_simple: bool,
+    result_is_vec: bool,
+    result_is_option: bool,
+    returns_result: bool,
+    _is_streaming: bool,
+) {
     // Vec<T> result: iterate per-element so each assertion checks every element.
     // Field-path assertions become `for r in &{result} { <assert using r> }`.
     // Length-style assertions on the Vec itself (no field path) operate on the
@@ -138,12 +177,13 @@ pub fn render_assertion(
 
     // Streaming virtual fields: intercept before is_valid_for_result so they are
     // never skipped.  These fields resolve against the `chunks` collected-list variable.
-    // Gate on `result_var == "chunks"` so non-streaming tests asserting on ambiguous
-    // fields like `usage.total_tokens` don't accidentally reach for an undefined chunks
-    // var; the streaming codegen always names the collected list `chunks`.
+    //
+    // Streaming-only auto-detect (see `STREAMING_ONLY_AUTO_DETECT_FIELDS`) ensures
+    // a fixture referencing any of these field names is rendered as a streaming
+    // call, so the `chunks` local is always bound when this path is taken.  No
+    // additional `result_var` gate is required.
     if let Some(f) = &assertion.field {
-        if result_var == "chunks"
-            && !f.is_empty()
+        if !f.is_empty()
             && crate::codegen::streaming_assertions::is_streaming_virtual_field(f)
         {
             if let Some(expr) =

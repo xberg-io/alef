@@ -629,12 +629,13 @@ fn test_methods_generation() {
     let files = result.unwrap();
     let content = &files[0].content;
 
-    // Verify instance method wrapper (receiver with pointer)
+    // Verify instance method wrapper (receiver with pointer).
+    // Non-opaque receivers must be marshaled to JSON, so even methods without explicit error_type
+    // return (T, error). Verify GetName returns (string, error) with bare string (not *string).
     assert!(
-        content.contains("func (r *Handler) GetName()"),
-        "Should define instance method GetName with receiver"
+        content.contains("func (r *Handler) GetName() (string, error)"),
+        "Should define instance method GetName returning (string, error) with bare string type"
     );
-    assert!(content.contains("*string"), "GetName should return *string");
 
     // Verify static method (no receiver, becomes function)
     assert!(

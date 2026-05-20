@@ -92,14 +92,19 @@ pub fn go_type(ty: &TypeRef) -> Cow<'static, str> {
 /// Maps a TypeRef to its optional Go type representation (pointer for option).
 ///
 /// If the type is already `Optional`, delegates to `go_type` (which produces `*T`).
-/// Slices (`Vec<T>` and `Bytes`) and maps are already reference types in Go — they
+/// Slices (`Vec<T>`, `Bytes`) and maps are already reference types in Go — they
 /// are not wrapped in a pointer because `*[]T` and `*map[K]V` are unidiomatic
 /// and unnecessary.
-/// All other types are wrapped in a pointer: `*T`.
+/// String types (String, Char, Path) are wrapped in pointer: `*string`.
+/// All other non-reference types are wrapped in a pointer: `*T`.
 pub fn go_optional_type(ty: &TypeRef) -> Cow<'static, str> {
     match ty {
+        // Already optional or reference types — use direct mapping
         TypeRef::Optional(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Bytes => go_type(ty),
-        _ => Cow::Owned(format!("*{}", GoMapper.map_type(ty))),
+        // String types and all other types are wrapped in pointer for optionality
+        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json | TypeRef::Named(_) | TypeRef::Primitive(_) | TypeRef::Duration | TypeRef::Unit => {
+            Cow::Owned(format!("*{}", GoMapper.map_type(ty)))
+        }
     }
 }
 
@@ -108,17 +113,16 @@ pub fn go_optional_type(ty: &TypeRef) -> Cow<'static, str> {
 ///
 /// Must stay in sync with the return-signature logic in `gen_bindings::methods` and
 /// `gen_bindings::functions`: scalar primitives and Duration stay as value types and
-/// need an explicit zero literal (`0`, `false`); everything else (Named, String, Json,
-/// Vec, Map, Bytes, Optional) is emitted as a pointer or reference type whose zero is `nil`.
+/// need an explicit zero literal (`0`, `false`); scalar types (String, Char, Path, Json)
+/// also stay as value types and use empty string `""`; everything else (Named, Vec, Map,
+/// Bytes, Optional) is emitted as a pointer or reference type whose zero is `nil`.
 pub fn go_zero_value(ty: &TypeRef) -> String {
     match ty {
         TypeRef::Primitive(PrimitiveType::Bool) => "false".to_string(),
         TypeRef::Primitive(_) | TypeRef::Duration => "0".to_string(),
-        TypeRef::String
-        | TypeRef::Char
-        | TypeRef::Path
-        | TypeRef::Json
-        | TypeRef::Bytes
+        TypeRef::String | TypeRef::Char | TypeRef::Path => "\"\"".to_string(),
+        TypeRef::Json => "nil".to_string(), // json.RawMessage zero is nil
+        TypeRef::Bytes
         | TypeRef::Vec(_)
         | TypeRef::Map(_, _)
         | TypeRef::Optional(_)
@@ -219,7 +223,7 @@ mod tests {
 
     #[test]
     fn test_go_optional_type_non_optional() {
-        // String → "*string"
+        // String when used in optional context (e.g., Optional<String>) becomes *string
         assert_eq!(go_optional_type(&TypeRef::String), "*string");
     }
 

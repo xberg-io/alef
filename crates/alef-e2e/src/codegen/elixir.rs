@@ -1298,7 +1298,12 @@ fn build_args_and_setup(
                 if arg.arg_type == "file_path" {
                     if let Some(path_str) = v.as_str() {
                         let full_path = format!("{test_documents_path}/{path_str}");
-                        parts.push(format!("\"{}\"", escape_elixir(&full_path)));
+                        let formatted = format!("\"{}\"", escape_elixir(&full_path));
+                        if arg.optional {
+                            parts.push(format!("{}: {formatted}", arg.name));
+                        } else {
+                            parts.push(formatted);
+                        }
                         continue;
                     }
                 }
@@ -1309,7 +1314,12 @@ fn build_args_and_setup(
                         let var_name = &arg.name;
                         if raw.starts_with('<') || raw.starts_with('{') || raw.starts_with('[') || raw.contains(' ') {
                             // Inline text — use as a binary string.
-                            parts.push(format!("\"{}\"", escape_elixir(raw)));
+                            let formatted = format!("\"{}\"", escape_elixir(raw));
+                            if arg.optional {
+                                parts.push(format!("{}: {formatted}", arg.name));
+                            } else {
+                                parts.push(formatted);
+                            }
                         } else {
                             let first = raw.chars().next().unwrap_or('\0');
                             let is_file_path = (first.is_ascii_alphanumeric() || first == '_')
@@ -1322,14 +1332,22 @@ fn build_args_and_setup(
                                 let full_path = format!("{test_documents_path}/{raw}");
                                 let escaped = escape_elixir(&full_path);
                                 setup_lines.push(format!("{var_name} = File.read!(\"{escaped}\")"));
-                                parts.push(var_name.to_string());
+                                if arg.optional {
+                                    parts.push(format!("{}: {var_name}", arg.name));
+                                } else {
+                                    parts.push(var_name.to_string());
+                                }
                             } else {
                                 // Treat as base64-encoded binary.
                                 setup_lines.push(format!(
                                     "{var_name} = Base.decode64!(\"{}\", padding: false)",
                                     escape_elixir(raw)
                                 ));
-                                parts.push(var_name.to_string());
+                                if arg.optional {
+                                    parts.push(format!("{}: {var_name}", arg.name));
+                                } else {
+                                    parts.push(var_name.to_string());
+                                }
                             }
                         }
                         continue;
@@ -1364,7 +1382,12 @@ fn build_args_and_setup(
                         }
 
                         // Push the variable name as the argument.
-                        parts.push(options_var.to_string());
+                        // For optional json_object args, use keyword form: `name: value`
+                        if arg.optional {
+                            parts.push(format!("{}: {options_var}", arg.name));
+                        } else {
+                            parts.push(options_var.to_string());
+                        }
                         continue;
                     }
                     // When options_type is set but options_via is NOT, emit struct-literal form.
@@ -1387,19 +1410,33 @@ fn build_args_and_setup(
                         }
                         let fields = field_strs.join(", ");
                         setup_lines.push(format!("{options_var} = %{module_path}.{opts_type}{{{fields}}}"));
-                        parts.push(options_var.to_string());
+                        if arg.optional {
+                            parts.push(format!("{}: {options_var}", arg.name));
+                        } else {
+                            parts.push(options_var.to_string());
+                        }
                         continue;
                     }
                     // When element_type is set to a batch item type, wrap items with constructors.
                     if let Some(elem_type) = &arg.element_type {
                         if (elem_type == "BatchBytesItem" || elem_type == "BatchFileItem") && v.is_array() {
-                            parts.push(emit_elixir_batch_item_array(v, elem_type));
+                            let formatted = emit_elixir_batch_item_array(v, elem_type);
+                            if arg.optional {
+                                parts.push(format!("{}: {formatted}", arg.name));
+                            } else {
+                                parts.push(formatted);
+                            }
                             continue;
                         }
                         // When element_type is set to a simple type (e.g. Vec<String>).
                         // The NIF accepts an Elixir list directly — emit one.
                         if v.is_array() {
-                            parts.push(json_to_elixir(v));
+                            let formatted = json_to_elixir(v);
+                            if arg.optional {
+                                parts.push(format!("{}: {formatted}", arg.name));
+                            } else {
+                                parts.push(formatted);
+                            }
                             continue;
                         }
                     }
@@ -1409,7 +1446,12 @@ fn build_args_and_setup(
                     if !v.is_null() {
                         let json_str = serde_json::to_string(v).unwrap_or_else(|_| "{}".to_string());
                         let escaped = escape_elixir(&json_str);
-                        parts.push(format!("\"{escaped}\""));
+                        let formatted = format!("\"{escaped}\"");
+                        if arg.optional {
+                            parts.push(format!("{}: {formatted}", arg.name));
+                        } else {
+                            parts.push(formatted);
+                        }
                         continue;
                     }
                 }

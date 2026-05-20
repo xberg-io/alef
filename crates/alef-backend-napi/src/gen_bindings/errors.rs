@@ -43,6 +43,11 @@ pub(super) fn gen_dts(
         }
     }
 
+    // Emit JsonValue type definition for serde_json::Value fields.
+    // This recursive type supports arbitrary JSON: primitives, arrays, and objects.
+    lines.push(String::new());
+    lines.push("export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };".to_string());
+
     // Collect all declarations: opaque types (classes), plain structs (interfaces), visitor traits (interfaces), enums, functions.
     // Sort each group alphabetically to produce stable, deterministic output.
 
@@ -430,7 +435,7 @@ pub(super) fn dts_type(ty: &TypeRef, prefix: &str) -> String {
         },
         TypeRef::String | TypeRef::Char | TypeRef::Path => "string".to_string(),
         TypeRef::Bytes => "Uint8Array".to_string(),
-        TypeRef::Json => "unknown".to_string(),
+        TypeRef::Json => "JsonValue".to_string(),
         TypeRef::Duration => "number".to_string(),
         TypeRef::Unit => "void".to_string(),
         TypeRef::Optional(inner) => format!("{} | null", dts_type(inner, prefix)),
