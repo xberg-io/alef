@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+### Changed
+
+### Fixed
+
+## [0.17.1] - 2026-05-20
+
 ### Fixed
 
 - **alef-backend-magnus, alef-backend-rustler: skip regular emission for trait-bridge `clear_fn` names.** Functions named in any `trait_bridge.clear_fn` (e.g. `clear_ocr_backends`, `clear_post_processors`) were emitted twice: once by the regular function-emission loop (because `clear_*` takes no `dyn Trait` parameter, so `find_bridge_param` does not match), and once by the trait-bridge code path's `gen_clear_fn`. Result: Magnus/ext Ruby builds failed with `E0428: the name 'clear_*' is defined multiple times`, and Rustler NIF builds aborted at runtime with `Duplicate NIF entry for 'Elixir.Kreuzberg.Native':clear_*/0` — taking down the entire NIF (every `Kreuzberg.Native.*` call became `UndefinedFunctionError`). Add `alef_codegen::generators::trait_bridge::is_trait_bridge_managed_fn(name, bridges)` and use it in both backend dispatchers to skip the regular emission so only the trait-bridge wrapper is generated. (`crates/alef-codegen/src/generators/trait_bridge.rs`, `crates/alef-backend-magnus/src/gen_bindings/mod.rs`, `crates/alef-backend-rustler/src/gen_bindings/mod.rs`)
