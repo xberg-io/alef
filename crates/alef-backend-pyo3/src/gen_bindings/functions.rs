@@ -172,7 +172,11 @@ pub(super) fn gen_api_py(
     if needs_cast {
         typing_parts.push("cast");
     }
-    let needs_async_iterator = !adapters.is_empty();
+    // AsyncIterator is only needed when at least one adapter uses the streaming pattern.
+    // async_method adapters emit `return await engine.foo(...)` and never yield.
+    let needs_async_iterator = adapters
+        .iter()
+        .any(|a| matches!(a.pattern, alef_core::config::AdapterPattern::Streaming));
     if needs_async_iterator {
         typing_parts.push("AsyncIterator");
         typing_parts.sort_unstable();
@@ -1137,75 +1141,115 @@ pub(super) fn gen_api_py(
 
     out
 }
-/// Emit a module-level wrapper function for an adapter-based streaming method.
-/// The wrapper delegates to the method on the owner type and returns the async iterator.
+/// Map a raw Rust type name from adapter config to its Python equivalent.
+///
+/// Adapter param types are stored as raw strings in alef.toml (e.g. `"String"`).
+/// Rust's `String` and `&str` both map to Python `str`; other names are passed through
+/// unchanged since they are already Python-friendly type names defined in the IR.
+fn adapter_param_python_type(rust_type: &str) -> &str {
+    match rust_type {
+        "String" | "&str" | "&'static str" => "str",
+        other => other,
+    }
+}
+
+/// Emit a module-level wrapper function for an adapter-based method.
+///
+/// Two patterns are supported:
+/// - `AdapterPattern::Streaming`: the method returns an async stream; emit
+///   `async def foo(engine, ...) -> AsyncIterator[Item]: async for item in engine.foo(...): yield item`
+/// - `AdapterPattern::AsyncMethod`: the method is a regular async call returning a single value;
+///   emit `async def foo(engine, ...) -> ReturnType: return await engine.foo(...)`
+///
+/// Any other pattern is silently skipped (not applicable to the Python layer).
 fn emit_adapter_wrapper(
     out: &mut String,
     adapter: &alef_core::config::AdapterConfig,
     _types: &[alef_core::ir::TypeDef],
 ) {
+    use alef_core::config::AdapterPattern;
     use heck::ToSnakeCase;
 
     let adapter_name = &adapter.name;
     let owner_type = adapter.owner_type.as_deref().unwrap_or("Handle");
-    let item_type = adapter.item_type.as_deref().unwrap_or("()");
 
     // Build parameter list from adapter params (skip 'self' which is implicit).
-    // For each param, look up its type to generate proper Python type annotations.
+    // Map Rust primitive type names (e.g. String) to their Python equivalents (str).
     let mut param_parts = vec![format!("engine: {owner_type}")];
     for param in &adapter.params {
         let param_name = &param.name;
-        let param_type_name = &param.ty;
-        // Resolve the type annotation (use the type name as-is for now).
-        param_parts.push(format!("{param_name}: {param_type_name}"));
+        let python_type = adapter_param_python_type(&param.ty);
+        let annotation = if param.optional {
+            format!("{python_type} | None = None")
+        } else {
+            python_type.to_string()
+        };
+        param_parts.push(format!("{param_name}: {annotation}"));
     }
 
-    // The return type is an async iterator over the item type.
-    // Python type annotation: AsyncIterator[ItemType] or AsyncIterator[CrawlEvent].
-    let return_type = format!("AsyncIterator[{item_type}]");
-
-    // Generate function signature
-    let signature = format!(
-        "async def {}({}) -> {}:\n",
-        adapter_name,
-        param_parts.join(", "),
-        return_type
-    );
-    out.push_str(&signature);
-
-    // Generate docstring if available (use adapter name as fallback)
-    let doc_content = format!("{}.", {
+    // Build the docstring from the adapter name.
+    let doc_content = {
         let snake = adapter_name.to_snake_case();
         let sentence = snake.replace('_', " ");
         let mut chars = sentence.chars();
-        match chars.next() {
+        let capitalized = match chars.next() {
             None => String::new(),
             Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-        }
-    });
-    out.push_str(&format!("    \"\"\"{}\"\"\"\n", doc_content));
+        };
+        format!("{capitalized}.")
+    };
 
-    // Generate method call: delegate to the engine handle's method, passing all params
-    let mut call_args = vec!["self".to_string()];
-    for param in &adapter.params {
-        call_args.push(format!("req={}", param.name));
-    }
-
-    // For now, the adapter method takes params directly.
-    // Build the method call: delegate to the engine handle's method, passing all params.
+    // Build the positional param list for the method call (no `self` — that's `engine`).
     let params_list = adapter
         .params
         .iter()
         .map(|p| p.name.as_str())
         .collect::<Vec<_>>()
         .join(", ");
-    let method_call = if params_list.is_empty() {
-        format!("    async for item in engine.{}():\n", adapter_name)
-    } else {
-        format!("    async for item in engine.{}({}):\n", adapter_name, params_list)
-    };
-    out.push_str(&method_call);
-    out.push_str("        yield item\n");
+
+    match &adapter.pattern {
+        AdapterPattern::Streaming => {
+            // Streaming: the engine method returns an async iterator; re-yield each item.
+            let item_type = adapter.item_type.as_deref().unwrap_or("()");
+            let return_type = format!("AsyncIterator[{item_type}]");
+            out.push_str(&format!(
+                "async def {}({}) -> {}:\n",
+                adapter_name,
+                param_parts.join(", "),
+                return_type,
+            ));
+            out.push_str(&format!("    \"\"\"{doc_content}\"\"\"\n"));
+            let method_call = if params_list.is_empty() {
+                format!("    async for item in engine.{adapter_name}():\n")
+            } else {
+                format!("    async for item in engine.{adapter_name}({params_list}):\n")
+            };
+            out.push_str(&method_call);
+            out.push_str("        yield item\n");
+        }
+        AdapterPattern::AsyncMethod => {
+            // Non-streaming: the engine method is a coroutine returning a single value.
+            // Emit a plain async def that awaits and returns the result.
+            let return_type = adapter.returns.as_deref().unwrap_or("None");
+            out.push_str(&format!(
+                "async def {}({}) -> {}:\n",
+                adapter_name,
+                param_parts.join(", "),
+                return_type,
+            ));
+            out.push_str(&format!("    \"\"\"{doc_content}\"\"\"\n"));
+            let method_call = if params_list.is_empty() {
+                format!("    return await engine.{adapter_name}()\n")
+            } else {
+                format!("    return await engine.{adapter_name}({params_list})\n")
+            };
+            out.push_str(&method_call);
+        }
+        // Other patterns (SyncFunction, CallbackBridge, ServerLifecycle) are not applicable
+        // to the Python api.py wrapper layer — skip them silently.
+        _ => return,
+    }
+
     out.push_str("\n\n");
 }
 

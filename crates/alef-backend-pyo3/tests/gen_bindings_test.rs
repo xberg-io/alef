@@ -4471,11 +4471,12 @@ fn test_adapter_wrapper_functions() {
         .find(|f| f.path.ends_with("api.py"))
         .expect("api.py not generated");
 
+    // Rust `String` adapter param type must be mapped to Python `str`.
     assert!(
         api_py
             .content
-            .contains("async def test_stream(engine: Handle, url: String) -> AsyncIterator[StreamEvent]:"),
-        "api.py must contain adapter wrapper function signature; content:\n{}",
+            .contains("async def test_stream(engine: Handle, url: str) -> AsyncIterator[StreamEvent]:"),
+        "api.py must map String param to str in streaming wrapper signature; content:\n{}",
         api_py.content
     );
 
@@ -4507,5 +4508,103 @@ fn test_adapter_wrapper_functions() {
         init_py.content.contains("\"test_stream\"") || init_py.content.contains("'test_stream'"),
         "__init__.py must list test_stream in __all__; content:\n{}",
         init_py.content
+    );
+}
+
+/// Adapter async_method wrappers:
+/// - emit `return await engine.foo(...)` (not `async for item in engine.foo(): yield item`)
+/// - return the type from `adapter.returns`
+/// - map Rust `String` param type to Python `str`
+/// - do NOT add AsyncIterator to the typing imports
+#[test]
+fn test_async_method_adapter_wrapper() {
+    use alef_core::config::{AdapterParam, AdapterPattern};
+
+    let backend = Pyo3Backend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Handle".to_string(),
+            rust_path: "test_lib::Handle".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![],
+            is_opaque: true,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: "Handle type".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let mut config = make_config();
+    config.adapters = vec![alef_core::config::AdapterConfig {
+        name: "fetch_data".to_string(),
+        pattern: AdapterPattern::AsyncMethod,
+        core_path: "fetch_data".to_string(),
+        owner_type: Some("Handle".to_string()),
+        item_type: None,
+        returns: Some("DataResult".to_string()),
+        error_type: None,
+        request_type: None,
+        gil_release: false,
+        trait_name: None,
+        trait_method: None,
+        detect_async: false,
+        params: vec![AdapterParam {
+            name: "key".to_string(),
+            ty: "String".to_string(),
+            optional: false,
+        }],
+        skip_languages: vec![],
+    }];
+
+    let files = backend
+        .generate_public_api(&api, &config)
+        .expect("generate_public_api failed");
+
+    let api_py = files
+        .iter()
+        .find(|f| f.path.ends_with("api.py"))
+        .expect("api.py not generated");
+
+    // Must use return-await form, not async-for-yield.
+    assert!(
+        api_py
+            .content
+            .contains("async def fetch_data(engine: Handle, key: str) -> DataResult:"),
+        "api.py must emit return-await signature for async_method adapter; content:\n{}",
+        api_py.content
+    );
+    assert!(
+        api_py.content.contains("return await engine.fetch_data(key)"),
+        "api.py must emit `return await engine.fetch_data(key)` for async_method adapter; content:\n{}",
+        api_py.content
+    );
+    assert!(
+        !api_py.content.contains("async for item in engine.fetch_data"),
+        "api.py must NOT emit async-for loop for async_method adapter; content:\n{}",
+        api_py.content
+    );
+    assert!(
+        !api_py.content.contains("AsyncIterator"),
+        "api.py must NOT import AsyncIterator when there are no streaming adapters; content:\n{}",
+        api_py.content
     );
 }
