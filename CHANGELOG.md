@@ -9,9 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **alef-e2e: normalize `pages_crawled` / `min_pages` assertion aliases to `count_equals` / `count_min` on the `pages` field.** Fixtures commonly use `crawl.pages_crawled` (or bare `pages_crawled`) with `equals` and `crawl.min_pages` with `greater_than_or_equal` to assert the number of pages a crawl yielded. Neither is a struct field on the call's result type, so every backend was emitting `// skipped: field 'crawl.pages_crawled' not available on result type` for these assertions. A new post-load `normalize_assertions` pass rewrites the alias to a `count_*` assertion targeting the `pages` field that the `crawl`-shaped calls already expose via `result_fields`, letting every backend render the assertion through its existing `count_equals` / `count_min` paths. (`crates/alef-e2e/src/fixture.rs`)
+
 ### Changed
 
 ### Fixed
+
+- **alef-e2e/csharp, alef-e2e/c: build per-call `FieldResolver` from the resolved fixture call's `result_fields`.** Both backends previously constructed a single top-level `FieldResolver` from `e2e_config.result_fields` and reused it for every fixture, so assertions like `pages.length` on a fixture routed to the `crawl` call (whose `[crates.e2e.calls.crawl] result_fields = ["pages", ...]` includes `pages`) were being skipped because the top-level `result_fields` (scoped to the default `scrape` call) does not list `pages`. This matches the per-call resolver pattern already used by the go/java/swift/dart/zig/kotlin/elixir/php/ruby backends and unskips ~250 assertions across the kreuzcrawl C and C# e2e suites (the C# `CrawlTests` alone gained 60+ `result.Pages.Count` assertions). (`crates/alef-e2e/src/codegen/csharp.rs`, `crates/alef-e2e/src/codegen/c.rs`)
 
 - **alef-backend-php: don't double-wrap `Option<T>` getter return type for already-optional IR fields.** `types.rs:gen_getter_methods` unconditionally applied `mapper.optional(...)` when `field.optional` is true, producing `Option<Option<T>>` getters for fields whose IR type is already `TypeRef::Optional<T>` (e.g. Update DTOs where every field is both `field.optional == true` and `TypeRef::Optional<inner>`). The getter body `self.{name}.clone()` returns the storage type `Option<T>`, which the declared return type `Option<Option<T>>` cannot accept — Rust rejects the implicit `Option<T> → Option<Option<T>>` coercion with E0308. Detect `matches!(field.ty, TypeRef::Optional(_))` and skip the outer wrap in that case. (`crates/alef-backend-php/src/gen_bindings/types.rs`)
 

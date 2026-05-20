@@ -547,6 +547,7 @@ fn load_fixtures_recursive(base: &Path, dir: &Path, fixtures: &mut Vec<Fixture>)
                         expand_json_templates(body);
                     }
                 }
+                normalize_assertions(&mut fixture);
                 fixtures.push(fixture);
             }
         }
@@ -566,6 +567,49 @@ pub fn group_fixtures(fixtures: &[Fixture]) -> Vec<FixtureGroup> {
         .collect();
     result.sort_by(|a, b| a.category.cmp(&b.category));
     result
+}
+
+/// Normalize alias-style assertion fields that are not direct struct-field
+/// accesses on the call's result type but have well-defined semantic meanings.
+///
+/// Currently rewrites:
+/// - `pages_crawled` (with optional `crawl.` namespace prefix) → `count_equals`
+///   on the `pages` field. Semantically "the crawl produced N pages", which
+///   maps to `len(result.pages) == N` when the call's `result_fields` contain
+///   `pages` (i.e. the call returns a `CrawlResult`-shaped value).
+/// - `min_pages` (with optional `crawl.` namespace prefix) → `count_min` on the
+///   `pages` field. Used with `greater_than_or_equal` to assert a lower bound on
+///   the number of pages crawled.
+///
+/// This rewrite operates on the assertion *before* per-language codegen, so
+/// every backend benefits without per-backend changes. When the call's
+/// `result_fields` do not contain `pages`, the rewritten assertion falls
+/// through to the standard `is_valid_for_result` skip path, just like any
+/// other field that does not exist on the result type.
+fn normalize_assertions(fixture: &mut Fixture) {
+    for assertion in fixture.assertions.iter_mut() {
+        let Some(field) = assertion.field.as_deref() else {
+            continue;
+        };
+        // Tolerate both the bare alias and a `crawl.` namespace prefix that
+        // fixtures commonly use to group crawl-related assertions.
+        let bare = field.strip_prefix("crawl.").unwrap_or(field);
+        match bare {
+            "pages_crawled" => {
+                assertion.field = Some("pages".to_string());
+                if assertion.assertion_type == "equals" {
+                    assertion.assertion_type = "count_equals".to_string();
+                }
+            }
+            "min_pages" => {
+                assertion.field = Some("pages".to_string());
+                if assertion.assertion_type == "greater_than_or_equal" {
+                    assertion.assertion_type = "count_min".to_string();
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Recursively expand fixture template expressions in all string values of a JSON tree.
@@ -629,6 +673,54 @@ mod tests {
         let fixture: Fixture = serde_json::from_str(json).unwrap();
         assert!(fixture.needs_mock_server());
         assert!(fixture.is_streaming_mock());
+    }
+
+    fn make_fixture_with_assertion(assertion_json: &str) -> Fixture {
+        let json = format!(
+            r#"{{
+                "id": "x",
+                "description": "x",
+                "input": {{}},
+                "assertions": [{assertion_json}]
+            }}"#,
+        );
+        serde_json::from_str(&json).unwrap()
+    }
+
+    #[test]
+    fn normalize_assertions_rewrites_pages_crawled_to_count_equals_on_pages() {
+        let mut fixture = make_fixture_with_assertion(
+            r#"{"type": "equals", "field": "crawl.pages_crawled", "value": 3}"#,
+        );
+        normalize_assertions(&mut fixture);
+        assert_eq!(fixture.assertions[0].assertion_type, "count_equals");
+        assert_eq!(fixture.assertions[0].field.as_deref(), Some("pages"));
+    }
+
+    #[test]
+    fn normalize_assertions_rewrites_bare_pages_crawled() {
+        let mut fixture = make_fixture_with_assertion(r#"{"type": "equals", "field": "pages_crawled", "value": 5}"#);
+        normalize_assertions(&mut fixture);
+        assert_eq!(fixture.assertions[0].assertion_type, "count_equals");
+        assert_eq!(fixture.assertions[0].field.as_deref(), Some("pages"));
+    }
+
+    #[test]
+    fn normalize_assertions_rewrites_min_pages_to_count_min_on_pages() {
+        let mut fixture = make_fixture_with_assertion(
+            r#"{"type": "greater_than_or_equal", "field": "crawl.min_pages", "value": 2}"#,
+        );
+        normalize_assertions(&mut fixture);
+        assert_eq!(fixture.assertions[0].assertion_type, "count_min");
+        assert_eq!(fixture.assertions[0].field.as_deref(), Some("pages"));
+    }
+
+    #[test]
+    fn normalize_assertions_leaves_unrelated_fields_unchanged() {
+        let mut fixture = make_fixture_with_assertion(r#"{"type": "equals", "field": "content", "value": "hi"}"#);
+        normalize_assertions(&mut fixture);
+        assert_eq!(fixture.assertions[0].assertion_type, "equals");
+        assert_eq!(fixture.assertions[0].field.as_deref(), Some("content"));
     }
 
     #[test]
