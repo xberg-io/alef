@@ -5211,7 +5211,7 @@ fn test_wrap_return_with_mutex_vec_non_opaque_named_ref() {
     );
 
     assert_eq!(
-        result, "result.into_iter().map(|v| v.clone().into()).collect()",
+        result, "result.iter().map(|v| v.clone().into()).collect()",
         "Vec non-opaque Named returns_ref should clone each element"
     );
 }

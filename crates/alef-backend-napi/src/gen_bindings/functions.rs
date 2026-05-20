@@ -772,7 +772,10 @@ pub(super) fn napi_wrap_return_fn(
             }
             TypeRef::Named(_) => {
                 if returns_ref {
-                    format!("{expr}.into_iter().map(|v| v.clone().into()).collect()")
+                    // `&[T]` → `Vec<U>`: clone each `&T` and convert. Use `.iter()`
+                    // not `.into_iter()` because `.into_iter()` on `&[T]` yields `&T`
+                    // (clippy::into_iter_on_ref under -D warnings).
+                    format!("{expr}.iter().map(|v| v.clone().into()).collect()")
                 } else {
                     format!("{expr}.into_iter().map(Into::into).collect()")
                 }
