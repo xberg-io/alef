@@ -1296,7 +1296,11 @@ fn render_assertion_dart(
             let _ = writeln!(out, "    expect({field_accessor}, isNotNull);");
         }
         "not_error" => {
-            // No-op: a thrown error from `await` would have failed the test already.
+            // The `await` already guarantees no thrown error reaches this point, but
+            // emit an explicit `expect` on `result` so the test body is non-empty
+            // (consumes the local, avoiding unused-local-variable hints) and matches
+            // the python/ruby/node generators which both assert on the result here.
+            let _ = writeln!(out, "    expect({result_var}, isNotNull);");
         }
         "error" => {
             // Handled at the test method level via throwsA(anything).
