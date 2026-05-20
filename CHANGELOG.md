@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-backend-php: use language-neutral phrasing in `php_visitor_interface_start.jinja` class-level docblock.** The template hardcoded `ConversionOptions::$visitor` — PHP static-property-access syntax — to describe an instance property, making the generated `HtmlVisitorInterface.php` class-level comment syntactically invalid PHP. Replaced the `Type::$field` reference with "the `visitor` field of `ConversionOptions`", which is unambiguous in every target language. (`crates/alef-backend-php/templates/php_visitor_interface_start.jinja`)
+
 ## [0.17.3] - 2026-05-20
 
 ### Fixed
