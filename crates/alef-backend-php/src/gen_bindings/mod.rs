@@ -908,6 +908,15 @@ impl Backend for PhpBackend {
 
         // Generate wrapper methods for functions
         for func in &api.functions {
+            // Skip trait-bridge-managed names (clear_fn) — the trait-bridge loop below
+            // emits its own static method, and duplicating it here would cause a
+            // PHP fatal "Cannot redeclare" at load time.
+            if alef_codegen::generators::trait_bridge::is_trait_bridge_managed_fn(
+                &func.name,
+                &config.trait_bridges,
+            ) {
+                continue;
+            }
             // PHP method names are based on the Rust source name (camelCased).
             // Async functions do not get a suffix because PHP blocks on async internally
             // via `block_on`, presenting a synchronous API to callers.

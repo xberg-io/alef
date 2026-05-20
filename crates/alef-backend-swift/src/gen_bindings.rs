@@ -2687,6 +2687,12 @@ fn emit_free_function_forwarders(
         if exclude_functions.contains(&func.name) {
             continue;
         }
+        // Skip trait-bridge-managed names (clear_fn) — the trait-bridge forwarder
+        // emission pass below emits its own throwing wrapper, and duplicating it
+        // here would cause Swift `invalid redeclaration` at the userland layer.
+        if alef_codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&func.name, &config.trait_bridges) {
+            continue;
+        }
         // Async free functions are not bridged into the `RustBridge` module
         // with a usable Swift signature in the swift-bridge 0.1.x runtime
         // (returns a serialised JSON string), so they require a hand-written
