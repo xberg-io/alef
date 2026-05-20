@@ -1352,7 +1352,8 @@ fn render_assertion_dart(
 ///
 /// `result_var` is the `List<T>` collected via `.toList()` on the stream.
 /// Supports:
-/// - `not_error`: no-op (a thrown error would already fail the test).
+/// - `not_error`: `expect(result, isNotNull)` (a thrown error would already fail
+///   the test; the explicit expect keeps the test body non-empty).
 /// - `count_min` with `field = "chunks"`: assert `result_var.length >= value`.
 /// - `equals` with `field = "stream_content"`: concatenate `delta.content` and compare.
 ///
