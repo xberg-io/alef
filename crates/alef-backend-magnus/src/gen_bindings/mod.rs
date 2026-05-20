@@ -561,6 +561,7 @@ impl Backend for MagnusBackend {
         let streaming_adapters: Vec<_> = config
             .adapters
             .iter()
+            .filter(|a| !a.skip_languages.iter().any(|l| l == "ruby"))
             .filter_map(|a| streaming::StreamingAdapter::from_config(a, &get_module_name(&gem_name), &core_import))
             .collect();
         let streaming_method_names: AHashSet<String> = streaming_adapters.iter().map(|a| a.name.to_string()).collect();
