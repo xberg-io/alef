@@ -3019,6 +3019,24 @@ fn emit_single_free_function_forwarder(
         out.push_str(&format!(
             "    return try JSONDecoder().decode({decode_ty}.self, from: _rb_data)\n"
         ));
+    } else if non_throwing_optional_string_uses_json_bridge(&func.return_type, func.error_type.is_some()) {
+        // swift-bridge JSON-serializes ALL `Option<T>` returns at the bridge boundary
+        // (see `needs_json_bridge` in `gen_rust_crate/type_bridge.rs`: `Optional(_) => true`).
+        // For non-throwing `Option<String>` the bridge function is declared
+        // `-> String` and surfaced in Swift as `-> RustString` (non-optional). The
+        // forwarder declares `-> String?` from the IR. The v0.17.10 attempt to use
+        // `?.toString()` was a type error (can't optional-chain on non-optional
+        // RustString). Decode the JSON payload as `String?.self` instead — `nil`
+        // becomes JSON `null` which decodes to `Optional<String>.none`, and a
+        // present value decodes to `.some(value)`.
+        let decode_ty = forwarder_return_type(&func.return_type);
+        out.push_str(&format!(
+            "    let _rb_json = RustBridge.{swift_name}({args}).toString()\n"
+        ));
+        out.push_str("    let _rb_data = _rb_json.data(using: .utf8) ?? Data()\n");
+        out.push_str(&format!(
+            "    return (try? JSONDecoder().decode({decode_ty}.self, from: _rb_data)) ?? nil\n"
+        ));
     } else if bare_named_dto_return(&func.return_type, known_dto_names) {
         // Bare Named DTO return: the bridge call yields a `RustBridge.{Dto}` value,
         // but the forwarder signature declares the high-level `{Dto}` struct/enum
@@ -3062,6 +3080,28 @@ fn return_uses_json_bridge(ty: &TypeRef) -> bool {
         TypeRef::Optional(inner) => return_uses_json_bridge(inner),
         _ => false,
     }
+}
+
+/// True if `ty` is `Option<String>` on a non-throwing function, where swift-bridge
+/// JSON-serializes the value through a non-optional `RustString` bridge return.
+///
+/// Per `needs_json_bridge` in `gen_rust_crate/type_bridge.rs`, ALL `Option<T>`
+/// returns are JSON-bridged (line 100: `TypeRef::Optional(_) => true`). For a
+/// non-throwing function the bridge declares `-> String` (the JSON payload),
+/// which swift-bridge surfaces in Swift as `-> RustString` (non-optional). The
+/// forwarder must JSON-decode rather than apply a chained `?.toString()` — the
+/// latter is a type error against the non-optional `RustString`.
+///
+/// Only `Option<String>` is matched here because that's the case observed in
+/// kreuzberg's public API (tslp `detect_language_from_extension`). Other
+/// `Option<T>` variants (`Option<i32>`, `Option<Named>` non-handle, etc.) would
+/// hit the same bridge shape and need analogous treatment if they ever appear
+/// on non-throwing free functions — keep this predicate narrow until then.
+fn non_throwing_optional_string_uses_json_bridge(ty: &TypeRef, throws: bool) -> bool {
+    if throws {
+        return false;
+    }
+    matches!(ty, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::String))
 }
 
 /// Capture both the inline argument expression and the optional setup line
@@ -3311,13 +3351,18 @@ fn forwarder_return_conversion_suffix_inner(
             TypeRef::Named(name) if known_dto_names.contains(name) => {
                 format!(".map {{ try {name}($0) }}")
             }
-            // swift-bridge maps `Option<String>` to a Swift `RustString?` regardless
-            // of whether the function throws — there is no native-`String?` bridge
-            // path. Coerce to `String?` via optional-chained `.toString()` so the
-            // value matches the declared forwarder return type `String?`. Without
-            // this suffix Swift rejects the body with "cannot convert return
-            // expression of type 'RustString?' to return type 'String?'".
-            TypeRef::String => "?.toString()".to_string(),
+            // swift-bridge JSON-serializes `Option<String>` returns at the bridge
+            // boundary (`needs_json_bridge` covers all Optionals): the bridge
+            // declares `-> String` for non-throwing functions and surfaces in Swift
+            // as a NON-optional `RustString`. The v0.17.10 attempt to apply
+            // `?.toString()` here was a type error because the receiver is not
+            // optional. The body-replacement branch in
+            // [`emit_single_free_function_forwarder`]
+            // (`non_throwing_optional_string_uses_json_bridge`) takes over for
+            // non-throwing functions and emits a JSON-decode body instead, so the
+            // suffix path is unused — emit an empty suffix to leave the body
+            // branch in sole control.
+            TypeRef::String => String::new(),
             _ => String::new(),
         },
         // Bare Named DTO return is currently emitted via a per-call wrapper in
