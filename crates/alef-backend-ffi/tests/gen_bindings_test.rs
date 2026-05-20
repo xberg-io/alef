@@ -922,3 +922,83 @@ ffi = "crates/mylib-ffi/src/"
         "_len companion must compute length via .len() or map_or(0, ...)"
     );
 }
+
+// ---------------------------------------------------------------------------
+// clippy::manual_unwrap_or regression
+// ---------------------------------------------------------------------------
+
+/// A function returning `Option<f64>` must emit `.unwrap_or(0.0)` instead of the
+/// manual `match result { Some(val) => val, None => 0.0 }` pattern that clippy
+/// flags as `manual_unwrap_or`.
+#[test]
+fn test_optional_primitive_return_emits_unwrap_or_not_manual_match() {
+    let config = resolved_one(
+        r#"
+[workspace]
+languages = ["ffi"]
+
+[[crates]]
+name = "mylib"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "ml"
+
+[crates.output]
+ffi = "crates/mylib-ffi/src/"
+"#,
+    );
+
+    // `completion_cost(model: &str) -> Option<f64>` is the canonical example that
+    // triggered clippy::manual_unwrap_or in liter-llm-ffi.
+    let api = ApiSurface {
+        crate_name: "mylib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "cost".to_string(),
+            rust_path: "mylib::cost".to_string(),
+            original_rust_path: String::new(),
+            params: vec![make_param("model", TypeRef::String, true)],
+            return_type: TypeRef::Optional(Box::new(TypeRef::Primitive(PrimitiveType::F64))),
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let backend = FfiBackend;
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let lib_rs = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+    let code = &lib_rs.content;
+
+    // The function must exist.
+    assert!(
+        code.contains("fn ml_cost("),
+        "ml_cost function must be emitted; got:\n{code}"
+    );
+
+    // Must emit `.unwrap_or(0.0)` — the idiomatic form clippy expects.
+    assert!(
+        code.contains(".unwrap_or(0.0)"),
+        "Option<f64> return must emit .unwrap_or(0.0), not a manual match; got:\n{code}"
+    );
+
+    // Must NOT emit the manual-match form that clippy::manual_unwrap_or flags.
+    assert!(
+        !code.contains("Some(val) => val") && !code.contains("Some(val) => {\n"),
+        "must not emit manual Some(val) => val match for passthrough primitive; got:\n{code}"
+    );
+}
