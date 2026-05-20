@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-cli: include the resolved workspace version in the IR cache key so `alef sync-versions --set …` (and downstream `alef readme`) invalidate the cache automatically on a version bump.** The IR cache key was `sources_hash` only, but `api.version` is read fresh from `version_from` (Cargo.toml) into the IR at extract time. Bumping just the version did not change source contents, so `extract` returned cached IR with the previous version, and `regenerate_readmes` inside `sync_versions` then rendered README badges/install snippets against the stale version (e.g. `filter=v0.3.0-rc.21` after a bump to `rc.22`), failing the consumer's "Check README freshness" CI step. The cache key is now `format!("{source_hash}:{version}")` in `crates/alef-cli/src/pipeline/extract.rs`, threaded into both `is_ir_cached` and `write_ir_cache`. Verified end-to-end in the kreuzcrawl consumer: `alef sync-versions --set 0.3.0-rc.99` followed by `alef sync-versions --set 0.3.0-rc.23` now refreshes per-binding READMEs in a single pass without `alef cache clear`. (`crates/alef-cli/src/pipeline/extract.rs`)
+
 ## [0.17.5] - 2026-05-20
 
 ### Fixed

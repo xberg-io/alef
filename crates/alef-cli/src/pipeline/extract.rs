@@ -74,8 +74,15 @@ pub fn extract(config: &ResolvedCrateConfig, config_path: &Path, clean: bool) ->
 
     cache::validate_cache_crate_name(&config.name).context("invalid crate name for cache")?;
     let source_hash = cache::sources_hash(&config.sources).context("failed to compute sources hash")?;
+    // Mix the resolved workspace version into the cache key. The IR embeds
+    // `api.version`, which is read fresh from `version_from` (Cargo.toml) at
+    // extract time. Sources alone don't change when the version is bumped, so
+    // without this the cache would hand back stale IR and downstream stages
+    // (notably READMEs) would render the previous version's badges/snippets.
+    let version_for_hash = config.resolved_version().unwrap_or_default();
+    let cache_key = format!("{source_hash}:{version_for_hash}");
 
-    if !clean && cache::is_ir_cached(&config.name, &source_hash) {
+    if !clean && cache::is_ir_cached(&config.name, &cache_key) {
         info!("Using cached IR");
         return cache::read_cached_ir(&config.name).context("failed to read cached IR");
     }
@@ -110,7 +117,7 @@ pub fn extract(config: &ResolvedCrateConfig, config_path: &Path, clean: bool) ->
     // rewritten paths are used for the shortest-path preference heuristic).
     dedup_api_surface(&mut api);
 
-    cache::write_ir_cache(&config.name, &api, &source_hash).context("failed to write IR cache")?;
+    cache::write_ir_cache(&config.name, &api, &cache_key).context("failed to write IR cache")?;
     info!(
         "Extracted {} types, {} functions, {} enums",
         api.types.len(),
