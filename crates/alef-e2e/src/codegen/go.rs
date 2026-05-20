@@ -71,14 +71,6 @@ impl E2eCodegen for GoCodegen {
                     .map(|v| format!("v{v}"))
                     .unwrap_or_else(|| "v0.0.0".to_string())
             });
-        let field_resolver = FieldResolver::new(
-            &e2e_config.fields,
-            &e2e_config.fields_optional,
-            &e2e_config.result_fields,
-            &e2e_config.fields_array,
-            &std::collections::HashSet::new(),
-        );
-
         // Generate go.mod. In registry mode, omit the `replace` directive so the
         // module is fetched from the Go module proxy.
         let effective_replace = match e2e_config.dep_mode {
@@ -116,8 +108,16 @@ impl E2eCodegen for GoCodegen {
                                 .resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input)
                                 .result_is_array
                         } else {
-                            let resolved_name = field_resolver.resolve(a.field.as_deref().unwrap_or(""));
-                            field_resolver.is_array(resolved_name)
+                            let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+                            let per_call_resolver = FieldResolver::new(
+                                e2e_config.effective_fields(cc),
+                                e2e_config.effective_fields_optional(cc),
+                                e2e_config.effective_result_fields(cc),
+                                e2e_config.effective_fields_array(cc),
+                                &std::collections::HashSet::new(),
+                            );
+                            let resolved_name = per_call_resolver.resolve(a.field.as_deref().unwrap_or(""));
+                            per_call_resolver.is_array(resolved_name)
                         }
                     }
                 })
@@ -180,7 +180,6 @@ impl E2eCodegen for GoCodegen {
                 &active,
                 &module_path,
                 &import_alias,
-                &field_resolver,
                 e2e_config,
             );
             files.push(GeneratedFile {
@@ -400,7 +399,6 @@ fn render_test_file(
     fixtures: &[&Fixture],
     go_module_path: &str,
     import_alias: &str,
-    field_resolver: &FieldResolver,
     e2e_config: &crate::config::E2eConfig,
 ) -> String {
     let mut out = String::new();
@@ -484,8 +482,16 @@ fn render_test_file(
                             .result_is_array
                     } else {
                         // Field specified: check if that field is an array
-                        let resolved_name = field_resolver.resolve(a.field.as_deref().unwrap_or(""));
-                        field_resolver.is_array(resolved_name)
+                        let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+                        let per_call_resolver = FieldResolver::new(
+                            e2e_config.effective_fields(cc),
+                            e2e_config.effective_fields_optional(cc),
+                            e2e_config.effective_result_fields(cc),
+                            e2e_config.effective_fields_array(cc),
+                            &std::collections::HashSet::new(),
+                        );
+                        let resolved_name = per_call_resolver.resolve(a.field.as_deref().unwrap_or(""));
+                        per_call_resolver.is_array(resolved_name)
                     }
                 }
             })
@@ -593,8 +599,16 @@ fn render_test_file(
                         // and the field is actually valid for the result type (otherwise
                         // the assertion is skipped and fmt.Sprint is never emitted).
                         let field = a.field.as_deref().unwrap_or("");
-                        let resolved_name = field_resolver.resolve(field);
-                        !field_resolver.is_array(resolved_name) && field_resolver.is_valid_for_result(field)
+                        let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+                        let per_call_resolver = FieldResolver::new(
+                            e2e_config.effective_fields(cc),
+                            e2e_config.effective_fields_optional(cc),
+                            e2e_config.effective_result_fields(cc),
+                            e2e_config.effective_fields_array(cc),
+                            &std::collections::HashSet::new(),
+                        );
+                        let resolved_name = per_call_resolver.resolve(field);
+                        !per_call_resolver.is_array(resolved_name) && per_call_resolver.is_valid_for_result(field)
                     }
                 }
             }))
@@ -606,6 +620,14 @@ fn render_test_file(
         if !emits_executable_test(f) {
             return false;
         }
+        let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+        let per_call_resolver = FieldResolver::new(
+            e2e_config.effective_fields(cc),
+            e2e_config.effective_fields_optional(cc),
+            e2e_config.effective_result_fields(cc),
+            e2e_config.effective_fields_array(cc),
+            &std::collections::HashSet::new(),
+        );
         f.assertions.iter().any(|a| {
             let type_needs_strings = if a.assertion_type == "equals" {
                 // equals with string values needs strings.TrimSpace
@@ -619,7 +641,7 @@ fn render_test_file(
             let field_valid = a
                 .field
                 .as_ref()
-                .map(|f| f.is_empty() || field_resolver.is_valid_for_result(f))
+                .map(|f| f.is_empty() || per_call_resolver.is_valid_for_result(f))
                 .unwrap_or(true);
             type_needs_strings && field_valid
         })
@@ -641,6 +663,14 @@ fn render_test_file(
         // accessor table, not the result type. Treat any streaming-virtual field
         // reference as `field_valid`.
         let is_streaming_fixture = f.is_streaming_mock();
+        let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+        let per_call_resolver = FieldResolver::new(
+            e2e_config.effective_fields(cc),
+            e2e_config.effective_fields_optional(cc),
+            e2e_config.effective_result_fields(cc),
+            e2e_config.effective_fields_array(cc),
+            &std::collections::HashSet::new(),
+        );
         f.assertions.iter().any(|a| {
             let field_is_streaming_virtual = a
                 .field
@@ -649,7 +679,7 @@ fn render_test_file(
             let field_valid = a
                 .field
                 .as_ref()
-                .map(|f| f.is_empty() || field_resolver.is_valid_for_result(f))
+                .map(|f| f.is_empty() || per_call_resolver.is_valid_for_result(f))
                 .unwrap_or(true)
                 || (is_streaming_fixture && field_is_streaming_virtual);
             let synthetic_field_needs_assert = match a.field.as_deref() {
@@ -753,7 +783,7 @@ fn render_test_file(
     }
 
     for (i, fixture) in fixtures.iter().enumerate() {
-        render_test_function(&mut out, fixture, import_alias, field_resolver, e2e_config);
+        render_test_function(&mut out, fixture, import_alias, e2e_config);
         if i + 1 < fixtures.len() {
             let _ = writeln!(out);
         }
@@ -811,7 +841,6 @@ fn render_test_function(
     out: &mut String,
     fixture: &Fixture,
     import_alias: &str,
-    field_resolver: &FieldResolver,
     e2e_config: &crate::config::E2eConfig,
 ) {
     let fn_name = fixture.id.to_upper_camel_case();
@@ -840,6 +869,15 @@ fn render_test_function(
 
     // Resolve call config per-fixture (supports named calls via fixture.call).
     let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
+    // Per-call field resolver: uses effective fields/result_fields from the resolved call.
+    let call_field_resolver = FieldResolver::new(
+        e2e_config.effective_fields(call_config),
+        e2e_config.effective_fields_optional(call_config),
+        e2e_config.effective_result_fields(call_config),
+        e2e_config.effective_fields_array(call_config),
+        &std::collections::HashSet::new(),
+    );
+    let field_resolver = &call_field_resolver;
     let lang = "go";
     let overrides = call_config.overrides.get(lang);
 

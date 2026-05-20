@@ -102,6 +102,7 @@ pub(super) fn gen_init_py(
     trait_bridges: &[alef_core::config::TraitBridgeConfig],
     extra_init_imports: &std::collections::BTreeMap<String, Vec<String>>,
     capsule_types: &std::collections::HashMap<String, alef_core::config::CapsuleTypeConfig>,
+    adapters: &[alef_core::config::AdapterConfig],
 ) -> String {
     use alef_core::ir::TypeRef;
 
@@ -214,15 +215,18 @@ pub(super) fn gen_init_py(
     let mut imports_from_options = Vec::new();
     let mut imports_from_exceptions = Vec::new();
 
-    // Import functions from api (regular functions + trait-bridge registration helpers).
+    // Import functions from api (regular functions + trait-bridge registration helpers + adapters).
     // Trait-bridge register_* functions are emitted as pass-through wrappers in api.py but
     // do not appear in api.functions — add them here so __init__.py re-exports them and they
     // appear in __all__.
+    // Similarly, adapter-based streaming methods are emitted as module-level wrappers in api.py
+    // but are not in api.functions — add them too.
     {
         let mut names: Vec<_> = api.functions.iter().map(|f| f.name.clone()).collect();
         names.extend(crate::trait_bridge::collect_bridge_register_fns(trait_bridges));
         names.extend(crate::trait_bridge::collect_bridge_unregister_fns(trait_bridges));
         names.extend(crate::trait_bridge::collect_bridge_clear_fns(trait_bridges));
+        names.extend(adapters.iter().map(|a| a.name.clone()));
         names.sort();
         names.dedup();
         imports_from_api.extend(names);

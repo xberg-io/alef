@@ -22,6 +22,7 @@ pub(super) fn gen_api_py(
     trait_bridges: &[alef_core::config::TraitBridgeConfig],
     dto: &alef_core::config::DtoConfig,
     capsule_types: &std::collections::HashMap<String, alef_core::config::CapsuleTypeConfig>,
+    adapters: &[alef_core::config::AdapterConfig],
 ) -> String {
     use alef_core::config::PythonDtoStyle;
     use alef_core::ir::TypeRef;
@@ -1105,8 +1106,84 @@ pub(super) fn gen_api_py(
         ));
     }
 
+    // Emit wrapper functions for adapter-based streaming methods.
+    // Adapters define methods on the owner type (e.g. CrawlEngineHandle) in the binding layer.
+    // We emit module-level wrapper functions here so the public API exposes them alongside
+    // regular functions (e.g. `scrape`, `crawl`) rather than forcing users to call methods
+    // on the engine handle. The wrapper accepts an engine handle as the first parameter.
+    for adapter in adapters {
+        emit_adapter_wrapper(&mut out, adapter, &api.types);
+    }
+
     out
 }
+/// Emit a module-level wrapper function for an adapter-based streaming method.
+/// The wrapper delegates to the method on the owner type and returns the async iterator.
+fn emit_adapter_wrapper(
+    out: &mut String,
+    adapter: &alef_core::config::AdapterConfig,
+    _types: &[alef_core::ir::TypeDef],
+) {
+    use heck::ToSnakeCase;
+
+    let adapter_name = &adapter.name;
+    let owner_type = adapter.owner_type.as_deref().unwrap_or("Handle");
+    let item_type = adapter.item_type.as_deref().unwrap_or("()");
+
+    // Build parameter list from adapter params (skip 'self' which is implicit).
+    // For each param, look up its type to generate proper Python type annotations.
+    let mut param_parts = vec![format!("engine: {owner_type}")];
+    for param in &adapter.params {
+        let param_name = &param.name;
+        let param_type_name = &param.ty;
+        // Resolve the type annotation (use the type name as-is for now).
+        param_parts.push(format!("{param_name}: {param_type_name}"));
+    }
+
+    // The return type is an async iterator over the item type.
+    // Python type annotation: AsyncIterator[ItemType] or AsyncIterator[CrawlEvent].
+    let return_type = format!("AsyncIterator[{item_type}]");
+
+    // Generate function signature
+    let signature = format!(
+        "async def {}({}) -> {}:\n",
+        adapter_name,
+        param_parts.join(", "),
+        return_type
+    );
+    out.push_str(&signature);
+
+    // Generate docstring if available (use adapter name as fallback)
+    let doc_content = format!("{}.", {
+        let snake = adapter_name.to_snake_case();
+        let sentence = snake.replace('_', " ");
+        let mut chars = sentence.chars();
+        match chars.next() {
+            None => String::new(),
+            Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        }
+    });
+    out.push_str(&format!("    \"\"\"{}\"\"\"\n", doc_content));
+
+    // Generate method call: delegate to the engine handle's method, passing all params
+    let mut call_args = vec!["self".to_string()];
+    for param in &adapter.params {
+        call_args.push(format!("req={}", param.name));
+    }
+
+    // For now, the adapter method takes params directly.
+    // Build the method call: delegate to the engine handle's method, passing all params.
+    let params_list = adapter.params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ");
+    let method_call = if params_list.is_empty() {
+        format!("    async for item in engine.{}():\n", adapter_name)
+    } else {
+        format!("    async for item in engine.{}({}):\n", adapter_name, params_list)
+    };
+    out.push_str(&method_call);
+    out.push_str("        yield item\n");
+    out.push_str("\n\n");
+}
+
 pub(super) fn classify_param_type(ty: &alef_core::ir::TypeRef) -> Option<(&str, Wrapping)> {
     use alef_core::ir::TypeRef;
     match ty {

@@ -254,6 +254,72 @@ impl E2eConfig {
         }
     }
 
+    /// Return the effective `result_fields` for `call`.
+    ///
+    /// Returns `call.result_fields` when non-empty, otherwise the global
+    /// `self.result_fields`.
+    pub fn effective_result_fields<'a>(&'a self, call: &'a CallConfig) -> &'a HashSet<String> {
+        if !call.result_fields.is_empty() {
+            &call.result_fields
+        } else {
+            &self.result_fields
+        }
+    }
+
+    /// Return the effective `fields` alias map for `call`.
+    pub fn effective_fields<'a>(&'a self, call: &'a CallConfig) -> &'a HashMap<String, String> {
+        if !call.fields.is_empty() {
+            &call.fields
+        } else {
+            &self.fields
+        }
+    }
+
+    /// Return the effective `fields_optional` for `call`.
+    pub fn effective_fields_optional<'a>(&'a self, call: &'a CallConfig) -> &'a HashSet<String> {
+        if !call.fields_optional.is_empty() {
+            &call.fields_optional
+        } else {
+            &self.fields_optional
+        }
+    }
+
+    /// Return the effective `fields_array` for `call`.
+    pub fn effective_fields_array<'a>(&'a self, call: &'a CallConfig) -> &'a HashSet<String> {
+        if !call.fields_array.is_empty() {
+            &call.fields_array
+        } else {
+            &self.fields_array
+        }
+    }
+
+    /// Return the effective `fields_method_calls` for `call`.
+    pub fn effective_fields_method_calls<'a>(&'a self, call: &'a CallConfig) -> &'a HashSet<String> {
+        if !call.fields_method_calls.is_empty() {
+            &call.fields_method_calls
+        } else {
+            &self.fields_method_calls
+        }
+    }
+
+    /// Return the effective `fields_enum` for `call`.
+    pub fn effective_fields_enum<'a>(&'a self, call: &'a CallConfig) -> &'a HashSet<String> {
+        if !call.fields_enum.is_empty() {
+            &call.fields_enum
+        } else {
+            &self.fields_enum
+        }
+    }
+
+    /// Return the effective `fields_c_types` for `call`.
+    pub fn effective_fields_c_types<'a>(&'a self, call: &'a CallConfig) -> &'a HashMap<String, String> {
+        if !call.fields_c_types.is_empty() {
+            &call.fields_c_types
+        } else {
+            &self.fields_c_types
+        }
+    }
+
     /// Return the effective output directory: `registry.output` in registry
     /// mode, `output` otherwise.
     pub fn effective_output(&self) -> &str {
@@ -334,6 +400,40 @@ impl Default for E2eConfig {
 /// Configuration for the function call in each test.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CallConfig {
+    /// Per-call override for `result_fields`.
+    ///
+    /// When non-empty, this set replaces the global `[e2e].result_fields` for
+    /// fixtures routed to this call.  Use this when different API functions return
+    /// differently-shaped structs so each call can gate its own field set.
+    ///
+    /// Example:
+    /// ```toml
+    /// [e2e.calls.crawl]
+    /// result_fields = ["pages", "final_url", "stayed_on_domain"]
+    /// ```
+    #[serde(default)]
+    pub result_fields: HashSet<String>,
+    /// Per-call override for `[e2e].fields` alias map.
+    ///
+    /// When non-empty, replaces (not merges with) the global `fields` map for
+    /// fixtures routed to this call.
+    #[serde(default)]
+    pub fields: HashMap<String, String>,
+    /// Per-call override for `[e2e].fields_optional`.
+    #[serde(default)]
+    pub fields_optional: HashSet<String>,
+    /// Per-call override for `[e2e].fields_array`.
+    #[serde(default)]
+    pub fields_array: HashSet<String>,
+    /// Per-call override for `[e2e].fields_method_calls`.
+    #[serde(default)]
+    pub fields_method_calls: HashSet<String>,
+    /// Per-call override for `[e2e].fields_enum`.
+    #[serde(default)]
+    pub fields_enum: HashSet<String>,
+    /// Per-call override for `[e2e].fields_c_types`.
+    #[serde(default)]
+    pub fields_c_types: HashMap<String, String>,
     /// The function name (alef applies language naming conventions).
     #[serde(default)]
     pub function: String,

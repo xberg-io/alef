@@ -2,7 +2,7 @@ use alef_backend_zig::ZigBackend;
 use alef_core::backend::Backend;
 use alef_core::config::{ResolvedCrateConfig, new_config::NewAlefConfig};
 use alef_core::ir::{
-    ApiSurface, CoreWrapper, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef, ParamDef,
+    ApiSurface, CoreWrapper, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef, MethodDef, ParamDef,
     PrimitiveType, TypeDef, TypeRef,
 };
 
@@ -1160,5 +1160,164 @@ type = "*const std::ffi::c_char"
     assert!(
         content.contains("_first_error(anyerror)"),
         "should return error on null handle: {content}"
+    );
+}
+
+/// A streaming adapter owned by an opaque handle type must emit a Zig wrapper
+/// method that uses the iterator-handle pattern (`_start` / `_next` / `_free`)
+/// and accumulates every chunk into a JSON array — not the generic single-call
+/// wrapper, and not a last-chunk-only emission. Regression coverage for the
+/// audit that previously reported streaming missing on `CrawlEngineHandle`.
+#[test]
+fn streaming_adapter_emits_iterator_pattern_on_opaque_handle() {
+    let toml = r#"
+[workspace]
+languages = ["zig", "ffi"]
+
+[[crates]]
+name = "demo"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "demo"
+
+[[crates.adapters]]
+name = "crawl_stream"
+pattern = "streaming"
+core_path = "demo::crawl_stream"
+owner_type = "CrawlEngineHandle"
+item_type = "CrawlEvent"
+error_type = "DemoError"
+request_type = "demo::CrawlStreamRequest"
+
+[[crates.adapters.params]]
+name = "req"
+type = "CrawlStreamRequest"
+"#;
+    let cfg: NewAlefConfig = toml::from_str(toml).expect("test config must parse");
+    let config = cfg.resolve().expect("test config must resolve").remove(0);
+
+    // The IR method name must match the adapter `name` for the zig backend to
+    // recognise it as streaming (see `streaming_item_types` map in mod.rs).
+    let crawl_stream_method = MethodDef {
+        name: "crawl_stream".into(),
+        params: vec![make_param("req", TypeRef::Named("CrawlStreamRequest".into()))],
+        return_type: TypeRef::String,
+        is_async: true,
+        is_static: false,
+        error_type: Some("DemoError".into()),
+        doc: "Stream crawl events for a single URL.".into(),
+        receiver: None,
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+
+    let engine_type = TypeDef {
+        name: "CrawlEngineHandle".into(),
+        rust_path: "demo::CrawlEngineHandle".into(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![crawl_stream_method],
+        is_opaque: true,
+        is_clone: false,
+        is_copy: false,
+        doc: String::new(),
+        cfg: None,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![engine_type],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![ErrorDef {
+            name: "DemoError".into(),
+            rust_path: "demo::DemoError".into(),
+            original_rust_path: String::new(),
+            variants: vec![ErrorVariant {
+                name: "Network".into(),
+                message_template: None,
+                fields: vec![],
+                has_source: false,
+                has_from: false,
+                is_unit: true,
+                doc: String::new(),
+            }],
+            doc: String::new(),
+            methods: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let files = ZigBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    // Streaming wrapper must be emitted on the CrawlEngineHandle struct.
+    assert!(
+        content.contains("pub fn crawl_stream(self: *CrawlEngineHandle"),
+        "must emit streaming wrapper on opaque handle: {content}"
+    );
+    // Return type must be a JSON byte slice (not a single chunk).
+    assert!(
+        content.contains("![]u8 {"),
+        "streaming return type must be `![]u8` (JSON array of events): {content}"
+    );
+    // Body must build the request handle from JSON via the request_type's _from_json.
+    assert!(
+        content.contains("c.demo_crawl_stream_request_from_json("),
+        "must build request handle from JSON: {content}"
+    );
+    // Body must call the iterator `_start` symbol.
+    assert!(
+        content.contains("c.demo_crawl_engine_handle_crawl_stream_start("),
+        "must call `_start` to begin the stream: {content}"
+    );
+    // Body must loop on `_next` (not call once).
+    assert!(
+        content.contains("c.demo_crawl_engine_handle_crawl_stream_next("),
+        "must call `_next` to drain the stream: {content}"
+    );
+    assert!(
+        content.contains("while (true) {"),
+        "must loop over `_next` (not a single call): {content}"
+    );
+    // Each chunk must be appended into the JSON array buffer.
+    assert!(
+        content.contains("_buf.appendSlice(_chunk_slice)"),
+        "must append each chunk into the JSON buffer (not last-chunk-only): {content}"
+    );
+    // Buffer must start with `[` and end with `]` — a proper JSON array.
+    assert!(
+        content.contains("_buf.append('[')") && content.contains("_buf.append(']')"),
+        "must wrap chunks in a JSON array: {content}"
+    );
+    // Stream handle must be freed.
+    assert!(
+        content.contains("c.demo_crawl_engine_handle_crawl_stream_free("),
+        "must free the stream handle (defer): {content}"
+    );
+    // Each per-chunk C-allocated JSON pointer must be freed via the prefixed `_free_string`.
+    assert!(
+        content.contains("c.demo_free_string(_chunk_json_ptr)"),
+        "must free each chunk JSON pointer: {content}"
     );
 }
