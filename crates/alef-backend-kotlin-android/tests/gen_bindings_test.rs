@@ -1566,7 +1566,7 @@ fn module_facade_function_emits_kdoc_from_ir_doc() {
     let content = &module_kt.content;
 
     assert!(
-        content.contains("    /**\n     * Allocate a fresh crawl engine handle.\n     */"),
+        content.contains("    /** Allocate a fresh crawl engine handle. */"),
         "createEngine must carry a KDoc block derived from its rustdoc, got:\n{content}"
     );
 }
@@ -1584,7 +1584,7 @@ fn handle_only_wrapper_emits_kdoc_from_type_doc() {
     let content = &handle_kt.content;
 
     assert!(
-        content.contains("/**\n * Opaque crawl engine handle.\n */"),
+        content.contains("/** Opaque crawl engine handle. */"),
         "CrawlEngineHandle wrapper must carry a KDoc block derived from the IR type doc, got:\n{content}"
     );
 }

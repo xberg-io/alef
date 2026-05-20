@@ -25,16 +25,10 @@ expression: "&file.content"
 
 package dev.kreuzberg
 
-/**
- * Processing status.
- */
+/** Processing status. */
 enum class Status {
-    /**
-     * Active state.
-     */
+    /** Active state. */
     ACTIVE,
-    /**
-     * Inactive state.
-     */
+    /** Inactive state. */
     INACTIVE;
 }

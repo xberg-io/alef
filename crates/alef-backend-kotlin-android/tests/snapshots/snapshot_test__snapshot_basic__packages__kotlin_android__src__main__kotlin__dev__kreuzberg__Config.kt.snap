@@ -25,7 +25,5 @@ expression: "&file.content"
 
 package dev.kreuzberg
 
-/**
- * A demo configuration struct.
- */
+/** A demo configuration struct. */
 data class Config(val value: Int, val label: String, val tag: String??)
