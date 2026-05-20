@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (urgent)
+
+- **alef-backend-php: emit `{` opening brace after trait-bridge facade method signatures.** The PHP facade emitter at `gen_bindings/mod.rs` lines 1109, 1154, 1191 wrote the function signature (`): void`) followed directly by the call statement, with no opening brace before the body. Result: PHP syntax error on every register_*, unregister_*, clear_* method, breaking the entire generated `Kreuzberg.php` file. Fix: append `\n    {\n` after each signature string so the method body opens correctly. (`crates/alef-backend-php/src/gen_bindings/mod.rs`)
+
 ### Added
 
 - **alef-extract: support cfg-gated generic functions (embed_texts_async).** Added a snapshot test confirming that `pub async fn embed_texts_async<T: AsRef<str> + Send + 'static>(texts: Vec<T>, config: &EmbeddingConfig) -> Result<Vec<Vec<f32>>, E>` is extracted and monomorphized correctly — `Vec<T>` becomes `Vec<String>`, the `'static` lifetime bound on the type parameter is accepted, and the `#[cfg(all(...))]` gate is preserved in the IR `cfg` field. The extractor's `can_monomorphize_to_string` already handled this shape; the test documents and pins the behaviour so downstream fixtures in kreuzberg can drop their global language skip. (`crates/alef-extract/src/extractor/tests.rs`)
