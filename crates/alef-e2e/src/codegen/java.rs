@@ -136,14 +136,6 @@ impl E2eCodegen for JavaCodegen {
         // Resolve nested_types_optional from override (defaults to true for backward compatibility).
         let nested_types_optional = overrides.map(|o| o.nested_types_optional).unwrap_or(true);
 
-        let field_resolver = FieldResolver::new(
-            &e2e_config.fields,
-            &e2e_config.fields_optional,
-            &e2e_config.result_fields,
-            &e2e_config.fields_array,
-            &std::collections::HashSet::new(),
-        );
-
         for group in groups {
             let active: Vec<&Fixture> = group
                 .fixtures
@@ -166,9 +158,7 @@ impl E2eCodegen for JavaCodegen {
                 result_var,
                 &e2e_config.call.args,
                 options_type.as_deref(),
-                &field_resolver,
                 result_is_simple,
-                &e2e_config.fields_enum,
                 e2e_config,
                 &effective_nested_types,
                 nested_types_optional,
@@ -419,9 +409,7 @@ fn render_test_file(
     result_var: &str,
     args: &[crate::config::ArgMapping],
     options_type: Option<&str>,
-    field_resolver: &FieldResolver,
     result_is_simple: bool,
-    enum_fields: &std::collections::HashSet<String>,
     e2e_config: &E2eConfig,
     nested_types: &std::collections::HashMap<String, String>,
     nested_types_optional: bool,
@@ -610,9 +598,7 @@ fn render_test_file(
             result_var,
             args,
             options_type,
-            field_resolver,
             result_is_simple,
-            enum_fields,
             e2e_config,
             nested_types,
             nested_types_optional,
@@ -963,9 +949,7 @@ fn render_test_method(
     _result_var: &str,
     _args: &[crate::config::ArgMapping],
     options_type: Option<&str>,
-    field_resolver: &FieldResolver,
     result_is_simple: bool,
-    enum_fields: &std::collections::HashSet<String>,
     e2e_config: &E2eConfig,
     nested_types: &std::collections::HashMap<String, String>,
     nested_types_optional: bool,
@@ -979,6 +963,18 @@ fn render_test_method(
     // Resolve per-fixture call config (supports named calls via fixture.call field).
     // Use resolve_call_for_fixture to support auto-routing via select_when.
     let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
+    // Per-call field resolver: overrides the category-level resolver when this call
+    // declares its own result_fields / fields / fields_optional / fields_array.
+    let call_field_resolver = FieldResolver::new(
+        e2e_config.effective_fields(call_config),
+        e2e_config.effective_fields_optional(call_config),
+        e2e_config.effective_result_fields(call_config),
+        e2e_config.effective_fields_array(call_config),
+        &std::collections::HashSet::new(),
+    );
+    let field_resolver = &call_field_resolver;
+    let effective_enum_fields = e2e_config.effective_fields_enum(call_config);
+    let enum_fields = effective_enum_fields;
     let lang = "java";
     let call_overrides = call_config.overrides.get(lang);
     let effective_function_name = call_overrides

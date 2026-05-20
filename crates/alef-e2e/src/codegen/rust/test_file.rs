@@ -77,13 +77,6 @@ pub fn render_test_file(
     let _ = writeln!(out);
 
     let module = resolve_module(e2e_config, dep_name);
-    let field_resolver = FieldResolver::new(
-        &e2e_config.fields,
-        &e2e_config.fields_optional,
-        &e2e_config.result_fields,
-        &e2e_config.fields_array,
-        &e2e_config.fields_method_calls,
-    );
 
     // Call-based: has mock_response OR is a plain function-call fixture (no http, no mock) with a
     // configured function name. Pure schema/spec stubs (function name empty) use the stub path.
@@ -154,7 +147,6 @@ pub fn render_test_file(
             fixture,
             e2e_config,
             dep_name,
-            &field_resolver,
             client_factory,
         );
         let _ = writeln!(body_buf);
@@ -313,7 +305,6 @@ pub fn render_test_function(
     fixture: &Fixture,
     e2e_config: &E2eConfig,
     dep_name: &str,
-    field_resolver: &FieldResolver,
     client_factory: Option<&str>,
 ) {
     // Http fixtures get their own integration test code path.
@@ -349,6 +340,17 @@ pub fn render_test_function(
     let fn_name = crate::escape::sanitize_ident(&fixture.id);
     let description = &fixture.description;
     let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
+    // Per-call field resolver: overrides the file-level resolver when this call
+    // declares its own result_fields / fields / fields_optional / fields_array /
+    // fields_method_calls.
+    let call_field_resolver = FieldResolver::new(
+        e2e_config.effective_fields(call_config),
+        e2e_config.effective_fields_optional(call_config),
+        e2e_config.effective_result_fields(call_config),
+        e2e_config.effective_fields_array(call_config),
+        e2e_config.effective_fields_method_calls(call_config),
+    );
+    let field_resolver = &call_field_resolver;
     let function_name = resolve_function_name_for_call(call_config);
     let module = resolve_module_for_call(call_config, dep_name);
     let result_var = &call_config.result_var;

@@ -1055,6 +1055,7 @@ mod alef_json_str_opt {
             &config.trait_bridges,
             &config.dto,
             &capsule_types,
+            &config.adapters,
         );
         files.push(GeneratedFile {
             path: output_base.join("api.py"),
@@ -1084,6 +1085,7 @@ mod alef_json_str_opt {
             &config.trait_bridges,
             &extra_init_imports,
             &capsule_types,
+            &config.adapters,
         );
         files.push(GeneratedFile {
             path: output_base.join("__init__.py"),
