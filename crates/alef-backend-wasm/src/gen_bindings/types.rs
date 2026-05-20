@@ -569,19 +569,10 @@ pub(super) fn gen_struct_methods(
         .collect();
 
     if !typ.fields.is_empty() {
-        impl_builder.add_method(&gen_new_method(
-            typ,
-            mapper,
-            exclude_types,
-            prefix,
-            &tagged_data_enum_names,
-        ));
-        // Skip synthetic Default factory when the IR already exposes an
-        // explicit static method named `default` (it will be emitted below
-        // through the methods loop and would otherwise conflict).
-        if !typ.methods.iter().any(|m| m.name == "default") {
-            impl_builder.add_method(&gen_default_method(typ, prefix));
-        }
+        // Emit a zero-arg constructor that returns Default::default().
+        // This allows JS to create an instance and then populate fields via setters,
+        // avoiding the need for camelCase constructor params with #[allow(non_snake_case)].
+        impl_builder.add_method(&gen_zero_arg_constructor(typ, prefix));
     }
 
     for field in shared::binding_fields(&typ.fields) {
@@ -648,184 +639,18 @@ pub(super) fn gen_struct_methods(
 /// 3. Explicit with suffix: `"total_tokens: total_tokens.unwrap_or_default()"` →
 ///    `"total_tokens: totalTokens.unwrap_or_default()"` (leading ident renamed, suffix kept)
 /// 4. Constant expressions (e.g. `"field: Default::default()"`): kept as-is.
-fn convert_constructor_params_to_camel_case(
-    param_list: &str,
-    assignments: &str,
-    field_names: &[String],
-) -> (String, String) {
-    // Build a map from snake_case field names to their camelCase equivalents.
-    let field_to_camel: std::collections::HashMap<String, String> = field_names
-        .iter()
-        .map(|name| (name.clone(), to_node_name(name)))
-        .collect();
 
-    // Rename parameter declarations: "foo_bar: String" → "fooBar: String".
-    // Split on ',' (not ", ") so multi-line param lists (wrapped at 100 chars by
-    // shared::constructor_parts) are handled correctly alongside single-line lists.
-    let is_multiline = param_list.contains('\n');
-    let raw_camel_params: Vec<String> = param_list
-        .split(',')
-        .filter_map(|param| {
-            let trimmed = param.trim();
-            if trimmed.is_empty() {
-                return None;
-            }
-            if let Some((name, ty)) = trimmed.split_once(':') {
-                let camel_name = to_node_name(name.trim());
-                Some(format!("{}: {}", camel_name, ty.trim()))
-            } else {
-                Some(trimmed.to_string())
-            }
-        })
-        .collect();
-    let camel_params = if is_multiline {
-        format!("\n        {},\n    ", raw_camel_params.join(",\n        "))
-    } else {
-        raw_camel_params.join(", ")
-    };
-
-    // Rewrite assignments so that every RHS reference to a snake_case param ident is replaced
-    // with the corresponding camelCase ident (matching what the param list now declares).
-    let camel_assignments = assignments
-        .split(", ")
-        .map(|assignment| {
-            if assignment.contains(':') {
-                // Explicit form: "field_name: <rhs_expr>"
-                // Use split_once so that "::" in RHS (e.g. "Default::default()") is preserved.
-                if let Some((field_name, rhs)) = assignment.split_once(':') {
-                    let field_trimmed = field_name.trim();
-                    let rhs_trimmed = rhs.trim();
-                    // Extract the leading identifier from the RHS; the remainder (suffix) is kept.
-                    let (leading_ident, suffix) = split_leading_ident(rhs_trimmed);
-                    if let Some(camel_rhs) = field_to_camel.get(leading_ident) {
-                        format!("{}: {}{}", field_trimmed, camel_rhs, suffix)
-                    } else {
-                        // RHS starts with a non-field token (e.g. "Default::default()").
-                        format!("{}: {}", field_trimmed, rhs_trimmed)
-                    }
-                } else {
-                    assignment.to_string()
-                }
-            } else {
-                // Shorthand: "foo_bar" → "foo_bar: fooBar"
-                let field_name = assignment.trim();
-                if let Some(camel_name) = field_to_camel.get(field_name) {
-                    format!("{}: {}", field_name, camel_name)
-                } else {
-                    assignment.to_string()
-                }
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
-
-    (camel_params, camel_assignments)
-}
-
-/// Split a Rust expression into `(leading_identifier, rest_of_expression)`.
+/// Generate a zero-argument constructor that returns Default::default().
 ///
-/// Examples:
-/// - `"total_tokens.unwrap_or_default()"` → `("total_tokens", ".unwrap_or_default()")`
-/// - `"totalTokens"`                       → `("totalTokens", "")`
-/// - `"Default::default()"`               → `("Default", "::default()")` (no field match → kept)
-fn split_leading_ident(expr: &str) -> (&str, &str) {
-    let end = expr
-        .find(|c: char| !c.is_alphanumeric() && c != '_')
-        .unwrap_or(expr.len());
-    (&expr[..end], &expr[end..])
-}
-/// Generate a constructor method.
-fn gen_new_method(
-    typ: &TypeDef,
-    mapper: &WasmMapper,
-    exclude_types: &[String],
-    prefix: &str,
-    tagged_data_enum_names: &AHashSet<String>,
-) -> String {
-    use super::field_references_excluded_type;
-    use alef_codegen::shared::constructor_parts;
-
-    // Tagged-data enum fields (Vec<T>, Option<T>, bare T) are stored as JsValue / Option<JsValue>
-    // in the struct; the constructor must accept the same types so callers can pass plain JS
-    // object literals directly.
-    // Note: for optional bare tagged enums (field.optional=true, ty=Named), the constructor
-    // parameter type is determined by `config_constructor_parts_with_options` / `constructor_parts`
-    // which wraps optional fields via `mapper.optional()`. Since `map_fn` maps the ty (Named) to
-    // JsValue, the optional wrapper produces Option<JsValue> automatically.
-    let map_fn = |ty: &alef_core::ir::TypeRef| {
-        if is_vec_of_tagged_data_enum(ty, tagged_data_enum_names)
-            || is_bare_tagged_data_enum(ty, tagged_data_enum_names)
-        {
-            "JsValue".to_string()
-        } else if is_option_of_tagged_data_enum(ty, tagged_data_enum_names) {
-            "Option<JsValue>".to_string()
-        } else {
-            mapper.map_type(ty)
-        }
-    };
-
-    // Filter out fields whose types reference excluded types (the Js* wrapper won't exist).
-    // Cfg-gated fields are retained: the struct body keeps them (with #[serde(skip)]) and the
-    // shared `constructor_parts*` helpers emit a `Default::default()` initializer so the
-    // struct literal stays complete; the host caller cannot supply trait-bridge wrappers.
-    let filtered_fields: Vec<_> = typ
-        .fields
-        .iter()
-        .filter(|f| !f.binding_excluded)
-        .filter(|f| !field_references_excluded_type(&f.ty, exclude_types))
-        .cloned()
-        .collect();
-
-    // Collect field names for camelCase conversion.
-    let field_names: Vec<String> = filtered_fields.iter().map(|f| f.name.clone()).collect();
-
-    // For types with has_default, generate optional kwargs-style constructor.
-    // Pass option_duration_on_defaults=true so Duration fields are Option<u64> params,
-    // matching the Option<u64> field type emitted by gen_struct for has_default types.
-    let (param_list, _, assignments) = if typ.has_default {
-        alef_codegen::shared::config_constructor_parts_with_options(&filtered_fields, &map_fn, true)
-    } else {
-        constructor_parts(&filtered_fields, &map_fn)
-    };
-
-    // Convert parameter and assignment names to camelCase for JS consumers.
-    let (param_list_camel, assignments_camel) =
-        convert_constructor_params_to_camel_case(&param_list, &assignments, &field_names);
-
-    // Suppress too_many_arguments when the constructor has >7 params.
-    let field_count = filtered_fields.iter().filter(|f| f.cfg.is_none()).count();
-    // Suppress non_snake_case: wasm-bindgen needs camelCase param names for the JS constructor
-    // signature, but Rust warns about non-snake_case identifiers in function params.
-    let allow_attrs = if field_count > 7 {
-        "#[allow(clippy::too_many_arguments)]\n#[allow(non_snake_case)]\n"
-    } else {
-        "#[allow(non_snake_case)]\n"
-    };
-
+/// This eliminates the need for camelCase parameter names with #[allow(non_snake_case)].
+/// Users initialize instances via the zero-arg constructor and then set fields via setters.
+fn gen_zero_arg_constructor(typ: &TypeDef, prefix: &str) -> String {
     format!(
-        "{allow_attrs}#[wasm_bindgen(constructor)]\npub fn new({param_list_camel}) -> {prefix}{} {{\n    {prefix}{} {{ {assignments_camel} }}\n}}",
+        "#[wasm_bindgen(constructor)]\npub fn new() -> {prefix}{} {{\n    <{prefix}{} as ::core::default::Default>::default()\n}}",
         typ.name, typ.name
     )
 }
 
-/// Generate a `default()` static factory method.
-///
-/// wasm-bindgen's `#[wasm_bindgen(constructor)]` follows the Rust constructor's
-/// arity, so types with required (non-Optional) fields expose a JS constructor
-/// with required positional args. Test codegen and other JS callers want an
-/// arg-free way to obtain a fresh instance and then drive it via setters; the
-/// inherent `default()` factory (delegating to the derived `Default` impl)
-/// supplies that without disturbing the constructor signature. Every wasm
-/// struct derives `Default` (see `gen_struct.jinja`), so the factory can be
-/// emitted unconditionally for structs with fields.
-fn gen_default_method(typ: &TypeDef, prefix: &str) -> String {
-    // `#[allow(clippy::should_implement_trait)]` is required because `default()` conflicts with
-    // `Default::default()`. Renaming would change the JS-visible API; the allow is correct.
-    format!(
-        "#[wasm_bindgen]\n#[allow(clippy::should_implement_trait)]\npub fn default() -> {prefix}{} {{\n    <{prefix}{} as ::core::default::Default>::default()\n}}",
-        typ.name, typ.name
-    )
-}
 
 /// Extract the inner type of an `Optional` wrapper, or return the type itself.
 /// `FieldDef::optional` + `FieldDef::ty` can be:
