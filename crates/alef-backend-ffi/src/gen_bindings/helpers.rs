@@ -317,6 +317,16 @@ pub(super) fn gen_owned_value_to_c(expr: &str, ty: &TypeRef, indent: &str, _enum
             )
         }
         TypeRef::Optional(inner) => {
+            // For non-bool primitives the inner conversion is just the value itself (passthrough),
+            // so the manual-match pattern `match expr { Some(val) => val, None => default }`
+            // is equivalent to `expr.unwrap_or(default)`.  Emit the latter to satisfy
+            // clippy::manual_unwrap_or.  Bool needs `as i32` and stays with the match form.
+            if let TypeRef::Primitive(prim) = inner.as_ref() {
+                if !matches!(prim, alef_core::ir::PrimitiveType::Bool) {
+                    let null_value = null_return_value(&TypeRef::Optional(inner.clone()));
+                    return format!("{indent}{expr}.unwrap_or({null_value})");
+                }
+            }
             let inner_conversion = gen_owned_value_to_c("val", inner, &format!("{indent}        "), _enum_names);
             let null_value = null_return_value(&TypeRef::Optional(inner.clone()));
             // Owned-context: consume the Option so val is owned T (not &T).
