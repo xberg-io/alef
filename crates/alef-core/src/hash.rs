@@ -244,7 +244,7 @@ pub fn inject_hash_line(content: &str, hash: &str) -> String {
                 format!("// {HASH_PREFIX}{hash}")
             } else if trimmed.starts_with('#') {
                 format!("# {HASH_PREFIX}{hash}")
-            } else if trimmed.starts_with("/*") || trimmed.starts_with(" *") || trimmed.ends_with("*/") {
+            } else if trimmed.starts_with("/*") || trimmed.starts_with('*') || trimmed.ends_with("*/") {
                 format!(" * {HASH_PREFIX}{hash}")
             } else {
                 format!("// {HASH_PREFIX}{hash}")
@@ -377,6 +377,17 @@ sources = ["src/lib.rs"]
         let hash = hash_content(&content);
         let injected = inject_hash_line(&content, &hash);
         assert!(injected.contains(HASH_PREFIX));
+        // Hash line must use C block-comment continuation (` * `), not `//`.
+        // Mixing `//` inside a `/* ... */` block produces a malformed header
+        // and would (depending on formatter) break verify.
+        assert!(
+            injected.contains(&format!(" * {HASH_PREFIX}")),
+            "expected ' * {HASH_PREFIX}' in block-comment header, got:\n{injected}"
+        );
+        assert!(
+            !injected.contains(&format!("// {HASH_PREFIX}")),
+            "block-comment header must not use '//' for the hash line, got:\n{injected}"
+        );
         assert_eq!(extract_hash(&injected), Some(hash));
     }
 
