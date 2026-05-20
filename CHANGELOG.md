@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.3] - 2026-05-20
+
+### Fixed
+
+- **Re-publish release with current main as binary.** The v0.17.2 git tag was force-pointed to `b539d258` (`fix(swift): gate codable enum synthesis`) after the original v0.17.2 release was cut, but the GitHub Release archive still shipped the binary built from the original pre-retag commit. Downstream consumers using `install-alef@v1` (which downloads the release binary) ran an older alef than the tag suggested, surfacing as `alef docs` output drift between local dev (built from source at the re-tagged commit) and CI (using the stale release binary). v0.17.3 cuts a fresh release on top of the same code so the GitHub Release binary matches the tag. (A stale local `v0.17.3` tag pointing at an earlier release-prep commit was discarded — it never existed on origin and had no associated GitHub Release.) No code changes between v0.17.2 (`b539d258`) and v0.17.3.
+
 ## [0.17.2] - 2026-05-20
 
 ### Fixed
