@@ -383,6 +383,9 @@ pub(super) fn gen_init_py(
     all_items.extend(crate::trait_bridge::collect_bridge_register_fns(trait_bridges));
     all_items.extend(crate::trait_bridge::collect_bridge_unregister_fns(trait_bridges));
     all_items.extend(crate::trait_bridge::collect_bridge_clear_fns(trait_bridges));
+    // Include adapter-based streaming methods in __all__ — they are exported via api.py
+    // and must be discoverable from the package root.
+    all_items.extend(adapters.iter().map(|a| a.name.clone()));
     all_items.extend(needed_enums);
     all_items.extend(imports_from_native.iter().cloned());
     all_items.extend(config_types);
@@ -442,7 +445,8 @@ mod tests {
         let dto = DtoConfig::default();
         let extra = std::collections::BTreeMap::new();
         let caps = std::collections::HashMap::new();
-        let result = gen_init_py(&api, "_mod", "1.2.3", &dto, &[], &extra, &caps);
+        let adapters = vec![];
+        let result = gen_init_py(&api, "_mod", "1.2.3", &dto, &[], &extra, &caps, &adapters);
         assert!(result.contains("__version__ = \"1.2.3\""));
         assert!(result.contains("__all__"));
     }
@@ -458,7 +462,8 @@ mod tests {
             vec!["SupportedLanguage".to_string()],
         );
         let caps = std::collections::HashMap::new();
-        let result = gen_init_py(&api, "_mod", "1.2.3", &dto, &[], &extra, &caps);
+        let adapters = vec![];
+        let result = gen_init_py(&api, "_mod", "1.2.3", &dto, &[], &extra, &caps, &adapters);
         assert!(
             result.contains("from ._supported_languages import SupportedLanguage"),
             "missing import line in:\n{result}",
