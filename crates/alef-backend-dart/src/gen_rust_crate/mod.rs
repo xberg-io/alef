@@ -1198,12 +1198,22 @@ fn enum_variant_field_conv_to_core(binding: &str, field: &FieldDef) -> String {
             TypeRef::String => binding.to_string(),
             _ => format!("{binding}.into_iter().map(|x| x as _).collect()"),
         },
-        TypeRef::Primitive(_) => {
+        TypeRef::Primitive(prim) => {
+            use alef_core::ir::PrimitiveType;
             // Mirror the struct-field handling: newtype_wrapper means the core type
             // is a tuple newtype around a primitive (e.g. NodeIndex(usize)). Enum
             // variants flatten `Option<T>` to bare `T` in the mirror with
             // `unwrap_or_default()`, so reverse: 0 → None, non-zero → Some(_),
             // matching the `TypeRef::String` and `TypeRef::Path` conventions.
+            //
+            // Bool needs its own arm because `bool == 0` does not compile — false is
+            // the unwrap_or_default() of `Option<bool>`, so reverse: false → None.
+            if matches!(prim, PrimitiveType::Bool) {
+                return match field.optional {
+                    true => format!("if {binding} {{ Some({binding}) }} else {{ None }}"),
+                    false => binding.to_string(),
+                };
+            }
             match (&field.newtype_wrapper, field.optional) {
                 (Some(nw), true) => format!("if {binding} == 0 {{ None }} else {{ Some({nw}({binding} as _)) }}"),
                 (Some(nw), false) => format!("{nw}({binding} as _)"),

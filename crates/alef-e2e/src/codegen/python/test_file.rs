@@ -338,7 +338,9 @@ fn build_thirdparty_imports(
         }
     }
 
-    // Detect batch item types (BatchBytesItem, BatchFileItem) used in any fixture
+    // Import any element_type referenced by a call arg (e.g. `BatchBytesItem`, `PageAction`).
+    // These names are emitted as bare references inside the test body (constructor calls,
+    // type annotations) and must be importable from the public binding module.
     for fixture in fixtures.iter() {
         let cc = e2e_config.resolve_call_for_fixture(
             fixture.call.as_deref(),
@@ -349,8 +351,12 @@ fn build_thirdparty_imports(
         );
         for arg in &cc.args {
             if let Some(elem_type) = &arg.element_type {
-                if (elem_type == "BatchBytesItem" || elem_type == "BatchFileItem") && !import_names.contains(elem_type)
-                {
+                // Skip plain primitives / strings — only Named types need a Python-side import.
+                let is_primitive = matches!(
+                    elem_type.as_str(),
+                    "str" | "int" | "float" | "bool" | "bytes" | "list" | "dict" | "tuple" | "Any"
+                );
+                if !is_primitive && !import_names.contains(elem_type) {
                     import_names.push(elem_type.clone());
                 }
             }

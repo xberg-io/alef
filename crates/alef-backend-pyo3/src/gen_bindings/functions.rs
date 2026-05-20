@@ -124,6 +124,21 @@ pub(super) fn gen_api_py(
         // type checkers to see a different type than the public re-export.
         collect_named_types(&func.return_type, &mut all_type_imports);
     }
+    // Adapter wrappers (emitted later in this file) reference the adapter's owner_type,
+    // item_type, and param types as bare names in their `async def` signatures
+    // (`AsyncIterator[ItemType]`, owner-type parameter, request types). Without these
+    // entries the generated `api.py` raises F821 / NameError at import time.
+    for adapter in adapters {
+        if let Some(owner) = adapter.owner_type.as_deref() {
+            all_type_imports.insert(owner.to_string());
+        }
+        if let Some(item) = adapter.item_type.as_deref() {
+            all_type_imports.insert(item.to_string());
+        }
+        for param in &adapter.params {
+            all_type_imports.insert(param.ty.clone());
+        }
+    }
     // Also collect type_alias names from options-field bridges so they can be used in
     // function signature annotations for visitor parameters.
     for bridge in trait_bridges {
@@ -151,13 +166,18 @@ pub(super) fn gen_api_py(
     out.push_str(&hash::header(CommentStyle::Hash));
     out.push_str("\"\"\"Public API for conversion.\"\"\"\n\n");
     // stdlib first (isort section 1)
-    let typing_imports = if needs_cast {
-        "from typing import Any, TypeVar, cast"
-    } else {
-        "from typing import Any, TypeVar"
-    };
-    out.push_str(typing_imports);
-    out.push_str("\n\n");
+    // Adapter wrappers reference AsyncIterator in their return annotation, so include it
+    // whenever the surface defines any adapters (they emit `async def ... -> AsyncIterator[T]:`).
+    let mut typing_parts: Vec<&str> = vec!["Any", "TypeVar"];
+    if needs_cast {
+        typing_parts.push("cast");
+    }
+    let needs_async_iterator = !adapters.is_empty();
+    if needs_async_iterator {
+        typing_parts.push("AsyncIterator");
+        typing_parts.sort_unstable();
+    }
+    out.push_str(&format!("from typing import {}\n\n", typing_parts.join(", ")));
     // third-party / package self-import (isort section 3)
     out.push_str(&crate::template_env::render(
         "import_as_module.jinja",

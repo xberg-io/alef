@@ -1299,7 +1299,10 @@ mod tests {
     fn effective_result_fields_returns_global_when_call_is_empty() {
         let mut global = HashSet::new();
         global.insert("url".to_string());
-        let cfg = E2eConfig { result_fields: global.clone(), ..Default::default() };
+        let cfg = E2eConfig {
+            result_fields: global.clone(),
+            ..Default::default()
+        };
         let call = CallConfig::default();
         assert_eq!(cfg.effective_result_fields(&call), &global);
     }
@@ -1311,8 +1314,14 @@ mod tests {
         let mut per_call = HashSet::new();
         per_call.insert("pages".to_string());
         per_call.insert("final_url".to_string());
-        let cfg = E2eConfig { result_fields: global, ..Default::default() };
-        let call = CallConfig { result_fields: per_call.clone(), ..Default::default() };
+        let cfg = E2eConfig {
+            result_fields: global,
+            ..Default::default()
+        };
+        let call = CallConfig {
+            result_fields: per_call.clone(),
+            ..Default::default()
+        };
         assert_eq!(cfg.effective_result_fields(&call), &per_call);
     }
 
@@ -1320,7 +1329,10 @@ mod tests {
     fn effective_fields_returns_global_when_call_is_empty() {
         let mut global = HashMap::new();
         global.insert("metadata.title".to_string(), "metadata.document.title".to_string());
-        let cfg = E2eConfig { fields: global.clone(), ..Default::default() };
+        let cfg = E2eConfig {
+            fields: global.clone(),
+            ..Default::default()
+        };
         let call = CallConfig::default();
         assert_eq!(cfg.effective_fields(&call), &global);
     }
@@ -1331,8 +1343,14 @@ mod tests {
         global.insert("a".to_string(), "b".to_string());
         let mut per_call = HashMap::new();
         per_call.insert("x".to_string(), "y".to_string());
-        let cfg = E2eConfig { fields: global, ..Default::default() };
-        let call = CallConfig { fields: per_call.clone(), ..Default::default() };
+        let cfg = E2eConfig {
+            fields: global,
+            ..Default::default()
+        };
+        let call = CallConfig {
+            fields: per_call.clone(),
+            ..Default::default()
+        };
         assert_eq!(cfg.effective_fields(&call), &per_call);
     }
 
@@ -1340,7 +1358,10 @@ mod tests {
     fn effective_fields_optional_returns_global_when_call_is_empty() {
         let mut global = HashSet::new();
         global.insert("segments".to_string());
-        let cfg = E2eConfig { fields_optional: global.clone(), ..Default::default() };
+        let cfg = E2eConfig {
+            fields_optional: global.clone(),
+            ..Default::default()
+        };
         let call = CallConfig::default();
         assert_eq!(cfg.effective_fields_optional(&call), &global);
     }
@@ -1351,8 +1372,14 @@ mod tests {
         global.insert("segments".to_string());
         let mut per_call = HashSet::new();
         per_call.insert("pages".to_string());
-        let cfg = E2eConfig { fields_optional: global, ..Default::default() };
-        let call = CallConfig { fields_optional: per_call.clone(), ..Default::default() };
+        let cfg = E2eConfig {
+            fields_optional: global,
+            ..Default::default()
+        };
+        let call = CallConfig {
+            fields_optional: per_call.clone(),
+            ..Default::default()
+        };
         assert_eq!(cfg.effective_fields_optional(&call), &per_call);
     }
 
@@ -1360,7 +1387,10 @@ mod tests {
     fn effective_fields_array_returns_global_when_call_is_empty() {
         let mut global = HashSet::new();
         global.insert("choices".to_string());
-        let cfg = E2eConfig { fields_array: global.clone(), ..Default::default() };
+        let cfg = E2eConfig {
+            fields_array: global.clone(),
+            ..Default::default()
+        };
         let call = CallConfig::default();
         assert_eq!(cfg.effective_fields_array(&call), &global);
     }
@@ -1371,8 +1401,14 @@ mod tests {
         global.insert("choices".to_string());
         let mut per_call = HashSet::new();
         per_call.insert("pages".to_string());
-        let cfg = E2eConfig { fields_array: global, ..Default::default() };
-        let call = CallConfig { fields_array: per_call.clone(), ..Default::default() };
+        let cfg = E2eConfig {
+            fields_array: global,
+            ..Default::default()
+        };
+        let call = CallConfig {
+            fields_array: per_call.clone(),
+            ..Default::default()
+        };
         assert_eq!(cfg.effective_fields_array(&call), &per_call);
     }
 
@@ -1380,7 +1416,10 @@ mod tests {
     fn effective_fields_method_calls_returns_global_when_call_is_empty() {
         let mut global = HashSet::new();
         global.insert("metadata.format".to_string());
-        let cfg = E2eConfig { fields_method_calls: global.clone(), ..Default::default() };
+        let cfg = E2eConfig {
+            fields_method_calls: global.clone(),
+            ..Default::default()
+        };
         let call = CallConfig::default();
         assert_eq!(cfg.effective_fields_method_calls(&call), &global);
     }
@@ -1391,8 +1430,14 @@ mod tests {
         global.insert("metadata.format".to_string());
         let mut per_call = HashSet::new();
         per_call.insert("pages.status".to_string());
-        let cfg = E2eConfig { fields_method_calls: global, ..Default::default() };
-        let call = CallConfig { fields_method_calls: per_call.clone(), ..Default::default() };
+        let cfg = E2eConfig {
+            fields_method_calls: global,
+            ..Default::default()
+        };
+        let call = CallConfig {
+            fields_method_calls: per_call.clone(),
+            ..Default::default()
+        };
         assert_eq!(cfg.effective_fields_method_calls(&call), &per_call);
     }
 
@@ -1400,7 +1445,10 @@ mod tests {
     fn effective_fields_enum_returns_global_when_call_is_empty() {
         let mut global = HashSet::new();
         global.insert("choices.finish_reason".to_string());
-        let cfg = E2eConfig { fields_enum: global.clone(), ..Default::default() };
+        let cfg = E2eConfig {
+            fields_enum: global.clone(),
+            ..Default::default()
+        };
         let call = CallConfig::default();
         assert_eq!(cfg.effective_fields_enum(&call), &global);
     }
@@ -1411,8 +1459,14 @@ mod tests {
         global.insert("choices.finish_reason".to_string());
         let mut per_call = HashSet::new();
         per_call.insert("assets.category".to_string());
-        let cfg = E2eConfig { fields_enum: global, ..Default::default() };
-        let call = CallConfig { fields_enum: per_call.clone(), ..Default::default() };
+        let cfg = E2eConfig {
+            fields_enum: global,
+            ..Default::default()
+        };
+        let call = CallConfig {
+            fields_enum: per_call.clone(),
+            ..Default::default()
+        };
         assert_eq!(cfg.effective_fields_enum(&call), &per_call);
     }
 
@@ -1420,7 +1474,10 @@ mod tests {
     fn effective_fields_c_types_returns_global_when_call_is_empty() {
         let mut global = HashMap::new();
         global.insert("conversion_result.metadata".to_string(), "HtmlMetadata".to_string());
-        let cfg = E2eConfig { fields_c_types: global.clone(), ..Default::default() };
+        let cfg = E2eConfig {
+            fields_c_types: global.clone(),
+            ..Default::default()
+        };
         let call = CallConfig::default();
         assert_eq!(cfg.effective_fields_c_types(&call), &global);
     }
@@ -1431,8 +1488,14 @@ mod tests {
         global.insert("conversion_result.metadata".to_string(), "HtmlMetadata".to_string());
         let mut per_call = HashMap::new();
         per_call.insert("crawl_result.pages".to_string(), "PageResult".to_string());
-        let cfg = E2eConfig { fields_c_types: global, ..Default::default() };
-        let call = CallConfig { fields_c_types: per_call.clone(), ..Default::default() };
+        let cfg = E2eConfig {
+            fields_c_types: global,
+            ..Default::default()
+        };
+        let call = CallConfig {
+            fields_c_types: per_call.clone(),
+            ..Default::default()
+        };
         assert_eq!(cfg.effective_fields_c_types(&call), &per_call);
     }
 
@@ -1460,7 +1523,9 @@ fields_enum = ["status"]
             Some("meta.document.title")
         );
         assert_eq!(
-            cfg.effective_fields_c_types(call).get("scrape_result.meta").map(String::as_str),
+            cfg.effective_fields_c_types(call)
+                .get("scrape_result.meta")
+                .map(String::as_str),
             Some("MetaResult")
         );
     }
