@@ -2000,56 +2000,75 @@ fn emit_e2e_wrappers(out: &mut String) {
     out.push_str("}\n\n");
 
     // batchExtractBytesSync(jsonItems:)
-    // Returns [ExtractionResultRef] - the element type from RustVec<ExtractionResult> iteration.
+    // Drains the returned `RustVec<ExtractionResult>` into owned `[ExtractionResult]`
+    // via `pop()` so the public signature does not leak `ExtractionResultRef`
+    // (a swift-bridge transport type) to consumers. `pop()` returns owned values
+    // in reverse order; reverse the array before returning to preserve input order.
     out.push_str("/// E2e wrapper: deserialises each JSON string in `jsonItems` -> BatchBytesItem.\n");
     out.push_str("public func batchExtractBytesSync(\n");
     out.push_str("    _ jsonItems: [String]\n");
-    out.push_str(") throws -> [ExtractionResultRef] {\n");
-    out.push_str("    var items = RustVec<BatchBytesItem>()\n");
+    out.push_str(") throws -> [ExtractionResult] {\n");
+    out.push_str("    let items = RustVec<BatchBytesItem>()\n");
     out.push_str("    for json in jsonItems {\n");
     out.push_str("        items.push(value: try batchBytesItemFromJson(json))\n");
     out.push_str("    }\n");
     out.push_str("    let config = try extractionConfigFromJson(\"{}\")\n");
-    out.push_str("    return try batchExtractBytesSync(items, config).map { $0 }\n");
+    out.push_str("    let vec = try batchExtractBytesSync(items, config)\n");
+    out.push_str("    var owned: [ExtractionResult] = []\n");
+    out.push_str("    while let item = vec.pop() { owned.append(item) }\n");
+    out.push_str("    owned.reverse()\n");
+    out.push_str("    return owned\n");
     out.push_str("}\n\n");
 
     // batchExtractBytes(jsonItems:) - async wrapper for API surface compatibility.
     out.push_str("/// E2e wrapper (async): deserialises each JSON string in `jsonItems` -> BatchBytesItem.\n");
     out.push_str("public func batchExtractBytes(\n");
     out.push_str("    _ jsonItems: [String]\n");
-    out.push_str(") async throws -> [ExtractionResultRef] {\n");
-    out.push_str("    var items = RustVec<BatchBytesItem>()\n");
+    out.push_str(") async throws -> [ExtractionResult] {\n");
+    out.push_str("    let items = RustVec<BatchBytesItem>()\n");
     out.push_str("    for json in jsonItems {\n");
     out.push_str("        items.push(value: try batchBytesItemFromJson(json))\n");
     out.push_str("    }\n");
     out.push_str("    let config = try extractionConfigFromJson(\"{}\")\n");
-    out.push_str("    return try batchExtractBytesSync(items, config).map { $0 }\n");
+    out.push_str("    let vec = try batchExtractBytesSync(items, config)\n");
+    out.push_str("    var owned: [ExtractionResult] = []\n");
+    out.push_str("    while let item = vec.pop() { owned.append(item) }\n");
+    out.push_str("    owned.reverse()\n");
+    out.push_str("    return owned\n");
     out.push_str("}\n\n");
 
     // batchExtractFilesSync(jsonItems:)
     out.push_str("/// E2e wrapper: deserialises each JSON string in `jsonItems` -> BatchFileItem.\n");
     out.push_str("public func batchExtractFilesSync(\n");
     out.push_str("    _ jsonItems: [String]\n");
-    out.push_str(") throws -> [ExtractionResultRef] {\n");
-    out.push_str("    var items = RustVec<BatchFileItem>()\n");
+    out.push_str(") throws -> [ExtractionResult] {\n");
+    out.push_str("    let items = RustVec<BatchFileItem>()\n");
     out.push_str("    for json in jsonItems {\n");
     out.push_str("        items.push(value: try batchFileItemFromJson(json))\n");
     out.push_str("    }\n");
     out.push_str("    let config = try extractionConfigFromJson(\"{}\")\n");
-    out.push_str("    return try batchExtractFilesSync(items, config).map { $0 }\n");
+    out.push_str("    let vec = try batchExtractFilesSync(items, config)\n");
+    out.push_str("    var owned: [ExtractionResult] = []\n");
+    out.push_str("    while let item = vec.pop() { owned.append(item) }\n");
+    out.push_str("    owned.reverse()\n");
+    out.push_str("    return owned\n");
     out.push_str("}\n\n");
 
     // batchExtractFiles(jsonItems:) - async wrapper for API surface compatibility.
     out.push_str("/// E2e wrapper (async): deserialises each JSON string in `jsonItems` -> BatchFileItem.\n");
     out.push_str("public func batchExtractFiles(\n");
     out.push_str("    _ jsonItems: [String]\n");
-    out.push_str(") async throws -> [ExtractionResultRef] {\n");
-    out.push_str("    var items = RustVec<BatchFileItem>()\n");
+    out.push_str(") async throws -> [ExtractionResult] {\n");
+    out.push_str("    let items = RustVec<BatchFileItem>()\n");
     out.push_str("    for json in jsonItems {\n");
     out.push_str("        items.push(value: try batchFileItemFromJson(json))\n");
     out.push_str("    }\n");
     out.push_str("    let config = try extractionConfigFromJson(\"{}\")\n");
-    out.push_str("    return try batchExtractFilesSync(items, config).map { $0 }\n");
+    out.push_str("    let vec = try batchExtractFilesSync(items, config)\n");
+    out.push_str("    var owned: [ExtractionResult] = []\n");
+    out.push_str("    while let item = vec.pop() { owned.append(item) }\n");
+    out.push_str("    owned.reverse()\n");
+    out.push_str("    return owned\n");
     out.push_str("}\n\n");
 
     // detectMimeTypeFromBytes(_ filePath: String) - e2e file-path overload
