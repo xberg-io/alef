@@ -312,3 +312,57 @@ fn godoc_does_not_double_prefix_when_summary_already_starts_with_name() {
         content,
     );
 }
+
+/// Option<String> returns are null-checked and boxed, not dereferenced directly.
+/// The generated code must return `*string`, not `string`.
+#[test]
+fn option_string_return_null_checks_and_boxes_value() {
+    let func = FunctionDef {
+        name: "get_optional_name".to_string(),
+        rust_path: "test_lib::get_optional_name".to_string(),
+        original_rust_path: String::new(),
+        params: vec![],
+        return_type: TypeRef::Optional(Box::new(TypeRef::String)),
+        is_async: false,
+        error_type: None,
+        doc: "Returns an optional name.".to_string(),
+        cfg: None,
+        sanitized: false,
+        return_sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![func],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let content = binding_content(&api, &make_config());
+
+    // Function signature must return *string, not string
+    assert!(
+        content.contains("func GetOptionalName() *string"),
+        "expected return type `*string`, got:\n{}",
+        content,
+    );
+
+    // Body must contain the conversion and boxing, NOT a bare return C.GoString(ptr)
+    let has_conversion_boxed = content.contains("s := C.GoString(ptr)") && content.contains("return &s");
+    let has_bad_pattern = content.contains("return C.GoString(ptr)") && !content.contains("&s");
+
+    assert!(
+        has_conversion_boxed && !has_bad_pattern,
+        "expected boxed string return `s := C.GoString(ptr); return &s`, not bare C.GoString(ptr):\n{}",
+        content,
+    );
+}

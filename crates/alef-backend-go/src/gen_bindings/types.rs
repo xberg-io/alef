@@ -1690,6 +1690,20 @@ fn go_return_expr_inner(
                 let go_ty = go_type(inner);
                 format!("func() *{go_ty} {{ v := {go_ty}({var_name}); return &v }}()")
             }
+            // Optional(String/Char/Path): null-check and box the converted Go string.
+            // The C function returns an allocated string pointer; free it after conversion.
+            TypeRef::String | TypeRef::Char | TypeRef::Path => {
+                format!(
+                    "func() *string {{\n\
+                     \tif {var_name} == nil {{ return nil }}\n\
+                     \tdefer C.{ffi_prefix}_free_string({var_name})\n\
+                     \ts := C.GoString({var_name})\n\
+                     \treturn &s\n\
+                     }}()",
+                    var_name = var_name,
+                    ffi_prefix = ffi_prefix,
+                )
+            }
             _ => go_return_expr_inner(inner, var_name, ffi_prefix, opaque_names, _value_only_types),
         },
         TypeRef::Vec(inner) => {
