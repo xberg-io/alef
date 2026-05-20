@@ -638,6 +638,7 @@ fn gen_go_file(
         !ffi_exclude_functions.contains(&f.name)
             && !signature_references_excluded_type(&f.params, &f.return_type, exclude_types)
             && !uses_ffi_enum_type(&f.params, &f.return_type, &ffi_enum_names, &opaque_names)
+            && !alef_codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&f.name, &config.trait_bridges)
     }) {
         // For the convert function with visitor support, wrap it with visitor-awareness logic
         // instead of generating the basic wrapper.
