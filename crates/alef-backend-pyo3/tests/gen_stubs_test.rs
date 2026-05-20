@@ -1362,6 +1362,14 @@ fn test_pyi_stub_escapes_python_keyword_variant_names() {
                     is_default: false,
                     serde_rename: None,
                 },
+                EnumVariant {
+                    name: "Title".to_string(),
+                    fields: vec![],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
             ],
             doc: String::new(),
             cfg: None,
@@ -1394,6 +1402,16 @@ fn test_pyi_stub_escapes_python_keyword_variant_names() {
     assert!(
         content.contains("ins: NodeType = ..."),
         "non-keyword variants must still emit unescaped (ins), got:\n{}",
+        content
+    );
+    assert!(
+        content.contains("title_: NodeType = ..."),
+        "stub must escape str-method variant Title → title_, got:\n{}",
+        content
+    );
+    assert!(
+        !content.contains("title: NodeType = ..."),
+        "stub must NOT emit the unescaped str method `title` as an attribute name, got:\n{}",
         content
     );
 }

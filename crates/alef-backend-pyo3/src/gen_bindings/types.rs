@@ -11,10 +11,11 @@ use alef_core::ir::ApiSurface;
 use super::enums::{EmitContext, class_name_to_docstring, sanitize_python_doc};
 
 /// Convert a Rust variant name to snake_case for Python enum members (PEP 8),
-/// escaping any result that collides with a Python reserved keyword (e.g. `Del` → `del_`).
+/// escaping any result that collides with a Python reserved keyword or `str` method name
+/// (e.g. `Del` → `del_`, `Title` → `title_`).
 fn to_python_enum_variant(name: &str) -> String {
     use heck::ToSnakeCase;
-    alef_core::keywords::python_ident(&name.to_snake_case())
+    alef_core::keywords::python_str_enum_ident(&name.to_snake_case())
 }
 
 /// Generate options.py — Python-side enums (StrEnum) and @dataclass / TypedDict config types.
