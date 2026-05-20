@@ -322,7 +322,9 @@ fn read_swift_bridge_headers(binding_crate_name: &str) -> Option<(String, String
             if !core_h.exists() || !crate_h.exists() {
                 continue;
             }
-            let mtime = std::fs::metadata(&out)
+            // Use the mtime of the SwiftBridgeCore.h file (written by the build) rather
+            // than the directory mtime, which macOS may update on reads.
+            let mtime = std::fs::metadata(&core_h)
                 .and_then(|m| m.modified())
                 .unwrap_or(std::time::UNIX_EPOCH);
             if best.as_ref().map(|(t, _)| mtime > *t).unwrap_or(true) {
