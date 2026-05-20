@@ -306,7 +306,7 @@ impl Backend for SwiftBackend {
         // consumers of the `Kreuzberg` module to also `import RustBridge`, violating
         // the alef binding-parity promise that every public Rust free function is
         // re-exposed as a top-level public function on the host module.
-        emit_free_function_forwarders(api, config, &mut body);
+        emit_free_function_forwarders(api, config, &known_dto_names, &mut body);
 
         // Emit top-level public forwarders for trait-bridge register/unregister/clear
         // entry points. These are synthesised from `[[trait_bridges]]` in alef.toml
@@ -2180,7 +2180,7 @@ fn emit_swift_bridge_files(
     // swift-bridge's generated SwiftBridgeCore.swift starts with `import Foundation`; the
     // crate-specific swift file has no imports at all.  Both reference C types (RustStr,
     // __private__Option*, __swift_bridge__$Vec_*) that live in the RustBridgeC SwiftPM target.
-    let core_swift_content = prepend_rust_bridge_c_import(&core_swift);
+    let core_swift_content = append_rust_string_ref_to_string_extension(&prepend_rust_bridge_c_import(&core_swift));
     let crate_swift_content = prepend_rust_bridge_c_import(&crate_swift);
 
     // RustBridgeC.h: umbrella header concatenating both generated C headers.
@@ -2473,7 +2473,12 @@ fn already_emitted_top_level_names(api: &ApiSurface) -> std::collections::HashSe
 /// to the swift-bridge runtime types (`RustString`, `RustVec<UInt8>`,
 /// `RustVec<RustString>`) inside the body before calling the bridge function in
 /// the `RustBridge` module.
-fn emit_free_function_forwarders(api: &ApiSurface, config: &ResolvedCrateConfig, out: &mut String) {
+fn emit_free_function_forwarders(
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+    known_dto_names: &std::collections::HashSet<String>,
+    out: &mut String,
+) {
     let exclude_functions: std::collections::HashSet<String> = config
         .swift
         .as_ref()
@@ -2515,14 +2520,34 @@ fn emit_free_function_forwarders(api: &ApiSurface, config: &ResolvedCrateConfig,
             );
             emitted_any = true;
         }
-        emit_single_free_function_forwarder(func, &swift_name, out);
+        emit_single_free_function_forwarder(func, &swift_name, known_dto_names, out);
     }
 }
 
 /// Emit a single `public func` forwarder that delegates to `RustBridge.{swift_name}`.
-fn emit_single_free_function_forwarder(func: &FunctionDef, swift_name: &str, out: &mut String) {
-    let throws_clause = if func.error_type.is_some() { " throws" } else { "" };
-    let try_keyword = if func.error_type.is_some() { "try " } else { "" };
+fn emit_single_free_function_forwarder(
+    func: &FunctionDef,
+    swift_name: &str,
+    known_dto_names: &std::collections::HashSet<String>,
+    out: &mut String,
+) {
+    // The outer function must be `throws` whenever either the underlying
+    // bridge call returns a `Result<_, _>` OR the return-value conversion
+    // can throw (Named-DTO conversion goes through `init(_ rb:) throws`).
+    let return_conversion_throws = return_value_conversion_throws(&func.return_type, known_dto_names);
+    let throws_clause = if func.error_type.is_some() || return_conversion_throws {
+        " throws"
+    } else {
+        ""
+    };
+    // The outer return expression also needs `try` in either of the same
+    // two cases — the `try` propagates the failure from whichever sub-expression
+    // can throw.
+    let try_keyword = if func.error_type.is_some() || return_conversion_throws {
+        "try "
+    } else {
+        ""
+    };
     let return_ty = forwarder_return_type(&func.return_type);
     let return_clause = if matches!(&func.return_type, TypeRef::Unit) {
         String::new()
@@ -2558,7 +2583,7 @@ fn emit_single_free_function_forwarder(func: &FunctionDef, swift_name: &str, out
     for line in &conversion_lines {
         out.push_str(&format!("    {line}\n"));
     }
-    let return_suffix = forwarder_return_conversion_suffix(&func.return_type);
+    let return_suffix = forwarder_return_conversion_suffix(&func.return_type, known_dto_names);
     out.push_str(&format!(
         "    return {try_keyword}RustBridge.{swift_name}({args}){return_suffix}\n"
     ));
@@ -2712,17 +2737,57 @@ fn forwarder_return_type(ty: &TypeRef) -> String {
 /// For `RustVec<T>` returns the convention is `.map { $0 }` to materialise as a
 /// Swift `Array`; the closure receives the leaf swift-bridge type which can be
 /// converted further if needed.
-fn forwarder_return_conversion_suffix(ty: &TypeRef) -> String {
+fn forwarder_return_conversion_suffix(
+    ty: &TypeRef,
+    known_dto_names: &std::collections::HashSet<String>,
+) -> String {
     match ty {
         TypeRef::Bytes => ".map { $0 }".to_string(),
         TypeRef::Vec(inner) => match inner.as_ref() {
-            // RustVec<RustString> → [String] requires per-element conversion.
+            // RustVec<RustString> iteration yields `RustStringRef` (borrowed) per
+            // `RustVecIterator<RustString>.next -> T.SelfRef`. swift-bridge only
+            // emits `extension RustString { func toString() }` for the owned class,
+            // so a naive `$0.toString()` over `RustStringRef` fails to resolve.
+            // alef post-processes `SwiftBridgeCore.swift` with a symmetric
+            // `extension RustStringRef { func toString() }` shim
+            // (see [`append_rust_string_ref_to_string_extension`]), making the
+            // `.toString()` form below the canonical chained suffix.
             TypeRef::String => ".map { $0.toString() }".to_string(),
             TypeRef::Primitive(_) => ".map { $0 }".to_string(),
             _ => String::new(),
         },
+        // `Optional<RustBridge.{Dto}>` returned by the bridge call must be
+        // converted to the high-level `Optional<{Dto}>` struct emitted in the
+        // same module. The conversion uses the symmetric `init(_ rb:) throws`
+        // initializer produced by the first-class DTO emitter, so the closure
+        // is marked `try`; the enclosing forwarder widens to `throws` via
+        // [`return_value_conversion_throws`].
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(name) if known_dto_names.contains(name) => {
+                format!(".map {{ try {name}($0) }}")
+            }
+            _ => String::new(),
+        },
         _ => String::new(),
     }
+}
+
+/// Returns true when the conversion suffix produced by
+/// [`forwarder_return_conversion_suffix`] contains a `try` sub-expression,
+/// meaning the surrounding `return ...` line must itself sit inside a
+/// throwing context.
+///
+/// Only `Optional<Named-DTO>` returns currently emit a throwing suffix
+/// (`Optional.map { try {Name}($0) }`). Vec<Named> and bare Named returns
+/// emit no suffix today — see the matching arms above. If those paths grow a
+/// throwing converter in the future, extend this match in lockstep so the
+/// outer forwarder is consistently marked `throws`.
+fn return_value_conversion_throws(ty: &TypeRef, known_dto_names: &std::collections::HashSet<String>) -> bool {
+    matches!(
+        ty,
+        TypeRef::Optional(inner)
+            if matches!(inner.as_ref(), TypeRef::Named(name) if known_dto_names.contains(name))
+    )
 }
 
 /// Emit top-level public forwarders for trait-bridge register/unregister/clear
@@ -3152,6 +3217,44 @@ fn swift_inbound_type(ty: &TypeRef, optional: bool) -> String {
 /// Idempotent: if the file already starts with `import RustBridgeC` or the
 /// `swift-format-ignore-file` directive is already present, neither is
 /// duplicated.
+/// Append an `extension RustStringRef { public func toString() -> String }`
+/// shim to swift-bridge's generated `SwiftBridgeCore.swift`.
+///
+/// swift-bridge emits `extension RustString { func toString() }` (a shortcut for
+/// `as_str().toString()`) for the owned `RustString` class, but the borrowed
+/// reference companion `RustStringRef` — yielded by
+/// `RustVecIterator<RustString>.next` (`T.SelfRef` per `Vectorizable`) — has no
+/// equivalent shortcut. Without this shim every alef-emitted
+/// `RustVec<RustString>().map { $0.toString() }` snippet fails to resolve
+/// because `$0` lands on the borrowed reference, not the owned class.
+///
+/// Idempotent: a marker comment is checked before appending so repeated
+/// `alef all --clean` runs produce stable file content.
+fn append_rust_string_ref_to_string_extension(content: &str) -> String {
+    const MARKER: &str = "// alef: RustStringRef.toString() shim";
+    if content.contains(MARKER) {
+        return content.to_string();
+    }
+    let mut out = content.to_string();
+    if !out.ends_with('\n') {
+        out.push('\n');
+    }
+    out.push_str(&format!(
+        "\n{MARKER}\n\
+         // swift-bridge emits `extension RustString {{ func toString() }}` but the\n\
+         // borrowed-reference companion `RustStringRef` (yielded by\n\
+         // `RustVecIterator<RustString>.next`) does not get the same shortcut.\n\
+         // Without this, `RustVec<RustString>().map {{ $0.toString() }}` fails to\n\
+         // resolve because `$0` lands on `RustStringRef`, not `RustString`.\n\
+         extension RustStringRef {{\n    \
+             public func toString() -> String {{\n        \
+                 self.as_str().toString()\n    \
+             }}\n\
+         }}\n",
+    ));
+    out
+}
+
 fn prepend_rust_bridge_c_import(content: &str) -> String {
     const IMPORT: &str = "import RustBridgeC";
     const IGNORE: &str = "// swift-format-ignore-file";
@@ -3228,5 +3331,68 @@ mod tests {
             1,
             "ignore directive must appear exactly once",
         );
+    }
+
+    /// Fresh `SwiftBridgeCore.swift` content (no marker comment) must receive
+    /// the `RustStringRef.toString()` shim so iterating `RustVec<RustString>`
+    /// resolves `$0.toString()` against the borrowed-reference companion.
+    #[test]
+    fn append_adds_rust_string_ref_to_string_shim_when_missing() {
+        let core_swift = "import Foundation\n\npublic class RustString {}\n";
+        let result = append_rust_string_ref_to_string_extension(core_swift);
+        assert!(
+            result.contains("extension RustStringRef {"),
+            "expected RustStringRef extension to be appended, got: {result:?}",
+        );
+        assert!(
+            result.contains("self.as_str().toString()"),
+            "expected the shim body to delegate to `as_str().toString()`",
+        );
+    }
+
+    /// Re-running the post-processor over already-shimmed content must be a
+    /// no-op so the embedded `SwiftBridgeCore.swift` stays byte-stable across
+    /// `alef all --clean` cycles.
+    #[test]
+    fn append_rust_string_ref_to_string_shim_is_idempotent() {
+        let core_swift = "import Foundation\n\npublic class RustString {}\n";
+        let once = append_rust_string_ref_to_string_extension(core_swift);
+        let twice = append_rust_string_ref_to_string_extension(&once);
+        assert_eq!(once, twice, "second pass must not append the extension again");
+        assert_eq!(
+            twice.matches("extension RustStringRef {").count(),
+            1,
+            "the RustStringRef extension must appear exactly once across regens",
+        );
+    }
+
+    /// Free-function forwarders that return `Optional<RustBridge.{Dto}>` must
+    /// convert into the high-level `Optional<{Dto}>` struct via the symmetric
+    /// `init(_ rb:) throws` initializer, using `Optional.map { try {Dto}($0) }`.
+    /// The conversion must also report as throwing so the outer forwarder is
+    /// widened to `throws`.
+    #[test]
+    fn optional_named_dto_return_emits_throwing_map_conversion() {
+        let mut known: std::collections::HashSet<String> = Default::default();
+        known.insert("EmbeddingPreset".to_string());
+        let ty = TypeRef::Optional(Box::new(TypeRef::Named("EmbeddingPreset".to_string())));
+        let suffix = forwarder_return_conversion_suffix(&ty, &known);
+        assert_eq!(suffix, ".map { try EmbeddingPreset($0) }");
+        assert!(
+            return_value_conversion_throws(&ty, &known),
+            "Optional<Named DTO> conversion must report as throwing so the forwarder is `throws`",
+        );
+    }
+
+    /// A non-DTO Named return (e.g. an opaque handle type that has no
+    /// high-level struct counterpart in the same module) must NOT be rewritten
+    /// — the existing pass-through behaviour stays intact.
+    #[test]
+    fn optional_non_dto_named_return_passes_through_unchanged() {
+        let known: std::collections::HashSet<String> = Default::default();
+        let ty = TypeRef::Optional(Box::new(TypeRef::Named("OpaqueHandle".to_string())));
+        let suffix = forwarder_return_conversion_suffix(&ty, &known);
+        assert!(suffix.is_empty(), "non-DTO Named return must not emit any suffix");
+        assert!(!return_value_conversion_throws(&ty, &known));
     }
 }
