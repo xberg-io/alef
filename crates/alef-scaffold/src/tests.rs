@@ -365,9 +365,7 @@ fn test_scaffold_ffi_target_dep_overrides_emit_cfg_blocks() {
 
     // The default branch is wrapped in cfg(not(<override-cfg>)).
     assert!(
-        cargo_toml.contains(
-            "[target.'cfg(not(all(target_os = \"android\", target_arch = \"x86_64\")))'.dependencies]"
-        ),
+        cargo_toml.contains("[target.'cfg(not(all(target_os = \"android\", target_arch = \"x86_64\")))'.dependencies]"),
         "expected default-branch target table with cfg(not(...)), got:\n{cargo_toml}"
     );
     assert!(
@@ -377,9 +375,7 @@ fn test_scaffold_ffi_target_dep_overrides_emit_cfg_blocks() {
 
     // The override branch keeps the explicit cfg and a reduced feature set.
     assert!(
-        cargo_toml.contains(
-            "[target.'cfg(all(target_os = \"android\", target_arch = \"x86_64\"))'.dependencies]"
-        ),
+        cargo_toml.contains("[target.'cfg(all(target_os = \"android\", target_arch = \"x86_64\"))'.dependencies]"),
         "expected override target table, got:\n{cargo_toml}"
     );
     assert!(

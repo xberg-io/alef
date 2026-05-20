@@ -1,8 +1,8 @@
 use crate::gen_bindings::enums::sanitize_python_doc;
 use crate::type_map::python_type;
 use alef_codegen::shared::binding_fields;
-use alef_core::config::{AdapterPattern, Language, ResolvedCrateConfig, TraitBridgeConfig};
 use alef_core::config::workspace::ClientConstructorConfig;
+use alef_core::config::{AdapterPattern, Language, ResolvedCrateConfig, TraitBridgeConfig};
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{ApiSurface, EnumDef, FunctionDef, MethodDef, TypeDef, TypeRef};
 
@@ -104,8 +104,7 @@ fn constructor_rust_type_to_python(rust_type: &str) -> &str {
         "String" | "&str" | "&'static str" | "std::string::String" => "str",
         "bytes::Bytes" | "Vec<u8>" | "&[u8]" => "bytes",
         "bool" => "bool",
-        "i8" | "i16" | "i32" | "i64" | "i128" | "isize" |
-        "u8" | "u16" | "u32" | "u64" | "u128" | "usize" => "int",
+        "i8" | "i16" | "i32" | "i64" | "i128" | "isize" | "u8" | "u16" | "u32" | "u64" | "u128" | "usize" => "int",
         "f32" | "f64" => "float",
         "()" => "None",
         _ => "Any",

@@ -876,7 +876,11 @@ fn detect_first_fence_lang(body: &str) -> &str {
         let trimmed = line.trim_start();
         if let Some(rest) = trimmed.strip_prefix("```") {
             let tag = rest.split(',').next().unwrap_or("").trim();
-            return if tag.is_empty() || is_rust_fence_tag(tag) { "rust" } else { tag };
+            return if tag.is_empty() || is_rust_fence_tag(tag) {
+                "rust"
+            } else {
+                tag
+            };
         }
     }
     "rust"
@@ -3251,7 +3255,8 @@ mod tests {
 
     #[test]
     fn example_for_target_no_run_fence_suppressed_for_typescript() {
-        let example = "```no_run\nuse tree_sitter_language_pack::available_languages;\nlet langs = available_languages();\n```";
+        let example =
+            "```no_run\nuse tree_sitter_language_pack::available_languages;\nlet langs = available_languages();\n```";
         assert_eq!(
             example_for_target(example, "typescript"),
             None,

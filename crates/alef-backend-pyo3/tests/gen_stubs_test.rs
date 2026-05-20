@@ -1416,7 +1416,6 @@ fn test_pyi_stub_escapes_python_keyword_variant_names() {
     );
 }
 
-
 /// Opaque types that have a `[workspace.client_constructors.TypeName]` entry must emit
 /// a `def __init__(self, ...) -> None: ...` stub so mypy accepts `TypeName(params...)`
 /// call sites.  Without this stub mypy infers `def __init__(self) -> None` (no args)

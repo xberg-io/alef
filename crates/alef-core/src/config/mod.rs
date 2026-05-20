@@ -33,10 +33,10 @@ pub use e2e::E2eConfig;
 pub use extras::{AdapterConfig, AdapterParam, AdapterPattern, Language, is_known_language};
 pub use languages::{
     CSharpConfig, CapsuleTypeConfig, CustomModulesConfig, CustomRegistration, CustomRegistrationsConfig, DartConfig,
-    DartStyle, ElixirConfig, FfiConfig, FfiTargetDepOverride, GleamConfig, GleamElementConstructor, GleamElementField, GoConfig, JavaConfig,
-    JniConfig, KotlinAndroidConfig, KotlinConfig, KotlinFfiStyle, KotlinTarget, NapiTypeTagConfig,
-    NodeCapsuleTypeConfig, NodeConfig, PhpConfig, PythonConfig, RConfig, RubyConfig, StubsConfig, SwiftConfig,
-    WasmConfig, ZigConfig,
+    DartStyle, ElixirConfig, FfiConfig, FfiTargetDepOverride, GleamConfig, GleamElementConstructor, GleamElementField,
+    GoConfig, JavaConfig, JniConfig, KotlinAndroidConfig, KotlinConfig, KotlinFfiStyle, KotlinTarget,
+    NapiTypeTagConfig, NodeCapsuleTypeConfig, NodeConfig, PhpConfig, PythonConfig, RConfig, RubyConfig, StubsConfig,
+    SwiftConfig, WasmConfig, ZigConfig,
 };
 pub use legacy::{LegacyConfigError, LegacyKey, detect_legacy_keys};
 pub use new_config::{NewAlefConfig, ResolveError};
