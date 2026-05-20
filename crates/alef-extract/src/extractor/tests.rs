@@ -3550,7 +3550,10 @@ fn wrapper_struct_alongside_per_element_struct_is_extracted() {
         .find(|t| t.name == "BatchScrapeResults")
         .expect("wrapper present");
     let field_names: Vec<&str> = wrapper.fields.iter().map(|f| f.name.as_str()).collect();
-    assert_eq!(field_names, vec!["results", "total_count", "completed_count", "failed_count"]);
+    assert_eq!(
+        field_names,
+        vec!["results", "total_count", "completed_count", "failed_count"]
+    );
     assert!(!wrapper.is_opaque, "wrapper struct must not be opaque");
 
     let func = surface

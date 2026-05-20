@@ -2,6 +2,12 @@
 
 use super::callbacks::CallbackSpec;
 
+/// Sanitize a docstring for use in Javadoc.
+/// Delegates to the shared rustdoc→javadoc sanitizer to remove Rust idioms.
+pub(super) fn sanitize_callback_doc(doc: &str) -> String {
+    alef_codegen::doc_emission::sanitize_rust_idioms(doc, alef_codegen::doc_emission::DocTarget::JavaDoc)
+}
+
 /// Generate camelCase stub variable name: stub + capitalize(java_method).
 /// e.g. visitText -> stubVisitText
 pub(super) fn stub_var_name(java_method: &str) -> String {

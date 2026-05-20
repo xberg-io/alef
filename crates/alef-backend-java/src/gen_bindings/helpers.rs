@@ -200,10 +200,10 @@ fn transform_rustdoc_for_java(doc: &str) -> String {
     let sections = alef_codegen::doc_emission::parse_rustdoc_sections(doc);
     let rendered = alef_codegen::doc_emission::render_javadoc_sections(&sections, "KreuzbergRsException");
     if rendered.trim().is_empty() {
-        // Fallback: when no recognised sections present, emit the raw doc with
-        // intra-doc-link cleanup — preserves backward compatibility for prose
-        // that has no Markdown headings.
-        return doc.replace("[`", "").replace("`]", "").trim().to_string();
+        // Fallback: when no recognised sections present, sanitize Rust idioms and remove intra-doc links
+        // to preserve backward compatibility for prose that has no Markdown headings.
+        let sanitized = sanitize_rust_syntax(doc);
+        return sanitized.replace("[`", "").replace("`]", "").trim().to_string();
     }
     rendered.replace("[`", "").replace("`]", "")
 }

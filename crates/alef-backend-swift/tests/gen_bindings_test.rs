@@ -298,8 +298,12 @@ fn primitive_only_serde_struct_without_default_emits_direct_bulk_constructor() {
         content.contains("return RustBridge.Config(self.value)"),
         "intoRust must call the direct bulk constructor, not a JSON shim: {content}"
     );
+    // A top-level `configFromJson` forwarder is intentionally still emitted (every
+    // from_json-eligible type gets one — see `emit_from_json_forwarders`), but it
+    // routes through JSONDecoder, not `RustBridge.configFromJson`. The intoRust
+    // path must remain the direct bulk constructor.
     assert!(
-        !content.contains("configFromJson"),
+        !content.contains("return try RustBridge.configFromJson("),
         "intoRust must NOT route through *_from_json for primitive-only DTOs: {content}"
     );
 }

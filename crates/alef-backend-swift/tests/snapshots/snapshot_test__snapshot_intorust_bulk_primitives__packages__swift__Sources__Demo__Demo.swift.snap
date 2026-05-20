@@ -32,3 +32,13 @@ internal extension Span {
         return RustBridge.Span(self.startByte, self.endByte)
     }
 }
+
+// MARK: - From-JSON Helpers
+// Public helpers that decode JSON into first-class Swift types.
+// First-class struct types (Codable) use JSONDecoder directly.
+// Opaque RustBridge types forward to RustBridge.
+
+public func spanFromJson(_ json: String) throws -> Span {
+    let data = json.data(using: .utf8) ?? Data()
+    return try JSONDecoder().decode(Span.self, from: data)
+}

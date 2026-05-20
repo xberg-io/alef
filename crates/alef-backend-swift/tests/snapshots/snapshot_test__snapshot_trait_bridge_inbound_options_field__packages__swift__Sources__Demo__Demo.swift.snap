@@ -32,6 +32,16 @@ internal extension ConversionOptions {
     }
 }
 
+// MARK: - From-JSON Helpers
+// Public helpers that decode JSON into first-class Swift types.
+// First-class struct types (Codable) use JSONDecoder directly.
+// Opaque RustBridge types forward to RustBridge.
+
+public func conversionOptionsFromJson(_ json: String) throws -> ConversionOptions {
+    let data = json.data(using: .utf8) ?? Data()
+    return try JSONDecoder().decode(ConversionOptions.self, from: data)
+}
+
 /// Swift protocol that Swift classes implement to provide visitor callbacks.
 /// Conform to this protocol to intercept HTML→Markdown conversion events.
 public protocol HtmlVisitorProtocol: AnyObject {

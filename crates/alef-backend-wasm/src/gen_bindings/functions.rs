@@ -10,14 +10,18 @@ use alef_core::ir::{FunctionDef, TypeRef};
 ///
 /// Returns an empty string when `doc` is empty, otherwise returns each line
 /// prefixed with `/// ` and terminated with a newline, ready to prepend to an item.
+///
+/// Sanitizes Rust idioms (Option<T>, Vec<T>, ::, Some(), None, intra-doc links, etc.)
+/// to be TS-doc idiomatic before emitting.
 pub(super) fn emit_rustdoc(doc: &str) -> String {
     if doc.is_empty() {
         return String::new();
     }
+    let sanitized = alef_codegen::doc_emission::sanitize_rust_idioms(doc, alef_codegen::doc_emission::DocTarget::TsDoc);
     crate::template_env::render(
         "rustdoc",
         minijinja::context! {
-            lines => doc.lines().collect::<Vec<_>>(),
+            lines => sanitized.lines().collect::<Vec<_>>(),
         },
     )
 }

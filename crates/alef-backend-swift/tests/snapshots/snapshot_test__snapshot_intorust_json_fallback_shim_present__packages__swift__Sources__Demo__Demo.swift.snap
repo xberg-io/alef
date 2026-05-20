@@ -10,3 +10,12 @@ import RustBridge
 
 /// Generic metadata bag.
 public typealias Metadata = RustBridge.Metadata
+
+// MARK: - From-JSON Helpers
+// Public helpers that decode JSON into first-class Swift types.
+// First-class struct types (Codable) use JSONDecoder directly.
+// Opaque RustBridge types forward to RustBridge.
+
+public func metadataFromJson(_ json: String) throws -> Metadata {
+    return try RustBridge.metadataFromJson(json)
+}

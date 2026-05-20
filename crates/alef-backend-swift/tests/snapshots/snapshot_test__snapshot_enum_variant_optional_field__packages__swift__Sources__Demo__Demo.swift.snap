@@ -42,3 +42,18 @@ extension StreamEvent {
         return try RustBridge.streamEventFromJson(json)
     }
 }
+
+// MARK: - From-JSON Helpers
+// Public helpers that decode JSON into first-class Swift types.
+// First-class struct types (Codable) use JSONDecoder directly.
+// Opaque RustBridge types forward to RustBridge.
+
+public func chunkFromJson(_ json: String) throws -> Chunk {
+    let data = json.data(using: .utf8) ?? Data()
+    return try JSONDecoder().decode(Chunk.self, from: data)
+}
+
+public func streamEventFromJson(_ json: String) throws -> StreamEvent {
+    let data = json.data(using: .utf8) ?? Data()
+    return try JSONDecoder().decode(StreamEvent.self, from: data)
+}

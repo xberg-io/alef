@@ -5,6 +5,7 @@
 
 use minijinja::context;
 
+use alef_codegen::doc_emission::{DocTarget, sanitize_rust_idioms};
 use alef_codegen::generators::trait_bridge::{
     BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec, bridge_param_type as param_type, gen_bridge_all,
     visitor_param_type,
@@ -913,9 +914,10 @@ pub fn gen_visitor_interface(
             format!("\n{}", param_docs.join("\n"))
         };
 
-        // Get docstring from method
+        // Get docstring from method, sanitized for PHP target
         let doc_lines = if !method.doc.is_empty() {
-            method.doc.lines().next().unwrap_or("").to_string()
+            let sanitized = sanitize_rust_idioms(&method.doc, DocTarget::PhpDoc);
+            sanitized.lines().next().unwrap_or("").to_string()
         } else {
             format!("Handle for {} callback", name)
         };

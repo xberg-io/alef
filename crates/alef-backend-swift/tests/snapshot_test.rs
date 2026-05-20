@@ -1140,9 +1140,13 @@ fn snapshot_into_rust_bulk_constructor_primitives() {
         "intoRust must NOT use the JSONEncoder fallback for Span:\n{}",
         swift_file.content
     );
+    // Top-level `spanFromJson` forwarder is still emitted (every from_json-eligible
+    // type gets one — see `emit_from_json_forwarders`), but it must use the
+    // JSONDecoder path, not route through `RustBridge.spanFromJson`. The intoRust
+    // body must use the direct bulk constructor.
     assert!(
-        !swift_file.content.contains("spanFromJson"),
-        "intoRust must NOT call spanFromJson when the bulk constructor is available:\n{}",
+        !swift_file.content.contains("return try RustBridge.spanFromJson("),
+        "intoRust must NOT call RustBridge.spanFromJson when the bulk constructor is available:\n{}",
         swift_file.content
     );
 
@@ -1393,9 +1397,12 @@ fn snapshot_intorust_bulk_constructor_primitive_no_default() {
         "intoRust must call positional constructor directly:\n{}",
         swift_file.content
     );
+    // Top-level `pointFromJson` forwarder is still emitted (every from_json-eligible
+    // type gets one — see `emit_from_json_forwarders`), but it must use JSONDecoder.
+    // The intoRust body must use the direct bulk constructor.
     assert!(
-        !swift_file.content.contains("pointFromJson"),
-        "intoRust must NOT call pointFromJson when bulk constructor is available:\n{}",
+        !swift_file.content.contains("return try RustBridge.pointFromJson("),
+        "intoRust must NOT call RustBridge.pointFromJson when bulk constructor is available:\n{}",
         swift_file.content
     );
     assert!(

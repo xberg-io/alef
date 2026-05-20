@@ -243,6 +243,51 @@ fn godoc_on_free_function_emits_arguments_bullets_and_errors() {
     );
 }
 
+/// Multi-line summary (blank line + continuation, no `# Section` heading) must have
+/// every continuation line prefixed with `//` — Go rejects bare lines between the
+/// comment block and the `func` declaration as syntax errors.
+#[test]
+fn godoc_multiline_summary_continuation_lines_are_prefixed() {
+    let doc = "Returns the canonical HTTP status code associated with this error.\n\n\
+        Maps error variants to their originating HTTP status code as set by\n\
+        LiterLlmError::from_status. Used by e2e assertions that check\n\
+        error.status_code against the expected HTTP status.";
+    let typ = make_opaque_type(
+        "Error",
+        vec![make_method("status_code", doc, TypeRef::Primitive(PrimitiveType::U16))],
+    );
+    let api = surface_for_type(typ);
+    let content = binding_content(&api, &make_config());
+
+    // Every line in the doc block must start with `//` — no bare continuation lines.
+    let func_marker = "func (h *Error) StatusCode(";
+    let func_pos = content.find(func_marker).unwrap_or_else(|| {
+        panic!("func declaration not found in:\n{content}");
+    });
+    // Walk backward to find the start of the doc comment block.
+    let comment_start = content[..func_pos]
+        .rfind("// StatusCode")
+        .unwrap_or_else(|| panic!("doc comment header not found in:\n{content}"));
+    let comment_block = &content[comment_start..func_pos];
+    for line in comment_block.lines() {
+        let trimmed = line.trim();
+        if !trimmed.is_empty() {
+            assert!(
+                trimmed.starts_with("//"),
+                "continuation line missing `//` prefix: {:?}\nfull comment block:\n{}",
+                line,
+                comment_block,
+            );
+        }
+    }
+    // The blank separator between first line and continuation must be `//` not a true blank line.
+    assert!(
+        !comment_block.contains("\n\n"),
+        "blank line (no `//`) found inside doc block — Go parser would reject it:\n{}",
+        comment_block,
+    );
+}
+
 /// When the rustdoc summary already starts with the Go-cased method name, the
 /// helper must NOT double-prefix (e.g. avoid `// RootNode RootNode returns ...`).
 #[test]

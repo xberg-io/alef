@@ -81,3 +81,23 @@ internal extension ProcessResult {
         return RustBridge.ProcessResult(self.language, __diagnostics, __tags)
     }
 }
+
+// MARK: - From-JSON Helpers
+// Public helpers that decode JSON into first-class Swift types.
+// First-class struct types (Codable) use JSONDecoder directly.
+// Opaque RustBridge types forward to RustBridge.
+
+public func spanFromJson(_ json: String) throws -> Span {
+    let data = json.data(using: .utf8) ?? Data()
+    return try JSONDecoder().decode(Span.self, from: data)
+}
+
+public func diagnosticFromJson(_ json: String) throws -> Diagnostic {
+    let data = json.data(using: .utf8) ?? Data()
+    return try JSONDecoder().decode(Diagnostic.self, from: data)
+}
+
+public func processResultFromJson(_ json: String) throws -> ProcessResult {
+    let data = json.data(using: .utf8) ?? Data()
+    return try JSONDecoder().decode(ProcessResult.self, from: data)
+}

@@ -4,8 +4,8 @@
 /// Emit PHPDoc-style comments (/** ... */)
 /// Used for PHP classes, methods, and properties.
 ///
-/// Translates rustdoc sections (`# Arguments` → `@param`,
-/// `# Returns` → `@return`, `# Errors` → `@throws`,
+/// Sanitizes Rust-specific idioms before translating rustdoc sections
+/// (`# Arguments` → `@param`, `# Returns` → `@return`, `# Errors` → `@throws`,
 /// `# Example` → ` ```php ` fence) via [`render_phpdoc_sections`].
 ///
 /// `exception_class` is the PHP exception class name to use in `@throws` tags.
@@ -13,7 +13,9 @@ pub fn emit_phpdoc(out: &mut String, doc: &str, indent: &str, exception_class: &
     if doc.is_empty() {
         return;
     }
-    let sections = parse_rustdoc_sections(doc);
+    // Sanitize Rust-specific idioms before processing sections.
+    let sanitized = sanitize_rust_idioms(doc, DocTarget::PhpDoc);
+    let sections = parse_rustdoc_sections(&sanitized);
     let any_section = sections.arguments.is_some()
         || sections.returns.is_some()
         || sections.errors.is_some()
@@ -21,7 +23,7 @@ pub fn emit_phpdoc(out: &mut String, doc: &str, indent: &str, exception_class: &
     let body = if any_section {
         render_phpdoc_sections(&sections, exception_class)
     } else {
-        doc.to_string()
+        sanitized
     };
     out.push_str(indent);
     out.push_str("/**\n");
@@ -1599,8 +1601,8 @@ fn regex_replace_word_boundary(s: &str, keyword: &str, replacement: &str) -> Str
     while i + klen <= bytes.len() {
         if &bytes[i..i + klen] == kbytes {
             let before_ok = i == 0 || !bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != b'_';
-            let after_ok = i + klen >= bytes.len()
-                || !bytes[i + klen].is_ascii_alphanumeric() && bytes[i + klen] != b'_';
+            let after_ok =
+                i + klen >= bytes.len() || !bytes[i + klen].is_ascii_alphanumeric() && bytes[i + klen] != b'_';
             if before_ok && after_ok {
                 out.push_str(replacement);
                 i += klen;
@@ -1671,8 +1673,7 @@ fn replace_static_lifetime(s: &str, replacement: &str) -> String {
             if bytes[j..].starts_with(keyword) {
                 let end = j + keyword.len();
                 // Must be followed by non-identifier char or end.
-                let after_ok =
-                    end >= bytes.len() || !bytes[end].is_ascii_alphanumeric() && bytes[end] != b'_';
+                let after_ok = end >= bytes.len() || !bytes[end].is_ascii_alphanumeric() && bytes[end] != b'_';
                 if after_ok {
                     out.push_str(replacement);
                     i = end;
@@ -1903,8 +1904,8 @@ fn replace_none_keyword(s: &str, target: DocTarget) -> String {
     while i + klen <= bytes.len() {
         if &bytes[i..i + klen] == keyword {
             let before_ok = i == 0 || !bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != b'_';
-            let after_ok = i + klen >= bytes.len()
-                || !bytes[i + klen].is_ascii_alphanumeric() && bytes[i + klen] != b'_';
+            let after_ok =
+                i + klen >= bytes.len() || !bytes[i + klen].is_ascii_alphanumeric() && bytes[i + klen] != b'_';
             if before_ok && after_ok {
                 out.push_str(replacement);
                 i += klen;
@@ -1929,8 +1930,7 @@ fn replace_path_separator(s: &str) -> String {
         if i + 1 < bytes.len() && bytes[i] == b':' && bytes[i + 1] == b':' {
             // Only replace if surrounded by identifier characters or end/start of string.
             let before_ok = i > 0 && (bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_');
-            let after_ok = i + 2 < bytes.len()
-                && (bytes[i + 2].is_ascii_alphanumeric() || bytes[i + 2] == b'_');
+            let after_ok = i + 2 < bytes.len() && (bytes[i + 2].is_ascii_alphanumeric() || bytes[i + 2] == b'_');
             if before_ok || after_ok {
                 out.push('.');
                 i += 2;
@@ -2722,7 +2722,10 @@ mod tests {
     fn sanitize_rust_fence_dropped_for_tsdoc() {
         let input = "Intro.\n\n```rust\nlet x = 1;\n```\n\nTrailer.";
         let out = sanitize_rust_idioms(input, DocTarget::TsDoc);
-        assert!(!out.contains("let x = 1;"), "rust fence content must be dropped, got: {out}");
+        assert!(
+            !out.contains("let x = 1;"),
+            "rust fence content must be dropped, got: {out}"
+        );
         assert!(!out.contains("```rust"), "got: {out}");
         assert!(out.contains("Trailer."), "text after fence must survive, got: {out}");
     }
@@ -2732,7 +2735,10 @@ mod tests {
         let input = "Intro.\n\n```rust\nlet x = 1;\n```\n\nTrailer.";
         let out = sanitize_rust_idioms(input, DocTarget::JavaDoc);
         // Language tag is stripped; content is kept.
-        assert!(out.contains("let x = 1;"), "fence content must survive for Java, got: {out}");
+        assert!(
+            out.contains("let x = 1;"),
+            "fence content must survive for Java, got: {out}"
+        );
         assert!(!out.contains("```rust"), "rust tag must be stripped, got: {out}");
         assert!(out.contains("```\n"), "bare fence must be kept, got: {out}");
     }
@@ -2751,7 +2757,10 @@ mod tests {
         let input = "The type is `Option<String>`.";
         let out = sanitize_rust_idioms(input, DocTarget::JavaDoc);
         // The backtick-protected span should be preserved verbatim.
-        assert!(out.contains("`Option<String>`"), "code span must be preserved, got: {out}");
+        assert!(
+            out.contains("`Option<String>`"),
+            "code span must be preserved, got: {out}"
+        );
     }
 
     #[test]
@@ -2768,7 +2777,10 @@ mod tests {
         let input = "Convert HTML to Markdown.\n\nReturns None on failure.\nUse Option<String> for the result.";
         let out = sanitize_rust_idioms(input, DocTarget::JavaDoc);
         assert!(out.contains("null"), "None must be replaced on line 2, got: {out}");
-        assert!(out.contains("String | null"), "Option<String> must be replaced on line 3, got: {out}");
+        assert!(
+            out.contains("String | null"),
+            "Option<String> must be replaced on line 3, got: {out}"
+        );
     }
 
     #[test]
@@ -2776,7 +2788,10 @@ mod tests {
         let input = "#[derive(Debug, Clone)]\nSome documentation.";
         let out = sanitize_rust_idioms(input, DocTarget::JavaDoc);
         assert!(!out.contains("#[derive("), "attribute line must be dropped, got: {out}");
-        assert!(out.contains("Some documentation.") || out.contains("the value (documentation.)"), "prose must survive, got: {out}");
+        assert!(
+            out.contains("Some documentation.") || out.contains("the value (documentation.)"),
+            "prose must survive, got: {out}"
+        );
     }
 
     #[test]

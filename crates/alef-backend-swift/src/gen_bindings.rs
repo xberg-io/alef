@@ -5,7 +5,7 @@ use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, Ge
 use alef_core::config::{
     AdapterConfig, AdapterPattern, BridgeBinding, Language, ResolvedCrateConfig, resolve_output_dir,
 };
-use alef_core::ir::{ApiSurface, EnumDef, EnumVariant, ErrorDef, FunctionDef, MethodDef, ParamDef, TypeRef};
+use alef_core::ir::{ApiSurface, EnumDef, EnumVariant, ErrorDef, FunctionDef, MethodDef, TypeRef};
 use heck::{AsSnakeCase, ToLowerCamelCase, ToSnakeCase, ToUpperCamelCase};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -872,7 +872,7 @@ fn vec_elem_convert_expr(
     use alef_core::ir::TypeRef;
     match inner {
         // RustVec<RustString> iteration yields RustStringRef — see RustStringRef
-        // shim comment in `forwarder_return_conversion_suffix` for why we use
+        // shim comment in `forwarder_return_conversion_suffix_inner` for why we use
         // `as_str().toString()` instead of `toString()` directly.
         TypeRef::String => "$0.as_str().toString()".to_string(),
         TypeRef::Named(name) if known_dto_names.contains(name) => format!("try {name}($0)"),
@@ -968,14 +968,10 @@ fn emit_enum(en: &EnumDef, out: &mut String, mapper: &SwiftMapper) {
 fn emit_enum_into_rust_extension(name: &str, out: &mut String) {
     let from_json_fn = format!("{}_from_json", AsSnakeCase(name)).to_lower_camel_case();
     out.push_str(&format!("extension {name} {{\n"));
-    out.push_str(&format!(
-        "    func intoRust() throws -> RustBridge.{name} {{\n"
-    ));
+    out.push_str(&format!("    func intoRust() throws -> RustBridge.{name} {{\n"));
     out.push_str("        let data = try JSONEncoder().encode(self)\n");
     out.push_str("        let json = String(data: data, encoding: .utf8) ?? \"null\"\n");
-    out.push_str(&format!(
-        "        return try RustBridge.{from_json_fn}(json)\n"
-    ));
+    out.push_str(&format!("        return try RustBridge.{from_json_fn}(json)\n"));
     out.push_str("    }\n");
     out.push_str("}\n");
 }
@@ -1807,34 +1803,48 @@ fn emit_from_json_forwarders(
 ) {
     use heck::AsSnakeCase;
 
-    // Mirror the filter used by `gen_rust_crate::collect_serde_param_types`:
-    // non-opaque, non-trait, serde-enabled types that appear as method/free-fn params.
+    // Emit `*FromJson` forwarders for every from_json-eligible type — i.e. every
+    // serde-enabled, non-opaque, non-trait type in the api surface.  This must
+    // stay a strict superset of the union of types for which the Rust crate side
+    // (`gen_rust_crate::emit_lib_rs`) emits `{type_snake}_from_json` swift-bridge
+    // shims, which is itself the union of four sets:
+    //   1. e2e helper types (ExtractionConfig, BatchBytesItem, BatchFileItem)
+    //   2. `collect_serde_param_types` (types used as method/free-fn params)
+    //   3. streaming item types
+    //   4. `json_fallback_types` (types Swift's `intoRust()` JSON-encodes)
+    // The previous filter mirrored only (2), so types that participate purely
+    // as nested fields / return types (LayoutDetectionConfig, PdfConfig,
+    // PostProcessorConfig, etc.) — but are still first-class Codable structs on
+    // the Swift side — lacked a top-level `*FromJson` forwarder. Broaden to the
+    // shared structural predicate (`!is_trait && !is_opaque && has_serde`) so
+    // every Swift e2e fixture that names a config type can decode JSON without
+    // routing through `RustBridge.`.
     let e2e_covered = ["ExtractionConfig", "BatchBytesItem", "BatchFileItem"];
     let e2e_covered_set: std::collections::HashSet<&str> = e2e_covered.iter().copied().collect();
 
-    fn param_uses_type(params: &[ParamDef], name: &str) -> bool {
-        params.iter().any(|p| p.ty.references_named(name))
-    }
-
-    let candidates: Vec<&str> = api
+    let struct_candidates: Vec<&str> = api
         .types
         .iter()
         .filter(|t| !t.is_trait && !t.is_opaque && t.has_serde)
         .filter(|t| !exclude_types.contains(&t.name))
         .filter(|t| !e2e_covered_set.contains(t.name.as_str()))
-        .filter(|ty| {
-            let name = ty.name.as_str();
-            let in_free_fn = api.functions.iter().any(|f| param_uses_type(&f.params, name));
-            let in_method = api
-                .types
-                .iter()
-                .any(|t| t.methods.iter().any(|m| param_uses_type(&m.params, name)));
-            in_free_fn || in_method
-        })
         .map(|t| t.name.as_str())
         .collect();
 
-    if candidates.is_empty() {
+    // Enums with serde derives are emitted as Swift `Codable` enums by `emit_enum`
+    // (either `enum X: String, Codable` for all-unit or `enum X: Codable` with
+    // associated values for data variants). They also need a top-level
+    // `{enumSnake}FromJson` forwarder so e2e fixtures can decode enum JSON, and
+    // because subagent 1's enum `intoRust()` extension calls
+    // `RustBridge.{enumSnake}FromJson(json)` after JSON-encoding `self`.
+    let enum_candidates: Vec<&str> = api
+        .enums
+        .iter()
+        .filter(|e| e.has_serde && !exclude_types.contains(&e.name))
+        .map(|e| e.name.as_str())
+        .collect();
+
+    if struct_candidates.is_empty() && enum_candidates.is_empty() {
         return;
     }
 
@@ -1851,7 +1861,7 @@ fn emit_from_json_forwarders(
         .map(|t| t.name.as_str())
         .collect();
 
-    for type_name in candidates {
+    for type_name in struct_candidates {
         let type_snake = AsSnakeCase(type_name).to_string();
         let swift_name = format!("{type_snake}_from_json").to_lower_camel_case();
         if first_class_set.contains(type_name) {
@@ -1863,6 +1873,17 @@ fn emit_from_json_forwarders(
                 "public func {swift_name}(_ json: String) throws -> {type_name} {{\n    return try RustBridge.{swift_name}(json)\n}}\n\n"
             ));
         }
+    }
+
+    // All serde-enabled enums are emitted as native Swift `Codable` enums by
+    // `emit_enum`, so JSONDecoder handles both the unit (`String` raw value) and
+    // data-variant (`enum X: Codable` with associated values) cases.
+    for enum_name in enum_candidates {
+        let enum_snake = AsSnakeCase(enum_name).to_string();
+        let swift_name = format!("{enum_snake}_from_json").to_lower_camel_case();
+        out.push_str(&format!(
+            "public func {swift_name}(_ json: String) throws -> {enum_name} {{\n    let data = json.data(using: .utf8) ?? Data()\n    return try JSONDecoder().decode({enum_name}.self, from: data)\n}}\n\n"
+        ));
     }
 }
 
@@ -3003,10 +3024,6 @@ fn forwarder_return_type(ty: &TypeRef) -> String {
 /// For `RustVec<T>` returns the convention is `.map { $0 }` to materialise as a
 /// Swift `Array`; the closure receives the leaf swift-bridge type which can be
 /// converted further if needed.
-fn forwarder_return_conversion_suffix(ty: &TypeRef, known_dto_names: &std::collections::HashSet<String>) -> String {
-    forwarder_return_conversion_suffix_inner(ty, known_dto_names, false)
-}
-
 fn forwarder_return_conversion_suffix_with_throws(
     ty: &TypeRef,
     known_dto_names: &std::collections::HashSet<String>,
@@ -3076,7 +3093,7 @@ fn forwarder_return_conversion_suffix_inner(
 }
 
 /// Returns true if the value-conversion suffix produced by
-/// [`forwarder_return_conversion_suffix`] contains a `try` expression — meaning
+/// [`forwarder_return_conversion_suffix_inner`] contains a `try` expression — meaning
 /// the surrounding `return ...` line must itself sit inside a throwing context.
 ///
 /// Only Named-DTO conversions throw (`init(_ rb:) throws`). All other suffixes
@@ -3086,7 +3103,7 @@ fn return_value_conversion_throws(ty: &TypeRef, known_dto_names: &std::collectio
         // Only `Optional<Named-DTO>` returns currently emit a throwing
         // suffix (`Optional.map { try {Name}($0) }`). Bare Named returns and
         // `Vec<Named>` returns emit no suffix today — see the corresponding
-        // arms in [`forwarder_return_conversion_suffix`].
+        // arms in [`forwarder_return_conversion_suffix_inner`].
         TypeRef::Optional(inner) => matches!(
             inner.as_ref(),
             TypeRef::Named(name) if known_dto_names.contains(name)
@@ -3671,7 +3688,7 @@ mod tests {
         let mut known: std::collections::HashSet<String> = Default::default();
         known.insert("EmbeddingPreset".to_string());
         let ty = TypeRef::Optional(Box::new(TypeRef::Named("EmbeddingPreset".to_string())));
-        let suffix = forwarder_return_conversion_suffix(&ty, &known);
+        let suffix = forwarder_return_conversion_suffix_with_throws(&ty, &known, false);
         assert_eq!(suffix, ".map { try EmbeddingPreset($0) }");
         assert!(
             return_value_conversion_throws(&ty, &known),
@@ -3686,7 +3703,7 @@ mod tests {
     fn optional_non_dto_named_return_passes_through_unchanged() {
         let known: std::collections::HashSet<String> = Default::default();
         let ty = TypeRef::Optional(Box::new(TypeRef::Named("OpaqueHandle".to_string())));
-        let suffix = forwarder_return_conversion_suffix(&ty, &known);
+        let suffix = forwarder_return_conversion_suffix_with_throws(&ty, &known, false);
         assert!(suffix.is_empty(), "non-DTO Named return must not emit any suffix");
         assert!(!return_value_conversion_throws(&ty, &known));
     }

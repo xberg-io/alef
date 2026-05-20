@@ -54,6 +54,11 @@ public func ocrConfigFromJson(_ json: String) throws -> OcrConfig {
     return try JSONDecoder().decode(OcrConfig.self, from: data)
 }
 
+public func extractionResultFromJson(_ json: String) throws -> ExtractionResult {
+    let data = json.data(using: .utf8) ?? Data()
+    return try JSONDecoder().decode(ExtractionResult.self, from: data)
+}
+
 // MARK: - Trait Bridge Registration Forwarders
 // Top-level `public func` re-exports of the swift-bridge–generated
 // `register_*` / `unregister_*` / `clear_*` plugin registration entry

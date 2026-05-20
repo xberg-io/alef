@@ -3,7 +3,9 @@
 use alef_core::hash::{self, CommentStyle};
 
 use super::callbacks::CALLBACKS;
-use super::helpers::{callback_descriptor, callback_method_type, gen_handle_method, iface_param_str, stub_var_name};
+use super::helpers::{
+    callback_descriptor, callback_method_type, gen_handle_method, iface_param_str, sanitize_callback_doc, stub_var_name,
+};
 
 /// Number of callbacks per generated `registerStubsN` Java method.
 /// Used by both the stub-call list (constructor body) and the stub-method emitter.
@@ -37,7 +39,7 @@ pub(super) fn gen_visitor_interface(package: &str, _class_name: &str) -> String 
         .iter()
         .map(|spec| {
             minijinja::context! {
-                doc => spec.doc,
+                doc => sanitize_callback_doc(spec.doc),
                 java_method => spec.java_method,
                 params => iface_param_str(spec),
             }

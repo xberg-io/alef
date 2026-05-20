@@ -889,14 +889,34 @@ fn apply_filters(mut api: ApiSurface, config: &ResolvedCrateConfig) -> ApiSurfac
 }
 
 /// Expand the include list by transitively discovering all types referenced by fields,
-/// method parameters, and return types of the included types.
-fn expand_include_list(api: &ApiSurface, include_types: &[String]) -> AHashSet<String> {
+/// method parameters, and return types of the included types, plus the signatures
+/// (return type and params) of `include_functions`.
+fn expand_include_list(api: &ApiSurface, include_types: &[String], include_functions: &[String]) -> AHashSet<String> {
     let mut needed: AHashSet<String> = include_types.iter().cloned().collect();
     let mut changed = true;
 
     // Build a map of all available types for lookup
     let all_types: AHashMap<String, &TypeDef> = api.types.iter().map(|t| (t.name.clone(), t)).collect();
     let all_enums: AHashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
+
+    // Seed `needed` with type references from the signatures of included functions
+    // before the fixed-point loop. The user has explicitly opted into these functions
+    // via `include.functions`, so the types they expose at their public boundary must
+    // survive the include-list filter — otherwise the function's return type gets
+    // sanitized away to `String` later in the pipeline (regression for kreuzcrawl's
+    // `BatchScrapeResults` / `BatchCrawlResults` wrapper structs).
+    let include_function_set: AHashSet<&str> = include_functions.iter().map(String::as_str).collect();
+    if !include_function_set.is_empty() {
+        for func in &api.functions {
+            if !include_function_set.contains(func.name.as_str()) {
+                continue;
+            }
+            collect_named_types(&func.return_type, &mut needed, &all_types, &all_enums, &mut changed);
+            for param in &func.params {
+                collect_named_types(&param.ty, &mut needed, &all_types, &all_enums, &mut changed);
+            }
+        }
+    }
 
     while changed {
         changed = false;
@@ -1143,6 +1163,172 @@ mod tests {
         assert!(
             is_type_excluded("Foo", "my-crate::some_module::Foo", &exclude),
             "hyphens in rust_path should be normalised to underscores"
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // expand_include_list — function-signature seeding
+    // ---------------------------------------------------------------------------
+
+    fn make_typedef(name: &str) -> alef_core::ir::TypeDef {
+        alef_core::ir::TypeDef {
+            name: name.to_string(),
+            rust_path: format!("my_crate::{name}"),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: false,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            doc: String::new(),
+            cfg: None,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }
+    }
+
+    fn make_funcdef(name: &str, return_type: TypeRef, param_types: Vec<TypeRef>) -> alef_core::ir::FunctionDef {
+        alef_core::ir::FunctionDef {
+            name: name.to_string(),
+            rust_path: format!("my_crate::{name}"),
+            original_rust_path: String::new(),
+            params: param_types
+                .into_iter()
+                .enumerate()
+                .map(|(i, ty)| alef_core::ir::ParamDef {
+                    name: format!("arg{i}"),
+                    ty,
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                })
+                .collect(),
+            return_type,
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }
+    }
+
+    fn surface_with(types: Vec<alef_core::ir::TypeDef>, functions: Vec<alef_core::ir::FunctionDef>) -> ApiSurface {
+        ApiSurface {
+            crate_name: "my_crate".into(),
+            version: "0.1.0".into(),
+            types,
+            functions,
+            enums: vec![],
+            errors: vec![],
+            excluded_type_paths: std::collections::HashMap::new(),
+            excluded_trait_names: std::collections::HashSet::new(),
+        }
+    }
+
+    /// Regression for kreuzcrawl's `BatchScrapeResults` bug: a function listed in
+    /// `[crates.include].functions` returns a wrapper struct that is NOT in
+    /// `[crates.include].types`. Before the fix, the include filter dropped the
+    /// wrapper struct (it was unreachable from the included types), and the later
+    /// `sanitize_unknown_types` pass collapsed the function's `return_type` to
+    /// `String`, breaking every binding facade.
+    ///
+    /// After the fix, `expand_include_list` seeds itself from included functions'
+    /// signatures so the wrapper is retained.
+    #[test]
+    fn expand_include_list_seeds_from_included_function_signatures() {
+        let surface = surface_with(
+            vec![
+                make_typedef("BatchScrapeResult"),
+                make_typedef("BatchScrapeResults"),
+                make_typedef("UnusedType"),
+            ],
+            vec![make_funcdef(
+                "batch_scrape",
+                TypeRef::Named("BatchScrapeResults".into()),
+                vec![TypeRef::Vec(Box::new(TypeRef::String))],
+            )],
+        );
+
+        let include_types = vec!["BatchScrapeResult".to_string()];
+        let include_functions = vec!["batch_scrape".to_string()];
+
+        let expanded = expand_include_list(&surface, &include_types, &include_functions);
+
+        assert!(
+            expanded.contains("BatchScrapeResult"),
+            "per-element type explicitly listed must be present; got: {expanded:?}"
+        );
+        assert!(
+            expanded.contains("BatchScrapeResults"),
+            "wrapper return type of included function must be auto-included; got: {expanded:?}"
+        );
+        assert!(
+            !expanded.contains("UnusedType"),
+            "unrelated type must not be pulled in; got: {expanded:?}"
+        );
+    }
+
+    /// Function parameter types must also be retained — a function listed in
+    /// `include.functions` that accepts a custom config struct must keep that
+    /// struct in the surface even if the user forgot to list it under
+    /// `include.types`.
+    #[test]
+    fn expand_include_list_seeds_from_included_function_param_types() {
+        let surface = surface_with(
+            vec![make_typedef("CrawlConfig"), make_typedef("EngineHandle")],
+            vec![make_funcdef(
+                "create_engine",
+                TypeRef::Named("EngineHandle".into()),
+                vec![TypeRef::Optional(Box::new(TypeRef::Named("CrawlConfig".into())))],
+            )],
+        );
+
+        let include_types = vec!["EngineHandle".to_string()];
+        let include_functions = vec!["create_engine".to_string()];
+
+        let expanded = expand_include_list(&surface, &include_types, &include_functions);
+
+        assert!(
+            expanded.contains("CrawlConfig"),
+            "param type referenced through Optional must be retained; got: {expanded:?}"
+        );
+    }
+
+    /// When no functions are in the include list, behaviour is unchanged —
+    /// expansion stays anchored to `include_types` only.
+    #[test]
+    fn expand_include_list_with_empty_functions_matches_legacy_behaviour() {
+        let surface = surface_with(
+            vec![make_typedef("Kept"), make_typedef("Dropped")],
+            vec![make_funcdef("do_thing", TypeRef::Named("Dropped".into()), vec![])],
+        );
+
+        let include_types = vec!["Kept".to_string()];
+        let include_functions: Vec<String> = vec![];
+
+        let expanded = expand_include_list(&surface, &include_types, &include_functions);
+        assert!(expanded.contains("Kept"));
+        assert!(
+            !expanded.contains("Dropped"),
+            "function not in include.functions must not pull in its return type; got: {expanded:?}"
         );
     }
 }

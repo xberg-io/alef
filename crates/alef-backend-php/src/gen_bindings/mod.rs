@@ -6,7 +6,7 @@ use crate::type_map::PhpMapper;
 use ahash::AHashSet;
 use alef_codegen::builder::RustFileBuilder;
 use alef_codegen::conversions::ConversionConfig;
-use alef_codegen::doc_emission;
+use alef_codegen::doc_emission::{self, DocTarget, sanitize_rust_idioms};
 use alef_codegen::generators::RustBindingConfig;
 use alef_codegen::generators::{self, AsyncPattern};
 use alef_codegen::naming::to_php_name;
@@ -1357,10 +1357,11 @@ impl Backend for PhpBackend {
             }
             if !typ.doc.is_empty() {
                 content.push_str("/**\n");
+                let sanitized = sanitize_rust_idioms(&typ.doc, DocTarget::PhpDoc);
                 content.push_str(&crate::template_env::render(
                     "php_phpdoc_lines.jinja",
                     context! {
-                        doc_lines => typ.doc.lines().collect::<Vec<_>>(),
+                        doc_lines => sanitized.lines().collect::<Vec<_>>(),
                         indent => "",
                     },
                 ));
@@ -1458,10 +1459,11 @@ impl Backend for PhpBackend {
                 // Tagged data enums are lowered to flat classes; emit class stubs.
                 if !enum_def.doc.is_empty() {
                     content.push_str("/**\n");
+                    let sanitized = sanitize_rust_idioms(&enum_def.doc, DocTarget::PhpDoc);
                     content.push_str(&crate::template_env::render(
                         "php_phpdoc_lines.jinja",
                         context! {
-                            doc_lines => enum_def.doc.lines().collect::<Vec<_>>(),
+                            doc_lines => sanitized.lines().collect::<Vec<_>>(),
                             indent => "",
                         },
                     ));
@@ -1710,10 +1712,11 @@ fn gen_php_opaque_class_file(
     // Type-level docblock.
     if !typ.doc.is_empty() {
         content.push_str("/**\n");
+        let sanitized = sanitize_rust_idioms(&typ.doc, DocTarget::PhpDoc);
         content.push_str(&crate::template_env::render(
             "php_phpdoc_lines.jinja",
             context! {
-                doc_lines => typ.doc.lines().collect::<Vec<_>>(),
+                doc_lines => sanitized.lines().collect::<Vec<_>>(),
                 indent => "",
             },
         ));
@@ -1744,7 +1747,8 @@ fn gen_php_opaque_class_file(
 
         // PHPDoc block — keep it short to avoid line-width issues.
         let mut doc_lines: Vec<String> = vec![];
-        let doc_line = method.doc.lines().next().unwrap_or("").trim();
+        let sanitized = sanitize_rust_idioms(&method.doc, DocTarget::PhpDoc);
+        let doc_line = sanitized.lines().next().unwrap_or("").trim();
         if !doc_line.is_empty() {
             doc_lines.push(doc_line.to_string());
         }

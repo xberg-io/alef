@@ -28,3 +28,13 @@ internal extension Point {
         return RustBridge.Point(self.row, self.column)
     }
 }
+
+// MARK: - From-JSON Helpers
+// Public helpers that decode JSON into first-class Swift types.
+// First-class struct types (Codable) use JSONDecoder directly.
+// Opaque RustBridge types forward to RustBridge.
+
+public func pointFromJson(_ json: String) throws -> Point {
+    let data = json.data(using: .utf8) ?? Data()
+    return try JSONDecoder().decode(Point.self, from: data)
+}
