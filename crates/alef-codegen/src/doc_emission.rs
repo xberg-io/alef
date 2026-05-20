@@ -845,6 +845,26 @@ pub fn parse_arguments_bullets(body: &str) -> Vec<(String, String)> {
     out
 }
 
+/// Return `true` if `tag` (the first comma-separated token after the opening
+/// ` ``` ` of a code fence) identifies a Rust code block.
+///
+/// This covers:
+/// - bare tag (empty string) — rustdoc treats unlabelled fences as Rust by default
+/// - `"rust"` — explicit Rust
+/// - `"rust,<attrs>"` — Rust with trailing comma-separated attributes
+/// - rustdoc test-attribute-only fences: `no_run`, `ignore`, `should_panic`,
+///   `compile_fail` — these are only meaningful to rustdoc and always indicate
+///   Rust code even when `rust` itself is omitted
+/// - `"edition2018"`, `"edition2021"`, etc. — edition-gated Rust examples
+fn is_rust_fence_tag(tag: &str) -> bool {
+    const RUSTDOC_ATTRS: &[&str] = &["no_run", "ignore", "should_panic", "compile_fail"];
+    tag.is_empty()
+        || tag == "rust"
+        || tag.starts_with("rust,")
+        || RUSTDOC_ATTRS.contains(&tag)
+        || tag.starts_with("edition")
+}
+
 /// Detect the language tag on the first code fence in `body`.
 ///
 /// Scans `body` for the first line that starts with ` ``` ` and returns the
@@ -856,7 +876,7 @@ fn detect_first_fence_lang(body: &str) -> &str {
         let trimmed = line.trim_start();
         if let Some(rest) = trimmed.strip_prefix("```") {
             let tag = rest.split(',').next().unwrap_or("").trim();
-            return if tag.is_empty() { "rust" } else { tag };
+            return if tag.is_empty() || is_rust_fence_tag(tag) { "rust" } else { tag };
         }
     }
     "rust"
@@ -1341,7 +1361,11 @@ fn sanitize_rust_idioms_inner(text: &str, target: DocTarget, drop_csharp_section
                 // Closing fence of a rust block.
                 in_rust_fence = false;
                 match target {
-                    DocTarget::TsDoc | DocTarget::JsDoc | DocTarget::CSharpDoc | DocTarget::PhpDoc | DocTarget::JavaDoc => {
+                    DocTarget::TsDoc
+                    | DocTarget::JsDoc
+                    | DocTarget::CSharpDoc
+                    | DocTarget::PhpDoc
+                    | DocTarget::JavaDoc => {
                         // Entire rust block dropped — don't emit closing fence.
                     }
                 }
@@ -1356,11 +1380,15 @@ fn sanitize_rust_idioms_inner(text: &str, target: DocTarget, drop_csharp_section
             }
             // Opening fence — determine language.
             let lang = rest.split(',').next().unwrap_or("").trim();
-            let is_rust = lang.is_empty() || lang == "rust" || lang.starts_with("rust,");
+            let is_rust = is_rust_fence_tag(lang);
             if is_rust {
                 in_rust_fence = true;
                 match target {
-                    DocTarget::TsDoc | DocTarget::JsDoc | DocTarget::CSharpDoc | DocTarget::PhpDoc | DocTarget::JavaDoc => {
+                    DocTarget::TsDoc
+                    | DocTarget::JsDoc
+                    | DocTarget::CSharpDoc
+                    | DocTarget::PhpDoc
+                    | DocTarget::JavaDoc => {
                         // Drop the entire rust fence block — skip opening line.
                         // Rust code examples are not portable to any of the target languages.
                     }
@@ -3124,7 +3152,10 @@ mod tests {
         // are treated as Rust code and should be dropped for PHP target.
         let input = "Detect language name from a file extension.\n\nReturns `None` for unrecognized extensions.\n\n```\nuse tree_sitter_language_pack::detect_language_from_extension;\nassert_eq!(detect_language_from_extension(\"py\"), Some(\"python\"));\nassert_eq!(detect_language_from_extension(\"RS\"), Some(\"rust\"));\nassert_eq!(detect_language_from_extension(\"xyz\"), None);\n```";
         let out = sanitize_rust_idioms(input, DocTarget::PhpDoc);
-        assert!(!out.contains("use tree_sitter_language_pack"), "Rust use stmt dropped: {out}");
+        assert!(
+            !out.contains("use tree_sitter_language_pack"),
+            "Rust use stmt dropped: {out}"
+        );
         assert!(!out.contains("assert_eq!"), "Rust code dropped: {out}");
         assert!(!out.contains("```"), "fence markers dropped: {out}");
         assert!(out.contains("Detect language name"), "prose before fence kept: {out}");
@@ -3151,5 +3182,127 @@ mod tests {
         assert!(!out.contains("PathBuf"), "Rust types dropped: {out}");
         assert!(!out.contains("```"), "fence markers dropped: {out}");
         assert!(out.contains("Summary"), "prose kept: {out}");
+    }
+
+    // --- rustdoc test-attribute fence tests ---
+
+    #[test]
+    fn sanitize_no_run_fence_dropped_for_tsdoc() {
+        let input = "Intro.\n\n```no_run\nuse foo::bar;\nbar::init();\n```\n\nTrailer.";
+        let out = sanitize_rust_idioms(input, DocTarget::TsDoc);
+        assert!(!out.contains("use foo::bar"), "no_run fence body dropped: {out}");
+        assert!(!out.contains("```"), "fence markers dropped: {out}");
+        assert!(out.contains("Intro."), "prose before fence kept: {out}");
+        assert!(out.contains("Trailer."), "prose after fence kept: {out}");
+    }
+
+    #[test]
+    fn sanitize_ignore_fence_dropped_for_phpdoc() {
+        let input = "Summary.\n\n```ignore\nlet x = 1;\n// this would not compile\n```";
+        let out = sanitize_rust_idioms(input, DocTarget::PhpDoc);
+        assert!(!out.contains("let x = 1"), "ignore fence body dropped: {out}");
+        assert!(!out.contains("```"), "fence markers dropped: {out}");
+        assert!(out.contains("Summary"), "prose kept: {out}");
+    }
+
+    #[test]
+    fn sanitize_should_panic_fence_dropped_for_javadoc() {
+        let input = "Panics on null.\n\n```should_panic\nlet _ = parse(null);\n```";
+        let out = sanitize_rust_idioms(input, DocTarget::JavaDoc);
+        assert!(!out.contains("parse(null)"), "should_panic fence body dropped: {out}");
+        assert!(!out.contains("```"), "fence markers dropped: {out}");
+        assert!(out.contains("Panics on null"), "prose kept: {out}");
+    }
+
+    #[test]
+    fn sanitize_compile_fail_fence_dropped_for_csharp() {
+        let input = "Type safety demo.\n\n```compile_fail\nlet x: u32 = \"hello\";\n```";
+        let out = sanitize_rust_idioms(input, DocTarget::CSharpDoc);
+        assert!(!out.contains("let x:"), "compile_fail fence body dropped: {out}");
+        assert!(!out.contains("```"), "fence markers dropped: {out}");
+        assert!(out.contains("Type safety demo"), "prose kept: {out}");
+    }
+
+    #[test]
+    fn sanitize_edition_fence_dropped_for_tsdoc() {
+        let input = "Edition example.\n\n```edition2021\nuse std::fmt;\n```\n\nSee also edition2018.";
+        let out = sanitize_rust_idioms(input, DocTarget::TsDoc);
+        assert!(!out.contains("use std::fmt"), "edition2021 fence body dropped: {out}");
+        assert!(!out.contains("```"), "fence markers dropped: {out}");
+        assert!(out.contains("Edition example"), "prose kept: {out}");
+    }
+
+    #[test]
+    fn sanitize_python_fence_preserved_for_tsdoc() {
+        // Python fences are not Rust — they must pass through unchanged.
+        let input = "Example:\n\n```python\nimport foo\nfoo.bar()\n```";
+        let out = sanitize_rust_idioms(input, DocTarget::TsDoc);
+        assert!(out.contains("```python"), "python fence preserved: {out}");
+        assert!(out.contains("import foo"), "python body preserved: {out}");
+    }
+
+    #[test]
+    fn sanitize_javascript_fence_preserved_for_phpdoc() {
+        let input = "Usage:\n\n```javascript\nconst x = require('foo');\n```";
+        let out = sanitize_rust_idioms(input, DocTarget::PhpDoc);
+        assert!(out.contains("```javascript"), "javascript fence preserved: {out}");
+        assert!(out.contains("require('foo')"), "javascript body preserved: {out}");
+    }
+
+    #[test]
+    fn example_for_target_no_run_fence_suppressed_for_typescript() {
+        let example = "```no_run\nuse tree_sitter_language_pack::available_languages;\nlet langs = available_languages();\n```";
+        assert_eq!(
+            example_for_target(example, "typescript"),
+            None,
+            "no_run fence must be treated as Rust and suppressed for TypeScript"
+        );
+    }
+
+    #[test]
+    fn example_for_target_ignore_fence_suppressed_for_php() {
+        let example = "```ignore\nlet x = 1;\n```";
+        assert_eq!(
+            example_for_target(example, "php"),
+            None,
+            "ignore fence must be treated as Rust and suppressed for PHP"
+        );
+    }
+
+    #[test]
+    fn example_for_target_compile_fail_fence_suppressed_for_java() {
+        let example = "```compile_fail\nlet x: u32 = \"wrong\";\n```";
+        assert_eq!(
+            example_for_target(example, "java"),
+            None,
+            "compile_fail fence must be treated as Rust and suppressed for Java"
+        );
+    }
+
+    #[test]
+    fn example_for_target_should_panic_fence_suppressed_for_ruby() {
+        let example = "```should_panic\nlet _ = parse(None);\n```";
+        assert_eq!(
+            example_for_target(example, "ruby"),
+            None,
+            "should_panic fence must be treated as Rust and suppressed for Ruby"
+        );
+    }
+
+    #[test]
+    fn example_for_target_edition_fence_suppressed_for_php() {
+        let example = "```edition2021\nuse std::fmt;\n```";
+        assert_eq!(
+            example_for_target(example, "php"),
+            None,
+            "edition2021 fence must be treated as Rust and suppressed for PHP"
+        );
+    }
+
+    #[test]
+    fn example_for_target_python_fence_preserved() {
+        let example = "```python\nimport foo\n```";
+        let result = example_for_target(example, "php");
+        assert!(result.is_some(), "python fence must be preserved for PHP target");
     }
 }
