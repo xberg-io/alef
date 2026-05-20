@@ -330,15 +330,15 @@ fn error_type_with_methods_emits_abstract_properties() {
         .expect("DemoError.kt must be emitted");
     let body = &error_kt.1;
     assert!(
-        body.contains("abstract val statusCode: Short"),
-        "missing statusCode abstract property: {body}"
+        body.contains("open val statusCode: Short = 0"),
+        "missing statusCode open property: {body}"
     );
     assert!(
-        body.contains("abstract val isTransient: Boolean"),
-        "missing isTransient abstract property: {body}"
+        body.contains("open val isTransient: Boolean = false"),
+        "missing isTransient open property: {body}"
     );
     assert!(
-        body.contains("abstract val errorType: String"),
-        "missing errorType abstract property: {body}"
+        body.contains("open val errorType: String = \"\""),
+        "missing errorType open property: {body}"
     );
 }

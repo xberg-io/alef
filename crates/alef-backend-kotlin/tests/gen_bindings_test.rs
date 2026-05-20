@@ -475,16 +475,16 @@ fn error_sealed_class_with_methods_emits_abstract_properties() {
     emit_error_type_pub(api.errors.first().unwrap(), &mut out, &mut imports);
 
     assert!(
-        out.contains("abstract val statusCode: Short"),
-        "missing statusCode abstract property: {out}"
+        out.contains("open val statusCode: Short = 0"),
+        "missing statusCode open property: {out}"
     );
     assert!(
-        out.contains("abstract val isTransient: Boolean"),
-        "missing isTransient abstract property: {out}"
+        out.contains("open val isTransient: Boolean = false"),
+        "missing isTransient open property: {out}"
     );
     assert!(
-        out.contains("abstract val errorType: String"),
-        "missing errorType abstract property: {out}"
+        out.contains("open val errorType: String = \"\""),
+        "missing errorType open property: {out}"
     );
 }
 

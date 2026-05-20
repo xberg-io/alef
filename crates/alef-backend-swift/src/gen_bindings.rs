@@ -306,7 +306,11 @@ impl Backend for SwiftBackend {
         // consumers of the `Kreuzberg` module to also `import RustBridge`, violating
         // the alef binding-parity promise that every public Rust free function is
         // re-exposed as a top-level public function on the host module.
-        emit_free_function_forwarders(api, config, &known_dto_names, &mut body);
+        let client_class_names: std::collections::HashSet<String> = client_constructor_types
+            .iter()
+            .map(|&s| s.to_string())
+            .collect();
+        emit_free_function_forwarders(api, config, &known_dto_names, &client_class_names, &mut body);
 
         // Emit top-level public forwarders for trait-bridge register/unregister/clear
         // entry points. These are synthesised from `[[trait_bridges]]` in alef.toml
@@ -831,10 +835,14 @@ fn swift_ffi_read_expr(
 
         // Named(S) where S is a unit serde enum: getter returns String (serde-serialized).
         // Convert via raw value init (`:String, Codable` enum).
-        // When optional: `rb.field()?.toString().flatMap { S(rawValue: $0) }`
+        // When optional: `rb.field().flatMap { S(rawValue: $0.toString()) }`
+        // The `flatMap` is called on the bridge `Optional<RustString>` directly so
+        // Swift picks `Optional.flatMap` instead of `Sequence.flatMap` (String is a
+        // Sequence with `Character` elements — chaining `?.toString().flatMap`
+        // would dispatch to the Sequence variant and break compilation).
         // When required: `S(rawValue: rb.field().toString())` (force-safe: serde guarantees valid value)
         TypeRef::Named(name) if unit_enum_names.contains(name) && opt => {
-            format!("rb.{accessor}()?.toString().flatMap {{ {name}(rawValue: $0) }}")
+            format!("rb.{accessor}().flatMap {{ {name}(rawValue: $0.toString()) }}")
         }
         TypeRef::Named(name) if unit_enum_names.contains(name) => {
             // The Rust getter for enum fields returns `String` (the serde-serialized name).
@@ -886,7 +894,7 @@ fn swift_ffi_read_expr(
         TypeRef::Optional(inner) => match inner.as_ref() {
             TypeRef::String => format!("rb.{accessor}()?.toString()"),
             TypeRef::Named(name) if unit_enum_names.contains(name) => {
-                format!("rb.{accessor}()?.toString().flatMap {{ {name}(rawValue: $0) }}")
+                format!("rb.{accessor}().flatMap {{ {name}(rawValue: $0.toString()) }}")
             }
             TypeRef::Named(name) if known_dto_names.contains(name) => {
                 format!("try rb.{accessor}().map {{ try {name}($0) }}")
@@ -1252,7 +1260,7 @@ fn emit_error(error: &ErrorDef, module_name: &str, out: &mut String, mapper: &Sw
                 let wildcard = if variant.is_unit || variant.fields.is_empty() {
                     String::new()
                 } else {
-                    let args: Vec<String> = variant
+                    let mut args: Vec<String> = variant
                         .fields
                         .iter()
                         .enumerate()
@@ -1266,6 +1274,15 @@ fn emit_error(error: &ErrorDef, module_name: &str, out: &mut String, mapper: &Sw
                             format!("{label}: _")
                         })
                         .collect();
+                    // The case declaration above synthesizes a leading
+                    // `message: String` parameter when none of the original
+                    // fields is named `message`.  The switch pattern must
+                    // include the same synthetic label or the tuple lengths
+                    // will mismatch.
+                    let has_message_field = variant.fields.iter().any(|f| f.name == "message");
+                    if !has_message_field {
+                        args.insert(0, "message: _".to_string());
+                    }
                     format!("({})", args.join(", "))
                 };
                 let ret_expr = if field_match.is_some() && !variant.is_unit && !variant.fields.is_empty() {
@@ -1331,6 +1348,17 @@ fn emit_client_class(
     out.push_str(&format!(
         "        self.inner = try RustBridge.{constructor_fn}(apiKey, baseUrl)\n"
     ));
+    out.push_str("    }\n");
+    // Internal init from the raw bridge handle so free-function forwarders
+    // that construct the client through alternate Rust APIs (e.g.
+    // `create_client(api_key, base_url, timeout_secs, ...)` or
+    // `create_client_from_json(json)`) can wrap their bridge return into
+    // the public Swift class without going through the limited
+    // `init(apiKey:baseUrl:)` constructor.
+    out.push_str(&format!(
+        "    internal init(_ inner: RustBridge.{type_name}) {{\n"
+    ));
+    out.push_str("        self.inner = inner\n");
     out.push_str("    }\n");
 
     for method in methods {
@@ -2882,6 +2910,7 @@ fn emit_free_function_forwarders(
     api: &ApiSurface,
     config: &ResolvedCrateConfig,
     known_dto_names: &std::collections::HashSet<String>,
+    client_class_names: &std::collections::HashSet<String>,
     out: &mut String,
 ) {
     let exclude_functions: std::collections::HashSet<String> = config
@@ -2931,7 +2960,7 @@ fn emit_free_function_forwarders(
             );
             emitted_any = true;
         }
-        emit_single_free_function_forwarder(func, &swift_name, known_dto_names, out);
+        emit_single_free_function_forwarder(func, &swift_name, known_dto_names, client_class_names, out);
     }
 }
 
@@ -2940,6 +2969,7 @@ fn emit_single_free_function_forwarder(
     func: &FunctionDef,
     swift_name: &str,
     known_dto_names: &std::collections::HashSet<String>,
+    client_class_names: &std::collections::HashSet<String>,
     out: &mut String,
 ) {
     // `throws_clause` widens to `throws` when the function itself returns a
@@ -3037,6 +3067,18 @@ fn emit_single_free_function_forwarder(
         out.push_str(&format!(
             "    return (try? JSONDecoder().decode({decode_ty}.self, from: _rb_data)) ?? nil\n"
         ));
+    } else if matches!(&func.return_type, TypeRef::Named(n) if client_class_names.contains(n)) {
+        // Bare Named return that is a Swift client class (declared in
+        // `[crates.swift.client_constructor_body]`). The bridge call yields a
+        // `RustBridge.{Class}` value; the forwarder signature declares the
+        // higher-level `{Class}` wrapper. Use the internal init emitted by
+        // `emit_client_class` to wrap the bridge handle.
+        let bridge_call_try = if func.error_type.is_some() { "try " } else { "" };
+        let class_name = swift_type_name(&func.return_type);
+        out.push_str(&format!(
+            "    let _rb = {bridge_call_try}RustBridge.{swift_name}({args})\n"
+        ));
+        out.push_str(&format!("    return {class_name}(_rb)\n"));
     } else if bare_named_dto_return(&func.return_type, known_dto_names) {
         // Bare Named DTO return: the bridge call yields a `RustBridge.{Dto}` value,
         // but the forwarder signature declares the high-level `{Dto}` struct/enum
@@ -3082,8 +3124,9 @@ fn return_uses_json_bridge(ty: &TypeRef) -> bool {
     }
 }
 
-/// True if `ty` is `Option<String>` on a non-throwing function, where swift-bridge
-/// JSON-serializes the value through a non-optional `RustString` bridge return.
+/// True if `ty` is `Option<String>` or `Option<Primitive>` on a non-throwing
+/// function, where swift-bridge JSON-serializes the value through a
+/// non-optional `RustString` bridge return.
 ///
 /// Per `needs_json_bridge` in `gen_rust_crate/type_bridge.rs`, ALL `Option<T>`
 /// returns are JSON-bridged (line 100: `TypeRef::Optional(_) => true`). For a
@@ -3092,16 +3135,19 @@ fn return_uses_json_bridge(ty: &TypeRef) -> bool {
 /// forwarder must JSON-decode rather than apply a chained `?.toString()` — the
 /// latter is a type error against the non-optional `RustString`.
 ///
-/// Only `Option<String>` is matched here because that's the case observed in
-/// kreuzberg's public API (tslp `detect_language_from_extension`). Other
-/// `Option<T>` variants (`Option<i32>`, `Option<Named>` non-handle, etc.) would
-/// hit the same bridge shape and need analogous treatment if they ever appear
-/// on non-throwing free functions — keep this predicate narrow until then.
+/// Covers `Option<String>` (kreuzberg tslp `detect_language_from_extension`)
+/// and `Option<Primitive>` (liter-llm `completion_cost` returning
+/// `Option<f64>`). Other shapes (`Option<Named>`, `Option<Vec<…>>`) hit the
+/// same bridge but the JSON payload decodes to a Codable target — extend the
+/// match arms as new shapes surface.
 fn non_throwing_optional_string_uses_json_bridge(ty: &TypeRef, throws: bool) -> bool {
     if throws {
         return false;
     }
-    matches!(ty, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::String))
+    matches!(
+        ty,
+        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Primitive(_))
+    )
 }
 
 /// Capture both the inline argument expression and the optional setup line
@@ -3331,11 +3377,15 @@ fn forwarder_return_conversion_suffix_inner(
             // `as_str().toString()` chain directly at every call site.
             TypeRef::String => ".map { $0.as_str().toString() }".to_string(),
             TypeRef::Primitive(_) => ".map { $0 }".to_string(),
-            // RustVec<RustBridge.{Dto}> iteration yields `RustBridge.{Dto}Ref` — there
-            // is no symmetric `init(_ rb: {Dto}Ref)`, so we route through the owned
-            // class via `RustVec.subscript(get:)` outside the iterator. For now,
-            // emit no suffix; the caller would need a manual loop. This path is
-            // currently unused in kreuzberg's API surface.
+            // RustVec<RustBridge.{Dto}> iteration yields `RustBridge.{Dto}Ref` (borrowed)
+            // — there is no symmetric `init(_ rb: {Dto}Ref)` for either first-class DTOs
+            // or typealiased opaque classes. swift-bridge's `RustVec<T>.get(_:)` also
+            // returns `T.SelfRef`, so producing an `[{Dto}]` from a `RustVec<{Dto}>` is
+            // impossible inside a forwarder without a per-element JSON roundtrip. Until
+            // we wire `Vec<Named>` through `needs_json_bridge`, the forwarder leaves the
+            // expression unconverted (compile error surfaces loudly rather than silent
+            // misroute). Consumers should exclude the function via
+            // `[crates.swift.exclude_functions]` or add a hand-written adapter.
             TypeRef::Named(_) => String::new(),
             _ => String::new(),
         },

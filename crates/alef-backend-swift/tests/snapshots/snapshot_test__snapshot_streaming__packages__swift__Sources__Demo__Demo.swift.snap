@@ -13,6 +13,9 @@ public final class DefaultClient {
     public init(apiKey: String, baseUrl: String? = nil) throws {
         self.inner = try RustBridge.createDefaultClient(apiKey, baseUrl)
     }
+    internal init(_ inner: RustBridge.DefaultClient) {
+        self.inner = inner
+    }
     public func ping() -> String {
         return RustBridge.defaultClientPing(self.inner)
     }

@@ -19,5 +19,5 @@ public typealias Item = RustBridge.Item
 
 /// Get all items.
 public func getItems() -> [Item] {
-    return RustBridge.getItems()
+    return RustBridge.getItems().map { $0 }
 }

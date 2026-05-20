@@ -42,6 +42,22 @@ fn primitive_type_name(pt: &PrimitiveType) -> &'static str {
 // Type/enum/error emitters (re-exported for gen_mpp)
 // ---------------------------------------------------------------------------
 
+/// Kotlin zero-value literal for a rendered type string (e.g. `"Short"` → `"0"`,
+/// `"Boolean"` → `"false"`, `"String"` → `"\"\""`). Used to seed `open val`
+/// defaults on the sealed error class so concrete variants compile without
+/// every one declaring an explicit override.
+fn kotlin_zero_value(rendered: &str) -> &'static str {
+    match rendered.trim_end_matches('?') {
+        "Boolean" => "false",
+        "Byte" | "Short" | "Int" => "0",
+        "Long" => "0L",
+        "Float" => "0.0f",
+        "Double" => "0.0",
+        "String" => "\"\"",
+        _ => "null",
+    }
+}
+
 /// Maximum line length ktfmt uses when deciding whether to collapse a data-class
 /// primary constructor to a single line. Any declaration that fits within this
 /// budget is emitted as `data class Foo(val a: T, val b: T)`.
@@ -823,14 +839,18 @@ pub(crate) fn emit_error_type_with_imports(
             }
         }
     }
-    // Emit abstract property declarations for each whitelisted introspection
-    // method (status_code, is_transient, error_type).  Each data-class variant
-    // in the sealed hierarchy must provide a concrete override; the JNI bridge
-    // fills the values during Rust→Kotlin error conversion.
+    // Emit `open val` property declarations with sensible defaults for each
+    // whitelisted introspection method (status_code, is_transient, error_type).
+    // The JNI bridge throws a flat `<App>BridgeException` rather than
+    // constructing sealed-class variants, so requiring every variant to
+    // override these abstract properties would break compilation. Each variant
+    // can still opt into a concrete override when domain code constructs the
+    // error directly, while the defaults keep the sealed class self-contained.
     for method in error.methods.iter().filter(|m| !m.sanitized) {
         let prop_name = to_lower_camel(&method.name);
         let ty_str = kotlin_type_with_string_imports(&method.return_type, false, imports);
-        out.push_str(&format!("    abstract val {prop_name}: {ty_str}\n"));
+        let default = kotlin_zero_value(&ty_str);
+        out.push_str(&format!("    open val {prop_name}: {ty_str} = {default}\n"));
     }
     out.push_str("}\n");
 }
