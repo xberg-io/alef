@@ -395,7 +395,7 @@ fn render_test_file(
             out,
             "        atom when is_atom(atom) -> [atom |> to_string() |> String.capitalize()]"
         );
-        let _ = writeln!(out, "        str -> [to_string(str)]");
+        let _ = writeln!(out, "        str -> [inspect(str)]");
         let _ = writeln!(out, "      end");
         let _ = writeln!(out, "    end)");
         let _ = writeln!(out, "  end");
@@ -1382,12 +1382,9 @@ fn build_args_and_setup(
                         }
 
                         // Push the variable name as the argument.
-                        // For optional json_object args, use keyword form: `name: value`
-                        if arg.optional {
-                            parts.push(format!("{}: {options_var}", arg.name));
-                        } else {
-                            parts.push(options_var.to_string());
-                        }
+                        // For optional json_object args with options_type, pass as positional (not keyword form)
+                        // so they work with `convert(html, options_map)` style function signatures.
+                        parts.push(options_var.to_string());
                         continue;
                     }
                     // When options_type is set but options_via is NOT, emit struct-literal form.
@@ -1410,11 +1407,9 @@ fn build_args_and_setup(
                         }
                         let fields = field_strs.join(", ");
                         setup_lines.push(format!("{options_var} = %{module_path}.{opts_type}{{{fields}}}"));
-                        if arg.optional {
-                            parts.push(format!("{}: {options_var}", arg.name));
-                        } else {
-                            parts.push(options_var.to_string());
-                        }
+                        // For optional json_object args with options_type, pass as positional (not keyword form)
+                        // so they work with `convert(html, options_map)` style function signatures.
+                        parts.push(options_var.to_string());
                         continue;
                     }
                     // When element_type is set to a batch item type, wrap items with constructors.

@@ -2339,16 +2339,23 @@ fn complex_dto_with_optional_vec_named_field_emits_first_class_struct() {
     );
 }
 
-// ── forwarder regression tests for v0.17.9 swift codegen bug ──────────────────
+// ── forwarder regression tests for v0.17.9+ swift codegen bug ─────────────────
 
-/// Repro of the tslp `detectLanguageFromExtension` bug: a non-throwing free
-/// function whose return type is `Option<String>` must apply `?.toString()` to
-/// the bridge result. swift-bridge maps `Option<String>` to `RustString?`
-/// regardless of throws-ness — there is no native `String?` bridge — so without
-/// the suffix Swift rejects the body with "cannot convert return expression of
-/// type 'RustString?' to return type 'String?'".
+/// Repro of the tslp `detectLanguageFromExtension` bug fixed in v0.17.11.
+///
+/// A non-throwing free function whose Rust signature is
+/// `fn detect_language_from_extension(ext: &str) -> Option<&'static str>` is
+/// JSON-bridged by swift-bridge: the bridge crate declares the function as
+/// `-> String` (the JSON payload), which swift-bridge surfaces on the Swift
+/// side as a NON-optional `-> RustString`. The forwarder declares the high-level
+/// `-> String?` return matching the IR.
+///
+/// v0.17.10 attempted to apply `?.toString()` to the bridge call, which is a
+/// type error: "cannot use optional chaining on non-optional value of type
+/// 'RustString'". The correct fix is to JSON-decode the payload as
+/// `String?.self` — JSON `null` decodes to `.none`, a present value to `.some`.
 #[test]
-fn forwarder_optional_string_return_appends_optional_chained_to_string() {
+fn forwarder_optional_string_return_emits_json_decode_body() {
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -2385,12 +2392,21 @@ fn forwarder_optional_string_return_appends_optional_chained_to_string() {
         "forwarder signature must declare Optional String return:\n{content}"
     );
     assert!(
-        content.contains("return RustBridge.detectLanguageFromExtension(ext)?.toString()"),
-        "forwarder must apply `?.toString()` to coerce RustString? to String?:\n{content}"
+        content.contains("let _rb_json = RustBridge.detectLanguageFromExtension(ext).toString()"),
+        "forwarder must read bridge return as non-optional RustString via .toString():\n{content}"
+    );
+    assert!(
+        content.contains("JSONDecoder().decode(String?.self, from: _rb_data)"),
+        "forwarder must JSON-decode the payload as String?.self:\n{content}"
+    );
+    assert!(
+        !content.contains("?.toString()"),
+        "v0.17.10 type-error pattern must not reappear (optional-chained .toString \
+         on non-optional RustString):\n{content}"
     );
     assert!(
         !content.contains("return RustBridge.detectLanguageFromExtension(ext)\n"),
-        "forwarder must NOT return the raw RustString? bridge value:\n{content}"
+        "forwarder must NOT return the raw RustString bridge value:\n{content}"
     );
 }
 

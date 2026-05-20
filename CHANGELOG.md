@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-e2e: fix Elixir test helper to handle struct field values.** E2e Elixir test helper `alef_e2e_item_texts` called `to_string(str)` on all non-atom, non-nil field values, which failed when struct types (e.g., `TreeSitterLanguagePack.StructureKind`) were returned from NIF bindings with error: `protocol String.Chars not implemented for <struct>`. Replaced `to_string(str)` with `inspect(str)`, which safely converts any Elixir value to a string. (`crates/alef-e2e/src/codegen/elixir.rs`)
+
 ## [0.17.10] - 2026-05-20
 
 ### Fixed
