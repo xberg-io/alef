@@ -65,6 +65,15 @@ mod ffi {
         fn tags(&self) -> Vec<String>;
     }
 
+    extern "Rust" {
+
+        #[swift_bridge(swift_name = "spanFromJson")]
+        fn span_from_json(json: String) -> Result<Span, String>;
+        #[swift_bridge(swift_name = "diagnosticFromJson")]
+        fn diagnostic_from_json(json: String) -> Result<Diagnostic, String>;
+        #[swift_bridge(swift_name = "processResultFromJson")]
+        fn process_result_from_json(json: String) -> Result<ProcessResult, String>;
+    }
 }
 
 pub struct Span(pub demo::Span);
@@ -123,4 +132,22 @@ impl ProcessResult {
     pub fn tags(&self) -> Vec<String> {
         ::serde_json::to_value(&self.0.tags).ok().and_then(|j| ::serde_json::from_value(j).ok()).unwrap_or_default()
     }
+}
+
+pub fn span_from_json(json: String) -> Result<Span, String> {
+    serde_json::from_str::<demo::Span>(&json)
+        .map(Span)
+        .map_err(|e| e.to_string())
+}
+
+pub fn diagnostic_from_json(json: String) -> Result<Diagnostic, String> {
+    serde_json::from_str::<demo::Diagnostic>(&json)
+        .map(Diagnostic)
+        .map_err(|e| e.to_string())
+}
+
+pub fn process_result_from_json(json: String) -> Result<ProcessResult, String> {
+    serde_json::from_str::<demo::ProcessResult>(&json)
+        .map(ProcessResult)
+        .map_err(|e| e.to_string())
 }

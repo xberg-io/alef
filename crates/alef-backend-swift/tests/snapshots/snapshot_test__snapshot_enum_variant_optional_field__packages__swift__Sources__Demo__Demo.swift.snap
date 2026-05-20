@@ -22,7 +22,7 @@ internal extension Chunk {
         self.text = rb.text().toString()
     }
     func intoRust() throws -> RustBridge.Chunk {
-        return RustBridge.Chunk(self.text)
+        return RustBridge.Chunk(RustString(self.text))
     }
 }
 

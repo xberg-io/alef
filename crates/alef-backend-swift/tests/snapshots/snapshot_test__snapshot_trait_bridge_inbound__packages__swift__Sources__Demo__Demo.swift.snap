@@ -22,7 +22,7 @@ internal extension OcrConfig {
         self.language = rb.language().toString()
     }
     func intoRust() throws -> RustBridge.OcrConfig {
-        return RustBridge.OcrConfig(self.language)
+        return RustBridge.OcrConfig(RustString(self.language))
     }
 }
 
@@ -40,7 +40,7 @@ internal extension ExtractionResult {
         self.text = rb.text().toString()
     }
     func intoRust() throws -> RustBridge.ExtractionResult {
-        return RustBridge.ExtractionResult(self.text)
+        return RustBridge.ExtractionResult(RustString(self.text))
     }
 }
 

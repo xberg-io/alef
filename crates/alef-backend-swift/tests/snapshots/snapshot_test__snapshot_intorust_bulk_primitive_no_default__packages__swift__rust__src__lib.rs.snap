@@ -46,6 +46,11 @@ mod ffi {
         fn column(&self) -> u32;
     }
 
+    extern "Rust" {
+
+        #[swift_bridge(swift_name = "pointFromJson")]
+        fn point_from_json(json: String) -> Result<Point, String>;
+    }
 }
 
 pub struct Point(pub demo::Point);
@@ -62,4 +67,10 @@ impl Point {
     pub fn column(&self) -> u32 {
         ::serde_json::to_value(&self.0.column).ok().and_then(|j| ::serde_json::from_value(j).ok()).unwrap_or_default()
     }
+}
+
+pub fn point_from_json(json: String) -> Result<Point, String> {
+    serde_json::from_str::<demo::Point>(&json)
+        .map(Point)
+        .map_err(|e| e.to_string())
 }

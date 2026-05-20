@@ -397,6 +397,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/json_factory_shims.rs.jinja"),
     ),
     (
+        "rust_from_json_extern_decl.rs.jinja",
+        include_str!("../templates/rust_from_json_extern_decl.rs.jinja"),
+    ),
+    (
+        "rust_from_json_shim.rs.jinja",
+        include_str!("../templates/rust_from_json_shim.rs.jinja"),
+    ),
+    (
         "inbound_registration_fn.rs.jinja",
         include_str!("../templates/inbound_registration_fn.rs.jinja"),
     ),

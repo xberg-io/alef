@@ -1,6 +1,6 @@
 fn main() {
     let sources: Vec<String> = std::env::args().skip(1).collect();
-    let paths: Vec<&std::path::Path> = sources.iter().map(|s| std::path::Path::new(s)).collect();
+    let paths: Vec<&std::path::Path> = sources.iter().map(std::path::Path::new).collect();
     let surface = alef_extract::extractor::extract(&paths, "kreuzcrawl", "0.0.0", None).unwrap();
     println!("total types: {}", surface.types.len());
     for t in &surface.types {

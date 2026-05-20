@@ -48,6 +48,11 @@ mod ffi {
         fn end_byte(&self) -> usize;
     }
 
+    extern "Rust" {
+
+        #[swift_bridge(swift_name = "spanFromJson")]
+        fn span_from_json(json: String) -> Result<Span, String>;
+    }
 }
 
 pub struct Span(pub demo::Span);
@@ -64,4 +69,10 @@ impl Span {
     pub fn end_byte(&self) -> usize {
         ::serde_json::to_value(&self.0.end_byte).ok().and_then(|j| ::serde_json::from_value(j).ok()).unwrap_or_default()
     }
+}
+
+pub fn span_from_json(json: String) -> Result<Span, String> {
+    serde_json::from_str::<demo::Span>(&json)
+        .map(Span)
+        .map_err(|e| e.to_string())
 }

@@ -46,6 +46,11 @@ mod ffi {
         fn name(&self) -> Option<String>;
     }
 
+    extern "Rust" {
+
+        #[swift_bridge(swift_name = "systemMessageFromJson")]
+        fn system_message_from_json(json: String) -> Result<SystemMessage, String>;
+    }
 }
 
 pub struct SystemMessage(pub demo::SystemMessage);
@@ -68,4 +73,10 @@ impl SystemMessage {
     pub fn name(&self) -> Option<String> {
         self.0.name.clone()
     }
+}
+
+pub fn system_message_from_json(json: String) -> Result<SystemMessage, String> {
+    serde_json::from_str::<demo::SystemMessage>(&json)
+        .map(SystemMessage)
+        .map_err(|e| e.to_string())
 }

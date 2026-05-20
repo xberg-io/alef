@@ -973,11 +973,7 @@ mod tests {
         // The generator must emit a `if ptr == nil { return nil }; s := C.GoString(ptr); return &s`
         // pattern so the body type matches the signature.
         let typ = opaque_type("GraphQLRouteConfig");
-        let method = simple_method(
-            "get_description",
-            TypeRef::Optional(Box::new(TypeRef::String)),
-            false,
-        );
+        let method = simple_method("get_description", TypeRef::Optional(Box::new(TypeRef::String)), false);
         let opaque: std::collections::HashSet<&str> = ["GraphQLRouteConfig"].into();
         let value_only_types: std::collections::HashSet<String> = std::collections::HashSet::new();
         let out = gen_method_wrapper(&typ, &method, "spikard", &opaque, &value_only_types);
