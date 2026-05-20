@@ -2073,3 +2073,203 @@ fn scaffold_emits_cargo_config_with_env_block_for_h2m_style_ruby_path() {
             .contains("RUBY = { value = \"scripts/preferred-ruby.sh\", relative = true }")
     );
 }
+
+/// Helper: extract the [dependencies] key order from a Cargo.toml string.
+///
+/// Returns the dependency keys in the order they appear, so tests can assert
+/// that the emitted file is already cargo-sort canonical (alphabetical order).
+fn dep_keys_in_order(cargo_toml: &str) -> Vec<&str> {
+    let mut in_deps = false;
+    let mut keys = Vec::new();
+    for line in cargo_toml.lines() {
+        if line.trim_start().starts_with('[') {
+            in_deps = line.trim() == "[dependencies]";
+            continue;
+        }
+        if in_deps {
+            if let Some(key) = line.split('=').next() {
+                let key = key.trim();
+                if !key.is_empty() && !key.starts_with('#') {
+                    keys.push(key);
+                }
+            }
+        }
+    }
+    keys
+}
+
+#[test]
+fn test_scaffold_elixir_cargo_deps_are_alphabetically_sorted() {
+    use alef_core::config::TraitBridgeConfig;
+
+    let mut config = test_config();
+    config.languages = vec![Language::Elixir];
+    config.trait_bridges = vec![TraitBridgeConfig {
+        trait_name: "HtmlVisitor".to_string(),
+        super_trait: None,
+        registry_getter: None,
+        register_fn: None,
+        unregister_fn: None,
+        clear_fn: None,
+        type_alias: None,
+        param_name: None,
+        register_extra_args: None,
+        exclude_languages: vec![],
+        ffi_skip_methods: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::OptionsField,
+        options_type: Some("ConversionOptions".to_string()),
+        options_field: None,
+        context_type: None,
+        result_type: None,
+    }];
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Elixir]).unwrap();
+    let files = language_files(&all_files);
+    let cargo_toml = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
+
+    let keys = dep_keys_in_order(&cargo_toml.content);
+    // With a trait bridge, async-trait and tokio must be present.
+    assert!(
+        keys.contains(&"async-trait"),
+        "async-trait must appear when trait bridges are configured; keys: {keys:?}"
+    );
+    assert!(
+        keys.contains(&"tokio"),
+        "tokio must appear when trait bridges are configured; keys: {keys:?}"
+    );
+    // All keys must be in sorted order.
+    let mut sorted = keys.clone();
+    sorted.sort();
+    assert_eq!(
+        keys, sorted,
+        "elixir Cargo.toml [dependencies] must be alphabetically sorted; got: {keys:?}"
+    );
+}
+
+#[test]
+fn test_scaffold_ruby_cargo_deps_are_alphabetically_sorted() {
+    use alef_core::config::TraitBridgeConfig;
+
+    let mut config = test_config();
+    config.languages = vec![Language::Ruby];
+    config.trait_bridges = vec![TraitBridgeConfig {
+        trait_name: "HtmlVisitor".to_string(),
+        super_trait: None,
+        registry_getter: None,
+        register_fn: None,
+        unregister_fn: None,
+        clear_fn: None,
+        type_alias: None,
+        param_name: None,
+        register_extra_args: None,
+        exclude_languages: vec![],
+        ffi_skip_methods: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::OptionsField,
+        options_type: Some("ConversionOptions".to_string()),
+        options_field: None,
+        context_type: None,
+        result_type: None,
+    }];
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Ruby]).unwrap();
+    let files = language_files(&all_files);
+    let cargo_toml = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
+
+    let keys = dep_keys_in_order(&cargo_toml.content);
+    // With a trait bridge, async-trait and tokio must be present.
+    assert!(
+        keys.contains(&"async-trait"),
+        "async-trait must appear when trait bridges are configured; keys: {keys:?}"
+    );
+    assert!(
+        keys.contains(&"tokio"),
+        "tokio must appear when trait bridges are configured; keys: {keys:?}"
+    );
+    let mut sorted = keys.clone();
+    sorted.sort();
+    assert_eq!(
+        keys, sorted,
+        "ruby Cargo.toml [dependencies] must be alphabetically sorted; got: {keys:?}"
+    );
+}
+
+#[test]
+fn test_scaffold_r_cargo_deps_are_alphabetically_sorted() {
+    use alef_core::config::TraitBridgeConfig;
+
+    let mut config = test_config();
+    config.languages = vec![Language::R];
+    config.trait_bridges = vec![TraitBridgeConfig {
+        trait_name: "HtmlVisitor".to_string(),
+        super_trait: None,
+        registry_getter: None,
+        register_fn: None,
+        unregister_fn: None,
+        clear_fn: None,
+        type_alias: None,
+        param_name: None,
+        register_extra_args: None,
+        exclude_languages: vec![],
+        ffi_skip_methods: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::OptionsField,
+        options_type: Some("ConversionOptions".to_string()),
+        options_field: None,
+        context_type: None,
+        result_type: None,
+    }];
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::R]).unwrap();
+    let files = language_files(&all_files);
+    let cargo_toml = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
+
+    let keys = dep_keys_in_order(&cargo_toml.content);
+    // With a trait bridge, async-trait must be present.
+    assert!(
+        keys.contains(&"async-trait"),
+        "async-trait must appear when trait bridges are configured; keys: {keys:?}"
+    );
+    let mut sorted = keys.clone();
+    sorted.sort();
+    assert_eq!(
+        keys, sorted,
+        "r Cargo.toml [dependencies] must be alphabetically sorted; got: {keys:?}"
+    );
+}
+
+#[test]
+fn test_scaffold_elixir_cargo_deps_sorted_no_trait_bridges() {
+    // Even without trait bridges, the basic deps must be in sorted order.
+    let mut config = test_config();
+    config.languages = vec![Language::Elixir];
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Elixir]).unwrap();
+    let files = language_files(&all_files);
+    let cargo_toml = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
+
+    let keys = dep_keys_in_order(&cargo_toml.content);
+    let mut sorted = keys.clone();
+    sorted.sort();
+    assert_eq!(
+        keys, sorted,
+        "elixir Cargo.toml [dependencies] must be alphabetically sorted (sync-only); got: {keys:?}"
+    );
+}
+
+#[test]
+fn test_scaffold_r_cargo_deps_sorted_no_trait_bridges() {
+    // Without trait bridges, the basic R deps must still be in sorted order.
+    let mut config = test_config();
+    config.languages = vec![Language::R];
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::R]).unwrap();
+    let files = language_files(&all_files);
+    let cargo_toml = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
+
+    let keys = dep_keys_in_order(&cargo_toml.content);
+    let mut sorted = keys.clone();
+    sorted.sort();
+    assert_eq!(
+        keys, sorted,
+        "r Cargo.toml [dependencies] must be alphabetically sorted (no trait bridges); got: {keys:?}"
+    );
+}

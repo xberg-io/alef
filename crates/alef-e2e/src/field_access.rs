@@ -380,6 +380,13 @@ impl FieldResolver {
     }
 
     /// Check whether a fixture field path is valid for the configured result type.
+    ///
+    /// Returns `true` when the resolved path's first segment is in `result_fields`,
+    /// or when the path uses a single virtual namespace prefix (e.g. `"browser."`,
+    /// `"interaction."`) whose second segment IS in `result_fields`.  The namespace
+    /// prefix pattern is common in kreuzcrawl-style fixtures where authors group
+    /// related assertion fields under an organizational prefix that does not
+    /// correspond to a real struct field on the return type.
     pub fn is_valid_for_result(&self, fixture_field: &str) -> bool {
         if self.result_fields.is_empty() {
             return true;
@@ -387,7 +394,42 @@ impl FieldResolver {
         let resolved = self.resolve(fixture_field);
         let first_segment = resolved.split('.').next().unwrap_or(resolved);
         let first_segment = first_segment.split('[').next().unwrap_or(first_segment);
-        self.result_fields.contains(first_segment)
+        if self.result_fields.contains(first_segment) {
+            return true;
+        }
+        // Namespace-prefix fallback: if the first segment is NOT a known result field
+        // but stripping it yields a path whose own first segment IS a known result
+        // field, treat the path as valid.  This supports fixture field paths like
+        // `"browser.browser_used"` where `"browser"` is a virtual grouping prefix
+        // and the real field is `"browser_used"`.
+        if let Some(suffix) = self.namespace_stripped_path(resolved) {
+            let suffix_first = suffix.split('.').next().unwrap_or(&suffix);
+            let suffix_first = suffix_first.split('[').next().unwrap_or(suffix_first);
+            return self.result_fields.contains(suffix_first);
+        }
+        false
+    }
+
+    /// If `path`'s first dot-separated segment is NOT in `result_fields` and
+    /// contains no `[…]` indexing (i.e. it looks like a pure namespace label),
+    /// return the remainder of the path after that first segment.  Returns `None`
+    /// when the first segment already matches a result field or when stripping it
+    /// would leave an empty string.
+    fn namespace_stripped_path<'a>(&self, path: &'a str) -> Option<&'a str> {
+        let dot_pos = path.find('.')?;
+        let first = &path[..dot_pos];
+        // Only strip if the first segment contains no brackets (i.e. is a bare
+        // label, not an array access like `pages[0]`).
+        if first.contains('[') {
+            return None;
+        }
+        // Only strip if the first segment is NOT itself a known result field —
+        // real fields should never be treated as namespace prefixes.
+        if self.result_fields.contains(first) {
+            return None;
+        }
+        let suffix = &path[dot_pos + 1..];
+        if suffix.is_empty() { None } else { Some(suffix) }
     }
 
     /// Check if a resolved field is an array/Vec type.
@@ -458,9 +500,34 @@ impl FieldResolver {
     }
 
     /// Generate a language-specific accessor expression.
+    ///
+    /// When `fixture_field` resolves to a path whose first segment is a virtual
+    /// namespace prefix (not a real result field), the prefix is stripped before
+    /// generating the accessor.  This matches the behaviour of `is_valid_for_result`
+    /// so that paths like `"browser.browser_used"` produce `result.browser_used`
+    /// (Python) / `result.BrowserUsed` (C#) / etc. rather than the raw
+    /// `result.browser.browser_used` which would fail at runtime.
     pub fn accessor(&self, fixture_field: &str, language: &str, result_var: &str) -> String {
         let resolved = self.resolve(fixture_field);
-        let segments = parse_path(resolved);
+        // Strip a leading namespace prefix when the first segment is not a known
+        // result field but the remainder's first segment is.  This handles fixture
+        // paths like `"browser.browser_used"` → actual accessor path `"browser_used"`.
+        let effective = if !self.result_fields.is_empty() {
+            if let Some(stripped) = self.namespace_stripped_path(resolved) {
+                let stripped_first = stripped.split('.').next().unwrap_or(stripped);
+                let stripped_first = stripped_first.split('[').next().unwrap_or(stripped_first);
+                if self.result_fields.contains(stripped_first) {
+                    stripped
+                } else {
+                    resolved
+                }
+            } else {
+                resolved
+            }
+        } else {
+            resolved
+        };
+        let segments = parse_path(effective);
         let segments = self.inject_array_indexing(segments);
         match language {
             "java" => render_java_with_optionals(&segments, result_var, &self.optional_fields),
@@ -2559,6 +2626,118 @@ mod tests {
         assert_eq!(
             r.accessor("nested_content", "php", "$result"),
             "$result->getInner()->content"
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // Namespace-prefix stripping tests
+    // ---------------------------------------------------------------------------
+
+    fn make_resolver_with_result_fields(result_fields: &[&str]) -> FieldResolver {
+        let rf: HashSet<String> = result_fields.iter().map(|s| s.to_string()).collect();
+        FieldResolver::new(&HashMap::new(), &HashSet::new(), &rf, &HashSet::new(), &HashSet::new())
+    }
+
+    /// `browser.browser_used` — `browser` is a virtual namespace prefix, actual
+    /// field is `browser_used` which IS in result_fields.
+    #[test]
+    fn is_valid_for_result_accepts_virtual_namespace_prefix() {
+        let r = make_resolver_with_result_fields(&["browser_used", "js_render_hint", "status_code"]);
+        assert!(
+            r.is_valid_for_result("browser.browser_used"),
+            "browser.browser_used should be valid via namespace-prefix stripping"
+        );
+        assert!(
+            r.is_valid_for_result("browser.js_render_hint"),
+            "browser.js_render_hint should be valid via namespace-prefix stripping"
+        );
+    }
+
+    /// `interaction.action_results[0].action_type` — `interaction` is a virtual
+    /// namespace prefix, `action_results` IS in result_fields.
+    #[test]
+    fn is_valid_for_result_accepts_namespace_prefix_before_array_field() {
+        let r = make_resolver_with_result_fields(&["action_results", "final_html", "final_url"]);
+        assert!(
+            r.is_valid_for_result("interaction.action_results[0].action_type"),
+            "interaction. prefix should be stripped so action_results is recognised"
+        );
+    }
+
+    /// Fields that genuinely don't exist should still be rejected.
+    #[test]
+    fn is_valid_for_result_rejects_unknown_field_even_after_namespace_strip() {
+        let r = make_resolver_with_result_fields(&["pages", "final_url"]);
+        assert!(
+            !r.is_valid_for_result("browser.browser_used"),
+            "browser_used is not in result_fields so should be rejected"
+        );
+        assert!(
+            !r.is_valid_for_result("ns.unknown_field"),
+            "unknown_field is not in result_fields so should be rejected"
+        );
+    }
+
+    /// Accessor for `browser.browser_used` should produce the stripped path
+    /// (i.e. `result.browser_used` for Python, not `result.browser.browser_used`).
+    #[test]
+    fn accessor_strips_namespace_prefix_for_python() {
+        let r = make_resolver_with_result_fields(&["browser_used", "js_render_hint"]);
+        assert_eq!(
+            r.accessor("browser.browser_used", "python", "result"),
+            "result.browser_used"
+        );
+        assert_eq!(
+            r.accessor("browser.js_render_hint", "python", "result"),
+            "result.js_render_hint"
+        );
+    }
+
+    /// Accessor for `browser.browser_used` should produce PascalCase path for C#.
+    #[test]
+    fn accessor_strips_namespace_prefix_for_csharp() {
+        let r = make_resolver_with_result_fields(&["browser_used"]);
+        assert_eq!(
+            r.accessor("browser.browser_used", "csharp", "result"),
+            "result.BrowserUsed"
+        );
+    }
+
+    /// Accessor for `interaction.action_results[0].action_type` — strips `interaction.`
+    /// prefix and resolves the remaining path.
+    #[test]
+    fn accessor_strips_namespace_prefix_for_indexed_array_field() {
+        let r = make_resolver_with_result_fields(&["action_results", "final_html", "final_url"]);
+        // Python: result.action_results[0].action_type
+        assert_eq!(
+            r.accessor("interaction.action_results[0].action_type", "python", "result"),
+            "result.action_results[0].action_type"
+        );
+        // TypeScript: result.actionResults[0].actionType
+        assert_eq!(
+            r.accessor("interaction.action_results[0].action_type", "typescript", "result"),
+            "result.actionResults[0].actionType"
+        );
+    }
+
+    /// When `result_fields` is empty, namespace stripping is disabled and every
+    /// path is accepted (the permissive default).
+    #[test]
+    fn is_valid_for_result_is_permissive_when_result_fields_empty() {
+        let r = make_resolver_with_result_fields(&[]);
+        assert!(r.is_valid_for_result("browser.browser_used"));
+        assert!(r.is_valid_for_result("anything.at.all"));
+    }
+
+    /// A real two-segment path like `metadata.title` where `metadata` IS a
+    /// known result field must NOT be stripped — the full path resolves correctly.
+    #[test]
+    fn accessor_does_not_strip_real_first_segment() {
+        let r = make_resolver_with_result_fields(&["metadata", "status_code"]);
+        // `metadata` is a real result field; should not be stripped.
+        assert_eq!(
+            r.accessor("metadata.title", "python", "result"),
+            "result.metadata.title"
         );
     }
 }

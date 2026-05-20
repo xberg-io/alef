@@ -3,12 +3,21 @@
 use std::collections::HashMap;
 
 use super::ResolvedCrateConfig;
-use crate::config::extras::Language;
+use crate::config::extras::{AdapterConfig, Language};
 use crate::config::output::{BuildCommandConfig, CleanConfig, LintConfig, SetupConfig, TestConfig, UpdateConfig};
 use crate::config::tools::LangContext;
 use crate::config::{build_defaults, clean_defaults, lint_defaults, setup_defaults, test_defaults, update_defaults};
 
 impl ResolvedCrateConfig {
+    /// Find the [`AdapterConfig`] whose `name` matches `fn_name`, if any.
+    ///
+    /// Used by e2e codegen to check whether a call function is routed through
+    /// a streaming adapter and, if so, to retrieve its `request_type` so the
+    /// generated test wraps the raw `mock_url` binding in the typed request
+    /// constructor.
+    pub fn adapter_for_function(&self, fn_name: &str) -> Option<&AdapterConfig> {
+        self.adapters.iter().find(|a| a.name == fn_name)
+    }
     /// Get the package output directory for a language.
     /// Uses `scaffold_output` from per-language config if set, otherwise defaults.
     pub fn package_dir(&self, lang: Language) -> String {

@@ -252,7 +252,7 @@ namespace_packages = true
         },
         GeneratedFile {
             path: PathBuf::from(format!("{pkg_dir}/{python_package}/py.typed")),
-            content: String::new(),
+            content: "\n".to_string(),
             generated_header: false,
         },
     ])

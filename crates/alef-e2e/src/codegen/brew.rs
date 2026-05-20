@@ -136,8 +136,8 @@ fn render_run_tests(categories: &[String]) -> String {
     let _ = writeln!(out);
     let _ = writeln!(out, "# Verify that jq is available.");
     let _ = writeln!(out, "if ! command -v jq &>/dev/null; then");
-    let _ = writeln!(out, "    echo 'error: jq is required but not found in PATH' >&2");
-    let _ = writeln!(out, "    exit 1");
+    let _ = writeln!(out, "  echo 'error: jq is required but not found in PATH' >&2");
+    let _ = writeln!(out, "  exit 1");
     let _ = writeln!(out, "fi");
     let _ = writeln!(out);
     let _ = writeln!(out, "PASS=0");
@@ -146,101 +146,101 @@ fn render_run_tests(categories: &[String]) -> String {
 
     // Helper functions.
     let _ = writeln!(out, "assert_equals() {{");
-    let _ = writeln!(out, "    local actual=\"$1\" expected=\"$2\" label=\"$3\"");
-    let _ = writeln!(out, "    if [ \"$actual\" != \"$expected\" ]; then");
+    let _ = writeln!(out, "  local actual=\"$1\" expected=\"$2\" label=\"$3\"");
+    let _ = writeln!(out, "  if [ \"$actual\" != \"$expected\" ]; then");
     let _ = writeln!(
         out,
-        "        echo \"FAIL [$label]: expected '$expected', got '$actual'\" >&2"
+        "    echo \"FAIL [$label]: expected '$expected', got '$actual'\" >&2"
     );
-    let _ = writeln!(out, "        return 1");
-    let _ = writeln!(out, "    fi");
+    let _ = writeln!(out, "    return 1");
+    let _ = writeln!(out, "  fi");
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
     let _ = writeln!(out, "assert_contains() {{");
-    let _ = writeln!(out, "    local actual=\"$1\" expected=\"$2\" label=\"$3\"");
-    let _ = writeln!(out, "    if [[ \"$actual\" != *\"$expected\"* ]]; then");
+    let _ = writeln!(out, "  local actual=\"$1\" expected=\"$2\" label=\"$3\"");
+    let _ = writeln!(out, "  if [[ \"$actual\" != *\"$expected\"* ]]; then");
     let _ = writeln!(
         out,
-        "        echo \"FAIL [$label]: expected to contain '$expected'\" >&2"
+        "    echo \"FAIL [$label]: expected to contain '$expected'\" >&2"
     );
-    let _ = writeln!(out, "        return 1");
-    let _ = writeln!(out, "    fi");
+    let _ = writeln!(out, "    return 1");
+    let _ = writeln!(out, "  fi");
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
     let _ = writeln!(out, "assert_not_empty() {{");
-    let _ = writeln!(out, "    local actual=\"$1\" label=\"$2\"");
-    let _ = writeln!(out, "    if [ -z \"$actual\" ]; then");
-    let _ = writeln!(out, "        echo \"FAIL [$label]: expected non-empty value\" >&2");
-    let _ = writeln!(out, "        return 1");
-    let _ = writeln!(out, "    fi");
+    let _ = writeln!(out, "  local actual=\"$1\" label=\"$2\"");
+    let _ = writeln!(out, "  if [ -z \"$actual\" ]; then");
+    let _ = writeln!(out, "    echo \"FAIL [$label]: expected non-empty value\" >&2");
+    let _ = writeln!(out, "    return 1");
+    let _ = writeln!(out, "  fi");
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
     let _ = writeln!(out, "assert_count_min() {{");
-    let _ = writeln!(out, "    local count=\"$1\" min=\"$2\" label=\"$3\"");
-    let _ = writeln!(out, "    if [ \"$count\" -lt \"$min\" ]; then");
+    let _ = writeln!(out, "  local count=\"$1\" min=\"$2\" label=\"$3\"");
+    let _ = writeln!(out, "  if [ \"$count\" -lt \"$min\" ]; then");
     let _ = writeln!(
         out,
-        "        echo \"FAIL [$label]: expected at least $min elements, got $count\" >&2"
+        "    echo \"FAIL [$label]: expected at least $min elements, got $count\" >&2"
     );
-    let _ = writeln!(out, "        return 1");
-    let _ = writeln!(out, "    fi");
+    let _ = writeln!(out, "    return 1");
+    let _ = writeln!(out, "  fi");
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
     let _ = writeln!(out, "assert_greater_than() {{");
-    let _ = writeln!(out, "    local val=\"$1\" threshold=\"$2\" label=\"$3\"");
+    let _ = writeln!(out, "  local val=\"$1\" threshold=\"$2\" label=\"$3\"");
     let _ = writeln!(
         out,
-        "    if [ \"$(echo \"$val > $threshold\" | bc -l)\" != \"1\" ]; then"
+        "  if [ \"$(echo \"$val > $threshold\" | bc -l)\" != \"1\" ]; then"
     );
-    let _ = writeln!(out, "        echo \"FAIL [$label]: expected $val > $threshold\" >&2");
-    let _ = writeln!(out, "        return 1");
-    let _ = writeln!(out, "    fi");
+    let _ = writeln!(out, "    echo \"FAIL [$label]: expected $val > $threshold\" >&2");
+    let _ = writeln!(out, "    return 1");
+    let _ = writeln!(out, "  fi");
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
     let _ = writeln!(out, "assert_greater_than_or_equal() {{");
-    let _ = writeln!(out, "    local actual=\"$1\" expected=\"$2\" label=\"$3\"");
-    let _ = writeln!(out, "    if [ \"$actual\" -lt \"$expected\" ]; then");
-    let _ = writeln!(out, "        echo \"FAIL [$label]: expected $actual >= $expected\" >&2");
-    let _ = writeln!(out, "        return 1");
-    let _ = writeln!(out, "    fi");
+    let _ = writeln!(out, "  local actual=\"$1\" expected=\"$2\" label=\"$3\"");
+    let _ = writeln!(out, "  if [ \"$actual\" -lt \"$expected\" ]; then");
+    let _ = writeln!(out, "    echo \"FAIL [$label]: expected $actual >= $expected\" >&2");
+    let _ = writeln!(out, "    return 1");
+    let _ = writeln!(out, "  fi");
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
     let _ = writeln!(out, "assert_is_empty() {{");
-    let _ = writeln!(out, "    local actual=\"$1\" label=\"$2\"");
-    let _ = writeln!(out, "    if [ -n \"$actual\" ]; then");
+    let _ = writeln!(out, "  local actual=\"$1\" label=\"$2\"");
+    let _ = writeln!(out, "  if [ -n \"$actual\" ]; then");
     let _ = writeln!(
         out,
-        "        echo \"FAIL [$label]: expected empty value, got '$actual'\" >&2"
+        "    echo \"FAIL [$label]: expected empty value, got '$actual'\" >&2"
     );
-    let _ = writeln!(out, "        return 1");
-    let _ = writeln!(out, "    fi");
+    let _ = writeln!(out, "    return 1");
+    let _ = writeln!(out, "  fi");
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
     let _ = writeln!(out, "assert_less_than() {{");
-    let _ = writeln!(out, "    local actual=\"$1\" expected=\"$2\" label=\"$3\"");
-    let _ = writeln!(out, "    if [ \"$actual\" -ge \"$expected\" ]; then");
-    let _ = writeln!(out, "        echo \"FAIL [$label]: expected $actual < $expected\" >&2");
-    let _ = writeln!(out, "        return 1");
-    let _ = writeln!(out, "    fi");
+    let _ = writeln!(out, "  local actual=\"$1\" expected=\"$2\" label=\"$3\"");
+    let _ = writeln!(out, "  if [ \"$actual\" -ge \"$expected\" ]; then");
+    let _ = writeln!(out, "    echo \"FAIL [$label]: expected $actual < $expected\" >&2");
+    let _ = writeln!(out, "    return 1");
+    let _ = writeln!(out, "  fi");
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
     let _ = writeln!(out, "assert_less_than_or_equal() {{");
-    let _ = writeln!(out, "    local actual=\"$1\" expected=\"$2\" label=\"$3\"");
-    let _ = writeln!(out, "    if [ \"$actual\" -gt \"$expected\" ]; then");
-    let _ = writeln!(out, "        echo \"FAIL [$label]: expected $actual <= $expected\" >&2");
-    let _ = writeln!(out, "        return 1");
-    let _ = writeln!(out, "    fi");
+    let _ = writeln!(out, "  local actual=\"$1\" expected=\"$2\" label=\"$3\"");
+    let _ = writeln!(out, "  if [ \"$actual\" -gt \"$expected\" ]; then");
+    let _ = writeln!(out, "    echo \"FAIL [$label]: expected $actual <= $expected\" >&2");
+    let _ = writeln!(out, "    return 1");
+    let _ = writeln!(out, "  fi");
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
     let _ = writeln!(out, "assert_not_contains() {{");
-    let _ = writeln!(out, "    local actual=\"$1\" expected=\"$2\" label=\"$3\"");
-    let _ = writeln!(out, "    if [[ \"$actual\" == *\"$expected\"* ]]; then");
+    let _ = writeln!(out, "  local actual=\"$1\" expected=\"$2\" label=\"$3\"");
+    let _ = writeln!(out, "  if [[ \"$actual\" == *\"$expected\"* ]]; then");
     let _ = writeln!(
         out,
-        "        echo \"FAIL [$label]: expected not to contain '$expected'\" >&2"
+        "    echo \"FAIL [$label]: expected not to contain '$expected'\" >&2"
     );
-    let _ = writeln!(out, "        return 1");
-    let _ = writeln!(out, "    fi");
+    let _ = writeln!(out, "    return 1");
+    let _ = writeln!(out, "  fi");
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
 
@@ -256,14 +256,14 @@ fn render_run_tests(categories: &[String]) -> String {
 
     // Run each test function and track pass/fail.
     let _ = writeln!(out, "run_test() {{");
-    let _ = writeln!(out, "    local name=\"$1\"");
-    let _ = writeln!(out, "    if \"$name\"; then");
-    let _ = writeln!(out, "        echo \"PASS: $name\"");
-    let _ = writeln!(out, "        PASS=$((PASS + 1))");
-    let _ = writeln!(out, "    else");
-    let _ = writeln!(out, "        echo \"FAIL: $name\"");
-    let _ = writeln!(out, "        FAIL=$((FAIL + 1))");
-    let _ = writeln!(out, "    fi");
+    let _ = writeln!(out, "  local name=\"$1\"");
+    let _ = writeln!(out, "  if \"$name\"; then");
+    let _ = writeln!(out, "    echo \"PASS: $name\"");
+    let _ = writeln!(out, "    PASS=$((PASS + 1))");
+    let _ = writeln!(out, "  else");
+    let _ = writeln!(out, "    echo \"FAIL: $name\"");
+    let _ = writeln!(out, "    FAIL=$((FAIL + 1))");
+    let _ = writeln!(out, "  fi");
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
 
@@ -322,7 +322,7 @@ fn render_category_file(
     let _ = writeln!(out, "run_tests_{safe_category}() {{");
     for fixture in fixtures {
         let fn_name = sanitize_ident(&fixture.id);
-        let _ = writeln!(out, "    run_test test_{fn_name}");
+        let _ = writeln!(out, "  run_test test_{fn_name}");
     }
     let _ = writeln!(out, "}}");
     out
@@ -346,7 +346,7 @@ fn render_test_function(
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
     let _ = writeln!(out, "test_{fn_name}() {{");
-    let _ = writeln!(out, "    # {description}");
+    let _ = writeln!(out, "  # {description}");
 
     // Resolve fixture-specific call config if provided, otherwise use defaults.
     let call_config = e2e_config.resolve_call_for_fixture(
@@ -377,13 +377,13 @@ fn render_test_function(
 
     if expects_error {
         let cmd = cmd_parts.join(" ");
-        let _ = writeln!(out, "    if {cmd} >/dev/null 2>&1; then");
+        let _ = writeln!(out, "  if {cmd} >/dev/null 2>&1; then");
         let _ = writeln!(
             out,
-            "        echo 'FAIL [error]: expected command to fail but it succeeded' >&2"
+            "    echo 'FAIL [error]: expected command to fail but it succeeded' >&2"
         );
-        let _ = writeln!(out, "        return 1");
-        let _ = writeln!(out, "    fi");
+        let _ = writeln!(out, "    return 1");
+        let _ = writeln!(out, "  fi");
         let _ = writeln!(out, "}}");
         return;
     }
@@ -398,10 +398,10 @@ fn render_test_function(
     // Capture output (only if there are active assertions that reference it).
     let cmd = cmd_parts.join(" ");
     if has_active_assertions {
-        let _ = writeln!(out, "    local output");
-        let _ = writeln!(out, "    output=$({cmd})");
+        let _ = writeln!(out, "  local output");
+        let _ = writeln!(out, "  output=$({cmd})");
     } else {
-        let _ = writeln!(out, "    {cmd} >/dev/null");
+        let _ = writeln!(out, "  {cmd} >/dev/null");
     }
     let _ = writeln!(out);
 
@@ -550,7 +550,7 @@ fn render_assertion(out: &mut String, assertion: &Assertion, binary_name: &str, 
     // Skip assertions on fields not available on the result type.
     if let Some(f) = &assertion.field {
         if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
-            let _ = writeln!(out, "    # skipped: field '{f}' not available on result type");
+            let _ = writeln!(out, "  # skipped: field '{f}' not available on result type");
             return;
         }
     }
@@ -563,11 +563,11 @@ fn render_assertion(out: &mut String, assertion: &Assertion, binary_name: &str, 
                     let jq_path = field_to_jq_path(resolved);
                     let expected_str = json_value_to_shell_string(expected);
                     let safe_field = sanitize_ident(field);
-                    let _ = writeln!(out, "    local val_{safe_field}");
-                    let _ = writeln!(out, "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
+                    let _ = writeln!(out, "  local val_{safe_field}");
+                    let _ = writeln!(out, "  val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
                     let _ = writeln!(
                         out,
-                        "    assert_equals \"$val_{safe_field}\" '{expected_str}' '{field}'"
+                        "  assert_equals \"$val_{safe_field}\" '{expected_str}' '{field}'"
                     );
                 }
             }
@@ -579,11 +579,11 @@ fn render_assertion(out: &mut String, assertion: &Assertion, binary_name: &str, 
                     let jq_path = field_to_jq_path(resolved);
                     let expected_str = json_value_to_shell_string(expected);
                     let safe_field = sanitize_ident(field);
-                    let _ = writeln!(out, "    local val_{safe_field}");
-                    let _ = writeln!(out, "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
+                    let _ = writeln!(out, "  local val_{safe_field}");
+                    let _ = writeln!(out, "  val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
                     let _ = writeln!(
                         out,
-                        "    assert_contains \"$val_{safe_field}\" '{expected_str}' '{field}'"
+                        "  assert_contains \"$val_{safe_field}\" '{expected_str}' '{field}'"
                     );
                 }
             }
@@ -593,9 +593,9 @@ fn render_assertion(out: &mut String, assertion: &Assertion, binary_name: &str, 
                 let resolved = field_resolver.resolve(field);
                 let jq_path = field_to_jq_path(resolved);
                 let safe_field = sanitize_ident(field);
-                let _ = writeln!(out, "    local val_{safe_field}");
-                let _ = writeln!(out, "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
-                let _ = writeln!(out, "    assert_not_empty \"$val_{safe_field}\" '{field}'");
+                let _ = writeln!(out, "  local val_{safe_field}");
+                let _ = writeln!(out, "  val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
+                let _ = writeln!(out, "  assert_not_empty \"$val_{safe_field}\" '{field}'");
             }
         }
         "count_min" | "root_child_count_min" => {
@@ -605,12 +605,12 @@ fn render_assertion(out: &mut String, assertion: &Assertion, binary_name: &str, 
                         let resolved = field_resolver.resolve(field);
                         let jq_path = field_to_jq_path(resolved);
                         let safe_field = sanitize_ident(field);
-                        let _ = writeln!(out, "    local count_{safe_field}");
+                        let _ = writeln!(out, "  local count_{safe_field}");
                         let _ = writeln!(
                             out,
-                            "    count_{safe_field}=$(echo \"$output\" | jq '{jq_path} | length')"
+                            "  count_{safe_field}=$(echo \"$output\" | jq '{jq_path} | length')"
                         );
-                        let _ = writeln!(out, "    assert_count_min \"$count_{safe_field}\" {min} '{field}'");
+                        let _ = writeln!(out, "  assert_count_min \"$count_{safe_field}\" {min} '{field}'");
                     }
                 }
             }
@@ -622,11 +622,11 @@ fn render_assertion(out: &mut String, assertion: &Assertion, binary_name: &str, 
                     let jq_path = field_to_jq_path(resolved);
                     let threshold = json_value_to_shell_string(val);
                     let safe_field = sanitize_ident(field);
-                    let _ = writeln!(out, "    local val_{safe_field}");
-                    let _ = writeln!(out, "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
+                    let _ = writeln!(out, "  local val_{safe_field}");
+                    let _ = writeln!(out, "  val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
                     let _ = writeln!(
                         out,
-                        "    assert_greater_than \"$val_{safe_field}\" '{threshold}' '{field}'"
+                        "  assert_greater_than \"$val_{safe_field}\" '{threshold}' '{field}'"
                     );
                 }
             }
@@ -638,11 +638,11 @@ fn render_assertion(out: &mut String, assertion: &Assertion, binary_name: &str, 
                     let jq_path = field_to_jq_path(resolved);
                     let threshold = json_value_to_shell_string(val);
                     let safe_field = sanitize_ident(field);
-                    let _ = writeln!(out, "    local val_{safe_field}");
-                    let _ = writeln!(out, "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
+                    let _ = writeln!(out, "  local val_{safe_field}");
+                    let _ = writeln!(out, "  val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
                     let _ = writeln!(
                         out,
-                        "    assert_greater_than_or_equal \"$val_{safe_field}\" '{threshold}' '{field}'"
+                        "  assert_greater_than_or_equal \"$val_{safe_field}\" '{threshold}' '{field}'"
                     );
                 }
             }
@@ -653,13 +653,13 @@ fn render_assertion(out: &mut String, assertion: &Assertion, binary_name: &str, 
                     let resolved = field_resolver.resolve(field);
                     let jq_path = field_to_jq_path(resolved);
                     let safe_field = sanitize_ident(field);
-                    let _ = writeln!(out, "    local val_{safe_field}");
-                    let _ = writeln!(out, "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
+                    let _ = writeln!(out, "  local val_{safe_field}");
+                    let _ = writeln!(out, "  val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
                     for (index, item) in items.iter().enumerate() {
                         let item_str = json_value_to_shell_string(item);
                         let _ = writeln!(
                             out,
-                            "    assert_contains \"$val_{safe_field}\" '{item_str}' '{field}[{index}]'"
+                            "  assert_contains \"$val_{safe_field}\" '{item_str}' '{field}[{index}]'"
                         );
                     }
                 }
@@ -670,13 +670,13 @@ fn render_assertion(out: &mut String, assertion: &Assertion, binary_name: &str, 
                 let resolved = field_resolver.resolve(field);
                 let jq_path = field_to_jq_path(resolved);
                 let safe_field = sanitize_ident(field);
-                let _ = writeln!(out, "    local val_{safe_field}");
+                let _ = writeln!(out, "  local val_{safe_field}");
                 // Use `// empty` so JSON null becomes an empty string rather than the literal "null".
                 let _ = writeln!(
                     out,
-                    "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path} // empty')"
+                    "  val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path} // empty')"
                 );
-                let _ = writeln!(out, "    assert_is_empty \"$val_{safe_field}\" '{field}'");
+                let _ = writeln!(out, "  assert_is_empty \"$val_{safe_field}\" '{field}'");
             }
         }
         "less_than" => {
@@ -686,11 +686,11 @@ fn render_assertion(out: &mut String, assertion: &Assertion, binary_name: &str, 
                     let jq_path = field_to_jq_path(resolved);
                     let threshold = json_value_to_shell_string(val);
                     let safe_field = sanitize_ident(field);
-                    let _ = writeln!(out, "    local val_{safe_field}");
-                    let _ = writeln!(out, "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
+                    let _ = writeln!(out, "  local val_{safe_field}");
+                    let _ = writeln!(out, "  val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
                     let _ = writeln!(
                         out,
-                        "    assert_less_than \"$val_{safe_field}\" '{threshold}' '{field}'"
+                        "  assert_less_than \"$val_{safe_field}\" '{threshold}' '{field}'"
                     );
                 }
             }
@@ -702,11 +702,11 @@ fn render_assertion(out: &mut String, assertion: &Assertion, binary_name: &str, 
                     let jq_path = field_to_jq_path(resolved);
                     let expected_str = json_value_to_shell_string(expected);
                     let safe_field = sanitize_ident(field);
-                    let _ = writeln!(out, "    local val_{safe_field}");
-                    let _ = writeln!(out, "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
+                    let _ = writeln!(out, "  local val_{safe_field}");
+                    let _ = writeln!(out, "  val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
                     let _ = writeln!(
                         out,
-                        "    assert_not_contains \"$val_{safe_field}\" '{expected_str}' '{field}'"
+                        "  assert_not_contains \"$val_{safe_field}\" '{expected_str}' '{field}'"
                     );
                 }
             }
@@ -718,12 +718,12 @@ fn render_assertion(out: &mut String, assertion: &Assertion, binary_name: &str, 
                         let resolved = field_resolver.resolve(field);
                         let jq_path = field_to_jq_path(resolved);
                         let safe_field = sanitize_ident(field);
-                        let _ = writeln!(out, "    local count_{safe_field}");
+                        let _ = writeln!(out, "  local count_{safe_field}");
                         let _ = writeln!(
                             out,
-                            "    count_{safe_field}=$(echo \"$output\" | jq '{jq_path} | length')"
+                            "  count_{safe_field}=$(echo \"$output\" | jq '{jq_path} | length')"
                         );
-                        let _ = writeln!(out, "    [ \"$count_{safe_field}\" -eq {n} ] || exit 1");
+                        let _ = writeln!(out, "  [ \"$count_{safe_field}\" -eq {n} ] || exit 1");
                     }
                 }
             }
@@ -733,9 +733,9 @@ fn render_assertion(out: &mut String, assertion: &Assertion, binary_name: &str, 
                 let resolved = field_resolver.resolve(field);
                 let jq_path = field_to_jq_path(resolved);
                 let safe_field = sanitize_ident(field);
-                let _ = writeln!(out, "    local val_{safe_field}");
-                let _ = writeln!(out, "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
-                let _ = writeln!(out, "    [ \"$val_{safe_field}\" = \"true\" ] || exit 1");
+                let _ = writeln!(out, "  local val_{safe_field}");
+                let _ = writeln!(out, "  val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
+                let _ = writeln!(out, "  [ \"$val_{safe_field}\" = \"true\" ] || exit 1");
             }
         }
         "is_false" => {
@@ -743,9 +743,9 @@ fn render_assertion(out: &mut String, assertion: &Assertion, binary_name: &str, 
                 let resolved = field_resolver.resolve(field);
                 let jq_path = field_to_jq_path(resolved);
                 let safe_field = sanitize_ident(field);
-                let _ = writeln!(out, "    local val_{safe_field}");
-                let _ = writeln!(out, "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
-                let _ = writeln!(out, "    [ \"$val_{safe_field}\" = \"false\" ] || exit 1");
+                let _ = writeln!(out, "  local val_{safe_field}");
+                let _ = writeln!(out, "  val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
+                let _ = writeln!(out, "  [ \"$val_{safe_field}\" = \"false\" ] || exit 1");
             }
         }
         "less_than_or_equal" => {
@@ -755,11 +755,11 @@ fn render_assertion(out: &mut String, assertion: &Assertion, binary_name: &str, 
                     let jq_path = field_to_jq_path(resolved);
                     let threshold = json_value_to_shell_string(val);
                     let safe_field = sanitize_ident(field);
-                    let _ = writeln!(out, "    local val_{safe_field}");
-                    let _ = writeln!(out, "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
+                    let _ = writeln!(out, "  local val_{safe_field}");
+                    let _ = writeln!(out, "  val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
                     let _ = writeln!(
                         out,
-                        "    assert_less_than_or_equal \"$val_{safe_field}\" '{threshold}' '{field}'"
+                        "  assert_less_than_or_equal \"$val_{safe_field}\" '{threshold}' '{field}'"
                     );
                 }
             }
@@ -771,34 +771,34 @@ fn render_assertion(out: &mut String, assertion: &Assertion, binary_name: &str, 
                 // For is_error, skip capturing the result — just run the command and check
                 // the exit code so we don't execute the method twice.
                 if check == "is_error" {
-                    let _ = writeln!(out, "    if {cmd} >/dev/null 2>&1; then");
+                    let _ = writeln!(out, "  if {cmd} >/dev/null 2>&1; then");
                     let _ = writeln!(
                         out,
-                        "        echo 'FAIL [method_result]: expected method to raise error but it succeeded' >&2"
+                        "    echo 'FAIL [method_result]: expected method to raise error but it succeeded' >&2"
                     );
-                    let _ = writeln!(out, "        return 1");
-                    let _ = writeln!(out, "    fi");
+                    let _ = writeln!(out, "    return 1");
+                    let _ = writeln!(out, "  fi");
                 } else {
                     let method_var = format!("method_result_{}", sanitize_ident(method_name));
-                    let _ = writeln!(out, "    local {method_var}");
-                    let _ = writeln!(out, "    {method_var}=$({cmd})");
+                    let _ = writeln!(out, "  local {method_var}");
+                    let _ = writeln!(out, "  {method_var}=$({cmd})");
                     match check {
                         "equals" => {
                             if let Some(val) = &assertion.value {
                                 let expected = json_value_to_shell_string(val);
-                                let _ = writeln!(out, "    [ \"${method_var}\" = '{expected}' ] || exit 1");
+                                let _ = writeln!(out, "  [ \"${method_var}\" = '{expected}' ] || exit 1");
                             }
                         }
                         "is_true" => {
-                            let _ = writeln!(out, "    [ \"${method_var}\" = \"true\" ] || exit 1");
+                            let _ = writeln!(out, "  [ \"${method_var}\" = \"true\" ] || exit 1");
                         }
                         "is_false" => {
-                            let _ = writeln!(out, "    [ \"${method_var}\" = \"false\" ] || exit 1");
+                            let _ = writeln!(out, "  [ \"${method_var}\" = \"false\" ] || exit 1");
                         }
                         "greater_than_or_equal" => {
                             if let Some(val) = &assertion.value {
                                 if let Some(n) = val.as_u64() {
-                                    let _ = writeln!(out, "    [ \"${method_var}\" -ge {n} ] || exit 1");
+                                    let _ = writeln!(out, "  [ \"${method_var}\" -ge {n} ] || exit 1");
                                 }
                             }
                         }
@@ -807,16 +807,16 @@ fn render_assertion(out: &mut String, assertion: &Assertion, binary_name: &str, 
                                 if let Some(n) = val.as_u64() {
                                     let _ = writeln!(
                                         out,
-                                        "    local count_from_method_result=$(echo \"${method_var}\" | jq 'length')"
+                                        "  local count_from_method_result=$(echo \"${method_var}\" | jq 'length')"
                                     );
-                                    let _ = writeln!(out, "    [ \"$count_from_method_result\" -ge {n} ] || exit 1");
+                                    let _ = writeln!(out, "  [ \"$count_from_method_result\" -ge {n} ] || exit 1");
                                 }
                             }
                         }
                         "contains" => {
                             if let Some(val) = &assertion.value {
                                 let expected = json_value_to_shell_string(val);
-                                let _ = writeln!(out, "    [[ \"${method_var}\" == *'{expected}'* ]] || exit 1");
+                                let _ = writeln!(out, "  [[ \"${method_var}\" == *'{expected}'* ]] || exit 1");
                             }
                         }
                         other_check => {
@@ -835,11 +835,11 @@ fn render_assertion(out: &mut String, assertion: &Assertion, binary_name: &str, 
                         let resolved = field_resolver.resolve(field);
                         let jq_path = field_to_jq_path(resolved);
                         let safe_field = sanitize_ident(field);
-                        let _ = writeln!(out, "    local val_{safe_field}");
-                        let _ = writeln!(out, "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
+                        let _ = writeln!(out, "  local val_{safe_field}");
+                        let _ = writeln!(out, "  val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
                         let _ = writeln!(
                             out,
-                            "    [ \"${{#val_{safe_field}}}\" -ge {n} ] || {{ echo \"FAIL [{field}]: expected length >= {n}\" >&2; return 1; }}"
+                            "  [ \"${{#val_{safe_field}}}\" -ge {n} ] || {{ echo \"FAIL [{field}]: expected length >= {n}\" >&2; return 1; }}"
                         );
                     }
                 }
@@ -852,11 +852,11 @@ fn render_assertion(out: &mut String, assertion: &Assertion, binary_name: &str, 
                         let resolved = field_resolver.resolve(field);
                         let jq_path = field_to_jq_path(resolved);
                         let safe_field = sanitize_ident(field);
-                        let _ = writeln!(out, "    local val_{safe_field}");
-                        let _ = writeln!(out, "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
+                        let _ = writeln!(out, "  local val_{safe_field}");
+                        let _ = writeln!(out, "  val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
                         let _ = writeln!(
                             out,
-                            "    [ \"${{#val_{safe_field}}}\" -le {n} ] || {{ echo \"FAIL [{field}]: expected length <= {n}\" >&2; return 1; }}"
+                            "  [ \"${{#val_{safe_field}}}\" -le {n} ] || {{ echo \"FAIL [{field}]: expected length <= {n}\" >&2; return 1; }}"
                         );
                     }
                 }
@@ -869,11 +869,11 @@ fn render_assertion(out: &mut String, assertion: &Assertion, binary_name: &str, 
                     let jq_path = field_to_jq_path(resolved);
                     let expected_str = json_value_to_shell_string(expected);
                     let safe_field = sanitize_ident(field);
-                    let _ = writeln!(out, "    local val_{safe_field}");
-                    let _ = writeln!(out, "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
+                    let _ = writeln!(out, "  local val_{safe_field}");
+                    let _ = writeln!(out, "  val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
                     let _ = writeln!(
                         out,
-                        "    [[ \"$val_{safe_field}\" == *'{expected_str}' ]] || {{ echo \"FAIL [{field}]: expected to end with '{expected_str}'\" >&2; return 1; }}"
+                        "  [[ \"$val_{safe_field}\" == *'{expected_str}' ]] || {{ echo \"FAIL [{field}]: expected to end with '{expected_str}'\" >&2; return 1; }}"
                     );
                 }
             }
@@ -885,11 +885,11 @@ fn render_assertion(out: &mut String, assertion: &Assertion, binary_name: &str, 
                         let resolved = field_resolver.resolve(field);
                         let jq_path = field_to_jq_path(resolved);
                         let safe_field = sanitize_ident(field);
-                        let _ = writeln!(out, "    local val_{safe_field}");
-                        let _ = writeln!(out, "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
+                        let _ = writeln!(out, "  local val_{safe_field}");
+                        let _ = writeln!(out, "  val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
                         let _ = writeln!(
                             out,
-                            "    [[ \"$val_{safe_field}\" =~ {pattern} ]] || {{ echo \"FAIL [{field}]: expected to match /{pattern}/\" >&2; return 1; }}"
+                            "  [[ \"$val_{safe_field}\" =~ {pattern} ]] || {{ echo \"FAIL [{field}]: expected to match /{pattern}/\" >&2; return 1; }}"
                         );
                     }
                 }

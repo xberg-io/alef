@@ -438,6 +438,7 @@ fn render_type(ty: &TypeDef, lang: Language, api: &ApiSurface, ffi_prefix: &str)
 
     // Fields table (only for non-opaque types or opaque types with documented fields)
     if !ty.is_opaque && !ty.fields.is_empty() {
+        out.push('\n');
         out.push_str("| Field | Type | Default | Description |\n");
         out.push_str("|-------|------|---------|-------------|\n");
         for field in &ty.fields {
@@ -571,6 +572,7 @@ fn render_error(err: &ErrorDef, lang: Language, ffi_prefix: &str) -> String {
             "base_class.jinja",
             minijinja::context! { name => &ename },
         ));
+        out.push('\n');
         out.push_str("| Exception | Description |\n");
         out.push_str("|-----------|-------------|\n");
         for variant in &err.variants {
@@ -592,6 +594,7 @@ fn render_error(err: &ErrorDef, lang: Language, ffi_prefix: &str) -> String {
             ));
         }
     } else {
+        out.push('\n');
         out.push_str("| Variant | Description |\n");
         out.push_str("|---------|-------------|\n");
         for variant in &err.variants {
@@ -657,6 +660,7 @@ fn generate_configuration_doc(
         }
 
         if !ty.fields.is_empty() {
+            out.push('\n');
             out.push_str("| Field | Type | Default | Description |\n");
             out.push_str("|-------|------|---------|-------------|\n");
             for field in &ty.fields {
@@ -817,6 +821,7 @@ fn generate_types_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<Gene
             if ty.is_opaque {
                 out.push_str("*Opaque type — fields are not directly accessible.*\n\n");
             } else if !ty.fields.is_empty() {
+                out.push('\n');
                 out.push_str("| Field | Type | Default | Description |\n");
                 out.push_str("|-------|------|---------|-------------|\n");
                 for field in &ty.fields {
@@ -890,6 +895,7 @@ fn render_enum_for_shared_doc(en: &EnumDef) -> String {
 
     let has_wire_rename = en.serde_rename_all.is_some() || en.variants.iter().any(|v| v.serde_rename.is_some());
 
+    out.push('\n');
     if has_wire_rename {
         out.push_str("| Variant | Wire value | Description |\n");
         out.push_str("|---------|------------|-------------|\n");
@@ -1049,6 +1055,7 @@ fn generate_errors_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<Gen
             out.push('\n');
         }
 
+        out.push('\n');
         out.push_str("| Variant | Message | Description |\n");
         out.push_str("|---------|---------|-------------|\n");
         for variant in &err.variants {
