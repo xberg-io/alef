@@ -1407,7 +1407,21 @@ fn build_args_and_setup(
         }
     }
 
-    (setup_lines, parts.join(", "))
+    // Separate positional and keyword args; Elixir requires all positionals before keywords
+    let mut positional_args = Vec::new();
+    let mut keyword_args = Vec::new();
+    for part in parts {
+        if part.contains(": ") && !part.starts_with('"') {
+            keyword_args.push(part);
+        } else {
+            positional_args.push(part);
+        }
+    }
+
+    let mut final_args = positional_args;
+    final_args.extend(keyword_args);
+
+    (setup_lines, final_args.join(", "))
 }
 
 /// Returns true if the field expression is a numeric/integer expression
