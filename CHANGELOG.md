@@ -7,15 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.2] - 2026-05-20
+
 ### Fixed
 
 - **alef-e2e/rust: bind fields_array accessor before len() assertion in e2e tests.** The Rust e2e generator emitted `assert!(chunks.len() >= 2 as usize, ...)` with `chunks` undeclared for non-streaming fixtures whose result struct has a `chunks` (or `imports`, `structure`, etc.) field registered in `fields_array`. The streaming-virtual-field arm in `render_assertion` fires unconditionally on these names (they are in `STREAMING_VIRTUAL_FIELDS`) and hardcodes `chunks` as the variable; for non-streaming calls no such local was bound. The fix emits `let {field} = &{result_var}.{field};` bindings in `render_test_function` for any `fields_array` field that both appears in assertions and collides with a streaming-virtual-field name, matching the shape of the PHP fix in `4a59541e`. A regression unit test in `codegen::rust::test_file::tests` pins the binding-before-assertion ordering. (`crates/alef-e2e/src/codegen/rust/test_file.rs`, `crates/alef-e2e/src/codegen/rust/assertions.rs`)
 
 - **alef-backend-php: use language-neutral phrasing in `php_visitor_interface_start.jinja` class-level docblock.** The template hardcoded `ConversionOptions::$visitor` — PHP static-property-access syntax — to describe an instance property, making the generated `HtmlVisitorInterface.php` class-level comment syntactically invalid PHP. Replaced the `Type::$field` reference with "the `visitor` field of `ConversionOptions`", which is unambiguous in every target language. (`crates/alef-backend-php/templates/php_visitor_interface_start.jinja`)
-
-## [0.17.2 - Unreleased]
-
-### Fixed
 
 - **alef-backend-go: pin method-level regression test for `Option<&str>` getters returning `*string`.** The earlier free-function snapshot (`option_string_return_null_checks_and_boxes_value`) covered the `binding_content` end-to-end path but did not exercise the method-emission path inside `gen_method_wrapper`. A stale spikard `binding.go` surfaced the same shape on `GraphQLRouteConfig.GetDescription()` — `func (h *GraphQLRouteConfig) GetDescription() *string { … return C.GoString(ptr) }` — and `golangci-lint` rejected the `string`/`*string` mismatch. The fix is downstream-only (regenerating spikard with the existing alef code already produces the corrected nil-check + take-address closure), but a new unit test in `alef-backend-go::gen_bindings::methods::tests` (`test_gen_method_wrapper_optional_string_getter_emits_nil_check_and_address`) now pins the method-level shape so future refactors of `gen_method_wrapper` / `go_return_expr` cannot regress this case for instance getters on opaque handles. (`crates/alef-backend-go/src/gen_bindings/methods.rs`)
 
