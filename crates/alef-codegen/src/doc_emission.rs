@@ -1461,6 +1461,9 @@ fn transform_prose_segment(text: &str, target: DocTarget) -> String {
     // 5. Some(x) -> the value (x).
     s = replace_some_calls(&s);
 
+    // 5b. Bare "Some <lowercase>" in prose -> drop "Some ".
+    s = replace_some_keyword_in_prose(&s);
+
     // 6. None -> null / undefined (word boundary, uppercase only).
     s = replace_none_keyword(&s, target);
 
@@ -1882,6 +1885,40 @@ fn replace_some_calls(s: &str) -> String {
             }
         }
         i = advance_char(s, &mut out, i);
+    }
+    out
+}
+
+/// Drop bare `Some ` when it appears as a Rust-idiom modifier in prose
+/// ("(Some values)", "Some keys leave the previous", etc.). The `Some(...)`
+/// call form is handled separately by [`replace_some_calls`].
+///
+/// Match shape: word-boundary `Some` + single ASCII space + ASCII-lowercase
+/// letter. The "Some " prefix is dropped; the following word is preserved.
+/// `SomeType`, `Some.method()`, `Some(x)`, and sentence-initial `Some `
+/// followed by an uppercase noun stay untouched.
+fn replace_some_keyword_in_prose(s: &str) -> String {
+    let keyword = b"Some ";
+    let klen = keyword.len();
+    let bytes = s.as_bytes();
+    if klen >= bytes.len() {
+        return s.to_string();
+    }
+    let mut out = String::with_capacity(s.len());
+    let mut i = 0;
+    while i + klen < bytes.len() {
+        if &bytes[i..i + klen] == keyword {
+            let before_ok = i == 0 || !bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != b'_';
+            let after_ok = bytes[i + klen].is_ascii_lowercase();
+            if before_ok && after_ok {
+                i += klen;
+                continue;
+            }
+        }
+        i = advance_char(s, &mut out, i);
+    }
+    if i < bytes.len() {
+        out.push_str(&s[i..]);
     }
     out
 }
@@ -2605,6 +2642,38 @@ mod tests {
     }
 
     #[test]
+    fn sanitize_bare_some_followed_by_lowercase_noun_is_dropped() {
+        // Real leak from html-to-markdown PreprocessingOptionsUpdate.java:16.
+        let input = "Only specified fields (Some values) will override existing options; None values leave the previous";
+        let out = sanitize_rust_idioms(input, DocTarget::JavaDoc);
+        assert!(
+            out.contains("(values)"),
+            "bare `Some ` before lowercase noun must be stripped; got: {out}"
+        );
+        assert!(
+            out.contains("null values"),
+            "bare `None ` must also be replaced; got: {out}"
+        );
+        assert!(!out.contains("Some "), "Some prefix must not survive; got: {out}");
+    }
+
+    #[test]
+    fn sanitize_bare_some_does_not_touch_identifiers_or_uppercase_followers() {
+        // SomeType, Some.method(), Some(x), and "Some Title" (proper noun) all preserved.
+        let cases = ["SomeType lives on.", "Some.method() returns Self.", "Some Title", "Some(x) is a value."];
+        for case in cases {
+            let out = sanitize_rust_idioms(case, DocTarget::JavaDoc);
+            // For the Some(x) case, replace_some_calls (run earlier) converts to "the value (x)"
+            // so "Some" itself is gone — that's expected; everything else preserves "Some".
+            if case.starts_with("Some(") {
+                assert!(out.contains("the value (x)"), "got: {out}");
+            } else {
+                assert!(out.contains("Some"), "Some must survive in {case:?}; got: {out}");
+            }
+        }
+    }
+
+    #[test]
     fn sanitize_option_t_to_nullable_php() {
         let input = "The result is Option<String>.";
         let out = sanitize_rust_idioms(input, DocTarget::PhpDoc);
@@ -2788,10 +2857,9 @@ mod tests {
         let input = "#[derive(Debug, Clone)]\nSome documentation.";
         let out = sanitize_rust_idioms(input, DocTarget::JavaDoc);
         assert!(!out.contains("#[derive("), "attribute line must be dropped, got: {out}");
-        assert!(
-            out.contains("Some documentation.") || out.contains("the value (documentation.)"),
-            "prose must survive, got: {out}"
-        );
+        // Prose survives, though bare "Some " before a lowercase noun is stripped
+        // by `replace_some_keyword_in_prose`, so accept either form.
+        assert!(out.contains("documentation."), "prose must survive, got: {out}");
     }
 
     #[test]
