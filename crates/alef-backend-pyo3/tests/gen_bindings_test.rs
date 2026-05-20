@@ -4291,3 +4291,139 @@ fn test_native_import_no_stray_blank_line_after_open_paren() {
         init_py.content
     );
 }
+
+/// Adapters (streaming method wrappers):
+/// - api.py emits module-level wrapper functions for each adapter
+/// - __init__.py imports and re-exports them in __all__
+#[test]
+fn test_adapter_wrapper_functions() {
+    use alef_core::config::{AdapterParam, AdapterPattern};
+
+    let backend = Pyo3Backend;
+
+    // Create a minimal API with a handle type and a function that returns an iterator.
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![
+            TypeDef {
+                name: "Handle".to_string(),
+                rust_path: "test_lib::Handle".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: true,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: "Handle type".to_string(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+            TypeDef {
+                name: "StreamEvent".to_string(),
+                rust_path: "test_lib::StreamEvent".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: true,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: "Stream event type".to_string(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+        ],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let mut config = make_config();
+    // Add one adapter
+    config.adapters = vec![alef_core::config::AdapterConfig {
+        name: "test_stream".to_string(),
+        pattern: AdapterPattern::Streaming,
+        core_path: "test_stream".to_string(),
+        owner_type: Some("Handle".to_string()),
+        item_type: Some("StreamEvent".to_string()),
+        error_type: None,
+        returns: None,
+        request_type: None,
+        gil_release: false,
+        trait_name: None,
+        trait_method: None,
+        detect_async: false,
+        params: vec![
+            AdapterParam {
+                name: "url".to_string(),
+                ty: "String".to_string(),
+                optional: false,
+            },
+        ],
+        skip_languages: vec![],
+    }];
+
+    let files = backend
+        .generate_public_api(&api, &config)
+        .expect("generate_public_api failed");
+
+    // Check api.py contains the wrapper function
+    let api_py = files
+        .iter()
+        .find(|f| f.path.ends_with("api.py"))
+        .expect("api.py not generated");
+
+    assert!(
+        api_py.content.contains("async def test_stream(engine: Handle, url: String) -> AsyncIterator[StreamEvent]:"),
+        "api.py must contain adapter wrapper function signature; content:\n{}",
+        api_py.content
+    );
+
+    assert!(
+        api_py.content.contains("async for item in engine.test_stream(url):"),
+        "api.py must contain async for loop delegating to engine method; content:\n{}",
+        api_py.content
+    );
+
+    assert!(
+        api_py.content.contains("yield item"),
+        "api.py must contain yield statement in adapter wrapper; content:\n{}",
+        api_py.content
+    );
+
+    // Check __init__.py imports and exports the adapter
+    let init_py = files
+        .iter()
+        .find(|f| f.path.ends_with("__init__.py"))
+        .expect("__init__.py not generated");
+
+    assert!(
+        init_py.content.contains("test_stream"),
+        "__init__.py must import and export the adapter wrapper; content:\n{}",
+        init_py.content
+    );
+
+    assert!(
+        init_py.content.contains("\"test_stream\"") || init_py.content.contains("'test_stream'"),
+        "__init__.py must list test_stream in __all__; content:\n{}",
+        init_py.content
+    );
+}
