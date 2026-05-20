@@ -266,6 +266,9 @@ impl Backend for RustlerBackend {
             .iter()
             .filter(|f| !exclude_functions.contains(f.name.as_str()))
         {
+            if alef_codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&func.name, &active_bridges) {
+                continue;
+            }
             let bridge_param = crate::trait_bridge::find_bridge_param(func, &active_bridges);
             let bridge_field =
                 alef_codegen::generators::trait_bridge::find_bridge_field(func, &api.types, &active_bridges);

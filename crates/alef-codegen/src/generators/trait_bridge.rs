@@ -770,6 +770,20 @@ pub fn visitor_param_type(ty: &TypeRef, is_ref: bool, optional: bool, tp: &HashM
     bridge_param_type(ty, "", is_ref, tp)
 }
 
+/// True if `func_name` is owned by any trait bridge's `clear_fn` (or, in the future,
+/// any other bridge-managed wrapper). Backends should skip emitting a regular function
+/// wrapper for such names because the trait-bridge codegen path emits its own wrapper.
+///
+/// Only `clear_fn` is matched today: `register_fn` and `unregister_fn` always have a
+/// `dyn Trait` parameter and are caught by [`find_bridge_param`] before regular emission.
+/// `clear_fn` takes no parameters, so without this guard backends emit two wrappers
+/// for the same name (regular + trait-bridge), producing duplicate-definition errors.
+pub fn is_trait_bridge_managed_fn(func_name: &str, bridges: &[TraitBridgeConfig]) -> bool {
+    bridges
+        .iter()
+        .any(|b| b.clear_fn.as_deref() == Some(func_name))
+}
+
 /// Find the first function parameter that matches a trait bridge configuration
 /// (by type alias or parameter name).
 ///

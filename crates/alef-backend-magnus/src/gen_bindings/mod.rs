@@ -321,6 +321,9 @@ impl Backend for MagnusBackend {
 
         for func in &api.functions {
             if !is_reserved_fn(&func.name) && !exclude_functions.contains(func.name.as_str()) {
+                if alef_codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&func.name, &config.trait_bridges) {
+                    continue;
+                }
                 let bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges);
                 if let Some((param_idx, bridge_cfg)) = bridge_param {
                     builder.add_item(&crate::trait_bridge::gen_bridge_function(
