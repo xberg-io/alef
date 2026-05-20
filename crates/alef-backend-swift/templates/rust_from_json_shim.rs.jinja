@@ -3,4 +3,3 @@ pub fn {{ fn_name }}(json: String) -> Result<{{ wrapper_name }}, String> {
         .map({{ map_expr }})
         .map_err(|e| e.to_string())
 }
-

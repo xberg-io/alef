@@ -27,7 +27,7 @@ internal extension Chunk {
 }
 
 /// Streaming event enum.
-public enum StreamEvent {
+public enum StreamEvent: Codable, Sendable, Hashable {
     /// A data event carrying an optional chunk.
     case data(chunk: Chunk?)
     /// An error event with an optional message.

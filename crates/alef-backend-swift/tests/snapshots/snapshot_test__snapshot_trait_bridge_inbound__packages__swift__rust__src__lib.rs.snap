@@ -232,7 +232,6 @@ pub fn ocr_config_from_json(json: String) -> Result<OcrConfig, String> {
         .map(OcrConfig)
         .map_err(|e| e.to_string())
 }
-
 pub fn extraction_result_from_json(json: String) -> Result<ExtractionResult, String> {
     serde_json::from_str::<demo::ExtractionResult>(&json)
         .map(ExtractionResult)

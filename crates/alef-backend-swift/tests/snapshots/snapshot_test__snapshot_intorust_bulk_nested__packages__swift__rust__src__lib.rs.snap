@@ -139,13 +139,11 @@ pub fn span_from_json(json: String) -> Result<Span, String> {
         .map(Span)
         .map_err(|e| e.to_string())
 }
-
 pub fn diagnostic_from_json(json: String) -> Result<Diagnostic, String> {
     serde_json::from_str::<demo::Diagnostic>(&json)
         .map(Diagnostic)
         .map_err(|e| e.to_string())
 }
-
 pub fn process_result_from_json(json: String) -> Result<ProcessResult, String> {
     serde_json::from_str::<demo::ProcessResult>(&json)
         .map(ProcessResult)

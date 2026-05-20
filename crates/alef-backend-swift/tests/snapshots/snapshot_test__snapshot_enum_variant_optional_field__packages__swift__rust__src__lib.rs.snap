@@ -102,7 +102,6 @@ pub fn chunk_from_json(json: String) -> Result<Chunk, String> {
         .map(Chunk)
         .map_err(|e| e.to_string())
 }
-
 pub fn stream_event_from_json(json: String) -> Result<StreamEvent, String> {
     serde_json::from_str::<demo::StreamEvent>(&json)
         .map(StreamEvent::from)
