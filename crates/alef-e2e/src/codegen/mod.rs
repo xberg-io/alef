@@ -69,7 +69,7 @@ pub(crate) fn should_include_fixture(fixture: &Fixture, language: &str, e2e_conf
             return false;
         }
     }
-    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
     // Also respect skip_languages on the resolved call (e.g. batch_scrape skips elixir).
     if call_config.skip_languages.iter().any(|l| l == language) {
         return false;

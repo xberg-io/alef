@@ -92,7 +92,7 @@ impl E2eCodegen for ZigE2eCodegen {
         // `FileNotFound` at spawn time because zig tries to `chdir` into a
         // directory that does not exist before execing the test binary.
         let has_file_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| {
-            let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
+            let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
             cc.args
                 .iter()
                 .any(|a| a.arg_type == "file_path" || a.arg_type == "bytes")
@@ -604,7 +604,7 @@ fn render_test_fn(
     ffi_prefix: &str,
 ) {
     // Resolve per-fixture call config.
-    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
     let lang = "zig";
     let call_overrides = call_config.overrides.get(lang);
     let function_name = call_overrides

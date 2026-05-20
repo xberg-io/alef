@@ -595,7 +595,7 @@ fn render_test_file_inner(
         if f.is_http_test() {
             return false;
         }
-        let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
+        let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
         let per_call_factory = cc.overrides.get("kotlin").and_then(|o| o.client_factory.as_deref());
         let global_factory = e2e_config
             .call
@@ -610,7 +610,7 @@ fn render_test_file_inner(
     // Each entry is a json_object arg's options_type — we need to import each one.
     let mut per_fixture_options_types: HashSet<String> = HashSet::new();
     for f in fixtures.iter() {
-        let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
+        let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
         let call_overrides = cc.overrides.get("kotlin");
         let effective_opts: Option<String> = call_overrides
             .and_then(|o| o.options_type.clone())
@@ -664,7 +664,7 @@ fn render_test_file_inner(
             if f.is_http_test() {
                 return false;
             }
-            let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
+            let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
             crate::codegen::streaming_assertions::resolve_is_streaming(f, cc.streaming)
         });
 
@@ -731,7 +731,7 @@ fn render_test_file_inner(
     // array arg (element_type) — the test code constructs these directly.
     let mut batch_elem_imports: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for f in fixtures.iter() {
-        let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
+        let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
         let fixture_args = if cc.args.is_empty() { args } else { cc.args.as_slice() };
         for arg in fixture_args.iter() {
             if arg.arg_type != "json_object" {
@@ -1060,7 +1060,7 @@ fn render_test_method(
     }
 
     // Resolve per-fixture call config (supports named calls via fixture.call field).
-    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
     let lang = "kotlin";
     let call_overrides = call_config.overrides.get(lang);
 

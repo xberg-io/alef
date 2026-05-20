@@ -105,7 +105,7 @@ impl E2eCodegen for DartE2eCodegen {
                 .iter()
                 .filter(|f| super::should_include_fixture(f, lang, e2e_config))
                 .filter(|f| {
-                    let call_config = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
+                    let call_config = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
                     let resolved_function = call_config
                         .overrides
                         .get(lang)
@@ -219,7 +219,7 @@ fn render_test_file(
 
     // Check if any fixture needs Uint8List.fromList (batch item byte arrays).
     let has_batch_byte_items = fixtures.iter().any(|f| {
-        let call_config = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
+        let call_config = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
         call_config.args.iter().any(|a| {
             a.element_type.as_deref() == Some("BatchBytesItem") && resolve_field(&f.input, &a.field).is_array()
         })
@@ -232,7 +232,7 @@ fn render_test_file(
         if f.is_http_test() {
             return false;
         }
-        let call_config = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
+        let call_config = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
         call_config
             .args
             .iter()
@@ -248,7 +248,7 @@ fn render_test_file(
         if f.is_http_test() {
             return false;
         }
-        let call_config = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
+        let call_config = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
         call_config
             .args
             .iter()
@@ -271,7 +271,7 @@ fn render_test_file(
             if f.is_http_test() {
                 return false;
             }
-            let call_config = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
+            let call_config = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
             if call_config.args.iter().any(|a| a.arg_type == "mock_url") {
                 return true;
             }
@@ -408,7 +408,7 @@ fn render_test_case(
     }
 
     // Non-HTTP fixtures: render a call-based test using the resolved call config.
-    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
     let call_overrides = call_config.overrides.get(lang);
     let mut function_name = call_overrides
         .and_then(|o| o.function.as_ref())

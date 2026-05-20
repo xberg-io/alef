@@ -113,7 +113,7 @@ impl E2eCodegen for GoCodegen {
                     ) && {
                         if a.field.as_ref().is_none_or(|f| f.is_empty()) {
                             e2e_config
-                                .resolve_call_for_fixture(f.call.as_deref(), &f.input)
+                                .resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input)
                                 .result_is_array
                         } else {
                             let resolved_name = field_resolver.resolve(a.field.as_deref().unwrap_or(""));
@@ -149,7 +149,7 @@ impl E2eCodegen for GoCodegen {
                 if f.needs_mock_server() {
                     return true;
                 }
-                let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
+                let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
                 let go_override = cc.overrides.get("go").or_else(|| e2e_config.call.overrides.get("go"));
                 go_override.and_then(|o| o.client_factory.as_deref()).is_some()
             });
@@ -432,7 +432,7 @@ fn render_test_file(
         if !emits_executable_test(f) {
             return false;
         }
-        let call_config = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
+        let call_config = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
         let go_override = call_config
             .overrides
             .get("go")
@@ -480,7 +480,7 @@ fn render_test_file(
                     if a.field.as_ref().is_none_or(|f| f.is_empty()) {
                         // No field specified: check if result is an array
                         e2e_config
-                            .resolve_call_for_fixture(f.call.as_deref(), &f.input)
+                            .resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input)
                             .result_is_array
                     } else {
                         // Field specified: check if that field is an array
@@ -517,7 +517,7 @@ fn render_test_file(
             return false;
         }
 
-        let call = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
+        let call = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
         let call_args = &call.args;
         // handle args with non-null config value
         let has_handle = call_args.iter().any(|a| a.arg_type == "handle") && {
@@ -586,7 +586,7 @@ fn render_test_file(
                     if a.field.as_ref().is_none_or(|f| f.is_empty()) {
                         // No field: fmt.Sprint only if result is not an array
                         !e2e_config
-                            .resolve_call_for_fixture(f.call.as_deref(), &f.input)
+                            .resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input)
                             .result_is_array
                     } else {
                         // Field specified: fmt.Sprint only if that field is not an array
@@ -782,7 +782,7 @@ fn fixture_has_go_callable(fixture: &Fixture, e2e_config: &crate::config::E2eCon
     if fixture.is_http_test() {
         return false;
     }
-    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
     // Honor per-call `skip_languages`: when the resolved call's `skip_languages`
     // contains `"go"`, the Go binding doesn't expose this function.
     if call_config.skip_languages.iter().any(|l| l == "go") {
@@ -839,7 +839,7 @@ fn render_test_function(
     }
 
     // Resolve call config per-fixture (supports named calls via fixture.call).
-    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
     let lang = "go";
     let overrides = call_config.overrides.get(lang);
 

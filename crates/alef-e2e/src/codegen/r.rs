@@ -263,7 +263,7 @@ fn render_test_case(
     default_result_is_simple: bool,
     default_result_is_r_list: bool,
 ) {
-    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
     let function_name = &call_config.function;
     let result_var = &call_config.result_var;
     // Per-fixture call configs (e.g. `list_document_extractors`) may set

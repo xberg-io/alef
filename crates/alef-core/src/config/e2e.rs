@@ -197,18 +197,31 @@ impl E2eConfig {
     ///
     /// When the fixture has an explicit `call` name, that named config is returned
     /// (same as [`resolve_call`]).  When the fixture has no explicit call, the method
-    /// scans named calls for a [`SelectWhen`] condition that matches the fixture input
-    /// and returns the first match.  If no condition matches, it falls back to the
-    /// default `[e2e.call]`.
-    pub fn resolve_call_for_fixture(&self, call_name: Option<&str>, fixture_input: &serde_json::Value) -> &CallConfig {
+    /// scans named calls for a [`SelectWhen`] condition that matches the fixture's
+    /// shape (id, category, tags, input) and returns the first match.  If no condition
+    /// matches, it falls back to the default `[e2e.call]`.
+    ///
+    /// All non-`None` discriminators on a `SelectWhen` must match (logical AND) for
+    /// the condition to fire. A `SelectWhen` with every field `None` never matches —
+    /// at least one discriminator must be set.
+    pub fn resolve_call_for_fixture(
+        &self,
+        call_name: Option<&str>,
+        fixture_id: &str,
+        fixture_category: &str,
+        fixture_tags: &[String],
+        fixture_input: &serde_json::Value,
+    ) -> &CallConfig {
         if let Some(name) = call_name {
             return self.calls.get(name).unwrap_or(&self.call);
         }
-        // Auto-route by select_when condition.
-        for call_config in self.calls.values() {
-            if let Some(SelectWhen::InputHas(key)) = &call_config.select_when {
-                let val = fixture_input.get(key.as_str()).unwrap_or(&serde_json::Value::Null);
-                if !val.is_null() {
+        // Auto-route by select_when condition. Deterministic order: sort by call name.
+        let mut names: Vec<&String> = self.calls.keys().collect();
+        names.sort();
+        for name in names {
+            let call_config = &self.calls[name];
+            if let Some(sel) = &call_config.select_when {
+                if sel.matches(fixture_id, fixture_category, fixture_tags, fixture_input) {
                     return call_config;
                 }
             }
@@ -436,17 +449,117 @@ fn default_returns_result() -> bool {
 ///
 /// When a fixture does not specify `"call"`, the codegen normally uses the default
 /// `[e2e.call]`.  A `SelectWhen` condition on a named call allows automatic routing
-/// based on the fixture's input shape:
+/// based on the fixture's id, category, tags, or input shape.  All set fields must
+/// match (logical AND); a condition with no fields set never matches.
 ///
 /// ```toml
 /// [e2e.calls.batch_scrape]
 /// select_when = { input_has = "batch_urls" }
+///
+/// [e2e.calls.crawl]
+/// select_when = { category = "crawl" }
+///
+/// [e2e.calls.batch_crawl_stream]
+/// select_when = { category = "stream", id_prefix = "batch_crawl_stream" }
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum SelectWhen {
-    /// Select this call when the fixture input contains the named key with a non-null value.
-    InputHas(String),
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct SelectWhen {
+    /// Match when the fixture's resolved category equals this string.
+    #[serde(default)]
+    pub category: Option<String>,
+    /// Match when the fixture's id starts with this prefix.
+    #[serde(default)]
+    pub id_prefix: Option<String>,
+    /// Match when the fixture's id matches this simple glob.
+    ///
+    /// Only `*` (matches any run of characters) is supported. Use `id_prefix`
+    /// for plain prefix matches.
+    #[serde(default)]
+    pub id_glob: Option<String>,
+    /// Match when the fixture's tags include this tag.
+    #[serde(default)]
+    pub tag: Option<String>,
+    /// Match when the fixture's input object contains this key with a non-null value.
+    #[serde(default)]
+    pub input_has: Option<String>,
+}
+
+impl SelectWhen {
+    /// Returns true when every set discriminator matches the fixture.
+    ///
+    /// A `SelectWhen` with all fields `None` returns `false` — at least one
+    /// discriminator must be set for the condition to fire.
+    pub fn matches(
+        &self,
+        fixture_id: &str,
+        fixture_category: &str,
+        fixture_tags: &[String],
+        fixture_input: &serde_json::Value,
+    ) -> bool {
+        let any_set = self.category.is_some()
+            || self.id_prefix.is_some()
+            || self.id_glob.is_some()
+            || self.tag.is_some()
+            || self.input_has.is_some();
+        if !any_set {
+            return false;
+        }
+        if let Some(cat) = &self.category
+            && cat.as_str() != fixture_category
+        {
+            return false;
+        }
+        if let Some(prefix) = &self.id_prefix
+            && !fixture_id.starts_with(prefix.as_str())
+        {
+            return false;
+        }
+        if let Some(glob) = &self.id_glob
+            && !glob_matches(glob, fixture_id)
+        {
+            return false;
+        }
+        if let Some(tag) = &self.tag
+            && !fixture_tags.iter().any(|t| t == tag)
+        {
+            return false;
+        }
+        if let Some(key) = &self.input_has {
+            let val = fixture_input.get(key.as_str()).unwrap_or(&serde_json::Value::Null);
+            if val.is_null() {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+/// Minimal glob matcher supporting `*` (greedy any-run) only.
+fn glob_matches(pattern: &str, text: &str) -> bool {
+    if !pattern.contains('*') {
+        return pattern == text;
+    }
+    let parts: Vec<&str> = pattern.split('*').collect();
+    let mut cursor = 0usize;
+    for (idx, part) in parts.iter().enumerate() {
+        if part.is_empty() {
+            continue;
+        }
+        if idx == 0 {
+            if !text[cursor..].starts_with(part) {
+                return false;
+            }
+            cursor += part.len();
+        } else if idx + 1 == parts.len() && !pattern.ends_with('*') {
+            return text[cursor..].ends_with(part);
+        } else {
+            match text[cursor..].find(part) {
+                Some(pos) => cursor += pos + part.len(),
+                None => return false,
+            }
+        }
+    }
+    true
 }
 
 /// Maps a fixture input field to a function argument.
@@ -943,5 +1056,125 @@ mod tests {
         let cfg = empty_e2e_with_test_documents("fixture_files");
         assert_eq!(cfg.test_documents_relative_from(0), "../../fixture_files");
         assert_eq!(cfg.test_documents_relative_from(1), "../../../fixture_files");
+    }
+
+    #[test]
+    fn select_when_with_no_discriminators_never_matches() {
+        let sel = SelectWhen::default();
+        assert!(!sel.matches("any_id", "any_category", &[], &serde_json::Value::Null));
+    }
+
+    #[test]
+    fn select_when_input_has_matches_non_null_key() {
+        let sel = SelectWhen {
+            input_has: Some("batch_urls".to_string()),
+            ..Default::default()
+        };
+        let input = serde_json::json!({ "batch_urls": [] });
+        assert!(sel.matches("fid", "cat", &[], &input));
+        let empty_input = serde_json::json!({ "url": "x" });
+        assert!(!sel.matches("fid", "cat", &[], &empty_input));
+    }
+
+    #[test]
+    fn select_when_category_matches_exactly() {
+        let sel = SelectWhen { category: Some("crawl".to_string()), ..Default::default() };
+        assert!(sel.matches("any_id", "crawl", &[], &serde_json::Value::Null));
+        assert!(!sel.matches("any_id", "scrape", &[], &serde_json::Value::Null));
+    }
+
+    #[test]
+    fn select_when_id_prefix_matches() {
+        let sel = SelectWhen { id_prefix: Some("batch_crawl_".to_string()), ..Default::default() };
+        assert!(sel.matches("batch_crawl_events", "any", &[], &serde_json::Value::Null));
+        assert!(!sel.matches("batch_scrape_basic", "any", &[], &serde_json::Value::Null));
+    }
+
+    #[test]
+    fn select_when_id_glob_handles_star() {
+        let sel = SelectWhen { id_glob: Some("crawl_stream*".to_string()), ..Default::default() };
+        assert!(sel.matches("crawl_stream_basic", "any", &[], &serde_json::Value::Null));
+        assert!(!sel.matches("batch_crawl_stream", "any", &[], &serde_json::Value::Null));
+    }
+
+    #[test]
+    fn select_when_tag_matches_any_tag_in_list() {
+        let sel = SelectWhen { tag: Some("streaming".to_string()), ..Default::default() };
+        let tags = vec!["smoke".to_string(), "streaming".to_string()];
+        assert!(sel.matches("fid", "cat", &tags, &serde_json::Value::Null));
+        assert!(!sel.matches("fid", "cat", &["smoke".to_string()], &serde_json::Value::Null));
+    }
+
+    #[test]
+    fn select_when_multiple_discriminators_anded() {
+        let sel = SelectWhen {
+            category: Some("stream".to_string()),
+            id_prefix: Some("batch_crawl_stream".to_string()),
+            ..Default::default()
+        };
+        assert!(sel.matches("batch_crawl_stream_events", "stream", &[], &serde_json::Value::Null));
+        // Wrong category fails even though prefix matches
+        assert!(!sel.matches("batch_crawl_stream_events", "crawl", &[], &serde_json::Value::Null));
+        // Wrong prefix fails even though category matches
+        assert!(!sel.matches("crawl_stream_basic", "stream", &[], &serde_json::Value::Null));
+    }
+
+    #[test]
+    fn select_when_deserializes_legacy_input_has_only() {
+        let toml_src = r#"
+            [call]
+            function = "scrape"
+
+            [calls.batch_scrape]
+            function = "batch_scrape"
+            select_when = { input_has = "batch_urls" }
+        "#;
+        let cfg: E2eConfig = toml::from_str(toml_src).expect("legacy input_has must deserialize");
+        let sel = cfg.calls["batch_scrape"].select_when.as_ref().unwrap();
+        assert_eq!(sel.input_has.as_deref(), Some("batch_urls"));
+        assert!(sel.category.is_none());
+        assert!(sel.id_prefix.is_none());
+    }
+
+    #[test]
+    fn select_when_deserializes_compound_discriminators() {
+        let toml_src = r#"
+            [call]
+            function = "scrape"
+
+            [calls.batch_crawl_stream]
+            function = "batch_crawl_stream"
+            select_when = { category = "stream", id_prefix = "batch_crawl_stream" }
+        "#;
+        let cfg: E2eConfig = toml::from_str(toml_src).expect("compound select_when must deserialize");
+        let sel = cfg.calls["batch_crawl_stream"].select_when.as_ref().unwrap();
+        assert_eq!(sel.category.as_deref(), Some("stream"));
+        assert_eq!(sel.id_prefix.as_deref(), Some("batch_crawl_stream"));
+    }
+
+    #[test]
+    fn resolve_call_for_fixture_routes_by_category_then_falls_back() {
+        let mut calls = HashMap::new();
+        calls.insert(
+            "crawl".to_string(),
+            CallConfig {
+                function: "crawl".to_string(),
+                select_when: Some(SelectWhen {
+                    category: Some("crawl".to_string()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        );
+        let cfg = E2eConfig {
+            call: CallConfig { function: "scrape".to_string(), ..Default::default() },
+            calls,
+            ..Default::default()
+        };
+        let input = serde_json::json!({ "url": "https://example.com" });
+        let resolved = cfg.resolve_call_for_fixture(None, "crawl_basic", "crawl", &[], &input);
+        assert_eq!(resolved.function, "crawl");
+        let resolved = cfg.resolve_call_for_fixture(None, "scrape_basic", "scrape", &[], &input);
+        assert_eq!(resolved.function, "scrape");
     }
 }

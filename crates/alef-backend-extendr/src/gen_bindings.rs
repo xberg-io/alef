@@ -2209,6 +2209,17 @@ fn gen_extendr_wrappers_r(
         ));
     }
 
+    // Collect S3 method pairs once — used both for per-type forwarder emission below and
+    // for the trailing generic block at the end of the file.
+    let s3_pairs = collect_s3_methods(api, trait_bridge_fns);
+    let s3_pairs_by_type: ahash::AHashMap<String, Vec<String>> = {
+        let mut map: ahash::AHashMap<String, Vec<String>> = ahash::AHashMap::new();
+        for (method_name, type_name) in &s3_pairs {
+            map.entry(type_name.clone()).or_default().push(method_name.clone());
+        }
+        map
+    };
+
     // Class env blocks. One per non-trait, non-extendr-incompatible type — matching the
     // set registered in `extendr_module! { impl Type; ... }`.
     let excluded = collect_excluded_class_types(api);
@@ -2286,6 +2297,18 @@ fn gen_extendr_wrappers_r(
             "r_bracket_dispatch.jinja",
             minijinja::context! { type_name => &typ.name },
         ));
+
+        // S3 method forwarders: `is_valid.HeaderMetadata <- function(x, ...) x$is_valid(...)`.
+        // Lets callers write `is_valid(meta)` instead of the env-class form `meta$is_valid()`,
+        // hiding the extendr implementation detail behind idiomatic R generic dispatch.
+        if let Some(method_names) = s3_pairs_by_type.get(&typ.name) {
+            for method_name in method_names {
+                out.push_str(&crate::template_env::render(
+                    "r_s3_method.jinja",
+                    minijinja::context! { name => method_name, type_name => &typ.name },
+                ));
+            }
+        }
     }
 
     // Flat data enum class env blocks — data enums are registered as structs in
@@ -2364,6 +2387,48 @@ fn gen_extendr_wrappers_r(
     }
 
     out
+}
+
+/// Collect S3 (method_name, type_name) pairs for instance methods.
+///
+/// Instance methods get idiomatic R S3 wrappers — `is_valid(meta)` instead of `meta$is_valid()`
+/// — so callers don't have to think about the env-class implementation detail. Static methods
+/// (factories like `from_json`, `default`) are intentionally excluded: they're accessed
+/// directly off the class env (`Type$from_json(json)`) and don't need a generic.
+///
+/// Method names that collide with free functions or trait-bridge functions are skipped to
+/// avoid clobbering them with a generic that calls `UseMethod`.
+fn collect_s3_methods(api: &ApiSurface, trait_bridge_fns: &[TraitBridgeFn]) -> Vec<(String, String)> {
+    let excluded_types = collect_excluded_class_types(api);
+    let mut reserved: ahash::AHashSet<String> = api.functions.iter().map(|f| f.name.clone()).collect();
+    for bridge_fn in trait_bridge_fns {
+        reserved.insert(bridge_fn.name.clone());
+    }
+
+    let mut pairs: Vec<(String, String)> = Vec::new();
+    for typ in &api.types {
+        if typ.is_trait || excluded_types.contains(&typ.name) {
+            continue;
+        }
+        for method in &typ.methods {
+            if method.is_static || method_is_excluded_from_impl(method, api) {
+                continue;
+            }
+            if reserved.contains(&method.name) {
+                continue;
+            }
+            pairs.push((method.name.clone(), typ.name.clone()));
+        }
+    }
+    pairs
+}
+
+/// Unique generic names (sorted for deterministic emission) from a list of S3 method pairs.
+fn unique_s3_generic_names(pairs: &[(String, String)]) -> Vec<String> {
+    let mut names: Vec<String> = pairs.iter().map(|(name, _)| name.clone()).collect();
+    names.sort();
+    names.dedup();
+    names
 }
 
 /// Generate `NAMESPACE` from the alef IR.

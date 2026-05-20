@@ -2728,3 +2728,58 @@ fn test_type_stubs_undocumented_field_emits_var_phpdoc_type_only() {
         "Undocumented optional int field should have type-only /** @var ?int */;\ncontent:\n{content}"
     );
 }
+
+#[test]
+fn test_public_api_sanitizes_rust_syntax_from_docstrings() {
+    let backend = PhpBackend;
+    let api = ApiSurface {
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "convert".to_string(),
+            rust_path: "test_lib::convert".to_string(),
+            params: vec![ParamDef {
+                name: "html".to_string(),
+                ty: TypeRef::String,
+                optional: false,
+                is_ref: false,
+                doc: String::new(),
+                sanitized: false,
+                original_type: None,
+            }],
+            return_type: TypeRef::String,
+            error_type: None,
+            is_async: false,
+            doc: "Convert HTML to Markdown, returning a result.\n\n# Arguments\n\n* `html` - The HTML string to convert.\n\n# Example\n\n```rust\nuse test_lib::convert;\nlet result = convert(html, None).unwrap();\n```"
+                .to_string(),
+            returns_ref: false,
+            returns_cow: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            sanitized: false,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let config = make_config();
+    let files = backend.generate_public_api(&api, &config).unwrap();
+    let facade = files.first().unwrap();
+    let content = &facade.content;
+
+    // Verify Rust syntax is NOT in the docstring
+    assert!(!content.contains("use test_lib::convert;"), "Rust 'use' statement must not leak into PHPDoc");
+    assert!(!content.contains(".unwrap()"), ".unwrap() must not leak into PHPDoc");
+    assert!(!content.contains("```rust"), "Raw Rust fence must not appear in PHPDoc");
+    
+    // Verify summary IS present
+    assert!(
+        content.contains("Convert HTML to Markdown"),
+        "Summary must be preserved in PHPDoc"
+    );
+    
+    // Verify @param/@return tags are present (emitted separately)
+    assert!(content.contains("@param"), "@param tag must be present for documented parameters");
+    assert!(content.contains("@return"), "@return tag must be present");
+}

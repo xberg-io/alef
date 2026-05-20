@@ -781,7 +781,7 @@ fn render_test_method(
     // Resolve call config per-fixture so named calls (e.g. "parse") use the
     // correct function name, result variable, and async flag.
     // Use resolve_call_for_fixture to support auto-routing via select_when.
-    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
     let lang = "csharp";
     let cs_overrides = call_config.overrides.get(lang);
 
@@ -3074,7 +3074,7 @@ fn fixture_has_csharp_callable(fixture: &Fixture, e2e_config: &E2eConfig) -> boo
         return false;
     }
     // Use resolve_call_for_fixture to support auto-routing via select_when.
-    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
     let cs_override = call_config
         .overrides
         .get("csharp")
@@ -3154,7 +3154,7 @@ mod tests {
             CallConfig {
                 function: "BatchScrape".to_string(),
                 module: "KreuzBrowser".to_string(),
-                select_when: Some(SelectWhen::InputHas("batch_urls".to_string())),
+                select_when: Some(SelectWhen { input_has: Some("batch_urls".to_string()), ..Default::default() }),
                 ..CallConfig::default()
             },
         );
@@ -3172,14 +3172,19 @@ mod tests {
         // Fixture with batch_urls but no explicit call field should route to batch_scrape
         let fixture = make_fixture_with_input("batch_empty_urls", serde_json::json!({ "batch_urls": [] }));
 
-        let resolved_call = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
+        let resolved_call = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
         assert_eq!(resolved_call.function, "BatchScrape");
 
         // Fixture without batch_urls should fall back to default Scrape
         let fixture_no_batch =
             make_fixture_with_input("simple_scrape", serde_json::json!({ "url": "https://example.com" }));
-        let resolved_default =
-            e2e_config.resolve_call_for_fixture(fixture_no_batch.call.as_deref(), &fixture_no_batch.input);
+        let resolved_default = e2e_config.resolve_call_for_fixture(
+            fixture_no_batch.call.as_deref(),
+            &fixture_no_batch.id,
+            &fixture_no_batch.resolved_category(),
+            &fixture_no_batch.tags,
+            &fixture_no_batch.input,
+        );
         assert_eq!(resolved_default.function, "Scrape");
     }
 }

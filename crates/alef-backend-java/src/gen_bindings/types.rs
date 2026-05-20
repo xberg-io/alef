@@ -449,7 +449,8 @@ pub(crate) fn gen_record_type(
         record_block.contains("@JsonDeserialize(") || fields_joined.contains("@JsonDeserialize(");
     let needs_json_serialize = fields_joined.contains("@JsonSerialize(");
     let needs_json_ignore = fields_joined.contains("@JsonIgnore");
-    let needs_nullable = fields_joined.contains("@Nullable");
+    // @Nullable may appear in record fields OR in builder method signatures.
+    let needs_nullable = fields_joined.contains("@Nullable") || (typ.has_default && record_block.contains("@Nullable"));
     // Note: @Transient is not used in record classes — records have no bean-style getters,
     // and field-level @Transient is not valid on record components. Keeping the detection
     // for reference in case of future pattern changes.
@@ -1930,7 +1931,9 @@ fn gen_builder_nested_class(typ: &TypeDef, has_visitor_pattern: bool) -> String 
         } else if is_flattened_json {
             "Map<String, Object>".to_string()
         } else if field.optional {
-            format!("Optional<{}>", java_boxed_type(&field.ty))
+            // Use @Nullable annotation in the setter signature, not Optional<T>.
+            // This matches Java best practices and the record field annotation pattern.
+            java_boxed_type(&field.ty).to_string()
         } else if matches!(field.ty, TypeRef::Duration) {
             java_boxed_type(&field.ty).to_string()
         } else {
@@ -1964,6 +1967,9 @@ fn gen_builder_nested_class(typ: &TypeDef, has_visitor_pattern: bool) -> String 
         body.push_str("        public Builder with");
         body.push_str(&field_name_pascal);
         body.push_str("(final ");
+        if field.optional && !is_visitor_field {
+            body.push_str("@Nullable ");
+        }
         body.push_str(&field_type);
         body.push_str(" value) {\n");
         if is_visitor_field {

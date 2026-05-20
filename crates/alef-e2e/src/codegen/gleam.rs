@@ -337,7 +337,7 @@ fn render_test_file(
         // mock_url args use envoy.get("MOCK_SERVER_URL") — need envoy import.
         let needs_envoy_for_binding = !has_http_fixtures
             && fixtures.iter().filter(|f| !f.is_http_test()).any(|f| {
-                let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
+                let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
                 cc.args.iter().any(|a| a.arg_type == "mock_url")
             });
         if needs_envoy_for_binding {
@@ -355,7 +355,7 @@ fn render_test_file(
             continue; // Skip HTTP fixtures for assertion analysis.
         }
         // Determine if any args use `bytes` arg type — requires e2e_gleam file reader.
-        let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
+        let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
         let has_bytes_arg = call_config.args.iter().any(|a| a.arg_type == "bytes");
         // Optional string args emit option.Some(...)/option.None — need option import.
         let has_optional_string_arg = call_config.args.iter().any(|a| a.arg_type == "string" && a.optional);
@@ -761,7 +761,7 @@ fn render_test_case(
     json_object_wrapper: Option<&str>,
 ) {
     // Resolve per-fixture call config.
-    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
     let lang = "gleam";
     let call_overrides = call_config.overrides.get(lang);
     let function_name = call_overrides

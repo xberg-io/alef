@@ -30,6 +30,28 @@ package = "{package}"
     ))
 }
 
+fn make_test_config_with_builder_always(package: &str) -> ResolvedCrateConfig {
+    resolved_one(&format!(
+        r#"
+[workspace]
+languages = ["java", "ffi"]
+
+[[crates]]
+name = "test_lib"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "test"
+
+[crates.java]
+package = "{package}"
+
+[crates.java.dto]
+builder = "always"
+"#
+    ))
+}
+
 fn make_newtype_field(ty: TypeRef) -> FieldDef {
     FieldDef {
         name: "0".to_string(),
@@ -2513,5 +2535,109 @@ fn optional_named_method_body_wraps_via_optional_of() {
     assert!(
         !content.contains("return STREAM_MAPPER.readValue(json, DemoItem.class);"),
         "Optional<DemoItem> body must not return a bare DemoItem, got:\n{content}"
+    );
+}
+
+#[test]
+fn builder_optional_fields_use_nullable_not_optional_in_setters() {
+    let backend = JavaBackend;
+
+    // Create a DTO with an optional field to test builder setter signatures.
+    let api = ApiSurface {
+        crate_name: "test".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![
+            TypeDef {
+                name: "Config".to_string(),
+                rust_path: "test::Config".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![
+                    FieldDef {
+                        name: "enabled".to_string(),
+                        ty: TypeRef::Primitive(PrimitiveType::Bool),
+                        optional: false,
+                        default: Some("false".to_string()),
+                        doc: "Enable feature".to_string(),
+                        sanitized: false,
+                        is_boxed: false,
+                        type_rust_path: None,
+                        cfg: None,
+                        typed_default: None,
+                        core_wrapper: alef_core::ir::CoreWrapper::None,
+                        vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                        newtype_wrapper: None,
+                        serde_rename: None,
+                        serde_flatten: false,
+                        binding_excluded: false,
+                        binding_exclusion_reason: None,
+                        original_type: None,
+                    },
+                    FieldDef {
+                        name: "description".to_string(),
+                        ty: TypeRef::String,
+                        optional: true,
+                        default: None,
+                        doc: "Optional description".to_string(),
+                        sanitized: false,
+                        is_boxed: false,
+                        type_rust_path: None,
+                        cfg: None,
+                        typed_default: None,
+                        core_wrapper: alef_core::ir::CoreWrapper::None,
+                        vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                        newtype_wrapper: None,
+                        serde_rename: None,
+                        serde_flatten: false,
+                        binding_excluded: false,
+                        binding_exclusion_reason: None,
+                        original_type: None,
+                    },
+                ],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: true,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: "Configuration object".to_string(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+        ],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let config = make_test_config_with_builder_always("dev.test");
+    let files = backend.generate_bindings(&api, &config).expect("generation");
+    let config_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("Config.java"))
+        .expect("Config.java must be emitted");
+    let content = &config_file.content;
+
+    // Builder setter for optional field must use @Nullable, not Optional<String>.
+    assert!(
+        content.contains("public Builder withDescription(final @Nullable String value)"),
+        "Builder setter for optional String field must use @Nullable String, got:\n{content}"
+    );
+    // Ensure we're not using Optional<String> in the setter signature (common Rust leak).
+    assert!(
+        !content.contains("public Builder withDescription(final Optional<String>"),
+        "Builder setter must NOT use Optional<String> in signature, got:\n{content}"
+    );
+    // @Nullable must be imported from jspecify.
+    assert!(
+        content.contains("import org.jspecify.annotations.Nullable;"),
+        "@Nullable must be imported, got:\n{content}"
     );
 }

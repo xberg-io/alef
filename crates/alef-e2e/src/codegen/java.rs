@@ -456,7 +456,7 @@ fn render_test_file(
         all_options_types.insert(t.to_string());
     }
     for f in fixtures.iter() {
-        let call_cfg = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
+        let call_cfg = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
         if let Some(ov) = call_cfg.overrides.get(lang_for_om) {
             if let Some(t) = &ov.options_type {
                 all_options_types.insert(t.clone());
@@ -496,7 +496,7 @@ fn render_test_file(
     // Note: enum types don't need explicit imports since they're in the same package.
     let mut nested_types_used: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for f in fixtures.iter() {
-        let call_cfg = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
+        let call_cfg = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
         for arg in &call_cfg.args {
             if arg.arg_type == "json_object" {
                 let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
@@ -592,7 +592,7 @@ fn render_test_file(
     // get a spurious `import …ChatCompletionChunk` plus virtual-aggregator
     // accessor expansion on `chunks`-shaped assertions.
     let has_streaming_fixture = fixtures.iter().any(|f| {
-        let call_cfg = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
+        let call_cfg = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
         crate::codegen::streaming_assertions::resolve_is_streaming(f, call_cfg.streaming)
     });
     if has_streaming_fixture && !binding_pkg_for_imports.is_empty() {
@@ -978,7 +978,7 @@ fn render_test_method(
 
     // Resolve per-fixture call config (supports named calls via fixture.call field).
     // Use resolve_call_for_fixture to support auto-routing via select_when.
-    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
     let lang = "java";
     let call_overrides = call_config.overrides.get(lang);
     let effective_function_name = call_overrides
@@ -2422,7 +2422,7 @@ mod tests {
             CallConfig {
                 function: "batchScrape".to_string(),
                 module: "com.example.kreuzcrawl".to_string(),
-                select_when: Some(SelectWhen::InputHas("batch_urls".to_string())),
+                select_when: Some(SelectWhen { input_has: Some("batch_urls".to_string()), ..Default::default() }),
                 ..CallConfig::default()
             },
         );
@@ -2440,14 +2440,19 @@ mod tests {
         // Fixture with batch_urls but no explicit call field should route to batch_scrape
         let fixture = make_fixture_with_input("batch_empty_urls", serde_json::json!({ "batch_urls": [] }));
 
-        let resolved_call = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
+        let resolved_call = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.id, &fixture.resolved_category(), &fixture.tags, &fixture.input);
         assert_eq!(resolved_call.function, "batchScrape");
 
         // Fixture without batch_urls should fall back to default scrape
         let fixture_no_batch =
             make_fixture_with_input("simple_scrape", serde_json::json!({ "url": "https://example.com" }));
-        let resolved_default =
-            e2e_config.resolve_call_for_fixture(fixture_no_batch.call.as_deref(), &fixture_no_batch.input);
+        let resolved_default = e2e_config.resolve_call_for_fixture(
+            fixture_no_batch.call.as_deref(),
+            &fixture_no_batch.id,
+            &fixture_no_batch.resolved_category(),
+            &fixture_no_batch.tags,
+            &fixture_no_batch.input,
+        );
         assert_eq!(resolved_default.function, "scrape");
     }
 }
