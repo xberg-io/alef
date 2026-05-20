@@ -164,7 +164,10 @@ pub(super) fn gen_method_wrapper(
             // so the signature must match.
             // Named / Json / Optional / reference types keep go_optional_type because their conversion
             // bodies produce pointer/slice values and the signature must match.
-            let ret_go_type = if matches!(method.return_type, TypeRef::Primitive(_) | TypeRef::Duration | TypeRef::String | TypeRef::Char | TypeRef::Path) {
+            let ret_go_type = if matches!(
+                method.return_type,
+                TypeRef::Primitive(_) | TypeRef::Duration | TypeRef::String | TypeRef::Char | TypeRef::Path
+            ) {
                 go_type(&method.return_type).into_owned()
             } else {
                 go_optional_type(&method.return_type).into_owned()
@@ -173,7 +176,10 @@ pub(super) fn gen_method_wrapper(
         }
     } else if matches!(method.return_type, TypeRef::Unit) {
         "".to_string()
-    } else if matches!(method.return_type, TypeRef::Primitive(_) | TypeRef::Duration | TypeRef::String | TypeRef::Char | TypeRef::Path) {
+    } else if matches!(
+        method.return_type,
+        TypeRef::Primitive(_) | TypeRef::Duration | TypeRef::String | TypeRef::Char | TypeRef::Path
+    ) {
         // Mirrors the value-form scalar-return condition in the `method_can_return_error`
         // branch above. The body emitter (`go_return_expr` in `types.rs`) produces a plain
         // value expression for `TypeRef::Primitive` (e.g. `ptr != 0`, `uint(ptr)`) and
@@ -958,6 +964,40 @@ mod tests {
         let out = gen_method_wrapper(&typ, &method, "krz", &opaque, &value_only_types);
         // Static methods become package-level functions (no receiver)
         assert!(out.contains("func Config"));
+    }
+
+    #[test]
+    fn test_gen_method_wrapper_optional_string_getter_emits_nil_check_and_address() {
+        // Regression: `pub fn get_description(&self) -> Option<&str>` produced a body that
+        // returned `C.GoString(ptr)` directly even though the Go signature was `*string`.
+        // The generator must emit a `if ptr == nil { return nil }; s := C.GoString(ptr); return &s`
+        // pattern so the body type matches the signature.
+        let typ = opaque_type("GraphQLRouteConfig");
+        let method = simple_method(
+            "get_description",
+            TypeRef::Optional(Box::new(TypeRef::String)),
+            false,
+        );
+        let opaque: std::collections::HashSet<&str> = ["GraphQLRouteConfig"].into();
+        let value_only_types: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let out = gen_method_wrapper(&typ, &method, "spikard", &opaque, &value_only_types);
+        // Signature must be *string for Optional<String>.
+        assert!(out.contains(") *string {"), "expected *string return in:\n{out}");
+        // Body must include nil check and take-address pattern, NOT a bare C.GoString(ptr).
+        assert!(
+            out.contains("if ptr == nil"),
+            "missing nil check in optional-string getter body:\n{out}"
+        );
+        assert!(
+            out.contains("return &s") || out.contains("return &result"),
+            "missing take-address pattern in optional-string getter body:\n{out}"
+        );
+        // The bare `return C.GoString(ptr)` is exactly the buggy form — must NOT appear at the
+        // outer return position. (It may still appear inside a `s := C.GoString(ptr)` line.)
+        assert!(
+            !out.contains("\treturn C.GoString(ptr)\n"),
+            "buggy bare `return C.GoString(ptr)` present:\n{out}"
+        );
     }
 
     #[test]

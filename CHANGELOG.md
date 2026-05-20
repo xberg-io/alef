@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.3] - 2026-05-20
+
 ### Fixed
+
+- **alef-backend-go: pin method-level regression test for `Option<&str>` getters returning `*string`.** The earlier free-function snapshot (`option_string_return_null_checks_and_boxes_value`) covered the `binding_content` end-to-end path but did not exercise the method-emission path inside `gen_method_wrapper`. A stale spikard `binding.go` surfaced the same shape on `GraphQLRouteConfig.GetDescription()` — `func (h *GraphQLRouteConfig) GetDescription() *string { … return C.GoString(ptr) }` — and `golangci-lint` rejected the `string`/`*string` mismatch. The fix is downstream-only (regenerating spikard with the existing alef code already produces the corrected nil-check + take-address closure), but a new unit test in `alef-backend-go::gen_bindings::methods::tests` (`test_gen_method_wrapper_optional_string_getter_emits_nil_check_and_address`) now pins the method-level shape so future refactors of `gen_method_wrapper` / `go_return_expr` cannot regress this case for instance getters on opaque handles. (`crates/alef-backend-go/src/gen_bindings/methods.rs`)
 
 - **alef-backend-swift: hide internal FFI types (`RustVec<T>`, `RustString`, `intoRust()`) from public Swift API.** Public Swift functions/methods previously exposed swift-bridge transport types in their signatures (e.g. the e2e `batchExtractBytesSync`/`batchExtractBytes`/`batchExtractFilesSync`/`batchExtractFiles` wrappers returned `[ExtractionResultRef]`, leaking the swift-bridge borrowed-Ref class through to user code). The auto-generated free-function forwarders already accepted native Swift types (`[T]`, `String`, `[UInt8]`, `Data`, …) and converted to `RustVec`/`RustString` internally; the four batch e2e wrappers now do the same by draining the returned `RustVec<ExtractionResult>` into an owned `[ExtractionResult]` via `pop()`-and-reverse before returning. `intoRust()` extensions are already emitted under `internal extension Name { … }` (consumed by other generated code, not user code), so their visibility is unchanged. (`crates/alef-backend-swift/src/gen_bindings.rs`)
 
