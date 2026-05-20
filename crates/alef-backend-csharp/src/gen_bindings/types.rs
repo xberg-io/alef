@@ -1063,9 +1063,9 @@ fn emit_record_methods(
                              var selfHandle = NativeMethods.{native_type_prefix}FromJson(selfJson);\n\
                              if (selfHandle == global::System.IntPtr.Zero) throw new {exception_class}(\"Failed to serialise {class_name}\");\n"
                 ));
-                // Setup Named params before try block
-                emit_named_param_setup(out, &method.params, "        ", true_opaque_types, exception_class);
                 out.push_str("        try\n        {\n");
+                // Setup Named params inside try block
+                emit_named_param_setup(out, &method.params, "            ", true_opaque_types, exception_class);
                 // Build call args using native_call_arg helper for proper marshalling
                 let mut call_args = vec!["selfHandle".to_string()];
                 call_args.extend(method.params.iter().map(|p| {
@@ -1141,9 +1141,9 @@ fn emit_record_methods(
                     "        var selfJson = JsonSerializer.Serialize(this, JsonOptions);\n\
                              var selfHandle = NativeMethods.{native_type_prefix}FromJson(selfJson);\n"
                 ));
-                // Setup Named params before try block
-                emit_named_param_setup(out, &method.params, "        ", true_opaque_types, exception_class);
                 out.push_str("        try\n        {\n");
+                // Setup Named params inside try block
+                emit_named_param_setup(out, &method.params, "            ", true_opaque_types, exception_class);
                 // Build call args using native_call_arg helper for proper marshalling
                 let mut call_args = vec!["selfHandle".to_string()];
                 call_args.extend(method.params.iter().map(|p| {

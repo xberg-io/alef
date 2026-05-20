@@ -2446,7 +2446,7 @@ type = "*const std::ffi::c_char"
 }
 
 #[test]
-fn test_record_method_bool_param_emits_int_conversion() {
+fn test_record_method_bool_param_passes_bool_directly() {
     let backend = CsharpBackend;
     let config = minimal_csharp_config("test");
 
@@ -2516,10 +2516,175 @@ fn test_record_method_bool_param_emits_int_conversion() {
         .find(|f| f.path.to_string_lossy().contains("PaddleOcrConfig.cs"))
         .expect("PaddleOcrConfig.cs should be generated");
 
-    // Should contain bool → int conversion for the enable parameter
+    let native_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("NativeMethods.cs"))
+        .expect("NativeMethods.cs should be generated");
+
+    // Verify P/Invoke declaration uses [MarshalAs(UnmanagedType.U1)] bool
     assert!(
-        config_file.content.contains("(enable ? 1 : 0)"),
-        "Bool parameter should be converted to int with (enable ? 1 : 0) in method call: {}",
+        native_file
+            .content
+            .contains("[MarshalAs(UnmanagedType.U1)] bool enable"),
+        "P/Invoke should declare bool parameter with marshaling attribute: {}",
+        native_file.content
+    );
+
+    // Verify method call passes bool directly (not (enable ? 1 : 0))
+    assert!(
+        config_file.content.contains("enable"),
+        "Bool parameter should be passed directly in method call: {}",
+        config_file.content
+    );
+
+    // Verify the int conversion does NOT appear
+    assert!(
+        !config_file.content.contains("(enable ? 1 : 0)"),
+        "Bool parameter should not be converted to int with (enable ? 1 : 0): {}",
+        config_file.content
+    );
+}
+
+#[test]
+fn test_receiver_selfhandle_freed_on_named_param_failure() {
+    let backend = CsharpBackend;
+    let config = minimal_csharp_config("test");
+
+    let api = ApiSurface {
+        crate_name: "test".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![
+            TypeDef {
+                name: "SomeOther".to_string(),
+                rust_path: "test::SomeOther".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![FieldDef {
+                    name: "value".to_string(),
+                    ty: TypeRef::Primitive(PrimitiveType::I32),
+                    optional: false,
+                    default: None,
+                    typed_default: None,
+                    doc: String::new(),
+                    sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    core_wrapper: alef_core::ir::CoreWrapper::None,
+                    vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                    newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                    original_type: None,
+                }],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+            TypeDef {
+                name: "SomeConfig".to_string(),
+                rust_path: "test::SomeConfig".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![MethodDef {
+                    name: "with_param".to_string(),
+                    params: vec![ParamDef {
+                        name: "other".to_string(),
+                        ty: TypeRef::Named("SomeOther".to_string()),
+                        optional: false,
+                        default: None,
+                        sanitized: false,
+                        typed_default: None,
+                        is_ref: false,
+                        is_mut: false,
+                        newtype_wrapper: None,
+                        original_type: None,
+                    }],
+                    return_type: TypeRef::Named("SomeConfig".to_string()),
+                    is_async: false,
+                    is_static: false,
+                    error_type: Some("SomeError".to_string()),
+                    doc: "Configure with other.".to_string(),
+                    receiver: Some(ReceiverKind::Ref),
+                    sanitized: false,
+                    returns_ref: false,
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    has_default_impl: false,
+                    trait_source: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                }],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+        ],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![ErrorDef {
+            name: "SomeError".to_string(),
+            rust_path: "test::SomeError".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![],
+            doc: String::new(),
+            methods: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+
+    let config_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("SomeConfig.cs"))
+        .expect("SomeConfig.cs should be generated");
+
+    // Verify that try block starts BEFORE the named param setup
+    // by checking that "try" appears before "otherHandle"
+    let try_pos = config_file.content.find("try").expect("Should contain 'try' block");
+    let other_handle_pos = config_file
+        .content
+        .find("otherHandle")
+        .expect("Should contain 'otherHandle' for named param");
+    assert!(
+        try_pos < other_handle_pos,
+        "try block must start BEFORE named param setup (otherHandle), \
+         to ensure selfHandle is freed if FromJson fails: content={}",
+        config_file.content
+    );
+
+    // Verify that selfHandle is freed in finally
+    assert!(
+        config_file.content.contains("NativeMethods.SomeConfigFree(selfHandle)"),
+        "selfHandle must be freed in finally block: {}",
         config_file.content
     );
 }
