@@ -110,7 +110,7 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         <maven-enforcer-plugin.version>3.6.2</maven-enforcer-plugin.version>
         <jacoco-maven-plugin.version>0.8.14</jacoco-maven-plugin.version>
         <checkstyle.version>13.4.0</checkstyle.version>
-        <pmd.version>7.19.0</pmd.version>
+        <pmd.version>7.17.0</pmd.version>
         <gpg.skip>true</gpg.skip>
     </properties>
 

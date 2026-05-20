@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **alef-scaffold/java: pin `pmd.version` to 7.17.0 to match `pmd-core` bundled in `maven-pmd-plugin` 3.28.0.** Dependabot bumps of `net.sourceforge.pmd:pmd-java` to 7.19.0+ produced `mvn verify` failures with `NoSuchMethodError: 'net.sourceforge.pmd.properties.PropertyBuilder$GenericPropertyBuilder net.sourceforge.pmd.properties.PropertyFactory.conventionalEnumProperty(java.lang.String, java.lang.Class)'` because `maven-pmd-plugin` 3.28.0 ships `pmd-core` 7.17.0, and mixing newer `pmd-java` against the older bundled `pmd-core` triggers the API incompatibility. Pinning `pmd.version` to 7.17.0 in both the hardcoded template (`languages/java.rs:113`) and the renovate-tracked constant (`template_versions::maven::PMD`) keeps the two artifacts in lockstep. (`crates/alef-scaffold/src/languages/java.rs`, `crates/alef-core/src/template_versions.rs`)
+
 ## [0.17.11] - 2026-05-20
 
 ### Fixed

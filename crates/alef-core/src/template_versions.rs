@@ -239,7 +239,8 @@ pub mod maven {
     pub const CHECKSTYLE: &str = "13.4.2";
 
     // renovate: datasource=maven depName=net.sourceforge.pmd:pmd-java
-    pub const PMD: &str = "7.24.0";
+    // Must match pmd-core bundled in maven-pmd-plugin to avoid NoSuchMethodError.
+    pub const PMD: &str = "7.17.0";
 
     // renovate: datasource=maven depName=org.jspecify:jspecify
     pub const JSPECIFY: &str = "1.0.0";
