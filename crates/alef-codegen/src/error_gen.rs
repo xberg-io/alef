@@ -1965,20 +1965,65 @@ mod tests {
         let output = gen_go_error_struct(&error, "literllm");
         // Stutter-stripped: "LiterLlm" prefix of "LiterLlmError" stripped for "literllm" pkg
         assert!(output.contains("type Error struct {"), "struct def: {output}");
+        // Fields are emitted directly on the struct — no accessor methods (avoids
+        // field/method name collision that go vet rejects).
         assert!(output.contains("StatusCode uint16"), "StatusCode field: {output}");
         assert!(output.contains("IsTransient bool"), "IsTransient field: {output}");
         assert!(output.contains("ErrorType string"), "ErrorType field: {output}");
+        // Accessor methods must NOT be emitted — the struct fields are the accessors.
         assert!(
-            output.contains("func (e Error) StatusCode() uint16 { return e.StatusCode }"),
-            "{output}"
+            !output.contains("func (e Error) StatusCode()"),
+            "no StatusCode accessor: {output}"
         );
         assert!(
-            output.contains("func (e Error) IsTransient() bool { return e.IsTransient }"),
-            "{output}"
+            !output.contains("func (e Error) IsTransient()"),
+            "no IsTransient accessor: {output}"
         );
         assert!(
-            output.contains("func (e Error) ErrorType() string { return e.ErrorType }"),
-            "{output}"
+            !output.contains("func (e Error) ErrorType()"),
+            "no ErrorType accessor: {output}"
+        );
+    }
+
+    #[test]
+    fn test_gen_go_error_struct_no_field_method_collision() {
+        // Any property whose PascalCase name would collide as both a struct field and
+        // a method must produce only the field — go vet rejects the combination.
+        use alef_core::ir::{ErrorDef, ErrorVariant, PrimitiveType, TypeRef};
+        let error = ErrorDef {
+            name: "ApiError".to_string(),
+            rust_path: String::new(),
+            original_rust_path: String::new(),
+            doc: String::new(),
+            variants: vec![ErrorVariant {
+                name: "Network".to_string(),
+                message_template: None,
+                fields: vec![],
+                has_source: false,
+                has_from: false,
+                is_unit: true,
+                doc: String::new(),
+            }],
+            methods: vec![
+                sample_method("retry_count", TypeRef::Primitive(PrimitiveType::U32)),
+                sample_method("permanent", TypeRef::Primitive(PrimitiveType::Bool)),
+            ],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+        let output = gen_go_error_struct(&error, "mypkg");
+        // Fields must be present.
+        assert!(output.contains("RetryCount uint32"), "RetryCount field: {output}");
+        assert!(output.contains("Permanent bool"), "Permanent field: {output}");
+        // Accessor methods must NOT be emitted — field name == method name would be
+        // a go vet error.
+        assert!(
+            !output.contains("func (e ApiError) RetryCount()"),
+            "no RetryCount accessor: {output}"
+        );
+        assert!(
+            !output.contains("func (e ApiError) Permanent()"),
+            "no Permanent accessor: {output}"
         );
     }
 

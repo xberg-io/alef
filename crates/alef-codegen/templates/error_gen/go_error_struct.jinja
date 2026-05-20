@@ -10,11 +10,3 @@ type {{ go_type_name }} struct {
 }
 
 func (e {{ go_type_name }}) Error() string { return e.Message }
-{% if has_methods %}
-{% for m in methods %}
-
-{% if m.doc %}// {{ m.method_name }} returns {{ m.doc }}.
-{% else %}// {{ m.method_name }} returns the {{ m.field_name }} value of this error.
-{% endif %}func (e {{ go_type_name }}) {{ m.method_name }}() {{ m.go_type }} { return e.{{ m.field_name }} }
-{% endfor %}
-{% endif %}
