@@ -837,9 +837,11 @@ fn render_test_case(
     });
 
     // For streaming fixtures: capture the stream in `stream`, then collect into `chunks`.
+    // Pass the actual `lang` (was hardcoded to "node") so wasm gets the
+    // explicit-`next()` drain instead of the NAPI `for await` loop.
     let (ts_result_var, collect_snippet) = if is_streaming {
         let snip =
-            crate::codegen::streaming_assertions::StreamingFieldResolver::collect_snippet("node", "stream", "chunks")
+            crate::codegen::streaming_assertions::StreamingFieldResolver::collect_snippet(lang, "stream", "chunks")
                 .unwrap_or_default();
         ("stream".to_string(), snip)
     } else {
@@ -860,6 +862,7 @@ fn render_test_case(
         assertions_body => assertions_body,
         expects_error => expects_error,
         is_streaming_error_call => is_streaming_error_call,
+        lang => lang,
     };
     let rendered = crate::template_env::render("typescript/test_function.jinja", ctx);
     out.push_str(&rendered);

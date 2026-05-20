@@ -1086,6 +1086,15 @@ pub struct CallOverride {
     /// ```
     #[serde(default)]
     pub result_enum_fields: HashMap<String, String>,
+    /// When `true`, indicates that the result is a pointer type (e.g., `*string` in Go,
+    /// `*T` in Rust). The Go codegen will dereference it. When `false` (Go only), the
+    /// result is a value type and should not be dereferenced.
+    ///
+    /// Used to distinguish between functions that return `(value, error)` where value
+    /// is a scalar (string, uint, bool) as-is vs. those that return pointers.
+    /// Defaults to `true` for backward compatibility with existing fixtures.
+    #[serde(default = "default_true")]
+    pub result_is_pointer: bool,
 }
 
 fn default_true() -> bool {

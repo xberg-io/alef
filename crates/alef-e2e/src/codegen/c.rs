@@ -48,6 +48,14 @@ fn is_primitive_c_type(t: &str) -> bool {
     )
 }
 
+/// Returns `true` when `fields_c_types["{parent}.{field}"]` is the magic
+/// sentinel `"skip"` — the C codegen should omit any assertion that touches
+/// this field rather than emitting a call to a non-existent FFI function.
+fn is_skipped_c_field(fields_c_types: &HashMap<String, String>, parent_snake: &str, field_snake: &str) -> bool {
+    let key = format!("{parent_snake}.{field_snake}");
+    fields_c_types.get(&key).is_some_and(|t| t == "skip")
+}
+
 /// Infer the opaque-handle PascalCase return type for a bare-field accessor.
 ///
 /// Returns `Some(pascal_type)` when the accessor `{prefix}_{parent}_{field}`
@@ -1344,7 +1352,16 @@ fn render_test_function(
         for assertion in &fixture.assertions {
             if let Some(f) = &assertion.field {
                 if !f.is_empty() && !accessed_fields.iter().any(|(k, _, _)| k == f) {
-                    let resolved = field_resolver.resolve(f);
+                    let resolved_raw = field_resolver.resolve(f);
+                    // Strip virtual namespace prefixes (e.g. "interaction.action_results[0].x"
+                    // → "action_results[0].x") matching the same logic as FieldResolver::accessor.
+                    let resolved = if let Some(stripped) = field_resolver.namespace_stripped_path(resolved_raw) {
+                        let stripped_first = stripped.split('.').next().unwrap_or(stripped);
+                        let stripped_first = stripped_first.split('[').next().unwrap_or(stripped_first);
+                        if field_resolver.is_valid_for_result(stripped_first) { stripped } else { resolved_raw }
+                    } else {
+                        resolved_raw
+                    };
                     let local_var = f.replace(['.', '['], "_").replace(']', "");
                     let has_map_access = resolved.contains('[');
                     if resolved.contains('.') {
@@ -1367,7 +1384,10 @@ fn render_test_function(
                         let result_type_snake = result_type_name.to_snake_case();
                         let accessor_fn = format!("{prefix}_{result_type_snake}_{resolved}");
                         let lookup_key = format!("{result_type_snake}.{resolved}");
-                        if let Some(t) = fields_c_types.get(&lookup_key).filter(|t| is_primitive_c_type(t)) {
+                        if is_skipped_c_field(fields_c_types, &result_type_snake, resolved) {
+                            // Field marked "skip" — record sentinel so render_assertion skips it.
+                            primitive_locals.insert(local_var.clone(), "__skip__".to_string());
+                        } else if let Some(t) = fields_c_types.get(&lookup_key).filter(|t| is_primitive_c_type(t)) {
                             let _ = writeln!(out, "    {t} {local_var} = {accessor_fn}({result_var});");
                             primitive_locals.insert(local_var.clone(), t.clone());
                         } else if try_emit_enum_accessor(
@@ -1715,7 +1735,16 @@ fn render_test_function(
     for assertion in &fixture.assertions {
         if let Some(f) = &assertion.field {
             if !f.is_empty() && !accessed_fields.iter().any(|(k, _, _)| k == f) {
-                let resolved = field_resolver.resolve(f);
+                let resolved_raw = field_resolver.resolve(f);
+                // Strip virtual namespace prefixes (e.g. "interaction.action_results[0].x"
+                // → "action_results[0].x") matching the same logic as FieldResolver::accessor.
+                let resolved = if let Some(stripped) = field_resolver.namespace_stripped_path(resolved_raw) {
+                    let stripped_first = stripped.split('.').next().unwrap_or(stripped);
+                    let stripped_first = stripped_first.split('[').next().unwrap_or(stripped_first);
+                    if field_resolver.is_valid_for_result(stripped_first) { stripped } else { resolved_raw }
+                } else {
+                    resolved_raw
+                };
                 let local_var = f.replace(['.', '['], "_").replace(']', "");
                 let has_map_access = resolved.contains('[');
 
@@ -1739,7 +1768,10 @@ fn render_test_function(
                     let result_type_snake = result_type_name.to_snake_case();
                     let accessor_fn = format!("{prefix}_{result_type_snake}_{resolved}");
                     let lookup_key = format!("{result_type_snake}.{resolved}");
-                    if let Some(t) = fields_c_types.get(&lookup_key).filter(|t| is_primitive_c_type(t)) {
+                    if is_skipped_c_field(fields_c_types, &result_type_snake, resolved) {
+                        // Field marked "skip" — record sentinel so render_assertion skips it.
+                        primitive_locals.insert(local_var.clone(), "__skip__".to_string());
+                    } else if let Some(t) = fields_c_types.get(&lookup_key).filter(|t| is_primitive_c_type(t)) {
                         let _ = writeln!(out, "    {t} {local_var} = {accessor_fn}({result_var});");
                         primitive_locals.insert(local_var.clone(), t.clone());
                     } else if try_emit_enum_accessor(
@@ -1807,6 +1839,9 @@ fn render_test_function(
         if snake_type == "free_string" {
             // free_string handles are freed with the free_string function directly.
             let _ = writeln!(out, "    {prefix}_free_string({handle_var});");
+        } else if snake_type == "free" {
+            // Intermediate JSON-key extraction (e.g. alef_json_array_get_index) — freed via plain free().
+            let _ = writeln!(out, "    free({handle_var});");
         } else {
             let _ = writeln!(out, "    {prefix}_{snake_type}_free({handle_var});");
         }
@@ -1959,7 +1994,16 @@ fn render_engine_factory_test_function(
         if let Some(f) = &assertion.field {
             if !f.is_empty() && field_resolver.is_valid_for_result(f) && !accessed_fields.iter().any(|(k, _, _)| k == f)
             {
-                let resolved = field_resolver.resolve(f);
+                let resolved_raw = field_resolver.resolve(f);
+                // Strip virtual namespace prefixes (e.g. "interaction.action_results[0].x"
+                // → "action_results[0].x") matching the same logic as FieldResolver::accessor.
+                let resolved = if let Some(stripped) = field_resolver.namespace_stripped_path(resolved_raw) {
+                    let stripped_first = stripped.split('.').next().unwrap_or(stripped);
+                    let stripped_first = stripped_first.split('[').next().unwrap_or(stripped_first);
+                    if field_resolver.is_valid_for_result(stripped_first) { stripped } else { resolved_raw }
+                } else {
+                    resolved_raw
+                };
                 let local_var = f.replace(['.', '['], "_").replace(']', "");
                 let has_map_access = resolved.contains('[');
                 if resolved.contains('.') {
@@ -1982,7 +2026,10 @@ fn render_engine_factory_test_function(
                     let result_type_snake = result_type_name.to_snake_case();
                     let accessor_fn = format!("{prefix}_{result_type_snake}_{resolved}");
                     let lookup_key = format!("{result_type_snake}.{resolved}");
-                    if let Some(t) = fields_c_types.get(&lookup_key).filter(|t| is_primitive_c_type(t)) {
+                    if is_skipped_c_field(fields_c_types, &result_type_snake, resolved) {
+                        // Field marked "skip" — record sentinel so render_assertion skips it.
+                        primitive_locals.insert(local_var.clone(), "__skip__".to_string());
+                    } else if let Some(t) = fields_c_types.get(&lookup_key).filter(|t| is_primitive_c_type(t)) {
                         let _ = writeln!(out, "    {t} {local_var} = {accessor_fn}({result_var});");
                         primitive_locals.insert(local_var.clone(), t.clone());
                     } else if try_emit_enum_accessor(
@@ -2048,6 +2095,9 @@ fn render_engine_factory_test_function(
     for (handle_var, snake_type) in intermediate_handles.iter().rev() {
         if snake_type == "free_string" {
             let _ = writeln!(out, "    {prefix}_free_string({handle_var});");
+        } else if snake_type == "free" {
+            // Intermediate JSON-key extraction (e.g. alef_json_array_get_index) — freed via plain free().
+            let _ = writeln!(out, "    free({handle_var});");
         } else {
             let _ = writeln!(out, "    {prefix}_{snake_type}_free({handle_var});");
         }
@@ -2849,6 +2899,11 @@ fn emit_nested_accessor(
         let seg_snake = segment.to_snake_case();
         let accessor_fn = format!("{prefix}_{current_snake_type}_{seg_snake}");
 
+        // Skip any assertion that touches a field marked "skip" in fields_c_types.
+        if is_skipped_c_field(fields_c_types, &current_snake_type, &seg_snake) {
+            return Some("__skip__".to_string()); // Sentinel: no accessor emitted, assertion skipped downstream.
+        }
+
         if is_leaf {
             // Leaf may be a primitive scalar (uint64_t, double, ...) when
             // configured in `fields_c_types`. Otherwise default to char*.
@@ -2996,6 +3051,13 @@ fn render_assertion(
         }
         _ => result_var.to_string(),
     };
+
+    // If the field was marked with the "__skip__" sentinel (fields_c_types = "skip"),
+    // the accessor was never emitted — skip the assertion silently.
+    if primitive_locals.get(&field_expr).is_some_and(|t| t == "__skip__") {
+        let _ = writeln!(out, "    // skipped: field '{field_expr}' not available in C FFI");
+        return;
+    }
 
     let field_is_primitive = primitive_locals.contains_key(&field_expr);
     let field_primitive_type = primitive_locals.get(&field_expr).cloned();

@@ -864,11 +864,15 @@ pub(super) fn emit_named_param_setup(
                 }
                 let from_json_method = format!("{}FromJson", csharp_type_name(type_name));
 
-                // Config parameters: always treat as optional and default null to new instance
+                // Config parameters: a null config has never been meaningful at
+                // the registration boundary, so reject it with
+                // ArgumentNullException instead of materializing a parameterless
+                // instance — generated C# records may declare `required`
+                // members (e.g. CustomProviderConfig.Name/BaseUrl/AuthHeader),
+                // which makes `new T()` a CS9035 compile error.
                 let is_config_param = param.name == "config";
                 let param_to_serialize = if is_config_param {
-                    let type_pascal = csharp_type_name(type_name);
-                    format!("({} ?? new {}())", param_name, type_pascal)
+                    format!("({0} ?? throw new ArgumentNullException(nameof({0})))", param_name)
                 } else {
                     param_name.to_string()
                 };

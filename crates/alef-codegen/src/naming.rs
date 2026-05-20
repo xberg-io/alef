@@ -39,7 +39,13 @@ const INITIALISMS: &[&str] = &[
 /// excludes generic acronyms so they round-trip cleanly through heck's PascalCase
 /// (matching alef's hardcoded helper names like `{Type}ToJson`/`{Type}FromJson`),
 /// while still preserving product names like `GraphQL` that heck would mangle.
-const CSHARP_INITIALISMS: &[&str] = &["GraphQL", "ID", "UUID"];
+// `Id` deliberately omitted: Microsoft's modern framework design guidelines
+// (and the de-facto convention in EF Core, ASP.NET Core, Azure SDKs) treat
+// `Id` as a word — `EntityId`, not `EntityID`. Keeping `ID` here also
+// diverges from the e2e codegen, which calls `to_upper_camel_case` directly
+// and emits `.Id` accessors; reconciling both sides to `Id` matches the
+// existing test expectations.
+const CSHARP_INITIALISMS: &[&str] = &["GraphQL", "UUID"];
 
 /// Apply initialism uppercasing to a PascalCase name using the provided list.
 ///

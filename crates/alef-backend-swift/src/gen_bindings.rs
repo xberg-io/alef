@@ -3643,19 +3643,31 @@ fn swift_box_params(method: &alef_core::ir::MethodDef) -> String {
     params.join(", ")
 }
 
-/// Box class method params with keyword argument labels (`name: FFIType`), no leading `_`.
+/// Box class method params with keyword argument labels (`external internal: FFIType`).
 /// Used by the `public final class {Box}` methods exposed via `@_cdecl` shims.
-/// Param names are lowerCamelCase to match Swift API conventions; the keyword labels
-/// surface in the Rust-side `extern "Swift"` declaration verbatim, but swift-bridge
-/// uses the FFI symbol (not the label) for the actual C-level dispatch.
+///
+/// The external label MUST be the raw snake_case Rust param name — that's what
+/// swift-bridge 0.1.59 uses verbatim in the generated Swift call site (it takes the
+/// Rust ident from the `extern "Swift"` block and emits `<rust_name>: <arg>`).
+/// The internal name is lowerCamelCase, escaped via [`swift_ident`] for keyword
+/// collisions, and is what the method body references when calling into the delegate.
+///
+/// When the external and internal names happen to match (single-word snake = camelCase
+/// and not a keyword), we collapse them into a single token to keep the emitted Swift
+/// idiomatic — `ctx: RustString` rather than `ctx ctx: RustString`.
 fn swift_box_params_keyword(method: &alef_core::ir::MethodDef) -> String {
     let params: Vec<String> = method
         .params
         .iter()
         .map(|p| {
-            let name = swift_ident(&p.name.to_lower_camel_case());
+            let external = p.name.to_snake_case();
+            let internal = swift_ident(&p.name.to_lower_camel_case());
             let ty = swift_box_ffi_type(&p.ty, p.optional);
-            format!("{name}: {ty}")
+            if external == internal {
+                format!("{internal}: {ty}")
+            } else {
+                format!("{external} {internal}: {ty}")
+            }
         })
         .collect();
     params.join(", ")

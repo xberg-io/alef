@@ -415,7 +415,7 @@ impl FieldResolver {
     /// return the remainder of the path after that first segment.  Returns `None`
     /// when the first segment already matches a result field or when stripping it
     /// would leave an empty string.
-    fn namespace_stripped_path<'a>(&self, path: &'a str) -> Option<&'a str> {
+    pub fn namespace_stripped_path<'a>(&self, path: &'a str) -> Option<&'a str> {
         let dot_pos = path.find('.')?;
         let first = &path[..dot_pos];
         // Only strip if the first segment contains no brackets (i.e. is a bare

@@ -931,7 +931,11 @@ pub fn core_to_binding_match_arm_ext_cfg(
                     field_conversion_from_core_cfg(&f.name, &f.ty, f.optional, f.sanitized, &AHashSet::new(), config);
                 // Extract the RHS from "name: expr" format
                 if let Some(expr) = conv.strip_prefix(&format!("{}: ", f.name)) {
-                    let expr = expr.replace(&format!("val.{}", f.name), &f.name);
+                    let mut expr = expr.replace(&format!("val.{}", f.name), &f.name);
+                    // Boxed fields in core struct variants need dereferencing before conversion
+                    if f.is_boxed {
+                        expr = expr.replace(&format!("{}.into()", f.name), &format!("(*{}).into()", f.name));
+                    }
                     format!("{}: {}", f.name, expr)
                 } else {
                     conv

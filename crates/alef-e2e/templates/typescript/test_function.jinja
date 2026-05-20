@@ -26,7 +26,11 @@
 {%- endfor %}
 {%- if is_streaming_error_call %}
       const _stream = await {{ call_expr }};
+{%- if lang == "wasm" %}
+      while (true) { const _ = await _stream.next(); if (_ == null) break; /* drain to surface HTTP errors */ }
+{%- else %}
       for await (const _ of _stream) { /* drain to surface HTTP errors */ }
+{%- endif %}
 {%- else %}
       await {{ call_expr }};
 {%- endif %}

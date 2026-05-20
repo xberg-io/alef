@@ -1091,4 +1091,26 @@ mod trait_bridge {
             "visitor bridge must implement the trait"
         );
     }
+
+    #[test]
+    fn test_visitor_bridge_generates_unsafe_send_sync_impls() {
+        // VisitorHandle = Arc<Mutex<dyn HtmlVisitor + Send>> requires the bridge to be Send.
+        // Robj wraps a raw SEXP (!Send), so the bridge needs unsafe impl Send + Sync.
+        // R is single-threaded, so callers must not actually move the bridge across threads.
+        let trait_def = make_trait_def(
+            "HtmlVisitor",
+            vec![make_method("visit_node", TypeRef::Unit, false, true)],
+        );
+        let cfg = make_visitor_bridge_cfg("HtmlVisitor");
+        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
+
+        assert!(
+            code.code.contains("unsafe impl Send for RHtmlVisitorBridge {}"),
+            "visitor bridge must produce unsafe impl Send"
+        );
+        assert!(
+            code.code.contains("unsafe impl Sync for RHtmlVisitorBridge {}"),
+            "visitor bridge must produce unsafe impl Sync"
+        );
+    }
 }

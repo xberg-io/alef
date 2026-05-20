@@ -1287,8 +1287,15 @@ fn render_test_method(
         }
     }
 
-    let (setup_lines, args_str) =
-        build_args_and_setup(fixture, &fixture.input, args, class_name, options_type, &fixture.id);
+    let (setup_lines, args_str) = build_args_and_setup(
+        fixture,
+        &fixture.input,
+        args,
+        class_name,
+        options_type,
+        &fixture.id,
+        kotlin_android_style,
+    );
 
     // When client_factory is set, emit client-object instantiation + instance method call.
     // The factory name is a function on the Kotlin facade object (e.g. `LiterLlm.createClient`)
@@ -1391,6 +1398,15 @@ fn render_test_method(
 /// Build setup lines and the argument list for the function call.
 ///
 /// Returns `(setup_lines, args_string)`.
+///
+/// `kotlin_android_style = true` switches the optional-`json_object` default
+/// from `OptionsType.builder().build()` to `null`. The Java-facade-backed
+/// JVM target emits a Java-style builder for every `json_object` type, but
+/// the kotlin_android backend emits plain Kotlin data classes with no
+/// `.builder()` companion (every field is declared without a default), so a
+/// builder call would not compile. The Android facade signatures declare the
+/// optional argument as `T? = null`, making `null` the idiomatic positional
+/// default that matches the call arity.
 fn build_args_and_setup(
     fixture: &Fixture,
     input: &serde_json::Value,
@@ -1398,6 +1414,7 @@ fn build_args_and_setup(
     class_name: &str,
     options_type: Option<&str>,
     fixture_id: &str,
+    kotlin_android_style: bool,
 ) -> (Vec<String>, String) {
     if args.is_empty() {
         return (Vec::new(), String::new());
@@ -1460,10 +1477,17 @@ fn build_args_and_setup(
                 // Optional arg with no fixture value: emit positional default so the
                 // call has the right arity for the Java facade. For json_object
                 // optional args with a configured options_type, construct an empty
-                // default builder instead of passing raw null.
+                // default builder instead of passing raw null — unless we're
+                // emitting against the kotlin_android facade, which exposes
+                // optional args as `T? = null` data classes with no companion
+                // builder.
                 if arg.arg_type == "json_object" {
                     if let Some(opts_type) = options_type {
-                        parts.push(format!("{opts_type}.builder().build()"));
+                        if kotlin_android_style {
+                            parts.push("null".to_string());
+                        } else {
+                            parts.push(format!("{opts_type}.builder().build()"));
+                        }
                     } else {
                         parts.push("null".to_string());
                     }

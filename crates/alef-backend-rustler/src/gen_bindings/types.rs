@@ -602,7 +602,19 @@ pub(super) fn gen_rustler_wrap_return(
         TypeRef::Json => format!("{expr}.to_string()"),
         TypeRef::Vec(inner) => match inner.as_ref() {
             TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
-                format!("{expr}.into_iter().map(|v| ResourceArc::new({n} {{ inner: Arc::new(v) }})).collect()")
+                if returns_ref {
+                    // Core returns &[T] / &'static [T]; iterate over refs and
+                    // clone each value before wrapping it in a ResourceArc.
+                    format!("{expr}.iter().cloned().map(|v| ResourceArc::new({n} {{ inner: Arc::new(v) }})).collect()")
+                } else {
+                    format!("{expr}.into_iter().map(|v| ResourceArc::new({n} {{ inner: Arc::new(v) }})).collect()")
+                }
+            }
+            TypeRef::Named(_) if returns_ref => {
+                // Core returns &[T] / &'static [T]. `into_iter()` on a slice
+                // yields `&T`, which the `From<T> for TBinding` impl can't
+                // accept. Clone each element first so `Into::into` resolves.
+                format!("{expr}.iter().cloned().map(Into::into).collect()")
             }
             TypeRef::Named(_) => {
                 format!("{expr}.into_iter().map(Into::into).collect()")

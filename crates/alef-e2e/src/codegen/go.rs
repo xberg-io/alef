@@ -1222,11 +1222,18 @@ fn render_test_function(
                     .all(|a| matches!(a.assertion_type.as_str(), "is_empty" | "is_null"));
 
                 if !only_nil_assertions {
-                    // Emit nil check and dereference for simple pointer results.
-                    let _ = writeln!(out, "\tif {result_var} == nil {{");
-                    let _ = writeln!(out, "\t\tt.Fatalf(\"expected non-nil result\")");
-                    let _ = writeln!(out, "\t}}");
-                    let _ = writeln!(out, "\tvalue := *{result_var}");
+                    // Emit nil check and dereference for simple pointer results only if
+                    // the result is actually a pointer (determined by result_is_pointer override).
+                    let result_is_ptr = overrides.map(|o| o.result_is_pointer).unwrap_or(true);
+                    if result_is_ptr {
+                        let _ = writeln!(out, "\tif {result_var} == nil {{");
+                        let _ = writeln!(out, "\t\tt.Fatalf(\"expected non-nil result\")");
+                        let _ = writeln!(out, "\t}}");
+                        let _ = writeln!(out, "\tvalue := *{result_var}");
+                    } else {
+                        // Result is a value type (not a pointer), use directly without dereference.
+                        let _ = writeln!(out, "\tvalue := {result_var}");
+                    }
                 }
             }
         }
@@ -1279,19 +1286,28 @@ fn render_test_function(
                     .all(|a| matches!(a.assertion_type.as_str(), "is_empty" | "is_null"));
 
                 if !only_nil_assertions {
-                    // Emit nil check and dereference for simple pointer results.
-                    let _ = writeln!(out, "\tif {} == nil {{", result_var);
-                    let _ = writeln!(out, "\t\tt.Fatalf(\"expected non-nil result\")");
-                    let _ = writeln!(out, "\t}}");
-                    let _ = writeln!(out, "\tvalue := *{}", result_var);
+                    // Emit nil check and dereference for simple pointer results only if
+                    // the result is actually a pointer (determined by result_is_pointer override).
+                    let result_is_ptr = overrides.map(|o| o.result_is_pointer).unwrap_or(true);
+                    if result_is_ptr {
+                        let _ = writeln!(out, "\tif {} == nil {{", result_var);
+                        let _ = writeln!(out, "\t\tt.Fatalf(\"expected non-nil result\")");
+                        let _ = writeln!(out, "\t}}");
+                        let _ = writeln!(out, "\tvalue := *{}", result_var);
+                    } else {
+                        // Result is a value type (not a pointer), use directly without dereference.
+                        let _ = writeln!(out, "\tvalue := {}", result_var);
+                    }
                 }
             }
         }
     }
 
     // For result_is_simple functions, determine if we created a dereferenced `value` variable.
-    // We skip dereferencing if all simple-result assertions are is_empty/is_null with no field.
-    let has_deref_value = if result_is_simple && has_usable_assertion && !result_is_array {
+    // We skip dereferencing if all simple-result assertions are is_empty/is_null with no field,
+    // or if the result is a value type (not a pointer).
+    let result_is_ptr = overrides.map(|o| o.result_is_pointer).unwrap_or(true);
+    let has_deref_value = if result_is_simple && has_usable_assertion && !result_is_array && result_is_ptr {
         let only_nil_assertions = fixture
             .assertions
             .iter()
@@ -1299,6 +1315,8 @@ fn render_test_function(
             .filter(|a| !matches!(a.assertion_type.as_str(), "not_error" | "error"))
             .all(|a| matches!(a.assertion_type.as_str(), "is_empty" | "is_null"));
         !only_nil_assertions
+    } else if result_is_simple && has_usable_assertion && result_is_ptr {
+        true
     } else {
         result_is_simple && has_usable_assertion
     };

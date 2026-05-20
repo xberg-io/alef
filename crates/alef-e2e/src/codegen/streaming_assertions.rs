@@ -563,14 +563,41 @@ impl StreamingFieldResolver {
             "java" => Some(format!(
                 "var {chunks_var} = new java.util.ArrayList<ChatCompletionChunk>();\n        var _it = {stream_var}.iterator();\n        while (_it.hasNext()) {{ {chunks_var}.add(_it.next()); }}"
             )),
-            // PHP binding's chat_stream_async typically returns a JSON string of the
-            // chunk array (PHP cannot expose Rust iterators directly via ext-php-rs).
-            // Decode to an array of stdClass objects so accessor chains like
-            // `$c->choices[0]->delta->content` resolve against the JSON wire shape
-            // (snake_case keys).  Falls back to iterator_to_array for a future binding
-            // upgrade that exposes a real iterator.
+            // PHP binding's chat_stream returns Vec<String> (each element is a
+            // JSON-serialized chunk) because ext-php-rs can't expose Rust
+            // iterators directly. Decode each element and recursively
+            // camelCase the keys so accessor chains like
+            // `$c->choices[0]->delta->finishReason` resolve against what the
+            // non-streaming PHP binding returns (camelCase getters). Three
+            // input shapes are tolerated: (a) array of JSON strings — the
+            // current binding; (b) single concatenated JSON — older binding
+            // output; (c) a real iterator — future binding upgrade.
             "php" => Some(format!(
-                "${chunks_var} = is_string(${stream_var}) ? (json_decode(${stream_var}) ?: []) : iterator_to_array(${stream_var});"
+                "$__camel = function ($v) use (&$__camel) {{ \
+                    if (is_array($v)) {{ \
+                        $out = []; \
+                        foreach ($v as $k => $vv) {{ \
+                            $key = is_string($k) ? lcfirst(str_replace(' ', '', ucwords(str_replace('_', ' ', $k)))) : $k; \
+                            $out[$key] = $__camel($vv); \
+                        }} \
+                        return (array_keys($out) === range(0, count($out) - 1)) ? $out : (object) $out; \
+                    }} \
+                    if (is_object($v)) {{ \
+                        $out = new \\stdClass(); \
+                        foreach (get_object_vars($v) as $k => $vv) {{ \
+                            $key = lcfirst(str_replace(' ', '', ucwords(str_replace('_', ' ', $k)))); \
+                            $out->{{$key}} = $__camel($vv); \
+                        }} \
+                        return $out; \
+                    }} \
+                    return $v; \
+                }};\n        \
+                $__decode_chunk = fn($c) => $__camel(is_string($c) ? json_decode($c, true) : (is_array($c) || is_object($c) ? json_decode(json_encode($c), true) : $c));\n        \
+                ${chunks_var} = is_string(${stream_var}) \
+                    ? array_map($__decode_chunk, (array)(json_decode(${stream_var}, true) ?: [])) \
+                    : (is_array(${stream_var}) \
+                        ? array_map($__decode_chunk, ${stream_var}) \
+                        : array_map($__decode_chunk, iterator_to_array(${stream_var})));"
             )),
             "python" => Some(format!(
                 "{chunks_var} = []\n    async for chunk in {stream_var}:\n        {chunks_var}.append(chunk)"
@@ -586,7 +613,16 @@ impl StreamingFieldResolver {
                 Some(format!("val {chunks_var} = {stream_var}.toList()"))
             }
             "elixir" => Some(format!("{chunks_var} = Enum.to_list({stream_var})")),
-            "node" | "wasm" | "typescript" => Some(format!(
+            // WASM's chatStream returns a hand-rolled `ChatStreamIterator`
+            // struct that exposes `next()` returning `Promise<chunk | null>`,
+            // not a JS async iterable. wasm-bindgen does not auto-emit the
+            // `Symbol.asyncIterator` protocol, so `for await` on this object
+            // throws `TypeError: stream is not async iterable`. Drain via an
+            // explicit while/next() loop instead.
+            "wasm" => Some(format!(
+                "const {chunks_var}: any[] = [];\n    while (true) {{ const _chunk = await {stream_var}.next(); if (_chunk == null) break; {chunks_var}.push(_chunk); }}"
+            )),
+            "node" | "typescript" => Some(format!(
                 "const {chunks_var}: any[] = [];\n    for await (const _chunk of {stream_var}) {{ {chunks_var}.push(_chunk); }}"
             )),
             "swift" => {

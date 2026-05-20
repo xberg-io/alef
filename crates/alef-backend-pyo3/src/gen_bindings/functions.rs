@@ -136,6 +136,16 @@ pub(super) fn gen_api_py(
             all_type_imports.insert(item.to_string());
         }
         for param in &adapter.params {
+            // Skip Rust primitive types — they're emitted as their Python
+            // equivalents in the wrapper signature (str/bytes/int/float/bool/
+            // None) and have no corresponding name to import. Without this
+            // filter, an adapter declared with a `String` param injects a
+            // stray `from .options import ..., String` line that explodes
+            // with ImportError at module load.
+            let mapped = adapter_param_python_type(&param.ty);
+            if matches!(mapped, "str" | "bytes" | "None" | "int" | "float" | "bool") {
+                continue;
+            }
             all_type_imports.insert(param.ty.clone());
         }
         // AsyncMethod adapters reference the return type as a bare name in their

@@ -639,15 +639,25 @@ pub(super) fn gen_nif_async_function(
                         }
                     }
                     TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
-                    TypeRef::Vec(_) => {
-                        if p.is_ref {
-                            // `&Vec<T>` derefs to `&[T]`, which is what kreuzberg core
-                            // takes for every Vec param we've encountered so far. Rustler
-                            // previously force-converted `Vec<String>` to `Vec<&str>` —
-                            // that broke the `&[String]` callers (batch_reduce_tokens,
-                            // chunk_texts_batch). If a future core fn wants `&[&str]`,
-                            // handle it via an explicit conversion override at the call
-                            // site rather than re-introducing the lossy default.
+                    TypeRef::Vec(inner) => {
+                        // Check if the vector element type is a Named type that needs conversion.
+                        if let TypeRef::Named(elem_name) = inner.as_ref() {
+                            if !opaque_types.contains(elem_name.as_str()) {
+                                // The element type is a binding enum/struct that needs conversion.
+                                // Convert each element via .into().
+                                if p.is_ref {
+                                    format!("&{}.iter().map(|e| e.clone().into()).collect::<Vec<_>>()", p.name)
+                                } else {
+                                    format!("{}.into_iter().map(Into::into).collect()", p.name)
+                                }
+                            } else if p.is_ref {
+                                // Opaque types: reference as-is, derefs to slice.
+                                format!("&{}", p.name)
+                            } else {
+                                p.name.to_string()
+                            }
+                        } else if p.is_ref {
+                            // Non-Named element types (String, etc.): reference as-is, derefs to slice.
                             format!("&{}", p.name)
                         } else {
                             p.name.to_string()

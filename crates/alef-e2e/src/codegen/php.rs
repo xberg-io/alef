@@ -1129,11 +1129,13 @@ fn render_test_method(
     }
 
     // Generate field binding lines (e.g., $chunks = $result->getChunks();)
+    // Every collected array-binding accessor needs its $var emitted; the prior
+    // hardcoded allowlist ("chunks"/"imports"/"structure") silently dropped
+    // bindings like $choices0MessageToolCalls and $segments, leaving
+    // assertions that reference them to fail with "Undefined variable".
     let mut field_bindings = String::new();
-    for (field_name, (var_name, accessor)) in &fields_array_bindings {
-        if field_name == "chunks" || field_name == "imports" || field_name == "structure" {
-            field_bindings.push_str(&format!("        ${} = {};\n", var_name, accessor));
-        }
+    for (_field_name, (var_name, accessor)) in &fields_array_bindings {
+        field_bindings.push_str(&format!("        ${} = {};\n", var_name, accessor));
     }
 
     // Render assertions_body
