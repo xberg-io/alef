@@ -373,6 +373,19 @@ pub(super) fn gen_cbindgen_toml(prefix: &str, api: &alef_core::ir::ApiSurface) -
         }
     }
 
+    // Include error types — every error whose accessor functions are emitted
+    // (via gen_ffi_error_methods) references *const ErrorType in the FFI
+    // signature. Without a forward typedef cbindgen produces an "unknown type
+    // name" error in the generated C header.
+    for err in &api.errors {
+        if !err.methods.is_empty() {
+            let c_name = format!("{prefix_upper}{}", err.name);
+            if !entries.iter().any(|(n, _)| n == &c_name) {
+                entries.push((c_name, err.doc.clone()));
+            }
+        }
+    }
+
     entries.sort_by(|a, b| a.0.cmp(&b.0));
 
     let forward_decls: String = entries
