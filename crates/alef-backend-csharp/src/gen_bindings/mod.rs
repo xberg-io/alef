@@ -789,11 +789,17 @@ pub(super) fn native_call_arg(
             format!("{param_name}Handle.AddrOfPinnedObject()")
         }
         TypeRef::Primitive(alef_core::ir::PrimitiveType::Bool) => {
-            // FFI convention: bool marshalled as int (0 = false, non-zero = true)
+            // The P/Invoke declaration emits `[MarshalAs(UnmanagedType.U1)] bool`
+            // (see gen_bindings::functions.rs), so the call site must pass a `bool`
+            // value directly — C# does not implicitly convert `int` to `bool`.
+            // For nullable bools we collapse `null` to `false`, matching the legacy
+            // FFI semantics (0 = false). A future change could route bool? through
+            // a dedicated optional sentinel if Some(false) vs None ever need to be
+            // distinguished, but no caller relies on that today.
             if optional {
-                format!("({param_name}?.Value ? 1 : 0)")
+                format!("({param_name} ?? false)")
             } else {
-                format!("({param_name} ? 1 : 0)")
+                param_name.to_string()
             }
         }
         ty => {

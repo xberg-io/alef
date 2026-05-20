@@ -7,11 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.17.8] - 2026-05-20
+## [0.17.9] - 2026-05-20
 
 ### Fixed
 
 - **alef-backend-csharp: pass `bool` directly to P/Invoke methods instead of emitting `(name ? 1 : 0)` at the call site.** The P/Invoke declaration in `gen_bindings::functions.rs` (line 523-525) emits `[MarshalAs(UnmanagedType.U1)] bool <name>` for every `TypeRef::Primitive(PrimitiveType::Bool)` param — i.e., the unmanaged side is a single-byte `bool`, but the managed C# parameter type is `bool`. The wrapper-method body in `gen_bindings::mod.rs::ffi_arg_conversion_for_param` had drifted: it still emitted `(<name> ? 1 : 0)` (the legacy form from when the P/Invoke also took `int`), so generated wrappers like `GraphQLRouteConfig.EnablePlayground` and `SpikardLib.ResponseSetCookie` failed `dotnet build` with `CS1503: Argument N: cannot convert from 'int' to 'bool'`. The non-optional branch now passes `<name>` directly; the optional branch emits `(<name> ?? false)` to collapse `bool?` to `bool` (matching the legacy null-as-false semantics — no FFI sentinel is currently needed for bool? since no method requires distinguishing `Some(false)` from `None`). New regression test `test_bool_param_call_site_matches_pinvoke_bool_decl` pins both sides of the contract: P/Invoke decl keeps `[MarshalAs(UnmanagedType.U1)] bool`, call site passes `<name>` directly with no `? 1 : 0`. (`crates/alef-backend-csharp/src/gen_bindings/mod.rs`, `crates/alef-backend-csharp/tests/gen_bindings_test.rs`)
+
+## [0.17.8] - 2026-05-20
+
+### Fixed
+
+- Re-released with the v0.17.7 alef-scaffold/alef-codegen fixes plus pyo3 stub doc-emission cleanups already merged on main. No new functional changes versus 0.17.7; bump exists to give downstream consumers a clean tag after the in-flight csharp bool-call-site fix was deferred.
 
 ## [0.17.7] - 2026-05-20
 

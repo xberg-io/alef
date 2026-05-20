@@ -524,6 +524,108 @@ fn test_opaque_method_return_wraps_handle_without_to_json() {
 }
 
 #[test]
+fn test_bool_param_call_site_matches_pinvoke_bool_decl() {
+    // The P/Invoke declaration in gen_bindings::functions.rs emits
+    // `[MarshalAs(UnmanagedType.U1)] bool <name>` for bool parameters, so the
+    // wrapper method must pass the C# `bool` value directly. Previously the
+    // call site emitted `(<name> ? 1 : 0)` (an int), which C# rejected with
+    // `CS1503: Argument N: cannot convert from 'int' to 'bool'`. Pin both
+    // sides of the contract here so they never drift again.
+    let backend = CsharpBackend;
+    let config = minimal_csharp_config("test");
+    let api = ApiSurface {
+        crate_name: "test".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "GraphQLRouteConfig".to_string(),
+            rust_path: "test::GraphQLRouteConfig".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![MethodDef {
+                name: "enable_playground".to_string(),
+                params: vec![ParamDef {
+                    name: "enable".to_string(),
+                    ty: TypeRef::Primitive(PrimitiveType::Bool),
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                }],
+                return_type: TypeRef::Named("GraphQLRouteConfig".to_string()),
+                is_async: false,
+                is_static: false,
+                error_type: Some("GraphQLError".to_string()),
+                doc: "Toggle playground.".to_string(),
+                receiver: Some(ReceiverKind::Ref),
+                sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                trait_source: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            is_opaque: true,
+            is_clone: false,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let wrapper = files
+        .iter()
+        .find(|file| file.path.ends_with("GraphQLRouteConfig.cs"))
+        .unwrap();
+    let native = files
+        .iter()
+        .find(|file| file.path.ends_with("NativeMethods.cs"))
+        .unwrap();
+
+    // P/Invoke side declares bool with U1 marshalling.
+    assert!(
+        native.content.contains("[MarshalAs(UnmanagedType.U1)] bool enable"),
+        "P/Invoke decl must keep `[MarshalAs(UnmanagedType.U1)] bool` for the enable param; got:\n{}",
+        native.content
+    );
+
+    // Call site passes the C# bool directly — never the legacy `? 1 : 0` int.
+    assert!(
+        !wrapper.content.contains("(enable ? 1 : 0)"),
+        "Call site must not emit `(enable ? 1 : 0)` (would not type-check against the bool P/Invoke param); got:\n{}",
+        wrapper.content
+    );
+    assert!(
+        wrapper
+            .content
+            .contains("EnablePlayground(\n            Handle,\n            enable\n")
+            || wrapper.content.contains("EnablePlayground(Handle, enable"),
+        "Call site must pass `enable` directly to the P/Invoke; got:\n{}",
+        wrapper.content
+    );
+}
+
+#[test]
 fn test_fallible_unit_opaque_method_checks_last_error_code() {
     let backend = CsharpBackend;
     let config = minimal_csharp_config("test");
