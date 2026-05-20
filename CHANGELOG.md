@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed (urgent)
 
+- **alef-backend-php: emit explicit getter methods on DTO readonly classes.** PHP DTOs with readonly classes expose scalar fields via `#[php(prop)]` making them PHP properties, but readonly class DTOs also need getter methods for the e2e tests which call methods like `$result->getContent()` rather than accessing properties directly. Previously, getter methods were only emitted for non-scalar fields (Named/Vec/Map/Json). Fix: emit getter methods for ALL fields (both scalar and non-scalar) in structs. Each field gets a `get_snake_case` method (e.g., `get_content`) that ext-php-rs surfaces as a callable PHP method (`getContent()`). This matches the e2e accessor dispatch which already expects method-call shape for all fields. (`crates/alef-backend-php/src/gen_bindings/types.rs`)
+
+### Fixed (urgent)
+
 - **alef-backend-csharp: emit `[MarshalAs(...)]` attributes on bool P/Invoke parameters.** P/Invoke signatures for `bool` parameters were emitted as bare `int` without marshalling attributes, causing C# compile failures with `cannot convert from 'int' to 'bool'` on every native function accepting a bool. Named DTO types were already correctly mapped to `IntPtr`. Fix: detect bool parameters and emit `[MarshalAs(UnmanagedType.U1)] bool` to match the C FFI convention. (`crates/alef-backend-csharp/src/gen_bindings/functions.rs`)
 
 - **alef-e2e/elixir: emit positional args before keyword args to fix syntax error.** The Elixir e2e generator collected both positional and keyword args into a single vector in input order, producing calls like `function(pos, key: val, pos2)` which Elixir rejects. Fix: separate positional and keyword args into two vectors, then concatenate positional-first so all keyword args appear after positionals, matching Elixir's required syntax. (`crates/alef-e2e/src/codegen/elixir.rs`)

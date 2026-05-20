@@ -1360,7 +1360,10 @@ fn render_assertion_dart(
 fn render_streaming_assertion_dart(out: &mut String, assertion: &Assertion, result_var: &str) {
     match assertion.assertion_type.as_str() {
         "not_error" => {
-            // No-op: a thrown error from `.toList()` would have failed the test already.
+            // `.toList()` would have thrown to fail the test on error; emit an
+            // explicit `expect` so the test body isn't empty and the collected
+            // stream variable is consumed.
+            let _ = writeln!(out, "    expect({result_var}, isNotNull);");
         }
         "count_min" if assertion.field.as_deref() == Some("chunks") => {
             if let Some(serde_json::Value::Number(n)) = &assertion.value {
