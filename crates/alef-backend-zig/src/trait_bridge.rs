@@ -845,12 +845,12 @@ mod tests {
         emit_trait_bridge("kreuzberg", &bridge_cfg, &trait_def, &mut out);
 
         assert!(
-            out.contains("pub fn clear_ocr_backends(out_error: ?*?[*c]u8) i32"),
+            out.contains("pub fn clear_ocr_backends() KreuzbergError!void"),
             "missing clear_ocr_backends signature: {out}"
         );
         // C symbol uses the singular trait-snake suffix to match kreuzberg-ffi naming.
         assert!(
-            out.contains("c.kreuzberg_clear_ocr_backend(out_error)"),
+            out.contains("c.kreuzberg_clear_ocr_backend(&_out_error)"),
             "wrong C symbol target for clear wrapper: {out}"
         );
         // Doc comment present.

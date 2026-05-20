@@ -1572,8 +1572,17 @@ fn render_assertion(
     // Synthetic-field 'embeddings' on a JSON-bytes result (e.g. embed_texts
     // returns `Vec<Vec<f32>>` serialised as JSON). Parse the JSON array and
     // apply count_min/count_equals/not_empty/is_empty against the element count.
+    //
+    // The Zig binding for `Vec<T>`/`result_is_array` returns `[]u8` (the JSON
+    // payload), not a typed struct — so a fixture field named `embeddings` is
+    // a convention for "the bare JSON array is the embeddings". Gate on
+    // `has_explicit_field` rather than `is_valid_for_result`, because the
+    // latter is permissive (returns true) when `result_fields` is empty —
+    // which is the common case for these bare-JSON returns and would
+    // wrongly route through `result.embeddings.len` direct field access on
+    // a `[]u8` slice.
     if let Some(f) = &assertion.field {
-        if f == "embeddings" && !field_resolver.is_valid_for_result(f) {
+        if f == "embeddings" && !field_resolver.has_explicit_field(f) {
             match assertion.assertion_type.as_str() {
                 "count_min" | "count_equals" | "not_empty" | "is_empty" => {
                     let _ = writeln!(out, "    {{");
@@ -1606,6 +1615,54 @@ fn render_assertion(
                         _ => {}
                     }
                     let _ = writeln!(out, "    }}");
+                    return;
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // Synthetic-field 'result' on a bare-string/JSON-bytes return (e.g.
+    // `detect_mime_type_from_bytes` returns `String` → Zig `[]u8`). The
+    // fixture convention is `field: "result", contains: "pdf"` meaning the
+    // bare result itself contains the substring. The Zig binding returns
+    // `[]u8`, so the substring check applies directly to `result_var`.
+    if let Some(f) = &assertion.field {
+        if f == "result" && !field_resolver.has_explicit_field(f) {
+            match assertion.assertion_type.as_str() {
+                "contains" => {
+                    if let Some(expected) = &assertion.value {
+                        let zig_val = json_to_zig(expected);
+                        let _ = writeln!(
+                            out,
+                            "    try testing.expect(std.mem.indexOf(u8, {result_var}, {zig_val}) != null);"
+                        );
+                        return;
+                    }
+                }
+                "not_contains" => {
+                    if let Some(expected) = &assertion.value {
+                        let zig_val = json_to_zig(expected);
+                        let _ = writeln!(
+                            out,
+                            "    try testing.expect(std.mem.indexOf(u8, {result_var}, {zig_val}) == null);"
+                        );
+                        return;
+                    }
+                }
+                "equals" => {
+                    if let Some(expected) = &assertion.value {
+                        let zig_val = json_to_zig(expected);
+                        let _ = writeln!(out, "    try testing.expectEqualStrings({zig_val}, {result_var});");
+                        return;
+                    }
+                }
+                "not_empty" => {
+                    let _ = writeln!(out, "    try testing.expect({result_var}.len > 0);");
+                    return;
+                }
+                "is_empty" => {
+                    let _ = writeln!(out, "    try testing.expectEqual(@as(usize, 0), {result_var}.len);");
                     return;
                 }
                 _ => {}

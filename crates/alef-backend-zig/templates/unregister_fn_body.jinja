@@ -1,1 +1,6 @@
-    return {{ c_unregister }}(name, out_error);
+    var _out_error: ?[*c]u8 = null;
+    const _rc = {{ c_unregister }}(name, &_out_error);
+    if (_out_error) |ptr| _free_string(ptr);
+    if (_rc != 0 or c.kreuzberg_last_error_code() != 0) {
+        return _first_error(KreuzbergError);
+    }
