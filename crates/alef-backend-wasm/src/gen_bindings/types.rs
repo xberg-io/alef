@@ -632,22 +632,6 @@ pub(super) fn gen_struct_methods(
     impl_builder.build()
 }
 
-/// Convert snake_case parameter names to camelCase for JS-facing constructor signatures.
-/// Also converts the assignments list to use explicit field: param syntax.
-/// Input: ("foo_bar: String, baz_qux: Option<u32>", "foo_bar: String, baz_qux")
-/// Convert snake_case parameter names to camelCase for JS-facing constructor signatures.
-/// Also converts the assignments list to use explicit `field: param` syntax.
-///
-/// The `param_list` may be single-line (`, ` separated) or multi-line (`,\n        ` separated)
-/// — both forms are produced by `shared::constructor_parts`. Both are handled.
-///
-/// Assignment forms:
-/// 1. Shorthand (required field): `"tool_call_id"` → `"tool_call_id: toolCallId"`
-/// 2. Explicit passthrough: `"total_tokens: total_tokens"` → `"total_tokens: totalTokens"`
-/// 3. Explicit with suffix: `"total_tokens: total_tokens.unwrap_or_default()"` →
-///    `"total_tokens: totalTokens.unwrap_or_default()"` (leading ident renamed, suffix kept)
-/// 4. Constant expressions (e.g. `"field: Default::default()"`): kept as-is.
-
 /// Generate a zero-argument constructor that returns Default::default().
 ///
 /// This eliminates the need for camelCase parameter names with #[allow(non_snake_case)].

@@ -703,7 +703,7 @@ fn gen_struct_methods_impl(
     // Cfg-gated fields stay in the binding struct (gen_struct keeps them with #[serde(skip)])
     // so PHP also needs a getter to access them — do not skip them here.
     for field in binding_fields(&typ.fields) {
-        let effective_ty = &field.ty;
+        let _effective_ty = &field.ty;
         // Use a snake_case Rust ident — ext-php-rs's `#[php_impl]` macro auto-converts
         // `get_camel_case` (snake_case Rust) to `getCamelCase()` (camelCase PHP method).
         // The previous v0.16.55 attempt at a camelCase Rust ident was not surfaced

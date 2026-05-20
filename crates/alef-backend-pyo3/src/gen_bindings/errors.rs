@@ -99,6 +99,7 @@ pub(super) fn gen_exceptions_py(api: &ApiSurface) -> String {
 
 /// Generate __init__.py — re-exports and version.
 /// Only exports user-facing types (not internal Update types or all enums).
+#[allow(clippy::too_many_arguments)]
 pub(super) fn gen_init_py(
     api: &ApiSurface,
     module_name: &str,
