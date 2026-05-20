@@ -590,8 +590,16 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
             never_skip_cfg_field_names: &never_skip_cfg_field_names,
             ..Default::default()
         };
-        // From/Into conversions using shared parameterized generators
-        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
+        // From/Into conversions using shared parameterized generators.
+        // Exclude Builder/Update DTOs — their struct definitions are filtered out of
+        // emission upstream, so emitting `From<JsXxxUpdate> for core::XxxUpdate` would
+        // reference an undefined `JsXxxUpdate` type.
+        for typ in api
+            .types
+            .iter()
+            .filter(|typ| !typ.is_trait)
+            .filter(|typ| !typ.name.ends_with("Builder") && !typ.name.ends_with("Update"))
+        {
             if input_types.contains(&typ.name)
                 && alef_codegen::conversions::can_generate_conversion(typ, &binding_to_core)
             {
@@ -682,6 +690,7 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
             .types
             .iter()
             .filter(|typ| !typ.is_trait && input_types.contains(&typ.name))
+            .filter(|typ| !typ.name.ends_with("Builder") && !typ.name.ends_with("Update"))
             .filter(|typ| alef_codegen::conversions::can_generate_conversion(typ, &binding_to_core))
             .map(|typ| typ.name.clone())
             .collect();
@@ -718,7 +727,12 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
         // emitted yet. This handles nested types that appear as fields in output structures
         // but are not direct input types or enum variant payloads (e.g., DbfFieldInfo inside
         // Vec<DbfFieldInfo> in DbfMetadata, which itself is inside FormatMetadata::Dbf).
-        for typ in api.types.iter().filter(|t| !t.is_trait) {
+        for typ in api
+            .types
+            .iter()
+            .filter(|t| !t.is_trait)
+            .filter(|t| !t.name.ends_with("Builder") && !t.name.ends_with("Update"))
+        {
             if !emitted_binding_to_core.contains(&typ.name)
                 && alef_codegen::conversions::can_generate_conversion(typ, &binding_to_core)
             {

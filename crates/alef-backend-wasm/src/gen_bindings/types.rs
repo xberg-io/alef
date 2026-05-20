@@ -573,10 +573,19 @@ pub(super) fn gen_struct_methods(
         .collect();
 
     if !typ.fields.is_empty() {
-        // Emit a zero-arg constructor that returns Default::default().
-        // This allows JS to create an instance and then populate fields via setters,
-        // avoiding the need for camelCase constructor params with #[allow(non_snake_case)].
-        impl_builder.add_method(&gen_zero_arg_constructor(typ, prefix));
+        impl_builder.add_method(&gen_new_method(
+            typ,
+            mapper,
+            exclude_types,
+            prefix,
+            &tagged_data_enum_names,
+        ));
+        // Skip synthetic Default factory when the IR already exposes an
+        // explicit static method named `default` (it will be emitted below
+        // through the methods loop and would otherwise conflict).
+        if !typ.methods.iter().any(|m| m.name == "default") {
+            impl_builder.add_method(&gen_default_method(typ, prefix));
+        }
     }
 
     for field in shared::binding_fields(&typ.fields) {
@@ -602,10 +611,6 @@ pub(super) fn gen_struct_methods(
 
     if !exclude_types.contains(&typ.name) {
         for method in &typ.methods {
-            // Skip the `default()` method — we provide a zero-arg `new()` constructor instead
-            if method.name == "default" {
-                continue;
-            }
             // Skip methods whose params or return type reference excluded types
             let refs_excluded = method
                 .params
@@ -632,13 +637,148 @@ pub(super) fn gen_struct_methods(
     impl_builder.build()
 }
 
-/// Generate a zero-argument constructor that returns Default::default().
+/// Convert snake_case parameter names to camelCase for JS-facing constructor signatures.
+/// Also converts the assignments list to use explicit `field: param` syntax.
 ///
-/// This eliminates the need for camelCase parameter names with #[allow(non_snake_case)].
-/// Users initialize instances via the zero-arg constructor and then set fields via setters.
-fn gen_zero_arg_constructor(typ: &TypeDef, prefix: &str) -> String {
+/// Assignment forms:
+/// 1. Shorthand (required field): `"tool_call_id"` → `"tool_call_id: toolCallId"`
+/// 2. Explicit passthrough: `"total_tokens: total_tokens"` → `"total_tokens: totalTokens"`
+/// 3. Explicit with suffix: `"total_tokens: total_tokens.unwrap_or_default()"` →
+///    `"total_tokens: totalTokens.unwrap_or_default()"` (leading ident renamed, suffix kept)
+/// 4. Constant expressions (e.g. `"field: Default::default()"`): kept as-is.
+fn convert_constructor_params_to_camel_case(
+    param_list: &str,
+    assignments: &str,
+    field_names: &[String],
+) -> (String, String) {
+    let field_to_camel: std::collections::HashMap<String, String> = field_names
+        .iter()
+        .map(|name| (name.clone(), to_node_name(name)))
+        .collect();
+
+    let is_multiline = param_list.contains('\n');
+    let raw_camel_params: Vec<String> = param_list
+        .split(',')
+        .filter_map(|param| {
+            let trimmed = param.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            if let Some((name, ty)) = trimmed.split_once(':') {
+                let camel_name = to_node_name(name.trim());
+                Some(format!("{}: {}", camel_name, ty.trim()))
+            } else {
+                Some(trimmed.to_string())
+            }
+        })
+        .collect();
+    let camel_params = if is_multiline {
+        format!("\n        {},\n    ", raw_camel_params.join(",\n        "))
+    } else {
+        raw_camel_params.join(", ")
+    };
+
+    let camel_assignments = assignments
+        .split(", ")
+        .map(|assignment| {
+            if assignment.contains(':') {
+                if let Some((field_name, rhs)) = assignment.split_once(':') {
+                    let field_trimmed = field_name.trim();
+                    let rhs_trimmed = rhs.trim();
+                    let (leading_ident, suffix) = split_leading_ident(rhs_trimmed);
+                    if let Some(camel_rhs) = field_to_camel.get(leading_ident) {
+                        format!("{}: {}{}", field_trimmed, camel_rhs, suffix)
+                    } else {
+                        format!("{}: {}", field_trimmed, rhs_trimmed)
+                    }
+                } else {
+                    assignment.to_string()
+                }
+            } else {
+                let field_name = assignment.trim();
+                if let Some(camel_name) = field_to_camel.get(field_name) {
+                    format!("{}: {}", field_name, camel_name)
+                } else {
+                    assignment.to_string()
+                }
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    (camel_params, camel_assignments)
+}
+
+/// Split a Rust expression into `(leading_identifier, rest_of_expression)`.
+fn split_leading_ident(expr: &str) -> (&str, &str) {
+    let end = expr
+        .find(|c: char| !c.is_alphanumeric() && c != '_')
+        .unwrap_or(expr.len());
+    (&expr[..end], &expr[end..])
+}
+
+/// Generate a constructor method with camelCase parameter names for JS consumers.
+fn gen_new_method(
+    typ: &TypeDef,
+    mapper: &WasmMapper,
+    exclude_types: &[String],
+    prefix: &str,
+    tagged_data_enum_names: &AHashSet<String>,
+) -> String {
+    use super::field_references_excluded_type;
+    use alef_codegen::shared::constructor_parts;
+
+    let map_fn = |ty: &alef_core::ir::TypeRef| {
+        if is_vec_of_tagged_data_enum(ty, tagged_data_enum_names)
+            || is_bare_tagged_data_enum(ty, tagged_data_enum_names)
+        {
+            "JsValue".to_string()
+        } else if is_option_of_tagged_data_enum(ty, tagged_data_enum_names) {
+            "Option<JsValue>".to_string()
+        } else {
+            mapper.map_type(ty)
+        }
+    };
+
+    let filtered_fields: Vec<_> = typ
+        .fields
+        .iter()
+        .filter(|f| !f.binding_excluded)
+        .filter(|f| !field_references_excluded_type(&f.ty, exclude_types))
+        .cloned()
+        .collect();
+
+    let field_names: Vec<String> = filtered_fields.iter().map(|f| f.name.clone()).collect();
+
+    let (param_list, _, assignments) = if typ.has_default {
+        alef_codegen::shared::config_constructor_parts_with_options(&filtered_fields, &map_fn, true)
+    } else {
+        constructor_parts(&filtered_fields, &map_fn)
+    };
+
+    let (param_list_camel, assignments_camel) =
+        convert_constructor_params_to_camel_case(&param_list, &assignments, &field_names);
+
+    let field_count = filtered_fields.iter().filter(|f| f.cfg.is_none()).count();
+    let allow_attrs = if field_count > 7 {
+        "#[allow(clippy::too_many_arguments)]\n#[allow(non_snake_case)]\n"
+    } else {
+        "#[allow(non_snake_case)]\n"
+    };
+
     format!(
-        "#[wasm_bindgen(constructor)]\npub fn new() -> {prefix}{} {{\n    <{prefix}{} as ::core::default::Default>::default()\n}}",
+        "{allow_attrs}#[wasm_bindgen(constructor)]\npub fn new({param_list_camel}) -> {prefix}{} {{\n    {prefix}{} {{ {assignments_camel} }}\n}}",
+        typ.name, typ.name
+    )
+}
+
+/// Generate a `default()` static factory method.
+///
+/// Provides an arg-free way to obtain a fresh instance for types whose constructor
+/// requires positional arguments. Every wasm struct derives `Default`.
+fn gen_default_method(typ: &TypeDef, prefix: &str) -> String {
+    format!(
+        "#[wasm_bindgen]\n#[allow(clippy::should_implement_trait)]\npub fn default() -> {prefix}{} {{\n    <{prefix}{} as ::core::default::Default>::default()\n}}",
         typ.name, typ.name
     )
 }

@@ -740,8 +740,13 @@ fn gen_struct_methods_impl(
             continue;
         }
         let map_fn = |ty: &alef_core::ir::TypeRef| mapper.map_type(ty);
-        let rust_return_type = if field.optional {
-            mapper.optional(&mapper.map_type(&field.ty))
+        // Don't double-wrap Optional: if the field's IR type is already Optional<T>,
+        // it maps to `Option<T>` — wrapping again with mapper.optional() would yield
+        // `Option<Option<T>>`, which doesn't match the storage field's actual type.
+        let mapped = mapper.map_type(&field.ty);
+        let already_optional = matches!(field.ty, TypeRef::Optional(_));
+        let rust_return_type = if field.optional && !already_optional {
+            mapper.optional(&mapped)
         } else {
             map_fn(&field.ty)
         };
