@@ -2733,17 +2733,23 @@ fn test_type_stubs_undocumented_field_emits_var_phpdoc_type_only() {
 fn test_public_api_sanitizes_rust_syntax_from_docstrings() {
     let backend = PhpBackend;
     let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
         types: vec![],
         functions: vec![FunctionDef {
             name: "convert".to_string(),
             rust_path: "test_lib::convert".to_string(),
+            original_rust_path: String::new(),
             params: vec![ParamDef {
                 name: "html".to_string(),
                 ty: TypeRef::String,
                 optional: false,
-                is_ref: false,
-                doc: String::new(),
+                default: None,
                 sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
                 original_type: None,
             }],
             return_type: TypeRef::String,
@@ -2751,11 +2757,14 @@ fn test_public_api_sanitizes_rust_syntax_from_docstrings() {
             is_async: false,
             doc: "Convert HTML to Markdown, returning a result.\n\n# Arguments\n\n* `html` - The HTML string to convert.\n\n# Example\n\n```rust\nuse test_lib::convert;\nlet result = convert(html, None).unwrap();\n```"
                 .to_string(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
             returns_ref: false,
             returns_cow: false,
+            return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
-            sanitized: false,
         }],
         enums: vec![],
         errors: vec![],
@@ -2772,13 +2781,13 @@ fn test_public_api_sanitizes_rust_syntax_from_docstrings() {
     assert!(!content.contains("use test_lib::convert;"), "Rust 'use' statement must not leak into PHPDoc");
     assert!(!content.contains(".unwrap()"), ".unwrap() must not leak into PHPDoc");
     assert!(!content.contains("```rust"), "Raw Rust fence must not appear in PHPDoc");
-    
+
     // Verify summary IS present
     assert!(
         content.contains("Convert HTML to Markdown"),
         "Summary must be preserved in PHPDoc"
     );
-    
+
     // Verify @param/@return tags are present (emitted separately)
     assert!(content.contains("@param"), "@param tag must be present for documented parameters");
     assert!(content.contains("@return"), "@return tag must be present");
