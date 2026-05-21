@@ -16,6 +16,19 @@ use super::assertion_synthetic::{
     tree_field_access_expr, value_to_rust_string,
 };
 
+/// Returns `true` when the assertion's leaf field resolves to an `Option<T>` where
+/// `T` is a scalar (i.e. not a collection). Used to decide whether numeric comparison
+/// operators (`>`, `<`, `>=`, `<=`) need to unwrap the field before comparing — directly
+/// comparing `Option<usize>` against a numeric literal is a type error.
+fn is_optional_scalar_field(assertion: &Assertion, is_unwrapped: bool, field_resolver: &FieldResolver) -> bool {
+    assertion.field.as_ref().is_some_and(|f| {
+        let resolved = field_resolver.resolve(f);
+        let is_opt = !is_unwrapped && field_resolver.is_optional(resolved);
+        let is_arr = field_resolver.is_array(resolved);
+        is_opt && !is_arr
+    })
+}
+
 /// Render a single assertion into the test function body.
 #[allow(clippy::too_many_arguments)]
 pub fn render_assertion(
@@ -435,20 +448,41 @@ pub fn render_assertion_with_streaming(
                         // Clippy prefers !is_empty() over len() > 0 for collections.
                         let base = field_access.strip_suffix(".len()").unwrap();
                         let _ = writeln!(out, "    assert!(!{base}.is_empty(), \"expected > 0\");");
+                    } else if is_optional_scalar_field(assertion, is_unwrapped, field_resolver) {
+                        let _ = writeln!(out, "    assert!({field_access}.unwrap_or(0) > 0, \"expected > 0\");");
                     } else {
                         // Scalar types (usize, u64, etc.) — use direct comparison.
                         let _ = writeln!(out, "    assert!({field_access} > 0, \"expected > 0\");");
                     }
                 } else {
                     let lit = numeric_literal(val);
-                    let _ = writeln!(out, "    assert!({field_access} > {lit}, \"expected > {lit}\");");
+                    if is_optional_scalar_field(assertion, is_unwrapped, field_resolver) {
+                        // Option<usize>/Option<u64>: unwrap to 0 before comparing so the
+                        // assertion fails (rather than fails to compile) on a missing field.
+                        let _ = writeln!(
+                            out,
+                            "    assert!({field_access}.unwrap_or(0) > {lit}, \"expected > {lit}\");"
+                        );
+                    } else {
+                        let _ = writeln!(out, "    assert!({field_access} > {lit}, \"expected > {lit}\");");
+                    }
                 }
             }
         }
         "less_than" => {
             if let Some(val) = &assertion.value {
                 let lit = numeric_literal(val);
-                let _ = writeln!(out, "    assert!({field_access} < {lit}, \"expected < {lit}\");");
+                if is_optional_scalar_field(assertion, is_unwrapped, field_resolver) {
+                    // Option<usize>/Option<u64>: unwrap to 0 before comparing. Note this
+                    // means a missing field will satisfy `< N` for any positive N, matching
+                    // the convention used by render_gte_assertion.
+                    let _ = writeln!(
+                        out,
+                        "    assert!({field_access}.unwrap_or(0) < {lit}, \"expected < {lit}\");"
+                    );
+                } else {
+                    let _ = writeln!(out, "    assert!({field_access} < {lit}, \"expected < {lit}\");");
+                }
             }
         }
         "greater_than_or_equal" => {
@@ -457,7 +491,14 @@ pub fn render_assertion_with_streaming(
         "less_than_or_equal" => {
             if let Some(val) = &assertion.value {
                 let lit = numeric_literal(val);
-                let _ = writeln!(out, "    assert!({field_access} <= {lit}, \"expected <= {lit}\");");
+                if is_optional_scalar_field(assertion, is_unwrapped, field_resolver) {
+                    let _ = writeln!(
+                        out,
+                        "    assert!({field_access}.unwrap_or(0) <= {lit}, \"expected <= {lit}\");"
+                    );
+                } else {
+                    let _ = writeln!(out, "    assert!({field_access} <= {lit}, \"expected <= {lit}\");");
+                }
             }
         }
         "starts_with" => {
