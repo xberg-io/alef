@@ -1315,6 +1315,66 @@ impl Backend for RustlerBackend {
             ));
         }
 
+        // Top-level flat wrappers for non-streaming methods on opaque types
+        // (e.g. `defaultclient_chat_async/2`). The idiomatic Elixir API is exposed
+        // via per-type submodules (`LiterLlm.DefaultClient.chat/2`), but consumers —
+        // including the e2e fixture suite — also call the underlying NIFs through
+        // flat top-level functions on the main module to mirror the streaming-wrapper
+        // convention (`defaultclient_chat_stream/2`). These delegates are intentionally
+        // thin: each `def` forwards directly to the corresponding `Native.*` NIF.
+        let opaque_type_names: AHashSet<&str> = api
+            .types
+            .iter()
+            .filter(|t| t.is_opaque && !t.is_trait && !exclude_types.contains(t.name.as_str()))
+            .map(|t| t.name.as_str())
+            .collect();
+        let streaming_method_keys: AHashSet<String> = config
+            .adapters
+            .iter()
+            .filter(|a| matches!(a.pattern, alef_core::config::AdapterPattern::Streaming))
+            .filter_map(|a| a.owner_type.as_deref().map(|owner| format!("{owner}.{}", a.name)))
+            .collect();
+        for typ in api.types.iter().filter(|t| opaque_type_names.contains(t.name.as_str())) {
+            let type_lc = typ.name.to_lowercase();
+            for method in typ
+                .methods
+                .iter()
+                .filter(|m| !exclude_functions.contains(m.name.as_str()))
+                .filter(|m| !streaming_method_keys.contains(&format!("{}.{}", typ.name, m.name)))
+            {
+                let method_name = method.name.to_snake_case();
+                let nif_fn = if method.is_async {
+                    if method.name.ends_with("_async") {
+                        format!("{type_lc}_{method_name}")
+                    } else {
+                        format!("{type_lc}_{method_name}_async")
+                    }
+                } else {
+                    format!("{type_lc}_{method_name}")
+                };
+
+                let mut def_args: Vec<String> = Vec::new();
+                if method.receiver.is_some() {
+                    def_args.push("obj".to_string());
+                }
+                for p in &method.params {
+                    def_args.push(elixir_safe_param_name(&p.name));
+                }
+                let args_str = def_args.join(", ");
+                let doc_first = method.doc.lines().next().unwrap_or("").replace('"', "\\\"");
+                if !doc_first.is_empty() {
+                    content.push_str(&format!("  @doc \"{doc_first}\"\n"));
+                }
+                if def_args.is_empty() {
+                    content.push_str(&format!("  def {nif_fn} do\n"));
+                } else {
+                    content.push_str(&format!("  def {nif_fn}({args_str}) do\n"));
+                }
+                content.push_str(&format!("    {native_mod}.{nif_fn}({args_str})\n"));
+                content.push_str("  end\n\n");
+            }
+        }
+
         // Trim trailing blank lines so `mix format` doesn't see an extra blank before `end`.
         let trimmed = content.trim_end_matches('\n');
         content = format!("{trimmed}\nend\n");

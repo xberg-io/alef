@@ -18,3 +18,7 @@ wrkspace = "wrkspace"
 abl = "abl"
 # Common parser terminology used in tests for invalid generated syntax.
 unparseable = "unparseable"
+# "tring" appears in a docstring/comment that quotes the literal truncated tail
+# of a corrupted C# file ("...tring message, Exception innerException...") — the
+# corruption itself is the subject of the test, so the typo is intentional.
+tring = "tring"
