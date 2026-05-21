@@ -247,7 +247,9 @@ pub(crate) fn java_apply_rename_all(name: &str, rename_all: Option<&str>) -> Str
         Some("SCREAMING-KEBAB-CASE") => name.to_kebab_case().to_uppercase(),
         Some("lowercase") => name.to_lowercase(),
         Some("UPPERCASE") => name.to_uppercase(),
-        _ => name.to_lowercase(),
+        // Serde's default for enums (no #[serde(rename_all)]) is the variant name
+        // unchanged (title-case/PascalCase). Match that behavior.
+        _ => name.to_string(),
     }
 }
 

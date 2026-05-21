@@ -1390,12 +1390,9 @@ fn build_args_and_setup(
                         }
 
                         // Push the variable name as the argument.
-                        // For optional json_object args with options_type, use keyword form when optional.
-                        if arg.optional {
-                            parts.push(format!("{}: {options_var}", arg.name));
-                        } else {
-                            parts.push(options_var.to_string());
-                        }
+                        // For Elixir, always use keyword form for json_object args (config/options)
+                        // to ensure correct argument ordering when mixed with optional positional args.
+                        parts.push(format!("{}: {options_var}", arg.name));
                         continue;
                     }
                     // When options_type is set but options_via is NOT, emit struct-literal form.
@@ -1418,12 +1415,9 @@ fn build_args_and_setup(
                         }
                         let fields = field_strs.join(", ");
                         setup_lines.push(format!("{options_var} = %{module_path}.{opts_type}{{{fields}}}"));
-                        // For optional json_object args with options_type, use keyword form when optional.
-                        if arg.optional {
-                            parts.push(format!("{}: {options_var}", arg.name));
-                        } else {
-                            parts.push(options_var.to_string());
-                        }
+                        // For Elixir, always use keyword form for json_object args (config/options)
+                        // to ensure correct argument ordering when mixed with optional positional args.
+                        parts.push(format!("{}: {options_var}", arg.name));
                         continue;
                     }
                     // When element_type is set to a batch item type, wrap items with constructors.
