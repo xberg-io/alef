@@ -575,6 +575,7 @@ pub(super) fn gen_elixir_struct_module(
 
     // Add Jason.Encoder implementation for option structs (has_default = true).
     // This allows Elixir code to pass structs to NIF functions that expect JSON-encoded options.
+    // Filter out nil values to avoid serde deserialization issues with nested structs.
     if typ.has_default {
         out.push('\n');
         out.push_str("  defimpl Jason.Encoder do\n");
@@ -582,6 +583,8 @@ pub(super) fn gen_elixir_struct_module(
         out.push_str("    def encode(value, opts) do\n");
         out.push_str("      value\n");
         out.push_str("      |> Map.from_struct()\n");
+        out.push_str("      |> Enum.reject(fn {_k, v} -> v == nil end)\n");
+        out.push_str("      |> Enum.into(%{})\n");
         out.push_str("      |> Jason.Encoder.encode(opts)\n");
         out.push_str("    end\n");
         out.push_str("  end\n");
