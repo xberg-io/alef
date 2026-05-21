@@ -1089,18 +1089,20 @@ fn build_args_and_setup(
             let config_val = input.get(field);
             let has_config = config_val
                 .is_some_and(|v| !(v.is_null() || v.is_object() && v.as_object().is_some_and(|o| o.is_empty())));
+            // Swift binding's engine factory declares `createEngine(config: ConfigType?)`,
+            // so calls require the `config:` argument label even when passing `nil`.
             if has_config {
                 if let Some(from_json_fn) = handle_config_fn {
                     let json_str = serde_json::to_string(config_val.unwrap()).unwrap_or_default();
                     let escaped = escape_swift_str(&json_str);
                     let config_var = format!("{}Config", arg.name.to_lower_camel_case());
                     setup_lines.push(format!("let {config_var} = try {from_json_fn}(\"{escaped}\")"));
-                    setup_lines.push(format!("let {var_name} = try createEngine({config_var})"));
+                    setup_lines.push(format!("let {var_name} = try createEngine(config: {config_var})"));
                 } else {
-                    setup_lines.push(format!("let {var_name} = try createEngine(nil)"));
+                    setup_lines.push(format!("let {var_name} = try createEngine(config: nil)"));
                 }
             } else {
-                setup_lines.push(format!("let {var_name} = try createEngine(nil)"));
+                setup_lines.push(format!("let {var_name} = try createEngine(config: nil)"));
             }
             parts.push((idx, var_name));
             continue;

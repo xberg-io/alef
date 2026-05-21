@@ -795,32 +795,26 @@ fn render_test_case(
         return;
     }
 
-    // Compute module_path and function_name from the resolved call config,
-    // applying Elixir-specific PascalCase conversion.
-    let (module_path, function_name, result_var) = if fixture.call.is_some() {
-        let raw_module = call_overrides
-            .and_then(|o| o.module.as_ref())
-            .cloned()
-            .unwrap_or_else(|| call_config.module.clone());
-        let resolved_module = if raw_module.contains('.') || raw_module.chars().next().is_some_and(|c| c.is_uppercase())
-        {
-            raw_module.clone()
-        } else {
-            elixir_module_name(&raw_module)
-        };
-        let resolved_fn = if call_config.r#async && !base_fn.ends_with("_async") && !base_fn.ends_with("_stream") {
-            format!("{base_fn}_async")
-        } else {
-            base_fn
-        };
-        (resolved_module, resolved_fn, call_config.result_var.clone())
+    // Compute module_path and function_name from the resolved call config.
+    // call_config is resolved via resolve_call_for_fixture which applies select_when auto-routing,
+    // so we always use it — whether or not fixture.call was explicitly set.
+    // Apply Elixir-specific PascalCase conversion.
+    let raw_module = call_overrides
+        .and_then(|o| o.module.as_ref())
+        .cloned()
+        .unwrap_or_else(|| call_config.module.clone());
+    let module_path = if raw_module.contains('.') || raw_module.chars().next().is_some_and(|c| c.is_uppercase())
+    {
+        raw_module
     } else {
-        (
-            default_module_path.to_string(),
-            default_function_name.to_string(),
-            default_result_var.to_string(),
-        )
+        elixir_module_name(&raw_module)
     };
+    let function_name = if call_config.r#async && !base_fn.ends_with("_async") && !base_fn.ends_with("_stream") {
+        format!("{base_fn}_async")
+    } else {
+        base_fn
+    };
+    let result_var = call_config.result_var.clone();
 
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
     // Validation-category fixtures expect engine creation itself to fail (bad config).
@@ -828,54 +822,31 @@ fn render_test_case(
     // *operation under test* to fail. We need different shapes for these two cases.
     let validation_creation_failure = expects_error && fixture.resolved_category() == "validation";
 
-    // When the fixture uses a named call, use the args and options from that call's config.
-    let (
-        effective_args,
-        effective_options_type,
-        effective_options_default_fn,
-        effective_enum_fields,
-        effective_handle_struct_type,
-        effective_handle_atom_list_fields,
-    );
-    let empty_enum_fields_local: HashMap<String, String>;
-    let empty_atom_fields_local: std::collections::HashSet<String>;
-    let (
-        resolved_args,
-        resolved_options_type,
-        resolved_options_default_fn,
-        resolved_enum_fields_ref,
-        resolved_handle_struct_type,
-        resolved_handle_atom_list_fields_ref,
-    ) = if fixture.call.is_some() {
-        let co = call_config.overrides.get(lang);
-        effective_args = call_config.args.as_slice();
-        effective_options_type = co.and_then(|o| o.options_type.as_deref());
-        effective_options_default_fn = co.and_then(|o| o.options_via.as_deref());
-        empty_enum_fields_local = HashMap::new();
-        effective_enum_fields = co.map(|o| &o.enum_fields).unwrap_or(&empty_enum_fields_local);
-        effective_handle_struct_type = co.and_then(|o| o.handle_struct_type.as_deref());
-        empty_atom_fields_local = std::collections::HashSet::new();
-        effective_handle_atom_list_fields = co
-            .map(|o| &o.handle_atom_list_fields)
-            .unwrap_or(&empty_atom_fields_local);
-        (
-            effective_args,
-            effective_options_type,
-            effective_options_default_fn,
-            effective_enum_fields,
-            effective_handle_struct_type,
-            effective_handle_atom_list_fields,
-        )
+    // Use args and options from the resolved call_config (which may have been auto-routed via select_when),
+    // falling back to the fixture-level defaults if not available.
+    let co = call_config.overrides.get(lang);
+    let empty_enum_fields_local: HashMap<String, String> = HashMap::new();
+    let empty_atom_fields_local: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let resolved_args = if !call_config.args.is_empty() {
+        call_config.args.as_slice()
     } else {
-        (
-            args as &[_],
-            options_type,
-            options_default_fn,
-            enum_fields,
-            handle_struct_type,
-            handle_atom_list_fields,
-        )
+        args as &[_]
     };
+    let resolved_options_type = co
+        .and_then(|o| o.options_type.clone())
+        .or_else(|| options_type.map(|s| s.to_string()));
+    let resolved_options_default_fn = co
+        .and_then(|o| o.options_via.clone())
+        .or_else(|| options_default_fn.map(|s| s.to_string()));
+    let resolved_enum_fields_ref = co
+        .map(|o| &o.enum_fields)
+        .unwrap_or(&empty_enum_fields_local);
+    let resolved_handle_struct_type = co
+        .and_then(|o| o.handle_struct_type.clone())
+        .or_else(|| handle_struct_type.map(|s| s.to_string()));
+    let resolved_handle_atom_list_fields_ref = co
+        .map(|o| &o.handle_atom_list_fields)
+        .unwrap_or(&empty_atom_fields_local);
 
     let test_documents_path = e2e_config.test_documents_relative_from(0);
     let adapter_request_type: Option<String> = adapters
@@ -887,11 +858,11 @@ fn render_test_case(
         &fixture.input,
         resolved_args,
         &module_path,
-        resolved_options_type,
-        resolved_options_default_fn,
+        resolved_options_type.as_deref(),
+        resolved_options_default_fn.as_deref(),
         resolved_enum_fields_ref,
         fixture,
-        resolved_handle_struct_type,
+        resolved_handle_struct_type.as_deref(),
         resolved_handle_atom_list_fields_ref,
         &test_documents_path,
         adapter_request_type.as_deref(),
@@ -1482,11 +1453,44 @@ fn build_args_and_setup(
                         parts.push(format!("{}: {options_var}", arg.name));
                         continue;
                     }
-                    // When options_type is set but options_via is NOT, DON'T emit struct-literal form.
-                    // The Rustler NIF facade doesn't know how to handle struct literals — it passes them
-                    // directly to the NIF which expects JSON strings. Only use struct literals when there's
-                    // an options_via function to properly construct them. Fall through to JSON string encoding below.
-                    // (removed struct-literal branch)
+                    // When options_type is set but options_via is NOT, emit a struct-literal form.
+                    // The auto-generated Rustler facade signature (`def f(html, options \\ nil)
+                    // when is_map(options)`) requires a map, not a JSON string — and Elixir
+                    // structs ARE maps, so a struct literal matches the guard. Falling through
+                    // to the JSON-string emission below would yield `f(html, "{json}")`, which
+                    // crashes the facade with FunctionClauseError. Emit positional/keyword
+                    // form per `use_keyword_form_for_optional_args` to mirror the threshold
+                    // applied to JSON-string emission.
+                    if let (Some(opts_type), None, Some(obj)) =
+                        (options_type, options_default_fn, v.as_object())
+                    {
+                        let options_var = "options";
+                        let mut field_strs = Vec::new();
+                        for (k, vv) in obj.iter() {
+                            let snake_key = k.to_snake_case();
+                            let elixir_val = if enum_fields.contains_key(k) {
+                                if let Some(s) = vv.as_str() {
+                                    let snake_val = s.to_snake_case();
+                                    format!(":{snake_val}")
+                                } else {
+                                    json_to_elixir(vv)
+                                }
+                            } else {
+                                json_to_elixir(vv)
+                            };
+                            field_strs.push(format!("{snake_key}: {elixir_val}"));
+                        }
+                        let fields = field_strs.join(", ");
+                        setup_lines.push(format!(
+                            "{options_var} = %{module_path}.{opts_type}{{{fields}}}"
+                        ));
+                        if use_keyword_form_for_optional_args && arg.optional {
+                            parts.push(format!("{}: {options_var}", arg.name));
+                        } else {
+                            parts.push(options_var.to_string());
+                        }
+                        continue;
+                    }
                     // When element_type is set to a batch item type, wrap items with constructors.
                     if let Some(elem_type) = &arg.element_type {
                         if (elem_type == "BatchBytesItem" || elem_type == "BatchFileItem") && v.is_array() {

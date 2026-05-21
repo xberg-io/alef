@@ -1733,3 +1733,67 @@ mod tests {
         );
     }
 }
+
+/// Collect all types that need NifMap/NifStruct derives.
+/// This includes both top-level types used in function signatures AND all types
+/// reachable transitively via struct fields (e.g., if CrawlResult has a field
+/// pages: Vec<CrawlPageResult>, then CrawlPageResult must also be emitted with derives).
+pub(super) fn collect_types_for_nif_derives(
+    api: &alef_core::ir::ApiSurface,
+    exclude_types: &AHashSet<&str>,
+) -> AHashSet<String> {
+    let mut types = AHashSet::new();
+
+    // Seed with types from function signatures (params and returns)
+    for func in &api.functions {
+        collect_named_types_from_ref(&func.return_type, &mut types);
+        for param in &func.params {
+            collect_named_types_from_ref(&param.ty, &mut types);
+        }
+    }
+
+    // Seed with types from method signatures
+    for typ in api.types.iter().filter(|t| !t.is_trait) {
+        for method in &typ.methods {
+            collect_named_types_from_ref(&method.return_type, &mut types);
+            for param in &method.params {
+                collect_named_types_from_ref(&param.ty, &mut types);
+            }
+        }
+    }
+
+    // Transitive closure: walk field types recursively
+    let mut changed = true;
+    while changed {
+        changed = false;
+        let snapshot: Vec<String> = types.iter().cloned().collect();
+        for type_name in &snapshot {
+            if let Some(typ) = api.types.iter().find(|t| t.name == *type_name) {
+                for field in binding_fields(&typ.fields) {
+                    if collect_named_types_from_ref(&field.ty, &mut types) {
+                        changed = true;
+                    }
+                }
+            }
+        }
+    }
+
+    // Remove excluded and opaque types
+    types.retain(|name| !exclude_types.contains(name.as_str()) && !api.types.iter().any(|t| t.name == *name && t.is_opaque));
+    types
+}
+
+/// Helper: collect named types from a TypeRef. Returns true if any new types were added.
+fn collect_named_types_from_ref(ty: &TypeRef, out: &mut AHashSet<String>) -> bool {
+    match ty {
+        TypeRef::Named(name) => out.insert(name.clone()),
+        TypeRef::Optional(inner) => collect_named_types_from_ref(inner, out),
+        TypeRef::Vec(inner) => collect_named_types_from_ref(inner, out),
+        TypeRef::Map(k, v) => {
+            let k_added = collect_named_types_from_ref(k, out);
+            let v_added = collect_named_types_from_ref(v, out);
+            k_added || v_added
+        }
+        _ => false,
+    }
+}

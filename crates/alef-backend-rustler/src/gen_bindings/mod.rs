@@ -18,7 +18,7 @@ use std::path::PathBuf;
 
 use functions::{gen_nif_async_function, gen_nif_async_method, gen_nif_function, gen_nif_method};
 use helpers::{
-    elixir_return_typespec, elixir_safe_param_name, elixir_typespec, gen_elixir_enum_module_with_known_types,
+    collect_types_for_nif_derives, elixir_return_typespec, elixir_safe_param_name, elixir_typespec, gen_elixir_enum_module_with_known_types,
     gen_elixir_opaque_module, gen_elixir_struct_module, gen_native_ex, get_module_info,
 };
 use types::{
@@ -161,11 +161,16 @@ impl Backend for RustlerBackend {
             builder.add_import("std::sync::Arc");
         }
 
+        // Collect all types that need NifMap/NifStruct derives: both top-level and recursively
+        // referenced (e.g., CrawlResult has field pages: Vec<CrawlPageResult>, so CrawlPageResult
+        // must also derive NifMap). Walk the full type closure reachable from function signatures.
+        let types_to_emit = collect_types_for_nif_derives(api, &exclude_types);
+
         let empty_set: AHashSet<String> = AHashSet::new();
         for typ in api
             .types
             .iter()
-            .filter(|typ| !typ.is_trait && !exclude_types.contains(typ.name.as_str()))
+            .filter(|typ| !typ.is_trait && types_to_emit.contains(&typ.name))
         {
             if typ.is_opaque {
                 builder.add_item(&gen_opaque_resource(typ, &core_import, &opaque_types));
