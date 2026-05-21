@@ -1011,8 +1011,14 @@ fn load_routes_recursive(
                         delay_ms: resolved.response.delay_ms,
                     };
 
-                    // Always insert into the shared namespaced table.
-                    shared.insert(resolved.path.clone(), mock_route.clone());
+                    // Insert into the shared namespaced table, but skip host-root paths
+                    // (`/robots*`, `/sitemap*`) — those collide across fixtures and the
+                    // last-write-wins behavior makes test results depend on fixture-load
+                    // order. Host-root routes are served only by the dedicated per-fixture
+                    // listener spawned below for fixtures that declare them.
+                    if !is_host_root_path(&resolved.original_path) {
+                        shared.insert(resolved.path.clone(), mock_route.clone());
+                    }
 
                     // For fixtures with host-root routes, also build a per-fixture table
                     // where routes are mounted at their original (un-namespaced) paths.
