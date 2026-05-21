@@ -828,7 +828,7 @@ fn render_test_file(
     if needs_json || needs_reflect {
         let _ = writeln!(out, "\t\"encoding/json\"");
     }
-    if needs_fmt || needs_strings {
+    if needs_fmt {
         let _ = writeln!(out, "\t\"fmt\"");
     }
     if needs_io {
