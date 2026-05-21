@@ -390,7 +390,7 @@ pub(super) fn gen_native_methods(
     for adapter in adapters {
         if matches!(adapter.pattern, alef_core::config::AdapterPattern::Streaming) {
             let adapter_snake = adapter.name.to_snake_case();
-            let adapter_cs = csharp_type_name(&adapter.name);
+            let adapter_cs = to_csharp_name(&adapter.name);
 
             let start_entry = format!("{}_crawl_engine_handle_{}_start", prefix, adapter_snake);
             let start_cs = format!("CrawlEngineHandle{}Start", adapter_cs);
