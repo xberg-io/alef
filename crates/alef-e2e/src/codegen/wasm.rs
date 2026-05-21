@@ -126,7 +126,22 @@ impl E2eCodegen for WasmCodegen {
                     // in the wasm bundle) would be emitted normally and fail at runtime.
                     if base_include {
                         if let Some(ref wasm_langs) = wasm_languages {
-                            if let Some(fix_lang) = fixture.input.get("language").and_then(|v| v.as_str()) {
+                            // Look for the target grammar in either of the two shapes
+                            // alef fixtures use: top-level `input.language` (function-call
+                            // shape) or nested `input.config.language` (config-object shape
+                            // used by smoke fixtures and anything taking a typed config DTO).
+                            let fix_lang = fixture
+                                .input
+                                .get("language")
+                                .and_then(|v| v.as_str())
+                                .or_else(|| {
+                                    fixture
+                                        .input
+                                        .get("config")
+                                        .and_then(|c| c.get("language"))
+                                        .and_then(|v| v.as_str())
+                                });
+                            if let Some(fix_lang) = fix_lang {
                                 if !wasm_langs.iter().any(|l| l == fix_lang) {
                                     base_include = false;
                                 }
