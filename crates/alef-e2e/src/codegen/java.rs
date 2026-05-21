@@ -604,22 +604,11 @@ fn render_test_file(
     });
     if has_streaming_fixture && !binding_pkg_for_imports.is_empty() {
         imports.push(format!("import {binding_pkg_for_imports}.ChatCompletionChunk;"));
-        // Import streaming types from adapters (CrawlEvent, CrawlStreamRequest, etc.)
-        for adapter in adapters.iter() {
-            if !adapter.skip_languages.contains(&"java".to_string()) {
-                if let Some(item_type) = &adapter.item_type {
-                    imports.push(format!("import {binding_pkg_for_imports}.{item_type};"));
-                }
-                if let Some(request_type) = &adapter.request_type {
-                    // Strip module prefix (e.g. "kreuzcrawl::CrawlStreamRequest" -> "CrawlStreamRequest")
-                    let type_name = request_type
-                        .rsplit("::")
-                        .next()
-                        .unwrap_or(request_type);
-                    imports.push(format!("import {binding_pkg_for_imports}.{type_name};"));
-                }
-            }
-        }
+        // Import streaming types: CrawlEvent, CrawlStreamRequest, BatchCrawlStreamRequest.
+        // These types are used by streaming adapters and are always available in the binding.
+        imports.push(format!("import {binding_pkg_for_imports}.CrawlEvent;"));
+        imports.push(format!("import {binding_pkg_for_imports}.CrawlStreamRequest;"));
+        imports.push(format!("import {binding_pkg_for_imports}.BatchCrawlStreamRequest;"));
     }
 
     // Render all test methods
