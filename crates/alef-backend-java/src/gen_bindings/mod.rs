@@ -493,6 +493,7 @@ impl Backend for JavaBackend {
             &bridge_param_names,
             &bridge_type_aliases,
             has_visitor_pattern,
+            config,
         );
 
         Ok(vec![GeneratedFile {

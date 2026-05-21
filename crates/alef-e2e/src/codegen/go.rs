@@ -193,7 +193,7 @@ impl E2eCodegen for GoCodegen {
             }
 
             let filename = format!("{}_test.go", sanitize_filename(&group.category));
-            let content = render_test_file(&group.category, &active, &module_path, &import_alias, e2e_config);
+            let content = render_test_file(&group.category, &active, &module_path, &import_alias, e2e_config, &config.adapters);
             files.push(GeneratedFile {
                 path: output_base.join(filename),
                 content,
@@ -412,6 +412,7 @@ fn render_test_file(
     go_module_path: &str,
     import_alias: &str,
     e2e_config: &crate::config::E2eConfig,
+    adapters: &[alef_core::config::AdapterConfig],
 ) -> String {
     let mut out = String::new();
     let emits_executable_test =
@@ -852,6 +853,7 @@ fn render_test_file(
         let _ = writeln!(out);
         let _ = writeln!(out, "\t\"github.com/stretchr/testify/assert\"");
     }
+
     if needs_pkg {
         let _ = writeln!(out);
         let _ = writeln!(out, "\t{import_alias} \"{go_module_path}\"");
@@ -869,7 +871,7 @@ fn render_test_file(
     }
 
     for (i, fixture) in fixtures.iter().enumerate() {
-        render_test_function(&mut out, fixture, import_alias, e2e_config);
+        render_test_function(&mut out, fixture, import_alias, e2e_config, adapters);
         if i + 1 < fixtures.len() {
             let _ = writeln!(out);
         }
@@ -934,6 +936,7 @@ fn render_test_function(
     fixture: &Fixture,
     import_alias: &str,
     e2e_config: &crate::config::E2eConfig,
+    adapters: &[alef_core::config::AdapterConfig],
 ) {
     let fn_name = fixture.id.to_upper_camel_case();
     let description = &fixture.description;
@@ -1201,6 +1204,20 @@ fn render_test_function(
     // Detect streaming fixtures (call-level `streaming` opt-out is honored).
     let is_streaming = crate::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming);
 
+    // Determine the streaming item type for this call (used when draining the channel).
+    // Find the first streaming adapter matching the function name (e.g., crawl_stream → CrawlEvent).
+    let streaming_item_type = if is_streaming {
+        adapters
+            .iter()
+            .filter(|a| matches!(a.pattern, alef_core::config::extras::AdapterPattern::Streaming))
+            .find(|a| &a.name == base_function_name || &a.name == &function_name.to_lowercase())
+            .and_then(|a| a.item_type.as_deref())
+            .and_then(|t| t.rsplit("::").next())
+            .unwrap_or("Item")  // Fallback if no matching adapter is declared
+    } else {
+        "Item"  // Unused, but needed for type consistency
+    };
+
     // Check if any assertion actually uses the result variable.
     // If all assertions are skipped (field not on result type), use `_` to avoid
     // Go's "declared and not used" compile error.
@@ -1313,7 +1330,7 @@ fn render_test_function(
         let _ = writeln!(out, "\t}}");
         // For streaming fixtures: drain the channel into a []T slice.
         if is_streaming {
-            let _ = writeln!(out, "\tvar chunks []{import_alias}.ChatCompletionChunk");
+            let _ = writeln!(out, "\tvar chunks []{import_alias}.{streaming_item_type}");
             let _ = writeln!(out, "\tfor chunk := range stream {{");
             let _ = writeln!(out, "\t\tchunks = append(chunks, chunk)");
             let _ = writeln!(out, "\t}}");

@@ -2,7 +2,7 @@ mod functions;
 mod methods;
 pub(super) mod types;
 
-use functions::{gen_convert_with_visitor_wrapper, gen_function_wrapper};
+use functions::{gen_adapter_wrapper, gen_convert_with_visitor_wrapper, gen_function_wrapper};
 use methods::{gen_method_wrapper, gen_streaming_method_wrapper};
 use types::{
     gen_config_options, gen_enum_type, gen_last_error_helper, gen_opaque_type, gen_opaque_type_free_only,
@@ -669,6 +669,20 @@ fn gen_go_file(
             ));
             out.push_str("\n\n");
         }
+    }
+
+    // Emit module-level wrapper functions for streaming adapters so tests/consumers
+    // can call them as pkg.CrawlStream(engine, url) instead of engine.CrawlStream(url).
+    // These wrap the instance methods emitted below.
+    for adapter in &config.adapters {
+        if !matches!(adapter.pattern, AdapterPattern::Streaming) {
+            continue;
+        }
+        if adapter.owner_type.is_none() || adapter.item_type.is_none() {
+            continue;
+        }
+        out.push_str(&gen_adapter_wrapper(adapter, pkg_name));
+        out.push_str("\n\n");
     }
 
     // Generate struct methods.

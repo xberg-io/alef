@@ -5,6 +5,7 @@ use alef_codegen::naming::{go_param_name, to_go_name};
 use alef_core::ir::{FunctionDef, MethodDef, ParamDef, TypeRef};
 use heck::ToSnakeCase;
 use std::collections::HashSet;
+use std::fmt::Write as FmtWrite;
 
 /// Returns true if any parameter in the list requires JSON marshaling (non-opaque Named, Vec, or Map).
 ///
@@ -622,6 +623,63 @@ pub(super) fn gen_convert_with_visitor_wrapper(
         "function_body_end.jinja",
         minijinja::Value::default(),
     ));
+
+    out
+}
+
+/// Emit a module-level wrapper function for a streaming adapter.
+/// This allows tests/consumers to call pkg.CrawlStream(engine, url) instead of engine.CrawlStream(url).
+pub(super) fn gen_adapter_wrapper(adapter: &alef_core::config::AdapterConfig, _pkg_name: &str) -> String {
+
+    let adapter_name = &adapter.name;
+    let go_func_name = to_go_name(adapter_name);
+    let owner_type = adapter.owner_type.as_deref().unwrap_or("EngineHandle");
+    let item_type = adapter.item_type.as_deref().unwrap_or("Item");
+    let item_type_simple = item_type.rsplit("::").next().unwrap_or(item_type);
+
+    // Extract request type and simplify (remove Rust path prefix)
+    let request_type = adapter.request_type.as_deref().unwrap_or("Request");
+    let _request_type_simple = request_type.rsplit("::").next().unwrap_or(request_type);
+
+    // Build function signature params: engine + request params
+    let mut params = vec![format!("engine *{owner_type}")];
+    for param in &adapter.params {
+        // Map Rust types to Go equivalents (mimicking the type_map conversions)
+        let go_param_type = match param.ty.as_str() {
+            "String" => "string".to_string(),
+            ty => {
+                // Strip Rust path prefix (e.g., "crate::requests::CrawlStreamRequest" → "CrawlStreamRequest")
+                ty.rsplit("::").next().unwrap_or(ty).to_string()
+            }
+        };
+        let param_name = go_param_name(&param.name);
+        params.push(format!("{param_name} {go_param_type}"));
+    }
+
+    // Return type: (channel of items, error)
+    let return_type = format!("<-chan {item_type_simple}, error");
+
+    // Build method call: engine.CrawlStream(...params)
+    let method_call_name = to_go_name(adapter_name);
+    let param_args = adapter
+        .params
+        .iter()
+        .map(|p| go_param_name(&p.name))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let method_call = if param_args.is_empty() {
+        format!("engine.{}()", method_call_name)
+    } else {
+        format!("engine.{}({})", method_call_name, param_args)
+    };
+
+    // Emit the wrapper function
+    let mut out = String::new();
+    let _ = writeln!(out, "// {go_func_name} wraps the {owner_type}.{method_call_name} streaming adapter,");
+    let _ = writeln!(out, "// exposing it as a module-level function for test and consumer convenience.");
+    let _ = writeln!(out, "func {go_func_name}({}) ({}) {{", params.join(", "), return_type);
+    let _ = writeln!(out, "\treturn {}", method_call);
+    let _ = writeln!(out, "}}");
 
     out
 }

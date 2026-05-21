@@ -145,6 +145,8 @@ impl Backend for DartBackend {
             for bridge_cfg in &active_bridge_configs {
                 emit_trait_bridge_methods(bridge_cfg, &mut body);
             }
+            // Emit streaming adapter methods for adapters with owner_type set.
+            emit_streaming_adapter_methods(config, &mut body, &mut imports);
             body.push_str("}\n");
         }
 
@@ -342,6 +344,56 @@ fn emit_trait_bridge_methods(bridge_cfg: &TraitBridgeConfig, out: &mut String) {
                 dart_name => dart_name.as_str(),
             },
         ));
+    }
+}
+
+/// Emit streaming adapter methods (Stream<ItemType>) for adapters with owner_type set.
+fn emit_streaming_adapter_methods(
+    config: &ResolvedCrateConfig,
+    out: &mut String,
+    imports: &mut BTreeSet<String>,
+) {
+    use alef_core::config::AdapterPattern;
+    use heck::ToLowerCamelCase;
+
+    let module_name = dart_module_name(&config.name);
+
+    for adapter in &config.adapters {
+        if !matches!(adapter.pattern, AdapterPattern::Streaming) {
+            continue;
+        }
+        if adapter.owner_type.is_none() || adapter.item_type.is_none() || adapter.params.is_empty() {
+            continue;
+        }
+        if adapter.skip_languages.iter().any(|l| l == "dart") {
+            continue;
+        }
+
+        let method_name = adapter.name.to_lower_camel_case();
+        let item_type = adapter.item_type.as_deref().unwrap_or("Object");
+        let request_type_full = adapter.params[0].ty.as_str();
+        let request_type = request_type_full.rsplit("::").next().unwrap_or(request_type_full);
+        let request_param = adapter.params[0].name.to_lower_camel_case();
+        let request_param = if request_param.is_empty() {
+            "request".to_string()
+        } else {
+            request_param
+        };
+
+        // Ensure Stream type is imported
+        imports.insert("import 'dart:async' show Stream;".to_string());
+
+        out.push_str(&crate::template_env::render(
+            "dart_streaming_method.jinja",
+            minijinja::context! {
+                method_name => method_name,
+                item_type => item_type,
+                request_type => request_type,
+                request_param => request_param,
+                module_name => module_name.as_str(),
+            },
+        ));
+        out.push('\n');
     }
 }
 

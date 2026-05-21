@@ -27,4 +27,10 @@ public final class {{ class_name }} {
     }
 {% endif %}
 {% endfor %}
+{% for stream in streaming_methods %}
+
+    public static java.util.Iterator<{{ stream.item_type }}> {{ stream.method_name }}({{ stream.request_type }} {{ stream.request_param }}) throws {{ raw_class }}Exception {
+        return {{ raw_class }}.{{ stream.method_name }}({{ stream.request_param }});
+    }
+{% endfor %}
 }

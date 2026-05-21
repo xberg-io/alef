@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.22] - 2026-05-21
+
+### Fixed
+
+- **alef-e2e/codegen: generic call selection + url-list field aliasing.** Added `select_best_matching_call` helper in `codegen/mod.rs` that walks the `alef.toml` named calls and picks the one whose required args are all satisfied by the fixture input, instead of always using the initially-resolved call. Enables fixtures with `batch_urls` / `urls` input to route to the batch variant automatically, without hardcoding call names. Added `resolve_urls_field` that tries the declared field name and common aliases (`batch_urls ↔ urls ↔ url_list ↔ urls_list`) to avoid broken empty-list emission when a fixture uses a different field name than the call config declares. Both helpers are generic over type names — no kreuzcrawl-specific identifiers. Python, TypeScript, PHP, and C# codegen wired up. (`crates/alef-e2e/src/codegen/mod.rs`, `python/test_function.rs`, `typescript/test_file.rs`, `php.rs`, `csharp.rs`)
+
+- **alef-backend-napi: derive iterator/event types from adapter IR, not hardcoded names.** `gen_adapter_wrapper` previously used `if name.contains("batch")` to choose between `BatchCrawlStreamIterator` and `CrawlStreamIterator`, and hardcoded `JsCrawlEvent::from(c)` in the event cast. Replaced with `adapter.item_type` introspection: iterator class is `Js{item_type_name}Iterator`, event cast is `Js{item_type_name}::from(c)`. Takes a `core_crate: &str` param (derived from config) so the Rust path qualification is `{core_crate}::{Type}` not `kreuzcrawl::{Type}`. (`crates/alef-backend-napi/src/gen_bindings/functions.rs`, `mod.rs`)
+
+- **alef-backend-pyo3: derive streaming wrapper params from IR type fields, not hardcoded type names.** The `emit_adapter_wrapper` function previously matched `"CrawlStreamRequest"` / `"BatchCrawlStreamRequest"` literals to decide parameter shape. Replaced with IR introspection: looks up `param.ty` in `types`, reads the first field's name and arity (`Vec<_>` → `list[str]`, else `str`), constructs the wrapper params and request construction generically. Falls back to original behavior when the type is not found in IR. (`crates/alef-backend-pyo3/src/gen_bindings/functions.rs`)
+
+- **alef-backend-go: emit module-level streaming adapter wrappers.** Added `gen_adapter_wrapper` in `functions.rs` and wired it into `mod.rs` so streaming adapters (declared in `alef.toml [[crates.core.adapters]]`) emit a package-level `func {AdapterName}(engine *{OwnerType}, ...) (<-chan {ItemType}, error)` wrapper. Enables test code to call `pkg.CrawlStream(engine, url)` instead of `engine.CrawlStream(url)`. All type names derived from `AdapterConfig.item_type`, `owner_type`, `request_type` — no hardcoded product names. (`crates/alef-backend-go/src/gen_bindings/functions.rs`, `mod.rs`)
+
+- **alef-e2e/go: derive streaming item type from adapters, not literal names.** The Go e2e test renderer now receives the `adapters` slice and resolves the streaming item type by finding the matching adapter via `adapter.name`. Removed hardcoded `"CrawlEvent"` fallbacks; uses `"Item"` as the generic fallback for any adapter that doesn't declare `item_type`. (`crates/alef-e2e/src/codegen/go.rs`)
+
+- **alef-backend-java: emit streaming adapter wrapper methods on facade.** Java facade now emits `Iterator<{ItemType}> {methodName}(...)` wrapper methods for streaming adapters, derived from `adapter.item_type` / `owner_type`. Template updated. (`crates/alef-backend-java/src/gen_bindings/facade.rs`, `mod.rs`, `templates/facade_class.jinja`)
+
+- **alef-backend-dart: emit Stream<{ItemType}> wrapper methods.** Dart backend now emits `Stream<{ItemType}> {methodName}(...)` wrappers for streaming adapters. Uses `dart_streaming_method.jinja` template with `item_type` and `owner_type` derived from `AdapterConfig`. (`crates/alef-backend-dart/src/gen_bindings/mod.rs`, `templates/dart_streaming_method.jinja`)
+
+- **alef-backend-jni: map empty/zero JNI null-sentinels to `None` for optional params.** Kotlin passes `""` (empty string) and `0`/`0L`/`0.0` as null-sentinels for nullable params via `value ?: ""` / `value ?: 0`, since JNI primitive signatures cannot express nullability. JNI shims now convert empty strings and numeric zeros to `None` before calling Rust, so optional Rust params receive the correct `Option<_>` value instead of `Some("")`/`Some(0)`. Added `primitive_zero_literal` helper. (`crates/alef-backend-jni/src/gen_shims.rs`)
+
+- **alef-backend-kotlin: fix serialization annotation inheritance for newtype/tuple variants.** Kotlin sealed class newtype variants (wrapping a single inner type) do not need `@JsonSerialize(using = None::class)` / `@JsonDeserialize(using = None::class)` reset annotations — adding them defeats the parent's custom serializer, causing incorrect POJO serialization instead of the discriminator-flattened form. Removed the annotation reset from newtype variants; named-field struct variants retain it. (`crates/alef-backend-kotlin/src/gen_bindings/object_wrapper.rs`, `type_map.rs`)
+
 ## [0.17.21] - 2026-05-21
 
 ### Fixed

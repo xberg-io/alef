@@ -785,13 +785,16 @@ fn render_test_method(
     // Resolve call config per-fixture so named calls (e.g. "parse") use the
     // correct function name, result variable, and async flag.
     // Use resolve_call_for_fixture to support auto-routing via select_when.
-    let call_config = e2e_config.resolve_call_for_fixture(
+    let mut call_config = e2e_config.resolve_call_for_fixture(
         fixture.call.as_deref(),
         &fixture.id,
         &fixture.resolved_category(),
         &fixture.tags,
         &fixture.input,
     );
+    // Fallback: if the resolved call has required args missing from input,
+    // try to find a better-matching call from the named calls.
+    call_config = super::select_best_matching_call(call_config, e2e_config, fixture);
     // Per-call field resolver: overrides the top-level resolver when this call
     // declares its own result_fields / fields / fields_optional / fields_array.
     // Without this, fields like `pages.length` on a `crawl` call would be skipped
@@ -920,11 +923,9 @@ fn render_test_method(
                 if parts.len() >= 2 {
                     let urls_var = parts[parts.len() - 1]; // Last arg is the URLs
                     let req_var = format!("{}Req", urls_var);
-                    setup_lines.push(format!(
-                        "var {req_var} = new {req_type} {{ Urls = {urls_var} }};"
-                    ));
+                    setup_lines.push(format!("var {req_var} = new {req_type} {{ Urls = {urls_var} }};"));
                     // Replace the urls arg with the wrapped request
-                    args_str = parts[..parts.len()-1].join(", ");
+                    args_str = parts[..parts.len() - 1].join(", ");
                     if !args_str.is_empty() {
                         args_str.push_str(", ");
                     }
@@ -1575,10 +1576,7 @@ fn build_args_and_setup(
             }
             if let Some(req_type) = adapter_request_type {
                 let req_var = format!("{}Req", arg.name);
-                setup_lines.push(format!(
-                    "var {req_var} = new {req_type} {{ Url = {} }};",
-                    arg.name
-                ));
+                setup_lines.push(format!("var {req_var} = new {req_type} {{ Url = {} }};", arg.name));
                 parts.push(req_var);
             } else {
                 parts.push(arg.name.clone());
@@ -1595,7 +1593,12 @@ fn build_args_and_setup(
             // which does not accept `string[]`.
             let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
             let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-            let val = input.get(field).unwrap_or(&serde_json::Value::Null);
+            // Try both the declared field and common aliases (batch_urls, urls, etc.)
+            let val = if let Some(v) = input.get(field).filter(|v| !v.is_null()) {
+                v.clone()
+            } else {
+                super::resolve_urls_field(input, &arg.field).clone()
+            };
             let paths: Vec<String> = if let Some(arr) = val.as_array() {
                 arr.iter()
                     .filter_map(|v| v.as_str().map(|s| format!("\"{}\"", escape_csharp(s))))
@@ -2621,8 +2624,11 @@ fn render_assertion(
             // result type), use Assert.NotNull instead of Assert.True to avoid cast issues.
             // If it's clearly not a boolean type (contains null-checking operators or is a
             // complex object), treat it as a not-null check.
-            let is_complex_or_object = field_expr.contains("(object)") ||
-                (field_expr.contains(".") && !result_is_simple && !field_expr.contains("?") && !field_expr.contains("=="));
+            let is_complex_or_object = field_expr.contains("(object)")
+                || (field_expr.contains(".")
+                    && !result_is_simple
+                    && !field_expr.contains("?")
+                    && !field_expr.contains("=="));
 
             let rendered = if is_complex_or_object {
                 crate::template_env::render(
@@ -2645,8 +2651,11 @@ fn render_assertion(
             out.push_str(&rendered);
         }
         "is_false" => {
-            let is_complex_or_object = field_expr.contains("(object)") ||
-                (field_expr.contains(".") && !result_is_simple && !field_expr.contains("?") && !field_expr.contains("=="));
+            let is_complex_or_object = field_expr.contains("(object)")
+                || (field_expr.contains(".")
+                    && !result_is_simple
+                    && !field_expr.contains("?")
+                    && !field_expr.contains("=="));
 
             let rendered = if is_complex_or_object {
                 // For complex types, is_false means "is empty/null"

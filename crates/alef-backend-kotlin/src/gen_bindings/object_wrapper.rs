@@ -97,9 +97,11 @@ pub(crate) fn emit_type_with_imports(
     }
 
     // Pre-build field strings so we can apply the ktfmt single-line heuristic
-    // before committing to an emission style. Field-level KDoc forces multi-line
-    // because KDoc comments cannot be inlined inside a constructor parameter list.
+    // before committing to an emission style. Field-level KDoc or @JsonProperty
+    // annotations force multi-line because they cannot be inlined inside a
+    // constructor parameter list.
     let has_field_docs = ty.fields.iter().any(|f| !f.doc.is_empty());
+    let has_field_annotations = ty.fields.iter().any(|f| f.serde_rename.is_some());
     let mut field_strings: Vec<String> = Vec::with_capacity(ty.fields.len());
     for (idx, field) in ty.fields.iter().enumerate() {
         let ty_str = kotlin_type_with_string_imports(&field.ty, field.optional, imports);
@@ -117,7 +119,8 @@ pub(crate) fn emit_type_with_imports(
     }
 
     let prefix = format!("data class {}", ty.name);
-    let use_single_line = !has_field_docs && fits_single_line("", &prefix, &field_strings, "");
+    let use_single_line =
+        !has_field_docs && !has_field_annotations && fits_single_line("", &prefix, &field_strings, "");
 
     if use_single_line {
         out.push_str(&format!("{prefix}({})\n", field_strings.join(", ")));
@@ -125,6 +128,14 @@ pub(crate) fn emit_type_with_imports(
         out.push_str(&format!("{prefix}(\n"));
         for (idx, (field, field_str)) in ty.fields.iter().zip(field_strings.iter()).enumerate() {
             emit_cleaned_kdoc(out, &field.doc, "    ");
+            // Emit @JsonProperty when the Rust field carries #[serde(rename = "...")]
+            // so Jackson maps the wire key to the Kotlin camelCase property name.
+            if let Some(rename) = &field.serde_rename {
+                out.push_str(&format!(
+                    "    @com.fasterxml.jackson.annotation.JsonProperty(\"{}\")\n",
+                    escape_kotlin_string(rename)
+                ));
+            }
             let comma = if idx + 1 == ty.fields.len() { "" } else { "," };
             out.push_str(&format!("    {field_str}{comma}\n"));
         }
@@ -254,35 +265,44 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str) {
                     },
                 ));
             } else {
-                // When the sealed class has a custom @JsonDeserialize / @JsonSerialize
-                // annotation, all variant subclasses inherit it (Kotlin/Jackson
-                // annotation inheritance through the sealed class hierarchy).
+                // Newtype/tuple variants (a single tuple-named field wrapping an
+                // inner type, e.g. `data class User(val message: UserMessage)`)
+                // do NOT need the inherited annotation reset:
+                //   - The parent serializer routes via `value.<inner>` (e.g.
+                //     `mapper.valueToTree(value.message)`), so the type Jackson
+                //     resolves the serializer for is the INNER non-sealed class
+                //     — no recursion is possible.
+                //   - The parent deserializer routes via
+                //     `ctx.readTreeAsValue<Inner>(payload, Inner::class.java)`,
+                //     reading into the inner non-sealed class — no recursion.
                 //
-                // Problem: for named-field struct variants, ctx.readTreeAsValue or
-                // mapper.valueToTree with the variant class re-triggers the parent
-                // class's custom (de)serializer, causing infinite recursion or an
-                // "Unknown tag" error on the stripped payload.
+                // Emitting `@JsonSerialize(using = None::class)` on newtype
+                // variants is in fact HARMFUL: when Jackson encounters a value
+                // of runtime type `Sealed.Variant`, the variant-level reset
+                // annotation defeats the parent's custom serializer entirely,
+                // so the value is emitted as a default POJO `{"<field>":...}`
+                // instead of the discriminator-flattened form
+                // (`{"role":"user",...}` for tagged sealed classes, or just the
+                // inner value for untagged ones).
                 //
-                // Fix: annotate each non-unit variant data class with bare
-                // @JsonDeserialize and @JsonSerialize (which default to
-                // using = JsonDeserializer.None / JsonSerializer.None, i.e. "use
-                // the default POJO (de)serializer").  This overrides the inherited
-                // custom annotation and breaks the recursion cycle.
-                //
-                // Applied unconditionally to all non-unit variants when the sealed
-                // class has custom (de)serializer annotations — it is safer to
-                // always emit the reset annotation than to only do so for
-                // named-field variants.
-                if needs_deserializer {
+                // Named-field struct variants (variants carrying their own
+                // named fields directly) DO need the reset: the parent
+                // (de)serializer routes via `value as Sealed.Variant` or
+                // `readTreeAsValue<Variant>(...)`, both of which target the
+                // variant subtype — inheriting the parent's custom annotation
+                // would loop back into the parent (de)serializer.
+                let is_newtype_variant = variant.fields.len() == 1 && is_tuple_field_name(&variant.fields[0].name);
+                let emit_reset = !is_newtype_variant;
+                if needs_deserializer && emit_reset {
                     out.push_str("    @com.fasterxml.jackson.databind.annotation.JsonDeserialize(using = com.fasterxml.jackson.databind.JsonDeserializer.None::class)\n");
                 }
-                if needs_serializer {
+                if needs_serializer && emit_reset {
                     out.push_str("    @com.fasterxml.jackson.databind.annotation.JsonSerialize(using = com.fasterxml.jackson.databind.JsonSerializer.None::class)\n");
                 }
 
                 // Pre-build field strings for the ktfmt single-line heuristic.
                 // Annotations force multi-line because they cannot be inlined.
-                let has_annotations = needs_deserializer || needs_serializer;
+                let has_annotations = (needs_deserializer || needs_serializer) && emit_reset;
                 let mut variant_field_strings: Vec<String> = Vec::with_capacity(variant.fields.len());
                 for (idx, f) in variant.fields.iter().enumerate() {
                     let ty_str = kotlin_type_disambiguated(&f.ty, f.optional, &variant_names, package);
@@ -672,13 +692,13 @@ fn emit_kotlin_untagged_deserializer(out: &mut String, en: &EnumDef) {
                     // to a catch-all deserialization that handles both cases at the end.
                     // For now, we'll check for both textual and object nodes to support both.
                     (
-                        "true",  // Try all Named types; let deserialization determine success
+                        "true", // Try all Named types; let deserialization determine success
                         format!(
                             "try {{ {name}.{}(ctx.readTreeAsValue(node, {n}::class.java)) }} catch (_: com.fasterxml.jackson.databind.exc.MismatchedInputException) {{ null as? {name} }} catch (_: com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException) {{ null as? {name} }}",
                             variant.name
                         ),
                     )
-                },
+                }
                 _ => {
                     let class_name = kotlin_class_name_for_type(ty);
                     (
@@ -709,7 +729,7 @@ fn emit_kotlin_untagged_deserializer(out: &mut String, en: &EnumDef) {
             out.push_str("{\n");
             out.push_str("            val result = ");
             out.push_str(&inner_expr);
-            out.push_str("\n");
+            out.push('\n');
             out.push_str("            if (result != null) return result\n");
             out.push_str("        }\n");
         } else {

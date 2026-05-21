@@ -934,13 +934,16 @@ fn render_test_method(
     adapters: &[alef_core::config::extras::AdapterConfig],
 ) {
     // Resolve per-fixture call config: supports named calls via fixture.call field.
-    let call_config = e2e_config.resolve_call_for_fixture(
+    let mut call_config = e2e_config.resolve_call_for_fixture(
         fixture.call.as_deref(),
         &fixture.id,
         &fixture.resolved_category(),
         &fixture.tags,
         &fixture.input,
     );
+    // Fallback: if the resolved call has required args missing from input,
+    // try to find a better-matching call from the named calls.
+    call_config = super::select_best_matching_call(call_config, e2e_config, fixture);
     // Build per-call PHP getter map and field resolver using the effective field sets.
     let per_call_getter_map = build_php_getter_map(
         type_defs,
@@ -1339,7 +1342,12 @@ fn build_args_and_setup(
             // then `MOCK_SERVER_URL/fixtures/<id>`.
             let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
             let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-            let val = input.get(field).unwrap_or(&serde_json::Value::Null);
+            // Try both the declared field and common aliases (batch_urls, urls, etc.)
+            let val = if let Some(v) = input.get(field).filter(|v| !v.is_null()) {
+                v.clone()
+            } else {
+                super::resolve_urls_field(input, &arg.field).clone()
+            };
             let paths: Vec<String> = if let Some(arr) = val.as_array() {
                 arr.iter()
                     .filter_map(|v| v.as_str().map(|s| format!("\"{}\"", escape_php(s))))
@@ -1435,9 +1443,7 @@ fn build_args_and_setup(
         }
 
         match val {
-            None | Some(serde_json::Value::Null)
-                if arg.arg_type == "json_object" && arg.name == "config" =>
-            {
+            None | Some(serde_json::Value::Null) if arg.arg_type == "json_object" && arg.name == "config" => {
                 // Special case: ExtractionConfig and similar config objects with no fixture value
                 // should default to an empty instance (e.g., ExtractionConfig::from_json('{}'))
                 // to satisfy required parameters. This check happens BEFORE the optional check

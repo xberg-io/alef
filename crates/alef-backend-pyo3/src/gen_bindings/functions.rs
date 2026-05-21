@@ -1191,7 +1191,7 @@ fn adapter_param_python_type(rust_type: &str) -> &str {
 fn emit_adapter_wrapper(
     out: &mut String,
     adapter: &alef_core::config::AdapterConfig,
-    _types: &[alef_core::ir::TypeDef],
+    types: &[alef_core::ir::TypeDef],
 ) {
     use alef_core::config::AdapterPattern;
     use heck::ToSnakeCase;
@@ -1207,36 +1207,50 @@ fn emit_adapter_wrapper(
         && adapter.request_type.is_some()
         && adapter.params.len() == 1
     {
-        // Streaming with a single request param: decompose to primitives
+        // Streaming with a single request param: decompose to primitives by
+        // inspecting the request type's first field in the IR.
+        // E.g. a type with field `url: String` → `url: str`; `urls: Vec<String>` → `urls: list[str]`.
         let param = &adapter.params[0];
-        let param_type = &param.ty;
-        match param_type.as_str() {
-            "CrawlStreamRequest" => {
-                // url: str → CrawlStreamRequest { url }
-                let wrapper_params = vec!["engine: CrawlEngineHandle".to_string(), "url: str".to_string()];
-                let construction = "    req = _rust.CrawlStreamRequest(url=url)\n".to_string();
+        let short_name = &param.ty; // short type name, e.g. the param's declared type
+        let ir_type = types.iter().find(|t| &t.name == short_name);
+        if let Some(ty_def) = ir_type {
+            if let Some(first_field) = ty_def.fields.first() {
+                let field_name = &first_field.name;
+                let is_vec = matches!(&first_field.ty, alef_core::ir::TypeRef::Vec(_));
+                let python_type = if is_vec { "list[str]" } else { "str" };
+                let wrapper_params = vec![
+                    format!("engine: {owner_type}"),
+                    format!("{field_name}: {python_type}"),
+                ];
+                let construction = format!("    req = _rust.{short_name}({field_name}={field_name})\n");
                 (wrapper_params, Some(construction))
-            }
-            "BatchCrawlStreamRequest" => {
-                // urls: list[str] → BatchCrawlStreamRequest { urls }
-                let wrapper_params = vec!["engine: CrawlEngineHandle".to_string(), "urls: list[str]".to_string()];
-                let construction = "    req = _rust.BatchCrawlStreamRequest(urls=urls)\n".to_string();
-                (wrapper_params, Some(construction))
-            }
-            _ => {
-                // Unknown request type; fall back to original behavior
+            } else {
+                // Type has no fields; fall back to original behavior
                 let mut params = vec![format!("engine: {owner_type}")];
                 for p in &adapter.params {
                     let python_type = adapter_param_python_type(&p.ty);
-                    let annotation = if p.optional {
+                    let ann = if p.optional {
                         format!("{python_type} | None = None")
                     } else {
                         python_type.to_string()
                     };
-                    params.push(format!("{}: {}", p.name, annotation));
+                    params.push(format!("{}: {ann}", p.name));
                 }
                 (params, None)
             }
+        } else {
+            // Type not found in IR; fall back to original behavior
+            let mut params = vec![format!("engine: {owner_type}")];
+            for p in &adapter.params {
+                let python_type = adapter_param_python_type(&p.ty);
+                let annotation = if p.optional {
+                    format!("{python_type} | None = None")
+                } else {
+                    python_type.to_string()
+                };
+                params.push(format!("{}: {}", p.name, annotation));
+            }
+            (params, None)
         }
     } else {
         // Non-streaming or multi-param: use original behavior

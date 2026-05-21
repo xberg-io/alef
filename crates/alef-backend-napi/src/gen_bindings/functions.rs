@@ -856,7 +856,7 @@ pub(super) fn gen_tokio_runtime() -> String {
 }
 
 /// Emit a module-level wrapper function for an adapter (streaming method).
-pub(super) fn gen_adapter_wrapper(adapter: &alef_core::config::AdapterConfig) -> String {
+pub(super) fn gen_adapter_wrapper(adapter: &alef_core::config::AdapterConfig, core_crate: &str) -> String {
     use alef_core::config::AdapterPattern;
 
     let adapter_name = &adapter.name;
@@ -874,11 +874,11 @@ pub(super) fn gen_adapter_wrapper(adapter: &alef_core::config::AdapterConfig) ->
         // Map to JS wrapper types for parameters
         let js_type = format!("Js{param_type}");
         param_parts.push(format!("{param_name}: {js_type}"));
-        // Record conversion: "let core_req: kreuzcrawl::Type = req.into();"
+        // Record conversion: "let core_req: {core_crate}::Type = req.into();"
         let core_type = if param_type.contains("::") {
             param_type.clone()
         } else {
-            format!("kreuzcrawl::{param_type}")
+            format!("{core_crate}::{param_type}")
         };
         param_conversions.push(format!(
             "    let core_{}: {} = {}.into();",
@@ -899,11 +899,8 @@ pub(super) fn gen_adapter_wrapper(adapter: &alef_core::config::AdapterConfig) ->
             // Streaming: replicate the instance method's channel/tokio spawn pattern.
             // The free function calls engine.inner.method(...).await to get the stream,
             // then wraps it in channels and spawns a background task.
-            let return_iterator_type = if adapter_name.contains("batch") {
-                "BatchCrawlStreamIterator"
-            } else {
-                "CrawlStreamIterator"
-            };
+            let item_type_name = adapter.item_type.as_deref().unwrap_or("Item");
+            let return_iterator_type = format!("Js{item_type_name}Iterator");
 
             let _method_call = if core_params_list.is_empty() {
                 format!("engine.inner.{}()", adapter_name)
@@ -941,7 +938,7 @@ pub(super) fn gen_adapter_wrapper(adapter: &alef_core::config::AdapterConfig) ->
                              Ok(mut stream) => {{\n\
                                  while let Some(chunk) = stream.next().await {{\n\
                                      let item = match chunk {{\n\
-                                         Ok(c) => JsCrawlEvent::from(c),\n\
+                                         Ok(c) => Js{item_type_name}::from(c),\n\
                                          Err(e) => {{\n\
                                              let _ = tx\n\
                                                  .send(Err(napi::Error::new(napi::Status::GenericFailure, e.to_string())))\n\

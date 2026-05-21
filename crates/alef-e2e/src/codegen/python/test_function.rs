@@ -34,13 +34,16 @@ pub(super) fn render_test_function(
 ) {
     let fn_name = sanitize_ident(&fixture.id);
     let description = &fixture.description;
-    let call_config = e2e_config.resolve_call_for_fixture(
+    let mut call_config = e2e_config.resolve_call_for_fixture(
         fixture.call.as_deref(),
         &fixture.id,
         &fixture.resolved_category(),
         &fixture.tags,
         &fixture.input,
     );
+    // Fallback: if the resolved call has required args missing from input,
+    // try to find a better-matching call from the named calls.
+    call_config = super::super::select_best_matching_call(call_config, e2e_config, fixture);
     let call_field_resolver = FieldResolver::new(
         e2e_config.effective_fields(call_config),
         e2e_config.effective_fields_optional(call_config),
@@ -602,8 +605,10 @@ fn build_args_and_setup(
             };
             arg_bindings.push(format!("    {var_name}_base = {base_url_expr}"));
 
-            // Extract path strings from fixture input array
-            let paths: Vec<String> = if let Some(arr) = resolve_field(&fixture.input, &arg.field).as_array() {
+            // Extract path strings from fixture input array.
+            // Try both the declared field and common aliases (batch_urls, urls, etc.)
+            let field_value = crate::codegen::resolve_urls_field(&fixture.input, &arg.field);
+            let paths: Vec<String> = if let Some(arr) = field_value.as_array() {
                 arr.iter()
                     .filter_map(|v| v.as_str().map(|s| format!("\"{}\"", escape_python(s))))
                     .collect()

@@ -593,13 +593,16 @@ fn render_test_case(
     enums: &[EnumDef],
     wasm_type_prefix: &str,
 ) {
-    let call_config = e2e_config.resolve_call_for_fixture(
+    let mut call_config = e2e_config.resolve_call_for_fixture(
         fixture.call.as_deref(),
         &fixture.id,
         &fixture.resolved_category(),
         &fixture.tags,
         &fixture.input,
     );
+    // Fallback: if the resolved call has required args missing from input,
+    // try to find a better-matching call from the named calls.
+    call_config = super::super::select_best_matching_call(call_config, e2e_config, fixture);
     let call_field_resolver = FieldResolver::new(
         e2e_config.effective_fields(call_config),
         e2e_config.effective_fields_optional(call_config),
@@ -1434,7 +1437,12 @@ fn build_args_and_setup(
             let fixture_id = &fixture.id;
             let env_upper = fixture_id.to_uppercase();
             let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-            let val = input.get(field).unwrap_or(&serde_json::Value::Null);
+            // Try both the declared field and common aliases (batch_urls, urls, etc.)
+            let val = if let Some(v) = input.get(field).filter(|v| !v.is_null()) {
+                v.clone()
+            } else {
+                super::super::resolve_urls_field(input, &arg.field).clone()
+            };
             let paths: Vec<String> = if let Some(arr) = val.as_array() {
                 arr.iter()
                     .filter_map(|v| v.as_str().map(|s| format!("\"{}\"", escape_js(s))))

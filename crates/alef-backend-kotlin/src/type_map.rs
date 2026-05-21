@@ -39,7 +39,13 @@ impl TypeMapper for KotlinMapper {
     }
 
     fn json(&self) -> Cow<'static, str> {
-        Cow::Borrowed("String")
+        // serde_json::Value can be any JSON shape (object, array, string,
+        // number, bool, null) — map to `Any` (Kotlin equivalent of Java's
+        // `Object`) so Jackson can deserialize whatever shape the wire format
+        // produces.  Treating it as `String` was wrong: an OpenAPI tool's
+        // `parameters` is a JSON object, but `String` typing forced Jackson
+        // into START_OBJECT/String mismatches at deserialize time.
+        Cow::Borrowed("Any")
     }
 
     fn unit(&self) -> Cow<'static, str> {
@@ -130,7 +136,7 @@ mod tests {
 
     #[test]
     fn test_map_type_json() {
-        assert_eq!(KotlinMapper.map_type(&TypeRef::Json), "String");
+        assert_eq!(KotlinMapper.map_type(&TypeRef::Json), "Any");
     }
 
     #[test]

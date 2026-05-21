@@ -198,3 +198,83 @@ pub(crate) fn resolve_field<'a>(input: &'a serde_json::Value, field_path: &str) 
     }
     current
 }
+
+/// Select the best-matching call for a fixture based on input field availability.
+///
+/// When the initially resolved call config has required args whose fields are
+/// missing from fixture input, search the named calls for one whose args better
+/// match the available input fields. This allows generic call selection even when
+/// select_when conditions are too specific (e.g., category-restricted).
+///
+/// Returns the passed-in `initial_call` if no better match is found.
+pub(crate) fn select_best_matching_call<'a>(
+    initial_call: &'a crate::config::CallConfig,
+    e2e_config: &'a E2eConfig,
+    fixture: &Fixture,
+) -> &'a crate::config::CallConfig {
+    // Check if initial call's required args can be satisfied from fixture input
+    let initial_satisfied = initial_call.args.iter().all(|arg| {
+        if arg.optional {
+            return true;
+        }
+        resolve_field(&fixture.input, &arg.field).as_null().is_none()
+    });
+
+    if initial_satisfied {
+        return initial_call;
+    }
+
+    // Initial call has unsatisfied required args. Search named calls for a better match.
+    for (_name, alt_call) in &e2e_config.calls {
+        let all_satisfied = alt_call.args.iter().all(|arg| {
+            if arg.optional {
+                return true;
+            }
+            resolve_field(&fixture.input, &arg.field).as_null().is_none()
+        });
+
+        if all_satisfied {
+            return alt_call;
+        }
+    }
+
+    // No better call found; use initial
+    initial_call
+}
+
+/// Resolve a list-type argument field, trying both the declared field name and
+/// common aliases (batch_urls, urls; urls_list, url_list).
+///
+/// Used by codegen for `mock_url_list` arguments when the fixture may use
+/// alternative field names (e.g. some fixtures use `urls` while call config
+/// declares `batch_urls`).
+pub(crate) fn resolve_urls_field<'a>(input: &'a serde_json::Value, field_path: &str) -> &'a serde_json::Value {
+    // Try the declared field first
+    let result = resolve_field(input, field_path);
+    if !result.is_null() {
+        return result;
+    }
+
+    // Try common aliases if the primary field is not found
+    let aliases = [
+        ("batch_urls", "urls"),
+        ("urls", "batch_urls"),
+        ("batch_urls", "url_list"),
+        ("batch_urls", "urls_list"),
+        ("urls", "url_list"),
+        ("urls", "urls_list"),
+    ];
+
+    for (orig, alias) in &aliases {
+        if field_path.ends_with(orig) {
+            let aliased_path = field_path.replace(orig, alias);
+            let result = resolve_field(input, &aliased_path);
+            if !result.is_null() {
+                return result;
+            }
+        }
+    }
+
+    // Nothing found; return null
+    &serde_json::Value::Null
+}

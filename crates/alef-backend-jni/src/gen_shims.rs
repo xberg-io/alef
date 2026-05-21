@@ -525,9 +525,15 @@ fn emit_function_shim(
                     "        Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {err_null}; }}\n"
                 ));
                 unmarshal.push_str("    };\n");
-                // Build call-site expression: optional → Some(name), is_ref → &name, else name.
+                // Build call-site expression.  Optional Strings: the Kotlin
+                // facade passes "" (empty string) as the null-sentinel for
+                // String? params via `value ?: ""`, because JNI primitive
+                // signatures cannot express nullability.  Treat empty as
+                // None so the Rust callee receives the correct Option<_>.
                 if p.optional {
-                    call_args.push_str(&format!("Some({rust_name})"));
+                    call_args.push_str(&format!(
+                        "(if {rust_name}.is_empty() {{ None }} else {{ Some({rust_name}) }})"
+                    ));
                 } else if p.is_ref {
                     call_args.push_str(&format!("&{rust_name}"));
                 } else {
@@ -544,7 +550,20 @@ fn emit_function_shim(
                     format!("{rust_name} as {cast}")
                 };
                 if p.optional {
-                    call_args.push_str(&format!("Some({cast_expr})"));
+                    // Optional numeric primitives: the Kotlin facade passes
+                    // 0 / 0L / 0.0 / false as the null-sentinel for nullable
+                    // primitives via `value ?: 0`, because JNI primitive
+                    // signatures cannot express nullability.  Treat the
+                    // default value as None so the Rust callee receives the
+                    // correct Option<_>.
+                    let zero_lit = primitive_zero_literal(prim);
+                    if let Some(zero) = zero_lit {
+                        call_args.push_str(&format!(
+                            "(if {rust_name} != {zero} {{ Some({cast_expr}) }} else {{ None }})"
+                        ));
+                    } else {
+                        call_args.push_str(&format!("Some({cast_expr})"));
+                    }
                 } else {
                     call_args.push_str(&cast_expr);
                 }
@@ -1407,6 +1426,22 @@ fn jni_primitive_type(p: &PrimitiveType) -> &'static str {
         PrimitiveType::I64 | PrimitiveType::U64 | PrimitiveType::Usize | PrimitiveType::Isize => "jlong",
         PrimitiveType::F32 => "jni::sys::jfloat",
         PrimitiveType::F64 => "jni::sys::jdouble",
+    }
+}
+
+/// Return the Rust zero-literal for a JNI primitive, used as the null-sentinel
+/// for optional primitive parameters.  Returns None for `Bool`, which has no
+/// meaningful "absent" sentinel (false is a real value); optional bools cannot
+/// be marshalled through plain JNI primitives.
+fn primitive_zero_literal(p: &PrimitiveType) -> Option<&'static str> {
+    match p {
+        PrimitiveType::Bool => None,
+        PrimitiveType::I8 | PrimitiveType::U8
+        | PrimitiveType::I16 | PrimitiveType::U16
+        | PrimitiveType::I32 | PrimitiveType::U32
+        | PrimitiveType::I64 | PrimitiveType::U64
+        | PrimitiveType::Usize | PrimitiveType::Isize => Some("0"),
+        PrimitiveType::F32 | PrimitiveType::F64 => Some("0.0"),
     }
 }
 
