@@ -24,4 +24,3 @@ pub fn fix_float_literals(content: &str) -> String {
     let float_pattern = Regex::new(r"(: Float = )(\d+)(f)").expect("invalid regex");
     float_pattern.replace_all(&content, "${1}${2}.0${3}").into_owned()
 }
-

@@ -1137,6 +1137,20 @@ pub struct CallOverride {
     /// ```
     #[serde(default)]
     pub result_field_accessor: HashMap<String, String>,
+    /// Argument indices (0-based) that should be passed without labels in Swift
+    /// (i.e., using `(_` parameter syntax instead of `name:`).
+    ///
+    /// Swift allows unnamed first parameters: `func f(_ x: Int)` vs `func f(x: Int)`.
+    /// When the generated test call should match this signature, list the indices here.
+    ///
+    /// E.g., `[0]` for a single unnamed first parameter:
+    /// ```toml
+    /// [e2e.call.overrides.swift]
+    /// unnamed_arg_indices = [0]
+    /// ```
+    /// generates `f(contentVec)` instead of `f(content: contentVec)`.
+    #[serde(default)]
+    pub unnamed_arg_indices: Vec<usize>,
 }
 
 fn default_true() -> bool {

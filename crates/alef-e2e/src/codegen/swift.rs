@@ -830,6 +830,7 @@ fn render_test_method(
         .get("c")
         .and_then(|c| c.c_engine_factory.as_deref())
         .map(|ty| format!("{}_from_json", ty.to_snake_case()).to_lower_camel_case());
+    let unnamed_arg_indices: &[usize] = call_overrides.map(|o| &o.unnamed_arg_indices[..]).unwrap_or(&[]);
     let (mut setup_lines, args_str) = build_args_and_setup(
         &fixture.input,
         args,
@@ -842,6 +843,7 @@ fn render_test_method(
         visitor_handle_expr.as_deref(),
         client_factory.is_some(),
         module_name,
+        unnamed_arg_indices,
     );
     // Prepend visitor class declarations (before any setup lines that reference the handle).
     if !visitor_setup_lines.is_empty() {
@@ -1045,6 +1047,7 @@ fn build_args_and_setup(
     visitor_handle_expr: Option<&str>,
     is_method_call: bool,
     module_name: &str,
+    unnamed_arg_indices: &[usize],
 ) -> (Vec<String>, String) {
     if args.is_empty() {
         return (Vec::new(), String::new());
@@ -1257,10 +1260,12 @@ fn build_args_and_setup(
     // anonymous Swift argument labels (`func chat(_ req:)`), so omit `name:` prefixes.
     // Free-function calls (e.g. `process(source:, config:)`) keep labelled args.
     // Swift argument labels must be camelCase, so convert from snake_case.
+    // Some APIs like detectMimeTypeFromBytes take unnamed first parameters —
+    // omit labels for indices listed in unnamed_arg_indices.
     let args_str = parts
         .into_iter()
         .map(|(idx, val)| {
-            if is_method_call {
+            if is_method_call || unnamed_arg_indices.contains(&idx) {
                 val
             } else {
                 let label = args[idx].name.to_lower_camel_case();
