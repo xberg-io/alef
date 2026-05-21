@@ -1825,7 +1825,12 @@ fn gen_builder_nested_class(typ: &TypeDef, has_visitor_pattern: bool) -> String 
                 default.clone()
             } else {
                 match &field.ty {
-                    TypeRef::String | TypeRef::Char | TypeRef::Path => {
+                    TypeRef::Path => {
+                        // Path is an interface (java.nio.file.Path) with no public constructor.
+                        // Default to null — Jackson's builder will only set it if present in JSON.
+                        "null".to_string()
+                    }
+                    TypeRef::String | TypeRef::Char => {
                         // Use typed_default (from Rust's impl Default) if available.
                         // This ensures char fields (e.g. strong_em_symbol: '*') default
                         // to a valid single-character string rather than "" which serde

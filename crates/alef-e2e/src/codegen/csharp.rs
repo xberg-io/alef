@@ -2148,7 +2148,7 @@ fn render_assertion(
                 return;
             }
             "first_chunk_starts_with_heading" => {
-                let synthetic_pred = format!("({result_var}.Chunks ?? new()).FirstOrDefault()?.Metadata?.Heading != null");
+                let synthetic_pred = format!("({result_var}.Chunks ?? new()).FirstOrDefault()?.Metadata?.HeadingContext != null");
                 let synthetic_pred_type = match assertion.assertion_type.as_str() {
                     "is_true" => "is_true",
                     "is_false" => "is_false",
