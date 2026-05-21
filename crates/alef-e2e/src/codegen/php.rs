@@ -1122,8 +1122,16 @@ fn render_test_method(
     };
 
     // Collect fields_array fields that are referenced in assertions
-    // so we can emit bindings for them (e.g., $chunks = $result->getChunks();)
-    let mut fields_array_bindings = std::collections::HashMap::new();
+    // so we can emit bindings for them (e.g., $chunks = $result->getChunks();).
+    //
+    // Use a BTreeMap (sorted by key) so the emitted accessor extraction lines
+    // appear in a stable order across regens. A HashMap here previously leaked
+    // its randomized iteration order into the generated PHP source, causing
+    // e.g. tslp's `e2e/php/tests/ProcessTest.php` to flip the relative order
+    // of `$imports` vs `$structure` bindings between back-to-back
+    // `alef e2e generate` invocations.
+    let mut fields_array_bindings: std::collections::BTreeMap<String, (String, String)> =
+        std::collections::BTreeMap::new();
     for assertion in &fixture.assertions {
         if let Some(f) = &assertion.field {
             if !f.is_empty() && field_resolver.is_array(f) {
@@ -1142,6 +1150,7 @@ fn render_test_method(
     // hardcoded allowlist ("chunks"/"imports"/"structure") silently dropped
     // bindings like $choices0MessageToolCalls and $segments, leaving
     // assertions that reference them to fail with "Undefined variable".
+    // BTreeMap iteration is sorted-by-key, so this loop is deterministic.
     let mut field_bindings = String::new();
     for (var_name, accessor) in fields_array_bindings.values() {
         field_bindings.push_str(&format!("        ${} = {};\n", var_name, accessor));
@@ -1556,7 +1565,7 @@ fn render_assertion(
     field_resolver: &FieldResolver,
     result_is_simple: bool,
     result_is_array: bool,
-    fields_array_bindings: &std::collections::HashMap<String, (String, String)>,
+    fields_array_bindings: &std::collections::BTreeMap<String, (String, String)>,
 ) {
     // Handle synthetic / derived fields before the is_valid_for_result check
     // so they are never treated as struct property accesses on the result.
