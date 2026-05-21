@@ -750,9 +750,19 @@ fn render_test_method(
     // skip stub so the test compiles but is recorded as skipped rather than
     // generating invalid code that passes `nil` or a string literal where a
     // strongly-typed request object is required.
+    //
+    // Args with a scalar `element_type` (e.g. `"String"`, `"i32"`, `"f64"`,
+    // `"bool"`) describe a `Vec<T>` parameter on the Rust side, which the Swift
+    // binding exposes as a native `[T]` array. These map cleanly onto Swift
+    // array literals and do not require options_via configuration.
     let has_unresolvable_json_object_arg = {
         let options_via = call_overrides.and_then(|o| o.options_via.as_deref());
-        options_via.is_none() && args.iter().any(|a| a.arg_type == "json_object" && a.name != "config")
+        options_via.is_none()
+            && args.iter().any(|a| {
+                a.arg_type == "json_object"
+                    && a.name != "config"
+                    && !is_scalar_element_type(a.element_type.as_deref())
+            })
     };
 
     if has_unresolvable_json_object_arg {
@@ -2346,6 +2356,35 @@ fn swift_array_count_expr(field: Option<&str>, result_var: &str, field_resolver:
 }
 
 /// Convert a `serde_json::Value` to a Swift literal string.
+/// Returns true when `element_type` names a scalar Rust/Swift element type.
+///
+/// Scalar element types describe `Vec<T>` Rust parameters that the swift-bridge
+/// surface exposes as native Swift `[T]` arrays — these can be constructed from
+/// a Swift array literal without any opaque-type intermediate. Object element
+/// types (everything else) require an `options_via` configuration to construct.
+fn is_scalar_element_type(element_type: Option<&str>) -> bool {
+    matches!(
+        element_type.map(str::trim),
+        Some(
+            "String"
+                | "str"
+                | "bool"
+                | "i8"
+                | "i16"
+                | "i32"
+                | "i64"
+                | "isize"
+                | "u8"
+                | "u16"
+                | "u32"
+                | "u64"
+                | "usize"
+                | "f32"
+                | "f64",
+        )
+    )
+}
+
 fn json_to_swift(value: &serde_json::Value) -> String {
     match value {
         serde_json::Value::String(s) => format!("\"{}\"", escape_swift(s)),
