@@ -967,10 +967,11 @@ fn render_test_function(
     });
 
     // result_is_array: the simple result is a slice/array type (e.g., []string).
-    // Priority: Go override > call-level (canonical source).
-    let result_is_array = overrides
-        .map(|o| o.result_is_array)
-        .unwrap_or(call_config.result_is_array);
+    // Boolean OR with call-level — serde defaults `result_is_array` to `false` on
+    // CallOverride, so a Go override that only sets `result_is_pointer` would
+    // otherwise silently mask a true call-level value. Until the field becomes
+    // Option<bool>, OR'ing is the only safe coalesce.
+    let result_is_array = overrides.is_some_and(|o| o.result_is_array) || call_config.result_is_array;
 
     // Per-call Go options_type, falling back to the default call's Go override.
     let call_options_type = overrides.and_then(|o| o.options_type.as_deref()).or_else(|| {
