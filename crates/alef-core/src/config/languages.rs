@@ -1113,6 +1113,15 @@ pub struct ZigConfig {
     /// Extra paths to append to default lint commands.
     #[serde(default)]
     pub extra_lint_paths: Vec<String>,
+    /// List of static-compiled languages supported by the Zig binding.
+    /// When set, e2e fixtures whose `input.language` (or `input.config.language`)
+    /// falls outside this set are omitted from the generated test file entirely.
+    /// This bridges the gap between the full language pack and Zig's
+    /// static-compiled grammar set (Zig does not currently dynamically load
+    /// grammars at runtime).
+    /// Defaults to empty (all languages assumed supported).
+    #[serde(default)]
+    pub languages: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

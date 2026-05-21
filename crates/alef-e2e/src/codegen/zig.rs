@@ -97,6 +97,20 @@ impl E2eCodegen for ZigE2eCodegen {
                 .any(|a| a.arg_type == "file_path" || a.arg_type == "bytes")
         });
 
+        // Zig language filtering: when `[crates.zig].languages` is set, omit
+        // fixtures whose target language falls outside that static-compiled list.
+        // The Zig binding does not dynamically load tree-sitter parsers; only the
+        // grammars compiled into the static set at build time are available at
+        // runtime. Without this filter, fixtures like `smoke_bibtex` would emit
+        // tests that fail to load their parser. Mirrors the WASM pattern.
+        let zig_languages = config.zig.as_ref().and_then(|z| {
+            if z.languages.is_empty() {
+                None
+            } else {
+                Some(z.languages.clone())
+            }
+        });
+
         // Generate test files per category and collect their names.
         //
         // The Zig backend does not yet support streaming free functions (the
@@ -111,6 +125,27 @@ impl E2eCodegen for ZigE2eCodegen {
                 .fixtures
                 .iter()
                 .filter(|f| super::should_include_fixture(f, lang, e2e_config))
+                .filter(|f| {
+                    // When `[crates.zig].languages` is set, drop fixtures whose
+                    // target grammar isn't in the static-compiled set. Inspect
+                    // both shapes alef fixtures use: top-level `input.language`
+                    // (function-call shape) and nested `input.config.language`
+                    // (config-object shape used by smoke fixtures).
+                    if let Some(ref zig_langs) = zig_languages {
+                        let fix_lang = f.input.get("language").and_then(|v| v.as_str()).or_else(|| {
+                            f.input
+                                .get("config")
+                                .and_then(|c| c.get("language"))
+                                .and_then(|v| v.as_str())
+                        });
+                        if let Some(fix_lang) = fix_lang
+                            && !zig_langs.iter().any(|l| l == fix_lang)
+                        {
+                            return false;
+                        }
+                    }
+                    true
+                })
                 .filter(|f| {
                     let cc = e2e_config.resolve_call_for_fixture(
                         f.call.as_deref(),
