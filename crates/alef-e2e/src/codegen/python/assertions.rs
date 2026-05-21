@@ -114,6 +114,20 @@ fn render_synthetic_field(out: &mut String, assertion: &Assertion, result_var: &
             emit_bool_assertion(out, &pred, assertion.assertion_type.as_str(), field);
             true
         }
+        "chunks_have_heading_context" => {
+            let pred = format!(
+                "all(c.metadata and c.metadata.heading_context is not None for c in ({result_var}.chunks or []))"
+            );
+            emit_bool_assertion(out, &pred, assertion.assertion_type.as_str(), field);
+            true
+        }
+        "first_chunk_starts_with_heading" => {
+            let pred = format!(
+                "bool(({result_var}.chunks or []) and ({result_var}.chunks[0].metadata and {result_var}.chunks[0].metadata.heading_context))"
+            );
+            emit_bool_assertion(out, &pred, assertion.assertion_type.as_str(), field);
+            true
+        }
         "chunks_have_embeddings" => {
             let pred =
                 format!("all(c.embedding is not None and len(c.embedding) > 0 for c in ({result_var}.chunks or []))");
