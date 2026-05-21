@@ -849,16 +849,13 @@ fn render_test_case(
     };
 
     // Extract skip reason if the fixture has a skip directive for this language
-    let skip_reason = fixture
-        .skip
-        .as_ref()
-        .and_then(|skip| {
-            if skip.should_skip(lang) {
-                skip.reason.clone()
-            } else {
-                None
-            }
-        });
+    let skip_reason = fixture.skip.as_ref().and_then(|skip| {
+        if skip.should_skip(lang) {
+            skip.reason.clone()
+        } else {
+            None
+        }
+    });
 
     let ctx = minijinja::context! {
         test_name => test_name,

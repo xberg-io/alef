@@ -551,10 +551,7 @@ pub fn render_assertion_with_streaming(
                 // For `Option<bool>` that's `Some(true)`; for `Option<serde_json::Value>`
                 // (e.g. interact action_results[0].data) it's "Some and not null/false".
                 // `is_some()` is the broadest correct interpretation that compiles for any T.
-                let _ = writeln!(
-                    out,
-                    "    assert!({field_access}.is_some(), \"expected true (Some)\");"
-                );
+                let _ = writeln!(out, "    assert!({field_access}.is_some(), \"expected true (Some)\");");
             } else {
                 let _ = writeln!(out, "    assert!({field_access}, \"expected true\");");
             }
@@ -563,10 +560,7 @@ pub fn render_assertion_with_streaming(
             if is_optional_scalar_field(assertion, is_unwrapped, field_resolver) {
                 // Option<T>: "is_false" semantically means "absent or falsy" — `.is_none()`
                 // is the safe interpretation that compiles uniformly.
-                let _ = writeln!(
-                    out,
-                    "    assert!({field_access}.is_none(), \"expected false (None)\");"
-                );
+                let _ = writeln!(out, "    assert!({field_access}.is_none(), \"expected false (None)\");");
             } else {
                 let _ = writeln!(out, "    assert!(!{field_access}, \"expected false\");");
             }

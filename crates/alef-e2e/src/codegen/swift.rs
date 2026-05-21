@@ -40,7 +40,7 @@ impl E2eCodegen for SwiftE2eCodegen {
         e2e_config: &E2eConfig,
         config: &ResolvedCrateConfig,
         type_defs: &[alef_core::ir::TypeDef],
-        _enums: &[alef_core::ir::EnumDef],
+        enums: &[alef_core::ir::EnumDef],
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
         // Emit under `<output>/swift_e2e/` so the consumer's SwiftPM identity
@@ -113,7 +113,7 @@ impl E2eCodegen for SwiftE2eCodegen {
         // as first-class (Codable struct → property access) when it's not opaque,
         // has serde derives, and every binding field is primitive/optional. This
         // mirrors `can_emit_first_class_struct` in alef-backend-swift.
-        let swift_first_class_map = build_swift_first_class_map(type_defs, e2e_config);
+        let swift_first_class_map = build_swift_first_class_map(type_defs, enums, e2e_config);
 
         let swift_first_class_map_ref = swift_first_class_map;
 
@@ -1379,6 +1379,20 @@ fn render_assertion(
     // `markdown()` is optional and the `?.` operator wraps the result.
     // Detect this by checking if the accessor contains `?.`.
     let accessor_is_optional = field_expr.contains("?.");
+    // First-class Codable Swift struct property access leaves no trailing `()`
+    // on the leaf segment — e.g. `result.text` (Swift `String`) vs
+    // `result.text()` (RustBridge.RustString). When the leaf is property
+    // access, we already have a Swift `String` (or `String?`) and must NOT
+    // re-wrap with `.toString()`. Detect this by looking at the final segment
+    // after the last `.` — property access ends in a bare identifier (no
+    // trailing `()` or `()?`).
+    let leaf_is_property_access = {
+        let trimmed = field_expr.trim_end_matches('?');
+        // Skip subscripts: `name?[0]` should still see `name` as the field.
+        let last_segment = trimmed.rsplit_once('.').map(|(_, s)| s).unwrap_or(trimmed);
+        let last_segment = last_segment.split('[').next().unwrap_or(last_segment);
+        !last_segment.ends_with(')') && !last_segment.is_empty()
+    };
 
     // For enum fields, need to handle the string representation differently in Swift.
     // Swift enums don't have `.rawValue` unless they're explicitly RawRepresentable.
@@ -1393,6 +1407,24 @@ fn render_assertion(
         // `[String: String]` subscript). No `.toString()` chain needed —
         // coalesce the optional to "" and use the Swift String directly.
         format!("({field_expr} ?? \"\")")
+    } else if leaf_is_property_access {
+        // First-class Codable struct field access: leaf is already a Swift
+        // `String` (or `String?`/enum type) — never a `RustString` requiring
+        // `.toString()`. For optional leaves, coalesce to "" so XCTAssert
+        // receives a non-optional Swift `String`.
+        if field_is_optional || accessor_is_optional {
+            if field_is_enum {
+                // Optional enum (e.g. `FinishReason?`) — coalesce + map to raw value.
+                format!("(({field_expr}).map {{ String(describing: $0) }} ?? \"\")")
+            } else {
+                format!("({field_expr} ?? \"\")")
+            }
+        } else if field_is_enum {
+            // Non-optional enum: use String(describing:) for the raw description.
+            format!("String(describing: {field_expr})")
+        } else {
+            field_expr.to_string()
+        }
     } else if field_is_enum && (field_is_optional || accessor_is_optional) {
         // Enum-typed fields that are also optional (e.g. `finish_reason() -> Optional<RustString>`)
         // must use optional chaining: `?.toString() ?? ""` to unwrap before converting to Swift String.
@@ -1944,8 +1976,17 @@ fn swift_build_accessor(field: &str, result_var: &str, field_resolver: &FieldRes
     let resolved = field_resolver.resolve(field);
     let parts: Vec<&str> = resolved.split('.').collect();
 
-    // Build a set of optional prefix paths for O(1) lookup during the walk.
-    // We track path_so_far incrementally.
+    // Track the current IR type as we walk segments so each segment can be
+    // emitted with property syntax (first-class Codable struct) or method-call
+    // syntax (typealias-to-`RustBridge.X`). Mirrors the per-segment dispatch in
+    // `render_swift_with_first_class_map`.
+    let mut current_type: Option<String> = field_resolver.swift_root_type().cloned();
+    // Once a chain crosses a `[N]` subscript, we are operating on a RustVec
+    // element, which is always the OPAQUE `RustBridge.T` (swift-bridge does not
+    // convert RustVec elements into the first-class Codable struct). Pin
+    // opaque method-call syntax after the first index step.
+    let mut via_rust_vec = false;
+
     let mut out = result_var.to_string();
     let mut has_optional = false;
     let mut path_so_far = String::new();
@@ -1953,7 +1994,7 @@ fn swift_build_accessor(field: &str, result_var: &str, field_resolver: &FieldRes
     for (i, part) in parts.iter().enumerate() {
         let is_leaf = i == total - 1;
         // Handle array index subscripts within a segment, e.g. `data[0]`.
-        // `data[0]` must become `.data()[0]` not `.data[0]()`.
+        // `data[0]` must become `.data()[0]` (opaque) or `.data[0]` (first-class).
         // Split at the first `[` if present.
         let (field_name, subscript): (&str, Option<&str>) = if let Some(bracket_pos) = part.find('[') {
             (&part[..bracket_pos], Some(&part[bracket_pos..]))
@@ -1976,37 +2017,51 @@ fn swift_build_accessor(field: &str, result_var: &str, field_resolver: &FieldRes
         // for subsequent segment checks.
         path_so_far.push_str(part);
 
+        // First-class struct fields → property access (no `()`); typealias-to-
+        // opaque fields → method-call access (`()`). Once we've indexed through
+        // a RustVec, every subsequent segment is on an opaque element.
+        let property_syntax = !via_rust_vec && field_resolver.swift_is_first_class(current_type.as_deref());
         out.push('.');
-        out.push_str(field_name);
+        // Swift bindings (both first-class `public let` props and swift-bridge
+        // method names) always use lowerCamelCase — never raw snake_case from IR.
+        out.push_str(&field_name.to_lower_camel_case());
         if let Some(sub) = subscript {
             // When the getter for this subscripted field is itself optional
             // (e.g. tool_calls returns Optional<RustVec<T>>), insert `?` before
             // the subscript so Swift unwraps the Optional before indexing.
             let field_is_optional = field_resolver.is_optional(&base_path);
+            let access = if property_syntax { "" } else { "()" };
             if field_is_optional {
-                out.push_str("()?");
+                out.push_str(&format!("{access}?"));
                 has_optional = true;
             } else {
-                out.push_str("()");
+                out.push_str(access);
             }
             out.push_str(sub);
             // Do NOT append a trailing `?` after the subscript index: in Swift,
             // `optionalVec?[N]` via `Collection.subscript` returns the element
-            // type `T` directly (the subscript is non-optional and the force-unwrap
-            // inside RustVec's subscript is unconditional).  Optional chaining
-            // already consumed the `?` in `?[N]`, so the result is `T` (non-optional
-            // in the compiler's view), and a subsequent `?.member()` would be flagged
-            // as "optional chaining on non-optional value".  The parent `has_optional`
-            // flag is still set when `field_is_optional` is true, which causes the
-            // enclosing expression to be wrapped in `(... ?? fallback)` correctly.
+            // type `T` directly. The parent `has_optional` flag is still set
+            // when `field_is_optional` is true, which causes the enclosing
+            // expression to be wrapped in `(... ?? fallback)` correctly.
+            // Indexing into a Vec<Named> yields a Named element. Only pin opaque
+            // syntax when the array itself was opaque (method-call); when the
+            // owner is first-class, the array is a Swift `[T]` whose elements
+            // are first-class T (property access).
+            current_type = field_resolver.swift_advance(current_type.as_deref(), field_name);
+            if !property_syntax {
+                via_rust_vec = true;
+            }
         } else {
-            out.push_str("()");
-            // Insert `?` after `()` for non-leaf optional fields so the next
-            // member access becomes `?.`.
+            if !property_syntax {
+                out.push_str("()");
+            }
+            // Insert `?` after the accessor for non-leaf optional fields so the
+            // next member access becomes `?.`.
             if !is_leaf && field_resolver.is_optional(&base_path) {
                 out.push('?');
                 has_optional = true;
             }
+            current_type = field_resolver.swift_advance(current_type.as_deref(), field_name);
         }
     }
     (out, has_optional)
@@ -2189,14 +2244,24 @@ fn swift_call_result_type(call_config: &alef_core::config::e2e::CallConfig) -> O
 }
 
 /// Returns true when the field type would be emitted as a Swift primitive value
-/// (`String`, `Bool`, `Int`-family, `Double`, etc.) — these can appear on
-/// first-class Codable structs without forcing the host type into a typealias.
-/// Mirrors `first_class_field_supported` in alef-backend-swift.
-fn swift_first_class_field_supported(ty: &alef_core::ir::TypeRef) -> bool {
+/// or a known first-class Codable struct/unit-enum, so it can appear on a
+/// first-class Codable Swift struct without forcing the host type into a
+/// typealias. Mirrors `first_class_field_supported` in alef-backend-swift.
+///
+/// Accepts:
+/// - `Primitive` and `String`
+/// - `Named(S)` when `S` is in `known_dto_names` (seeded with unit-serde enums and
+///   grown via fixed-point iteration over candidate struct DTOs)
+/// - `Vec<T>` and `Optional<T>` recursively
+///
+/// Rejects `Map`, `Path`, `Bytes`, `Duration`, `Char`, `Json`, and unknown
+/// `Named(_)` references (the backend treats those as typealias-to-opaque).
+fn swift_first_class_field_supported(ty: &alef_core::ir::TypeRef, known_dto_names: &HashSet<String>) -> bool {
     use alef_core::ir::TypeRef;
     match ty {
         TypeRef::Primitive(_) | TypeRef::String => true,
-        TypeRef::Optional(inner) => swift_first_class_field_supported(inner),
+        TypeRef::Named(name) => known_dto_names.contains(name),
+        TypeRef::Vec(inner) | TypeRef::Optional(inner) => swift_first_class_field_supported(inner, known_dto_names),
         _ => false,
     }
 }
@@ -2206,19 +2271,26 @@ fn swift_first_class_field_supported(ty: &alef_core::ir::TypeRef) -> bool {
 ///
 /// A TypeDef is treated as first-class (Codable Swift struct → property access)
 /// when it is not opaque, has serde derives, has at least one field, and every
-/// binding field is a Swift primitive (or `Optional<primitive>`). All other
-/// public types end up as typealiases to opaque `RustBridge.X` classes whose
-/// fields are swift-bridge methods (`.id()`, `.status()`).
+/// binding field is supported by `swift_first_class_field_supported` against the
+/// current first-class set. All other public types end up as typealiases to
+/// opaque `RustBridge.X` classes whose fields are swift-bridge methods
+/// (`.id()`, `.status()`).
+///
+/// Mirrors the fixed-point iteration in `alef-backend-swift::gen_bindings.rs`
+/// (lines 100-130). Without the fixed point, a type like `TranscriptionResponse`
+/// that holds `Option<Vec<TranscriptionSegment>>` would be wrongly classified
+/// opaque, causing the renderer to emit `.text()` against a first-class struct
+/// whose `text` is a `public let` property.
 ///
 /// `field_types` records the next-type that each Named field traverses into,
 /// so the renderer can advance its current-type cursor through nested
 /// `data[0].id` style paths.
 fn build_swift_first_class_map(
     type_defs: &[alef_core::ir::TypeDef],
+    enum_defs: &[alef_core::ir::EnumDef],
     e2e_config: &crate::config::E2eConfig,
 ) -> SwiftFirstClassMap {
     use alef_core::ir::TypeRef;
-    let mut first_class_types: HashSet<String> = HashSet::new();
     let mut field_types: HashMap<String, HashMap<String, String>> = HashMap::new();
     let mut vec_field_names: HashSet<String> = HashSet::new();
     fn inner_named(ty: &TypeRef) -> Option<String> {
@@ -2235,14 +2307,55 @@ fn build_swift_first_class_map(
             _ => false,
         }
     }
-    for td in type_defs {
-        let is_first_class = !td.is_opaque
-            && td.has_serde
-            && !td.fields.is_empty()
-            && td.fields.iter().all(|f| swift_first_class_field_supported(&f.ty));
-        if is_first_class {
-            first_class_types.insert(td.name.clone());
+    // Seed with unit serde enum names — Codable on the Swift side and can appear
+    // as leaf fields on struct DTOs (matches gen_bindings.rs unit_serde_enum_names).
+    let mut known_dto_names: HashSet<String> = enum_defs
+        .iter()
+        .filter(|e| e.has_serde && e.variants.iter().all(|v| v.fields.is_empty()))
+        .map(|e| e.name.clone())
+        .collect();
+
+    // Candidate struct DTOs: non-opaque, has_serde, non-empty fields.
+    // Trait types and binding-excluded types are skipped (matches backend semantics
+    // — note backend further filters via `exclude_types`, which we don't have here,
+    // but accepting a superset is safe: types not actually emitted simply never
+    // appear in path-access chains).
+    let candidates: Vec<&alef_core::ir::TypeDef> = type_defs
+        .iter()
+        .filter(|td| !td.is_trait && !td.is_opaque && td.has_serde && !td.fields.is_empty())
+        .collect();
+
+    loop {
+        let prev = known_dto_names.len();
+        for td in &candidates {
+            if known_dto_names.contains(&td.name) {
+                continue;
+            }
+            let all_supported = td
+                .fields
+                .iter()
+                .filter(|f| !f.binding_excluded)
+                .all(|f| swift_first_class_field_supported(&f.ty, &known_dto_names));
+            if all_supported {
+                known_dto_names.insert(td.name.clone());
+            }
         }
+        if known_dto_names.len() == prev {
+            break;
+        }
+    }
+
+    // The first-class set on SwiftFirstClassMap conceptually represents structs
+    // accessed via property syntax. Unit enums never appear as the *owner* of a
+    // chain segment (they are leaves), but including them is harmless since
+    // `advance()` never returns them as a current_type for further traversal.
+    let first_class_types: HashSet<String> = candidates
+        .iter()
+        .filter(|td| known_dto_names.contains(&td.name))
+        .map(|td| td.name.clone())
+        .collect();
+
+    for td in type_defs {
         let mut td_field_types: HashMap<String, String> = HashMap::new();
         for f in &td.fields {
             if let Some(named) = inner_named(&f.ty) {
@@ -2300,24 +2413,25 @@ mod tests {
         FieldResolver::new(&HashMap::new(), &optional, &HashSet::new(), &arrays, &HashSet::new())
     }
 
-    /// Regression: after `tool_calls()?[0]` the codegen must NOT append a trailing `?`
-    /// before the next segment.  The Swift compiler sees `?[0]` as consuming the optional
-    /// chain, yielding `ToolCallRef` (non-optional from the subscript's perspective), so
-    /// `?.function()` triggers "cannot use optional chaining on non-optional value".
+    /// Regression: after the optional `[0]` subscript, the codegen must NOT
+    /// append a trailing `?`. The Swift compiler sees `?[0]` as consuming the
+    /// optional chain, yielding the non-optional element type, so a subsequent
+    /// `?.member` would trigger "cannot use optional chaining on non-optional
+    /// value".
     ///
-    /// The fix: do not emit `?` after the subscript index for non-leaf segments.
+    /// With no `SwiftFirstClassMap` configured (default in this test), all
+    /// types default to first-class property syntax — so accessors are
+    /// `result.choices[0].message.toolCalls?[0].function.name` (no `()`).
     #[test]
     fn optional_vec_subscript_does_not_emit_trailing_question_mark_before_next_segment() {
         let resolver = make_resolver_tool_calls();
-        // Access `choices[0].message.tool_calls[0].function.name`:
-        //   `tool_calls` is optional, `function` and `name` are non-optional.
         let (accessor, has_optional) =
             swift_build_accessor("choices[0].message.tool_calls[0].function.name", "result", &resolver);
-        // `?` before `[0]` is correct (tool_calls is optional).
-        // swift_build_accessor uses the raw field name without camelCase conversion.
+        // `?` before `[0]` is correct (tool_calls is optional). Property syntax
+        // is the default when no SwiftFirstClassMap is supplied.
         assert!(
-            accessor.contains("tool_calls()?[0]"),
-            "expected `tool_calls()?[0]` for optional tool_calls, got: {accessor}"
+            accessor.contains("toolCalls?[0]"),
+            "expected `toolCalls?[0]` for optional tool_calls, got: {accessor}"
         );
         // There must NOT be `?[0]?` (trailing `?` after the index).
         assert!(
@@ -2328,8 +2442,8 @@ mod tests {
         assert!(has_optional, "expected has_optional=true for optional field chain");
         // Subsequent member access uses `.` (non-optional chain) not `?.`.
         assert!(
-            accessor.contains("[0].function()"),
-            "expected `.function()` (non-optional) after subscript: {accessor}"
+            accessor.contains("[0].function"),
+            "expected `.function` (non-optional) after subscript: {accessor}"
         );
     }
 }

@@ -306,10 +306,8 @@ impl Backend for SwiftBackend {
         // consumers of the `Kreuzberg` module to also `import RustBridge`, violating
         // the alef binding-parity promise that every public Rust free function is
         // re-exposed as a top-level public function on the host module.
-        let client_class_names: std::collections::HashSet<String> = client_constructor_types
-            .iter()
-            .map(|&s| s.to_string())
-            .collect();
+        let client_class_names: std::collections::HashSet<String> =
+            client_constructor_types.iter().map(|&s| s.to_string()).collect();
         emit_free_function_forwarders(api, config, &known_dto_names, &client_class_names, &mut body);
 
         // Emit top-level public forwarders for trait-bridge register/unregister/clear
@@ -1355,9 +1353,7 @@ fn emit_client_class(
     // `create_client_from_json(json)`) can wrap their bridge return into
     // the public Swift class without going through the limited
     // `init(apiKey:baseUrl:)` constructor.
-    out.push_str(&format!(
-        "    internal init(_ inner: RustBridge.{type_name}) {{\n"
-    ));
+    out.push_str(&format!("    internal init(_ inner: RustBridge.{type_name}) {{\n"));
     out.push_str("        self.inner = inner\n");
     out.push_str("    }\n");
 

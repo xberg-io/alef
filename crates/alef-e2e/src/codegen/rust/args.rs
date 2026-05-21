@@ -240,7 +240,6 @@ fn render_json_object_arg(
     (lines, expr)
 }
 
-
 pub fn json_to_rust_literal(value: &serde_json::Value, arg_type: &str) -> String {
     match value {
         serde_json::Value::Null => "None".to_string(),

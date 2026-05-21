@@ -330,6 +330,25 @@ impl FieldResolver {
         self.swift_first_class_map.is_vec_field_name(leaf)
     }
 
+    /// IR type backing the Swift result variable, if known. Used by
+    /// `swift_build_accessor` to seed its per-segment type cursor.
+    pub fn swift_root_type(&self) -> Option<&String> {
+        self.swift_first_class_map.root_type.as_ref()
+    }
+
+    /// Whether fields on `type_name` should be accessed as Swift properties
+    /// (first-class Codable struct → `public let`) vs swift-bridge method calls
+    /// (typealias-to-opaque RustBridge class). Mirrors `SwiftFirstClassMap::is_first_class`.
+    pub fn swift_is_first_class(&self, type_name: Option<&str>) -> bool {
+        self.swift_first_class_map.is_first_class(type_name)
+    }
+
+    /// Advance the per-segment type cursor by one field name. Mirrors
+    /// `SwiftFirstClassMap::advance`.
+    pub fn swift_advance(&self, owner_type: Option<&str>, field_name: &str) -> Option<String> {
+        self.swift_first_class_map.advance(owner_type, field_name)
+    }
+
     /// Check if a resolved field path is optional.
     pub fn is_optional(&self, field: &str) -> bool {
         if self.is_optional_direct(field) {
@@ -668,14 +687,32 @@ impl FieldResolver {
         if !self.is_optional(resolved) {
             return None;
         }
-        let segments = parse_path(resolved);
+        // Mirror the namespace-prefix stripping done in `accessor()` so paths
+        // like `"interaction.action_results[0].data"` resolve against the real
+        // result type (`InteractionResult`) rather than the literal namespace.
+        let effective = if !self.result_fields.is_empty() {
+            if let Some(stripped) = self.namespace_stripped_path(resolved) {
+                let stripped_first = stripped.split('.').next().unwrap_or(stripped);
+                let stripped_first = stripped_first.split('[').next().unwrap_or(stripped_first);
+                if self.result_fields.contains(stripped_first) {
+                    stripped
+                } else {
+                    resolved
+                }
+            } else {
+                resolved
+            }
+        } else {
+            resolved
+        };
+        let segments = parse_path(effective);
         let segments = self.inject_array_indexing(segments);
         // Sanitize the resolved path into a snake_case Rust identifier:
         // 1. `.` and `[` become `_` separators, `]` is dropped.
         // 2. Collapse runs of `_` so `foo[].bar` → `foo__bar` → `foo_bar`
         //    and strip any leading/trailing underscores.
         let local_var = {
-            let raw = resolved.replace(['.', '['], "_").replace(']', "");
+            let raw = effective.replace(['.', '['], "_").replace(']', "");
             let mut collapsed = String::with_capacity(raw.len());
             let mut prev_underscore = false;
             for ch in raw.chars() {
@@ -1004,10 +1041,15 @@ fn render_swift_with_first_class_map(
                     out.push_str(&format!("{access}[{index}]"));
                 }
                 path_so_far.push_str("[0]");
-                // Indexing into a Vec<Named> yields a Named element — advance current_type
-                // and pin opaque syntax for the rest of the chain (see `via_rust_vec` note).
+                // Indexing into a Vec<Named> yields a Named element — advance current_type.
+                // Only pin opaque syntax when the array field was itself emitted in
+                // method-call mode (i.e. it's a RustVec accessor). When the owning
+                // type is first-class, the array IS a Swift `[T]` and indexing yields
+                // the first-class `T` directly (also a Codable struct → property access).
                 current_type = map.advance(current_type.as_deref(), name);
-                via_rust_vec = true;
+                if !property_syntax {
+                    via_rust_vec = true;
+                }
             }
             PathSegment::MapAccess { field, key } => {
                 if !path_so_far.is_empty() {

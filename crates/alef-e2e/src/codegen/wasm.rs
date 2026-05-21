@@ -133,7 +133,8 @@ impl E2eCodegen for WasmCodegen {
                     if base_include {
                         // Check node fetch compatibility
                         if let Some(http) = &fixture.http {
-                            if http.request
+                            if http
+                                .request
                                 .headers
                                 .iter()
                                 .any(|(k, _)| k.eq_ignore_ascii_case("content-length"))
