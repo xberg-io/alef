@@ -150,25 +150,48 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
 
     // Determine if the generated Elixir source files live outside the default `lib/`
     // subdirectory. If so, emit an `elixirc_paths` entry so Mix can find them.
-    let elixirc_paths_line = if let Some(elixir_out) = config.explicit_output.elixir.as_ref() {
+    // The same external path is also added to the Hex `files:` list below, since
+    // `mix hex.publish` verifies every entry exists on disk.
+    let external_elixir_src: Option<String> = config.explicit_output.elixir.as_ref().and_then(|elixir_out| {
         let elixir_out_str = elixir_out.to_string_lossy();
         let expected_lib = format!("{pkg_dir}/lib");
-        if !elixir_out_str.starts_with(&expected_lib) {
-            // Compute relative path from pkg_dir to the elixir output directory.
-            // Both are relative to the repo root; prefix with "../.." as needed.
-            let pkg = std::path::Path::new(&pkg_dir);
-            let out = std::path::Path::new(elixir_out_str.trim_end_matches('/'));
-            // Count pkg_dir depth and build a relative path.
-            let pkg_depth = pkg.components().count();
-            let out_path = out.display().to_string();
-            let relative = format!("{}{}", "../".repeat(pkg_depth), out_path.trim_start_matches('/'));
-            format!("\n      elixirc_paths: [\"lib\", Path.expand(\"{relative}\", __DIR__)],")
-        } else {
-            String::new()
+        if elixir_out_str.starts_with(&expected_lib) {
+            return None;
         }
-    } else {
-        String::new()
+        let pkg = std::path::Path::new(&pkg_dir);
+        let out = std::path::Path::new(elixir_out_str.trim_end_matches('/'));
+        let pkg_depth = pkg.components().count();
+        let out_path = out.display().to_string();
+        Some(format!("{}{}", "../".repeat(pkg_depth), out_path.trim_start_matches('/')))
+    });
+
+    let elixirc_paths_line = match external_elixir_src.as_deref() {
+        Some(relative) => format!("\n      elixirc_paths: [\"lib\", Path.expand(\"{relative}\", __DIR__)],"),
+        None => String::new(),
     };
+
+    // `lib/` is only populated when there is at least one non-OptionsField trait
+    // bridge GenServer module to emit (see the bridge generation loop below).
+    // Hex publish refuses to package a non-existent directory, so include `lib`
+    // in `files:` only when we actually write into it.
+    let lib_populated = config.trait_bridges.iter().any(|b| {
+        !b.exclude_languages.iter().any(|l| l == "elixir" || l == "rustler") && b.bind_via != BridgeBinding::OptionsField
+    });
+
+    // Always-present entries on disk after scaffolding: native crate dir,
+    // .formatter.exs, mix.exs, and the README (alef writes one or expects one).
+    // `lib` is conditional (see above); `checksum-*.exs` is intentionally omitted
+    // because alef does not wire up the `mix rustler_precompiled.download` step
+    // — consumers fall back to building from source via plain `rustler`.
+    let mut files_entries: Vec<String> =
+        vec![".formatter.exs".into(), "mix.exs".into(), "README*".into(), "native".into()];
+    if lib_populated {
+        files_entries.insert(0, "lib".into());
+    }
+    if let Some(relative) = external_elixir_src.as_deref() {
+        files_entries.push(format!("{relative}/*.ex"));
+    }
+    let files_line = files_entries.join(" ");
 
     let content = format!(
         r#"defmodule {module}.MixProject do
@@ -190,7 +213,7 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     [
       licenses: ["{license}"],
       links: %{{"GitHub" => "{repository}"}},
-      files: ~w(lib native .formatter.exs mix.exs README* checksum-*.exs)
+      files: ~w({files_line})
     ]
   end
 
@@ -209,6 +232,7 @@ end
         nif_atom = format_args!("{app_name}_nif"),
         version = version,
         elixirc_paths = elixirc_paths_line,
+        files_line = files_line,
         jason_dep = jason_dep,
         description = meta.description,
         license = meta.license,
