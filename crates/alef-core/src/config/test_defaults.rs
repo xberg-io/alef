@@ -31,9 +31,9 @@ pub(crate) fn default_test_config(lang: Language, output_dir: &str, ctx: &LangCo
                     "poetry",
                 ),
                 _ => (
-                    wrap(format!("cd {output_dir} && uv run pytest"), ctx.run_wrapper),
+                    wrap(format!("cd {output_dir} && uv run --no-sync pytest"), ctx.run_wrapper),
                     wrap(
-                        format!("cd {output_dir} && uv run pytest --cov=. --cov-report=lcov"),
+                        format!("cd {output_dir} && uv run --no-sync pytest --cov=. --cov-report=lcov"),
                         ctx.run_wrapper,
                     ),
                     "uv",
@@ -340,7 +340,7 @@ mod tests {
     fn python_uses_pytest_via_uv_by_default() {
         let c = cfg(Language::Python, "packages/python");
         let cmd = c.command.unwrap().commands().join(" ");
-        assert!(cmd.contains("uv run pytest"));
+        assert!(cmd.contains("uv run --no-sync pytest"));
     }
 
     #[test]

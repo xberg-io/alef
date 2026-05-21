@@ -210,7 +210,7 @@ precondition = "command -v ruff >/dev/null 2>&1"
 check        = "ruff check ."
 
 [test.python]
-command = "uv run pytest"
+command = "uv run --no-sync pytest"
 
 [opaque_types]
 Tree = "tree_sitter::Tree"

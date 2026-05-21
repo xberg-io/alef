@@ -141,7 +141,7 @@ sources = ["src/lib.rs"]
     #[test]
     fn setup_override_with_install_no_precondition_errors() {
         let toml = format!(
-            "{base}\n[crates.setup.python]\ninstall = \"uv sync\"\n",
+            "{base}\n[crates.setup.python]\ninstall = \"uv sync --no-install-project --no-install-workspace\"\n",
             base = base_config()
         );
         let config = resolve_first(&toml);

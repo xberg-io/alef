@@ -239,8 +239,8 @@ coverage = "pytest --cov packages/python/tests/ --cov-report=xml"
 
 # Override dependency update commands
 [update.python]
-update = "uv sync"
-upgrade = "uv sync -U"
+update = "uv sync --upgrade"
+upgrade = "uv sync --all-packages --all-extras --upgrade"
 
 # Override setup/clean
 [setup.node]
@@ -276,7 +276,7 @@ rust_dev_tools = [                 # tools `alef setup rust` installs via `cargo
 ]
 ```
 
-The Python and Node selections drive the default `lint`, `test`, `setup`, `update`, and `clean` commands — switching to `pip` swaps `uv run pytest` for plain `pytest`, switching to `yarn` swaps `pnpm up` for `yarn upgrade`, etc. Set `rust_dev_tools = []` to skip dev-tool installation entirely.
+The Python and Node selections drive the default `lint`, `test`, `setup`, `update`, and `clean` commands — switching to `pip` swaps `uv run --no-sync pytest` for plain `pytest`, switching to `yarn` swaps `pnpm up` for `yarn upgrade`, etc. Set `rust_dev_tools = []` to skip dev-tool installation entirely.
 
 ### Per-language override knobs
 
@@ -679,8 +679,8 @@ check = "cd packages/go && golangci-lint run ./..."
 # Python test needs maturin develop first
 [crates.test.python]
 before = "cd packages/python && maturin develop --release"
-command = "cd packages/python && uv run pytest tests/ -v"
-coverage = "cd packages/python && uv run pytest --cov=. --cov-report=lcov"
+command = "cd packages/python && uv run --no-sync pytest tests/ -v"
+coverage = "cd packages/python && uv run --no-sync pytest --cov=. --cov-report=lcov"
 
 # Node test needs the NAPI binding built first
 [crates.test.node]
@@ -697,7 +697,7 @@ update = "pnpm up"
 upgrade = "pnpm up --latest"
 
 [crates.setup.python]
-install = "uv sync"
+install = "uv sync --no-install-project --no-install-workspace"
 
 [crates.clean.rust]
 clean = "cargo clean"

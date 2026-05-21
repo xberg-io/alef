@@ -63,7 +63,7 @@ pub(crate) fn default_setup_config(lang: Language, output_dir: &str, ctx: &LangC
             let install_cmd = match pm {
                 "pip" => format!("cd {output_dir} && pip install -e ."),
                 "poetry" => format!("cd {output_dir} && poetry install"),
-                _ => format!("cd {output_dir} && uv sync"),
+                _ => format!("cd {output_dir} && uv sync --no-install-project --no-install-workspace"),
             };
             SetupConfig {
                 precondition: Some(require_tool(pm)),
@@ -326,7 +326,11 @@ mod tests {
     #[test]
     fn python_setup_dispatches_on_package_manager() {
         for (pm, expected_install, expected_pre) in [
-            ("uv", "uv sync", "command -v uv >/dev/null 2>&1"),
+            (
+                "uv",
+                "uv sync --no-install-project --no-install-workspace",
+                "command -v uv >/dev/null 2>&1",
+            ),
             ("pip", "pip install -e", "command -v pip >/dev/null 2>&1"),
             ("poetry", "poetry install", "command -v poetry >/dev/null 2>&1"),
         ] {

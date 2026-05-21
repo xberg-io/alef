@@ -566,9 +566,12 @@ upgrade = ["cargo upgrade --incompatible", "cargo update"]
 
     #[test]
     fn setup_config_single_string() {
-        let toml_str = r#"install = "uv sync""#;
+        let toml_str = r#"install = "uv sync --no-install-project --no-install-workspace""#;
         let cfg: SetupConfig = toml::from_str(toml_str).unwrap();
-        assert_eq!(cfg.install.unwrap().commands(), vec!["uv sync"]);
+        assert_eq!(
+            cfg.install.unwrap().commands(),
+            vec!["uv sync --no-install-project --no-install-workspace"]
+        );
     }
 
     #[test]
@@ -824,7 +827,7 @@ before = ["cargo build --release -p mylib-ffi", "cp target/release/libmylib_ffi.
 command = "cd packages/go && go test ./..."
 
 [test.python]
-command = "cd packages/python && uv run pytest"
+command = "cd packages/python && uv run --no-sync pytest"
 
 [build_commands.go]
 precondition = "which go"
@@ -838,7 +841,7 @@ update = "cd packages/go && go get -u ./..."
 
 [setup.python]
 precondition = "which uv"
-install = "cd packages/python && uv sync"
+install = "cd packages/python && uv sync --no-install-project --no-install-workspace"
 
 [clean.go]
 before = "echo cleaning go"
