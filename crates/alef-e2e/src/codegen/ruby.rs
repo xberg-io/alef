@@ -1290,6 +1290,38 @@ fn build_args_and_setup(
             continue;
         }
 
+        if arg.arg_type == "mock_url_list" {
+            // Array of URLs: each element is either a bare path (`/seed1`) — prefixed
+            // with the per-fixture mock-server URL at runtime — or an absolute URL kept
+            // as-is. Mirrors `mock_url` resolution: `MOCK_SERVER_<FIXTURE_ID>` first,
+            // then `MOCK_SERVER_URL/fixtures/<id>`. Without this branch the codegen
+            // falls back to a JSON-array literal of bare relative paths and the Rust
+            // HTTP client rejects them.
+            // Flush any pending nil placeholders before this positional arg.
+            for _ in 0..skipped_optional_count {
+                parts.push("nil".to_string());
+            }
+            skipped_optional_count = 0;
+            let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
+            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+            let val = input.get(field).unwrap_or(&serde_json::Value::Null);
+            let paths: Vec<String> = if let Some(arr) = val.as_array() {
+                arr.iter().filter_map(|v| v.as_str().map(ruby_string_literal)).collect()
+            } else {
+                Vec::new()
+            };
+            let paths_literal = paths.join(", ");
+            let name = &arg.name;
+            setup_lines.push(format!(
+                "{name}_base = ENV.fetch('{env_key}', nil) || \"#{{ENV.fetch('MOCK_SERVER_URL')}}/fixtures/{fixture_id}\""
+            ));
+            setup_lines.push(format!(
+                "{name} = [{paths_literal}].map {{ |p| p.start_with?('http') ? p : \"#{{{name}_base}}#{{p}}\" }}"
+            ));
+            parts.push(name.clone());
+            continue;
+        }
+
         // Handle bytes arguments: load from file if needed
         if arg.arg_type == "bytes" {
             // Flush any pending nil placeholders for skipped optionals before this positional arg.
