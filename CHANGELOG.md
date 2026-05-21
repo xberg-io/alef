@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-e2e/swift: emit labelled arguments and module-qualify free-function calls.** Swift e2e tests failed with two errors: (1) missing argument labels on free-function calls like `process(source:, config:)` were emitted as positional `process(source, config)`, which Swift rejects; (2) unqualified calls like `languageCount()` caused ambiguity errors when both the high-level `TreeSitterLanguagePack` module and swift-bridge's `RustBridge` namespace exported the same function. Fixed by tracking argument indices in the call-arg builder and reconstructing the call string with labels on return; added module qualification (`TreeSitterLanguagePack.languageCount()`) to all free-function calls. Surfaced on tree-sitter-language-pack e2e (Swift). (`crates/alef-e2e/src/codegen/swift.rs`)
+
 - **alef-e2e/rust: use Display (`.to_string()` / `.as_deref()`) for string-like equals assertions instead of Debug `format!("{:?}", v)`.** The Debug-format fix from v0.17.13 unblocked rare non-Display enum types but broke every string scalar comparison: `format!("{:?}", mime_type)` on a `Cow<'static, str>` field emits `"application/pdf"` (with literal quotes) while the fixture's `field_equals` value is the bare `application/pdf` literal, so the assertion fails. Restored Display formatting for both optional (`.as_deref().unwrap_or("").trim()`) and non-optional (`.to_string().as_str().trim()`) string fields. Surfaced on kreuzberg `test_async_extract_bytes`, `test_smoke_*_basic`, and `test_ocr_image_png` — 8+ tests across `smoke_test`, `async_test`, `code_test`, `contract_test`. (`crates/alef-e2e/src/codegen/rust/assertion_helpers.rs`)
 
 ## [0.17.13] - 2026-05-21
