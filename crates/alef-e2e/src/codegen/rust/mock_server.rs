@@ -976,7 +976,16 @@ fn load_routes_recursive(
                         .unwrap_or(false);
                     location_redirect || refresh_redirect || meta_refresh
                 });
+                // Inline HTML anchors that target host-absolute paths (`<a href="/page1">`)
+                // also require a dedicated host-root listener — the crawl engine resolves
+                // these against the URL host, not the `/fixtures/<id>/` namespace, so
+                // follow-up GETs would 404 against the shared listener.
+                let has_inline_host_link = resolved_routes.iter().any(|r| {
+                    let body_lossy = String::from_utf8_lossy(&r.body_bytes);
+                    body_lossy.contains("href=\"/") || body_lossy.contains("href='/")
+                });
                 let has_host_root = has_intra_fixture_redirect
+                    || has_inline_host_link
                     || resolved_routes.iter().any(|r| is_host_root_path(&r.original_path));
 
                 for resolved in resolved_routes {

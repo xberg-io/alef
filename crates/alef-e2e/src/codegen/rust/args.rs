@@ -38,6 +38,30 @@ pub fn render_rust_arg(
         )];
         return (lines, format!("&{name}"));
     }
+    if arg_type == "mock_url_list" {
+        // Vec<String> of URLs: each element is either a bare path (`/seed1`) — prefixed
+        // with the per-fixture mock-server URL at runtime — or an absolute URL kept as-is.
+        // Mirrors the `mock_url` resolution: `MOCK_SERVER_<FIXTURE_ID>` first, then
+        // `MOCK_SERVER_URL/fixtures/<id>`.
+        let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
+        let paths: Vec<String> = if let Some(arr) = value.as_array() {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(rust_raw_string))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let paths_literal = paths.join(", ");
+        let mut lines = Vec::new();
+        lines.push(format!(
+            "let {name}_base = std::env::var(\"{env_key}\").unwrap_or_else(|_| {{ let _ = common::mock_server_url(); std::env::var(\"{env_key}\").unwrap_or_else(|_| format!(\"{{}}/fixtures/{{}}\", common::mock_server_url(), \"{fixture_id}\")) }});"
+        ));
+        lines.push(format!(
+            "let {name}: Vec<String> = [{paths_literal}].into_iter().map(|p: &str| if p.starts_with(\"http\") {{ p.to_string() }} else {{ format!(\"{{}}{{}}\", {name}_base, p) }}).collect();"
+        ));
+        let expr = if owned { name.to_string() } else { format!("&{name}") };
+        return (lines, expr);
+    }
     // When the arg is a base_url and a mock server is running, use the mock server URL.
     if arg_type == "base_url" {
         if let Some(url_expr) = mock_base_url {
