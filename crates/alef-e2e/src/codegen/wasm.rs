@@ -179,22 +179,10 @@ impl E2eCodegen for WasmCodegen {
 
                         // Include the fixture normally
                         result.push(fixture.clone());
-                    } else if let Some(ref wasm_langs) = wasm_languages {
-                        // Fixture failed should_include_fixture. If WASM has a static
-                        // language set, auto-add a skip directive so it renders as it.skip()
-                        // instead of being omitted entirely.
-                        let mut auto_skipped = fixture.clone();
-                        if auto_skipped.skip.is_none() {
-                            // Only auto-skip if the fixture doesn't already have a skip directive
-                            auto_skipped.skip = Some(crate::fixture::SkipDirective {
-                                languages: vec!["wasm".to_string()],
-                                reason: Some(format!(
-                                    "language not in WASM's static-compiled set: [{}]",
-                                    wasm_langs.join(", ")
-                                )),
-                            });
-                            result.push(auto_skipped);
-                        }
+                    } else {
+                        // Fixture failed should_include_fixture or language not in wasm set.
+                        // Omit entirely — do not emit as it.skip().
+                        continue;
                     }
                 }
                 result
