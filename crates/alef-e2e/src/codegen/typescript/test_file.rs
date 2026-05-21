@@ -1419,6 +1419,36 @@ fn build_args_and_setup(
             continue;
         }
 
+        if arg.arg_type == "mock_url_list" {
+            // string[] of URLs: each element is either a bare path (`/seed1`) — prefixed
+            // with the per-fixture mock-server URL at runtime — or an absolute URL kept
+            // as-is. Mirrors `mock_url` resolution: `MOCK_SERVER_<FIXTURE_ID>` first,
+            // then `MOCK_SERVER_URL/fixtures/<id>`. Without this branch the codegen
+            // falls back to a JSON-array literal of bare relative paths and the Rust
+            // HTTP client rejects them.
+            let fixture_id = &fixture.id;
+            let env_upper = fixture_id.to_uppercase();
+            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+            let val = input.get(field).unwrap_or(&serde_json::Value::Null);
+            let paths: Vec<String> = if let Some(arr) = val.as_array() {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| format!("\"{}\"", escape_js(s))))
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            let paths_literal = paths.join(", ");
+            let name = &arg.name;
+            setup_lines.push(format!(
+                "const {name}Base = process.env.MOCK_SERVER_{env_upper} ?? `${{process.env.MOCK_SERVER_URL}}/fixtures/{fixture_id}`;"
+            ));
+            setup_lines.push(format!(
+                "const {name} = [{paths_literal}].map((p) => p.startsWith(\"http\") ? p : {name}Base + p);"
+            ));
+            parts.push(name.clone());
+            continue;
+        }
+
         if arg.arg_type == "handle" {
             let constructor_name = format!("create{}", arg.name.to_upper_camel_case());
             let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
