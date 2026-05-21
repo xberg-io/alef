@@ -341,15 +341,10 @@ fn render_test_file(
     let _ = writeln!(out, "import XCTest");
     let _ = writeln!(out, "import Foundation");
     let _ = writeln!(out, "import {module_name}");
-    // Intentionally omit `import RustBridge`: every name a per-category test
-    // file references is part of the public `{module_name}` surface (first-class
-    // Swift enums, structs, and the trait-bridge `*FromJsonWith{Field}`
-    // forwarder emitted by the swift backend). Importing `RustBridge` here
-    // collides with first-class Swift types whose Rust counterparts are also
-    // declared as opaque `extern \"Rust\" { type X; }` shims in the bridge —
-    // most notably `VisitResult` (Codable enum in `{module_name}` vs opaque
-    // `public class VisitResult` in `RustBridge`), producing
-    // `'VisitResult' is ambiguous for type lookup` at every callback site.
+    // RustBridge is needed for low-level types (RustVec<UInt8>, RustString) constructed
+    // in bytes/string argument setup. It is exposed as a product by the swift package
+    // for e2e test use.
+    let _ = writeln!(out, "import RustBridge");
     let _ = writeln!(out);
     let _ = writeln!(out, "/// E2e tests for category: {category}.");
     let _ = writeln!(out, "final class {class_name}: XCTestCase {{");
