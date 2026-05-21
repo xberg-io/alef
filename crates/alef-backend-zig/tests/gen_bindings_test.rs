@@ -1301,13 +1301,14 @@ type = "CrawlStreamRequest"
         "must loop over `_next` (not a single call): {content}"
     );
     // Each chunk must be appended into the JSON array buffer.
+    // Zig 0.16+ ArrayList API passes allocator at each operation site.
     assert!(
-        content.contains("_buf.appendSlice(_chunk_slice)"),
+        content.contains("_buf.appendSlice(") && content.contains("_chunk_slice)"),
         "must append each chunk into the JSON buffer (not last-chunk-only): {content}"
     );
     // Buffer must start with `[` and end with `]` — a proper JSON array.
     assert!(
-        content.contains("_buf.append('[')") && content.contains("_buf.append(']')"),
+        content.contains("_buf.append(") && content.contains("'['") && content.contains("']'"),
         "must wrap chunks in a JSON array: {content}"
     );
     // Stream handle must be freed.
