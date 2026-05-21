@@ -420,6 +420,14 @@ fn render_test_case(
     }
 
     let result_is_bytes = call_config.result_is_bytes || r_override.is_some_and(|o| o.result_is_bytes);
+    // Resolve assert_enum_fields from the R-language override so the assertion renderer
+    // can identify fields that require the `.alef_format_value` wrapper rather than
+    // matching against the literal field path "metadata.format".
+    static EMPTY_ASSERT_ENUM_FIELDS: std::sync::LazyLock<std::collections::HashMap<String, String>> =
+        std::sync::LazyLock::new(std::collections::HashMap::new);
+    let assert_enum_fields = r_override
+        .map(|o| &o.assert_enum_fields)
+        .unwrap_or(&EMPTY_ASSERT_ENUM_FIELDS);
     for assertion in &fixture.assertions {
         render_assertion(
             out,
@@ -428,6 +436,7 @@ fn render_test_case(
             field_resolver,
             result_is_simple,
             result_is_bytes,
+            assert_enum_fields,
             e2e_config,
         );
     }
@@ -669,6 +678,7 @@ fn render_assertion(
     field_resolver: &FieldResolver,
     result_is_simple: bool,
     result_is_bytes: bool,
+    assert_enum_fields: &std::collections::HashMap<String, String>,
     _e2e_config: &E2eConfig,
 ) {
     // Handle synthetic / derived fields before the is_valid_for_result check
@@ -887,13 +897,15 @@ fn render_assertion(
         }
     };
 
-    // FormatMetadata is serialized as an internally-tagged enum, so terminal
-    // accesses on `metadata.format` land on a list shaped like
-    // `{image: {format: "PNG", ...}, excel: NULL, ...}` under
-    // `simplifyVector = FALSE`. Wrap the accessor with `.alef_format_value`
-    // (from setup-fixtures.R) so the assertion sees the inner format string.
+    // Fields declared in `assert_enum_fields` map to sealed/internally-tagged enum
+    // types.  Under `simplifyVector = FALSE`, such fields deserialize as named lists
+    // keyed by the active variant.  Wrap the accessor with `.alef_format_value`
+    // (defined in setup-fixtures.R) so the assertion sees the display string rather
+    // than the raw list structure.
     let field_expr = match &assertion.field {
-        Some(f) if f == "metadata.format" => format!(".alef_format_value({field_expr})"),
+        Some(f) if assert_enum_fields.contains_key(f.as_str()) => {
+            format!(".alef_format_value({field_expr})")
+        }
         _ => field_expr,
     };
 

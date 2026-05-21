@@ -40,8 +40,8 @@ impl E2eCodegen for JavaCodegen {
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
         config: &ResolvedCrateConfig,
-        _type_defs: &[alef_core::ir::TypeDef],
-        _enums: &[alef_core::ir::EnumDef],
+        type_defs: &[alef_core::ir::TypeDef],
+        enums: &[alef_core::ir::EnumDef],
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
         let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
@@ -132,21 +132,24 @@ impl E2eCodegen for JavaCodegen {
             });
         }
 
-        // Only emit FormatMetadataDisplay helper if any Java call override declares
-        // a `FormatMetadata` enum-typed assertion field. Projects without that type
-        // (e.g. tree-sitter-language-pack) would otherwise fail to compile with
-        // `cannot find symbol: class FormatMetadata`.
-        let needs_format_metadata_display = std::iter::once(&e2e_config.call)
+        // Collect all distinct sealed-union type names declared in `assert_enum_fields`
+        // across all call configs for this language.  For each such type we emit a
+        // `{TypeName}Display.java` helper that pattern-matches on variants from the IR;
+        // projects that declare no `assert_enum_fields` get no extra helper files.
+        let sealed_display_types: std::collections::BTreeSet<String> = std::iter::once(&e2e_config.call)
             .chain(e2e_config.calls.values())
             .filter_map(|c| c.overrides.get(lang))
-            .any(|o| o.assert_enum_fields.values().any(|t| t == "FormatMetadata"));
+            .flat_map(|o| o.assert_enum_fields.values().cloned())
+            .collect();
 
-        if needs_format_metadata_display {
-            files.push(GeneratedFile {
-                path: test_base.join("FormatMetadataDisplay.java"),
-                content: render_format_metadata_display(&java_group_id),
-                generated_header: true,
-            });
+        for type_name in &sealed_display_types {
+            if let Some(enum_def) = enums.iter().find(|e| &e.name == type_name) {
+                files.push(GeneratedFile {
+                    path: test_base.join(format!("{type_name}Display.java")),
+                    content: render_sealed_display(type_name, enum_def, type_defs, &java_group_id),
+                    generated_header: true,
+                });
+            }
         }
 
         // Resolve options_type from override.
@@ -429,49 +432,82 @@ fn render_mock_server_listener(java_group_id: &str) -> String {
     out
 }
 
-fn render_format_metadata_display(java_group_id: &str) -> String {
+/// Generate a `{TypeName}Display.java` helper that pattern-matches on every
+/// variant of a sealed interface and returns a display string for e2e assertions.
+///
+/// Variant dispatch logic:
+/// - Tuple variants whose inner type (looked up in `type_defs`) has a field named
+///   `format` emit `v.value().format()` so image-format strings (PNG, JPEG, …)
+///   are returned rather than the literal variant name.
+/// - All other variants emit the lowercased serde name (or lowercased variant name
+///   when no serde rename is declared).
+///
+/// A `default -> "unknown"` catch-all is always appended so the generated code
+/// remains forward-compatible when new variants are added to the Rust enum.
+fn render_sealed_display(
+    type_name: &str,
+    enum_def: &alef_core::ir::EnumDef,
+    type_defs: &[alef_core::ir::TypeDef],
+    java_group_id: &str,
+) -> String {
+    let helper_class = format!("{type_name}Display");
     let header = hash::header(CommentStyle::DoubleSlash);
     let mut out = header;
     out.push_str(&format!("package {java_group_id}.e2e;\n\n"));
-    out.push_str(&format!("import {java_group_id}.FormatMetadata;\n"));
+    out.push_str(&format!("import {java_group_id}.{type_name};\n"));
     out.push('\n');
-    out.push_str("/**\n");
-    out.push_str(" * Helper class for extracting display strings from FormatMetadata sealed interface.\n");
-    out.push_str(" *\n");
-    out.push_str(" * FormatMetadata is a sealed interface with variants representing different document formats.\n");
-    out.push_str(" * This utility provides pattern matching to extract the display string for assertions:\n");
-    out.push_str(" * - For Image variant: returns the format field (e.g., \"PNG\", \"JPEG\")\n");
-    out.push_str(" * - For other variants: returns the lowercase variant name (e.g., \"pdf\", \"docx\")\n");
-    out.push_str(" */\n");
-    out.push_str("class FormatMetadataDisplay {\n");
-    out.push_str("    /**\n");
-    out.push_str("     * Converts a FormatMetadata sealed interface to its display string representation.\n");
-    out.push_str("     * @param meta the FormatMetadata instance\n");
-    out.push_str("     * @return display string (image format or lowercase variant name)\n");
-    out.push_str("     */\n");
-    out.push_str("    static String toDisplayString(FormatMetadata meta) {\n");
-    out.push_str("        if (meta == null) return \"\";\n");
-    out.push_str("        return switch (meta) {\n");
-    out.push_str("            case FormatMetadata.Image i -> i.value().format();\n");
-    out.push_str("            case FormatMetadata.Pdf _ -> \"pdf\";\n");
-    out.push_str("            case FormatMetadata.Docx _ -> \"docx\";\n");
-    out.push_str("            case FormatMetadata.Excel _ -> \"excel\";\n");
-    out.push_str("            case FormatMetadata.Email _ -> \"email\";\n");
-    out.push_str("            case FormatMetadata.Pptx _ -> \"pptx\";\n");
-    out.push_str("            case FormatMetadata.Archive _ -> \"archive\";\n");
-    out.push_str("            case FormatMetadata.Xml _ -> \"xml\";\n");
-    out.push_str("            case FormatMetadata.Text _ -> \"text\";\n");
-    out.push_str("            case FormatMetadata.Html _ -> \"html\";\n");
-    out.push_str("            case FormatMetadata.Ocr _ -> \"ocr\";\n");
-    out.push_str("            case FormatMetadata.Csv _ -> \"csv\";\n");
-    out.push_str("            case FormatMetadata.Bibtex _ -> \"bibtex\";\n");
-    out.push_str("            case FormatMetadata.Citation _ -> \"citation\";\n");
-    out.push_str("            case FormatMetadata.FictionBook _ -> \"fictionbook\";\n");
-    out.push_str("            case FormatMetadata.Dbf _ -> \"dbf\";\n");
-    out.push_str("            case FormatMetadata.Jats _ -> \"jats\";\n");
-    out.push_str("            case FormatMetadata.Epub _ -> \"epub\";\n");
-    out.push_str("            case FormatMetadata.Pst _ -> \"pst\";\n");
-    out.push_str("            case FormatMetadata.Code _ -> \"code\";\n");
+    out.push_str(&format!(
+        "/**\n * Helper class for extracting display strings from {type_name} sealed interface.\n */\n"
+    ));
+    out.push_str(&format!("class {helper_class} {{\n"));
+    out.push_str(&format!(
+        "    static String toDisplayString({type_name} value) {{\n"
+    ));
+    out.push_str("        if (value == null) return \"\";\n");
+    out.push_str("        return switch (value) {\n");
+
+    for variant in &enum_def.variants {
+        let variant_name = &variant.name;
+        // Determine the display string for this variant's arm.
+        // Tuple variants with one field whose resolved struct type has a `format`
+        // field return the inner `.value().format()` — this gives the actual format
+        // string (e.g. "PNG") rather than the generic variant label (e.g. "image").
+        let has_format_field = variant.is_tuple
+            && variant.fields.len() == 1
+            && {
+                let field_type_name = match &variant.fields[0].ty {
+                    alef_core::ir::TypeRef::Named(n) => Some(n.as_str()),
+                    _ => None,
+                };
+                field_type_name.is_some_and(|tn| {
+                    type_defs
+                        .iter()
+                        .find(|td| td.name == tn)
+                        .is_some_and(|td| td.fields.iter().any(|f| f.name == "format"))
+                })
+            };
+
+        let display = if has_format_field {
+            format!("i.value().format()")
+        } else {
+            // Use the serde rename when present; otherwise lowercase the variant name.
+            let serde_name = variant
+                .serde_rename
+                .as_deref()
+                .unwrap_or(variant_name.as_str())
+                .to_lowercase();
+            format!("\"{serde_name}\"")
+        };
+
+        let binding = if has_format_field {
+            format!("{type_name}.{variant_name} i")
+        } else {
+            format!("{type_name}.{variant_name} _")
+        };
+
+        out.push_str(&format!("            case {binding} -> {display};\n"));
+    }
+
     out.push_str("            default -> \"unknown\";\n");
     out.push_str("        };\n");
     out.push_str("    }\n");
@@ -1953,26 +1989,29 @@ fn render_assertion(
         }
     }
 
-    // Determine if this field is a FormatMetadata type (from assert_enum_types)
-    // This needs to be checked early because it affects field_expr computation
-    let is_format_metadata_field = assertion.field.as_deref().is_some_and(|f| {
+    // Determine if this field maps to a sealed-interface type declared in
+    // `assert_enum_types`.  When `Some`, the value is the type name (e.g.
+    // "FormatMetadata") and the corresponding `{TypeName}Display` helper will
+    // be used to produce the display string for assertions.
+    let sealed_display_type: Option<String> = assertion.field.as_deref().and_then(|f| {
         let resolved = field_resolver.resolve(f);
         assert_enum_types
             .get(f)
             .or_else(|| assert_enum_types.get(resolved))
-            .is_some_and(|t| t == "FormatMetadata")
+            .cloned()
     });
+    let is_sealed_display_field = sealed_display_type.is_some();
 
     // Determine if this field is an enum type (no `.contains()` on enums in Java).
     // Check both the raw fixture field path and the resolved (aliased) path so that
     // `fields_enum` entries can use either form (e.g., `"assets[].category"` or the
     // resolved `"assets[].asset_category"`).
-    // NOTE: FormatMetadata is a sealed interface, not a Java enum, so exclude it from
-    // enum field treatment (it doesn't have .getValue()).
+    // NOTE: Sealed-interface types (those in assert_enum_types) are not Java enums
+    // and do not have a .getValue() method — exclude them from enum field treatment.
     let field_is_enum = assertion.field.as_deref().is_some_and(|f| {
         let resolved = field_resolver.resolve(f);
-        let enum_type = enum_fields.get(f).or_else(|| enum_fields.get(resolved));
-        enum_type.is_some_and(|t| t != "FormatMetadata")
+        let in_enum_fields = enum_fields.get(f).is_some() || enum_fields.get(resolved).is_some();
+        in_enum_fields && !is_sealed_display_field
     });
 
     // Determine if this field is an array (List<T>) — needed to choose .toString() for
@@ -2007,18 +2046,10 @@ fn render_assertion(
                         match assertion.assertion_type.as_str() {
                             "not_empty" | "is_empty" => optional_expr,
                             _ => {
-                                // FormatMetadata is a sealed interface, not a Java enum, so
-                                // don't call .getValue() on it. For equals assertions on
-                                // Optional<FormatMetadata>, keep it wrapped so it can be
-                                // handled by the string_expr path.
-                                let enum_type = enum_fields
-                                    .get(f)
-                                    .or_else(|| enum_fields.get(field_resolver.resolve(f)));
-                                if enum_type.is_some_and(|t| t == "FormatMetadata") {
-                                    optional_expr
-                                } else {
-                                    format!("{optional_expr}.map(v -> v.getValue()).orElse(\"\")")
-                                }
+                                // `field_is_enum` already excludes sealed-interface types
+                                // (is_sealed_display_field), so any remaining enum type
+                                // has .getValue() available.
+                                format!("{optional_expr}.map(v -> v.getValue()).orElse(\"\")")
                             }
                         }
                     } else {
@@ -2046,11 +2077,11 @@ fn render_assertion(
                             // For equals on Optional fields, determine fallback based on whether value is numeric.
                             // If the fixture value is a number, coerce via Number::longValue so the
                             // comparison compiles for both Optional<Integer> and Optional<Long>.
-                            // FormatMetadata is handled specially: keep as Optional so the string_expr
-                            // path can apply FormatMetadataDisplay.toDisplayString().
+                            // Sealed-display fields are handled via the {TypeName}Display helper in
+                            // string_expr — keep as Optional here so the helper receives the unwrapped value.
                             "equals" => {
-                                if is_format_metadata_field {
-                                    // FormatMetadata Optional: keep unwrapped, will be handled by string_expr path
+                                if is_sealed_display_field {
+                                    // Sealed-interface Optional: keep, will be handled by string_expr path
                                     optional_expr
                                 } else if let Some(expected) = &assertion.value {
                                     if expected.is_number() {
@@ -2082,20 +2113,19 @@ fn render_assertion(
     // Optional enum fields are already coerced to String via `.map(v -> v.getValue()).orElse("")`
     // upstream in field_expr; in that case the value is already a String and we must not
     // call .getValue() again. Detect by looking for `.map(v -> v.getValue())` in the expr.
-    // FormatMetadata is a sealed interface, not a Java enum, so exclude it from .getValue() handling.
-    let string_expr = if field_is_enum && !is_format_metadata_field && !field_expr.contains(".map(v -> v.getValue())") {
+    // Sealed-interface types (is_sealed_display_field) use a pattern-match helper instead.
+    let string_expr = if field_is_enum && !field_expr.contains(".map(v -> v.getValue())") {
         format!("{field_expr}.getValue()")
-    } else if is_format_metadata_field {
-        // FormatMetadata is a sealed interface, not a Java enum. Convert to string via
-        // a pattern-match helper that extracts the display string (image.format() for Image,
-        // lowercase variant name for others).
-        // For Optional<FormatMetadata>, unwrap with orElse(null) so the helper can handle null safely.
-        let format_meta_expr = if field_expr.contains("Optional.ofNullable") {
+    } else if let Some(ref stype) = sealed_display_type {
+        // Sealed-interface type: convert via a generated `{TypeName}Display.toDisplayString`
+        // helper that pattern-matches over all variants from the IR.
+        // For Optional<T>, unwrap with orElse(null) so the helper can handle null safely.
+        let inner_expr = if field_expr.contains("Optional.ofNullable") {
             format!("{field_expr}.orElse(null)")
         } else {
             field_expr.clone()
         };
-        format!("FormatMetadataDisplay.toDisplayString({format_meta_expr})")
+        format!("{stype}Display.toDisplayString({inner_expr})")
     } else {
         field_expr.clone()
     };
