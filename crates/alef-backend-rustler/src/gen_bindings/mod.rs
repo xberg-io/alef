@@ -53,8 +53,8 @@ impl Backend for RustlerBackend {
         let core_import = config.core_import_name();
 
         let elixir_config = config.elixir.as_ref();
-        let exclude_functions: AHashSet<&str> = elixir_config
-            .map(|c| c.exclude_functions.iter().map(String::as_str).collect())
+        let mut exclude_functions: AHashSet<String> = elixir_config
+            .map(|c| c.exclude_functions.iter().cloned().collect())
             .unwrap_or_default();
         let exclude_types: AHashSet<&str> = elixir_config
             .map(|c| c.exclude_types.iter().map(String::as_str).collect())
@@ -62,6 +62,11 @@ impl Backend for RustlerBackend {
         let cpu_bound_functions: AHashSet<String> = elixir_config
             .map(|c| c.cpu_bound_functions.iter().cloned().collect())
             .unwrap_or_default();
+
+        // Collect trait bridge function names to avoid duplicate emissions
+        // (trait bridge generates register/unregister/clear functions; free-function pass must skip them)
+        let trait_bridge_fn_names = collect_rustler_trait_bridge_fn_names(config);
+        exclude_functions.extend(trait_bridge_fn_names);
 
         // For options_field bridges, the bridge field (e.g. "visitor") is handled at the
         // Elixir layer via Map.pop — it must not appear as a typed struct field in the NIF
@@ -1431,11 +1436,32 @@ fn gen_from_json_nif(typ: &alef_core::ir::TypeDef, core_import: &str) -> String 
     )
 }
 
+/// Collect trait bridge function names (register/unregister/clear) to avoid duplicates.
+/// Mirrors the approach in alef-backend-extendr::collect_trait_bridge_fn_names.
+fn collect_rustler_trait_bridge_fn_names(config: &ResolvedCrateConfig) -> AHashSet<String> {
+    let mut names = AHashSet::new();
+    for bridge_cfg in &config.trait_bridges {
+        if bridge_cfg.exclude_languages.iter().any(|l| l == "elixir" || l == "rustler") {
+            continue;
+        }
+        if let Some(name) = bridge_cfg.register_fn.as_deref() {
+            names.insert(name.to_string());
+        }
+        if let Some(name) = bridge_cfg.unregister_fn.as_deref() {
+            names.insert(name.to_string());
+        }
+        if let Some(name) = bridge_cfg.clear_fn.as_deref() {
+            names.insert(name.to_string());
+        }
+    }
+    names
+}
+
 /// Generate the rustler::init! macro invocation.
 fn gen_nif_init(
     api: &ApiSurface,
     config: &ResolvedCrateConfig,
-    exclude_functions: &AHashSet<&str>,
+    exclude_functions: &AHashSet<String>,
     exclude_types: &AHashSet<&str>,
 ) -> String {
     let mut exports = vec![];

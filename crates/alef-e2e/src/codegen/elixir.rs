@@ -1580,7 +1580,7 @@ fn render_assertion(
             }
             "first_chunk_starts_with_heading" => {
                 let expr = format!(
-                    "({result_var}.chunks || []) |> Enum.find(fn _ -> true end) |> case do
+                    "case List.first({result_var}.chunks || []) do
         c when is_map(c) -> String.trim_leading(c.content || \"\") |> String.starts_with?(\"#\")
         _ -> false
       end"
