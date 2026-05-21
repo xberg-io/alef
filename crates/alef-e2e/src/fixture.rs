@@ -597,8 +597,11 @@ fn normalize_assertions(fixture: &mut Fixture) {
         match bare {
             "pages_crawled" => {
                 assertion.field = Some("pages".to_string());
-                if assertion.assertion_type == "equals" {
-                    assertion.assertion_type = "count_equals".to_string();
+                match assertion.assertion_type.as_str() {
+                    "equals" => assertion.assertion_type = "count_equals".to_string(),
+                    "greater_than_or_equal" => assertion.assertion_type = "count_min".to_string(),
+                    "less_than_or_equal" => assertion.assertion_type = "count_max".to_string(),
+                    _ => {}
                 }
             }
             "min_pages" => {
@@ -701,6 +704,26 @@ mod tests {
         let mut fixture = make_fixture_with_assertion(r#"{"type": "equals", "field": "pages_crawled", "value": 5}"#);
         normalize_assertions(&mut fixture);
         assert_eq!(fixture.assertions[0].assertion_type, "count_equals");
+        assert_eq!(fixture.assertions[0].field.as_deref(), Some("pages"));
+    }
+
+    #[test]
+    fn normalize_assertions_rewrites_pages_crawled_gte_to_count_min() {
+        let mut fixture = make_fixture_with_assertion(
+            r#"{"type": "greater_than_or_equal", "field": "crawl.pages_crawled", "value": 3}"#,
+        );
+        normalize_assertions(&mut fixture);
+        assert_eq!(fixture.assertions[0].assertion_type, "count_min");
+        assert_eq!(fixture.assertions[0].field.as_deref(), Some("pages"));
+    }
+
+    #[test]
+    fn normalize_assertions_rewrites_pages_crawled_lte_to_count_max() {
+        let mut fixture = make_fixture_with_assertion(
+            r#"{"type": "less_than_or_equal", "field": "crawl.pages_crawled", "value": 7}"#,
+        );
+        normalize_assertions(&mut fixture);
+        assert_eq!(fixture.assertions[0].assertion_type, "count_max");
         assert_eq!(fixture.assertions[0].field.as_deref(), Some("pages"));
     }
 
