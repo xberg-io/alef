@@ -2125,7 +2125,8 @@ fn render_assertion(
                 return;
             }
             "chunks_have_heading_context" => {
-                let synthetic_pred = format!("({result_var}.Chunks ?? new()).All(c => c.Metadata?.HeadingContext != null)");
+                let synthetic_pred =
+                    format!("({result_var}.Chunks ?? new()).All(c => c.Metadata?.HeadingContext != null)");
                 let synthetic_pred_type = match assertion.assertion_type.as_str() {
                     "is_true" => "is_true",
                     "is_false" => "is_false",
@@ -2148,7 +2149,8 @@ fn render_assertion(
                 return;
             }
             "first_chunk_starts_with_heading" => {
-                let synthetic_pred = format!("({result_var}.Chunks ?? new()).FirstOrDefault()?.Metadata?.HeadingContext != null");
+                let synthetic_pred =
+                    format!("({result_var}.Chunks ?? new()).FirstOrDefault()?.Metadata?.HeadingContext != null");
                 let synthetic_pred_type = match assertion.assertion_type.as_str() {
                     "is_true" => "is_true",
                     "is_false" => "is_false",
@@ -2382,7 +2384,14 @@ fn render_assertion(
                 variant_name, &variant_var
             );
             let _ = writeln!(out, "        {{");
-            render_discriminated_union_assertion(out, assertion, &variant_var, &inner_field, result_is_vec, assert_enum_fields);
+            render_discriminated_union_assertion(
+                out,
+                assertion,
+                &variant_var,
+                &inner_field,
+                result_is_vec,
+                assert_enum_fields,
+            );
             let _ = writeln!(out, "        }}");
             let _ = writeln!(out, "        else");
             let _ = writeln!(out, "        {{");

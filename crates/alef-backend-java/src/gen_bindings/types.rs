@@ -2183,7 +2183,7 @@ fn gen_sealed_union_deserializer(out: &mut String, _package: &str, enum_def: &En
             out.push_str(&enum_def.name);
             out.push('.');
             out.push_str(&variant.name);
-            out.push_str("(");
+            out.push('(');
             // For String inner types, convert the entire node to JSON string
             if inner_type.as_ref() == "String" {
                 out.push_str("node.toString()");

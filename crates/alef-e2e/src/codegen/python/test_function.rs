@@ -372,7 +372,7 @@ fn emit_result_and_assertions(
     // For streaming fixtures, streaming virtual fields are always usable
     // (they resolve against the collected `chunks` list, not the result type).
     let chunks_var = "chunks";
-    let has_usable_assertion = fixture.assertions.iter().any(|a| {
+    let _ = fixture.assertions.iter().any(|a| {
         if a.assertion_type == "not_error" || a.assertion_type == "error" {
             return false;
         }
@@ -414,11 +414,6 @@ fn emit_result_and_assertions(
         }
     });
 
-    let py_result_var = if has_usable_assertion || is_streaming {
-        result_var.to_string()
-    } else {
-        "_".to_string()
-    };
     // For streaming fixtures: bind the raw iterator, then drain it into a list.
     // The Python ChatStreamIterator exposes __aiter__/__anext__ (async iterator),
     // so the test function must be `async def` and we use `async for` to drain.
@@ -433,6 +428,15 @@ fn emit_result_and_assertions(
             let _ = writeln!(out, "    {collect}");
         }
     } else {
+        // Always bind result_var if there are assertions to process, even if
+        // has_usable_assertion is false (edge case: upstream miscomputed assertion usability).
+        // Use "_" only when there are truly no assertions to avoid NameError.
+        let has_assertions = !fixture.assertions.is_empty();
+        let py_result_var = if has_assertions {
+            result_var.to_string()
+        } else {
+            "_".to_string()
+        };
         let _ = writeln!(out, "    {py_result_var} = {call_expr}");
     }
 

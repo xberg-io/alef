@@ -717,7 +717,7 @@ fn render_test_case(
     _default_module_path: &str,
     _default_function_name: &str,
     _default_result_var: &str,
-    args: &[crate::config::ArgMapping],
+    _args: &[crate::config::ArgMapping],
     options_type: Option<&str>,
     options_default_fn: Option<&str>,
     _enum_fields: &HashMap<String, String>,
