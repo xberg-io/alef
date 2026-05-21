@@ -1566,6 +1566,13 @@ fn render_assertion(
                 let _ = writeln!(out, "    try testing.expect({result_var} != null);");
                 return;
             }
+            "equals" => {
+                if let Some(expected) = &assertion.value {
+                    let zig_val = json_to_zig(expected);
+                    let _ = writeln!(out, "    try testing.expectEqualStrings({zig_val}, {result_var}.?);");
+                    return;
+                }
+            }
             _ => {}
         }
     }
