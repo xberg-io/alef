@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-e2e/java: gate `FormatMetadataDisplay.java` emission on presence of `FormatMetadata` in Java `assert_enum_fields`.** The helper was previously emitted unconditionally for every Java e2e harness and imports `dev.kreuzberg.FormatMetadata`, a sealed interface that only exists in the kreuzberg binding crate. Other polyglot repos (e.g. tree-sitter-language-pack) without that type failed Java compilation with `cannot find symbol: class FormatMetadata`. The generator now walks the resolved Java call overrides (`call` plus all named `calls`) and emits the helper only when at least one `assert_enum_fields` entry maps to `"FormatMetadata"`. tree-sitter-language-pack Java e2e: 0 errors → 410/410 tests passing. (`crates/alef-e2e/src/codegen/java.rs`)
+
 ### Added
 
 - **alef-e2e/c: emit visitor test category for C FFI bindings.** The C e2e generator previously filtered out all visitor fixtures and panicked if any reached `render_test_file`. It now collects visitor fixtures into a separate list, generates `test_visitor.c` with per-fixture static callbacks and the full `HTMHtmVisitorCallbacks` + `htm_visitor_create` + `htm_options_set_visitor_handle` + `htm_convert` + JSON assertion pattern, adds visitor forward declarations to `test_runner.h`, wires all visitor tests into `main.c`, and includes `test_visitor.c` in the Makefile `SRCS`. Adds ~54 visitor tests to the C e2e suite (bringing html-to-markdown C e2e from 208 to 262 total). (`crates/alef-e2e/src/codegen/c.rs`)

@@ -132,12 +132,22 @@ impl E2eCodegen for JavaCodegen {
             });
         }
 
-        // Always generate FormatMetadataDisplay helper for assertions on FormatMetadata fields.
-        files.push(GeneratedFile {
-            path: test_base.join("FormatMetadataDisplay.java"),
-            content: render_format_metadata_display(&java_group_id),
-            generated_header: true,
-        });
+        // Only emit FormatMetadataDisplay helper if any Java call override declares
+        // a `FormatMetadata` enum-typed assertion field. Projects without that type
+        // (e.g. tree-sitter-language-pack) would otherwise fail to compile with
+        // `cannot find symbol: class FormatMetadata`.
+        let needs_format_metadata_display = std::iter::once(&e2e_config.call)
+            .chain(e2e_config.calls.values())
+            .filter_map(|c| c.overrides.get(lang))
+            .any(|o| o.assert_enum_fields.values().any(|t| t == "FormatMetadata"));
+
+        if needs_format_metadata_display {
+            files.push(GeneratedFile {
+                path: test_base.join("FormatMetadataDisplay.java"),
+                content: render_format_metadata_display(&java_group_id),
+                generated_header: true,
+            });
+        }
 
         // Resolve options_type from override.
         let options_type = overrides.and_then(|o| o.options_type.clone());
