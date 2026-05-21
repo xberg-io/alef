@@ -804,7 +804,7 @@ fn render_test_file(
                     | "less_than"
                     | "less_than_or_equal"
             );
-            synthetic_field_needs_assert || type_needs_assert && field_valid
+            synthetic_field_needs_assert || (type_needs_assert && (field_valid || field_is_streaming_virtual))
         })
     });
 
