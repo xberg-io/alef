@@ -1926,6 +1926,22 @@ fn title_case_first(s: &str) -> String {
     }
 }
 
+/// Append `text` to `block` so multi-line content stays inside the current
+/// roxygen tag (`@param` / `@return`). The first line is appended as-is;
+/// every subsequent line is prefixed with `#'   ` so R's parser still sees
+/// the line as a comment rather than parsing it as code.
+fn push_roxygen_inline_multiline(block: &mut String, text: &str) {
+    let mut lines = text.lines();
+    if let Some(first) = lines.next() {
+        block.push_str(first.trim_end());
+    }
+    for line in lines {
+        block.push('\n');
+        block.push_str("#'   ");
+        block.push_str(line.trim_end());
+    }
+}
+
 /// Build the roxygen2 doc block for a free R wrapper function.
 ///
 /// The block carries a title line (derived from the first line of `doc`, or
@@ -1981,8 +1997,8 @@ fn r_roxygen_block(func_name: &str, doc: &str, params: &[ParamDef], return_type:
         block.push_str(&param.name);
         block.push(' ');
         if let Some(desc) = param_docs.get(&param.name) {
-            block.push_str(desc);
-            if !desc.ends_with('.') {
+            push_roxygen_inline_multiline(&mut block, desc);
+            if !desc.trim_end().ends_with('.') {
                 block.push('.');
             }
         } else {
@@ -1993,7 +2009,7 @@ fn r_roxygen_block(func_name: &str, doc: &str, params: &[ParamDef], return_type:
     block.push_str("#' @return ");
     if let Some(ret) = sections.returns.as_deref() {
         let ret = ret.trim();
-        block.push_str(ret);
+        push_roxygen_inline_multiline(&mut block, ret);
         if !ret.ends_with('.') {
             block.push('.');
         }
