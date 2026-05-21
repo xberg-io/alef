@@ -7,9 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.25] - 2026-05-21
+
 ### Fixed
 
 - **alef-backend-rustler: add opaque types to NIF resource wrapper emission set.** The `collect_types_for_nif_derives` helper deliberately filters out opaque types (since they don't need NifMap/NifStruct derives), but the type-iteration loop that emits rustler::Resource wrappers expected them to be present in `types_to_emit`. This caused opaque structs like `CrawlEngineHandle` to never generate their `pub struct CrawlEngineHandle { inner: Arc<...> }` wrapper and `impl rustler::Resource for CrawlEngineHandle {}` impl block, resulting in `error[E0422]: cannot find struct "CrawlEngineHandle"` across all NIF functions that use them. Fixed by re-inserting opaque types into `types_to_emit` after the initial collection, before the type-iteration loop, so Resource wrappers are generated. (`crates/alef-backend-rustler/src/gen_bindings/mod.rs`)
+
+- **alef-adapters: qualify `owner_type` with `core_import` in streaming NIF + use `Deref` clone.** Streaming NIF wrappers referenced `owner_type` without qualifying it, causing `unresolved import` errors when the wrapper crate uses `core_import` re-exports. Now uses `{core_import}::{owner_type}` and dereferences resources via `&*resource` for the Clone path. (`crates/alef-adapters/src/streaming.rs`)
+
+- **alef-backend-rustler: qualify opaque-type refs with `core_import` in NIF signatures; use `Deref` instead of private `.inner` field.** Opaque types in NIF function signatures were emitted as bare identifiers (`fn foo(handle: &CrawlEngineHandle, …)`), failing to resolve when the wrapper crate uses `core_import`. Now emits `{core_import}::{type}` for the core-side type and `&*resource` for resource extraction (the `.inner` field is private to the wrapper crate). (`crates/alef-backend-rustler/src/gen_bindings/`)
+
+- **alef-e2e: prefix unused fn params with underscore to unblock `cargo install`.** Several test-helper functions in the codegen modules had unused params that triggered `-D warnings` only under `cargo install` (which builds release with deny-warnings). Prefixed with `_` to silence. (`crates/alef-e2e/src/codegen/{elixir,zig}.rs`)
 
 ## [0.17.24] - 2026-05-21
 
