@@ -15,8 +15,6 @@ namespace {{ namespace }};
 {% endif -%}
 {% if needs_custom_converter %}
 [JsonConverter(typeof({{ enum_pascal }}JsonConverter))]
-{% else %}
-[JsonConverter(typeof(JsonStringEnumConverter))]
 {% endif %}
 public enum {{ enum_pascal }}
 {

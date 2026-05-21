@@ -6,7 +6,7 @@ exclude: ^target/|\.alef/
 
 repos:
   - repo: https://github.com/Goldziher/ai-rulez
-    rev: v4.1.6
+    rev: v4.2.1
     hooks:
       - id: ai-rulez-generate
 
@@ -35,7 +35,7 @@ repos:
 
   # Markdown linting
   - repo: https://github.com/kreuzberg-dev/pre-commit-hooks
-    rev: v1.1.12
+    rev: v1.1.13
     hooks:
       - id: cargo-sort
         args: [-w]
@@ -65,6 +65,9 @@ repos:
       - id: oxfmt
       - id: rumdl-fmt
   # Spelling
+      - id: mypy
+        files: ^hooks/.*\.py$
+
   - repo: https://github.com/crate-ci/typos
     rev: v1.46.2
     hooks:
