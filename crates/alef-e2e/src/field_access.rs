@@ -1009,10 +1009,24 @@ fn render_swift_with_first_class_map(
     // after the first index step so paths like `data[0].id` emit `.id()` even
     // when the Codable `Model` first-class struct also exists.
     let mut via_rust_vec = false;
+    // Once a chain crosses an opaque (typealias-to-`RustBridge.X`) segment,
+    // every subsequent accessor must also be opaque (method-call syntax). The
+    // backend emits `public typealias X = RustBridge.X` when `X` fails the
+    // `can_emit_first_class_struct` check (e.g. contains a non-unit enum, or a
+    // field of a still-opaque type). Calling a method on `RustBridge.X` returns
+    // the OPAQUE wrapper of the next type, never the first-class Codable
+    // struct — even when that next type IS independently eligible for
+    // first-class emission. Pin method-call syntax after the first opaque step
+    // so paths like `metrics.total_lines` on opaque `ProcessResult` emit
+    // `.metrics().totalLines()` (not `.metrics().totalLines`).
+    let mut via_opaque = false;
     let total = segments.len();
     for (i, seg) in segments.iter().enumerate() {
         let is_leaf = i == total - 1;
-        let property_syntax = !via_rust_vec && map.is_first_class(current_type.as_deref());
+        let property_syntax = !via_rust_vec && !via_opaque && map.is_first_class(current_type.as_deref());
+        if !property_syntax {
+            via_opaque = true;
+        }
         match seg {
             PathSegment::Field(f) => {
                 if !path_so_far.is_empty() {
