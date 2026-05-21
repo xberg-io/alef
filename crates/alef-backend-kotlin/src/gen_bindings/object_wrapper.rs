@@ -1116,9 +1116,20 @@ fn render_kotlin_default(
             // `#[derive(Default)]` picks a `#[default]` variant; bubble it up
             // via the supplied lookup so e.g. `heading_style: HeadingStyle`
             // emits ` = HeadingStyle.ATX`.
-            TypeRef::Named(name) => enum_defaults
-                .get(name.as_str())
-                .map(|variant| format!("{name}.{}", to_screaming_snake(variant))),
+            //
+            // For Named non-enum types (i.e. data class structs), fall back
+            // to invoking the no-arg primary constructor — every emitted
+            // Kotlin data class receives constructor defaults for every
+            // field, so `PreprocessingOptions()` is always callable. This is
+            // necessary because Rust serializers commonly skip `Default`
+            // sub-structures from the wire JSON, leaving the Jackson Kotlin
+            // module to error out unless the field has a host-side default.
+            TypeRef::Named(name) => Some(
+                enum_defaults
+                    .get(name.as_str())
+                    .map(|variant| format!("{name}.{}", to_screaming_snake(variant)))
+                    .unwrap_or_else(|| format!("{name}()")),
+            ),
             _ => None,
         },
         DefaultValue::None => Some("null".to_string()),
