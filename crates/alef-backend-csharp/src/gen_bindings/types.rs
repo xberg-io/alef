@@ -996,9 +996,12 @@ pub(super) fn gen_record_type(
     out.push_str("        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault,\n");
     out.push_str("        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },\n");
     out.push_str("    };\n");
-    out.push_str("\n    /// <summary>Options for serializing config/input objects to FFI (no default-skipping).</summary>\n");
+    out.push_str("\n    /// <summary>Options for serializing config/input objects to FFI. Strips nulls\n");
+    out.push_str("    /// (nullable C# fields default to null and would override required Rust fields with\n");
+    out.push_str("    /// non-deserialisable nulls) but preserves explicit false/0 so caller intent is kept.</summary>\n");
     out.push_str("    private static readonly JsonSerializerOptions JsonSerializationOptions = new()\n");
     out.push_str("    {\n");
+    out.push_str("        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,\n");
     out.push_str("        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },\n");
     out.push_str("    };\n");
 
