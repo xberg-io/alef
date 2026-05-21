@@ -102,21 +102,21 @@ pub(super) fn build_swift_visitor(
 /// Types match what `emit_inbound_protocols` emits into the generated `HtmlVisitorProtocol`.
 fn swift_visitor_params(method: &str) -> &'static str {
     match method {
-        "visit_text" => "_ ctx: String, _ text: String",
-        "visit_element_start" => "_ ctx: String",
-        "visit_element_end" => "_ ctx: String, _ output: String",
-        "visit_link" => "_ ctx: String, _ href: String, _ text: String, _ title: String?",
-        "visit_image" => "_ ctx: String, _ src: String, _ alt: String, _ title: String?",
-        "visit_heading" => "_ ctx: String, _ level: UInt32, _ text: String, _ id: String?",
-        "visit_code_block" => "_ ctx: String, _ lang: String?, _ code: String",
-        "visit_code_inline" => "_ ctx: String, _ code: String",
-        "visit_list_item" => "_ ctx: String, _ ordered: Bool, _ marker: String, _ text: String",
-        "visit_list_start" => "_ ctx: String, _ ordered: Bool",
-        "visit_list_end" => "_ ctx: String, _ ordered: Bool, _ output: String",
-        "visit_table_start" => "_ ctx: String",
-        "visit_table_row" => "_ ctx: String, _ cells: RustVec<RustString>, _ isHeader: Bool",
-        "visit_table_end" => "_ ctx: String, _ output: String",
-        "visit_blockquote" => "_ ctx: String, _ content: String, _ depth: Int",
+        "visit_text" => "_ ctx: NodeContext, _ text: String",
+        "visit_element_start" => "_ ctx: NodeContext",
+        "visit_element_end" => "_ ctx: NodeContext, _ output: String",
+        "visit_link" => "_ ctx: NodeContext, _ href: String, _ text: String, _ title: String?",
+        "visit_image" => "_ ctx: NodeContext, _ src: String, _ alt: String, _ title: String?",
+        "visit_heading" => "_ ctx: NodeContext, _ level: UInt32, _ text: String, _ id: String?",
+        "visit_code_block" => "_ ctx: NodeContext, _ lang: String?, _ code: String",
+        "visit_code_inline" => "_ ctx: NodeContext, _ code: String",
+        "visit_list_item" => "_ ctx: NodeContext, _ ordered: Bool, _ marker: String, _ text: String",
+        "visit_list_start" => "_ ctx: NodeContext, _ ordered: Bool",
+        "visit_list_end" => "_ ctx: NodeContext, _ ordered: Bool, _ output: String",
+        "visit_table_start" => "_ ctx: NodeContext",
+        "visit_table_row" => "_ ctx: NodeContext, _ cells: RustVec<RustString>, _ isHeader: Bool",
+        "visit_table_end" => "_ ctx: NodeContext, _ output: String",
+        "visit_blockquote" => "_ ctx: NodeContext, _ content: String, _ depth: Int",
         "visit_strong"
         | "visit_emphasis"
         | "visit_strikethrough"
@@ -128,18 +128,18 @@ fn swift_visitor_params(method: &str) -> &'static str {
         | "visit_summary"
         | "visit_figcaption"
         | "visit_definition_term"
-        | "visit_definition_description" => "_ ctx: String, _ text: String",
+        | "visit_definition_description" => "_ ctx: NodeContext, _ text: String",
         "visit_line_break" | "visit_horizontal_rule" | "visit_definition_list_start" | "visit_figure_start" => {
-            "_ ctx: String"
+            "_ ctx: NodeContext"
         }
-        "visit_definition_list_end" => "_ ctx: String, _ output: String",
-        "visit_custom_element" => "_ ctx: String, _ tagName: String, _ html: String",
-        "visit_form" => "_ ctx: String, _ action: String?, _ method: String?",
-        "visit_input" => "_ ctx: String, _ inputType: String, _ name: String?, _ value: String?",
-        "visit_audio" | "visit_video" | "visit_iframe" => "_ ctx: String, _ src: String?",
-        "visit_details" => "_ ctx: String, _ open: Bool",
-        "visit_figure_end" => "_ ctx: String, _ output: String",
-        _ => "_ ctx: String",
+        "visit_definition_list_end" => "_ ctx: NodeContext, _ output: String",
+        "visit_custom_element" => "_ ctx: NodeContext, _ tagName: String, _ html: String",
+        "visit_form" => "_ ctx: NodeContext, _ action: String?, _ method: String?",
+        "visit_input" => "_ ctx: NodeContext, _ inputType: String, _ name: String?, _ value: String?",
+        "visit_audio" | "visit_video" | "visit_iframe" => "_ ctx: NodeContext, _ src: String?",
+        "visit_details" => "_ ctx: NodeContext, _ open: Bool",
+        "visit_figure_end" => "_ ctx: NodeContext, _ output: String",
+        _ => "_ ctx: NodeContext",
     }
 }
 
