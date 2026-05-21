@@ -401,6 +401,37 @@ fn render_test_file(
         let _ = writeln!(out, "  end");
     }
 
+    // Emit a helper to convert FormatMetadata struct to a string representation
+    // (pattern-match on the image field and extract the format string).
+    let has_format_metadata = fixtures.iter().any(|fixture| {
+        fixture.assertions.iter().any(|a| {
+            a.field
+                .as_deref()
+                .is_some_and(|f| f.contains("format") && f.contains("metadata"))
+        })
+    });
+    if has_format_metadata {
+        let _ = writeln!(out);
+        let _ = writeln!(
+            out,
+            "  defp alef_e2e_format_to_string(value) when is_binary(value), do: value"
+        );
+        let _ = writeln!(out, "  defp alef_e2e_format_to_string(metadata) do");
+        let _ = writeln!(out, "    case metadata.image do");
+        let _ = writeln!(out, "      %{{format: fmt}} when is_binary(fmt) -> fmt");
+        let _ = writeln!(out, "      _ ->");
+        let _ = writeln!(out, "        case metadata.pdf do");
+        let _ = writeln!(out, "          %{{}} -> \"PDF\"");
+        let _ = writeln!(out, "          _ ->");
+        let _ = writeln!(out, "            case metadata.html do");
+        let _ = writeln!(out, "              %{{}} -> \"HTML\"");
+        let _ = writeln!(out, "              _ -> inspect(metadata)");
+        let _ = writeln!(out, "            end");
+        let _ = writeln!(out, "        end");
+        let _ = writeln!(out, "    end");
+        let _ = writeln!(out, "  end");
+    }
+
     let _ = writeln!(out);
 
     for (i, fixture) in fixtures.iter().enumerate() {
@@ -1206,18 +1237,27 @@ fn build_args_and_setup(
 ) -> (Vec<String>, String) {
     let fixture_id = &fixture.id;
     if args.is_empty() {
-        // No args config: pass the whole input only when it's non-empty.
+        // No args config: pass the whole input only when it's non-empty AND not just the harness setup dict.
         // Functions with no parameters (e.g. language_count) have empty input
         // and must be called with no arguments — not with `%{}`.
-        let is_empty_input = match input {
-            serde_json::Value::Null => true,
-            serde_json::Value::Object(m) => m.is_empty(),
-            _ => false,
+        // Filter out the harness' internal "setup" field — it's not part of the fixture's actual input.
+        let cleaned_input = match input {
+            serde_json::Value::Object(m) => {
+                let mut cleaned = m.clone();
+                cleaned.remove("setup");
+                if cleaned.is_empty() {
+                    serde_json::Value::Null
+                } else {
+                    serde_json::Value::Object(cleaned)
+                }
+            }
+            other => other.clone(),
         };
+        let is_empty_input = matches!(cleaned_input, serde_json::Value::Null);
         if is_empty_input {
             return (Vec::new(), String::new());
         }
-        return (Vec::new(), json_to_elixir(input));
+        return (Vec::new(), json_to_elixir(&cleaned_input));
     }
 
     let mut setup_lines: Vec<String> = Vec::new();
@@ -1843,7 +1883,16 @@ fn render_assertion(
             || per_call_enum_fields.contains_key(f)
             || per_call_enum_fields.contains_key(resolved)
     });
-    let coerced_field_expr = if field_is_enum {
+    // Check if the field is exactly metadata.format (FormatMetadata struct; needs special display conversion)
+    // Don't match on other fields like metadata.output_format (which is a plain string)
+    let field_is_format_metadata = assertion
+        .field
+        .as_deref()
+        .filter(|f| !f.is_empty())
+        .is_some_and(|f| f == "metadata.format" || f.ends_with(".metadata.format"));
+    let coerced_field_expr = if field_is_format_metadata {
+        format!("alef_e2e_format_to_string({field_expr})")
+    } else if field_is_enum {
         format!("to_string({field_expr})")
     } else {
         field_expr.clone()
@@ -1990,14 +2039,21 @@ fn render_assertion(
         "min_length" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(out, "      assert String.length({field_expr}) >= {n}");
+                    // Binary (e.g., PNG bytes) uses byte_size; strings use String.length
+                    let _ = writeln!(
+                        out,
+                        "      assert (is_binary({field_expr}) && byte_size({field_expr}) >= {n}) || (is_binary({field_expr}) == false && String.length({field_expr}) >= {n})"
+                    );
                 }
             }
         }
         "max_length" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(out, "      assert String.length({field_expr}) <= {n}");
+                    let _ = writeln!(
+                        out,
+                        "      assert (is_binary({field_expr}) && byte_size({field_expr}) <= {n}) || (is_binary({field_expr}) == false && String.length({field_expr}) <= {n})"
+                    );
                 }
             }
         }

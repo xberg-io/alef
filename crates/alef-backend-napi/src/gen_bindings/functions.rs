@@ -905,7 +905,7 @@ pub(super) fn gen_adapter_wrapper(adapter: &alef_core::config::AdapterConfig) ->
                 "CrawlStreamIterator"
             };
 
-            let method_call = if core_params_list.is_empty() {
+            let _method_call = if core_params_list.is_empty() {
                 format!("engine.inner.{}()", adapter_name)
             } else {
                 format!("engine.inner.{}({})", adapter_name, core_params_list)

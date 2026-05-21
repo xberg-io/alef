@@ -954,10 +954,7 @@ fn render_test_runner_header(
     out
 }
 
-fn render_main_c(
-    active_groups: &[(&FixtureGroup, Vec<&Fixture>)],
-    visitor_fixtures: &[&Fixture],
-) -> String {
+fn render_main_c(active_groups: &[(&FixtureGroup, Vec<&Fixture>)], visitor_fixtures: &[&Fixture]) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::Block));
     let _ = writeln!(out, "#include <stdio.h>");
@@ -3823,7 +3820,10 @@ fn render_visitor_test_file(fixtures: &[&Fixture], header: &str, prefix: &str) -
             out,
             "    {prefix_upper}ConversionOptions* _options = {prefix}_conversion_options_from_json(\"{options_escaped}\");"
         );
-        let _ = writeln!(out, "    assert(_options != NULL && \"htm_conversion_options_from_json failed\");");
+        let _ = writeln!(
+            out,
+            "    assert(_options != NULL && \"htm_conversion_options_from_json failed\");"
+        );
         let _ = writeln!(out);
 
         // Attach visitor to options.
@@ -3866,7 +3866,10 @@ fn render_visitor_test_file(fixtures: &[&Fixture], header: &str, prefix: &str) -
                     }
                 }
                 other => {
-                    let _ = writeln!(out, "    /* assertion type '{other}' not supported in C visitor tests */");
+                    let _ = writeln!(
+                        out,
+                        "    /* assertion type '{other}' not supported in C visitor tests */"
+                    );
                 }
             }
         }
@@ -3900,9 +3903,7 @@ fn c_visitor_callback_params(method: &str) -> &'static str {
         "visit_text" => {
             "const HTMHtmNodeContext* _ctx, void* _user_data, const char* _text, char** out_custom, size_t* out_len"
         }
-        "visit_element_start" => {
-            "const HTMHtmNodeContext* _ctx, void* _user_data, char** out_custom, size_t* out_len"
-        }
+        "visit_element_start" => "const HTMHtmNodeContext* _ctx, void* _user_data, char** out_custom, size_t* out_len",
         "visit_element_end" => {
             "const HTMHtmNodeContext* _ctx, void* _user_data, const char* _output, char** out_custom, size_t* out_len"
         }
@@ -3930,9 +3931,7 @@ fn c_visitor_callback_params(method: &str) -> &'static str {
         "visit_list_end" => {
             "const HTMHtmNodeContext* _ctx, void* _user_data, int32_t _ordered, const char* _output, char** out_custom, size_t* out_len"
         }
-        "visit_table_start" => {
-            "const HTMHtmNodeContext* _ctx, void* _user_data, char** out_custom, size_t* out_len"
-        }
+        "visit_table_start" => "const HTMHtmNodeContext* _ctx, void* _user_data, char** out_custom, size_t* out_len",
         "visit_table_row" => {
             "const HTMHtmNodeContext* _ctx, void* _user_data, const char* const* _cells, size_t _cell_count, int32_t _is_header, char** out_custom, size_t* out_len"
         }
@@ -3942,10 +3941,7 @@ fn c_visitor_callback_params(method: &str) -> &'static str {
         "visit_blockquote" => {
             "const HTMHtmNodeContext* _ctx, void* _user_data, const char* _content, size_t _depth, char** out_custom, size_t* out_len"
         }
-        "visit_line_break"
-        | "visit_horizontal_rule"
-        | "visit_definition_list_start"
-        | "visit_figure_start" => {
+        "visit_line_break" | "visit_horizontal_rule" | "visit_definition_list_start" | "visit_figure_start" => {
             "const HTMHtmNodeContext* _ctx, void* _user_data, char** out_custom, size_t* out_len"
         }
         "visit_custom_element" => {
@@ -3970,9 +3966,7 @@ fn c_visitor_callback_params(method: &str) -> &'static str {
         // visit_strikethrough, visit_underline, visit_subscript, visit_superscript,
         // visit_mark, visit_button, visit_summary, visit_figcaption,
         // visit_definition_term, visit_definition_description).
-        _ => {
-            "const HTMHtmNodeContext* _ctx, void* _user_data, const char* _text, char** out_custom, size_t* out_len"
-        }
+        _ => "const HTMHtmNodeContext* _ctx, void* _user_data, const char* _text, char** out_custom, size_t* out_len",
     }
 }
 
@@ -4128,10 +4122,7 @@ fn c_visitor_template_to_sprintf(template: &str) -> (String, Vec<String>) {
                     name.push(peek);
                     chars.next();
                 }
-                let is_int = matches!(
-                    name.as_str(),
-                    "level" | "depth" | "ordered" | "open" | "is_header"
-                );
+                let is_int = matches!(name.as_str(), "level" | "depth" | "ordered" | "open" | "is_header");
                 if is_int {
                     out.push_str("%d");
                 } else {

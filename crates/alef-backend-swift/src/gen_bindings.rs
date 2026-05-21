@@ -2986,8 +2986,7 @@ fn emit_inbound_protocols(api: &ApiSurface, config: &ResolvedCrateConfig, out: &
         let options_type = bridge_cfg.options_type.as_deref().unwrap_or("ConversionOptions");
         let field = bridge_cfg.resolved_options_field().unwrap_or("visitor");
         let opts_snake = options_type.to_snake_case();
-        let options_fn = format!("{opts_snake}FromJsonWith{}", field.to_upper_camel_case())
-            .to_lower_camel_case();
+        let options_fn = format!("{opts_snake}FromJsonWith{}", field.to_upper_camel_case()).to_lower_camel_case();
         out.push_str(&format!(
             "/// Wrap a `{protocol_name}` conformer in an opaque `{type_alias}` handle\n\
              /// that can be passed to `{options_fn}(...)` on the Rust side.\n\
