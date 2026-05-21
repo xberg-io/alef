@@ -1459,8 +1459,8 @@ fn build_args_and_setup(
                         }
 
                         // Push the variable name as the argument.
-                        // For Elixir, always use keyword form for json_object args (config/options)
-                        // to ensure correct argument ordering when mixed with optional positional args.
+                        // Optional args (with `\\ []` or `\\ nil`) always use keyword form
+                        // so that the facade can handle them via Keyword.get() or defaults.
                         parts.push(format!("{}: {options_var}", arg.name));
                         continue;
                     }
@@ -1484,8 +1484,7 @@ fn build_args_and_setup(
                         }
                         let fields = field_strs.join(", ");
                         setup_lines.push(format!("{options_var} = %{module_path}.{opts_type}{{{fields}}}"));
-                        // For Elixir, always use keyword form for json_object args (config/options)
-                        // to ensure correct argument ordering when mixed with optional positional args.
+                        // Optional args always use keyword form so the facade can handle defaults.
                         parts.push(format!("{}: {options_var}", arg.name));
                         continue;
                     }
