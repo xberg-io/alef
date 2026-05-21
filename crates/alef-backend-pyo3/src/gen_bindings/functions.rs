@@ -1184,6 +1184,9 @@ fn adapter_param_python_type(rust_type: &str) -> &str {
 /// - `AdapterPattern::AsyncMethod`: the method is a regular async call returning a single value;
 ///   emit `async def foo(engine, ...) -> ReturnType: return await engine.foo(...)`
 ///
+/// For streaming adapters that take request objects, the wrapper accepts primitive args
+/// (e.g., `url: str`) and constructs the request object before calling the engine method.
+///
 /// Any other pattern is silently skipped (not applicable to the Python layer).
 fn emit_adapter_wrapper(
     out: &mut String,
@@ -1196,19 +1199,70 @@ fn emit_adapter_wrapper(
     let adapter_name = &adapter.name;
     let owner_type = adapter.owner_type.as_deref().unwrap_or("Handle");
 
-    // Build parameter list from adapter params (skip 'self' which is implicit).
-    // Map Rust primitive type names (e.g. String) to their Python equivalents (str).
-    let mut param_parts = vec![format!("engine: {owner_type}")];
-    for param in &adapter.params {
-        let param_name = &param.name;
-        let python_type = adapter_param_python_type(&param.ty);
-        let annotation = if param.optional {
-            format!("{python_type} | None = None")
-        } else {
-            python_type.to_string()
-        };
-        param_parts.push(format!("{param_name}: {annotation}"));
-    }
+    // For streaming adapters with a request_type, decompose the request into primitives.
+    // E.g., CrawlStreamRequest { url } → url: str, url
+    // This allows e2e tests to pass `crawl_stream(engine, "url")` instead of
+    // `crawl_stream(engine, CrawlStreamRequest(url="url"))`.
+    let (param_parts, request_construction) = if matches!(&adapter.pattern, AdapterPattern::Streaming)
+        && adapter.request_type.is_some()
+        && adapter.params.len() == 1
+    {
+        // Streaming with a single request param: decompose to primitives
+        let param = &adapter.params[0];
+        let param_type = &param.ty;
+        match param_type.as_str() {
+            "CrawlStreamRequest" => {
+                // url: str → CrawlStreamRequest { url }
+                let wrapper_params = vec![
+                    "engine: CrawlEngineHandle".to_string(),
+                    "url: str".to_string(),
+                ];
+                let construction = format!(
+                    "    req = CrawlStreamRequest(url=url)\n"
+                );
+                (wrapper_params, Some(construction))
+            }
+            "BatchCrawlStreamRequest" => {
+                // urls: list[str] → BatchCrawlStreamRequest { urls }
+                let wrapper_params = vec![
+                    "engine: CrawlEngineHandle".to_string(),
+                    "urls: list[str]".to_string(),
+                ];
+                let construction = format!(
+                    "    req = BatchCrawlStreamRequest(urls=urls)\n"
+                );
+                (wrapper_params, Some(construction))
+            }
+            _ => {
+                // Unknown request type; fall back to original behavior
+                let mut params = vec![format!("engine: {owner_type}")];
+                for p in &adapter.params {
+                    let python_type = adapter_param_python_type(&p.ty);
+                    let annotation = if p.optional {
+                        format!("{python_type} | None = None")
+                    } else {
+                        python_type.to_string()
+                    };
+                    params.push(format!("{}: {}", p.name, annotation));
+                }
+                (params, None)
+            }
+        }
+    } else {
+        // Non-streaming or multi-param: use original behavior
+        let mut params = vec![format!("engine: {owner_type}")];
+        for param in &adapter.params {
+            let param_name = &param.name;
+            let python_type = adapter_param_python_type(&param.ty);
+            let annotation = if param.optional {
+                format!("{python_type} | None = None")
+            } else {
+                python_type.to_string()
+            };
+            params.push(format!("{param_name}: {annotation}"));
+        }
+        (params, None)
+    };
 
     // Build the docstring from the adapter name.
     let doc_content = {
@@ -1223,12 +1277,17 @@ fn emit_adapter_wrapper(
     };
 
     // Build the positional param list for the method call (no `self` — that's `engine`).
-    let params_list = adapter
-        .params
-        .iter()
-        .map(|p| p.name.as_str())
-        .collect::<Vec<_>>()
-        .join(", ");
+    let params_list = if request_construction.is_some() {
+        // If we constructed a request object, use it
+        "req".to_string()
+    } else {
+        adapter
+            .params
+            .iter()
+            .map(|p| p.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
 
     match &adapter.pattern {
         AdapterPattern::Streaming => {
@@ -1242,6 +1301,9 @@ fn emit_adapter_wrapper(
                 return_type,
             ));
             out.push_str(&format!("    \"\"\"{doc_content}\"\"\"\n"));
+            if let Some(construction) = request_construction {
+                out.push_str(&construction);
+            }
             let method_call = if params_list.is_empty() {
                 format!("    async for item in engine.{adapter_name}():\n")
             } else {
@@ -1262,6 +1324,9 @@ fn emit_adapter_wrapper(
                 return_type,
             ));
             out.push_str(&format!("    \"\"\"{doc_content}\"\"\"\n"));
+            if let Some(construction) = request_construction {
+                out.push_str(&construction);
+            }
             let method_call = if params_list.is_empty() {
                 format!("    return await engine.{adapter_name}()\n")
             } else {
