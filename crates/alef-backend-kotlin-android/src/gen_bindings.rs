@@ -1033,7 +1033,16 @@ fn jni_return_type_str(ty: &alef_core::ir::TypeRef) -> &'static str {
         },
         TypeRef::String => "String",
         TypeRef::Optional(_) => "String?",
-        TypeRef::Named(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) => "String",
+        TypeRef::Bytes => "ByteArray",
+        // Vec<u8> (binary data) → ByteArray; other collections → JSON-encoded String
+        TypeRef::Vec(inner) => {
+            if matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8)) {
+                "ByteArray"
+            } else {
+                "String"
+            }
+        }
+        TypeRef::Named(_) | TypeRef::Map(_, _) => "String",
         _ => "Long",
     }
 }
