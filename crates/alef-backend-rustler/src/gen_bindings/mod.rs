@@ -759,8 +759,15 @@ impl Backend for RustlerBackend {
             );
             let all_params: Vec<String> = func.params.iter().map(|p| elixir_safe_param_name(&p.name)).collect();
 
-            // Count how many trailing parameters are optional so we can emit shorter-arity overloads.
-            let trailing_optional_count = func.params.iter().rev().take_while(|p| p.optional).count();
+            // Count how many trailing parameters are optional (either p.optional=true or typespec has "| nil").
+            // This ensures we catch Option<T> params that may have .optional=false but emit "| nil" typespecs.
+            let trailing_optional_count = func
+                .params
+                .iter()
+                .rev()
+                .zip(param_types.iter().rev())
+                .take_while(|(p, type_str)| p.optional || type_str.contains("| nil"))
+                .count();
 
             // Detect if this function has a visitor bridge param.
             let visitor_bridge_param_idx: Option<usize> = func.params.iter().position(|p| {
@@ -819,10 +826,10 @@ impl Backend for RustlerBackend {
             } else {
                 trailing_optional_count
             };
-            // Single trailing optional → arity overloads (`def f(req)` + `def f(req, opt)`),
-            // matching the e2e codegen's positional call shape. Collapse to `opts \\ []`
-            // keyword form only when 2+ optionals make the keyword form materially clearer.
-            let use_keyword_opts = trailing_keyword_count >= 2;
+            // Use keyword-opts collapsing (`opts \\ []`) for any trailing optionals.
+            // This ensures e2e codegen, which always emits keyword form for config/options args,
+            // can pass them correctly without mixing positional and keyword syntax.
+            let use_keyword_opts = trailing_keyword_count >= 1;
 
             // Emit one @spec/@doc per arity variant (shortest to longest).
             // The shortest arity fills optional params with nil.

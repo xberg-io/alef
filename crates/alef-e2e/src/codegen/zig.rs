@@ -1218,6 +1218,61 @@ fn json_path_expr(result_var: &str, field_path: &str) -> String {
     expr
 }
 
+/// Emit a Zig predicate over the `chunks` array of a JSON-parsed extraction
+/// result. The predicate body should be a Zig expression yielding an
+/// `?std.json.Value` for each chunk element bound as `c`. When `require_non_empty_string`
+/// is `true`, the predicate also requires the value to be a non-empty string.
+fn emit_zig_chunks_predicate(
+    out: &mut String,
+    result_var: &str,
+    assertion_type: &str,
+    chunk_field_accessor: &str,
+    field_name: &str,
+    require_non_empty_string: bool,
+) {
+    let _ = writeln!(out, "    {{");
+    let _ = writeln!(
+        out,
+        "        const _chunks_opt = {result_var}.object.get(\"chunks\");"
+    );
+    let _ = writeln!(out, "        var _all: bool = true;");
+    let _ = writeln!(out, "        if (_chunks_opt) |_chunks_val| {{");
+    let _ = writeln!(out, "            if (_chunks_val == .array) {{");
+    let _ = writeln!(out, "                if (_chunks_val.array.items.len == 0) _all = false;");
+    let _ = writeln!(out, "                for (_chunks_val.array.items) |c| {{");
+    let _ = writeln!(out, "                    if (c != .object) {{ _all = false; break; }}");
+    let _ = writeln!(out, "                    const _v = {chunk_field_accessor};");
+    if require_non_empty_string {
+        let _ = writeln!(
+            out,
+            "                    if (_v == null or _v.? != .string or _v.?.string.len == 0) {{ _all = false; break; }}"
+        );
+    } else {
+        let _ = writeln!(
+            out,
+            "                    if (_v == null or _v.? == .null) {{ _all = false; break; }}"
+        );
+    }
+    let _ = writeln!(out, "                }}");
+    let _ = writeln!(out, "            }} else {{ _all = false; }}");
+    let _ = writeln!(out, "        }} else {{ _all = false; }}");
+    match assertion_type {
+        "is_true" => {
+            let _ = writeln!(out, "        try testing.expect(_all);");
+        }
+        "is_false" => {
+            let _ = writeln!(out, "        try testing.expect(!_all);");
+        }
+        _ => {
+            let _ = writeln!(
+                out,
+                "        // skipped: unsupported assertion type on synthetic field '{field_name}'"
+            );
+        }
+    }
+    let _ = writeln!(out, "    }}");
+}
+
 /// Render a single assertion for a JSON-struct result (result_is_json_struct = true).
 ///
 /// The `result_var` variable is `*std.json.Value` (pointer to the parsed root object).
@@ -1317,6 +1372,68 @@ fn render_json_assertion(
                 }
                 _ => {}
             }
+        }
+    }
+
+    // Synthesised chunk-inspection virtual fields. These are not real JSON
+    // fields but are derived predicates over the `chunks` array on
+    // `ExtractionResult`. Other backends (python, ruby, java, etc.) compute
+    // these inline; zig parses to `std.json.Value`, so we compute them
+    // against `result.object.get("chunks").?.array`.
+    if let Some(f) = &assertion.field {
+        match f.as_str() {
+            "chunks_have_content" => {
+                emit_zig_chunks_predicate(
+                    out,
+                    result_var,
+                    assertion.assertion_type.as_str(),
+                    "c.object.get(\"content\")",
+                    "chunks_have_content",
+                    true,
+                );
+                return;
+            }
+            "chunks_have_heading_context" => {
+                emit_zig_chunks_predicate(
+                    out,
+                    result_var,
+                    assertion.assertion_type.as_str(),
+                    "c.object.get(\"heading_context\")",
+                    "chunks_have_heading_context",
+                    false,
+                );
+                return;
+            }
+            "first_chunk_starts_with_heading" => {
+                let _ = writeln!(
+                    out,
+                    "    // skipped: synthetic field 'first_chunk_starts_with_heading' not derivable from JSON value alone"
+                );
+                return;
+            }
+            "chunks_have_embeddings" => {
+                emit_zig_chunks_predicate(
+                    out,
+                    result_var,
+                    assertion.assertion_type.as_str(),
+                    "c.object.get(\"embedding\")",
+                    "chunks_have_embeddings",
+                    false,
+                );
+                return;
+            }
+            // `keywords` is a fixture alias that does not map cleanly onto the
+            // serialized JSON ExtractionResult (the real JSON key is
+            // `extracted_keywords`, which itself may be absent when keyword
+            // extraction yields nothing). Matching the Python codegen, skip.
+            "keywords" | "keywords_count" => {
+                let _ = writeln!(
+                    out,
+                    "    // skipped: field '{f}' not available on JSON-struct ExtractionResult"
+                );
+                return;
+            }
+            _ => {}
         }
     }
 

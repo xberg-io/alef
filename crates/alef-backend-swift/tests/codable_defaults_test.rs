@@ -10,9 +10,7 @@
 use alef_backend_swift::SwiftBackend;
 use alef_core::backend::Backend;
 use alef_core::config::{ResolvedCrateConfig, new_config::NewAlefConfig};
-use alef_core::ir::{
-    ApiSurface, CoreWrapper, DefaultValue, FieldDef, PrimitiveType, TypeDef, TypeRef,
-};
+use alef_core::ir::{ApiSurface, CoreWrapper, DefaultValue, FieldDef, PrimitiveType, TypeDef, TypeRef};
 
 // ── helpers (duplicated from gen_bindings_test.rs to keep tests independent) ──
 

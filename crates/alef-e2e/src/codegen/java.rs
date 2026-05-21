@@ -1927,7 +1927,9 @@ fn render_assertion(
     // This needs to be checked early because it affects field_expr computation
     let is_format_metadata_field = assertion.field.as_deref().is_some_and(|f| {
         let resolved = field_resolver.resolve(f);
-        assert_enum_types.get(f).or_else(|| assert_enum_types.get(resolved))
+        assert_enum_types
+            .get(f)
+            .or_else(|| assert_enum_types.get(resolved))
             .is_some_and(|t| t == "FormatMetadata")
     });
 

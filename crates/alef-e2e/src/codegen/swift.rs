@@ -759,9 +759,7 @@ fn render_test_method(
         let options_via = call_overrides.and_then(|o| o.options_via.as_deref());
         options_via.is_none()
             && args.iter().any(|a| {
-                a.arg_type == "json_object"
-                    && a.name != "config"
-                    && !is_scalar_element_type(a.element_type.as_deref())
+                a.arg_type == "json_object" && a.name != "config" && !is_scalar_element_type(a.element_type.as_deref())
             })
     };
 
