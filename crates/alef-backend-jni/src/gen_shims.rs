@@ -68,7 +68,7 @@ impl Backend for JniBackend {
     fn build_config(&self) -> Option<BuildConfig> {
         Some(BuildConfig {
             tool: "cargo",
-            crate_suffix: "jni",
+            crate_suffix: "-jni",
             build_dep: BuildDependency::Ffi,
             post_build: vec![],
         })
@@ -823,7 +823,19 @@ fn emit_method_shim(
             TypeRef::Optional(inner) => inner.as_ref(),
             other => other,
         };
-        emit_single_param_unmarshal(out, &rust_name, base_ty, ret_null, p.optional);
+        // Only the general `_` branch in emit_single_param_unmarshal supports
+        // the empty-string sentinel and produces an `Option<T>` binding directly.
+        // Special-case branches (Vec<u8>, Bytes, Path, Vec<String>, String) bind
+        // the unwrapped `T` and need `Some(name)` wrapping at the call site.
+        let unmarshal_produces_option = p.optional
+            && !matches!(
+                base_ty,
+                TypeRef::Vec(_)
+                    | TypeRef::Bytes
+                    | TypeRef::Path
+                    | TypeRef::String
+            );
+        emit_single_param_unmarshal(out, &rust_name, base_ty, ret_null, unmarshal_produces_option);
         // Apply optional/is_ref at the call site.
         // Special case: Vec<String> with is_ref means the core expects `&[&str]`.
         // emit_single_param_unmarshal already bound `<name>_vec: Vec<String>`.
@@ -836,6 +848,9 @@ fn emit_method_shim(
                 "    let {refs_name}: Vec<&str> = {rust_name}_vec.iter().map(String::as_str).collect();\n"
             ));
             format!("&{refs_name}")
+        } else if unmarshal_produces_option {
+            // Binding is already `Option<T>` — pass through.
+            rust_name
         } else if p.optional {
             format!("Some({rust_name})")
         } else if p.is_ref {
