@@ -250,12 +250,19 @@ fn gen_opaque_streaming_method(
 
     let doc_lines = super::sanitize_doc_lines_for_csharp(&method.doc);
     let has_doc = !doc_lines.is_empty();
+    // Public method name follows the C# `Async` convention; native FFI names
+    // (start/next/free above) intentionally stay unsuffixed.
+    let public_method_name = if cs_method_name.ends_with("Async") {
+        cs_method_name.clone()
+    } else {
+        format!("{cs_method_name}Async")
+    };
     render(
         "opaque_streaming_method.jinja",
         Value::from_serialize(serde_json::json!({
             "has_doc": has_doc,
             "doc_lines": doc_lines,
-            "method_name": cs_method_name,
+            "method_name": public_method_name,
             "item_type": item_pascal,
             "request_type": req_param_type,
             "request_param": req_param_name,
@@ -319,12 +326,20 @@ fn gen_opaque_method(
     };
 
     let method_cs_name = to_csharp_name(&method.name);
+    // Async methods follow the C# Framework Design Guidelines: their public name
+    // ends in `Async`. The native FFI name below (`{class_name}{method_cs_name}`)
+    // intentionally stays unsuffixed so it matches the C ABI export.
+    let public_method_name = if method.is_async && !method_cs_name.ends_with("Async") {
+        format!("{method_cs_name}Async")
+    } else {
+        method_cs_name.clone()
+    };
     let is_static = method.is_static || method.receiver.is_none();
     let static_kw = if is_static { "static " } else { "" };
     out.push_str(
         render(
             "opaque_method_header.jinja",
-            minijinja::context! { static_kw, return_type_str, method_cs_name },
+            minijinja::context! { static_kw, return_type_str, method_cs_name => public_method_name },
         )
         .trim_end_matches('\n'),
     );
