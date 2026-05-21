@@ -638,15 +638,21 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
                 }
             }
             "string" => {
-                // FRB-generated Dart methods use named parameters exclusively
-                // (e.g. `retrieveResponse({required String responseId})`, not positional).
-                // Always emit string args as `paramName: 'value'` named syntax.
-                // This matches the FRB v2 bridge contract for both required and optional params.
+                // Most FRB-generated Dart methods use named parameters
+                // (e.g. `retrieveResponse({required String responseId})`), but
+                // hand-written wrappers may declare required-positional + optional-named
+                // signatures (e.g. tslp's `process(String source, ProcessConfig config)`).
+                // Mirror the same `required → positional, optional → named` policy used
+                // by the json_object handler below so both shapes round-trip correctly.
                 let dart_param_name = snake_to_camel(&arg_def.name);
                 match arg_value {
                     serde_json::Value::String(s) => {
                         let literal = format!("'{}'", escape_dart(s));
-                        args.push(format!("{dart_param_name}: {literal}"));
+                        if arg_def.optional {
+                            args.push(format!("{dart_param_name}: {literal}"));
+                        } else {
+                            args.push(literal);
+                        }
                     }
                     serde_json::Value::Null
                         if arg_def.optional

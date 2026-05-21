@@ -29,6 +29,15 @@ use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
 
 use super::E2eCodegen;
+
+// Empty `result_field_accessor` map shared across calls that don't configure
+// one. Using a `OnceLock` lets `render_test_method` hand out a stable
+// reference without rebuilding the empty `HashMap` for every fixture.
+static EMPTY_FIELD_ACCESSOR_MAP: std::sync::OnceLock<HashMap<String, String>> = std::sync::OnceLock::new();
+
+fn empty_field_accessor_map() -> &'static HashMap<String, String> {
+    EMPTY_FIELD_ACCESSOR_MAP.get_or_init(HashMap::new)
+}
 use super::client;
 
 /// Swift e2e code generator.
@@ -681,6 +690,13 @@ fn render_test_method(
     // `is_empty`/`not_empty` assertions must use `XCTAssertNil` / `XCTAssertNotNil`
     // rather than `.toString().isEmpty`, which is undefined on opaque optionals.
     let result_is_option = call_config.result_is_option || call_overrides.is_some_and(|o| o.result_is_option);
+    let result_element_is_string =
+        call_config.result_element_is_string || call_overrides.is_some_and(|o| o.result_element_is_string);
+    // Per-language map of array-result-field → element accessor method (e.g.
+    // `structure → kind`). Empty map when no override is configured.
+    let result_field_accessor: &HashMap<String, String> = call_overrides
+        .map(|o| &o.result_field_accessor)
+        .unwrap_or_else(|| empty_field_accessor_map());
 
     let method_name = fixture.id.to_upper_camel_case();
     let description = &fixture.description;
@@ -965,6 +981,8 @@ fn render_test_method(
             result_is_simple,
             result_is_array,
             result_is_option,
+            result_element_is_string,
+            result_field_accessor,
             &effective_enum_fields,
             is_streaming,
         );
@@ -1243,6 +1261,8 @@ fn render_assertion(
     result_is_simple: bool,
     result_is_array: bool,
     result_is_option: bool,
+    result_element_is_string: bool,
+    result_field_accessor: &HashMap<String, String>,
     enum_fields: &HashSet<String>,
     is_streaming: bool,
 ) {
@@ -1447,7 +1467,7 @@ fn render_assertion(
     // assertions like `XCTAssertEqual(result.trimmingCharacters(...), …)` will
     // not compile against an optional — coalesce to `""` so the macro sees a
     // concrete Swift `String`.
-    let _bare_result_is_simple_option =
+    let bare_result_is_simple_option =
         result_is_simple && result_is_option && assertion.field.as_deref().filter(|f| !f.is_empty()).is_none();
 
     // For enum fields, need to handle the string representation differently in Swift.
@@ -1536,13 +1556,25 @@ fn render_assertion(
                 // there is no field path, check array membership via map+contains.
                 let no_field = assertion.field.as_deref().is_none_or(|f| f.is_empty());
                 if result_is_simple && result_is_array && no_field {
-                    // RustVec<RustString> iteration yields RustStringRef (no `toString()`);
-                    // use `.asStr().toString()` to convert each element to a Swift String.
-                    // swift-bridge renames `as_str` → `asStr` automatically.
-                    let _ = writeln!(
-                        out,
-                        "        XCTAssertTrue({result_var}.map {{ $0.asStr().toString() }}.contains({swift_val}), \"expected to contain: \\({swift_val})\")"
-                    );
+                    if result_element_is_string {
+                        // The Swift binding exposes the result as a native
+                        // `[String]` (e.g. `manifestLanguages() -> [String]`),
+                        // not the opaque `RustVec<RustString>`. Iterating
+                        // elements yields plain Swift `String`, which has no
+                        // `asStr()` — emit a direct `.contains(...)` instead.
+                        let _ = writeln!(
+                            out,
+                            "        XCTAssertTrue({result_var}.contains({swift_val}), \"expected to contain: \\({swift_val})\")"
+                        );
+                    } else {
+                        // RustVec<RustString> iteration yields RustStringRef (no `toString()`);
+                        // use `.asStr().toString()` to convert each element to a Swift String.
+                        // swift-bridge renames `as_str` → `asStr` automatically.
+                        let _ = writeln!(
+                            out,
+                            "        XCTAssertTrue({result_var}.map {{ $0.asStr().toString() }}.contains({swift_val}), \"expected to contain: \\({swift_val})\")"
+                        );
+                    }
                 } else {
                     // []. traversal: field like "links[].url" → contains(where:) closure.
                     let traversal_handled = if let Some(f) = assertion.field.as_deref() {
@@ -1575,8 +1607,12 @@ fn render_assertion(
                             .as_deref()
                             .is_some_and(|f| field_resolver.is_array(field_resolver.resolve(f)));
                         if field_is_array {
-                            let (contains_expr, is_optional) =
-                                swift_array_contains_expr(assertion.field.as_deref(), result_var, field_resolver);
+                            let (contains_expr, is_optional) = swift_array_contains_expr(
+                                assertion.field.as_deref(),
+                                result_var,
+                                field_resolver,
+                                result_field_accessor,
+                            );
                             let wrapped = if is_optional {
                                 format!("({contains_expr} ?? [])")
                             } else {
@@ -1634,8 +1670,12 @@ fn render_assertion(
                         // For array fields (RustVec<RustString>), check membership via map+contains.
                         let field_is_array = field_resolver.is_array(field_resolver.resolve(f));
                         if field_is_array {
-                            let (contains_expr, is_optional) =
-                                swift_array_contains_expr(assertion.field.as_deref(), result_var, field_resolver);
+                            let (contains_expr, is_optional) = swift_array_contains_expr(
+                                assertion.field.as_deref(),
+                                result_var,
+                                field_resolver,
+                                result_field_accessor,
+                            );
                             let wrapped = if is_optional {
                                 format!("({contains_expr} ?? [])")
                             } else {
@@ -2231,7 +2271,12 @@ fn swift_traversal_contains_assert(
 /// that converts each element to a Swift `String`, and `is_optional` reports
 /// whether the resulting expression is `Optional<[String]>` (callers should
 /// coalesce with `?? []`) or already a concrete `[String]`.
-fn swift_array_contains_expr(field: Option<&str>, result_var: &str, field_resolver: &FieldResolver) -> (String, bool) {
+fn swift_array_contains_expr(
+    field: Option<&str>,
+    result_var: &str,
+    field_resolver: &FieldResolver,
+    result_field_accessor: &HashMap<String, String>,
+) -> (String, bool) {
     // swift-bridge auto-renames Rust snake_case methods to lowerCamelCase on the
     // Swift side. `RustStringRef::as_str()` is exposed as `asStr()` — emitting
     // `as_str()` produces "value of type 'XRef' has no member 'as_str'" at
@@ -2239,6 +2284,17 @@ fn swift_array_contains_expr(field: Option<&str>, result_var: &str, field_resolv
     let Some(f) = field else {
         return (format!("{result_var}.map {{ $0.asStr().toString() }}"), false);
     };
+    // Allow per-call overrides to name a different element accessor — used when
+    // the array element is an opaque struct whose "name string" accessor is
+    // not `as_str` (e.g. `StructureItem` exposes `kind() -> String`). The map
+    // is keyed on the fixture field name (and resolved alias as a fallback).
+    let resolved_field = field_resolver.resolve(f);
+    let elem_accessor_name = result_field_accessor
+        .get(f)
+        .or_else(|| result_field_accessor.get(resolved_field))
+        .cloned()
+        .unwrap_or_else(|| "as_str".to_string());
+    let elem_call = swift_ident(&elem_accessor_name.to_lower_camel_case());
     let (accessor, has_optional) = swift_build_accessor(f, result_var, field_resolver);
     // Only chain `?.map` when the accessor is actually optional. The previous
     // unconditional `?.map` produced "cannot use optional chaining on
@@ -2246,9 +2302,9 @@ fn swift_array_contains_expr(field: Option<&str>, result_var: &str, field_resolv
     let field_is_optional =
         has_optional || field_resolver.is_optional(f) || field_resolver.is_optional(field_resolver.resolve(f));
     if field_is_optional {
-        (format!("{accessor}?.map {{ $0.asStr().toString() }}"), true)
+        (format!("{accessor}?.map {{ $0.{elem_call}().toString() }}"), true)
     } else {
-        (format!("{accessor}.map {{ $0.asStr().toString() }}"), false)
+        (format!("{accessor}.map {{ $0.{elem_call}().toString() }}"), false)
     }
 }
 
