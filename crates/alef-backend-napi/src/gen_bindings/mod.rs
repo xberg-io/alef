@@ -541,6 +541,11 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
             }
         }
 
+        // Emit module-level wrapper functions for adapters (streaming methods).
+        for adapter in &config.adapters {
+            builder.add_item(&functions::gen_adapter_wrapper(adapter));
+        }
+
         // Trait bridge wrappers — generate NAPI bridge structs that delegate to JS objects
         for bridge_cfg in &config.trait_bridges {
             if let Some(trait_type) = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name) {
