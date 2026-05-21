@@ -121,7 +121,7 @@ pub(super) fn gen_rustler_method_call_args(
         .iter()
         .map(|p| match &p.ty {
             TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
-                format!("&*{}", p.name)
+                format!("&{}.inner", p.name)
             }
             // Default-typed Named params are passed as Option<String> JSON and decoded
             // by the caller into a `{name}_core` local. Reference that local here.
@@ -200,8 +200,7 @@ pub(super) fn gen_nif_function(
         .map(|p| {
             if let TypeRef::Named(n) = &p.ty {
                 if opaque_types.contains(n) {
-                    let core_n = resolve_core_type_path(n, types_by_name, core_import);
-                    return format!("{}: rustler::ResourceArc<{}>", p.name, core_n);
+                    return format!("{}: rustler::ResourceArc<{}>", p.name, n);
                 }
                 // Default (has_default) types are passed as JSON strings so that
                 // partial maps work — serde_json::from_str respects #[serde(default)].
@@ -281,7 +280,7 @@ pub(super) fn gen_nif_function(
                 // Fall back to the standard call-arg logic for all other types.
                 match &p.ty {
                     TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
-                        format!("&*{}", p.name)
+                        format!("&{}.inner", p.name)
                     }
                     TypeRef::Named(_) => {
                         if p.optional {
@@ -385,7 +384,7 @@ pub(super) fn gen_nif_function(
             .map(|p| {
                 if let TypeRef::Named(n) = &p.ty {
                     if opaque_types.contains(n) {
-                        return format!("&*{}", p.name);
+                        return format!("&{}.inner", p.name);
                     }
                     if default_types.contains(n) {
                         // Default types already handled in the can_delegate branch above.
@@ -518,8 +517,7 @@ pub(super) fn gen_nif_async_function(
         .map(|p| {
             if let TypeRef::Named(n) = &p.ty {
                 if opaque_types.contains(n) {
-                    let core_n = resolve_core_type_path(n, types_by_name, core_import);
-                    return format!("{}: rustler::ResourceArc<{}>", p.name, core_n);
+                    return format!("{}: rustler::ResourceArc<{}>", p.name, n);
                 }
                 // Default (has_default) types are passed as JSON strings.
                 if default_types.contains(n) {
@@ -600,7 +598,7 @@ pub(super) fn gen_nif_async_function(
                 }
                 match &p.ty {
                     TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
-                        format!("&*{}", p.name)
+                        format!("&{}.inner", p.name)
                     }
                     TypeRef::Named(_) => {
                         if p.optional {
@@ -721,12 +719,11 @@ pub(super) fn gen_nif_method(
 ) -> String {
     let method_fn_name = format!("{}_{}", struct_name.to_lowercase(), method.name);
 
-    let core_struct = resolve_core_type_path(struct_name, types_by_name, core_import);
     let mut params = if method.receiver.is_some() {
         if is_opaque {
-            vec![format!("resource: rustler::ResourceArc<{}>", core_struct)]
+            vec![format!("resource: rustler::ResourceArc<{}>", struct_name)]
         } else {
-            vec![format!("obj: {}", core_struct)]
+            vec![format!("obj: {}", struct_name)]
         }
     } else {
         vec![]
@@ -735,8 +732,7 @@ pub(super) fn gen_nif_method(
     for p in &method.params {
         if let TypeRef::Named(n) = &p.ty {
             if opaque_types.contains(n) {
-                let core_n = resolve_core_type_path(n, types_by_name, core_import);
-                params.push(format!("{}: rustler::ResourceArc<{}>", p.name, core_n));
+                params.push(format!("{}: rustler::ResourceArc<{}>", p.name, n));
                 continue;
             }
             // Default (has_default) types are passed as JSON strings so partial maps
@@ -956,12 +952,11 @@ pub(super) fn gen_nif_async_method(
 ) -> String {
     let method_fn_name = format!("{}_{}_async", struct_name.to_lowercase(), method.name);
 
-    let core_struct = resolve_core_type_path(struct_name, types_by_name, core_import);
     let mut params = if method.receiver.is_some() {
         if is_opaque {
-            vec![format!("resource: rustler::ResourceArc<{}>", core_struct)]
+            vec![format!("resource: rustler::ResourceArc<{}>", struct_name)]
         } else {
-            vec![format!("obj: {}", core_struct)]
+            vec![format!("obj: {}", struct_name)]
         }
     } else {
         vec![]
@@ -970,8 +965,7 @@ pub(super) fn gen_nif_async_method(
     for p in &method.params {
         if let TypeRef::Named(n) = &p.ty {
             if opaque_types.contains(n) {
-                let core_n = resolve_core_type_path(n, types_by_name, core_import);
-                params.push(format!("{}: rustler::ResourceArc<{}>", p.name, core_n));
+                params.push(format!("{}: rustler::ResourceArc<{}>", p.name, n));
                 continue;
             }
             // Default (has_default) types are passed as JSON strings so partial maps work.
