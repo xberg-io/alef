@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-e2e/rust: use Display (`.to_string()` / `.as_deref()`) for string-like equals assertions instead of Debug `format!("{:?}", v)`.** The Debug-format fix from v0.17.13 unblocked rare non-Display enum types but broke every string scalar comparison: `format!("{:?}", mime_type)` on a `Cow<'static, str>` field emits `"application/pdf"` (with literal quotes) while the fixture's `field_equals` value is the bare `application/pdf` literal, so the assertion fails. Restored Display formatting for both optional (`.as_deref().unwrap_or("").trim()`) and non-optional (`.to_string().as_str().trim()`) string fields. Surfaced on kreuzberg `test_async_extract_bytes`, `test_smoke_*_basic`, and `test_ocr_image_png` — 8+ tests across `smoke_test`, `async_test`, `code_test`, `contract_test`. (`crates/alef-e2e/src/codegen/rust/assertion_helpers.rs`)
+
 ## [0.17.13] - 2026-05-21
 
 ### Added

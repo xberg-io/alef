@@ -31,16 +31,17 @@ pub(super) fn render_equals_assertion(
                 is_opt && !is_arr && !is_unwrapped
             });
             let field_expr = if is_opt_str_not_unwrapped {
-                // Use `.map(|v| format!("{:?}", v))` instead of `.as_deref()` so that optional
-                // enum types (e.g. `Option<FinishReason>`, `Option<FormatMetadata>`) work even if
-                // they don't implement Display. For `Option<String>` we get the string itself (via Debug).
-                // Use Debug format to handle enum types like FormatMetadata that don't impl Display.
-                format!("{field_access}.as_ref().map(|v| format!(\"{{:?}}\", v)).as_deref().unwrap_or(\"\").trim()")
+                // Optional string-like field that wasn't pre-unwrapped: use `.as_deref()`
+                // when the inner type is `String`; for inner types that impl Display we
+                // can also do `.as_ref().map(ToString::to_string)`. Default to as_deref
+                // which is the common String case — types without Display (rare) need
+                // a separate fixture-level path resolution to land on a string child.
+                format!("{field_access}.as_deref().unwrap_or(\"\").trim()")
             } else {
-                // Non-optional string: use `.to_string().as_str()` for String types and
-                // `format!("{:?}", v)` for Debug-only types like FormatMetadata.
-                // For safety, use Debug format so non-Display types still work.
-                format!("format!(\"{{:?}}\", {field_access}).as_str().trim()")
+                // Non-optional string-like field: rely on Display impl via `.to_string()`.
+                // This is correct for `String`, `&str`, and `Cow<str>` — Debug would
+                // wrap them in extra quotes and break literal comparison.
+                format!("{field_access}.to_string().as_str().trim()")
             };
             let _ = writeln!(
                 out,
