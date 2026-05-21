@@ -1923,6 +1923,14 @@ fn render_assertion(
         }
     }
 
+    // Determine if this field is a FormatMetadata type (from assert_enum_types)
+    // This needs to be checked early because it affects field_expr computation
+    let is_format_metadata_field = assertion.field.as_deref().is_some_and(|f| {
+        let resolved = field_resolver.resolve(f);
+        assert_enum_types.get(f).or_else(|| assert_enum_types.get(resolved))
+            .is_some_and(|t| t == "FormatMetadata")
+    });
+
     // Determine if this field is an enum type (no `.contains()` on enums in Java).
     // Check both the raw fixture field path and the resolved (aliased) path so that
     // `fields_enum` entries can use either form (e.g., `"assets[].category"` or the
@@ -1933,13 +1941,6 @@ fn render_assertion(
         let resolved = field_resolver.resolve(f);
         let enum_type = enum_fields.get(f).or_else(|| enum_fields.get(resolved));
         enum_type.is_some_and(|t| t != "FormatMetadata")
-    });
-
-    // Check if this field is a FormatMetadata type (from assert_enum_types)
-    let is_format_metadata_field = assertion.field.as_deref().is_some_and(|f| {
-        let resolved = field_resolver.resolve(f);
-        assert_enum_types.get(f).or_else(|| assert_enum_types.get(resolved))
-            .is_some_and(|t| t == "FormatMetadata")
     });
 
     // Determine if this field is an array (List<T>) — needed to choose .toString() for
@@ -2016,11 +2017,7 @@ fn render_assertion(
                             // FormatMetadata is handled specially: keep as Optional so the string_expr
                             // path can apply FormatMetadataDisplay.toDisplayString().
                             "equals" => {
-                                if enum_fields
-                                    .get(f)
-                                    .or_else(|| enum_fields.get(field_resolver.resolve(f)))
-                                    .is_some_and(|t| t == "FormatMetadata")
-                                {
+                                if is_format_metadata_field {
                                     // FormatMetadata Optional: keep unwrapped, will be handled by string_expr path
                                     optional_expr
                                 } else if let Some(expected) = &assertion.value {
