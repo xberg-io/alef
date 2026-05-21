@@ -1394,13 +1394,13 @@ fn render_json_assertion(
                 return;
             }
             "chunks_have_heading_context" => {
-                emit_zig_chunks_predicate(
+                // `heading_context` is `Option<HeadingContext>` and serde drops
+                // `None` from the JSON, so chunks without a heading produce no
+                // key — making an "all chunks have it" predicate spuriously
+                // fail. Matching the Ruby codegen, skip this synthetic field.
+                let _ = writeln!(
                     out,
-                    result_var,
-                    assertion.assertion_type.as_str(),
-                    "c.object.get(\"heading_context\")",
-                    "chunks_have_heading_context",
-                    false,
+                    "    // skipped: synthetic field 'chunks_have_heading_context' not derivable from JSON value alone"
                 );
                 return;
             }
