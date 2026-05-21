@@ -1324,6 +1324,33 @@ fn build_args_and_setup(
             continue;
         }
 
+        if arg.arg_type == "mock_url_list" {
+            // array of URLs: each element is either a bare path (`/seed1`) — prefixed
+            // with the per-fixture mock-server URL at runtime — or an absolute URL kept
+            // as-is. Mirrors `mock_url` resolution: `MOCK_SERVER_<FIXTURE_ID>` first,
+            // then `MOCK_SERVER_URL/fixtures/<id>`.
+            let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
+            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+            let val = input.get(field).unwrap_or(&serde_json::Value::Null);
+            let paths: Vec<String> = if let Some(arr) = val.as_array() {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| format!("\"{}\"", escape_php(s))))
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            let paths_literal = paths.join(", ");
+            let name = &arg.name;
+            setup_lines.push(format!(
+                "${name}_base = getenv('{env_key}') ?: getenv('MOCK_SERVER_URL') . '/fixtures/{fixture_id}';"
+            ));
+            setup_lines.push(format!(
+                "${name} = array_map(fn($p) => str_starts_with($p, 'http') ? $p : ${name}_base . $p, [{paths_literal}]);"
+            ));
+            parts.push(format!("${name}"));
+            continue;
+        }
+
         if arg.arg_type == "handle" {
             // Generate a createEngine (or equivalent) call and pass the variable.
             let constructor_name = format!("create{}", arg.name.to_upper_camel_case());
