@@ -163,8 +163,8 @@ impl E2eCodegen for CSharpCodegen {
             })
             .unwrap_or(&EMPTY_ASSERT_ENUM_FIELDS);
 
-        // Build effective nested_types from both top-level and C# override configs.
-        let mut effective_nested_types: HashMap<String, String> = e2e_config.call.nested_types.clone();
+        // Build effective nested_types from C# override config (top-level doesn't have nested_types).
+        let mut effective_nested_types: HashMap<String, String> = HashMap::new();
         if let Some(overrides_map) = overrides.map(|o| &o.nested_types) {
             effective_nested_types.extend(overrides_map.clone());
         }
