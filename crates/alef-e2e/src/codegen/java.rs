@@ -158,8 +158,7 @@ impl E2eCodegen for JavaCodegen {
         let _enum_fields = overrides.map(|o| &o.enum_fields).unwrap_or(&EMPTY_ENUM_FIELDS);
 
         // Build effective nested_types from configured overrides (empty by default).
-        let mut effective_nested_types: std::collections::HashMap<String, String> =
-            std::collections::HashMap::new();
+        let mut effective_nested_types: std::collections::HashMap<String, String> = std::collections::HashMap::new();
         if let Some(overrides_map) = overrides.map(|o| &o.nested_types) {
             effective_nested_types.extend(overrides_map.clone());
         }
@@ -684,11 +683,31 @@ fn render_test_file(
     });
     if has_streaming_fixture && !binding_pkg_for_imports.is_empty() {
         imports.push(format!("import {binding_pkg_for_imports}.ChatCompletionChunk;"));
-        // Import streaming types: CrawlEvent, CrawlStreamRequest, BatchCrawlStreamRequest.
-        // These types are used by streaming adapters and are always available in the binding.
-        imports.push(format!("import {binding_pkg_for_imports}.CrawlEvent;"));
-        imports.push(format!("import {binding_pkg_for_imports}.CrawlStreamRequest;"));
-        imports.push(format!("import {binding_pkg_for_imports}.BatchCrawlStreamRequest;"));
+        // Derive streaming DTO imports from declared adapters so each project pulls
+        // in only the types it actually exposes — e.g. kreuzcrawl gets
+        // CrawlEvent/CrawlStreamRequest/BatchCrawlStreamRequest, liter-llm gets nothing
+        // beyond ChatCompletionChunk above (ChatCompletionRequest is imported elsewhere).
+        let mut extra_streaming_imports: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        for adapter in adapters {
+            if !matches!(adapter.pattern, alef_core::config::extras::AdapterPattern::Streaming) {
+                continue;
+            }
+            if let Some(item) = adapter.item_type.as_deref() {
+                let simple = item.rsplit("::").next().unwrap_or(item);
+                if simple != "ChatCompletionChunk" && !simple.is_empty() {
+                    extra_streaming_imports.insert(simple.to_string());
+                }
+            }
+            if let Some(req) = adapter.request_type.as_deref() {
+                let simple = req.rsplit("::").next().unwrap_or(req);
+                if !simple.is_empty() {
+                    extra_streaming_imports.insert(simple.to_string());
+                }
+            }
+        }
+        for ty in extra_streaming_imports {
+            imports.push(format!("import {binding_pkg_for_imports}.{ty};"));
+        }
     }
 
     // Render all test methods
