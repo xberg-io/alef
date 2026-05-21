@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.18] - 2026-05-21
+
 ### Fixed
 
 - **alef-e2e/elixir: always emit options as JSON string when no options_via is configured.** The struct-literal emission path (`%Module.OptionsType{...}`) was unreachable in practice — Rustler NIF facades that don't have an `options_via` constructor expect a JSON string (`Option<String>` decoded by serde_json), not an Elixir map. Removed the struct-literal branch and the keyword-vs-positional split for JSON-encoded args: always emit positional JSON string. Fixes html-to-markdown elixir e2e codegen consistency. (`crates/alef-e2e/src/codegen/elixir.rs`)
