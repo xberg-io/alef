@@ -577,18 +577,41 @@ fn emit_function_shim(
                 ));
                 unmarshal.push_str("    };\n");
                 let type_path = type_ref_to_core_path(base_ty, "core_crate");
-                unmarshal.push_str(&format!(
-                    "    let {rust_name}: {type_path} = match serde_json::from_str(&{rust_name}_str) {{\n"
-                ));
-                unmarshal.push_str("        Ok(v) => v,\n");
-                unmarshal.push_str(&format!("        Err(e) => {{ throw_jni_error(env, &format!(\"deserialize: {{e}}\")); return {err_null}; }}\n"));
-                unmarshal.push_str("    };\n");
+                // Optional complex params: the Kotlin/Java caller passes an empty
+                // string (`""`) when the host-language value is null, the legacy
+                // sentinel for "no payload" that pairs with `?.let { ... } ?: ""`.
+                // Accept that sentinel as `None` instead of attempting to parse
+                // it as JSON (which fails with `EOF while parsing a value`).
                 if p.optional {
-                    call_args.push_str(&format!("Some({rust_name})"));
-                } else if p.is_ref {
-                    call_args.push_str(&format!("&{rust_name}"));
-                } else {
+                    unmarshal.push_str(&format!(
+                        "    let {rust_name}: Option<{type_path}> = if {rust_name}_str.is_empty() {{\n"
+                    ));
+                    unmarshal.push_str("        None\n");
+                    unmarshal.push_str("    } else {\n");
+                    unmarshal.push_str(&format!(
+                        "        match serde_json::from_str::<{type_path}>(&{rust_name}_str) {{\n"
+                    ));
+                    unmarshal.push_str("            Ok(v) => Some(v),\n");
+                    unmarshal.push_str(&format!(
+                        "            Err(e) => {{ throw_jni_error(env, &format!(\"deserialize: {{e}}\")); return {err_null}; }}\n"
+                    ));
+                    unmarshal.push_str("        }\n");
+                    unmarshal.push_str("    };\n");
                     call_args.push_str(&rust_name);
+                } else {
+                    unmarshal.push_str(&format!(
+                        "    let {rust_name}: {type_path} = match serde_json::from_str(&{rust_name}_str) {{\n"
+                    ));
+                    unmarshal.push_str("        Ok(v) => v,\n");
+                    unmarshal.push_str(&format!(
+                        "        Err(e) => {{ throw_jni_error(env, &format!(\"deserialize: {{e}}\")); return {err_null}; }}\n"
+                    ));
+                    unmarshal.push_str("    };\n");
+                    if p.is_ref {
+                        call_args.push_str(&format!("&{rust_name}"));
+                    } else {
+                        call_args.push_str(&rust_name);
+                    }
                 }
             }
         }
