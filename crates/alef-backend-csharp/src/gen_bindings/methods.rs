@@ -10,6 +10,7 @@ use crate::type_map::csharp_type;
 use alef_codegen::doc_emission;
 use alef_codegen::generators::trait_bridge::find_bridge_field;
 use alef_codegen::naming::{csharp_type_name, to_csharp_name};
+use alef_core::config::AdapterConfig;
 use alef_core::ir::{ApiSurface, FunctionDef, MethodDef, TypeRef};
 use heck::ToLowerCamelCase;
 use std::collections::{HashMap, HashSet};
@@ -54,6 +55,111 @@ fn sanitize_doc_for_csharp(doc: &str) -> String {
         .join("\n")
 }
 
+/// Generate a wrapper method for a streaming adapter.
+/// Emits a public async method that returns IAsyncEnumerable<ItemType>.
+fn gen_adapter_wrapper(
+    adapter: &AdapterConfig,
+    _prefix: &str,
+    _exception_name: &str,
+    _api: &ApiSurface,
+) -> String {
+    let adapter_name = &adapter.name;
+    let method_name = to_csharp_name(adapter_name);
+    let item_type = adapter.item_type.as_deref().unwrap_or("object");
+    let cs_item_type = csharp_type_name(item_type);
+
+    // Build visible parameters: engine + request params
+    let mut param_parts = vec!["IntPtr engine".to_string()];
+    for param in &adapter.params {
+        let param_name = param.name.to_lower_camel_case();
+        let param_type = if param.ty.contains("::") {
+            let parts: Vec<&str> = param.ty.split("::").collect();
+            csharp_type_name(parts.last().unwrap_or(&"object"))
+        } else {
+            csharp_type_name(&param.ty)
+        };
+        param_parts.push(format!("{param_type} {param_name}"));
+    }
+    let params_decl = param_parts.join(", ");
+
+    // Build setup code to serialize params to JSON and get native handles
+    let mut setup_lines = Vec::new();
+    for param in &adapter.params {
+        let param_name = param.name.to_lower_camel_case();
+        let param_type_pascal = to_csharp_name(&param.ty.split("::").last().unwrap_or(&"").to_string());
+        setup_lines.push(format!(
+            "        var {param_name}Json = JsonSerializer.Serialize({param_name}, JsonSerializationOptions);"
+        ));
+        setup_lines.push(format!(
+            "        var {param_name}Handle = NativeMethods.{param_type_pascal}FromJson({param_name}Json);"
+        ));
+    }
+    let setup_code = if setup_lines.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n", setup_lines.join("\n"))
+    };
+
+    // Build native call args list (engine + request handles)
+    let mut native_args = vec!["engine".to_string()];
+    for param in &adapter.params {
+        let param_name = param.name.to_lower_camel_case();
+        native_args.push(format!("{param_name}Handle"));
+    }
+    let native_args_str = native_args.join(", ");
+
+    // Build cleanup code for try-finally
+    let mut cleanup_lines = Vec::new();
+    for param in &adapter.params {
+        let param_name = param.name.to_lower_camel_case();
+        let param_type_pascal = to_csharp_name(&param.ty.split("::").last().unwrap_or(&"").to_string());
+        cleanup_lines.push(format!(
+            "            NativeMethods.{param_type_pascal}Free({param_name}Handle);"
+        ));
+    }
+    let cleanup_code = cleanup_lines.join("\n");
+
+    // Build the iterator handle FFI protocol: CrawlEngineHandle{AdapterName}Start/Next/Free
+    let adapter_cs_name = csharp_type_name(adapter_name);
+    let start_method = format!("CrawlEngineHandle{}Start", adapter_cs_name);
+    let next_method = format!("CrawlEngineHandle{}Next", adapter_cs_name);
+    let free_method = format!("CrawlEngineHandle{}Free", adapter_cs_name);
+
+    format!(
+        "    public static async IAsyncEnumerable<{cs_item_type}> {method_name}({params_decl})\n    {{\n\
+         {setup_code}\
+         var iterHandle = NativeMethods.{start_method}({native_args_str});\n\
+         if (iterHandle == IntPtr.Zero) throw GetLastError();\n\
+         try\n\
+         {{\n\
+             while (true)\n\
+             {{\n\
+                 var itemPtr = NativeMethods.{next_method}(iterHandle);\n\
+                 if (itemPtr == IntPtr.Zero) break;\n\
+                 try\n\
+                 {{\n\
+                     var json = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(itemPtr);\n\
+                     if (!string.IsNullOrEmpty(json))\n\
+                     {{\n\
+                         var item = JsonSerializer.Deserialize<{cs_item_type}>(json, JsonOptions)!;\n\
+                         yield return item;\n\
+                     }}\n\
+                 }}\n\
+                 finally\n\
+                 {{\n\
+                     NativeMethods.FreeString(itemPtr);\n\
+                 }}\n\
+             }}\n\
+         }}\n\
+         finally\n\
+         {{\n\
+             NativeMethods.{free_method}(iterHandle);\n\
+             {cleanup_code}\n\
+         }}\n\
+     }}\n\n"
+    )
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn gen_wrapper_class(
     api: &ApiSurface,
@@ -69,6 +175,7 @@ pub(super) fn gen_wrapper_class(
     exclude_functions: &HashSet<String>,
     trait_bridges: &[alef_core::config::TraitBridgeConfig],
     _all_opaque_type_names: &HashSet<String>,
+    adapters: &[AdapterConfig],
 ) -> String {
     use crate::template_env::render;
     use minijinja::Value;
@@ -161,6 +268,13 @@ pub(super) fn gen_wrapper_class(
                 bridge_type_aliases,
                 &api.types,
             ));
+        }
+    }
+
+    // Emit adapter wrapper methods for streaming adapters
+    for adapter in adapters {
+        if matches!(adapter.pattern, alef_core::config::AdapterPattern::Streaming) {
+            out.push_str(&gen_adapter_wrapper(adapter, prefix, exception_name, api));
         }
     }
 

@@ -826,10 +826,11 @@ impl Backend for RustlerBackend {
             } else {
                 trailing_optional_count
             };
-            // Use keyword-opts collapsing (`opts \\ []`) for any trailing optionals.
-            // This ensures e2e codegen, which always emits keyword form for config/options args,
-            // can pass them correctly without mixing positional and keyword syntax.
-            let use_keyword_opts = trailing_keyword_count >= 1;
+            // Use keyword-opts collapsing (`opts \\ []`) for multiple trailing optionals only.
+            // Single trailing optional params (e.g., `config: Option<T>`) stay positional with `\\ nil`
+            // so e2e codegen can pass them as positional arguments. This preserves the common
+            // config-parameter pattern where a single JSON string or nil is passed directly.
+            let use_keyword_opts = trailing_keyword_count >= 2;
 
             // Emit one @spec/@doc per arity variant (shortest to longest).
             // The shortest arity fills optional params with nil.

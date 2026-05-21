@@ -301,6 +301,7 @@ impl Backend for CsharpBackend {
                 &exclude_functions,
                 &config.trait_bridges,
                 &all_opaque_type_names,
+                &config.adapters,
             )),
             generated_header: true,
         });
