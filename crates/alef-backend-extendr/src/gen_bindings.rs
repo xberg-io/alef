@@ -631,8 +631,15 @@ impl Backend for ExtendrBackend {
             .cloned()
             .collect();
 
+        // Names emitted by the trait-bridge generator; skip them in the free-function
+        // pass below to avoid duplicate `#[extendr]` definitions (Rust E0428).
+        let bridge_fn_names = collect_trait_bridge_fn_names(config);
+
         // Generate function bindings
         for func in &api.functions {
+            if bridge_fn_names.contains(&func.name) {
+                continue;
+            }
             let bridge_param = crate::trait_bridge::find_bridge_param(func, &active_bridges);
             let bridge_field = find_bridge_field(func, &api.types, &active_bridges);
 
@@ -736,6 +743,7 @@ impl Backend for ExtendrBackend {
             funcs = api
                 .functions
                 .iter()
+                .filter(|f| !bridge_fn_names.contains(&f.name))
                 .map(|f| format!("    fn {};\n", f.name))
                 .collect::<String>()
                 + &collect_trait_bridge_functions(config)
@@ -1673,6 +1681,39 @@ pub(crate) struct TraitBridgeFn {
     pub(crate) params: Vec<String>,
 }
 
+/// Collect the set of free-function names that the trait-bridge generator will emit
+/// (`register_<trait>` / `unregister_<trait>` / `clear_<trait>`). Used to filter
+/// `api.functions` so a free function with the same name as a trait-bridge fn is
+/// not emitted twice in `lib.rs` (which would be a Rust `E0428` duplicate
+/// definition). Honours `exclude_languages` so excluded bridges don't shadow real
+/// free functions.
+///
+/// Example: `clear_ocr_backends` is defined both as `pub fn` in
+/// `crates/kreuzberg/src/plugins/ocr.rs` (so it appears in `api.functions`) AND
+/// synthesised by the trait-bridge generator for the `OcrBackend` trait. The
+/// trait-bridge form is the canonical one — it resolves to the
+/// `kreuzberg::plugins::ocr_backend::clear_ocr_backends` path module rather than
+/// the top-level alias — so emit it from the bridge generator and skip the
+/// duplicate from `api.functions`.
+pub(crate) fn collect_trait_bridge_fn_names(config: &ResolvedCrateConfig) -> ahash::AHashSet<String> {
+    let mut names = ahash::AHashSet::new();
+    for bridge_cfg in &config.trait_bridges {
+        if bridge_cfg.exclude_languages.iter().any(|l| l == "r" || l == "extendr") {
+            continue;
+        }
+        if let Some(name) = bridge_cfg.register_fn.as_deref() {
+            names.insert(name.to_string());
+        }
+        if let Some(name) = bridge_cfg.unregister_fn.as_deref() {
+            names.insert(name.to_string());
+        }
+        if let Some(name) = bridge_cfg.clear_fn.as_deref() {
+            names.insert(name.to_string());
+        }
+    }
+    names
+}
+
 /// Collect every trait-bridge register / unregister / clear function that the
 /// extendr backend will emit for this crate, honouring `exclude_languages`.
 ///
@@ -2132,8 +2173,15 @@ fn gen_extendr_wrappers_r(
     ));
     out.push_str("NULL\n\n");
 
+    // Names emitted by the trait-bridge generator; skip them in the free-function
+    // pass so the wrapper file does not define the same R wrapper twice.
+    let bridge_fn_names: ahash::AHashSet<&str> = trait_bridge_fns.iter().map(|tb| tb.name.as_str()).collect();
+
     // Free functions. Every entry in `api.functions` is registered in extendr_module!.
     for func in &api.functions {
+        if bridge_fn_names.contains(func.name.as_str()) {
+            continue;
+        }
         let params: Vec<&str> = func.params.iter().map(|p| p.name.as_str()).collect();
         let params_sig = params.join(", ");
         let mut call_args = vec![format!("\"wrap__{}\"", func.name)];
@@ -2460,7 +2508,14 @@ fn gen_namespace(api: &ApiSurface, package_name: &str, trait_bridge_fns: &[Trait
     ));
     out.push('\n');
 
+    // Names emitted by the trait-bridge generator; skip them in the free-function
+    // export pass to avoid duplicate `export(...)` lines in NAMESPACE.
+    let bridge_fn_names: ahash::AHashSet<&str> = trait_bridge_fns.iter().map(|tb| tb.name.as_str()).collect();
+
     for func in &api.functions {
+        if bridge_fn_names.contains(func.name.as_str()) {
+            continue;
+        }
         out.push_str(&crate::template_env::render(
             "r_namespace_export.jinja",
             minijinja::context! { name => &func.name },

@@ -1390,9 +1390,12 @@ fn build_args_and_setup(
                         }
 
                         // Push the variable name as the argument.
-                        // For optional json_object args with options_type, pass as positional (not keyword form)
-                        // so they work with `convert(html, options_map)` style function signatures.
-                        parts.push(options_var.to_string());
+                        // For optional json_object args with options_type, use keyword form when optional.
+                        if arg.optional {
+                            parts.push(format!("{}: {options_var}", arg.name));
+                        } else {
+                            parts.push(options_var.to_string());
+                        }
                         continue;
                     }
                     // When options_type is set but options_via is NOT, emit struct-literal form.
@@ -1415,9 +1418,12 @@ fn build_args_and_setup(
                         }
                         let fields = field_strs.join(", ");
                         setup_lines.push(format!("{options_var} = %{module_path}.{opts_type}{{{fields}}}"));
-                        // For optional json_object args with options_type, pass as positional (not keyword form)
-                        // so they work with `convert(html, options_map)` style function signatures.
-                        parts.push(options_var.to_string());
+                        // For optional json_object args with options_type, use keyword form when optional.
+                        if arg.optional {
+                            parts.push(format!("{}: {options_var}", arg.name));
+                        } else {
+                            parts.push(options_var.to_string());
+                        }
                         continue;
                     }
                     // When element_type is set to a batch item type, wrap items with constructors.
@@ -1469,19 +1475,30 @@ fn build_args_and_setup(
         }
     }
 
-    // Separate positional and keyword args; Elixir requires all positionals before keywords
+    // Elixir requires all positional args before keyword args.
+    // Track the index of the first keyword arg to ensure no positional args come after it.
     let mut positional_args = Vec::new();
     let mut keyword_args = Vec::new();
-    for part in parts {
-        if part.contains(": ") && !part.starts_with('"') {
-            keyword_args.push(part);
+    let mut seen_keyword = false;
+
+    for (idx, part) in parts.into_iter().enumerate() {
+        let is_keyword = part.contains(": ") && !part.starts_with('"');
+        if is_keyword {
+            seen_keyword = true;
+            keyword_args.push((idx, part));
+        } else if seen_keyword {
+            // We've already seen a keyword arg, so any positional arg from here on
+            // breaks Elixir's syntax rules. This shouldn't happen if the arg ordering
+            // respects the function signature, but we'll keep it as a positional
+            // and let Elixir fail with a syntax error (the real fix is in alef.toml config).
+            keyword_args.push((idx, part));
         } else {
             positional_args.push(part);
         }
     }
 
     let mut final_args = positional_args;
-    final_args.extend(keyword_args);
+    final_args.extend(keyword_args.into_iter().map(|(_, arg)| arg));
 
     (setup_lines, final_args.join(", "))
 }
@@ -1537,6 +1554,49 @@ fn render_assertion(
                     }
                     "is_false" => {
                         let _ = writeln!(out, "      refute {pred}");
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "      # skipped: unsupported assertion type on synthetic field '{f}'"
+                        );
+                    }
+                }
+                return;
+            }
+            "chunks_have_heading_context" => {
+                let pred = format!(
+                    "Enum.all?({result_var}.chunks || [], fn c -> c.metadata != nil and c.metadata.heading_context != nil end)"
+                );
+                match assertion.assertion_type.as_str() {
+                    "is_true" => {
+                        let _ = writeln!(out, "      assert {pred}");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out, "      refute {pred}");
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "      # skipped: unsupported assertion type on synthetic field '{f}'"
+                        );
+                    }
+                }
+                return;
+            }
+            "first_chunk_starts_with_heading" => {
+                let expr = format!(
+                    "({result_var}.chunks || []) |> Enum.find(fn _ -> true end) |> case do
+        c when is_map(c) -> String.trim_leading(c.content || \"\") |> String.starts_with?(\"#\")
+        _ -> false
+      end"
+                );
+                match assertion.assertion_type.as_str() {
+                    "is_true" => {
+                        let _ = writeln!(out, "      assert {expr}");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out, "      refute {expr}");
                     }
                     _ => {
                         let _ = writeln!(

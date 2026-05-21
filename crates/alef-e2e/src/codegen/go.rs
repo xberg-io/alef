@@ -723,7 +723,12 @@ fn render_test_file(
                 .unwrap_or(true)
                 || (is_streaming_fixture && field_is_streaming_virtual);
             let synthetic_field_needs_assert = match a.field.as_deref() {
-                Some("chunks_have_content" | "chunks_have_embeddings" | "chunks_have_heading_context" | "first_chunk_starts_with_heading") => {
+                Some(
+                    "chunks_have_content"
+                    | "chunks_have_embeddings"
+                    | "chunks_have_heading_context"
+                    | "first_chunk_starts_with_heading",
+                ) => {
                     matches!(a.assertion_type.as_str(), "is_true" | "is_false")
                 }
                 Some("embeddings") => {

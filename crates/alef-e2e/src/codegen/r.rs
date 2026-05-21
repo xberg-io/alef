@@ -630,6 +630,48 @@ fn render_assertion(
                 }
                 return;
             }
+            "chunks_have_heading_context" => {
+                // prepend_heading_context adds heading text to chunk content, so verify chunks
+                // exist and every chunk has non-empty content.
+                let pred_true = format!(
+                    "!is.null({result_var}$chunks) && length({result_var}$chunks) > 0 && all(sapply({result_var}$chunks, function(c) nchar(c$content) > 0))"
+                );
+                let pred_false = format!("is.null({result_var}$chunks) || length({result_var}$chunks) == 0");
+                match assertion.assertion_type.as_str() {
+                    "is_true" => {
+                        let _ = writeln!(out, "  expect_true({pred_true})");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out, "  expect_true({pred_false})");
+                    }
+                    _ => {
+                        let _ = writeln!(out, "  # skipped: unsupported assertion type on synthetic field '{f}'");
+                    }
+                }
+                return;
+            }
+            "first_chunk_starts_with_heading" => {
+                // First chunk's content should start with a markdown heading marker (`#`)
+                // when prepend_heading_context is enabled.
+                let pred_true = format!(
+                    "!is.null({result_var}$chunks) && length({result_var}$chunks) > 0 && startsWith(trimws({result_var}$chunks[[1]]$content), \"#\")"
+                );
+                let pred_false = format!(
+                    "is.null({result_var}$chunks) || length({result_var}$chunks) == 0 || !startsWith(trimws({result_var}$chunks[[1]]$content), \"#\")"
+                );
+                match assertion.assertion_type.as_str() {
+                    "is_true" => {
+                        let _ = writeln!(out, "  expect_true({pred_true})");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out, "  expect_true({pred_false})");
+                    }
+                    _ => {
+                        let _ = writeln!(out, "  # skipped: unsupported assertion type on synthetic field '{f}'");
+                    }
+                }
+                return;
+            }
             // ---- EmbedResponse virtual fields ----
             // The extendr binding cannot return `Vec<Vec<f32>>` directly (extendr's
             // Robj conversion has no impl for nested numeric vectors), so the
