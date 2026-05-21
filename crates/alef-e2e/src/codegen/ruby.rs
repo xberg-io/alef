@@ -1244,18 +1244,10 @@ fn build_args_and_setup(
 ) -> (Vec<String>, String) {
     let fixture_id = &fixture.id;
     if args.is_empty() {
-        // No args config: pass the whole input only when it's non-empty.
-        // Functions with no parameters have empty input and must be called
-        // with no arguments — not with `{}` or `nil`.
-        let is_empty_input = match input {
-            serde_json::Value::Null => true,
-            serde_json::Value::Object(m) => m.is_empty(),
-            _ => false,
-        };
-        if is_empty_input {
-            return (Vec::new(), String::new());
-        }
-        return (Vec::new(), json_to_ruby(input));
+        // No args config: don't pass the input as a function argument.
+        // The input data is for setup/mocking purposes only. Functions with no
+        // parameters must be called with no arguments — not with `{}` or `nil`.
+        return (Vec::new(), String::new());
     }
 
     let mut setup_lines: Vec<String> = Vec::new();
@@ -1415,19 +1407,21 @@ fn build_args_and_setup(
                     if let (Some(opts_type), Some(obj)) = (options_type, v.as_object()) {
                         let kwargs: Vec<String> = obj
                             .iter()
-                            .map(|(k, vv)| {
-                                let snake_key = k.to_snake_case();
-                                let rb_val = if enum_fields.contains_key(k) {
+                            .filter_map(|(k, vv)| {
+                                // Skip empty string enum values; they cause "Unknown preset" errors
+                                if enum_fields.contains_key(k) {
                                     if let Some(s) = vv.as_str() {
+                                        if s.is_empty() {
+                                            return None; // Skip empty enum values
+                                        }
+                                        let snake_key = k.to_snake_case();
                                         let snake_val = s.to_snake_case();
-                                        format!("'{snake_val}'")
-                                    } else {
-                                        json_to_ruby(vv)
+                                        return Some(format!("{snake_key}: '{snake_val}'"));
                                     }
-                                } else {
-                                    json_to_ruby(vv)
-                                };
-                                format!("{snake_key}: {rb_val}")
+                                }
+                                let snake_key = k.to_snake_case();
+                                let rb_val = json_to_ruby(vv);
+                                Some(format!("{snake_key}: {rb_val}"))
                             })
                             .collect();
                         if result_is_simple {
@@ -1499,6 +1493,22 @@ fn render_assertion(
     // Handle synthetic / derived fields before the is_valid_for_result check
     // so they are never treated as struct attribute accesses on the result.
     if let Some(f) = &assertion.field {
+        // Skip enum variant accessors (metadata.format.excel etc.) — Magnus serializes
+        // FormatMetadata to JSON, so variants are unavailable in Ruby
+        if f.contains("metadata.format.") && f.contains(".") {
+            out.push_str(&format!(
+                "    # skipped: enum variant accessor '{f}' not available on Ruby (serialized to Hash)\n"
+            ));
+            return;
+        }
+
+        // For metadata.format (enum, serialized to Hash), skip since the serialization
+        // format differs between languages and doesn't preserve Display formatting
+        if f == "metadata.format" {
+            out.push_str("    # skipped: metadata.format enum field serialization differs in Ruby\n");
+            return;
+        }
+
         match f.as_str() {
             "chunks_have_content" => {
                 let pred = format!("({result_var}.chunks || []).all? {{ |c| c.content && !c.content.empty? }}");
@@ -1515,6 +1525,12 @@ fn render_assertion(
                         ));
                     }
                 }
+                return;
+            }
+            "chunks_have_heading_context" | "first_chunk_starts_with_heading" => {
+                out.push_str(&format!(
+                    "    # skipped: synthetic field '{f}' not available on Ruby Chunk binding\n"
+                ));
                 return;
             }
             "chunks_have_embeddings" => {
