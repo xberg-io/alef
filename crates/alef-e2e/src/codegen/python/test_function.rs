@@ -586,6 +586,35 @@ fn build_args_and_setup(
             continue;
         }
 
+        if arg.arg_type == "mock_url_list" {
+            let fixture_id = &fixture.id;
+            let base_url_expr = if fixture.has_host_root_route() {
+                format!(
+                    "os.environ.get('MOCK_SERVER_{}', os.environ['MOCK_SERVER_URL'] + '/fixtures/{fixture_id}')",
+                    fixture_id.to_uppercase()
+                )
+            } else {
+                format!("os.environ['MOCK_SERVER_URL'] + '/fixtures/{fixture_id}'")
+            };
+            arg_bindings.push(format!("    {var_name}_base = {base_url_expr}"));
+
+            // Extract path strings from fixture input array
+            let paths: Vec<String> = if let Some(arr) = resolve_field(&fixture.input, &arg.field).as_array() {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| format!("\"{}\"", escape_python(s))))
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            let paths_str = paths.join(", ");
+
+            arg_bindings.push(format!(
+                "    {var_name} = [p if p.startswith('http') else f'{{{var_name}_base}}{{p}}' for p in [{paths_str}]]"
+            ));
+            kwarg_exprs.push(var_name.to_string());
+            continue;
+        }
+
         let value = resolve_field(&fixture.input, &arg.field);
 
         if value.is_null() && arg.optional {
