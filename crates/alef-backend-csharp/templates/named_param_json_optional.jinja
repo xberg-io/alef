@@ -1,1 +1,1 @@
-{{ indent }}var {{ json_var }} = {{ param_name }} != null ? JsonSerializer.Serialize({{ param_name }}, JsonSerializationOptions) : "null";
+{{ indent }}var {{ json_var }} = {{ param_name }} != null ? JsonSerializer.Serialize({{ param_name }}, JsonOptions) : "null";

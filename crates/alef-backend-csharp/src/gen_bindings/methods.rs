@@ -386,7 +386,7 @@ fn gen_wrapper_function(
     if is_convert_with_visitor {
         out.push_str("        var visitor = options?.Visitor;\n");
         out.push_str(
-            "        var optionsJson = options != null ? JsonSerializer.Serialize(options, JsonSerializationOptions) : \"null\";\n",
+            "        var optionsJson = options != null ? JsonSerializer.Serialize(options, JsonOptions) : \"null\";\n",
         );
         out.push_str("        var optionsHandle = NativeMethods.ConversionOptionsFromJson(optionsJson);\n");
         out.push_str("        try\n");
@@ -695,7 +695,7 @@ fn gen_bridge_field_wrapper_function(
 
     // Serialize options to JSON (excluding bridge field via JsonIgnore)
     out.push_str(&format!(
-        "        var {options_param_camel}Json = {options_param_camel} != null ? JsonSerializer.Serialize({options_param_camel}, JsonSerializationOptions) : \"null\";\n"
+        "        var {options_param_camel}Json = {options_param_camel} != null ? JsonSerializer.Serialize({options_param_camel}, JsonOptions) : \"null\";\n"
     ));
 
     // Deserialize into native options handle

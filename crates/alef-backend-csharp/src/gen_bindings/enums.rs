@@ -117,22 +117,22 @@ pub(super) fn gen_enum(enum_def: &EnumDef, namespace: &str) -> String {
     );
     out.push('\n');
 
-    // Generate custom converter class for all enums (not just those with non-standard names).
-    // Even when variant names match SnakeCaseLower policy, we emit a converter to ensure
-    // [JsonPropertyName] attributes are properly used during serialization and to maintain
-    // consistency with JsonSerializationOptions that specifies JsonStringEnumConverter(SnakeCaseLower).
-    out.push_str(&render(
-        "enum_custom_converter.jinja",
-        Value::from_serialize(serde_json::json!({
-            "enum_pascal": enum_pascal,
-            "variants": variant_list.iter().map(|(json_name, pascal_name)| {
-                serde_json::json!({
-                    "json_name": json_name,
-                    "pascal_name": pascal_name,
-                })
-            }).collect::<Vec<_>>(),
-        })),
-    ));
+    // Only generate a custom converter for enums with non-standard naming.
+    // Standard snake_case enums can rely on the global JsonStringEnumConverter in JsonOptions.
+    if needs_custom_converter {
+        out.push_str(&render(
+            "enum_custom_converter.jinja",
+            Value::from_serialize(serde_json::json!({
+                "enum_pascal": enum_pascal,
+                "variants": variant_list.iter().map(|(json_name, pascal_name)| {
+                    serde_json::json!({
+                        "json_name": json_name,
+                        "pascal_name": pascal_name,
+                    })
+                }).collect::<Vec<_>>(),
+            })),
+        ));
+    }
 
     out
 }

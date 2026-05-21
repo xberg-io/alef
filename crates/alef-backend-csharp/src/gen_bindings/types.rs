@@ -986,21 +986,11 @@ pub(super) fn gen_record_type(
     out.push_str(" from JSON: {e.Message}\", e);\n");
     out.push_str("        }\n");
     out.push_str("    }\n");
-    // JsonOptions is used for deserializing FFI responses (sparse JSON with defaults omitted).
-    // It uses `WhenWritingDefault` to skip zero / false / null on the read side, but this
-    // only affects symmetric serialization (when we round-trip objects back to FFI).
-    // For sending config objects to FFI, we must use JsonSerializationOptions (no skipping)
-    // so that explicitly-set false/0/null values are preserved across the FFI boundary.
+    // JsonOptions is used for both deserializing FFI responses and serializing input.
+    // It uses `WhenWritingDefault` to skip zero / false / null on the read side for sparse JSON.
     out.push_str("\n    private static readonly JsonSerializerOptions JsonOptions = new()\n");
     out.push_str("    {\n");
     out.push_str("        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault,\n");
-    out.push_str("        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },\n");
-    out.push_str("    };\n");
-    out.push_str(
-        "\n    /// <summary>Options for serializing config/input objects to FFI (no default-skipping).</summary>\n",
-    );
-    out.push_str("    private static readonly JsonSerializerOptions JsonSerializationOptions = new()\n");
-    out.push_str("    {\n");
     out.push_str("        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },\n");
     out.push_str("    };\n");
 
@@ -1099,7 +1089,7 @@ fn emit_record_methods(
             if has_receiver {
                 // Obtain handle by serialising this instance.
                 out.push_str(&format!(
-                    "        var selfJson = JsonSerializer.Serialize(this, JsonSerializationOptions);\n\
+                    "        var selfJson = JsonSerializer.Serialize(this, JsonOptions);\n\
                              var selfHandle = NativeMethods.{native_type_prefix}FromJson(selfJson);\n\
                              if (selfHandle == global::System.IntPtr.Zero) throw new {exception_class}(\"Failed to serialise {class_name}\");\n"
                 ));
@@ -1192,7 +1182,7 @@ fn emit_record_methods(
             // Infallible methods (no error_type).
             if has_receiver {
                 out.push_str(&format!(
-                    "        var selfJson = JsonSerializer.Serialize(this, JsonSerializationOptions);\n\
+                    "        var selfJson = JsonSerializer.Serialize(this, JsonOptions);\n\
                              var selfHandle = NativeMethods.{native_type_prefix}FromJson(selfJson);\n"
                 ));
                 out.push_str("        try\n        {\n");

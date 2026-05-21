@@ -19,9 +19,3 @@ public static class {{ class_name }}
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault
     };
-
-    private static readonly JsonSerializerOptions JsonSerializationOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },
-    };

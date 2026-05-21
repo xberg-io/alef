@@ -5,7 +5,7 @@
 {{ indent }}}
 {{ indent }}else
 {{ indent }}{
-{{ indent }}    var {{ json_var }} = JsonSerializer.Serialize({{ param_name }}, JsonSerializationOptions);
+{{ indent }}    var {{ json_var }} = JsonSerializer.Serialize({{ param_name }}, JsonOptions);
 {{ indent }}    {{ handle_var }} = NativeMethods.{{ from_json_method }}({{ json_var }});
 {{ indent }}    if ({{ handle_var }} == IntPtr.Zero)
 {{ indent }}    {

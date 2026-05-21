@@ -13,7 +13,7 @@
         {{ request_type }} {{ request_param }},
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        var {{ request_param }}Json = JsonSerializer.Serialize({{ request_param }}, JsonSerializationOptions);
+        var {{ request_param }}Json = JsonSerializer.Serialize({{ request_param }}, JsonOptions);
         var {{ request_param }}Handle = NativeMethods.{{ request_from_json }}({{ request_param }}Json);
         var streamHandle = NativeMethods.{{ start_native }}(Handle, {{ request_param }}Handle);
         if (streamHandle == IntPtr.Zero)

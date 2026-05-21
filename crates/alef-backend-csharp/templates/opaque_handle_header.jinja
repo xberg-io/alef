@@ -53,12 +53,6 @@ public sealed class {{ class_name }} : IDisposable
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault
     };
-
-    private static readonly JsonSerializerOptions JsonSerializationOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },
-    };
 {%- endif %}
 
     private readonly {{ class_name }}SafeHandle _safeHandle;

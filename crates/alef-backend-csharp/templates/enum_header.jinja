@@ -13,7 +13,9 @@ namespace {{ namespace }};
 {% endfor %}
 /// </summary>
 {% endif -%}
+{% if needs_custom_converter -%}
 [JsonConverter(typeof({{ enum_pascal }}JsonConverter))]
+{% endif -%}
 public enum {{ enum_pascal }}
 {
 {%- for variant in variants %}
