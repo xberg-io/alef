@@ -2795,19 +2795,20 @@ mod tests {
     /// `?.member` would trigger "cannot use optional chaining on non-optional
     /// value".
     ///
-    /// With no `SwiftFirstClassMap` configured (default in this test), all
-    /// types default to first-class property syntax — so accessors are
-    /// `result.choices[0].message.toolCalls?[0].function.name` (no `()`).
+    /// With no `SwiftFirstClassMap` configured (default in this test), every
+    /// accessor is emitted as a swift-bridge method call — so accessors are
+    /// `result.choices()[0].message().toolCalls()?[0].function().name()`.
     #[test]
     fn optional_vec_subscript_does_not_emit_trailing_question_mark_before_next_segment() {
         let resolver = make_resolver_tool_calls();
         let (accessor, has_optional) =
             swift_build_accessor("choices[0].message.tool_calls[0].function.name", "result", &resolver);
-        // `?` before `[0]` is correct (tool_calls is optional). Property syntax
-        // is the default when no SwiftFirstClassMap is supplied.
+        // `?` before `[0]` is correct (tool_calls is optional). Method-call
+        // syntax (with `()`) is the default when no SwiftFirstClassMap is
+        // supplied.
         assert!(
-            accessor.contains("toolCalls?[0]"),
-            "expected `toolCalls?[0]` for optional tool_calls, got: {accessor}"
+            accessor.contains("toolCalls()?[0]"),
+            "expected `toolCalls()?[0]` for optional tool_calls, got: {accessor}"
         );
         // There must NOT be `?[0]?` (trailing `?` after the index).
         assert!(
