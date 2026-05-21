@@ -113,9 +113,14 @@ pub(super) fn gen_native_methods(
                     }
                 }
                 if let Some(meta) = streaming_methods_meta.get(&method.name) {
-                    if !enum_names.contains(&meta.item_type) {
-                        opaque_return_types.insert(meta.item_type.clone());
-                    }
+                    // Streaming item types — whether enum or struct — flow through the
+                    // FFI's `<type>_to_json` and `<type>_free` exports (the FFI backend
+                    // emits them for both shapes), so the C# DllImport declarations are
+                    // needed regardless of variant kind.  Without registering the type
+                    // here, the C# streaming wrapper calls
+                    // `NativeMethods.<ItemType>ToJson` against a non-existent extern and
+                    // fails to compile (CS0117).
+                    opaque_return_types.insert(meta.item_type.clone());
                 }
                 continue;
             }
