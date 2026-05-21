@@ -1579,8 +1579,16 @@ fn render_assertion(
                 let _ = writeln!(out, "    try testing.expect({result_var} == null);");
                 return;
             }
-            "not_empty" | "not_error" => {
+            "not_empty" => {
                 let _ = writeln!(out, "    try testing.expect({result_var} != null);");
+                return;
+            }
+            "not_error" => {
+                // not_error is covered by `try` propagation — the call would have
+                // returned early on error. Emit a comment-only line so the assertion
+                // is visible but inert, avoiding contradictory checks when paired
+                // with `is_empty` on an Optional result.
+                let _ = writeln!(out, "    // not_error: covered by try propagation");
                 return;
             }
             "equals" => {

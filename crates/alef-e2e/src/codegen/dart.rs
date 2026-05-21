@@ -360,6 +360,56 @@ fn render_test_file(
     }
 
     let _ = writeln!(out, "// E2e tests for category: {category}");
+    let _ = writeln!(out);
+
+    // Emit a helper function to normalize enum values to their serde wire format.
+    // Dart enums' .toString() returns "EnumName.variant" but fixtures use serde wire format
+    // (e.g. "stop" for FinishReason.stop, "tool_calls" for FinishReason.toolCalls).
+    // This helper handles enum-to-wire conversion by calling .name (which gives the Dart
+    // variant name like "toolCalls") and converting back to snake_case for multi-word variants.
+    let _ = writeln!(out, "String _alefE2eText(Object? value) {{");
+    let _ = writeln!(out, "  if (value == null) return '';");
+    let _ = writeln!(
+        out,
+        "  // Check if it's an enum by examining its toString representation."
+    );
+    let _ = writeln!(out, "  final str = value.toString();");
+    let _ = writeln!(out, "  if (str.contains('.')) {{");
+    let _ = writeln!(
+        out,
+        "    // Enum.toString() returns 'EnumName.variantName'. Extract the variant name."
+    );
+    let _ = writeln!(out, "    final parts = str.split('.');");
+    let _ = writeln!(out, "    if (parts.length == 2) {{");
+    let _ = writeln!(out, "      final variantName = parts[1];");
+    let _ = writeln!(
+        out,
+        "      // Convert camelCase variant names to snake_case for serde compatibility."
+    );
+    let _ = writeln!(out, "      // E.g. 'toolCalls' -> 'tool_calls', 'stop' -> 'stop'.");
+    let _ = writeln!(out, "      return _camelToSnake(variantName);");
+    let _ = writeln!(out, "    }}");
+    let _ = writeln!(out, "  }}");
+    let _ = writeln!(out, "  return str;");
+    let _ = writeln!(out, "}}");
+    let _ = writeln!(out);
+
+    // Helper to convert camelCase to snake_case.
+    let _ = writeln!(out, "String _camelToSnake(String camel) {{");
+    let _ = writeln!(out, "  final buffer = StringBuffer();");
+    let _ = writeln!(out, "  for (int i = 0; i < camel.length; i++) {{");
+    let _ = writeln!(out, "    final char = camel[i];");
+    let _ = writeln!(out, "    if (char.contains(RegExp(r'[A-Z]'))) {{");
+    let _ = writeln!(out, "      if (i > 0) buffer.write('_');");
+    let _ = writeln!(out, "      buffer.write(char.toLowerCase());");
+    let _ = writeln!(out, "    }} else {{");
+    let _ = writeln!(out, "      buffer.write(char);");
+    let _ = writeln!(out, "    }}");
+    let _ = writeln!(out, "  }}");
+    let _ = writeln!(out, "  return buffer.toString();");
+    let _ = writeln!(out, "}}");
+    let _ = writeln!(out);
+
     let _ = writeln!(out, "void main() {{");
 
     // Emit setUpAll to initialize the flutter_rust_bridge before any test runs and,
@@ -420,6 +470,23 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
         e2e_config.effective_fields_method_calls(call_config),
     );
     let field_resolver = &call_field_resolver;
+    let enum_fields_base = e2e_config.effective_fields_enum(call_config);
+
+    // Merge per-language enum_fields from the Dart override into the effective enum set so that
+    // fields like "status" (BatchStatus on BatchObject) are treated as enum-typed
+    // even when they are not globally listed in fields_enum (they are context-
+    // dependent — BatchStatus on BatchObject but plain String on ResponseObject).
+    let effective_enum_fields: std::collections::HashSet<String> = {
+        let dart_overrides = call_config.overrides.get("dart");
+        if let Some(overrides) = dart_overrides {
+            let mut merged = enum_fields_base.clone();
+            merged.extend(overrides.enum_fields.keys().cloned());
+            merged
+        } else {
+            enum_fields_base.clone()
+        }
+    };
+    let enum_fields = &effective_enum_fields;
     let call_overrides = call_config.overrides.get(lang);
     let mut function_name = call_overrides
         .and_then(|o| o.function.as_ref())
@@ -571,29 +638,15 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
                 }
             }
             "string" => {
-                // The alef-generated Dart facade (e.g. `KreuzbergBridge`) emits required
-                // params as positional and optional params inside a `{...}` named block
-                // (see alef-backend-dart/src/gen_bindings/functions.rs).  Mirror that
-                // calling convention here: required string args → positional literal;
-                // optional string args → `name: 'value'` named-argument syntax.
-                //
-                // Special case: when dart remaps `extractFile*` → `extractBytes*`
-                // (because dart cannot pass OS file paths through the FFI bridge), the
-                // wrapper requires `mime_type` positionally even though the source IR
-                // marks it as optional on `extractFile*`. Force positional in that case.
+                // FRB-generated Dart methods use named parameters exclusively
+                // (e.g. `retrieveResponse({required String responseId})`, not positional).
+                // Always emit string args as `paramName: 'value'` named syntax.
+                // This matches the FRB v2 bridge contract for both required and optional params.
                 let dart_param_name = snake_to_camel(&arg_def.name);
-                let mime_required_due_to_remap = has_file_path_arg
-                    && arg_def.name == "mime_type"
-                    && (function_name == "extractBytes" || function_name == "extractBytesSync");
-                let use_positional = mime_required_due_to_remap || !arg_def.optional;
                 match arg_value {
                     serde_json::Value::String(s) => {
                         let literal = format!("'{}'", escape_dart(s));
-                        if use_positional {
-                            args.push(literal);
-                        } else {
-                            args.push(format!("{dart_param_name}: {literal}"));
-                        }
+                        args.push(format!("{dart_param_name}: {literal}"));
                     }
                     serde_json::Value::Null
                         if arg_def.optional
@@ -604,11 +657,7 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
                         let inferred = file_path_for_mime
                             .and_then(mime_from_extension)
                             .unwrap_or("application/octet-stream");
-                        if use_positional {
-                            args.push(format!("'{inferred}'"));
-                        } else {
-                            args.push(format!("{dart_param_name}: '{inferred}'"));
-                        }
+                        args.push(format!("{dart_param_name}: '{inferred}'"));
                     }
                     // Other optional strings with null value are omitted.
                     _ => {}
@@ -935,7 +984,14 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
             if is_streaming {
                 render_streaming_assertion_dart(out, assertion, result_var);
             } else {
-                render_assertion_dart(out, assertion, result_var, result_is_simple, field_resolver);
+                render_assertion_dart(
+                    out,
+                    assertion,
+                    result_var,
+                    result_is_simple,
+                    field_resolver,
+                    enum_fields,
+                );
             }
         }
     }
@@ -991,6 +1047,7 @@ fn render_assertion_dart(
     result_var: &str,
     result_is_simple: bool,
     field_resolver: &FieldResolver,
+    enum_fields: &std::collections::HashSet<String>,
 ) {
     // Skip assertions on fields that don't exist on the dart result type. This must run
     // BEFORE the array-traversal and standard accessor paths since both emit code that
@@ -1119,21 +1176,41 @@ fn render_assertion_dart(
         "equals" | "field_equals" => {
             if let Some(expected) = &assertion.value {
                 let dart_val = format_value(expected);
+                // Check if this field is an enum field. Enum fields need _alefE2eText for serde
+                // wire format conversion (e.g. FinishReason.toolCalls → "tool_calls").
+                let is_enum_field = assertion
+                    .field
+                    .as_deref()
+                    .map(|f| {
+                        let resolved = field_resolver.resolve(f);
+                        enum_fields.contains(f) || enum_fields.contains(resolved)
+                    })
+                    .unwrap_or(false);
+
                 // Match the rust codegen's behaviour: trim both sides for string equality
                 // so trailing-newline differences between h2m's emitted markdown and the
                 // fixture's expected value don't produce false positives.
                 if expected.is_string() {
-                    // When result_is_simple is true and the field_accessor is nullable (e.g. String?),
-                    // use null-coalescing operator (?? '') to handle null gracefully.
-                    let safe_accessor = if result_is_simple && assertion.field.is_none() {
-                        format!("({field_accessor} ?? '').toString().trim()")
+                    if is_enum_field {
+                        // For enum fields, use _alefE2eText to normalize the enum value to its
+                        // serde wire format before comparison.
+                        let _ = writeln!(
+                            out,
+                            "    expect(_alefE2eText({field_accessor}).trim(), equals({dart_val}.toString().trim()));"
+                        );
                     } else {
-                        format!("{field_accessor}.toString().trim()")
-                    };
-                    let _ = writeln!(
-                        out,
-                        "    expect({safe_accessor}, equals({dart_val}.toString().trim()));"
-                    );
+                        // When result_is_simple is true and the field_accessor is nullable (e.g. String?),
+                        // use null-coalescing operator (?? '') to handle null gracefully.
+                        let safe_accessor = if result_is_simple && assertion.field.is_none() {
+                            format!("({field_accessor} ?? '').toString().trim()")
+                        } else {
+                            format!("{field_accessor}.toString().trim()")
+                        };
+                        let _ = writeln!(
+                            out,
+                            "    expect({safe_accessor}, equals({dart_val}.toString().trim()));"
+                        );
+                    }
                 } else {
                     let _ = writeln!(out, "    expect({field_accessor}, equals({dart_val}));");
                 }
@@ -1148,18 +1225,35 @@ fn render_assertion_dart(
         "not_equals" => {
             if let Some(expected) = &assertion.value {
                 let dart_val = format_value(expected);
+                // Check if this field is an enum field.
+                let is_enum_field = assertion
+                    .field
+                    .as_deref()
+                    .map(|f| {
+                        let resolved = field_resolver.resolve(f);
+                        enum_fields.contains(f) || enum_fields.contains(resolved)
+                    })
+                    .unwrap_or(false);
+
                 if expected.is_string() {
-                    // When result_is_simple is true and the field_accessor is nullable (e.g. String?),
-                    // use null-coalescing operator (?? '') to handle null gracefully.
-                    let safe_accessor = if result_is_simple && assertion.field.is_none() {
-                        format!("({field_accessor} ?? '').toString().trim()")
+                    if is_enum_field {
+                        let _ = writeln!(
+                            out,
+                            "    expect(_alefE2eText({field_accessor}).trim(), isNot(equals({dart_val}.toString().trim())));"
+                        );
                     } else {
-                        format!("{field_accessor}.toString().trim()")
-                    };
-                    let _ = writeln!(
-                        out,
-                        "    expect({safe_accessor}, isNot(equals({dart_val}.toString().trim())));"
-                    );
+                        // When result_is_simple is true and the field_accessor is nullable (e.g. String?),
+                        // use null-coalescing operator (?? '') to handle null gracefully.
+                        let safe_accessor = if result_is_simple && assertion.field.is_none() {
+                            format!("({field_accessor} ?? '').toString().trim()")
+                        } else {
+                            format!("{field_accessor}.toString().trim()")
+                        };
+                        let _ = writeln!(
+                            out,
+                            "    expect({safe_accessor}, isNot(equals({dart_val}.toString().trim())));"
+                        );
+                    }
                 } else {
                     let _ = writeln!(out, "    expect({field_accessor}, isNot(equals({dart_val})));");
                 }

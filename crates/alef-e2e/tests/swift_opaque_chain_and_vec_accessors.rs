@@ -127,7 +127,10 @@ fn process_result_ir() -> Vec<TypeDef> {
                 ),
             ],
         ),
-        make_type("FileMetrics", vec![usize_field("total_lines"), usize_field("error_count")]),
+        make_type(
+            "FileMetrics",
+            vec![usize_field("total_lines"), usize_field("error_count")],
+        ),
         // StructureItem has a Named field that never lands in the known_dto_names
         // set, keeping StructureItem (and therefore ProcessResult) out of the
         // first-class set. This mirrors the real tslp shape where StructureItem

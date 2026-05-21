@@ -89,9 +89,9 @@ pub(super) fn render_assertion(
                 .get(f)
                 .or_else(|| result_enum_fields.get(field_resolver.resolve(f)))
                 .is_some()
-            {
-                is_enum_field = true;
-            }
+        {
+            is_enum_field = true;
+        }
     }
 
     // WASM: enum-typed result fields are exposed as numeric discriminants by

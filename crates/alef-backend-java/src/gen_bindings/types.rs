@@ -508,12 +508,13 @@ pub(crate) fn gen_enum_class(package: &str, enum_def: &EnumDef, main_class: &str
         // name unchanged (PascalCase), but Rust may have custom deserialization via a parse()
         // function that expects lowercase. To match Rust's deserialization expectations, always
         // apply lowercase normalization when rename_all is not explicitly set.
-        let json_name = variant.serde_rename.clone().unwrap_or_else(|| {
-            match enum_def.serde_rename_all.as_deref() {
+        let json_name = variant
+            .serde_rename
+            .clone()
+            .unwrap_or_else(|| match enum_def.serde_rename_all.as_deref() {
                 Some(rename_all) => java_apply_rename_all(&variant.name, Some(rename_all)),
                 None => variant.name.to_lowercase(),
-            }
-        });
+            });
         if !variant.doc.is_empty() {
             let doc_summary = escape_javadoc_line(variant.doc.lines().next().unwrap_or("").trim());
             // 4 spaces indent + "/** " + " */" = 11 chars overhead; wrap if total > 80

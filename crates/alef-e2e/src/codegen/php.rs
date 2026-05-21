@@ -1036,11 +1036,13 @@ fn render_test_method(
         if !options_already_created {
             let options_type = call_options_type.unwrap_or("ConversionOptions");
             if options_via == "from_json" {
-                // When options_via is "from_json", construct via fromJson() with a JSON object
-                // that includes the visitor property.
+                // When options_via is "from_json", create options from JSON first,
+                // then attach the visitor using with_visitor() since PHP closures can't be JSON-encoded.
+                setup_lines.push(format!("$options = \\{namespace}\\{options_type}::from_json('{{}}');"));
                 setup_lines.push(format!(
-                    "$options = \\{namespace}\\{options_type}::from_json(json_encode(['visitor' => $visitor]));"
+                    "$visitorHandle = \\{namespace}\\VisitorHandle::from_php_object($visitor);"
                 ));
+                setup_lines.push("$options = $options->with_visitor($visitorHandle);".to_string());
             } else {
                 // Default builder pattern for other options_via modes
                 setup_lines.push(format!("$builder = \\{namespace}\\{options_type}::builder();"));

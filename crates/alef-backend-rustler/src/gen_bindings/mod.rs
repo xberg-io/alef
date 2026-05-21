@@ -1441,7 +1441,11 @@ fn gen_from_json_nif(typ: &alef_core::ir::TypeDef, core_import: &str) -> String 
 fn collect_rustler_trait_bridge_fn_names(config: &ResolvedCrateConfig) -> AHashSet<String> {
     let mut names = AHashSet::new();
     for bridge_cfg in &config.trait_bridges {
-        if bridge_cfg.exclude_languages.iter().any(|l| l == "elixir" || l == "rustler") {
+        if bridge_cfg
+            .exclude_languages
+            .iter()
+            .any(|l| l == "elixir" || l == "rustler")
+        {
             continue;
         }
         if let Some(name) = bridge_cfg.register_fn.as_deref() {
