@@ -85,7 +85,7 @@ pub(super) fn build_swift_visitor(
 
         let method_camel = method.to_lower_camel_case();
         let params = swift_visitor_params(method);
-        let body = swift_action_body(action);
+        let body = swift_action_body(action, method);
         let _ = writeln!(
             block,
             "    func {method_camel}({params}) -> VisitResult {{ return {body} }}"
@@ -143,6 +143,32 @@ fn swift_visitor_params(method: &str) -> &'static str {
     }
 }
 
+/// Returns `true` if the named parameter on the given visitor method is
+/// declared with an Optional type in the swift `HtmlVisitorProtocol`.
+///
+/// Swift string interpolation of `Optional<T>` renders as `Optional("value")`
+/// (or `nil`), which sabotages fixture templates like `[VIDEO: {src}]` where
+/// the asserted output is `[VIDEO: tutorial.mp4]`. For optional params we emit
+/// `\(name ?? "")` instead of `\(name)` so the unwrapped string flows in.
+///
+/// The list mirrors the `?` suffix in [`swift_visitor_params`].
+fn swift_visitor_param_is_optional(method: &str, snake_param: &str) -> bool {
+    matches!(
+        (method, snake_param),
+        ("visit_link", "title")
+            | ("visit_image", "title")
+            | ("visit_heading", "id")
+            | ("visit_code_block", "lang")
+            | ("visit_form", "action")
+            | ("visit_form", "method")
+            | ("visit_input", "name")
+            | ("visit_input", "value")
+            | ("visit_audio", "src")
+            | ("visit_video", "src")
+            | ("visit_iframe", "src")
+    )
+}
+
 /// Render the Swift expression for a fixture-driven callback action.
 ///
 /// Variant naming mirrors the swift-backend emission of `VisitResult` (see
@@ -153,7 +179,7 @@ fn swift_visitor_params(method: &str) -> &'static str {
 /// - Tuple variants with a single field carry the synthesised label `field0:`
 ///   in the Swift enum (`case custom(field0: String)`), so call sites MUST
 ///   provide that label.
-fn swift_action_body(action: &CallbackAction) -> String {
+fn swift_action_body(action: &CallbackAction, method: &str) -> String {
     match action {
         CallbackAction::Skip => ".skip".to_string(),
         CallbackAction::Continue => ".`continue`".to_string(),
@@ -166,7 +192,9 @@ fn swift_action_body(action: &CallbackAction) -> String {
             template,
             return_form: _,
         } => {
-            // Swift string interpolation: `{placeholder}` → `\(placeholder_camelCase)`.
+            // Swift string interpolation: `{placeholder}` → `\(placeholder_camelCase)`,
+            // or `\(placeholder_camelCase ?? "")` when the placeholder names an
+            // Optional<String> parameter on the visitor method.
             let mut interpolated = String::with_capacity(template.len());
             let mut chars = template.chars().peekable();
             while let Some(ch) = chars.next() {
@@ -182,8 +210,12 @@ fn swift_action_body(action: &CallbackAction) -> String {
                             chars.next();
                         }
                         // Convert to camelCase to match Swift parameter names.
+                        let is_optional = swift_visitor_param_is_optional(method, &name);
                         interpolated.push_str("\\(");
                         interpolated.push_str(&name.to_lower_camel_case());
+                        if is_optional {
+                            interpolated.push_str(" ?? \"\"");
+                        }
                         interpolated.push(')');
                     }
                     '\\' => interpolated.push_str("\\\\"),
