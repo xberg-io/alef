@@ -1958,23 +1958,72 @@ fn render_engine_factory_test_function(
     );
     let _ = writeln!(out, "    }}");
 
+    // --- actions argument (interact and similar 3-arg engine-factory calls) ---
+    // When the fixture input contains an "actions" key (interaction fixtures), the FFI
+    // function signature is `{prefix}_{fn}(engine, url, actions_json)`.  Serialize the
+    // actions value to a JSON string and emit a local `const char*` that is appended as
+    // the third positional argument.
+    let actions_arg = fixture.input.get("actions").and_then(|v| {
+        if v.is_null() {
+            None
+        } else {
+            let normalized = super::transform_json_keys_for_language(v, "snake_case");
+            let json = serde_json::to_string(&normalized).ok()?;
+            let escaped = escape_c(&json);
+            Some(escaped)
+        }
+    });
+    if let Some(ref escaped_actions) = actions_arg {
+        let _ = writeln!(out, "    const char* actions_json = \"{escaped_actions}\";");
+    }
+
     // --- call ---
-    // When the function returns a raw C type (e.g. char* for JSON-returning batch functions
-    // like batch_scrape / batch_crawl), emit a plain variable declaration rather than an
-    // opaque handle pointer.
-    if raw_c_result_type == Some("char*") {
-        let _ = writeln!(out, "    char* {result_var} = {prefix}_{function_name}(engine, url);");
-        // For char* results there are no structured field accessors — emit a minimal
-        // null-guard and free, then return.
-        let _ = writeln!(out, "    if ({result_var} != NULL) {prefix}_free_string({result_var});");
-        let _ = writeln!(out, "    {prefix}_crawl_engine_handle_free(engine);");
-        let _ = writeln!(out, "}}");
-        return;
+    // Determine the trailing extra arguments beyond (engine, url).
+    let extra_call_args = if actions_arg.is_some() {
+        ", actions_json".to_string()
+    } else {
+        String::new()
+    };
+
+    // When the function returns a raw C type that is NOT an opaque struct pointer, emit a
+    // plain variable declaration.
+    //   • "char*" — JSON-returning helpers (batch_scrape historic config); use char* type
+    //     and free with {prefix}_free_string.
+    //   • Any other non-empty value — treat as an opaque PascalCase type name, emit
+    //     {PREFIX}{Type}* and free with {prefix}_{type_snake}_free.  Callers set this when
+    //     the function returns a named result struct (e.g. "BatchCrawlResults") that has no
+    //     structured field accessors to assert on.
+    if let Some(raw_type) = raw_c_result_type {
+        if raw_type == "char*" {
+            let _ = writeln!(
+                out,
+                "    char* {result_var} = {prefix}_{function_name}(engine, url{extra_call_args});"
+            );
+            let _ = writeln!(out, "    if ({result_var} != NULL) {prefix}_free_string({result_var});");
+            let _ = writeln!(out, "    {prefix}_crawl_engine_handle_free(engine);");
+            let _ = writeln!(out, "}}");
+            return;
+        } else {
+            // Opaque struct return: emit the typed pointer, a soft null-guard, and the
+            // matching free function derived from the snake_case type name.
+            let raw_snake = raw_type.to_snake_case();
+            let _ = writeln!(
+                out,
+                "    {prefix_upper}{raw_type}* {result_var} = {prefix}_{function_name}(engine, url{extra_call_args});"
+            );
+            let _ = writeln!(
+                out,
+                "    if ({result_var} != NULL) {prefix}_{raw_snake}_free({result_var});"
+            );
+            let _ = writeln!(out, "    {prefix}_crawl_engine_handle_free(engine);");
+            let _ = writeln!(out, "}}");
+            return;
+        }
     }
 
     let _ = writeln!(
         out,
-        "    {prefix_upper}{result_type_name}* {result_var} = {prefix}_{function_name}(engine, url);"
+        "    {prefix_upper}{result_type_name}* {result_var} = {prefix}_{function_name}(engine, url{extra_call_args});"
     );
 
     // When no assertions can be verified (all skipped or error-only), use a soft
@@ -2923,6 +2972,34 @@ fn emit_nested_accessor(
             if let Some(t) = fields_c_types.get(&lookup_key).filter(|t| is_primitive_c_type(t)) {
                 let _ = writeln!(out, "    {t} {local_var} = {accessor_fn}({current_handle});");
                 return Some(t.clone());
+            }
+            // Opaque struct leaf: when fields_c_types maps "{parent}.{field}" to a
+            // PascalCase type name (not a primitive, not "char*", not "skip"), the
+            // accessor returns a struct pointer rather than a string.  Emit the typed
+            // handle declaration and register it for freeing.  Example:
+            //   "markdown_result.citations" = "CitationResult"
+            //   → KCRAWLCitationResult* citations_handle = kcrawl_markdown_result_citations(handle);
+            if let Some(opaque_type) = fields_c_types.get(&lookup_key).filter(|t| {
+                *t != "char*"
+                    && *t != "skip"
+                    && !is_primitive_c_type(t)
+                    && t.chars().next().is_some_and(|c| c.is_uppercase())
+            }) {
+                let handle_var = format!("{seg_snake}_handle");
+                let opaque_snake = opaque_type.to_snake_case();
+                if !intermediate_handles.iter().any(|(h, _)| h == &handle_var) {
+                    let _ = writeln!(
+                        out,
+                        "    {prefix_upper}{opaque_type}* {handle_var} = {accessor_fn}({current_handle});"
+                    );
+                    intermediate_handles.push((handle_var.clone(), opaque_snake));
+                }
+                // Treat the handle itself as the local_var for downstream assertions.
+                // Map local_var → handle_var so render_assertion uses the handle name.
+                if local_var != handle_var {
+                    let _ = writeln!(out, "    {prefix_upper}{opaque_type}* {local_var} = {handle_var};");
+                }
+                return None; // opaque handle — no primitive return value
             }
             // Enum leaf: opaque enum pointer that needs `_to_string` conversion.
             if try_emit_enum_accessor(
