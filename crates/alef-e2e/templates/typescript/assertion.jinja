@@ -19,10 +19,18 @@
 #}
 {% if assertion_type == "equals" %}
 {% if is_string_val %}
+{% if is_enum_field %}
+{% if field_is_optional %}
+    expect((String({{ field_expr }}) ?? "").trim()).toBe({{ js_val }});
+{% else %}
+    expect(String({{ field_expr }}).trim()).toBe({{ js_val }});
+{% endif %}
+{% else %}
 {% if field_is_optional %}
     expect(({{ field_expr }} ?? "").trim()).toBe({{ js_val }});
 {% else %}
     expect({{ field_expr }}.trim()).toBe({{ js_val }});
+{% endif %}
 {% endif %}
 {% else %}
     expect({{ field_expr }}).toBe({{ js_val }});

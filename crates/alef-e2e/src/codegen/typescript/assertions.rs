@@ -81,6 +81,19 @@ pub(super) fn render_assertion(
         _ => result_var.to_string(),
     };
 
+    // Check if this field is an enum type that needs coercion
+    let mut is_enum_field = false;
+    if let Some(f) = assertion.field.as_deref() {
+        if !f.is_empty()
+            && result_enum_fields
+                .get(f)
+                .or_else(|| result_enum_fields.get(field_resolver.resolve(f)))
+                .is_some()
+            {
+                is_enum_field = true;
+            }
+    }
+
     // WASM: enum-typed result fields are exposed as numeric discriminants by
     // wasm-bindgen, not strings. Compare against `EnumClass.Variant` instead of
     // running `.trim()` on a number.
@@ -109,7 +122,15 @@ pub(super) fn render_assertion(
         .as_deref()
         .is_some_and(|f| field_resolver.is_array(field_resolver.resolve(f)));
 
-    render_standard_assertion(out, assertion, result_var, &field_expr, field_resolver, field_is_array);
+    render_standard_assertion(
+        out,
+        assertion,
+        result_var,
+        &field_expr,
+        field_resolver,
+        field_is_array,
+        is_enum_field,
+    );
 }
 
 /// Return `true` when the assertion compares the field against a numeric value.
@@ -164,6 +185,18 @@ fn render_synthetic_field_assertion(
             let pred = format!(
                 "({result_var}.chunks ?? []).every((c: {{ embedding?: number[] }}) => c.embedding != null && c.embedding.length > 0)"
             );
+            emit_bool_assertion(out, &pred, assertion.assertion_type.as_str(), field);
+            true
+        }
+        "chunks_have_heading_context" => {
+            let pred = format!(
+                "({result_var}.chunks ?? []).every((c: {{ metadata?: {{ headingContext?: string }} }}) => c.metadata?.headingContext != null)"
+            );
+            emit_bool_assertion(out, &pred, assertion.assertion_type.as_str(), field);
+            true
+        }
+        "first_chunk_starts_with_heading" => {
+            let pred = format!("({result_var}.chunks ?? []).at(0)?.metadata?.headingContext != null");
             emit_bool_assertion(out, &pred, assertion.assertion_type.as_str(), field);
             true
         }
@@ -379,6 +412,7 @@ fn render_standard_assertion(
     field_expr: &str,
     field_resolver: &FieldResolver,
     field_is_array: bool,
+    is_enum_field: bool,
 ) {
     let assertion_type = assertion.assertion_type.as_str();
     let resolved_field = assertion.field.as_deref().unwrap_or("");
@@ -397,6 +431,7 @@ fn render_standard_assertion(
                         field_expr => field_expr,
                         field_is_optional => field_is_optional,
                         is_string_val => expected.is_string(),
+                        is_enum_field => is_enum_field && expected.is_string(),
                         js_val => js_val,
                         has_js_val => true,
                     },
