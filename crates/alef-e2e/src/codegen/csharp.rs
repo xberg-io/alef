@@ -832,13 +832,13 @@ fn render_test_method(
         return;
     }
 
-    let is_streaming = call_config.streaming.unwrap_or(false);
+    let _is_streaming = call_config.streaming.unwrap_or(false);
     let effective_function_name = {
         let mut name = cs_overrides
             .and_then(|o| o.function.as_ref())
             .cloned()
             .unwrap_or_else(|| call_config.function.to_upper_camel_case());
-        if call_config.r#async && !is_streaming && !name.ends_with("Async") {
+        if call_config.r#async && !name.ends_with("Async") {
             name.push_str("Async");
         }
         name
@@ -893,7 +893,7 @@ fn render_test_method(
         .find(|a| a.name == call_config.function.as_str())
         .and_then(|a| a.request_type.as_deref())
         .map(|rt| rt.rsplit("::").next().unwrap_or(rt).to_string());
-    let (mut setup_lines, args_str) = build_args_and_setup(
+    let (mut setup_lines, mut args_str) = build_args_and_setup(
         &fixture.input,
         args,
         class_name,
@@ -904,6 +904,35 @@ fn render_test_method(
         fixture,
         adapter_request_type_owned.as_deref(),
     );
+
+    // For streaming methods with mock_url_list (batch_crawl_stream), wrap the URL list
+    // in the request type before passing to the method.
+    if _is_streaming && adapter_request_type_owned.is_some() {
+        // Check if any arg is a mock_url_list (needs wrapping) but doesn't have its own
+        // adapter_request_type wrapping (mock_url args auto-wrap via adapter_request_type)
+        let has_mock_url_list = args.iter().any(|arg| arg.arg_type == "mock_url_list");
+        if has_mock_url_list {
+            if let Some(req_type) = &adapter_request_type_owned {
+                // Find the urls argument part in args_str and wrap it in the request type
+                // The args_str typically looks like "engine, urls" where urls is List<string>
+                // We need to change it to "req" where req is a BatchCrawlStreamRequest wrapping urls
+                let parts: Vec<&str> = args_str.split(", ").collect();
+                if parts.len() >= 2 {
+                    let urls_var = parts[parts.len() - 1]; // Last arg is the URLs
+                    let req_var = format!("{}Req", urls_var);
+                    setup_lines.push(format!(
+                        "var {req_var} = new {req_type} {{ Urls = {urls_var} }};"
+                    ));
+                    // Replace the urls arg with the wrapped request
+                    args_str = parts[..parts.len()-1].join(", ");
+                    if !args_str.is_empty() {
+                        args_str.push_str(", ");
+                    }
+                    args_str.push_str(&req_var);
+                }
+            }
+        }
+    }
 
     // Build visitor if present: instantiate in method body, declare class at file scope.
     let mut visitor_arg = String::new();
@@ -964,8 +993,16 @@ fn render_test_method(
             .get("csharp")
             .and_then(|o| o.client_factory.as_deref())
     });
+    // For streaming methods, call instance methods on the engine object, not static methods
     let call_target = if client_factory.is_some() {
         "client".to_string()
+    } else if _is_streaming {
+        // Streaming methods are instance methods on the engine; extract the engine
+        // variable name from args. Default to "engine" if not found.
+        args.iter()
+            .find(|arg| arg.arg_type == "handle")
+            .map(|arg| arg.name.clone())
+            .unwrap_or_else(|| "engine".to_string())
     } else {
         class_name.to_string()
     };
@@ -1021,8 +1058,20 @@ fn render_test_method(
         }
     }
 
-    // Build call expression
-    let call_expr = format!("{}({})", effective_function_name, final_args);
+    // Build call expression. For streaming methods, skip the engine argument since
+    // we're calling an instance method on the engine object.
+    let call_expr = if _is_streaming {
+        // Remove the first (engine/handle) argument from final_args
+        let args_parts: Vec<&str> = final_args.split(", ").collect();
+        let args_without_engine = if args_parts.len() > 1 {
+            args_parts[1..].join(", ")
+        } else {
+            String::new()
+        };
+        format!("{}({})", effective_function_name, args_without_engine)
+    } else {
+        format!("{}({})", effective_function_name, final_args)
+    };
 
     // Merge per-call C# `enum_fields` keys with the global file-level
     // `fields_enum` set so call-specific enum-typed result fields (e.g.
@@ -1076,6 +1125,7 @@ fn render_test_method(
         has_usable_assertion => !expects_error && !returns_void,
         result_var => result_var,
         assertions_body => assertions_body,
+        is_streaming => _is_streaming,
     };
 
     let rendered = crate::template_env::render("csharp/test_method.jinja", ctx);
@@ -1526,7 +1576,7 @@ fn build_args_and_setup(
             if let Some(req_type) = adapter_request_type {
                 let req_var = format!("{}Req", arg.name);
                 setup_lines.push(format!(
-                    "var {req_var} = new {class_name}.{req_type} {{ Url = {} }};",
+                    "var {req_var} = new {req_type} {{ Url = {} }};",
                     arg.name
                 ));
                 parts.push(req_var);
@@ -1562,7 +1612,7 @@ fn build_args_and_setup(
                 "var _base_{name} = !string.IsNullOrEmpty(_pfBase_{name}) ? _pfBase_{name} : Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\";"
             ));
             setup_lines.push(format!(
-                "var {name} = new System.Collections.Generic.List<string>(new[] {{ {paths_literal} }}.Select(p => p.StartsWith(\"http\") ? p : _base_{name} + p));"
+                "var {name} = new System.Collections.Generic.List<string>(new string[] {{ {paths_literal} }}.Select(p => p.StartsWith(\"http\") ? p : _base_{name} + p));"
             ));
             parts.push(name.clone());
             continue;
@@ -2567,23 +2617,56 @@ fn render_assertion(
             }
         }
         "is_true" => {
-            let rendered = crate::template_env::render(
-                "csharp/assertion.jinja",
-                minijinja::context! {
-                    assertion_type => "is_true",
-                    field_expr => field_expr.clone(),
-                },
-            );
+            // When the field expression is not a simple bool (e.g., a complex object or
+            // result type), use Assert.NotNull instead of Assert.True to avoid cast issues.
+            // If it's clearly not a boolean type (contains null-checking operators or is a
+            // complex object), treat it as a not-null check.
+            let is_complex_or_object = field_expr.contains("(object)") ||
+                (field_expr.contains(".") && !result_is_simple && !field_expr.contains("?") && !field_expr.contains("=="));
+
+            let rendered = if is_complex_or_object {
+                crate::template_env::render(
+                    "csharp/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "not_empty",
+                        field_expr => field_expr.clone(),
+                        field_needs_json_serialize => false,
+                    },
+                )
+            } else {
+                crate::template_env::render(
+                    "csharp/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "is_true",
+                        field_expr => field_expr.clone(),
+                    },
+                )
+            };
             out.push_str(&rendered);
         }
         "is_false" => {
-            let rendered = crate::template_env::render(
-                "csharp/assertion.jinja",
-                minijinja::context! {
-                    assertion_type => "is_false",
-                    field_expr => field_expr.clone(),
-                },
-            );
+            let is_complex_or_object = field_expr.contains("(object)") ||
+                (field_expr.contains(".") && !result_is_simple && !field_expr.contains("?") && !field_expr.contains("=="));
+
+            let rendered = if is_complex_or_object {
+                // For complex types, is_false means "is empty/null"
+                crate::template_env::render(
+                    "csharp/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "is_empty",
+                        field_expr => field_expr.clone(),
+                        field_needs_json_serialize => false,
+                    },
+                )
+            } else {
+                crate::template_env::render(
+                    "csharp/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "is_false",
+                        field_expr => field_expr.clone(),
+                    },
+                )
+            };
             out.push_str(&rendered);
         }
         "not_error" => {

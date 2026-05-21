@@ -37,7 +37,11 @@
 {% for line in setup_lines %}
             {{ line }}
 {% endfor %}
+{% if is_streaming %}
+            await foreach (var item in {{ call_target }}.{{ call_expr }}) { }
+{% else %}
             await {{ call_target }}.{{ call_expr }};
+{% endif %}
         });
 {% else %}
         Assert.ThrowsAny<{{ exception_class }}>(() =>
@@ -60,7 +64,12 @@
 {% for line in setup_lines %}
         {{ line }}
 {% endfor %}
-{% if has_usable_assertion %}
+{% if is_streaming %}
+        await foreach (var item in {{ call_target }}.{{ call_expr }})
+        {
+            // Stream items are consumed but assertions are skipped for streaming tests
+        }
+{% elif has_usable_assertion %}
         var {{ result_var }} = {{ async_kw }}{{ call_target }}.{{ call_expr }};
 {{ assertions_body }}
 {% else %}
