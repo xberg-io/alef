@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.24] - 2026-05-21
+
 ### Fixed
 
 - **alef-e2e/zig: use binding module name (not registry pkg name) for `root_source_file` path in test_apps build.zig.** The Zig test_app build.zig was referencing `../../packages/zig/src/{pkg_name}.zig` where `pkg_name` is the registry-display package name (e.g., `html_to_markdown`). But the alef-backend-zig emits the binding file at `src/{module_name}.zig` where `module_name` is the Rust crate's snake_case identifier (e.g., `html_to_markdown_rs`). When the two differ — which is the common case for crates whose Rust name carries a `-rs` suffix while the published package drops it — `zig build` fails with "no such file". Now uses `module_name` to match the actual emitted file path. (`crates/alef-e2e/src/codegen/zig.rs`)
