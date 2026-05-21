@@ -1572,14 +1572,18 @@ fn render_assertion(
                         } else if field_is_enum {
                             // Enum fields: use `toString().toString()` (via string_expr) to get the
                             // serde variant name as a Swift String, then check substring containment.
+                            // Swift's `String.contains("")` returns false; guard with `.isEmpty` so
+                            // fixtures that assert containment of an empty string still pass.
                             let _ = writeln!(
                                 out,
-                                "        XCTAssertTrue({string_expr}.contains({swift_val}), \"expected to contain: \\({swift_val})\")"
+                                "        XCTAssertTrue({swift_val}.isEmpty || {string_expr}.contains({swift_val}), \"expected to contain: \\({swift_val})\")"
                             );
                         } else {
+                            // Same `isEmpty` guard as the enum branch — every string trivially
+                            // "contains" the empty string, but Swift's `String.contains` does not.
                             let _ = writeln!(
                                 out,
-                                "        XCTAssertTrue({string_expr}.contains({swift_val}), \"expected to contain: \\({swift_val})\")"
+                                "        XCTAssertTrue({swift_val}.isEmpty || {string_expr}.contains({swift_val}), \"expected to contain: \\({swift_val})\")"
                             );
                         }
                     }
