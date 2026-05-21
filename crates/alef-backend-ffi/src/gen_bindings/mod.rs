@@ -556,6 +556,11 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
         if ffi_exclude_functions.contains(&func.name) {
             continue;
         }
+        // clear_fn functions are emitted by the trait bridge layer; emitting them here
+        // too would produce duplicate C symbols in the generated FFI header.
+        if alef_codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&func.name, &config.trait_bridges) {
+            continue;
+        }
         // For the legacy FunctionParam visitor path: skip the sanitized convert stub;
         // gen_convert_no_visitor emits the real implementation below.
         // For the OptionsField path: skip the IR-generated convert entirely;

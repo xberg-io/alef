@@ -39,10 +39,16 @@ pub(crate) fn gen_native_lib(
         .flat_map(|b| {
             let trait_snake = b.trait_name.to_snake_case();
             let trait_upper = trait_snake.to_uppercase();
-            vec![
+            let mut handles = vec![
                 format!("{}_REGISTER_{}", prefix.to_uppercase(), trait_upper),
                 format!("{}_UNREGISTER_{}", prefix.to_uppercase(), trait_upper),
-            ]
+            ];
+            // clear_fn is emitted by the trait bridge layer; pre-register its handle name
+            // so the functions loop skips it and avoids emitting a duplicate method handle.
+            if let Some(clear_fn) = &b.clear_fn {
+                handles.push(format!("{}_{}", prefix.to_uppercase(), clear_fn.to_uppercase()));
+            }
+            handles
         })
         .collect();
 

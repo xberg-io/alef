@@ -655,6 +655,10 @@ impl Backend for ExtendrBackend {
             } else if let Some(bm) = bridge_field {
                 // Function has a bridge field binding (e.g., visitor on options)
                 builder.add_item(&gen_extendr_bridge_field_function(func, &bm, &core_import));
+            } else if alef_codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&func.name, &active_bridges) {
+                // clear_fn functions are emitted by the bridge module and registered via
+                // collect_trait_bridge_fns; emitting them here too would produce duplicate
+                // R function registrations in extendr_module!.
             } else {
                 // Detect functions whose return type or parameter types are incompatible
                 // with extendr's automatic Robj conversions. These need JSON bridging.
