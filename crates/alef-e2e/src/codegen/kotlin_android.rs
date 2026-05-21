@@ -181,11 +181,17 @@ impl E2eCodegen for KotlinAndroidE2eCodegen {
             })
             .collect();
 
+        // kotlin_android lacks a JNI trait-handle bridge (see alef-backend-jni TODO), so
+        // [crates.kotlin_android] excludes the visitor function. Fixtures whose payload uses
+        // a visitor cannot be exercised through this binding — emitting them produces tests
+        // that call convert(html, null) and then assert on visitor-transformed output, which
+        // always fails. Skip any visitor-using fixture for kotlin_android.
         for group in groups {
             let active: Vec<&Fixture> = group
                 .fixtures
                 .iter()
                 .filter(|f| super::should_include_fixture(f, lang, e2e_config))
+                .filter(|f| f.visitor.is_none())
                 .collect();
 
             if active.is_empty() {

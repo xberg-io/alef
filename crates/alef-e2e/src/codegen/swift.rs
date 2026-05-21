@@ -1636,8 +1636,12 @@ fn render_assertion(
                             // mirroring python's `_alef_e2e_item_texts`. This avoids the
                             // brittle "primary accessor" guess (e.g. ImportInfo → source
                             // misses imports whose name lives in `items`).
-                            let aggregator =
-                                swift_stringy_aggregator_contains_assert(assertion.field.as_deref(), result_var, field_resolver, &swift_val);
+                            let aggregator = swift_stringy_aggregator_contains_assert(
+                                assertion.field.as_deref(),
+                                result_var,
+                                field_resolver,
+                                &swift_val,
+                            );
                             if let Some(line) = aggregator {
                                 let _ = writeln!(out, "{line}");
                             } else {
@@ -2897,10 +2901,7 @@ mod tests {
             line.contains("$0.contains(\"os\")"),
             "expected substring contains over expected value: {line}"
         );
-        assert!(
-            !line.contains("$0 == \"os\""),
-            "must not use exact equality: {line}"
-        );
+        assert!(!line.contains("$0 == \"os\""), "must not use exact equality: {line}");
     }
 
     /// When the element type has fewer than 2 stringy accessors, the

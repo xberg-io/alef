@@ -1435,13 +1435,17 @@ fn build_args_and_setup(
         }
 
         match val {
-            None | Some(serde_json::Value::Null) if arg.arg_type == "json_object" && arg.name == "config" => {
+            None | Some(serde_json::Value::Null)
+                if arg.arg_type == "json_object" && arg.name == "config" && !arg.optional =>
+            {
                 // Special case: ExtractionConfig and similar config objects with no fixture value
                 // should default to an empty instance (e.g., ExtractionConfig::from_json('{}'))
                 // to satisfy required parameters. This check happens BEFORE the optional check
-                // so that config args are always provided, even if marked optional in alef.toml.
-                // Infer the type name from the arg name and capitalize it (e.g., "config" -> "ExtractionConfig").
-                let type_name = if arg.name == "config" {
+                // so that required config args are always provided.
+                // Use options_type if available; otherwise infer from arg name.
+                let type_name = if let Some(opt_type) = options_type {
+                    opt_type.to_string()
+                } else if arg.name == "config" {
                     "ExtractionConfig".to_string()
                 } else {
                     format!("{}Config", arg.name.to_upper_camel_case())

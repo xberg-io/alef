@@ -806,8 +806,7 @@ fn render_test_case(
     // - Declared streaming call (`call_config.streaming = true`) + error fixture.
     // - Heuristic name-based detection (function name contains "stream") for
     //   fixtures that pre-date the explicit `streaming` flag.
-    let is_streaming_error_call =
-        expects_error && (is_streaming || function_name.to_lowercase().contains("stream"));
+    let is_streaming_error_call = expects_error && (is_streaming || function_name.to_lowercase().contains("stream"));
 
     // Build assertions body
     let mut assertions_body = String::new();
