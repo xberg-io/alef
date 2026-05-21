@@ -826,11 +826,10 @@ fn render_test_case(
     let co = call_config.overrides.get(lang);
     let empty_enum_fields_local: HashMap<String, String> = HashMap::new();
     let empty_atom_fields_local: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let resolved_args = if !call_config.args.is_empty() {
-        call_config.args.as_slice()
-    } else {
-        args as &[_]
-    };
+    // Use the call config's args, not the fallback global args.
+    // This ensures that functions like list_document_extractors with args=[] stay empty,
+    // instead of falling back to the global [crates.e2e.call] args which are meant for extract_file.
+    let resolved_args = call_config.args.as_slice();
     let resolved_options_type = co
         .and_then(|o| o.options_type.clone())
         .or_else(|| options_type.map(|s| s.to_string()));
