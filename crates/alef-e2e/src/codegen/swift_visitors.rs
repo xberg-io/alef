@@ -144,14 +144,23 @@ fn swift_visitor_params(method: &str) -> &'static str {
 }
 
 /// Render the Swift expression for a fixture-driven callback action.
+///
+/// Variant naming mirrors the swift-backend emission of `VisitResult` (see
+/// `alef-backend-swift::gen_bindings`):
+/// - Unit variants are emitted by `swift_case_ident` (backtick-escape reserved
+///   keywords, plain camelCase otherwise). `continue` is a Swift keyword so the
+///   case is `` `continue` ``.
+/// - Tuple variants with a single field carry the synthesised label `field0:`
+///   in the Swift enum (`case custom(field0: String)`), so call sites MUST
+///   provide that label.
 fn swift_action_body(action: &CallbackAction) -> String {
     match action {
         CallbackAction::Skip => ".skip".to_string(),
-        CallbackAction::Continue => ".continue_".to_string(),
+        CallbackAction::Continue => ".`continue`".to_string(),
         CallbackAction::PreserveHtml => ".preserveHtml".to_string(),
         CallbackAction::Custom { output } => {
             let escaped = escape_swift_str(output);
-            format!(".custom(\"{escaped}\")")
+            format!(".custom(field0: \"{escaped}\")")
         }
         CallbackAction::CustomTemplate {
             template,
@@ -185,7 +194,7 @@ fn swift_action_body(action: &CallbackAction) -> String {
                     other => interpolated.push(other),
                 }
             }
-            format!(".custom(\"{interpolated}\")")
+            format!(".custom(field0: \"{interpolated}\")")
         }
     }
 }
@@ -237,7 +246,7 @@ mod tests {
         assert!(block.contains("LocalVisitor_AudioSkip"), "got: {block}");
         assert!(block.contains("HtmlVisitorProtocol"), "got: {block}");
         assert!(block.contains("visitAudio"), "got: {block}");
-        assert!(block.contains(".custom(\"[AUDIO]\")"), "got: {block}");
+        assert!(block.contains(".custom(field0: \"[AUDIO]\")"), "got: {block}");
     }
 
     #[test]
@@ -266,7 +275,7 @@ mod tests {
             &spec("visit_strong", CallbackAction::Continue),
             "strong_cont",
         );
-        assert!(lines[0].contains(".continue_"), "got: {}", lines[0]);
+        assert!(lines[0].contains(".`continue`"), "got: {}", lines[0]);
     }
 
     #[test]
@@ -285,7 +294,7 @@ mod tests {
         );
         // Placeholder names should be camelCased and use Swift interpolation syntax.
         assert!(
-            lines[0].contains(".custom(\"[LINK:\\(text):\\(href)]\""),
+            lines[0].contains(".custom(field0: \"[LINK:\\(text):\\(href)]\""),
             "got: {}",
             lines[0]
         );
