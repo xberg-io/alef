@@ -3667,7 +3667,7 @@ mod tests {
 
         let fixture = make_fixture("basic_text");
         let mut out = String::new();
-        render_test_function(&mut out, &fixture, "kreuzberg", &e2e_config);
+        render_test_function(&mut out, &fixture, "kreuzberg", &e2e_config, &[]);
 
         assert!(
             out.contains("kreuzberg.CleanExtractedText("),
@@ -3711,7 +3711,7 @@ mod tests {
         };
 
         let mut out = String::new();
-        render_test_function(&mut out, &fixture, "pkg", &e2e_config);
+        render_test_function(&mut out, &fixture, "pkg", &e2e_config, &[]);
 
         assert!(out.contains("stream, err :="), "should use stream binding, got:\n{out}");
         assert!(
@@ -3773,7 +3773,7 @@ mod tests {
         };
 
         let mut out = String::new();
-        render_test_function(&mut out, &fixture, "pkg", &e2e_config);
+        render_test_function(&mut out, &fixture, "pkg", &e2e_config, &[]);
 
         eprintln!("generated:\n{out}");
         assert!(out.contains("stream, err :="), "should use stream binding, got:\n{out}");
@@ -3839,7 +3839,7 @@ mod tests {
         };
 
         let mut out = String::new();
-        render_test_function(&mut out, &fixture, "pkg", &e2e_config);
+        render_test_function(&mut out, &fixture, "pkg", &e2e_config, &[]);
 
         eprintln!("generated:\n{out}");
 

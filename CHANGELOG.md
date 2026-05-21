@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-e2e/streaming_assertions: parameterize streaming union type name in `has_event_variant_accessor`.** The function hardcoded `"CrawlEvent"` in every language branch, making it unusable for any consumer with a different streaming union type. Introduced a new public entry point `StreamingFieldResolver::accessor_with_streaming_context` that accepts `item_type: Option<&str>` — the unqualified name of the tagged-union type. Existing callers are unchanged: `accessor` and `accessor_with_module_qualifier` forward to the new function with the legacy default `Some("CrawlEvent")` so kreuzcrawl output is bit-for-bit identical. New consumers pass their own type name; when `item_type` is `None` the `stream.has_*_event` branches return `None` and the assertion is silently skipped. Also fixed four pre-existing test call sites in `go.rs` that were passing 4 arguments to the 5-argument `render_test_function`. (`crates/alef-e2e/src/codegen/streaming_assertions.rs`, `crates/alef-e2e/src/codegen/go.rs`)
+
 - **alef-scaffold: convert hyphens to underscores in wasm package.json main/module/types filenames.** wasm-pack emits files with underscores in the name (e.g., `html_to_markdown_wasm.js`), matching Rust naming conventions. The package.json template was using `core_crate_dir` directly (e.g., `html-to-markdown`), causing `main`, `module`, and `types` fields to reference non-existent files. Added a `core_crate_file` variable that replaces hyphens with underscores before interpolating into the entry-point paths. (`crates/alef-scaffold/src/languages/wasm.rs`)
 
 ## [0.17.23] - 2026-05-21
