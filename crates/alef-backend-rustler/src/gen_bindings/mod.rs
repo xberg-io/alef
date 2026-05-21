@@ -545,12 +545,14 @@ impl Backend for RustlerBackend {
         }
 
         // from_json NIF shims for Gleam e2e tests.
+        // Only emit for types that have a corresponding NIF wrapper struct (types_to_emit).
         for typ in api.types.iter().filter(|t| {
             !t.is_trait
                 && !t.is_opaque
                 && !t.fields.is_empty()
                 && t.has_serde
                 && !exclude_types.contains(t.name.as_str())
+                && types_to_emit.contains(&t.name)
         }) {
             builder.add_item(&gen_from_json_nif(typ, &core_import));
         }

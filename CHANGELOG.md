@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-backend-rustler: gate `from_json` NIF shims and `native.ex` stubs on types that have NIF wrapper structs.** The `from_json` NIF loop in `generate_bindings` and the corresponding stub loop in `gen_native_ex` previously iterated ALL serde-capable non-opaque types in the IR, including types like `ConversionOptionsUpdate`, `PreprocessingOptionsUpdate`, and `NodeContext` that are not reachable from function signatures and therefore have no NIF wrapper struct (`#[derive(NifMap)]`) generated. These unqualified type references compiled fine in the NIF stub `.ex` file but caused `error[E0425]: cannot find type` errors in the Rust NIF `lib.rs` because no wrapper struct was defined for them. Fixed by filtering both loops through `collect_types_for_nif_derives` (which walks the full type closure from function signatures) so `from_json` NIFs are only emitted for types that have corresponding wrapper structs. Fixes html-to-markdown Elixir NIF compilation failures after alef 0.17.21. (`crates/alef-backend-rustler/src/gen_bindings/mod.rs`, `crates/alef-backend-rustler/src/gen_bindings/helpers.rs`)
+
 ## [0.17.22] - 2026-05-21
 
 ### Fixed
