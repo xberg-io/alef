@@ -1158,6 +1158,12 @@ fn kotlin_field_default(
     enum_defaults: &std::collections::HashMap<String, String>,
 ) -> String {
     if let Some(default) = typed_default {
+        // For optional fields with DefaultValue::Empty, the natural Kotlin default
+        // is null regardless of the inner type — Rust's Option<T>::default() is
+        // None, and we shouldn't synthesise type-specific zero-values like "" or 0.
+        if optional && matches!(default, alef_core::ir::DefaultValue::Empty) {
+            return " = null".to_string();
+        }
         if let Some(literal) = render_kotlin_default(ty, default, enum_defaults) {
             return format!(" = {literal}");
         }
@@ -1269,10 +1275,18 @@ fn render_kotlin_default(
                         Some(format!("{name}.{}", to_screaming_snake(value)))
                     }
                 } else {
-                    // Non-enum struct with DefaultValue::Empty — safe to call
-                    // the no-arg constructor because the Rust Default impl
-                    // guarantees all fields have defaults.
-                    Some(format!("{}()", name))
+                    // Non-enum Named types — could be data-class structs OR
+                    // sealed classes from tagged/untagged Rust enums. We can't
+                    // distinguish here without an explicit sealed-class set,
+                    // and synthesising `{name}()` is broken for sealed classes
+                    // (protected constructor) and even risky for structs whose
+                    // fields don't all have defaults. Fall through to the
+                    // field-level logic: `null` for optional fields, no default
+                    // for required ones. Required Named fields will then need
+                    // an explicit value at construction sites, which is correct
+                    // for sealed classes (caller must pick a variant) and a
+                    // reasonable constraint for data classes.
+                    None
                 }
             }
             _ => None,

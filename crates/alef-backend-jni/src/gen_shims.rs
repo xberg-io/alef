@@ -823,7 +823,7 @@ fn emit_method_shim(
             TypeRef::Optional(inner) => inner.as_ref(),
             other => other,
         };
-        emit_single_param_unmarshal(out, &rust_name, base_ty, ret_null);
+        emit_single_param_unmarshal(out, &rust_name, base_ty, ret_null, p.optional);
         // Apply optional/is_ref at the call site.
         // Special case: Vec<String> with is_ref means the core expects `&[&str]`.
         // emit_single_param_unmarshal already bound `<name>_vec: Vec<String>`.
@@ -955,7 +955,11 @@ fn emit_method_shim(
 /// - `Path` (`PathBuf`): the JNI param is `request_json: JString`; construct
 ///   `std::path::PathBuf::from(string)` instead of JSON-deserializing.
 /// - Everything else: JSON-deserialize from `request_json: JString`.
-fn emit_single_param_unmarshal(out: &mut String, rust_name: &str, ty: &TypeRef, ret_null: &str) {
+///
+/// When `is_optional` is true, the emitted binding has type `Option<T>` and an
+/// empty-string sentinel (from Kotlin's `obj?.let { writeValueAsString(it) } ?: ""`)
+/// is decoded as `None` rather than failing with `EOF while parsing`.
+fn emit_single_param_unmarshal(out: &mut String, rust_name: &str, ty: &TypeRef, ret_null: &str, is_optional: bool) {
     match ty {
         TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8)) => {
             // jbyteArray → Vec<u8> via env.convert_byte_array.
@@ -1040,12 +1044,25 @@ fn emit_single_param_unmarshal(out: &mut String, rust_name: &str, ty: &TypeRef, 
             ));
             out.push_str("    };\n");
             let type_path = type_ref_to_core_path(ty, "core_crate");
-            out.push_str(&format!(
-                "    let {rust_name}: {type_path} = match serde_json::from_str(&req_str) {{\n"
-            ));
-            out.push_str("        Ok(v) => v,\n");
-            out.push_str(&format!("        Err(e) => {{ throw_jni_error(env, &format!(\"request deserialize: {{e}}\")); return {ret_null}; }}\n"));
-            out.push_str("    };\n");
+            if is_optional {
+                // Kotlin passes "" as the sentinel for None (so we don't have to
+                // round-trip a JSON `null` and the wire stays clean for the Some case).
+                out.push_str(&format!(
+                    "    let {rust_name}: Option<{type_path}> = if req_str.is_empty() {{ None }} else {{\n"
+                ));
+                out.push_str("        match serde_json::from_str(&req_str) {\n");
+                out.push_str("            Ok(v) => Some(v),\n");
+                out.push_str(&format!("            Err(e) => {{ throw_jni_error(env, &format!(\"request deserialize: {{e}}\")); return {ret_null}; }}\n"));
+                out.push_str("        }\n");
+                out.push_str("    };\n");
+            } else {
+                out.push_str(&format!(
+                    "    let {rust_name}: {type_path} = match serde_json::from_str(&req_str) {{\n"
+                ));
+                out.push_str("        Ok(v) => v,\n");
+                out.push_str(&format!("        Err(e) => {{ throw_jni_error(env, &format!(\"request deserialize: {{e}}\")); return {ret_null}; }}\n"));
+                out.push_str("    };\n");
+            }
         }
     }
 }
