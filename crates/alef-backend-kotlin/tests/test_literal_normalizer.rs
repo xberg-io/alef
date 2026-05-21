@@ -18,7 +18,10 @@ fn test_fix_float_literals_double_eol() {
 fn test_fix_float_literals_multiple() {
     let content = "val minNonWhitespacePerPage: Double = 32,\nval minAvgWordLength: Double = 2,";
     let result = literal_normalizer::fix_float_literals(content);
-    assert_eq!(result, "val minNonWhitespacePerPage: Double = 32.0,\nval minAvgWordLength: Double = 2.0,");
+    assert_eq!(
+        result,
+        "val minNonWhitespacePerPage: Double = 32.0,\nval minAvgWordLength: Double = 2.0,"
+    );
 }
 
 #[test]
