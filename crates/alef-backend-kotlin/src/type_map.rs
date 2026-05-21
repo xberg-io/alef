@@ -35,7 +35,7 @@ impl TypeMapper for KotlinMapper {
     }
 
     fn path(&self) -> Cow<'static, str> {
-        Cow::Borrowed("Path")
+        Cow::Borrowed("java.nio.file.Path")
     }
 
     fn json(&self) -> Cow<'static, str> {
@@ -116,7 +116,7 @@ mod tests {
 
     #[test]
     fn test_path() {
-        assert_eq!(KotlinMapper.path(), "Path");
+        assert_eq!(KotlinMapper.path(), "java.nio.file.Path");
     }
 
     #[test]
