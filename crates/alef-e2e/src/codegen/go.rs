@@ -954,17 +954,17 @@ fn render_test_function(
     let returns_void = call_config.returns_void;
 
     // result_is_simple: result is a scalar (*string, *bool, etc.) not a struct.
-    // Priority: Go override > call-level (canonical source) > Rust override (legacy compat).
-    let result_is_simple = overrides.map(|o| o.result_is_simple).unwrap_or_else(|| {
-        if call_config.result_is_simple {
-            return true;
-        }
-        call_config
+    // Boolean OR with call-level — serde defaults `result_is_simple` to `false` on
+    // CallOverride, so a Go override that only sets e.g. `returns_result = false`
+    // would otherwise silently clobber a true call-level value. Falls back to the
+    // rust override only when neither the Go override nor the call-level value is set.
+    let result_is_simple = overrides.is_some_and(|o| o.result_is_simple)
+        || call_config.result_is_simple
+        || call_config
             .overrides
             .get("rust")
             .map(|o| o.result_is_simple)
-            .unwrap_or(false)
-    });
+            .unwrap_or(false);
 
     // result_is_array: the simple result is a slice/array type (e.g., []string).
     // Boolean OR with call-level — serde defaults `result_is_array` to `false` on
