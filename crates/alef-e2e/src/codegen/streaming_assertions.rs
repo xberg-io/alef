@@ -178,13 +178,7 @@ impl StreamingFieldResolver {
     ) -> Option<String> {
         // Pass the legacy default item type so the `stream.has_*_event` branches
         // continue to work for callers that predate the generic API.
-        Self::accessor_with_streaming_context(
-            field,
-            lang,
-            chunks_var,
-            module_qualifier,
-            Some("CrawlEvent"),
-        )
+        Self::accessor_with_streaming_context(field, lang, chunks_var, module_qualifier, Some("CrawlEvent"))
     }
 
     /// Same as [`Self::accessor_with_module_qualifier`] but also accepts the
@@ -376,21 +370,13 @@ impl StreamingFieldResolver {
             // PHP and WASM intentionally return `None`: PHP's crawl-stream is
             // exposed as eager JSON (see `chunks_var` collect_snippet) and WASM
             // does not support streaming on `wasm32` targets.
-            "stream.has_page_event" => {
-                item_type.and_then(|ty| {
-                    has_event_variant_accessor(lang, chunks_var, EventVariant::Page, ty, module_qualifier)
-                })
-            }
-            "stream.has_error_event" => {
-                item_type.and_then(|ty| {
-                    has_event_variant_accessor(lang, chunks_var, EventVariant::Error, ty, module_qualifier)
-                })
-            }
-            "stream.has_complete_event" => {
-                item_type.and_then(|ty| {
-                    has_event_variant_accessor(lang, chunks_var, EventVariant::Complete, ty, module_qualifier)
-                })
-            }
+            "stream.has_page_event" => item_type
+                .and_then(|ty| has_event_variant_accessor(lang, chunks_var, EventVariant::Page, ty, module_qualifier)),
+            "stream.has_error_event" => item_type
+                .and_then(|ty| has_event_variant_accessor(lang, chunks_var, EventVariant::Error, ty, module_qualifier)),
+            "stream.has_complete_event" => item_type.and_then(|ty| {
+                has_event_variant_accessor(lang, chunks_var, EventVariant::Complete, ty, module_qualifier)
+            }),
 
             // event_count_min is the collected chunks count — used with
             // `greater_than_or_equal` assertions on the chunk count.  Mirrors

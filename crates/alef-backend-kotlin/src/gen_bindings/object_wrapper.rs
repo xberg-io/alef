@@ -125,8 +125,8 @@ pub(crate) fn emit_type_with_imports(
     // annotations force multi-line because they cannot be inlined inside a
     // constructor parameter list.
     let has_field_docs = ty.fields.iter().any(|f| !f.doc.is_empty());
-    let has_field_annotations = ty.fields.iter().any(|f| f.serde_rename.is_some())
-        || field_sealed_annotations.iter().any(Option::is_some);
+    let has_field_annotations =
+        ty.fields.iter().any(|f| f.serde_rename.is_some()) || field_sealed_annotations.iter().any(Option::is_some);
     // Detect `#[serde(flatten)]` fields. In Rust these collect all unknown
     // wire fields into a value (often `serde_json::Value` or `HashMap`); Kotlin
     // has no native equivalent. As a pragmatic mitigation, treat the flatten
@@ -159,7 +159,13 @@ pub(crate) fn emit_type_with_imports(
         } else {
             (
                 ty_str,
-                kotlin_field_default(&field.ty, field.optional, field.typed_default.as_ref(), enum_defaults, default_constructible_types),
+                kotlin_field_default(
+                    &field.ty,
+                    field.optional,
+                    field.typed_default.as_ref(),
+                    enum_defaults,
+                    default_constructible_types,
+                ),
             )
         };
         field_strings.push(format!("val {name}: {effective_ty_str}{default_suffix}"));
@@ -217,7 +223,10 @@ pub(crate) fn emit_type_with_imports(
 /// Other shapes (nested generics, sealed inside `Map` key, …) are ignored —
 /// they don't appear in the current codebase, and `contentAs` cannot express
 /// them anyway.
-fn sealed_class_field_annotation(ty: &TypeRef, sealed_class_names: &std::collections::HashSet<String>) -> Option<String> {
+fn sealed_class_field_annotation(
+    ty: &TypeRef,
+    sealed_class_names: &std::collections::HashSet<String>,
+) -> Option<String> {
     let base = match ty {
         TypeRef::Optional(inner) => inner.as_ref(),
         other => other,

@@ -484,7 +484,7 @@ fn render_sealed_display(
         };
 
         let display = if has_format_field {
-            format!("i.value().format()")
+            "i.value().format()".to_string()
         } else {
             // Use the serde rename when present; otherwise lowercase the variant name.
             let serde_name = variant

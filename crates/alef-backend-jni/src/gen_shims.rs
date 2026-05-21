@@ -830,10 +830,7 @@ fn emit_method_shim(
         let unmarshal_produces_option = p.optional
             && !matches!(
                 base_ty,
-                TypeRef::Vec(_)
-                    | TypeRef::Bytes
-                    | TypeRef::Path
-                    | TypeRef::String
+                TypeRef::Vec(_) | TypeRef::Bytes | TypeRef::Path | TypeRef::String
             );
         emit_single_param_unmarshal(out, &rust_name, base_ty, ret_null, unmarshal_produces_option);
         // Apply optional/is_ref at the call site.
