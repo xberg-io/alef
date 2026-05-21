@@ -1246,7 +1246,7 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
                 .iter()
                 .map(|f| {
                     if f.is_boxed {
-                        "Box::new(Default::default())".to_string()
+                        "Box::default()".to_string()
                     } else {
                         "Default::default()".to_string()
                     }
@@ -1271,7 +1271,7 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
                 // Pass only the expression (without "name: " prefix and without trailing comma)
                 // since php_flat_enum_fallback_variant_field.jinja adds "{{ field_name }}: {{ default_expr }},"
                 let default_expr = if f.is_boxed {
-                    "Box::new(Default::default())".to_string()
+                    "Box::default()".to_string()
                 } else {
                     "Default::default()".to_string()
                 };
@@ -1376,7 +1376,7 @@ fn flat_enum_binding_to_core_field_expr(f: &alef_core::ir::FieldDef, flat_name: 
 
     if f.sanitized {
         return if f.is_boxed {
-            "Box::new(Default::default())".to_string()
+            "Box::default()".to_string()
         } else {
             "Default::default()".to_string()
         };
