@@ -16,6 +16,7 @@ use crate::config::E2eConfig;
 use crate::escape::{escape_java as escape_swift_str, expand_fixture_templates, sanitize_filename, sanitize_ident};
 use crate::field_access::{FieldResolver, SwiftFirstClassMap};
 use crate::fixture::{Assertion, Fixture, FixtureGroup, ValidationErrorExpectation};
+use alef_codegen::keywords::swift_ident;
 use alef_core::backend::GeneratedFile;
 use alef_core::config::ResolvedCrateConfig;
 use alef_core::hash::{self, CommentStyle};
@@ -655,7 +656,7 @@ fn render_test_method(
     let function_name = call_overrides
         .and_then(|o| o.function.as_ref())
         .cloned()
-        .unwrap_or_else(|| call_config.function.to_lower_camel_case());
+        .unwrap_or_else(|| swift_ident(&call_config.function.to_lower_camel_case()));
     // Per-call client_factory takes precedence over the global one.
     let client_factory: Option<&str> = call_overrides
         .and_then(|o| o.client_factory.as_deref())
@@ -1441,6 +1442,14 @@ fn render_assertion(
         !last_segment.ends_with(')') && !last_segment.is_empty()
     };
 
+    // Bare-result Option<T> case: the call returns `Optional<String>` (or
+    // similar) so the field_expr is `result` typed as `String?`. String
+    // assertions like `XCTAssertEqual(result.trimmingCharacters(...), …)` will
+    // not compile against an optional — coalesce to `""` so the macro sees a
+    // concrete Swift `String`.
+    let _bare_result_is_simple_option =
+        result_is_simple && result_is_option && assertion.field.as_deref().filter(|f| !f.is_empty()).is_none();
+
     // For enum fields, need to handle the string representation differently in Swift.
     // Swift enums don't have `.rawValue` unless they're explicitly RawRepresentable.
     // Check if this is an enum type and handle accordingly.
@@ -1466,7 +1475,7 @@ fn render_assertion(
             format!("(({field_expr})?.rawValue ?? \"\")")
         } else if field_is_enum {
             format!("{field_expr}.rawValue")
-        } else if field_is_optional || accessor_is_optional {
+        } else if field_is_optional || accessor_is_optional || bare_result_is_simple_option {
             format!("({field_expr} ?? \"\")")
         } else {
             field_expr.to_string()

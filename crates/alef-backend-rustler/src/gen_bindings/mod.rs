@@ -899,8 +899,24 @@ impl Backend for RustlerBackend {
             }
 
             for arity in &arity_variants {
-                let arity_params = &all_params[..*arity];
+                let arity_params_slice = &all_params[..*arity];
                 let arity_types = &param_types[..*arity];
+
+                // For arity variants with positional defaults, append `\\ nil` to trailing
+                // optional params so fixtures can call with any intermediate arity.
+                let required_count = all_params.len() - trailing_optional_count;
+                let arity_params: Vec<String> = arity_params_slice
+                    .iter()
+                    .enumerate()
+                    .map(|(i, p)| {
+                        if i >= required_count && i < *arity {
+                            // Trailing optional param: add default
+                            format!("{p} \\\\ nil")
+                        } else {
+                            p.clone()
+                        }
+                    })
+                    .collect();
 
                 content.push_str(&template_env::render(
                     "elixir_doc_line.jinja",
