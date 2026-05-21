@@ -46,7 +46,8 @@ impl E2eCodegen for BrewCodegen {
         // Resolve call config with overrides for the "brew" language key.
         let call = &e2e_config.call;
         let overrides = call.overrides.get(lang);
-        let subcommand = overrides
+        // Default subcommand (used when fixture has no routing tags).
+        let default_subcommand = overrides
             .and_then(|o| o.function.as_ref())
             .cloned()
             .unwrap_or_else(|| call.function.clone());
@@ -102,7 +103,7 @@ impl E2eCodegen for BrewCodegen {
                 &group.category,
                 active,
                 &binary_name,
-                &subcommand,
+                &default_subcommand,
                 &static_cli_args,
                 &cli_flags,
                 &e2e_config.call.args,
@@ -284,7 +285,7 @@ fn render_category_file(
     category: &str,
     fixtures: &[&Fixture],
     binary_name: &str,
-    subcommand: &str,
+    default_subcommand: &str,
     static_cli_args: &[String],
     cli_flags: &std::collections::HashMap<String, String>,
     args: &[crate::config::ArgMapping],
@@ -303,7 +304,7 @@ fn render_category_file(
             &mut out,
             fixture,
             binary_name,
-            subcommand,
+            default_subcommand,
             static_cli_args,
             cli_flags,
             args,
@@ -328,7 +329,7 @@ fn render_test_function(
     out: &mut String,
     fixture: &Fixture,
     binary_name: &str,
-    subcommand: &str,
+    default_subcommand: &str,
     static_cli_args: &[String],
     cli_flags: &std::collections::HashMap<String, String>,
     _args: &[crate::config::ArgMapping],
@@ -359,11 +360,15 @@ fn render_test_function(
     );
     let field_resolver = &call_field_resolver;
 
+    // Determine subcommand based on fixture tags.
+    // If "crawl" tag is present, use "crawl"; if "map" tag is present, use "map"; else use default.
+    let subcommand = determine_subcommand(&fixture.tags, default_subcommand);
+
     // Build the CLI command using the resolved call config.
     let cmd_parts = build_cli_command(
         fixture,
         binary_name,
-        subcommand,
+        &subcommand,
         static_cli_args,
         cli_flags,
         &call_config.args,
@@ -405,6 +410,23 @@ fn render_test_function(
     }
 
     let _ = writeln!(out, "}}");
+}
+
+/// Determine the brew subcommand based on fixture tags.
+///
+/// If the fixture tags contain "crawl", returns "crawl".
+/// If the fixture tags contain "map", returns "map".
+/// Otherwise, returns the default subcommand.
+fn determine_subcommand(tags: &[String], default: &str) -> String {
+    for tag in tags {
+        if tag == "crawl" {
+            return "crawl".to_string();
+        }
+        if tag == "map" {
+            return "map".to_string();
+        }
+    }
+    default.to_string()
 }
 
 /// Build the shell CLI invocation as a list of tokens.
