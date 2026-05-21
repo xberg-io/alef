@@ -593,6 +593,7 @@ pub(super) fn gen_record_type(
     exception_class: &str,
     excluded_types: &HashSet<String>,
     tagged_union_enums: &HashSet<String>,
+    true_opaque_types: &HashSet<String>,
 ) -> String {
     use crate::template_env::render;
 
@@ -976,7 +977,7 @@ pub(super) fn gen_record_type(
     // These supersede the IntPtr-leaking counterparts on the static wrapper class:
     //   - Static method (no receiver)  → `public static ClassName Method(params)`
     //   - Instance method (has receiver) → `public ClassName Method(params)` serialising `this`
-    emit_record_methods(&mut out, typ, &class_name, prefix, exception_class);
+    emit_record_methods(&mut out, typ, &class_name, prefix, exception_class, true_opaque_types);
 
     out.push_str("}\n");
 
@@ -991,7 +992,14 @@ pub(super) fn gen_record_type(
 /// Both patterns serialise the DTO to JSON, call the FFI shim via `NativeMethods`, then
 /// deserialise the returned JSON back to the record type — keeping the `IntPtr` entirely
 /// internal to this method body and invisible to callers.
-fn emit_record_methods(out: &mut String, typ: &TypeDef, class_name: &str, _prefix: &str, exception_class: &str) {
+fn emit_record_methods(
+    out: &mut String,
+    typ: &TypeDef,
+    class_name: &str,
+    _prefix: &str,
+    exception_class: &str,
+    true_opaque_types: &HashSet<String>,
+) {
     let native_type_prefix = class_name;
 
     for method in &typ.methods {
@@ -1053,11 +1061,16 @@ fn emit_record_methods(out: &mut String, typ: &TypeDef, class_name: &str, _prefi
                 out.push_str(&format!(
                     "        var selfJson = JsonSerializer.Serialize(this, JsonOptions);\n\
                              var selfHandle = NativeMethods.{native_type_prefix}FromJson(selfJson);\n\
-                             if (selfHandle == global::System.IntPtr.Zero) throw new {exception_class}(\"Failed to serialise {class_name}\");\n\
-                             try\n        {{\n"
+                             if (selfHandle == global::System.IntPtr.Zero) throw new {exception_class}(\"Failed to serialise {class_name}\");\n"
                 ));
+                out.push_str("        try\n        {\n");
+                // Setup Named params inside try block
+                emit_named_param_setup(out, &method.params, "            ", true_opaque_types, exception_class);
+                // Build call args using native_call_arg helper for proper marshalling
                 let mut call_args = vec!["selfHandle".to_string()];
-                call_args.extend(method.params.iter().map(|p| p.name.to_lower_camel_case().to_string()));
+                call_args.extend(method.params.iter().map(|p| {
+                    super::native_call_arg(&p.ty, &p.name.to_lower_camel_case(), p.optional, true_opaque_types)
+                }));
                 let args_str = call_args.join(", ");
                 out.push_str(&format!(
                     "            var nativeResult = NativeMethods.{native_method_name}({args_str});\n\
@@ -1070,59 +1083,54 @@ fn emit_record_methods(out: &mut String, typ: &TypeDef, class_name: &str, _prefi
                                  NativeMethods.{native_type_prefix}Free(nativeResult);\n\
                                  return JsonSerializer.Deserialize<{class_name}>(json ?? \"null\", JsonOptions)!;\n\
                          }}\n\
-                         finally\n        {{\n\
-                             NativeMethods.{native_type_prefix}Free(selfHandle);\n\
-                         }}\n"
+                         finally\n        {{\n"
+                ));
+                emit_named_param_teardown_indented(out, &method.params, "            ", true_opaque_types);
+                out.push_str(&format!(
+                    "            NativeMethods.{native_type_prefix}Free(selfHandle);\n\
+                                 }}\n"
                 ));
             } else {
-                // Static factory: check if any parameters are record types that need serialization
-                let mut setup_code = String::new();
-                let mut call_args: Vec<String> = Vec::new();
-                let mut cleanup_code = String::new();
+                // Check if any params need handle setup
+                let needs_handle_params = method.params.iter().any(|p| {
+                    matches!(
+                        &p.ty,
+                        TypeRef::Named(n) if !true_opaque_types.contains(n)
+                    ) || matches!(&p.ty, TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Bytes)
+                });
 
-                for p in &method.params {
-                    let pname = p.name.to_lower_camel_case();
-                    // Check if this parameter is a named type (record/opaque/enum)
-                    if let TypeRef::Named(type_name) = &p.ty {
-                        // Check if it's an opaque type that should be passed as IntPtr
-                        // For now, assume any Named type parameter should be serialized to JSON
-                        let param_json_var = format!("{pname}Json");
-                        let param_handle_var = format!("{pname}Handle");
-                        setup_code.push_str(&format!(
-                            "        var {param_json_var} = JsonSerializer.Serialize({pname}, JsonOptions);\n\
-                             var {param_handle_var} = NativeMethods.{}FromJson({param_json_var});\n",
-                            csharp_type_name(type_name)
-                        ));
-                        cleanup_code.push_str(&format!(
-                            "        NativeMethods.{}Free({param_handle_var});\n",
-                            csharp_type_name(type_name)
-                        ));
-                        call_args.push(param_handle_var);
-                    } else {
-                        // Primitive type — pass directly
-                        call_args.push(pname);
-                    }
-                }
-
-                if !setup_code.is_empty() {
-                    out.push_str(&setup_code);
+                if needs_handle_params {
+                    emit_named_param_setup(out, &method.params, "        ", true_opaque_types, exception_class);
                     out.push_str("        try\n        {\n");
                 }
 
+                // Build call args using native_call_arg helper for proper marshalling
+                let call_args: Vec<String> = method
+                    .params
+                    .iter()
+                    .map(|p| {
+                        super::native_call_arg(&p.ty, &p.name.to_lower_camel_case(), p.optional, true_opaque_types)
+                    })
+                    .collect();
                 let args_str = call_args.join(", ");
+                let indent = if needs_handle_params {
+                    "            "
+                } else {
+                    "        "
+                };
                 out.push_str(&format!(
-                    "        var nativeResult = NativeMethods.{native_method_name}({args_str});\n\
-                             if (nativeResult == global::System.IntPtr.Zero) throw new {exception_class}(\"Method {method_cs_name} failed\");\n\
-                             var jsonPtr = NativeMethods.{native_type_prefix}ToJson(nativeResult);\n\
-                             var json = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(jsonPtr);\n\
-                             NativeMethods.FreeString(jsonPtr);\n\
-                             NativeMethods.{native_type_prefix}Free(nativeResult);\n\
-                             return JsonSerializer.Deserialize<{class_name}>(json ?? \"null\", JsonOptions)!;\n"
+                    "{indent}var nativeResult = NativeMethods.{native_method_name}({args_str});\n\
+                            {indent}if (nativeResult == global::System.IntPtr.Zero) throw new {exception_class}(\"Method {method_cs_name} failed\");\n\
+                            {indent}var jsonPtr = NativeMethods.{native_type_prefix}ToJson(nativeResult);\n\
+                            {indent}var json = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(jsonPtr);\n\
+                            {indent}NativeMethods.FreeString(jsonPtr);\n\
+                            {indent}NativeMethods.{native_type_prefix}Free(nativeResult);\n\
+                            {indent}return JsonSerializer.Deserialize<{class_name}>(json ?? \"null\", JsonOptions)!;\n"
                 ));
 
-                if !setup_code.is_empty() {
+                if needs_handle_params {
                     out.push_str("        }\n        finally\n        {\n");
-                    out.push_str(&cleanup_code);
+                    emit_named_param_teardown_indented(out, &method.params, "            ", true_opaque_types);
                     out.push_str("        }\n");
                 }
             }
@@ -1131,11 +1139,16 @@ fn emit_record_methods(out: &mut String, typ: &TypeDef, class_name: &str, _prefi
             if has_receiver {
                 out.push_str(&format!(
                     "        var selfJson = JsonSerializer.Serialize(this, JsonOptions);\n\
-                             var selfHandle = NativeMethods.{native_type_prefix}FromJson(selfJson);\n\
-                             try\n        {{\n"
+                             var selfHandle = NativeMethods.{native_type_prefix}FromJson(selfJson);\n"
                 ));
+                out.push_str("        try\n        {\n");
+                // Setup Named params inside try block
+                emit_named_param_setup(out, &method.params, "            ", true_opaque_types, exception_class);
+                // Build call args using native_call_arg helper for proper marshalling
                 let mut call_args = vec!["selfHandle".to_string()];
-                call_args.extend(method.params.iter().map(|p| p.name.to_lower_camel_case().to_string()));
+                call_args.extend(method.params.iter().map(|p| {
+                    super::native_call_arg(&p.ty, &p.name.to_lower_camel_case(), p.optional, true_opaque_types)
+                }));
                 let args_str = call_args.join(", ");
                 out.push_str(&format!(
                     "            var nativeResult = NativeMethods.{native_method_name}({args_str});\n\
@@ -1145,58 +1158,53 @@ fn emit_record_methods(out: &mut String, typ: &TypeDef, class_name: &str, _prefi
                                  NativeMethods.{native_type_prefix}Free(nativeResult);\n\
                                  return JsonSerializer.Deserialize<{class_name}>(json ?? \"null\", JsonOptions)!;\n\
                          }}\n\
-                         finally\n        {{\n\
-                             NativeMethods.{native_type_prefix}Free(selfHandle);\n\
-                         }}\n"
+                         finally\n        {{\n"
+                ));
+                emit_named_param_teardown_indented(out, &method.params, "            ", true_opaque_types);
+                out.push_str(&format!(
+                    "            NativeMethods.{native_type_prefix}Free(selfHandle);\n\
+                                 }}\n"
                 ));
             } else {
-                // Static factory (infallible): check if any parameters are record types that need serialization
-                let mut setup_code = String::new();
-                let mut call_args: Vec<String> = Vec::new();
-                let mut cleanup_code = String::new();
+                // Check if any params need handle setup
+                let needs_handle_params = method.params.iter().any(|p| {
+                    matches!(
+                        &p.ty,
+                        TypeRef::Named(n) if !true_opaque_types.contains(n)
+                    ) || matches!(&p.ty, TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Bytes)
+                });
 
-                for p in &method.params {
-                    let pname = p.name.to_lower_camel_case();
-                    // Check if this parameter is a named type (record/opaque/enum)
-                    if let TypeRef::Named(type_name) = &p.ty {
-                        // Check if it's an opaque type that should be passed as IntPtr
-                        // For now, assume any Named type parameter should be serialized to JSON
-                        let param_json_var = format!("{pname}Json");
-                        let param_handle_var = format!("{pname}Handle");
-                        setup_code.push_str(&format!(
-                            "        var {param_json_var} = JsonSerializer.Serialize({pname}, JsonOptions);\n\
-                             var {param_handle_var} = NativeMethods.{}FromJson({param_json_var});\n",
-                            csharp_type_name(type_name)
-                        ));
-                        cleanup_code.push_str(&format!(
-                            "        NativeMethods.{}Free({param_handle_var});\n",
-                            csharp_type_name(type_name)
-                        ));
-                        call_args.push(param_handle_var);
-                    } else {
-                        // Primitive type — pass directly
-                        call_args.push(pname);
-                    }
-                }
-
-                if !setup_code.is_empty() {
-                    out.push_str(&setup_code);
+                if needs_handle_params {
+                    emit_named_param_setup(out, &method.params, "        ", true_opaque_types, exception_class);
                     out.push_str("        try\n        {\n");
                 }
 
+                // Build call args using native_call_arg helper for proper marshalling
+                let call_args: Vec<String> = method
+                    .params
+                    .iter()
+                    .map(|p| {
+                        super::native_call_arg(&p.ty, &p.name.to_lower_camel_case(), p.optional, true_opaque_types)
+                    })
+                    .collect();
                 let args_str = call_args.join(", ");
+                let indent = if needs_handle_params {
+                    "            "
+                } else {
+                    "        "
+                };
                 out.push_str(&format!(
-                    "        var nativeResult = NativeMethods.{native_method_name}({args_str});\n\
-                             var jsonPtr = NativeMethods.{native_type_prefix}ToJson(nativeResult);\n\
-                             var json = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(jsonPtr);\n\
-                             NativeMethods.FreeString(jsonPtr);\n\
-                             NativeMethods.{native_type_prefix}Free(nativeResult);\n\
-                             return JsonSerializer.Deserialize<{class_name}>(json ?? \"null\", JsonOptions)!;\n"
+                    "{indent}var nativeResult = NativeMethods.{native_method_name}({args_str});\n\
+                            {indent}var jsonPtr = NativeMethods.{native_type_prefix}ToJson(nativeResult);\n\
+                            {indent}var json = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(jsonPtr);\n\
+                            {indent}NativeMethods.FreeString(jsonPtr);\n\
+                            {indent}NativeMethods.{native_type_prefix}Free(nativeResult);\n\
+                            {indent}return JsonSerializer.Deserialize<{class_name}>(json ?? \"null\", JsonOptions)!;\n"
                 ));
 
-                if !setup_code.is_empty() {
+                if needs_handle_params {
                     out.push_str("        }\n        finally\n        {\n");
-                    out.push_str(&cleanup_code);
+                    emit_named_param_teardown_indented(out, &method.params, "            ", true_opaque_types);
                     out.push_str("        }\n");
                 }
             }

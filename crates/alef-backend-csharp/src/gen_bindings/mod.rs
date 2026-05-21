@@ -500,6 +500,7 @@ impl Backend for CsharpBackend {
                         &exception_class_name,
                         &excluded_types,
                         &tagged_union_enums,
+                        &all_opaque_type_names,
                     )),
                     generated_header: true,
                 });

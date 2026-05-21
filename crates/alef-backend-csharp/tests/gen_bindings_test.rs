@@ -2444,3 +2444,483 @@ type = "*const std::ffi::c_char"
         "P/Invoke should return IntPtr: {native_content}"
     );
 }
+
+#[test]
+fn test_record_method_bool_param_passes_bool_directly() {
+    let backend = CsharpBackend;
+    let config = minimal_csharp_config("test");
+
+    let api = ApiSurface {
+        crate_name: "test".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "PaddleOcrConfig".to_string(),
+            rust_path: "test::PaddleOcrConfig".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![MethodDef {
+                name: "with_table_detection".to_string(),
+                params: vec![ParamDef {
+                    name: "enable".to_string(),
+                    ty: TypeRef::Primitive(PrimitiveType::Bool),
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                }],
+                return_type: TypeRef::Named("PaddleOcrConfig".to_string()),
+                is_async: false,
+                is_static: false,
+                error_type: None,
+                doc: "Enable table detection.".to_string(),
+                receiver: Some(ReceiverKind::Ref),
+                sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                trait_source: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+
+    let config_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("PaddleOcrConfig.cs"))
+        .expect("PaddleOcrConfig.cs should be generated");
+
+    let native_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("NativeMethods.cs"))
+        .expect("NativeMethods.cs should be generated");
+
+    // Verify P/Invoke declaration uses [MarshalAs(UnmanagedType.U1)] bool
+    assert!(
+        native_file
+            .content
+            .contains("[MarshalAs(UnmanagedType.U1)] bool enable"),
+        "P/Invoke should declare bool parameter with marshaling attribute: {}",
+        native_file.content
+    );
+
+    // Verify method call passes bool directly (not (enable ? 1 : 0))
+    assert!(
+        config_file.content.contains("enable"),
+        "Bool parameter should be passed directly in method call: {}",
+        config_file.content
+    );
+
+    // Verify the int conversion does NOT appear
+    assert!(
+        !config_file.content.contains("(enable ? 1 : 0)"),
+        "Bool parameter should not be converted to int with (enable ? 1 : 0): {}",
+        config_file.content
+    );
+}
+
+#[test]
+fn test_receiver_selfhandle_freed_on_named_param_failure() {
+    let backend = CsharpBackend;
+    let config = minimal_csharp_config("test");
+
+    let api = ApiSurface {
+        crate_name: "test".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![
+            TypeDef {
+                name: "SomeOther".to_string(),
+                rust_path: "test::SomeOther".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![FieldDef {
+                    name: "value".to_string(),
+                    ty: TypeRef::Primitive(PrimitiveType::I32),
+                    optional: false,
+                    default: None,
+                    typed_default: None,
+                    doc: String::new(),
+                    sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    core_wrapper: alef_core::ir::CoreWrapper::None,
+                    vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                    newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                    original_type: None,
+                }],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+            TypeDef {
+                name: "SomeConfig".to_string(),
+                rust_path: "test::SomeConfig".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![MethodDef {
+                    name: "with_param".to_string(),
+                    params: vec![ParamDef {
+                        name: "other".to_string(),
+                        ty: TypeRef::Named("SomeOther".to_string()),
+                        optional: false,
+                        default: None,
+                        sanitized: false,
+                        typed_default: None,
+                        is_ref: false,
+                        is_mut: false,
+                        newtype_wrapper: None,
+                        original_type: None,
+                    }],
+                    return_type: TypeRef::Named("SomeConfig".to_string()),
+                    is_async: false,
+                    is_static: false,
+                    error_type: Some("SomeError".to_string()),
+                    doc: "Configure with other.".to_string(),
+                    receiver: Some(ReceiverKind::Ref),
+                    sanitized: false,
+                    returns_ref: false,
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    has_default_impl: false,
+                    trait_source: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                }],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+        ],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![ErrorDef {
+            name: "SomeError".to_string(),
+            rust_path: "test::SomeError".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![],
+            doc: String::new(),
+            methods: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+
+    let config_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("SomeConfig.cs"))
+        .expect("SomeConfig.cs should be generated");
+
+    // Verify that try block starts BEFORE the named param setup
+    // by checking that "try" appears before "otherHandle"
+    let try_pos = config_file.content.find("try").expect("Should contain 'try' block");
+    let other_handle_pos = config_file
+        .content
+        .find("otherHandle")
+        .expect("Should contain 'otherHandle' for named param");
+    assert!(
+        try_pos < other_handle_pos,
+        "try block must start BEFORE named param setup (otherHandle), \
+         to ensure selfHandle is freed if FromJson fails: content={}",
+        config_file.content
+    );
+
+    // Verify that selfHandle is freed in finally
+    assert!(
+        config_file.content.contains("NativeMethods.SomeConfigFree(selfHandle)"),
+        "selfHandle must be freed in finally block: {}",
+        config_file.content
+    );
+}
+
+#[test]
+fn test_record_static_factory_named_param_emits_handle_marshaling() {
+    let backend = CsharpBackend;
+    let config = minimal_csharp_config("test");
+
+    let api = ApiSurface {
+        crate_name: "test".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![
+            TypeDef {
+                name: "OcrExtractionResult".to_string(),
+                rust_path: "test::OcrExtractionResult".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+            TypeDef {
+                name: "ExtractionResult".to_string(),
+                rust_path: "test::ExtractionResult".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![MethodDef {
+                    name: "from_ocr".to_string(),
+                    params: vec![ParamDef {
+                        name: "ocr".to_string(),
+                        ty: TypeRef::Named("OcrExtractionResult".to_string()),
+                        optional: false,
+                        default: None,
+                        sanitized: false,
+                        typed_default: None,
+                        is_ref: false,
+                        is_mut: false,
+                        newtype_wrapper: None,
+                        original_type: None,
+                    }],
+                    return_type: TypeRef::Named("ExtractionResult".to_string()),
+                    is_async: false,
+                    is_static: true,
+                    error_type: None,
+                    doc: "Create from OCR result.".to_string(),
+                    receiver: None,
+                    sanitized: false,
+                    returns_ref: false,
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    has_default_impl: false,
+                    trait_source: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                }],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+        ],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+
+    // Find the ExtractionResult file (not OcrExtractionResult)
+    let result_file = files
+        .iter()
+        .find(|f| {
+            let fname = f.path.to_string_lossy().to_string();
+            fname.contains("ExtractionResult.cs") && !fname.contains("OcrExtractionResult.cs")
+        })
+        .expect("ExtractionResult.cs should be generated");
+
+    // Should contain FromJson handle creation for the Named param
+    assert!(
+        result_file.content.contains("FromJson"),
+        "Should create handle using FromJson: {}",
+        result_file.content
+    );
+
+    // Should contain try/finally block for handle cleanup
+    assert!(
+        result_file.content.contains("try") && result_file.content.contains("finally"),
+        "Should wrap native call in try/finally for cleanup: {}",
+        result_file.content
+    );
+
+    // Should contain Free call for the Named param handle
+    assert!(
+        result_file.content.contains("OcrExtractionResultFree"),
+        "Should free Named param handle: {}",
+        result_file.content
+    );
+}
+
+/// Compile-level check: generate C# for a record type whose instance method takes a `bool`
+/// parameter, write all files to a temp directory, and invoke `dotnet build` to verify the
+/// generated output is free of type errors (e.g. passing `int` to a `bool` P/Invoke param).
+#[test]
+fn test_bool_param_record_method_compiles_with_dotnet() {
+    if std::process::Command::new("dotnet").arg("--version").output().is_err() {
+        eprintln!("dotnet not in PATH — skipping compile test");
+        return;
+    }
+
+    let backend = CsharpBackend;
+    let config = minimal_csharp_config("test");
+
+    let api = ApiSurface {
+        crate_name: "test".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "PaddleOcrConfig".to_string(),
+            rust_path: "test::PaddleOcrConfig".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![MethodDef {
+                name: "with_table_detection".to_string(),
+                params: vec![ParamDef {
+                    name: "enable".to_string(),
+                    ty: TypeRef::Primitive(PrimitiveType::Bool),
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                }],
+                return_type: TypeRef::Named("PaddleOcrConfig".to_string()),
+                is_async: false,
+                is_static: false,
+                error_type: None,
+                doc: String::new(),
+                receiver: Some(ReceiverKind::Ref),
+                sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                trait_source: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: std::collections::HashMap::new(),
+        excluded_trait_names: std::collections::HashSet::new(),
+    };
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+
+    // Write generated files to a temp directory preserving their relative paths.
+    let tmp = tempfile::tempdir().expect("failed to create temp dir");
+    for file in &files {
+        let dest = tmp.path().join(&file.path);
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent).expect("failed to create dir");
+        }
+        std::fs::write(&dest, &file.content).expect("failed to write generated file");
+    }
+
+    // Place the .csproj alongside the generated Directory.Build.props so MSBuild
+    // inherits Nullable/LangVersion/TreatWarningsAsErrors and discovers all .cs
+    // files in the Test/ subdirectory automatically.
+    let csproj_dir = tmp.path().join("packages/csharp");
+    std::fs::create_dir_all(&csproj_dir).unwrap();
+    std::fs::write(
+        csproj_dir.join("Compilation.csproj"),
+        "<Project Sdk=\"Microsoft.NET.Sdk\">\n\
+         <PropertyGroup>\n\
+           <TargetFramework>net8.0</TargetFramework>\n\
+           <OutputType>Library</OutputType>\n\
+         </PropertyGroup>\n\
+         </Project>\n",
+    )
+    .expect("failed to write csproj");
+
+    let output = std::process::Command::new("dotnet")
+        .args(["build", "--nologo", "-v:quiet"])
+        .current_dir(&csproj_dir)
+        .output()
+        .expect("failed to spawn dotnet build");
+
+    assert!(
+        output.status.success(),
+        "dotnet build failed — the generated C# does not compile.\n\
+         This catches type mismatches such as passing int to a bool P/Invoke parameter.\n\
+         stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
