@@ -1213,11 +1213,16 @@ fn render_test_function(
 
     // Determine the streaming item type for this call (used when draining the channel).
     // Find the first streaming adapter matching the function name (e.g., crawl_stream → CrawlEvent).
+    // Match on snake_case adapter name vs. snake_case function name; e2e codegen sees
+    // camelCase function names like `CrawlStream` but adapters declare `crawl_stream`.
+    use heck::ToSnakeCase;
+    let fn_snake = function_name.to_snake_case();
+    let base_snake = base_function_name.to_snake_case();
     let streaming_item_type = if is_streaming {
         adapters
             .iter()
             .filter(|a| matches!(a.pattern, alef_core::config::extras::AdapterPattern::Streaming))
-            .find(|a| &a.name == base_function_name || &a.name == &function_name.to_lowercase())
+            .find(|a| a.name == fn_snake || a.name == base_snake)
             .and_then(|a| a.item_type.as_deref())
             .and_then(|t| t.rsplit("::").next())
             .unwrap_or("Item") // Fallback if no matching adapter is declared
