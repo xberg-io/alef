@@ -115,7 +115,24 @@ impl E2eCodegen for WasmCodegen {
                 for fixture in &group.fixtures {
                     // Determine if this fixture should be included.
                     // Start with the base should_include_fixture check.
-                    let base_include = super::should_include_fixture(fixture, lang, e2e_config);
+                    let mut base_include = super::should_include_fixture(fixture, lang, e2e_config);
+
+                    // When `[crates.wasm].languages` is set, force `base_include = false` for
+                    // any fixture whose `input.language` falls outside that static-compiled set.
+                    // The else-branch below will then attach an auto-skip directive so the test
+                    // renders as `it.skip(...)` rather than running against a missing grammar.
+                    // `should_include_fixture` does not inspect `input.language`, so without this
+                    // override fixtures like `{ input: { language: "abl" } }` (where "abl" is not
+                    // in the wasm bundle) would be emitted normally and fail at runtime.
+                    if base_include {
+                        if let Some(ref wasm_langs) = wasm_languages {
+                            if let Some(fix_lang) = fixture.input.get("language").and_then(|v| v.as_str()) {
+                                if !wasm_langs.iter().any(|l| l == fix_lang) {
+                                    base_include = false;
+                                }
+                            }
+                        }
+                    }
 
                     // Check per-call skip_languages (fixture is completely unsupported)
                     let cc = e2e_config.resolve_call_for_fixture(
