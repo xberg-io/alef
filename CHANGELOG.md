@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.21] - 2026-05-21
+
 ### Fixed
 
 - **alef-e2e/java: drive sealed-interface display helpers from IR variants, not hardcoded type names.** `render_format_metadata_display` hardcoded `"FormatMetadata"` in three places: the gate that decided whether to emit the helper, the generated `{TypeName}Display.java` class body (with every kreuzberg variant name statically listed), and the `is_format_metadata_field` predicate in assertion rendering. All three paths now derive their type names from the `assert_enum_fields` map declared in `alef.toml`. The helper class is renamed `render_sealed_display(type_name, enum_def, type_defs, java_group_id)` and loops over `EnumDef.variants` from the IR — tuple variants whose inner struct has a `format` field emit `.value().format()`, all others emit the lowercased serde variant name. A catch-all `default -> "unknown"` arm keeps generated code forward-compatible when new Rust variants are added. (`crates/alef-e2e/src/codegen/java.rs`)
