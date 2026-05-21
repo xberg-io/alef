@@ -332,6 +332,21 @@ impl FieldResolver {
 
     /// Check if a resolved field path is optional.
     pub fn is_optional(&self, field: &str) -> bool {
+        if self.is_optional_direct(field) {
+            return true;
+        }
+        // Namespace-prefix fallback: paths like `interaction.action_results[0].data`
+        // strip the virtual `interaction.` prefix before consulting `optional_fields`,
+        // matching the same convention used by `is_valid_for_result`.
+        if let Some(suffix) = self.namespace_stripped_path(field) {
+            if self.is_optional_direct(suffix) {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn is_optional_direct(&self, field: &str) -> bool {
         if self.optional_fields.contains(field) {
             return true;
         }
@@ -832,16 +847,16 @@ fn render_swift(segments: &[PathSegment], result_var: &str) -> String {
         match seg {
             PathSegment::Field(f) => {
                 out.push('.');
-                out.push_str(f);
+                out.push_str(&f.to_lower_camel_case());
             }
             PathSegment::ArrayField { name, index } => {
                 out.push('.');
-                out.push_str(name);
+                out.push_str(&name.to_lower_camel_case());
                 out.push_str(&format!("[{index}]"));
             }
             PathSegment::MapAccess { field, key } => {
                 out.push('.');
-                out.push_str(field);
+                out.push_str(&field.to_lower_camel_case());
                 if key.chars().all(|c| c.is_ascii_digit()) {
                     out.push_str(&format!("[{key}]"));
                 } else {
@@ -882,7 +897,9 @@ fn render_swift_with_optionals(
                 }
                 path_so_far.push_str(f);
                 out.push('.');
-                out.push_str(f);
+                // Swift bindings always use lowerCamelCase for both first-class
+                // `public let` properties and swift-bridge accessor methods.
+                out.push_str(&f.to_lower_camel_case());
                 // First-class Swift struct fields are properties (no parens).
                 // Insert `?` after the property name for non-leaf optional fields so the
                 // next member access becomes `?.`.
@@ -897,7 +914,7 @@ fn render_swift_with_optionals(
                 path_so_far.push_str(name);
                 let is_optional = optional_fields.contains(&path_so_far);
                 out.push('.');
-                out.push_str(name);
+                out.push_str(&name.to_lower_camel_case());
                 if is_optional {
                     // Optional<[T]>: unwrap before indexing.
                     out.push_str(&format!("?[{index}]"));
@@ -913,7 +930,7 @@ fn render_swift_with_optionals(
                 }
                 path_so_far.push_str(field);
                 out.push('.');
-                out.push_str(field);
+                out.push_str(&field.to_lower_camel_case());
                 if key.chars().all(|c| c.is_ascii_digit()) {
                     out.push_str(&format!("[{key}]"));
                 } else {
@@ -961,7 +978,9 @@ fn render_swift_with_first_class_map(
                 }
                 path_so_far.push_str(f);
                 out.push('.');
-                out.push_str(f);
+                // Swift bindings (both first-class `public let` props and
+                // swift-bridge method names) always use lowerCamelCase.
+                out.push_str(&f.to_lower_camel_case());
                 if !property_syntax {
                     out.push_str("()");
                 }
@@ -977,7 +996,7 @@ fn render_swift_with_first_class_map(
                 path_so_far.push_str(name);
                 let is_optional = optional_fields.contains(&path_so_far);
                 out.push('.');
-                out.push_str(name);
+                out.push_str(&name.to_lower_camel_case());
                 let access = if property_syntax { "" } else { "()" };
                 if is_optional {
                     out.push_str(&format!("{access}?[{index}]"));
@@ -996,7 +1015,7 @@ fn render_swift_with_first_class_map(
                 }
                 path_so_far.push_str(field);
                 out.push('.');
-                out.push_str(field);
+                out.push_str(&field.to_lower_camel_case());
                 let access = if property_syntax { "" } else { "()" };
                 if key.chars().all(|c| c.is_ascii_digit()) {
                     out.push_str(&format!("{access}[{key}]"));
@@ -2085,6 +2104,19 @@ mod tests {
         let r = make_resolver();
         assert!(r.is_optional("metadata.document.title"));
         assert!(!r.is_optional("content"));
+    }
+
+    #[test]
+    fn is_optional_strips_namespace_prefix() {
+        let fields = HashMap::new();
+        let mut optional = HashSet::new();
+        optional.insert("action_results.data".to_string());
+        let result_fields: HashSet<String> = ["action_results".to_string()].into_iter().collect();
+        let r = FieldResolver::new(&fields, &optional, &result_fields, &HashSet::new(), &HashSet::new());
+        // `interaction.` is a virtual namespace prefix — strip and re-check.
+        assert!(r.is_optional("interaction.action_results[0].data"));
+        // Still finds it without the prefix.
+        assert!(r.is_optional("action_results[0].data"));
     }
 
     #[test]
