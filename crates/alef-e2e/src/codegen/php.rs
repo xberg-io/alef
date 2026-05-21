@@ -1035,10 +1035,6 @@ fn render_test_method(
         build_php_visitor(&mut setup_lines, visitor_spec);
         if !options_already_created {
             let options_type = call_options_type.unwrap_or("ConversionOptions");
-            eprintln!(
-                "DEBUG: fixture={} options_via={} call_options_type={:?}",
-                fixture.id, options_via, call_options_type
-            );
             if options_via == "from_json" {
                 // When options_via is "from_json", construct via fromJson() with a JSON object
                 // that includes the visitor property.
