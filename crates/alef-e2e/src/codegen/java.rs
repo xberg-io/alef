@@ -18,6 +18,11 @@ use std::path::PathBuf;
 use super::E2eCodegen;
 use super::client;
 
+/// Check if a type name is a numeric type hint (f32, float, etc.) vs. a complex type name.
+fn is_numeric_type_hint(ty: &str) -> bool {
+    matches!(ty, "f32" | "f64" | "float" | "double" | "Float" | "Double")
+}
+
 /// Java e2e code generator.
 pub struct JavaCodegen;
 
@@ -473,10 +478,14 @@ fn render_test_file(
                 }
             }
         }
-        // Detect batch item types used in this fixture
+        // Detect batch item types and complex json_object array element types used in this fixture.
+        // Complex types like PageAction need JsonUtil for deserialization.
         for arg in &call_cfg.args {
             if let Some(elem_type) = &arg.element_type {
                 if elem_type == "BatchBytesItem" || elem_type == "BatchFileItem" {
+                    all_options_types.insert(elem_type.clone());
+                } else if arg.arg_type == "json_object" && !is_numeric_type_hint(elem_type) {
+                    // Complex types in json_object arrays need JsonUtil.
                     all_options_types.insert(elem_type.clone());
                 }
             }
@@ -1428,6 +1437,11 @@ fn build_args_and_setup(
                                 parts.push(emit_java_batch_item_array(v, elem_type));
                                 continue;
                             }
+                            // For complex types (e.g. PageAction), deserialize each array element via ObjectMapper.
+                            if !is_numeric_type_hint(elem_type) {
+                                parts.push(emit_java_object_array(v, elem_type));
+                                continue;
+                            }
                         }
                         // Otherwise use element_type to emit the correct numeric literal suffix (f vs d).
                         let elem_type = arg.element_type.as_deref();
@@ -2027,6 +2041,27 @@ fn build_java_method_call(
         _ => {
             format!("{result_var}.{}()", method_name.to_lower_camel_case())
         }
+    }
+}
+
+/// Emit a Java list of deserialized objects via JsonUtil.
+/// E.g., `[{"type": "click", ...}, ...]` becomes `java.util.Arrays.asList(JsonUtil.fromJson(..., PageAction.class), ...)`.
+fn emit_java_object_array(arr: &serde_json::Value, elem_type: &str) -> String {
+    if let Some(items) = arr.as_array() {
+        if items.is_empty() {
+            return "java.util.List.of()".to_string();
+        }
+        let item_strs: Vec<String> = items
+            .iter()
+            .map(|item| {
+                let json_str = serde_json::to_string(item).unwrap_or_default();
+                let escaped = escape_java(&json_str);
+                format!("JsonUtil.fromJson(\"{escaped}\", {elem_type}.class)")
+            })
+            .collect();
+        format!("java.util.Arrays.asList({})", item_strs.join(", "))
+    } else {
+        "java.util.List.of()".to_string()
     }
 }
 

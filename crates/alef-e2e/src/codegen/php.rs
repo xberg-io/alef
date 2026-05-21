@@ -1490,15 +1490,20 @@ fn build_args_and_setup(
                                 parts.push(arg_var);
                                 continue;
                             }
-                            // Fallback: builder pattern when no options_type is configured.
+                            // Fallback: builder pattern or from_json when no options_type is configured.
                             // This path is kept for backwards compatibility with projects
-                            // that use a builder-style API without from_json().
-                            // When options_via = "from_json", this is a configuration error —
-                            // caller must set options_type to use from_json construction.
+                            // that use a builder-style API without explicit options_type.
                             if options_via == "from_json" {
-                                // Skip this path; options_type must be configured when using from_json.
-                                parts.push(json_to_php(v));
-                                continue;
+                                // When options_via = "from_json", construct via from_json(json_encode([...]))
+                                if let Some(_obj) = v.as_object() {
+                                    let camel_keys_array = json_to_php_camel_keys(v);
+                                    setup_lines.push(format!(
+                                        "$options = \\HtmlToMarkdown\\ConversionOptions::from_json(json_encode({}));",
+                                        camel_keys_array
+                                    ));
+                                    parts.push("$options".to_string());
+                                    continue;
+                                }
                             }
                             if let Some(obj) = v.as_object() {
                                 setup_lines.push("$builder = $this->createDefaultOptionsBuilder();".to_string());

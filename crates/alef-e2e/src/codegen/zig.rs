@@ -98,12 +98,29 @@ impl E2eCodegen for ZigE2eCodegen {
         });
 
         // Generate test files per category and collect their names.
+        //
+        // The Zig backend does not yet support streaming free functions (the
+        // generated binding exposes only the unary entry points). Skip any
+        // fixture whose resolved call is marked `streaming = true` so we don't
+        // emit calls like `kreuzcrawl.crawl_stream(...)` that fail to compile
+        // against a binding that lacks them. Streaming support tracked
+        // separately — see streaming-audit notes ("Zig: last-chunk-only").
         let mut test_filenames: Vec<String> = Vec::new();
         for group in groups {
             let active: Vec<&Fixture> = group
                 .fixtures
                 .iter()
                 .filter(|f| super::should_include_fixture(f, lang, e2e_config))
+                .filter(|f| {
+                    let cc = e2e_config.resolve_call_for_fixture(
+                        f.call.as_deref(),
+                        &f.id,
+                        &f.resolved_category(),
+                        &f.tags,
+                        &f.input,
+                    );
+                    cc.streaming != Some(true)
+                })
                 .collect();
 
             if active.is_empty() {
