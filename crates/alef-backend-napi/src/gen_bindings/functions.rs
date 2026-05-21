@@ -862,44 +862,109 @@ pub(super) fn gen_adapter_wrapper(adapter: &alef_core::config::AdapterConfig) ->
     let adapter_name = &adapter.name;
     let js_name = to_node_name(adapter_name);
     let owner_type = adapter.owner_type.as_deref().unwrap_or("CrawlEngineHandle");
+    let js_owner_type = format!("Js{owner_type}");
 
     // Build parameter list from adapter params (skip 'self' which is implicit on engine).
-    let mut param_parts = vec![format!("engine: &{owner_type}")];
+    let mut param_parts = vec![format!("engine: &{js_owner_type}")];
+    let mut param_conversions = Vec::new();
+
     for param in &adapter.params {
         let param_name = &param.name;
-        // Map Rust types to NAPI/TypeScript equivalents
-        let ts_type = match param.ty.as_str() {
-            "String" => "string",
-            "CrawlStreamRequest" => "CrawlStreamRequest",
-            "BatchCrawlStreamRequest" => "BatchCrawlStreamRequest",
-            other => other,
+        let param_type = &param.ty;
+        // Map to JS wrapper types for parameters
+        let js_type = format!("Js{param_type}");
+        param_parts.push(format!("{param_name}: {js_type}"));
+        // Record conversion: "let core_req: kreuzcrawl::Type = req.into();"
+        let core_type = if param_type.contains("::") {
+            param_type.clone()
+        } else {
+            format!("kreuzcrawl::{param_type}")
         };
-        param_parts.push(format!("{param_name}: {ts_type}"));
+        param_conversions.push(format!(
+            "    let core_{}: {} = {}.into();",
+            param_name, core_type, param_name
+        ));
     }
 
-    // Build the positional param list for the method call (no `engine` since that's implicit).
-    let params_list = adapter
+    // Build the positional param list for core_req usage.
+    let core_params_list = adapter
         .params
         .iter()
-        .map(|p| p.name.as_str())
+        .map(|p| format!("core_{}", p.name))
         .collect::<Vec<_>>()
         .join(", ");
 
     match &adapter.pattern {
         AdapterPattern::Streaming => {
-            // Streaming: the engine method returns an async iterator; re-yield each item.
-            let item_type = adapter.item_type.as_deref().unwrap_or("CrawlEvent");
-            let method_call = if params_list.is_empty() {
-                format!("engine.{}()", adapter_name)
+            // Streaming: replicate the instance method's channel/tokio spawn pattern.
+            // The free function calls engine.inner.method(...).await to get the stream,
+            // then wraps it in channels and spawns a background task.
+            let return_iterator_type = if adapter_name.contains("batch") {
+                "BatchCrawlStreamIterator"
             } else {
-                format!("engine.{}({})", adapter_name, params_list)
+                "CrawlStreamIterator"
             };
+
+            let method_call = if core_params_list.is_empty() {
+                format!("engine.inner.{}()", adapter_name)
+            } else {
+                format!("engine.inner.{}({})", adapter_name, core_params_list)
+            };
+
+            let conversions_code = if param_conversions.is_empty() {
+                String::new()
+            } else {
+                format!("{}\n", param_conversions.join("\n"))
+            };
+
+            // Generate the method call using the cloned inner engine
+            let method_call_inner = if core_params_list.is_empty() {
+                format!("inner.{}()", adapter_name)
+            } else {
+                format!("inner.{}({})", adapter_name, core_params_list)
+            };
+
             format!(
-                "#[napi(js_name = \"{js_name}\")]\npub async fn {}({}) -> napi::Result<{}> {{\n    {}.await\n}}\n\n",
+                "#[allow(clippy::missing_errors_doc)]\n\
+                 #[napi(js_name = \"{js_name}\")]\n\
+                 pub async fn {}({}) -> Result<{}> {{\n\
+                 {conversions_code}    let inner = engine.inner.clone();\n\
+                     let (tx, rx) = tokio::sync::mpsc::channel(32);\n\
+                     tokio::spawn(async move {{\n\
+                         use futures_util::StreamExt;\n\
+                         match {method_call_inner}.await {{\n\
+                             Err(e) => {{\n\
+                                 let _ = tx\n\
+                                     .send(Err(napi::Error::new(napi::Status::GenericFailure, e.to_string())))\n\
+                                     .await;\n\
+                             }}\n\
+                             Ok(mut stream) => {{\n\
+                                 while let Some(chunk) = stream.next().await {{\n\
+                                     let item = match chunk {{\n\
+                                         Ok(c) => JsCrawlEvent::from(c),\n\
+                                         Err(e) => {{\n\
+                                             let _ = tx\n\
+                                                 .send(Err(napi::Error::new(napi::Status::GenericFailure, e.to_string())))\n\
+                                                 .await;\n\
+                                             break;\n\
+                                         }}\n\
+                                     }};\n\
+                                     if tx.send(Ok(item)).await.is_err() {{\n\
+                                         break;\n\
+                                     }}\n\
+                                 }}\n\
+                             }}\n\
+                         }}\n\
+                     }});\n\
+                     let iter = {} {{\n\
+                         receiver: Arc::new(tokio::sync::Mutex::new(rx)),\n\
+                     }};\n\
+                     Ok(iter)\n\
+                 }}\n\n",
                 adapter_name,
                 param_parts.join(", "),
-                item_type,
-                method_call
+                return_iterator_type,
+                return_iterator_type
             )
         }
         _ => String::new(), // Only Streaming pattern is relevant for NAPI
