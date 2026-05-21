@@ -807,6 +807,7 @@ fn render_test_method(
         options_type_str,
         handle_config_fn_owned.as_deref(),
         visitor_handle_expr.as_deref(),
+        client_factory.is_some(),
     );
     // Prepend visitor class declarations (before any setup lines that reference the handle).
     if !visitor_setup_lines.is_empty() {
@@ -1006,6 +1007,7 @@ fn build_args_and_setup(
     options_type: Option<&str>,
     handle_config_fn: Option<&str>,
     visitor_handle_expr: Option<&str>,
+    is_method_call: bool,
 ) -> (Vec<String>, String) {
     if args.is_empty() {
         return (Vec::new(), String::new());
@@ -1210,9 +1212,18 @@ fn build_args_and_setup(
         }
     }
 
+    // Method calls on the DefaultClient handle (e.g. `_client.chat(req)`) use
+    // anonymous Swift argument labels (`func chat(_ req:)`), so omit `name:` prefixes.
+    // Free-function calls (e.g. `process(source:, config:)`) keep labelled args.
     let args_str = parts
         .into_iter()
-        .map(|(idx, val)| format!("{}: {}", args[idx].name, val))
+        .map(|(idx, val)| {
+            if is_method_call {
+                val
+            } else {
+                format!("{}: {}", args[idx].name, val)
+            }
+        })
         .collect::<Vec<_>>()
         .join(", ");
     (setup_lines, args_str)
@@ -1499,7 +1510,9 @@ fn render_assertion(
                         let _ = writeln!(out, "        XCTAssertEqual({trim_expr}, {swift_val})");
                     }
                 } else {
-                    let _ = writeln!(out, "        XCTAssertEqual({field_expr}, {swift_val})");
+                    // For numeric fields, cast the expected value to match the field's type (e.g., UInt).
+                    let cast_swift_val = swift_numeric_literal_cast(&field_expr, &swift_val);
+                    let _ = writeln!(out, "        XCTAssertEqual({field_expr}, {cast_swift_val})");
                 }
             }
         }
@@ -1806,11 +1819,13 @@ fn render_assertion(
                         field_resolver.is_optional(f) || field_resolver.is_optional(field_resolver.resolve(f))
                     });
                 let compare_expr = if field_is_optional {
-                    format!("({field_expr} ?? 0)")
+                    let cast_val = swift_numeric_literal_cast(&field_expr, "0");
+                    format!("({field_expr} ?? {cast_val})")
                 } else {
                     field_expr.clone()
                 };
-                let _ = writeln!(out, "        XCTAssertGreaterThan({compare_expr}, {swift_val})");
+                let cast_swift_val = swift_numeric_literal_cast(&field_expr, &swift_val);
+                let _ = writeln!(out, "        XCTAssertGreaterThan({compare_expr}, {cast_swift_val})");
             }
         }
         "less_than" => {
@@ -1821,11 +1836,13 @@ fn render_assertion(
                         field_resolver.is_optional(f) || field_resolver.is_optional(field_resolver.resolve(f))
                     });
                 let compare_expr = if field_is_optional {
-                    format!("({field_expr} ?? 0)")
+                    let cast_val = swift_numeric_literal_cast(&field_expr, "0");
+                    format!("({field_expr} ?? {cast_val})")
                 } else {
                     field_expr.clone()
                 };
-                let _ = writeln!(out, "        XCTAssertLessThan({compare_expr}, {swift_val})");
+                let cast_swift_val = swift_numeric_literal_cast(&field_expr, &swift_val);
+                let _ = writeln!(out, "        XCTAssertLessThan({compare_expr}, {cast_swift_val})");
             }
         }
         "greater_than_or_equal" => {
@@ -1838,11 +1855,13 @@ fn render_assertion(
                         field_resolver.is_optional(f) || field_resolver.is_optional(field_resolver.resolve(f))
                     });
                 let compare_expr = if field_is_optional {
-                    format!("({field_expr} ?? 0)")
+                    let cast_val = swift_numeric_literal_cast(&field_expr, "0");
+                    format!("({field_expr} ?? {cast_val})")
                 } else {
                     field_expr.clone()
                 };
-                let _ = writeln!(out, "        XCTAssertGreaterThanOrEqual({compare_expr}, {swift_val})");
+                let cast_swift_val = swift_numeric_literal_cast(&field_expr, &swift_val);
+                let _ = writeln!(out, "        XCTAssertGreaterThanOrEqual({compare_expr}, {cast_swift_val})");
             }
         }
         "less_than_or_equal" => {
@@ -1853,11 +1872,13 @@ fn render_assertion(
                         field_resolver.is_optional(f) || field_resolver.is_optional(field_resolver.resolve(f))
                     });
                 let compare_expr = if field_is_optional {
-                    format!("({field_expr} ?? 0)")
+                    let cast_val = swift_numeric_literal_cast(&field_expr, "0");
+                    format!("({field_expr} ?? {cast_val})")
                 } else {
                     field_expr.clone()
                 };
-                let _ = writeln!(out, "        XCTAssertLessThanOrEqual({compare_expr}, {swift_val})");
+                let cast_swift_val = swift_numeric_literal_cast(&field_expr, &swift_val);
+                let _ = writeln!(out, "        XCTAssertLessThanOrEqual({compare_expr}, {cast_swift_val})");
             }
         }
         "starts_with" => {
@@ -2051,7 +2072,12 @@ fn swift_build_accessor(field: &str, result_var: &str, field_resolver: &FieldRes
         // First-class struct fields → property access (no `()`); typealias-to-
         // opaque fields → method-call access (`()`). Once we've indexed through
         // a RustVec, every subsequent segment is on an opaque element.
-        let property_syntax = !via_rust_vec && field_resolver.swift_is_first_class(current_type.as_deref());
+        // When current_type is None (opaque parent that doesn't appear in field_types),
+        // treat it as opaque and use method-call syntax.
+        let is_first_class = current_type.as_ref().map_or(false, |t| {
+            field_resolver.swift_is_first_class(Some(t))
+        });
+        let property_syntax = !via_rust_vec && is_first_class;
         out.push('.');
         // Swift bindings (both first-class `public let` props and swift-bridge
         // method names) always use lowerCamelCase — never raw snake_case from IR.
@@ -2211,6 +2237,23 @@ fn json_to_swift(value: &serde_json::Value) -> String {
             let json_str = serde_json::to_string(value).unwrap_or_default();
             format!("\"{}\"", escape_swift(&json_str))
         }
+    }
+}
+
+/// When comparing numeric values in Swift, if the field expression uses method-call
+/// syntax (contains `()` indicating opaque swift-bridge types), we need to consider
+/// the numeric literal type. Integer literals may need wrapping in `UInt(...)` to
+/// match opaque methods that return UInt (like `metrics().totalLines()`). However,
+/// floating-point literals should NOT be wrapped, as they may compare against fields
+/// that return `Double` (like `relevanceScore()`). Type inference should handle the
+/// field type correctly based on the comparison operator and literal value.
+fn swift_numeric_literal_cast(field_expr: &str, numeric_literal: &str) -> String {
+    // Only wrap integer literals in UInt(...) for method-call expressions.
+    // Don't wrap floats, as the field type is unknown and may return Double.
+    if field_expr.contains("()") && !numeric_literal.contains('.') {
+        format!("UInt({})", numeric_literal)
+    } else {
+        numeric_literal.to_string()
     }
 }
 
