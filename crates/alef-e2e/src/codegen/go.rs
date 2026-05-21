@@ -799,6 +799,10 @@ fn render_test_file(
                     | "min_length"
                     | "max_length"
                     | "matches_regex"
+                    | "greater_than"
+                    | "greater_than_or_equal"
+                    | "less_than"
+                    | "less_than_or_equal"
             );
             synthetic_field_needs_assert || type_needs_assert && field_valid
         })
