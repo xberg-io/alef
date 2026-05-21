@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-(No unreleased changes)
+### Fixed
+
+- **alef-backend-swift: re-export JSON deserialization helpers so e2e tests don't need to import RustBridge.** Swift e2e test files were calling `extractionConfigFromJson()`, `batchBytesItemFromJson()`, and `batchFileItemFromJson()` without importing RustBridge. These functions are defined in the RustBridge module but were not re-exported by the Kreuzberg wrapper module. The e2e codegen intentionally avoids emitting `import RustBridge` to prevent name collisions with first-class Swift types like `VisitResult`. Fixed by adding public re-export forwarders in the Kreuzberg module for all three JSON helper functions, delegating to their RustBridge implementations. Fixes Swift e2e compile errors: "cannot find 'extractionConfigFromJson' in scope" and "cannot find 'RustBridge' in scope". (`crates/alef-backend-swift/src/gen_bindings.rs`)
 
 ## [0.17.26] - 2026-05-21
 

@@ -2219,6 +2219,25 @@ fn emit_e2e_wrappers(out: &mut String) {
     out.push_str("// MARK: - E2e Test Convenience Wrappers\n");
     out.push_str("// JSON-config and file-loading wrappers used exclusively by the generated e2e tests.\n\n");
 
+    // Re-export JSON deserialization helpers from RustBridge so e2e tests can
+    // call them without importing RustBridge (which causes name collision with
+    // first-class Swift types like VisitResult).
+    out.push_str("public func extractionConfigFromJson<GenericIntoRustString: IntoRustString>(\n");
+    out.push_str("    _ json: GenericIntoRustString\n");
+    out.push_str(") throws -> ExtractionConfig {\n");
+    out.push_str("    try RustBridge.extractionConfigFromJson(json)\n");
+    out.push_str("}\n\n");
+    out.push_str("public func batchBytesItemFromJson<GenericIntoRustString: IntoRustString>(\n");
+    out.push_str("    _ json: GenericIntoRustString\n");
+    out.push_str(") throws -> BatchBytesItem {\n");
+    out.push_str("    try RustBridge.batchBytesItemFromJson(json)\n");
+    out.push_str("}\n\n");
+    out.push_str("public func batchFileItemFromJson<GenericIntoRustString: IntoRustString>(\n");
+    out.push_str("    _ json: GenericIntoRustString\n");
+    out.push_str(") throws -> BatchFileItem {\n");
+    out.push_str("    try RustBridge.batchFileItemFromJson(json)\n");
+    out.push_str("}\n\n");
+
     // Helper: resolveFixturePath - resolves a fixture file path.
     // Uses FIXTURES_DIR env var (set by CI / task runner) when available; falls
     // back to the path as-is (interpreted relative to the process working directory).
