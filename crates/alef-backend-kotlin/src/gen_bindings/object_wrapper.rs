@@ -672,13 +672,13 @@ fn emit_kotlin_untagged_deserializer(out: &mut String, en: &EnumDef) {
                     // to a catch-all deserialization that handles both cases at the end.
                     // For now, we'll check for both textual and object nodes to support both.
                     (
-                        "true",  // Try all Named types; let deserialization determine success
+                        "true", // Try all Named types; let deserialization determine success
                         format!(
                             "try {{ {name}.{}(ctx.readTreeAsValue(node, {n}::class.java)) }} catch (_: com.fasterxml.jackson.databind.exc.MismatchedInputException) {{ null as? {name} }} catch (_: com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException) {{ null as? {name} }}",
                             variant.name
                         ),
                     )
-                },
+                }
                 _ => {
                     let class_name = kotlin_class_name_for_type(ty);
                     (
@@ -709,7 +709,7 @@ fn emit_kotlin_untagged_deserializer(out: &mut String, en: &EnumDef) {
             out.push_str("{\n");
             out.push_str("            val result = ");
             out.push_str(&inner_expr);
-            out.push_str("\n");
+            out.push('\n');
             out.push_str("            if (result != null) return result\n");
             out.push_str("        }\n");
         } else {
