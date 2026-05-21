@@ -2814,7 +2814,9 @@ fn emit_swift_bridge_files(
 /// For each such bridge this produces:
 ///
 /// 1. `public protocol {Trait}Protocol: AnyObject` — user-facing protocol with `String`-typed
-///    params and `VisitResult` return.  A default extension returns `.continue_` for all methods.
+///    params and `VisitResult` return.  A default extension returns the result enum's first
+///    unit variant (e.g. `` .`continue` ``) for all methods, so conformers only override callbacks
+///    they care about.
 /// 2. A private adapter class `_{Trait}ProtocolAdapter` that wraps the user protocol and
 ///    translates RustString params → String, serializes `VisitResult` → JSON String.
 ///    This implements the internal `Swift{Trait}BoxDelegate` protocol defined in RustBridge.
@@ -2869,8 +2871,19 @@ fn emit_inbound_protocols(api: &ApiSurface, config: &ResolvedCrateConfig, out: &
         out.push_str("}\n\n");
 
         // --- 2. Protocol default extension ---
+        // Determine the default-return variant of the result enum: the first
+        // unit (no-field) variant, emitted with backtick-escaped Swift case
+        // ident to match the enum's actual `case` declaration (see `emit_enum`
+        // / `emit_variant_with_data`, both of which use `swift_case_ident`).
+        // Falls back to a backtick-escaped `continue` literal if the result
+        // enum isn't in the API surface — preserving the historical behaviour
+        // for the canonical `VisitResult::Continue` shape.
+        let default_case = result_enum
+            .and_then(|en| en.variants.iter().find(|v| v.fields.is_empty()))
+            .map(|v| swift_case_ident(&v.name.to_lower_camel_case()))
+            .unwrap_or_else(|| swift_case_ident("continue"));
         out.push_str(&format!(
-            "/// Default implementation: every method returns `.continue_` so conforming\n\
+            "/// Default implementation: every method returns `.{default_case}` so conforming\n\
              /// types only need to implement the callbacks they care about.\n\
              public extension {protocol_name} {{\n"
         ));
@@ -2879,7 +2892,7 @@ fn emit_inbound_protocols(api: &ApiSurface, config: &ResolvedCrateConfig, out: &
             let method_camel = method_snake.to_lower_camel_case();
             let underscore_params = swift_protocol_underscore_params(method);
             out.push_str(&format!(
-                "    func {method_camel}({underscore_params}) -> {result_type_name} {{ return .continue_ }}\n"
+                "    func {method_camel}({underscore_params}) -> {result_type_name} {{ return .{default_case} }}\n"
             ));
         }
         out.push_str("}\n\n");

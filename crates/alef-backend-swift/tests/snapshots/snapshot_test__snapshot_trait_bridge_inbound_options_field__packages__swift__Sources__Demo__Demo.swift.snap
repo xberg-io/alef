@@ -53,10 +53,10 @@ public protocol HtmlVisitorProtocol: AnyObject {
     func visitNode(_ tag: String) -> VisitResult
 }
 
-/// Default implementation: every method returns `.continue_` so conforming
+/// Default implementation: every method returns `.`continue`` so conforming
 /// types only need to implement the callbacks they care about.
 public extension HtmlVisitorProtocol {
-    func visitNode(_ _tag: String) -> VisitResult { return .continue_ }
+    func visitNode(_ _tag: String) -> VisitResult { return .`continue` }
 }
 
 /// Internal adapter: wraps a `HtmlVisitorProtocol` conformer as a `_SwiftHtmlVisitorBoxDelegate`.
