@@ -1587,10 +1587,10 @@ fn render_assertion(
                 );
                 match assertion.assertion_type.as_str() {
                     "is_true" => {
-                        let _ = writeln!(out, "      assert {expr}");
+                        let _ = writeln!(out, "      assert ({expr})");
                     }
                     "is_false" => {
-                        let _ = writeln!(out, "      refute {expr}");
+                        let _ = writeln!(out, "      refute ({expr})");
                     }
                     _ => {
                         let _ = writeln!(
