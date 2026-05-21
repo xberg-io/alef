@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.19] - 2026-05-21
+
+### Fixed
+
+- **alef-e2e/elixir: respect keyword-opts threshold to emit valid positional/keyword arg syntax.** Elixir requires all positional arguments before keyword arguments. When a call had 1 trailing optional parameter (e.g., `config`), the code emitted it as positional, but other optional parameters were rendered as keyword form (e.g., `mime_type: "..."`), creating invalid syntax like `extract_file_async(path, mime_type: "...", "{}")` where a positional arg follows keyword args. Implemented the same threshold logic as the Rustler backend: use keyword form for 2+ trailing optional params, stay positional for 1 or 0. This ensures all json_object args (config) respect the positional/keyword decision and syntax is valid. Fixes kreuzberg elixir e2e smoke_test compile errors. (`crates/alef-e2e/src/codegen/elixir.rs`)
+
 ## [0.17.18] - 2026-05-21
 
 ### Fixed
