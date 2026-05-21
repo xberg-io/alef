@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-e2e/ruby: render array literals from fixture data in positional arguments.** When `element_type` was set on a `json_object` argument (e.g., `element_type="String"`), the Ruby codegen emitted empty arrays `[]` instead of the fixture values. The tagged-enum array handler expected all elements to be objects; when the array contained primitives (strings, integers), the `filter_map` call silently dropped them. Fixed by checking that all array elements are objects BEFORE emitting as a tagged-enum array. Otherwise fall through to `json_to_ruby`, which correctly renders primitive arrays. This mirrors the behavior in Python and Node.js codegen. Fixes kreuzberg ruby e2e: `embed_texts`, `embed_texts_async` and similar string-array arguments. Add test: `ruby_array_literals_in_positional_args`. (`crates/alef-e2e/src/codegen/ruby.rs`)
+
 ## [0.17.19] - 2026-05-21
 
 ### Fixed
