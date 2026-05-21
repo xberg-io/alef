@@ -157,8 +157,9 @@ impl E2eCodegen for JavaCodegen {
             std::sync::LazyLock::new(std::collections::HashMap::new);
         let _enum_fields = overrides.map(|o| &o.enum_fields).unwrap_or(&EMPTY_ENUM_FIELDS);
 
-        // Build effective nested_types by merging defaults with configured overrides.
-        let mut effective_nested_types = default_java_nested_types();
+        // Build effective nested_types from configured overrides (empty by default).
+        let mut effective_nested_types: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
         if let Some(overrides_map) = overrides.map(|o| &o.nested_types) {
             effective_nested_types.extend(overrides_map.clone());
         }
@@ -433,7 +434,7 @@ fn render_format_metadata_display(java_group_id: &str) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
     let mut out = header;
     out.push_str(&format!("package {java_group_id}.e2e;\n\n"));
-    out.push_str("import dev.kreuzberg.FormatMetadata;\n");
+    out.push_str(&format!("import {java_group_id}.FormatMetadata;\n"));
     out.push('\n');
     out.push_str("/**\n");
     out.push_str(" * Helper class for extracting display strings from FormatMetadata sealed interface.\n");
@@ -2415,36 +2416,6 @@ fn java_builder_expression(
     }
     expr.push_str(".build()");
     expr
-}
-
-/// Build default nested type mappings for Java extraction config types.
-///
-/// Maps known Kreuzberg/Kreuzcrawl config field names (in snake_case) to their
-/// Java record type names (in PascalCase). These defaults allow e2e codegen to
-/// automatically deserialize nested config objects without requiring explicit
-/// configuration in alef.toml. User-provided overrides take precedence.
-fn default_java_nested_types() -> std::collections::HashMap<String, String> {
-    [
-        ("chunking", "ChunkingConfig"),
-        ("ocr", "OcrConfig"),
-        ("images", "ImageExtractionConfig"),
-        ("html_output", "HtmlOutputConfig"),
-        ("language_detection", "LanguageDetectionConfig"),
-        ("postprocessor", "PostProcessorConfig"),
-        ("acceleration", "AccelerationConfig"),
-        ("email", "EmailConfig"),
-        ("pages", "PageConfig"),
-        ("pdf_options", "PdfConfig"),
-        ("layout", "LayoutDetectionConfig"),
-        ("tree_sitter", "TreeSitterConfig"),
-        ("structured_extraction", "StructuredExtractionConfig"),
-        ("content_filter", "ContentFilterConfig"),
-        ("token_reduction", "TokenReductionOptions"),
-        ("security_limits", "SecurityLimits"),
-    ]
-    .iter()
-    .map(|(k, v)| (k.to_string(), v.to_string()))
-    .collect()
 }
 
 // ---------------------------------------------------------------------------

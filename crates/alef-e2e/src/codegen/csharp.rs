@@ -131,8 +131,8 @@ impl E2eCodegen for CSharpCodegen {
         static EMPTY_ENUM_FIELDS: std::sync::LazyLock<HashMap<String, String>> = std::sync::LazyLock::new(HashMap::new);
         let enum_fields = overrides.map(|o| &o.enum_fields).unwrap_or(&EMPTY_ENUM_FIELDS);
 
-        // Build effective nested_types by merging defaults with configured overrides.
-        let mut effective_nested_types = default_csharp_nested_types();
+        // Build effective nested_types from configured overrides (empty by default).
+        let mut effective_nested_types: HashMap<String, String> = HashMap::new();
         if let Some(overrides_map) = overrides.map(|o| &o.nested_types) {
             effective_nested_types.extend(overrides_map.clone());
         }
@@ -1111,12 +1111,19 @@ fn render_chat_stream_test_method(
     let description = &fixture.description;
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
-    // Streaming methods return IAsyncEnumerable<T> and do NOT carry the
-    // conventional `Async` suffix in the C# backend.
-    let effective_function_name = cs_overrides
-        .and_then(|o| o.function.as_ref())
-        .cloned()
-        .unwrap_or_else(|| call_config.function.to_upper_camel_case());
+    // Streaming methods return IAsyncEnumerable<T> and carry the conventional
+    // `Async` suffix to match the binding's generated DefaultClient surface
+    // (which appends Async to every async-shaped method, streaming included).
+    let effective_function_name = {
+        let mut name = cs_overrides
+            .and_then(|o| o.function.as_ref())
+            .cloned()
+            .unwrap_or_else(|| call_config.function.to_upper_camel_case());
+        if !name.ends_with("Async") {
+            name.push_str("Async");
+        }
+        name
+    };
     let function_name = effective_function_name.as_str();
     let args = call_config.args.as_slice();
 
@@ -2787,38 +2794,6 @@ fn json_to_csharp(value: &serde_json::Value) -> String {
             format!("\"{}\"", escape_csharp(&json_str))
         }
     }
-}
-
-/// Build default nested type mappings for C# extraction config types.
-///
-/// Maps known Kreuzberg/Kreuzcrawl config field names (in snake_case) to their
-/// C# record type names (in PascalCase). These defaults allow e2e codegen to
-/// automatically deserialize nested config objects without requiring explicit
-/// configuration in alef.toml. User-provided overrides take precedence.
-fn default_csharp_nested_types() -> HashMap<String, String> {
-    [
-        ("chunking", "ChunkingConfig"),
-        ("ocr", "OcrConfig"),
-        ("images", "ImageExtractionConfig"),
-        ("html_output", "HtmlOutputConfig"),
-        ("language_detection", "LanguageDetectionConfig"),
-        ("postprocessor", "PostProcessorConfig"),
-        ("acceleration", "AccelerationConfig"),
-        ("email", "EmailConfig"),
-        ("pages", "PageConfig"),
-        ("pdf_options", "PdfConfig"),
-        ("layout", "LayoutDetectionConfig"),
-        ("tree_sitter", "TreeSitterConfig"),
-        ("structured_extraction", "StructuredExtractionConfig"),
-        ("content_filter", "ContentFilterConfig"),
-        ("token_reduction", "TokenReductionOptions"),
-        ("security_limits", "SecurityLimits"),
-        ("format", "FormatMetadata"),
-        ("model", "EmbeddingModelType"),
-    ]
-    .iter()
-    .map(|(k, v)| (k.to_string(), v.to_string()))
-    .collect()
 }
 
 /// Emit a C# object initializer for a JSON options object.

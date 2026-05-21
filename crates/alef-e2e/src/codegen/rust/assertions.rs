@@ -151,7 +151,6 @@ pub fn render_assertion_with_streaming(
         );
         return;
     }
-    let _ = dep_name;
     // Handle synthetic fields like chunks_have_content (derived assertions).
     // These are computed expressions, not real struct fields — intercept before
     // the is_valid_for_result check so they are never treated as field accesses.
@@ -208,7 +207,12 @@ pub fn render_assertion_with_streaming(
     if let Some(f) = &assertion.field {
         if !f.is_empty() && crate::codegen::streaming_assertions::is_streaming_virtual_field(f) {
             if let Some(expr) =
-                crate::codegen::streaming_assertions::StreamingFieldResolver::accessor(f, "rust", "chunks")
+                crate::codegen::streaming_assertions::StreamingFieldResolver::accessor_with_module_qualifier(
+                    f,
+                    "rust",
+                    "chunks",
+                    Some(dep_name),
+                )
             {
                 match assertion.assertion_type.as_str() {
                     "count_min" => {

@@ -2524,9 +2524,10 @@ fn render_chat_stream_test_function(
     }
     let _ = writeln!(out, "    assert(client != NULL && \"failed to create client\");");
 
+    let pascal_prefix = prefix.to_pascal_case();
     let _ = writeln!(
         out,
-        "    {prefix_upper}LiterllmDefaultClientChatStreamStreamHandle* stream_handle = \
+        "    {pascal_prefix}DefaultClientChatStreamStreamHandle* stream_handle = \
          {prefix}_default_client_chat_stream_start(client, {req_handle});"
     );
 
