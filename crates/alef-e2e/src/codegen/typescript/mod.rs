@@ -1,7 +1,7 @@
 //! TypeScript e2e test generator using vitest.
 
 mod assertions;
-mod config;
+pub(crate) mod config;
 mod json;
 mod test_file;
 mod visitors;
@@ -91,6 +91,7 @@ impl E2eCodegen for TypeScriptCodegen {
                 &pkg_version,
                 e2e_config.dep_mode,
                 has_http_fixtures,
+                e2e_config.harness_extras.get(self.language_name()),
             ),
             generated_header: false,
         });

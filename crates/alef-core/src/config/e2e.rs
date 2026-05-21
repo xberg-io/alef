@@ -1,5 +1,6 @@
 //! E2E test generation configuration types.
 
+use crate::config::manifest_extras::ManifestExtras;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
@@ -88,6 +89,14 @@ pub struct E2eConfig {
     /// Per-language package reference overrides.
     #[serde(default)]
     pub packages: HashMap<String, PackageRef>,
+    /// Per-language extra dependencies to splice into the e2e harness's
+    /// language-native manifest (`e2e/<lang>/package.json` for node/wasm,
+    /// `e2e/python/pyproject.toml` for Python, etc.). Distinct from the
+    /// Rust-binding `extra_dependencies` knob — this one targets the
+    /// host-language test-harness manifest. Keys are canonical language
+    /// names (`node`, `wasm`, `python`, …).
+    #[serde(default)]
+    pub harness_extras: HashMap<String, ManifestExtras>,
     /// Per-language formatter commands.
     #[serde(default)]
     pub format: HashMap<String, String>,
@@ -382,6 +391,7 @@ impl Default for E2eConfig {
             call: CallConfig::default(),
             calls: HashMap::new(),
             packages: HashMap::new(),
+            harness_extras: HashMap::new(),
             format: HashMap::new(),
             fields: HashMap::new(),
             fields_optional: HashSet::new(),
