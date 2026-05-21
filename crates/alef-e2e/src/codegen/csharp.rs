@@ -1194,7 +1194,7 @@ fn render_chat_stream_test_method(
     cs_overrides: Option<&crate::config::CallOverride>,
     e2e_config: &E2eConfig,
     enum_fields: &HashMap<String, String>,
-    assert_enum_fields: &HashMap<String, String>,
+    _assert_enum_fields: &HashMap<String, String>,
     nested_types: &HashMap<String, String>,
     exception_class: &str,
     adapters: &[alef_core::config::extras::AdapterConfig],
