@@ -128,7 +128,7 @@ pub(crate) fn emit_cargo_toml(
             && api.types.iter().any(|t| t.name == b.trait_name && t.is_trait)
     });
     let trait_bridge_deps = if has_trait_bridges {
-        "tokio = { version = \"1\", features = [\"rt\"] }\nasync-trait = \"0.1\"\n"
+        "async-trait = \"0.1\"\n"
     } else {
         ""
     };
@@ -169,7 +169,16 @@ pub(crate) fn emit_cargo_toml(
         .iter()
         .any(|a| matches!(a.pattern, alef_core::config::extras::AdapterPattern::Streaming));
     let futures_util_dep = if has_streaming { "futures-util = \"0.3\"\n" } else { "" };
-    let extra_deps = format!("{serde_json_dep}{futures_util_dep}{trait_bridge_deps}{workspace_deps_block}");
+    // Trait-bridge impls use `tokio::runtime::Handle::current().block_on(...)`
+    // and the streaming codegen installs a shared multi-thread runtime via
+    // `OnceLock`. Both paths need tokio — use a single declaration with
+    // `rt-multi-thread` (which transitively includes the `rt` feature).
+    let tokio_dep = if has_streaming || has_trait_bridges {
+        "tokio = { version = \"1\", features = [\"rt-multi-thread\"] }\n"
+    } else {
+        ""
+    };
+    let extra_deps = format!("{serde_json_dep}{futures_util_dep}{tokio_dep}{trait_bridge_deps}{workspace_deps_block}");
 
     let license = config
         .scaffold

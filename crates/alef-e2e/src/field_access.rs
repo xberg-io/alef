@@ -2061,52 +2061,72 @@ fn render_dart(segments: &[PathSegment], result_var: &str) -> String {
 /// a nullable Dart type.  Field names are camelCase (FRB v2 generation rule).
 fn render_dart_with_optionals(segments: &[PathSegment], result_var: &str, optional_fields: &HashSet<String>) -> String {
     let mut out = result_var.to_string();
+    // Two parallel path trackers:
+    //   `path_so_far`           — dot-joined field names without array indices
+    //                             (e.g. `choices.message.tool_calls`).
+    //   `path_with_indices`     — same path but retaining `[N]` segments from
+    //                             prior ArrayField segments (e.g.
+    //                             `choices[0].message.tool_calls`).
+    // `fields_optional` in alef.toml may list either form; we check both.
     let mut path_so_far = String::new();
+    let mut path_with_indices = String::new();
     let mut prev_was_nullable = false;
+    let is_optional = |bare: &str, indexed: &str| -> bool {
+        optional_fields.contains(bare) || optional_fields.contains(indexed)
+    };
     for seg in segments {
         let nav = if prev_was_nullable { "?." } else { "." };
         match seg {
             PathSegment::Field(f) => {
                 if !path_so_far.is_empty() {
                     path_so_far.push('.');
+                    path_with_indices.push('.');
                 }
                 path_so_far.push_str(f);
-                let is_optional = optional_fields.contains(&path_so_far);
+                path_with_indices.push_str(f);
+                let optional = is_optional(&path_so_far, &path_with_indices);
                 out.push_str(nav);
                 out.push_str(&f.to_lower_camel_case());
-                prev_was_nullable = is_optional;
+                prev_was_nullable = optional;
             }
             PathSegment::ArrayField { name, index } => {
                 if !path_so_far.is_empty() {
                     path_so_far.push('.');
+                    path_with_indices.push('.');
                 }
                 path_so_far.push_str(name);
-                let is_optional = optional_fields.contains(&path_so_far);
+                path_with_indices.push_str(name);
+                let optional = is_optional(&path_so_far, &path_with_indices);
                 out.push_str(nav);
                 out.push_str(&name.to_lower_camel_case());
-                // FRB models `Option<Vec<T>>` as `List<T>?` — only force-unwrap when the field
+                // FRB models `Option<Vec<T>>` as `List<T>?` — force-unwrap when the field
                 // is registered as optional. Adding `!` to a non-nullable receiver is a Dart
                 // compile-time error ("unnecessary non-null assertion").
-                if is_optional {
+                if optional {
                     out.push('!');
                 }
                 out.push_str(&format!("[{index}]"));
+                path_with_indices.push_str(&format!("[{index}]"));
                 prev_was_nullable = false;
             }
             PathSegment::MapAccess { field, key } => {
                 if !path_so_far.is_empty() {
                     path_so_far.push('.');
+                    path_with_indices.push('.');
                 }
                 path_so_far.push_str(field);
-                let is_optional = optional_fields.contains(&path_so_far);
+                path_with_indices.push_str(field);
+                let optional = is_optional(&path_so_far, &path_with_indices);
                 out.push_str(nav);
                 out.push_str(&field.to_lower_camel_case());
                 if key.chars().all(|c| c.is_ascii_digit()) {
                     out.push_str(&format!("[{key}]"));
+                    path_with_indices.push_str(&format!("[{key}]"));
                 } else {
                     out.push_str(&format!("[\"{key}\"]"));
+                    path_with_indices.push_str(&format!("[\"{key}\"]"));
                 }
-                prev_was_nullable = is_optional;
+                prev_was_nullable = optional;
             }
             PathSegment::Length => {
                 // Use `?.length` when the receiver is optional — emitting `.length` against

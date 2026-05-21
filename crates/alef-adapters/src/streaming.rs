@@ -763,12 +763,28 @@ fn gen_dart_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Stri
         format!("{}\n        ", let_bindings.join("\n        "))
     };
     // FRB v2 StreamSink<T> pattern: the sink is passed as a parameter and the
-    // function drives the core BoxStream into it from a spawned tokio task.
+    // function drives the core BoxStream into it from a spawned task.
+    //
+    // `flutter_rust_bridge::spawn` schedules the future on FRB's worker pool,
+    // which is NOT a tokio runtime — the core stream uses `reqwest` / `hyper`
+    // internally, which panic with `there is no reactor running, must be
+    // called from the context of a Tokio 1.x runtime` unless we install one.
+    // We lazy-init a shared multi-thread tokio runtime (via OnceLock) and
+    // drive each stream by calling `rt.spawn(...)` directly; the runtime
+    // outlives every stream and is reused across calls.
     let body = format!(
         "use futures_util::StreamExt;\n        \
+         use std::sync::OnceLock;\n        \
+         static FRB_STREAM_TOKIO_RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();\n        \
+         let _rt = FRB_STREAM_TOKIO_RT.get_or_init(|| {{\n            \
+             tokio::runtime::Builder::new_multi_thread()\n                \
+                 .enable_all()\n                \
+                 .build()\n                \
+                 .expect(\"failed to build tokio runtime for FRB streaming\")\n        \
+         }});\n        \
          let inner = self.inner.clone();\n        \
          {bindings_block}\
-         flutter_rust_bridge::spawn(async move {{\n            \
+         _rt.spawn(async move {{\n            \
              match inner.{core_path}({call_str}).await {{\n                \
                  Ok(mut stream) => {{\n                    \
                      while let Some(item) = stream.next().await {{\n                        \
