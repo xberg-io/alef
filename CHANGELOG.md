@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-e2e: treat inline `href="/…"` anchors in fixture HTML as a `has_host_root_route` trigger.** `Fixture::has_host_root_route()` previously only fired for `/robots*` / `/sitemap*` paths or 3xx Location / Refresh / `<meta refresh>` redirects targeting `/…`. Multi-page crawl fixtures that traversed between mock responses via plain `<a href="/page1">` links did not qualify, so language-specific e2e codegens (Python, Node, Ruby, …) emitted the shared `MOCK_SERVER_URL + /fixtures/<id>` URL rather than the per-fixture `MOCK_SERVER_<FIXTURE_ID>` env-var lookup. The crawl engine then resolved linked `/page` paths against the host root and 404'd against the namespaced shared listener. Detecting `href="/` / `href='/` in any `body_inline` mirrors the runtime mock-server's `has_inline_host_link` predicate (60deac38) so compile-time and runtime decisions stay in sync. Surfaced on kreuzcrawl Python e2e — `test_crawl_concurrent_depth` got 1 page instead of 3. (`crates/alef-e2e/src/fixture.rs`)
+
 ### Changed
 
 - **maintenance: record a clean full-project `prek run --all-files` verification.**
@@ -14,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.17.14] - 2026-05-21
 
 ### Fixed
+
+- **alef-backend-magnus: convert `Vec<Named>` free-function params via a `_core` `Vec<core::Type>` rebinding.** Free functions taking `Vec<WrapperType>` (e.g. `interact(engine, url, actions: Vec<PageAction>)`) emitted the call to `core::interact(...)` passing the wrapper Vec directly. The core function expects `Vec<core::Type>`, so compilation failed with `expected core::PageAction, found PageAction`. The named-Vec deser binding (`let actions_core: Vec<core::PageAction> = actions.into_iter().map(Into::into).collect()`) already existed for the serde-recoverable path; this extends it to the non-serde path in both `gen_function` and `gen_async_function`, and forces the let-binding-aware call_args generator (`gen_call_args_with_let_bindings`) so the core call references `actions_core` instead of the raw wrapper. Surfaced on kreuzcrawl Ruby build with `PageAction` as the `interact` arg type. (`crates/alef-backend-magnus/src/gen_bindings/functions.rs`)
+
+- **alef-backend-csharp: emit DllImport declarations for enum streaming item types.** The streaming method walk in `gen_bindings/functions.rs` registered struct item types in `opaque_return_types` but skipped enum item types with `if !enum_names.contains(&meta.item_type)`. The FFI backend, however, emits `<type>_to_json` and `<type>_free` exports for both enums and structs that flow through streaming. The asymmetric C# skip meant the generated streaming wrapper called `NativeMethods.<EnumItemType>ToJson` against a non-existent extern and failed to compile with CS0117. Removed the enum exclusion so enum stream items get the same DllImport pair as struct stream items. Surfaced on kreuzcrawl C# build with `crawl_stream` returning `CrawlEvent` (enum). (`crates/alef-backend-csharp/src/gen_bindings/functions.rs`)
 
 - **alef-e2e/go: OR-coalesce `result_is_simple` against the call-level value.** Serde defaults `result_is_simple` to `false` on `CallOverride`, so a Go override that didn't explicitly restate the flag (e.g. only `returns_result = false` + `result_is_pointer = false`) silently clobbered a true call-level value. The codegen then fell into the "function returns only error" branch and emitted `err := tspack.HasLanguage(...)` (and similar for `LanguageCount`, etc.) — but `HasLanguage` returns `bool` (not `error`), so `if err != nil` failed to compile with `invalid operation: err != nil (mismatched types bool and untyped nil)`. Same fix pattern as the prior `result_is_array` coalesce: `overrides.is_some_and(|o| o.result_is_simple) || call_config.result_is_simple || rust-override-fallback`. Surfaced on tslp `e2e/go/registry_test.go::Test_RegistryHasLanguage*` and `Test_RegistryLanguageCount`. (`crates/alef-e2e/src/codegen/go.rs`)
 
