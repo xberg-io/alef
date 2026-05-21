@@ -2071,9 +2071,8 @@ fn render_dart_with_optionals(segments: &[PathSegment], result_var: &str, option
     let mut path_so_far = String::new();
     let mut path_with_indices = String::new();
     let mut prev_was_nullable = false;
-    let is_optional = |bare: &str, indexed: &str| -> bool {
-        optional_fields.contains(bare) || optional_fields.contains(indexed)
-    };
+    let is_optional =
+        |bare: &str, indexed: &str| -> bool { optional_fields.contains(bare) || optional_fields.contains(indexed) };
     for seg in segments {
         let nav = if prev_was_nullable { "?." } else { "." };
         match seg {

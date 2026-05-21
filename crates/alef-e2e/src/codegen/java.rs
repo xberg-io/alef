@@ -1296,7 +1296,15 @@ fn render_test_method(
     // call-specific enum-typed result fields (e.g. `choices[0].finish_reason` for
     // chat) trigger Optional<Enum> coercion even when the global override block
     // does not list them. Per-call entries take precedence.
-    // Combine global enum_fields (HashSet) with per-call overrides (HashMap).
+    // For assertions, use assert_enum_fields from the call override to get field->type mappings.
+    // Build a HashMap that merges both for assertion handling.
+    let assert_enum_types: std::collections::HashMap<String, String> = if let Some(co) = call_overrides {
+        co.assert_enum_fields.clone()
+    } else {
+        std::collections::HashMap::new()
+    };
+
+    // Keep the old effective_enum_fields as a HashSet for backward compatibility with other code paths.
     let mut effective_enum_fields: std::collections::HashSet<String> = enum_fields.clone();
     if let Some(co) = call_overrides {
         for k in co.enum_fields.keys() {
@@ -1322,6 +1330,7 @@ fn render_test_method(
             effective_result_is_option,
             is_streaming,
             &effective_enum_fields,
+            &assert_enum_types,
         );
     }
 
@@ -1594,6 +1603,7 @@ fn render_assertion(
     result_is_option: bool,
     is_streaming: bool,
     enum_fields: &std::collections::HashSet<String>,
+    assert_enum_types: &std::collections::HashMap<String, String>,
 ) {
     // Bare-result is_empty / not_empty on Option<T> returns: the Java facade exposes
     // these as `@Nullable T` (via `.orElse(null)`) rather than `Optional<T>`, so the
@@ -1925,6 +1935,13 @@ fn render_assertion(
         enum_type.is_some_and(|t| t != "FormatMetadata")
     });
 
+    // Check if this field is a FormatMetadata type (from assert_enum_types)
+    let is_format_metadata_field = assertion.field.as_deref().is_some_and(|f| {
+        let resolved = field_resolver.resolve(f);
+        assert_enum_types.get(f).or_else(|| assert_enum_types.get(resolved))
+            .is_some_and(|t| t == "FormatMetadata")
+    });
+
     // Determine if this field is an array (List<T>) — needed to choose .toString() for
     // contains assertions, since List.contains(Object) uses equals() which won't match
     // strings against complex record types like StructureItem.
@@ -1961,7 +1978,9 @@ fn render_assertion(
                                 // don't call .getValue() on it. For equals assertions on
                                 // Optional<FormatMetadata>, keep it wrapped so it can be
                                 // handled by the string_expr path.
-                                let enum_type = enum_fields.get(f).or_else(|| enum_fields.get(field_resolver.resolve(f)));
+                                let enum_type = enum_fields
+                                    .get(f)
+                                    .or_else(|| enum_fields.get(field_resolver.resolve(f)));
                                 if enum_type.is_some_and(|t| t == "FormatMetadata") {
                                     optional_expr
                                 } else {
@@ -2035,15 +2054,9 @@ fn render_assertion(
     // upstream in field_expr; in that case the value is already a String and we must not
     // call .getValue() again. Detect by looking for `.map(v -> v.getValue())` in the expr.
     // FormatMetadata is a sealed interface, not a Java enum, so exclude it from .getValue() handling.
-    let is_format_metadata = assertion.field.as_deref().is_some_and(|f| {
-        enum_fields
-            .get(f)
-            .or_else(|| enum_fields.get(field_resolver.resolve(f)))
-            .is_some_and(|t| t == "FormatMetadata")
-    });
-    let string_expr = if field_is_enum && !is_format_metadata && !field_expr.contains(".map(v -> v.getValue())") {
+    let string_expr = if field_is_enum && !is_format_metadata_field && !field_expr.contains(".map(v -> v.getValue())") {
         format!("{field_expr}.getValue()")
-    } else if is_format_metadata {
+    } else if is_format_metadata_field {
         // FormatMetadata is a sealed interface, not a Java enum. Convert to string via
         // a pattern-match helper that extracts the display string (image.format() for Image,
         // lowercase variant name for others).

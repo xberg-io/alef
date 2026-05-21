@@ -896,14 +896,15 @@ impl Backend for RustlerBackend {
                     "    {native_mod}.{nif_fn_name}(\n      {nif_call_str}\n    )\n"
                 ));
                 content.push_str("  end\n\n");
-            } else if arity_variants.is_empty() && trailing_optional_count == 0 && all_params.len() > 0 {
+            } else if arity_variants.is_empty() && trailing_optional_count == 0 && !all_params.is_empty() {
                 // Single-arity, no keyword opts, no optional trailing params, but may have
-                // optional (| nil) params elsewhere. Emit the def with defaults for all optional params.
-                let param_with_defaults: Vec<String> = func.params
+                // optional (| nil) params in the typespec. Emit the def with defaults for
+                // all params that have "| nil" in their typespec.
+                let param_with_defaults: Vec<String> = param_types
                     .iter()
                     .zip(&all_params)
-                    .map(|(ir_param, param_name)| {
-                        if ir_param.optional {
+                    .map(|(type_str, param_name)| {
+                        if type_str.contains("| nil") {
                             format!("{param_name} \\\\ nil")
                         } else {
                             param_name.clone()

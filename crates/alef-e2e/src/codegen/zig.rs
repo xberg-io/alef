@@ -1353,6 +1353,74 @@ fn render_json_assertion(
         json_path_expr(result_var, field_path_for_expr)
     };
 
+    // Special-case `metadata.format` equals-string: `FormatMetadata` is an
+    // internally-tagged enum serialized as a JSON object (`{"format_type": "image",
+    // "format": "PNG", ...}`), so `metadata.format` resolves to a JSON object,
+    // not a string. The fixture asserts the `Display` impl: for Image variant
+    // emit the inner `format` field; otherwise emit the `format_type` discriminant.
+    if field_path_for_expr == "metadata.format"
+        && matches!(
+            assertion.assertion_type.as_str(),
+            "equals" | "contains" | "not_empty" | "is_empty" | "starts_with" | "ends_with"
+        )
+    {
+        let base = json_path_expr(result_var, field_path_for_expr);
+        let _ = writeln!(out, "    {{");
+        let _ = writeln!(out, "        const _fmt_obj = {base}.object;");
+        let _ = writeln!(out, "        const _fmt_type = _fmt_obj.get(\"format_type\").?.string;");
+        let _ = writeln!(
+            out,
+            "        const _fmt_display: []const u8 = if (std.mem.eql(u8, _fmt_type, \"image\")) _fmt_obj.get(\"format\").?.string else _fmt_type;"
+        );
+        match assertion.assertion_type.as_str() {
+            "equals" => {
+                if let Some(serde_json::Value::String(s)) = &assertion.value {
+                    let escaped = escape_zig(s);
+                    let _ = writeln!(
+                        out,
+                        "        try testing.expectEqualStrings(\"{escaped}\", std.mem.trim(u8, _fmt_display, \" \\n\\r\\t\"));"
+                    );
+                }
+            }
+            "contains" => {
+                if let Some(serde_json::Value::String(s)) = &assertion.value {
+                    let escaped = escape_zig(s);
+                    let _ = writeln!(
+                        out,
+                        "        try testing.expect(std.mem.indexOf(u8, _fmt_display, \"{escaped}\") != null);"
+                    );
+                }
+            }
+            "starts_with" => {
+                if let Some(serde_json::Value::String(s)) = &assertion.value {
+                    let escaped = escape_zig(s);
+                    let _ = writeln!(
+                        out,
+                        "        try testing.expect(std.mem.startsWith(u8, _fmt_display, \"{escaped}\"));"
+                    );
+                }
+            }
+            "ends_with" => {
+                if let Some(serde_json::Value::String(s)) = &assertion.value {
+                    let escaped = escape_zig(s);
+                    let _ = writeln!(
+                        out,
+                        "        try testing.expect(std.mem.endsWith(u8, _fmt_display, \"{escaped}\"));"
+                    );
+                }
+            }
+            "not_empty" => {
+                let _ = writeln!(out, "        try testing.expect(_fmt_display.len > 0);");
+            }
+            "is_empty" => {
+                let _ = writeln!(out, "        try testing.expectEqual(@as(usize, 0), _fmt_display.len);");
+            }
+            _ => {}
+        }
+        let _ = writeln!(out, "    }}");
+        return;
+    }
+
     // Compute context variables for the template.
     let zig_val = match &assertion.value {
         Some(serde_json::Value::String(s)) => format!("\"{}\"", escape_zig(s)),

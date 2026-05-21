@@ -356,7 +356,9 @@ fn gen_single_trait_bridge(
         callbacks.push_str("    private int NameFnCallback(IntPtr userData, out IntPtr outName) {\n");
         callbacks.push_str("        try {\n");
         callbacks.push_str("            var name = _impl.Name;\n");
-        callbacks.push_str("            outName = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(name);\n");
+        callbacks.push_str(
+            "            outName = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(name);\n",
+        );
         callbacks.push_str("            return 0;\n");
         callbacks.push_str("        } catch {\n");
         callbacks.push_str("            outName = IntPtr.Zero;\n");
@@ -368,7 +370,9 @@ fn gen_single_trait_bridge(
         callbacks.push_str("    private int VersionFnCallback(IntPtr userData, out IntPtr outVersion) {\n");
         callbacks.push_str("        try {\n");
         callbacks.push_str("            var version = _impl.Version;\n");
-        callbacks.push_str("            outVersion = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(version);\n");
+        callbacks.push_str(
+            "            outVersion = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(version);\n",
+        );
         callbacks.push_str("            return 0;\n");
         callbacks.push_str("        } catch {\n");
         callbacks.push_str("            outVersion = IntPtr.Zero;\n");
