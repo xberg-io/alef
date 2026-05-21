@@ -452,9 +452,12 @@ fn render_test_file(
             return true;
         }
         let call_args = &call_config.args;
-        // Need "os" for mock_url args, or for bytes args with a string fixture value
-        // (fixture-relative path loaded via os.ReadFile at test-run time).
-        if call_args.iter().any(|a| a.arg_type == "mock_url") {
+        // Need "os" for mock_url / mock_url_list args, or for bytes args with a string
+        // fixture value (fixture-relative path loaded via os.ReadFile at test-run time).
+        if call_args
+            .iter()
+            .any(|a| a.arg_type == "mock_url" || a.arg_type == "mock_url_list")
+        {
             return true;
         }
         call_args.iter().any(|a| {
@@ -624,13 +627,7 @@ fn render_test_file(
                 if a.field.as_ref().is_none_or(|f| f.is_empty()) {
                     // No field: fmt.Sprint only if result is not an array
                     !e2e_config
-                        .resolve_call_for_fixture(
-                            f.call.as_deref(),
-                            &f.id,
-                            &f.resolved_category(),
-                            &f.tags,
-                            &f.input,
-                        )
+                        .resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input)
                         .result_is_array
                 } else {
                     // Field specified: fmt.Sprint only if that field is not an array
@@ -1871,9 +1868,7 @@ fn build_args_and_setup(
             let val = input.get(field).unwrap_or(&serde_json::Value::Null);
 
             let paths: Vec<String> = if let Some(arr) = val.as_array() {
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(go_string_literal))
-                    .collect()
+                arr.iter().filter_map(|v| v.as_str().map(go_string_literal)).collect()
             } else {
                 Vec::new()
             };
