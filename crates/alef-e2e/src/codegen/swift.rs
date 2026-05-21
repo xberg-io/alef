@@ -863,10 +863,11 @@ fn render_test_method(
         (Some(client_constructor), expr)
     } else {
         // Free-function call (no client_factory).
+        // Qualify with module name to disambiguate between high-level and swift-bridge symbols.
         let expr = if is_async {
-            format!("try await {function_name}({args_str})")
+            format!("try await {module_name}.{function_name}({args_str})")
         } else {
-            format!("try {function_name}({args_str})")
+            format!("try {module_name}.{function_name}({args_str})")
         };
         (None, expr)
     };
@@ -1011,7 +1012,7 @@ fn build_args_and_setup(
     }
 
     let mut setup_lines: Vec<String> = Vec::new();
-    let mut parts: Vec<String> = Vec::new();
+    let mut parts: Vec<(usize, String)> = Vec::new();
 
     // Pre-compute, for each arg index, whether any later arg has a fixture-provided
     // value (or is required and will emit a default). When an optional arg is empty
@@ -1039,7 +1040,7 @@ fn build_args_and_setup(
                 format!("ProcessInfo.processInfo.environment[\"MOCK_SERVER_URL\"]! + \"/fixtures/{fixture_id}\"")
             };
             setup_lines.push(format!("let {} = {url_expr}", arg.name));
-            parts.push(arg.name.clone());
+            parts.push((idx, arg.name.clone()));
             continue;
         }
 
@@ -1062,7 +1063,7 @@ fn build_args_and_setup(
             } else {
                 setup_lines.push(format!("let {var_name} = try createEngine(nil)"));
             }
-            parts.push(var_name);
+            parts.push((idx, var_name));
             continue;
         }
 
@@ -1076,13 +1077,13 @@ fn build_args_and_setup(
             match val {
                 None | Some(serde_json::Value::Null) if arg.optional => {
                     if later_emits[idx] {
-                        parts.push("nil".to_string());
+                        parts.push((idx, "nil".to_string()));
                     }
                 }
                 None | Some(serde_json::Value::Null) => {
                     let var_name = format!("{}Vec", arg.name.to_lower_camel_case());
                     setup_lines.push(format!("let {var_name} = RustVec<UInt8>()"));
-                    parts.push(var_name);
+                    parts.push((idx, var_name));
                 }
                 Some(serde_json::Value::String(s)) => {
                     let escaped = escape_swift(s);
@@ -1093,7 +1094,7 @@ fn build_args_and_setup(
                     ));
                     setup_lines.push(format!("let {var_name} = RustVec<UInt8>()"));
                     setup_lines.push(format!("for _byte in {data_var} {{ {var_name}.push(value: _byte) }}"));
-                    parts.push(var_name);
+                    parts.push((idx, var_name));
                 }
                 Some(serde_json::Value::Array(arr)) => {
                     let var_name = format!("{}Vec", arg.name.to_lower_camel_case());
@@ -1103,7 +1104,7 @@ fn build_args_and_setup(
                             setup_lines.push(format!("{var_name}.push(value: UInt8({n}))"));
                         }
                     }
-                    parts.push(var_name);
+                    parts.push((idx, var_name));
                 }
                 Some(other) => {
                     // Fallback: encode the JSON serialisation as UTF-8 bytes.
@@ -1114,7 +1115,7 @@ fn build_args_and_setup(
                     setup_lines.push(format!(
                         "for _byte in Array(\"{escaped}\".utf8) {{ {var_name}.push(value: _byte) }}"
                     ));
-                    parts.push(var_name);
+                    parts.push((idx, var_name));
                 }
             }
             continue;
@@ -1143,7 +1144,7 @@ fn build_args_and_setup(
                 "extractionConfigFromJson".to_string()
             };
             setup_lines.push(format!("let {var_name} = try {from_json_fn}(\"{escaped}\")"));
-            parts.push(var_name);
+            parts.push((idx, var_name));
             continue;
         }
 
@@ -1177,7 +1178,7 @@ fn build_args_and_setup(
                     let from_json_fn = format!("{}FromJson", type_name.to_lower_camel_case());
                     setup_lines.push(format!("let {var_name} = try {from_json_fn}(\"{escaped}\")"));
                 }
-                parts.push(var_name);
+                parts.push((idx, var_name));
                 continue;
             }
         }
@@ -1190,7 +1191,7 @@ fn build_args_and_setup(
                 // when a later arg will emit, so positional alignment matches
                 // the swift-bridge wrapper signature.
                 if later_emits[idx] {
-                    parts.push("nil".to_string());
+                    parts.push((idx, "nil".to_string()));
                 }
             }
             None | Some(serde_json::Value::Null) => {
@@ -1201,15 +1202,20 @@ fn build_args_and_setup(
                     "bool" | "boolean" => "false".to_string(),
                     _ => "nil".to_string(),
                 };
-                parts.push(default_val);
+                parts.push((idx, default_val));
             }
             Some(v) => {
-                parts.push(json_to_swift(v));
+                parts.push((idx, json_to_swift(v)));
             }
         }
     }
 
-    (setup_lines, parts.join(", "))
+    let args_str = parts
+        .into_iter()
+        .map(|(idx, val)| format!("{}: {}", args[idx].name, val))
+        .collect::<Vec<_>>()
+        .join(", ");
+    (setup_lines, args_str)
 }
 
 #[allow(clippy::too_many_arguments)]
