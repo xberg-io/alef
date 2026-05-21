@@ -471,7 +471,11 @@ fn build_primitive_result_cast(ty: &TypeRef, returns_ref: bool) -> String {
         TypeRef::Optional(inner)
             if matches!(inner.as_ref(), TypeRef::String | TypeRef::Path | TypeRef::Char) && returns_ref =>
         {
-            ".map(|v| format!(\"{:?}\", v))".to_string()
+            // Borrowed string-like core return (e.g. `Option<&str>`) must become `Option<String>`
+            // for the FRB bridge. Use `to_string()` for the raw value — `format!("{:?}", v)`
+            // would emit the Debug repr (quoted) producing `"bash"` instead of `bash` at the
+            // dart call site.
+            ".map(|v| v.to_string())".to_string()
         }
         TypeRef::Vec(inner) => match inner.as_ref() {
             TypeRef::Primitive(prim) => {
