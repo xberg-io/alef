@@ -223,17 +223,14 @@ pub(crate) fn gen_php_struct(
         cfg.struct_attrs
     };
 
-    // Per-field attribute callback: add `php(prop)` for scalar-compatible fields so that
-    // ext-php-rs 0.15 exposes them as PHP properties automatically.  Non-scalar fields get
-    // no automatic attribute; instead a `#[php(getter)]` method is generated separately in
-    // `gen_struct_methods`.
+    // Per-field attribute callback: add `php(prop)` for all fields so that
+    // ext-php-rs 0.15 exposes them as PHP properties automatically. All generated types
+    // implement FromZval/IntoZval, so ext-php-rs can serialize/deserialize any type.
     let field_attrs_fn = |field: &FieldDef| -> Vec<String> {
-        let mut attrs = if is_php_prop_scalar_with_enums(&field.ty, enum_names) {
+        let mut attrs = {
             // Convert field names to lowerCamelCase for PHP (e.g., mime_type -> mimeType)
             let php_name = alef_codegen::naming::to_php_name(&field.name);
             vec![format!("php(prop, name = \"{}\")", php_name)]
-        } else {
-            vec![]
         };
         // Non-optional Duration fields are stored as Option<i64> when has_serde is enabled
         // (option_duration_on_defaults). When None, serde serializes them as JSON null, but
