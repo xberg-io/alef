@@ -5,7 +5,9 @@ use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, Ge
 use alef_core::config::{
     AdapterConfig, AdapterPattern, BridgeBinding, Language, ResolvedCrateConfig, resolve_output_dir,
 };
-use alef_core::ir::{ApiSurface, EnumDef, EnumVariant, ErrorDef, FunctionDef, MethodDef, TypeRef};
+use alef_core::ir::{
+    ApiSurface, DefaultValue, EnumDef, EnumVariant, ErrorDef, FunctionDef, MethodDef, PrimitiveType, TypeRef,
+};
 use heck::{AsSnakeCase, ToLowerCamelCase, ToSnakeCase, ToUpperCamelCase};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -530,12 +532,14 @@ fn emit_first_class_struct(
     }
     out.push_str("    }\n");
 
-    // CodingKeys: emit only when at least one field's camelCase name differs from
-    // the serde wire key. The wire key is the original Rust field name (snake_case).
-    let needs_coding_keys = visible_fields.iter().any(|field| {
-        let camel = field.name.to_lower_camel_case();
-        camel != field.name
-    });
+    // CodingKeys: emit when at least one field's camelCase name differs from the
+    // serde wire key, OR when `ty.has_default` is true (the custom decoder below
+    // references `CodingKeys.<camel>` for every field).
+    let needs_coding_keys = ty.has_default
+        || visible_fields.iter().any(|field| {
+            let camel = field.name.to_lower_camel_case();
+            camel != field.name
+        });
     if needs_coding_keys {
         out.push_str("    private enum CodingKeys: String, CodingKey {\n");
         for field in &visible_fields {
@@ -544,6 +548,15 @@ fn emit_first_class_struct(
             out.push_str(&format!("        case {camel} = \"{wire_key}\"\n"));
         }
         out.push_str("    }\n");
+    }
+
+    // Custom `init(from decoder:)` when the Rust source has `#[derive(Default)]` or
+    // a manual `impl Default`. Swift's auto-synthesized Codable decoder rejects JSON
+    // that omits non-Optional declared properties; the custom init uses
+    // `decodeIfPresent + ?? <fallback>` so JSON inputs from Rust serializers using
+    // `#[serde(default)]` / `#[serde(skip_serializing_if = ...)]` decode successfully.
+    if ty.has_default {
+        emit_decoder_init(mapper, &visible_fields, out);
     }
 
     out.push_str("}\n");
@@ -635,6 +648,145 @@ fn emit_first_class_struct(
     out.push_str("    }\n");
 
     out.push_str("}\n");
+}
+
+/// Renders a typed `DefaultValue` into a Swift literal expression suitable for use as
+/// a `??` fallback. Returns `None` for variants that have no direct Swift literal
+/// (`Empty`, `None`, `EnumVariant`), so callers fall back to a type-based default.
+///
+/// `FloatLiteral` values that are NaN or infinite are also rejected so generated code
+/// stays parseable — callers handle those by falling back to a type-based default.
+fn swift_typed_default_literal(dv: &DefaultValue) -> Option<String> {
+    match dv {
+        DefaultValue::BoolLiteral(true) => Some("true".to_string()),
+        DefaultValue::BoolLiteral(false) => Some("false".to_string()),
+        DefaultValue::IntLiteral(n) => Some(n.to_string()),
+        DefaultValue::FloatLiteral(f) => {
+            if f.is_nan() || f.is_infinite() {
+                None
+            } else {
+                // Emit at least one decimal so the literal parses as a Swift
+                // floating-point literal rather than an integer literal.
+                let s = if f.fract() == 0.0 {
+                    format!("{f:.1}")
+                } else {
+                    f.to_string()
+                };
+                Some(s)
+            }
+        }
+        DefaultValue::StringLiteral(s) => {
+            // Conservative escape for Swift string literal: backslash, double quote,
+            // newline, carriage return, tab. Anything else passes through.
+            let mut escaped = String::with_capacity(s.len() + 2);
+            escaped.push('"');
+            for ch in s.chars() {
+                match ch {
+                    '\\' => escaped.push_str("\\\\"),
+                    '"' => escaped.push_str("\\\""),
+                    '\n' => escaped.push_str("\\n"),
+                    '\r' => escaped.push_str("\\r"),
+                    '\t' => escaped.push_str("\\t"),
+                    c => escaped.push(c),
+                }
+            }
+            escaped.push('"');
+            Some(escaped)
+        }
+        // EnumVariant requires knowledge of the target enum's Swift case name and is
+        // not safely renderable from the variant string alone — fall back to a plain
+        // `decode(T.self, ...)` (no `??`).
+        DefaultValue::EnumVariant(_) => None,
+        DefaultValue::Empty | DefaultValue::None => None,
+    }
+}
+
+/// Returns a Swift literal expression for the "natural" default of a `TypeRef`, used
+/// as a fallback when the field has `typed_default = Empty/None` or no typed default
+/// at all.
+///
+/// Returns `None` for `Named(_)`, `Bytes`, `Path`, `Duration`, `Json`, `Char`, `Unit` —
+/// the caller then emits a plain `decode(T.self, ...)` which relies on the nested
+/// type's own decoder.
+fn swift_type_based_default(ty: &TypeRef) -> Option<String> {
+    match ty {
+        TypeRef::Primitive(prim) => match prim {
+            PrimitiveType::Bool => Some("false".to_string()),
+            PrimitiveType::U8
+            | PrimitiveType::I8
+            | PrimitiveType::U16
+            | PrimitiveType::I16
+            | PrimitiveType::U32
+            | PrimitiveType::I32
+            | PrimitiveType::U64
+            | PrimitiveType::I64
+            | PrimitiveType::Usize
+            | PrimitiveType::Isize => Some("0".to_string()),
+            PrimitiveType::F32 | PrimitiveType::F64 => Some("0".to_string()),
+        },
+        TypeRef::String => Some("\"\"".to_string()),
+        TypeRef::Vec(_) => Some("[]".to_string()),
+        TypeRef::Map(_, _) => Some("[:]".to_string()),
+        TypeRef::Optional(_) => Some("nil".to_string()),
+        // Named: cannot synthesize a default value without knowing the target type.
+        // Bytes/Path/Duration/Json/Char/Unit are out of scope — caller falls through
+        // to a plain decode.
+        _ => None,
+    }
+}
+
+/// Emits a custom `public init(from decoder: any Decoder) throws` body that uses
+/// `decodeIfPresent + ?? <fallback>` for every non-Optional field with a known
+/// default, `decodeIfPresent ?? nil` for Optional fields, and plain
+/// `decode(T.self, ...)` for non-Optional fields with no safe Swift fallback
+/// (e.g. nested `Named` structs).
+fn emit_decoder_init(mapper: &SwiftMapper, visible_fields: &[&alef_core::ir::FieldDef], out: &mut String) {
+    out.push_str("    public init(from decoder: any Decoder) throws {\n");
+    out.push_str("        let container = try decoder.container(keyedBy: CodingKeys.self)\n");
+    for field in visible_fields {
+        let camel = swift_case_ident(&field.name.to_lower_camel_case());
+        let already_optional = matches!(&field.ty, TypeRef::Optional(_));
+        let is_optional = field.optional || already_optional;
+        let swift_ty = mapper.map_type(&field.ty);
+
+        if is_optional {
+            // Optional fields decode to nil when the key is missing OR when
+            // present-and-null. Strip a trailing `?` so the type passed to
+            // `decodeIfPresent` is the inner (non-optional) form —
+            // `decodeIfPresent(T.self, ...)` already returns `T?`.
+            let inner_ty = swift_ty.strip_suffix('?').unwrap_or(&swift_ty);
+            out.push_str(&format!(
+                "        self.{camel} = try container.decodeIfPresent({inner_ty}.self, forKey: .{camel}) ?? nil\n"
+            ));
+            continue;
+        }
+
+        // Non-Optional field: pick a fallback literal in this priority order:
+        //   1. Typed default literal (BoolLiteral / IntLiteral / FloatLiteral /
+        //      StringLiteral).
+        //   2. Type-based default for collections / primitives / strings:
+        //      `[]`, `[:]`, `false`, `0`, `""`.
+        //   3. None → emit plain `decode(T.self, ...)` with no fallback.
+        let fallback = field
+            .typed_default
+            .as_ref()
+            .and_then(swift_typed_default_literal)
+            .or_else(|| swift_type_based_default(&field.ty));
+
+        match fallback {
+            Some(fb) => {
+                out.push_str(&format!(
+                    "        self.{camel} = try container.decodeIfPresent({swift_ty}.self, forKey: .{camel}) ?? {fb}\n"
+                ));
+            }
+            None => {
+                out.push_str(&format!(
+                    "        self.{camel} = try container.decode({swift_ty}.self, forKey: .{camel})\n"
+                ));
+            }
+        }
+    }
+    out.push_str("    }\n");
 }
 
 /// Returns the Swift body of `intoRust()` as a direct `RustBridge.{Type}(...)` call when
