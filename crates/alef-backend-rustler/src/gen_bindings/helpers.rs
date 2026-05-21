@@ -355,10 +355,13 @@ pub(super) fn gen_native_ex(
         let _ = write_nif_stub(&mut out, &next_fn, &["_handle".to_string()], false);
     }
 
-    // Stubs for *_from_json helper NIFs (generated for all serde-capable types)
+    // Stubs for *_from_json helper NIFs — only for types with NIF wrapper structs.
     // These are internal test utilities — mark @doc false.
+    let nif_wrapped_types = collect_types_for_nif_derives(api, exclude_types);
     for typ in api.types.iter().filter(|t| {
-        !t.is_trait && !t.is_opaque && !t.fields.is_empty() && t.has_serde && !exclude_types.contains(t.name.as_str())
+        !t.is_trait && !t.is_opaque && !t.fields.is_empty() && t.has_serde
+            && !exclude_types.contains(t.name.as_str())
+            && nif_wrapped_types.contains(&t.name)
     }) {
         let from_json_fn_name = format!("{}_from_json", typ.name.to_snake_case());
         // *_from_json takes a JSON string and returns Result<Type, String>
