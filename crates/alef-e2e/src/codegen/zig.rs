@@ -217,13 +217,9 @@ impl E2eCodegen for ZigE2eCodegen {
 fn render_build_zig_zon(pkg_name: &str, pkg_path: &str, dep_mode: crate::config::DependencyMode) -> String {
     let dep_block = match dep_mode {
         crate::config::DependencyMode::Registry => {
-            // For registry mode, use a dummy hash (in real Zig, hash must be computed).
-            format!(
-                r#".{{
-            .url = "https://registry.example.com/{pkg_name}/v0.1.0.tar.gz",
-            .hash = "0000000000000000000000000000000000000000000000000000000000000000",
-        }}"#
-            )
+            // Zig has no official package registry like PyPI/npm/Maven.
+            // Even in registry mode, use local path dependencies for Zig test apps.
+            format!(r#".{{ .path = "{pkg_path}" }}"#)
         }
         crate::config::DependencyMode::Local => {
             format!(r#".{{ .path = "{pkg_path}" }}"#)
