@@ -855,6 +855,57 @@ pub(super) fn gen_tokio_runtime() -> String {
     .to_string()
 }
 
+/// Emit a module-level wrapper function for an adapter (streaming method).
+pub(super) fn gen_adapter_wrapper(adapter: &alef_core::config::AdapterConfig) -> String {
+    use alef_core::config::AdapterPattern;
+
+    let adapter_name = &adapter.name;
+    let js_name = to_node_name(adapter_name);
+    let owner_type = adapter.owner_type.as_deref().unwrap_or("CrawlEngineHandle");
+
+    // Build parameter list from adapter params (skip 'self' which is implicit on engine).
+    let mut param_parts = vec![format!("engine: &{owner_type}")];
+    for param in &adapter.params {
+        let param_name = &param.name;
+        // Map Rust types to NAPI/TypeScript equivalents
+        let ts_type = match param.ty.as_str() {
+            "String" => "string",
+            "CrawlStreamRequest" => "CrawlStreamRequest",
+            "BatchCrawlStreamRequest" => "BatchCrawlStreamRequest",
+            other => other,
+        };
+        param_parts.push(format!("{param_name}: {ts_type}"));
+    }
+
+    // Build the positional param list for the method call (no `engine` since that's implicit).
+    let params_list = adapter
+        .params
+        .iter()
+        .map(|p| p.name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    match &adapter.pattern {
+        AdapterPattern::Streaming => {
+            // Streaming: the engine method returns an async iterator; re-yield each item.
+            let item_type = adapter.item_type.as_deref().unwrap_or("CrawlEvent");
+            let method_call = if params_list.is_empty() {
+                format!("engine.{}()", adapter_name)
+            } else {
+                format!("engine.{}({})", adapter_name, params_list)
+            };
+            format!(
+                "#[napi(js_name = \"{js_name}\")]\npub async fn {}({}) -> napi::Result<{}> {{\n    {}.await\n}}\n\n",
+                adapter_name,
+                param_parts.join(", "),
+                item_type,
+                method_call
+            )
+        }
+        _ => String::new(), // Only Streaming pattern is relevant for NAPI
+    }
+}
+
 /// Generate an `index.d.ts` file for the NAPI binding crate.
 ///
 /// NAPI-RS generates `const enum` in its auto-generated `.d.ts`, which is incompatible
