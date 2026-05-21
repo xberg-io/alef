@@ -504,7 +504,7 @@ fn gen_opaque_method(
             }
         } else if method.error_type.is_some() {
             out.push_str(&format!(
-                "            if (NativeMethods.LastErrorCode() != 0)\n            {{\n                var ec = NativeMethods.LastErrorCode();\n                var ctxPtr = NativeMethods.LastErrorContext();\n                var msg = Marshal.PtrToStringUTF8(ctxPtr) ?? \"{cs_native_name} failed\";\n                throw new {exception_name}(ec, msg);\n            }}\n"
+                "            if (NativeMethods.LastErrorCode() != 0)\n            {{\n                var ec = NativeMethods.LastErrorCode();\n                var ctxPtr = NativeMethods.LastErrorContext();\n                var msg = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(ctxPtr) ?? \"{cs_native_name} failed\";\n                throw new {exception_name}(ec, msg);\n            }}\n"
             ));
         }
 
@@ -585,7 +585,7 @@ fn gen_opaque_method(
             }
         } else if method.error_type.is_some() {
             out.push_str(&format!(
-                "        if (NativeMethods.LastErrorCode() != 0)\n        {{\n            var ec = NativeMethods.LastErrorCode();\n            var ctxPtr = NativeMethods.LastErrorContext();\n            var msg = Marshal.PtrToStringUTF8(ctxPtr) ?? \"{cs_native_name} failed\";\n            throw new {exception_name}(ec, msg);\n        }}\n"
+                "        if (NativeMethods.LastErrorCode() != 0)\n        {{\n            var ec = NativeMethods.LastErrorCode();\n            var ctxPtr = NativeMethods.LastErrorContext();\n            var msg = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(ctxPtr) ?? \"{cs_native_name} failed\";\n            throw new {exception_name}(ec, msg);\n        }}\n"
             ));
         }
 
