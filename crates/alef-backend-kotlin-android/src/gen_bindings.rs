@@ -80,14 +80,24 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, kotlin_source_dir: &
     // `{"extract_metadata":true}` into `ConversionOptions`) when a
     // non-nullable field has no default — every non-optional Named enum
     // field needs one to round-trip.
+    //
+    // Enums without a declared `#[default]` variant map to an empty string;
+    // the emitter treats this as "no synthesisable default" and falls
+    // through to the type-based path (null for optional fields, no default
+    // for required ones). The mere presence of the entry distinguishes
+    // enums from data-class struct types so the latter can fall back to a
+    // no-arg constructor invocation.
     let enum_defaults: std::collections::HashMap<String, String> = api
         .enums
         .iter()
-        .filter_map(|en| {
-            en.variants
+        .map(|en| {
+            let default_variant = en
+                .variants
                 .iter()
                 .find(|v| v.is_default)
-                .map(|v| (en.name.clone(), v.name.clone()))
+                .map(|v| v.name.clone())
+                .unwrap_or_default();
+            (en.name.clone(), default_variant)
         })
         .collect();
 

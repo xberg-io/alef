@@ -1124,12 +1124,27 @@ fn render_kotlin_default(
             // necessary because Rust serializers commonly skip `Default`
             // sub-structures from the wire JSON, leaving the Jackson Kotlin
             // module to error out unless the field has a host-side default.
-            TypeRef::Named(name) => Some(
-                enum_defaults
-                    .get(name.as_str())
-                    .map(|variant| format!("{name}.{}", to_screaming_snake(variant)))
-                    .unwrap_or_else(|| format!("{name}()")),
-            ),
+            TypeRef::Named(name) => {
+                if let Some(variant) = enum_defaults.get(name.as_str()) {
+                    // Enum with a declared `#[default]` variant.
+                    let value = variant.as_str();
+                    if value.is_empty() {
+                        // Sentinel for "enum without a `#[default]` variant".
+                        // No Kotlin literal can synthesise the value; fall
+                        // through to the type-based default path so optional
+                        // fields become `null` and required ones get no
+                        // default.
+                        None
+                    } else {
+                        Some(format!("{name}.{}", to_screaming_snake(value)))
+                    }
+                } else {
+                    // Non-enum Named type — call the no-arg constructor. All
+                    // emitted data classes have constructor defaults for
+                    // every field, so `PreprocessingOptions()` round-trips.
+                    Some(format!("{name}()"))
+                }
+            }
             _ => None,
         },
         DefaultValue::None => Some("null".to_string()),
