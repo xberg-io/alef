@@ -21,7 +21,7 @@
             NativeMethods.{{ request_free }}({{ request_param }}Handle);
             var ec = NativeMethods.LastErrorCode();
             var ctxPtr = NativeMethods.LastErrorContext();
-            var msg = Marshal.PtrToStringUTF8(ctxPtr) ?? "Unknown error";
+            var msg = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(ctxPtr) ?? "Unknown error";
             throw new {{ exception_name }}(ec, msg);
         }
         try
@@ -36,13 +36,13 @@
                     if (ec != 0)
                     {
                         var ctxPtr = NativeMethods.LastErrorContext();
-                        var msg = Marshal.PtrToStringUTF8(ctxPtr) ?? "Unknown error";
+                        var msg = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(ctxPtr) ?? "Unknown error";
                         throw new {{ exception_name }}(ec, msg);
                     }
                     yield break;
                 }
                 var jsonPtr = NativeMethods.{{ item_to_json }}(chunkPtr);
-                var json = Marshal.PtrToStringUTF8(jsonPtr);
+                var json = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(jsonPtr);
                 NativeMethods.FreeString(jsonPtr);
                 NativeMethods.{{ item_free }}(chunkPtr);
                 var chunk = JsonSerializer.Deserialize<{{ item_type }}>(json ?? "null", JsonOptions)!;

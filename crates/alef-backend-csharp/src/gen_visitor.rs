@@ -114,7 +114,7 @@ pub(crate) fn callback_specs_from_trait(trait_def: &alef_core::ir::TypeDef) -> V
                         cs_name,
                         cs_type: "string".to_string(),
                         pinvoke_types: vec!["IntPtr".to_string()],
-                        decode: format!("Marshal.PtrToStringUTF8({raw_var})!"),
+                        decode: format!("global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8({raw_var})!"),
                     });
                 }
                 (TypeRef::String, true) => {
@@ -123,7 +123,7 @@ pub(crate) fn callback_specs_from_trait(trait_def: &alef_core::ir::TypeDef) -> V
                         cs_name,
                         cs_type: "string?".to_string(),
                         pinvoke_types: vec!["IntPtr".to_string()],
-                        decode: format!("{raw_var} == IntPtr.Zero ? null : Marshal.PtrToStringUTF8({raw_var})"),
+                        decode: format!("{raw_var} == IntPtr.Zero ? null : global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8({raw_var})"),
                     });
                 }
                 (TypeRef::Primitive(PrimitiveType::Bool), false) => {

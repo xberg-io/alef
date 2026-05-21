@@ -404,7 +404,7 @@ fn gen_wrapper_function(
         out.push_str("                    var nativeResult = NativeMethods.Convert(html, optionsHandle);\n");
         out.push_str("                    if (nativeResult == IntPtr.Zero) throw GetLastError();\n");
         out.push_str("                    var jsonPtr = NativeMethods.ConversionResultToJson(nativeResult);\n");
-        out.push_str("                    var json = Marshal.PtrToStringUTF8(jsonPtr);\n");
+        out.push_str("                    var json = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(jsonPtr);\n");
         out.push_str("                    NativeMethods.FreeString(jsonPtr);\n");
         out.push_str("                    NativeMethods.ConversionResultFree(nativeResult);\n");
         out.push_str("                    return JsonSerializer.Deserialize<ConversionResult>(json ?? \"null\", JsonOptions)!;\n");
@@ -419,7 +419,7 @@ fn gen_wrapper_function(
         out.push_str("                var nativeResult = NativeMethods.Convert(html, optionsHandle);\n");
         out.push_str("                if (nativeResult == IntPtr.Zero) throw GetLastError();\n");
         out.push_str("                var jsonPtr = NativeMethods.ConversionResultToJson(nativeResult);\n");
-        out.push_str("                var json = Marshal.PtrToStringUTF8(jsonPtr);\n");
+        out.push_str("                var json = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(jsonPtr);\n");
         out.push_str("                NativeMethods.FreeString(jsonPtr);\n");
         out.push_str("                NativeMethods.ConversionResultFree(nativeResult);\n");
         out.push_str(
@@ -760,7 +760,7 @@ fn gen_bridge_field_wrapper_function(
     // Handle return value (simplified for now - assumes ConversionResult-like marshalling)
     if func.return_type != TypeRef::Unit {
         out.push_str("                    var jsonPtr = NativeMethods.ConversionResultToJson(nativeResult);\n");
-        out.push_str("                    var json = Marshal.PtrToStringUTF8(jsonPtr);\n");
+        out.push_str("                    var json = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(jsonPtr);\n");
         out.push_str("                    NativeMethods.FreeString(jsonPtr);\n");
         out.push_str("                    NativeMethods.ConversionResultFree(nativeResult);\n");
         out.push_str("                    return JsonSerializer.Deserialize<ConversionResult>(json ?? \"null\", JsonOptions)!;\n");
@@ -794,7 +794,7 @@ fn gen_bridge_field_wrapper_function(
     if func.return_type != TypeRef::Unit {
         out.push_str("                if (nativeResult == IntPtr.Zero) throw GetLastError();\n");
         out.push_str("                var jsonPtr = NativeMethods.ConversionResultToJson(nativeResult);\n");
-        out.push_str("                var json = Marshal.PtrToStringUTF8(jsonPtr);\n");
+        out.push_str("                var json = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(jsonPtr);\n");
         out.push_str("                NativeMethods.FreeString(jsonPtr);\n");
         out.push_str("                NativeMethods.ConversionResultFree(nativeResult);\n");
         out.push_str(

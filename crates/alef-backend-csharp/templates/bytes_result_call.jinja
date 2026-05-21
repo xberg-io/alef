@@ -10,7 +10,7 @@
                 throw GetLastError();
             }
             var result = new byte[(int)outLen];
-            Marshal.Copy(outPtr, result, 0, (int)outLen);
+            global::System.Runtime.InteropServices.Marshal.Copy(outPtr, result, 0, (int)outLen);
             NativeMethods.FreeBytes(outPtr, outLen, outCap);
             return result;
         }

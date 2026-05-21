@@ -2,6 +2,6 @@
 {{ indent }}{
 {{ indent }}    var ec = NativeMethods.LastErrorCode();
 {{ indent }}    var ctxPtr = NativeMethods.LastErrorContext();
-{{ indent }}    var msg = Marshal.PtrToStringUTF8(ctxPtr) ?? "{{ cs_native_name }} failed";
+{{ indent }}    var msg = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(ctxPtr) ?? "{{ cs_native_name }} failed";
 {{ indent }}    throw new {{ exception_name }}(ec, msg);
 {{ indent }}}

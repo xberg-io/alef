@@ -2,7 +2,7 @@
     {
         var code = NativeMethods.LastErrorCode();
         var ctxPtr = NativeMethods.LastErrorContext();
-        var message = Marshal.PtrToStringUTF8(ctxPtr) ?? "Unknown error";
+        var message = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(ctxPtr) ?? "Unknown error";
 {%- if has_invalid_input_variant %}
         if (code == 1) return new InvalidInputException(message);
 {%- endif %}

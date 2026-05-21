@@ -896,6 +896,65 @@ impl Backend for RustlerBackend {
                     "    {native_mod}.{nif_fn_name}(\n      {nif_call_str}\n    )\n"
                 ));
                 content.push_str("  end\n\n");
+            } else if arity_variants.is_empty() && trailing_optional_count == 0 && all_params.len() > 0 {
+                // Single-arity, no keyword opts, no optional trailing params, but may have
+                // optional (| nil) params elsewhere. Emit the def with defaults for all optional params.
+                let param_with_defaults: Vec<String> = func.params
+                    .iter()
+                    .zip(&all_params)
+                    .map(|(ir_param, param_name)| {
+                        if ir_param.optional {
+                            format!("{param_name} \\\\ nil")
+                        } else {
+                            param_name.clone()
+                        }
+                    })
+                    .collect();
+
+                content.push_str(&template_env::render(
+                    "elixir_doc_line.jinja",
+                    minijinja::context! { doc_line => doc_line },
+                ));
+                let spec_inline = format!("  @spec {nif_fn_name}({}) :: {return_spec}", param_types.join(", "));
+                if spec_inline.len() > 98 {
+                    let spec_broken = format!(
+                        "  @spec {nif_fn_name}({}) ::\n          {return_spec}",
+                        param_types.join(", ")
+                    );
+                    if spec_broken.lines().all(|l| l.len() <= 98) {
+                        content.push_str(&spec_broken);
+                        content.push('\n');
+                    } else {
+                        content.push_str(&template_env::render(
+                            "elixir_spec_multiline.jinja",
+                            minijinja::context! {
+                                func_name => &nif_fn_name,
+                                param_types => &param_types,
+                                return_spec => &return_spec,
+                            },
+                        ));
+                    }
+                } else {
+                    content.push_str(&spec_inline);
+                    content.push('\n');
+                }
+
+                content.push_str(&template_env::render(
+                    "elixir_def_simple.jinja",
+                    minijinja::context! {
+                        func_name => &nif_fn_name,
+                        params => &param_with_defaults.join(", "),
+                    },
+                ));
+                content.push_str(&template_env::render(
+                    "elixir_def_nif_call.jinja",
+                    minijinja::context! {
+                        native_mod => &native_mod,
+                        func_name => &nif_fn_name,
+                        args => &all_params.join(", "),
+                    },
+                ));
+                content.push_str("  end\n\n");
             }
 
             for arity in &arity_variants {

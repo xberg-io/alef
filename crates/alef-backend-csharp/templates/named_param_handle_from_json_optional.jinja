@@ -11,7 +11,7 @@
 {{ indent }}    {
 {{ indent }}        var ec = NativeMethods.LastErrorCode();
 {{ indent }}        var ctxPtr = NativeMethods.LastErrorContext();
-{{ indent }}        var msg = Marshal.PtrToStringUTF8(ctxPtr) ?? "{{ from_json_method }} failed";
+{{ indent }}        var msg = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(ctxPtr) ?? "{{ from_json_method }} failed";
 {{ indent }}        throw new {{ exception_name }}(ec, msg);
 {{ indent }}    }
 {{ indent }}}

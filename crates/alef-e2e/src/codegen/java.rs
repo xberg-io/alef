@@ -1956,7 +1956,18 @@ fn render_assertion(
                     if field_is_enum {
                         match assertion.assertion_type.as_str() {
                             "not_empty" | "is_empty" => optional_expr,
-                            _ => format!("{optional_expr}.map(v -> v.getValue()).orElse(\"\")"),
+                            _ => {
+                                // FormatMetadata is a sealed interface, not a Java enum, so
+                                // don't call .getValue() on it. For equals assertions on
+                                // Optional<FormatMetadata>, keep it wrapped so it can be
+                                // handled by the string_expr path.
+                                let enum_type = enum_fields.get(f).or_else(|| enum_fields.get(field_resolver.resolve(f)));
+                                if enum_type.is_some_and(|t| t == "FormatMetadata") {
+                                    optional_expr
+                                } else {
+                                    format!("{optional_expr}.map(v -> v.getValue()).orElse(\"\")")
+                                }
+                            }
                         }
                     } else {
                         match assertion.assertion_type.as_str() {
@@ -2023,14 +2034,16 @@ fn render_assertion(
     // Optional enum fields are already coerced to String via `.map(v -> v.getValue()).orElse("")`
     // upstream in field_expr; in that case the value is already a String and we must not
     // call .getValue() again. Detect by looking for `.map(v -> v.getValue())` in the expr.
-    let string_expr = if field_is_enum && !field_expr.contains(".map(v -> v.getValue())") {
-        format!("{field_expr}.getValue()")
-    } else if assertion.field.as_deref().is_some_and(|f| {
+    // FormatMetadata is a sealed interface, not a Java enum, so exclude it from .getValue() handling.
+    let is_format_metadata = assertion.field.as_deref().is_some_and(|f| {
         enum_fields
             .get(f)
             .or_else(|| enum_fields.get(field_resolver.resolve(f)))
             .is_some_and(|t| t == "FormatMetadata")
-    }) {
+    });
+    let string_expr = if field_is_enum && !is_format_metadata && !field_expr.contains(".map(v -> v.getValue())") {
+        format!("{field_expr}.getValue()")
+    } else if is_format_metadata {
         // FormatMetadata is a sealed interface, not a Java enum. Convert to string via
         // a pattern-match helper that extracts the display string (image.format() for Image,
         // lowercase variant name for others).

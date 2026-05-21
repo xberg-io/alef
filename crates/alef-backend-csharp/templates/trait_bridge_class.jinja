@@ -56,7 +56,7 @@ public sealed class {{ trait_pascal }}Bridge : IDisposable {
 
     private void BuildVtable() {
         // Allocate unmanaged vtable struct (array of function pointers)
-        _vtable = Marshal.AllocHGlobal(IntPtr.Size * {{ num_vtable_fields }});
+        _vtable = global::System.Runtime.InteropServices.Marshal.AllocHGlobal(IntPtr.Size * {{ num_vtable_fields }});
 
 {{ vtable_slots }}
     }
@@ -68,7 +68,7 @@ public sealed class {{ trait_pascal }}Bridge : IDisposable {
 
     private static byte[] MarshalBytesFromIntPtr(IntPtr ptr) {
         if (ptr == IntPtr.Zero) return Array.Empty<byte>();
-        var json = Marshal.PtrToStringUTF8(ptr) ?? "[]";
+        var json = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(ptr) ?? "[]";
         return JsonSerializer.Deserialize<byte[]>(json) ?? Array.Empty<byte>();
     }
 {% endif %}
@@ -80,7 +80,7 @@ public sealed class {{ trait_pascal }}Bridge : IDisposable {
         _disposed = true;
 
         if (_vtable != IntPtr.Zero) {
-            Marshal.FreeHGlobal(_vtable);
+            global::System.Runtime.InteropServices.Marshal.FreeHGlobal(_vtable);
             _vtable = IntPtr.Zero;
         }
 

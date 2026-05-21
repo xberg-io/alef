@@ -1489,10 +1489,10 @@ pub(super) fn gen_struct_type(
                 out.push_str("\t\t}\n");
                 out.push_str("\t}\n");
             } else if def.is_optional {
-                // Optional field: only decode when the raw bytes are non-nil/non-empty.
+                // Optional field: only decode when the raw bytes are non-nil/non-empty and not "null".
                 // The struct field type is the bare sealed-interface (no `*`), since
                 // Go interfaces are already nullable — so assign `v` directly.
-                out.push_str(&format!("\tif len(raw.{}) > 0 {{\n", def.go_name));
+                out.push_str(&format!("\tif len(raw.{}) > 0 && string(raw.{}) != \"null\" {{\n", def.go_name, def.go_name));
                 out.push_str(&format!("\t\tv, err := {unmarshal_fn}(raw.{})\n", def.go_name));
                 out.push_str("\t\tif err != nil {\n");
                 out.push_str("\t\t\treturn err\n");
@@ -1501,7 +1501,7 @@ pub(super) fn gen_struct_type(
                 out.push_str("\t}\n");
             } else {
                 // Required field: always decode (raw is guaranteed non-nil by the struct unmarshal above).
-                out.push_str(&format!("\tif len(raw.{}) > 0 {{\n", def.go_name));
+                out.push_str(&format!("\tif len(raw.{}) > 0 && string(raw.{}) != \"null\" {{\n", def.go_name, def.go_name));
                 out.push_str(&format!("\t\tv, err := {unmarshal_fn}(raw.{})\n", def.go_name));
                 out.push_str("\t\tif err != nil {\n");
                 out.push_str("\t\t\treturn err\n");

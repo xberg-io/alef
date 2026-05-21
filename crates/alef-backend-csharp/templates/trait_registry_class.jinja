@@ -31,8 +31,8 @@ public static class {{ trait_pascal }}Registry {
             if (result != 0) {
                 userDataHandle.Free();
                 bridge.Dispose();
-                var errorMsg = Marshal.PtrToStringUTF8(outError) ?? "Unknown error";
-                Marshal.FreeCoTaskMem(outError);
+                var errorMsg = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(outError) ?? "Unknown error";
+                global::System.Runtime.InteropServices.Marshal.FreeCoTaskMem(outError);
                 throw new InvalidOperationException($"Failed to register {name}: {errorMsg}");
             }
 
@@ -51,8 +51,8 @@ public static class {{ trait_pascal }}Registry {
 
         var result = NativeMethods.Unregister{{ trait_pascal }}(name, out var outError);
         if (result != 0) {
-            var errorMsg = Marshal.PtrToStringUTF8(outError) ?? "Unknown error";
-            Marshal.FreeCoTaskMem(outError);
+            var errorMsg = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(outError) ?? "Unknown error";
+            global::System.Runtime.InteropServices.Marshal.FreeCoTaskMem(outError);
             throw new InvalidOperationException($"Failed to unregister {name}: {errorMsg}");
         }
 
@@ -67,8 +67,8 @@ public static class {{ trait_pascal }}Registry {
     public static void Clear() {
         var result = NativeMethods.Clear{{ trait_pascal }}(out var outError);
         if (result != 0) {
-            var errorMsg = Marshal.PtrToStringUTF8(outError) ?? "Unknown error";
-            Marshal.FreeCoTaskMem(outError);
+            var errorMsg = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(outError) ?? "Unknown error";
+            global::System.Runtime.InteropServices.Marshal.FreeCoTaskMem(outError);
             throw new InvalidOperationException($"Failed to clear {{ trait_pascal }} registry: {errorMsg}");
         }
 
