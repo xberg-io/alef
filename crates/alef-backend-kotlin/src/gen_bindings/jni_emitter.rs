@@ -74,12 +74,16 @@ pub fn emit_jni_bridge_object(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     body.push_str(&format!("object {bridge_name} {{\n"));
     body.push_str(&format!("    init {{ System.loadLibrary(\"{lib_name}\") }}\n"));
 
+    // Collect native function names from the API to detect duplicates later.
+    let mut emitted_native_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+
     // Emit one `external fun` per visible API function.
     // Every native method is annotated @Throws so typed catch blocks work in
     // Kotlin/Java callers — without this the JNI RuntimeException is wrapped in
     // UndeclaredThrowableException and silently bypasses catch(BridgeException).
     for f in &visible_functions {
         let native_name = format!("native{}", to_pascal_case(&f.name));
+        emitted_native_names.insert(native_name.clone());
         let return_ty = jni_return_type_for_function(&f.return_type, &opaque_type_names);
         let jni_params = jni_params_for_function(f, &opaque_type_names);
         if matches!(f.return_type, TypeRef::Unit) {
@@ -104,8 +108,8 @@ pub fn emit_jni_bridge_object(api: &ApiSurface, config: &ResolvedCrateConfig) ->
 
     // Emit nativeRegister<Trait> / nativeUnregister<Trait> / nativeClear<Trait>s
     // external funs for every [[crates.trait_bridges]] entry whose configuration
-    // does not exclude `kotlin_android`.
-    emit_trait_bridge_jni_external_funs(&mut body, config, &exception_class, &package);
+    // does not exclude `kotlin_android`. Skip duplicates already emitted from the API.
+    emit_trait_bridge_jni_external_funs(&mut body, config, &exception_class, &package, &emitted_native_names);
 
     // Emit nativeFreeXxx destructors for opaque types returned by top-level functions
     // that do NOT have instance methods (those are handled via emit_method_jni_external_funs
@@ -907,6 +911,7 @@ fn emit_trait_bridge_jni_external_funs(
     config: &ResolvedCrateConfig,
     exception_class: &str,
     kotlin_package: &str,
+    emitted_native_names: &std::collections::HashSet<String>,
 ) {
     let bridges: Vec<_> = config
         .trait_bridges
@@ -925,21 +930,30 @@ fn emit_trait_bridge_jni_external_funs(
         let iface_fqn = format!("{kotlin_package}.I{trait_pascal}");
         if bridge.register_fn.is_some() {
             let native_name = format!("nativeRegister{trait_pascal}");
-            out.push_str(&format!(
-                "\n    @Throws({exception_class}::class)\n    external fun {native_name}(impl: {iface_fqn})\n"
-            ));
+            // Skip if already emitted from the API.
+            if !emitted_native_names.contains(&native_name) {
+                out.push_str(&format!(
+                    "\n    @Throws({exception_class}::class)\n    external fun {native_name}(impl: {iface_fqn})\n"
+                ));
+            }
         }
         if bridge.unregister_fn.is_some() {
             let native_name = format!("nativeUnregister{trait_pascal}");
-            out.push_str(&format!(
-                "    @Throws({exception_class}::class)\n    external fun {native_name}(name: String)\n"
-            ));
+            // Skip if already emitted from the API.
+            if !emitted_native_names.contains(&native_name) {
+                out.push_str(&format!(
+                    "    @Throws({exception_class}::class)\n    external fun {native_name}(name: String)\n"
+                ));
+            }
         }
         if bridge.clear_fn.is_some() {
             let native_name = format!("nativeClear{trait_pascal}s");
-            out.push_str(&format!(
-                "    @Throws({exception_class}::class)\n    external fun {native_name}()\n"
-            ));
+            // Skip if already emitted from the API.
+            if !emitted_native_names.contains(&native_name) {
+                out.push_str(&format!(
+                    "    @Throws({exception_class}::class)\n    external fun {native_name}()\n"
+                ));
+            }
         }
     }
 }
