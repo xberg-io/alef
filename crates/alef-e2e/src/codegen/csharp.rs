@@ -832,10 +832,13 @@ fn render_test_method(
         return;
     }
 
-    let effective_function_name = cs_overrides
-        .and_then(|o| o.function.as_ref())
-        .cloned()
-        .unwrap_or_else(|| call_config.function.to_upper_camel_case());
+    let effective_function_name = cs_overrides.and_then(|o| o.function.as_ref()).cloned().unwrap_or_else(|| {
+        let mut name = call_config.function.to_upper_camel_case();
+        if call_config.r#async && !name.ends_with("Async") {
+            name.push_str("Async");
+        }
+        name
+    });
     let effective_result_var = &call_config.result_var;
     let effective_is_async = call_config.r#async;
     let function_name = effective_function_name.as_str();
@@ -1104,10 +1107,13 @@ fn render_chat_stream_test_method(
     let description = &fixture.description;
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
-    let effective_function_name = cs_overrides
-        .and_then(|o| o.function.as_ref())
-        .cloned()
-        .unwrap_or_else(|| call_config.function.to_upper_camel_case());
+    let effective_function_name = cs_overrides.and_then(|o| o.function.as_ref()).cloned().unwrap_or_else(|| {
+        let mut name = call_config.function.to_upper_camel_case();
+        if call_config.r#async && !name.ends_with("Async") {
+            name.push_str("Async");
+        }
+        name
+    });
     let function_name = effective_function_name.as_str();
     let args = call_config.args.as_slice();
 
