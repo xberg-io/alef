@@ -1029,6 +1029,57 @@ elixir = "/crates/my-lib-elixir/src/"
 }
 
 #[test]
+fn test_scaffold_elixir_mix_exs_files_list_omits_nonexistent_lib_and_checksum() {
+    // Default config has no explicit elixir output and no trait bridges, so the
+    // generated tree contains no `lib/` directory and no `checksum-*.exs` files.
+    // Hex publish refuses to package a non-existent path, so the emitted
+    // `files:` list must not advertise them.
+    let config = test_config();
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Elixir]).unwrap();
+    let files = language_files(&all_files);
+    let mix_exs = files.iter().find(|f| f.path.ends_with("mix.exs")).unwrap();
+
+    assert!(
+        mix_exs
+            .content
+            .contains("files: ~w(.formatter.exs mix.exs README* native)"),
+        "content: {}",
+        mix_exs.content
+    );
+    assert!(
+        !mix_exs.content.contains("checksum-"),
+        "checksum-*.exs must not appear in mix.exs files list: {}",
+        mix_exs.content
+    );
+}
+
+#[test]
+fn test_scaffold_elixir_mix_exs_files_list_includes_external_source_glob() {
+    // When the Elixir source lives outside packages/elixir/lib/, the relative
+    // path must be appended to `files:` so `mix hex.publish` actually ships
+    // the source. The same path is added to `elixirc_paths` for local compilation.
+    let config = test_config_from_toml(
+        r#"
+[crates.output]
+elixir = "crates/my-lib-elixir/src/"
+"#,
+    );
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Elixir]).unwrap();
+    let files = language_files(&all_files);
+    let mix_exs = files.iter().find(|f| f.path.ends_with("mix.exs")).unwrap();
+
+    assert!(
+        mix_exs
+            .content
+            .contains("files: ~w(.formatter.exs mix.exs README* native ../../crates/my-lib-elixir/src/*.ex)"),
+        "content: {}",
+        mix_exs.content
+    );
+}
+
+#[test]
 fn test_scaffold_language_level_extra_deps_override_crate_level() {
     let mut config = test_config();
     // Crate-level dep with version "1.0"
