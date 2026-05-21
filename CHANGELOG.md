@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+(No unreleased changes)
+
+## [0.17.26] - 2026-05-21
+
 ### Fixed
 
 - **alef-e2e/python: fix NameError when assertions reference undeclared result variable.** When Python e2e test fixtures had assertions but the code generator computed `has_usable_assertion = false` (edge case due to upstream miscomputation of assertion usability), the result binding would be discarded into `_` while subsequent assertions still tried to read the `result` variable. This caused NameError: "name 'result' is not defined" at test runtime. Fixed by always binding to `result_var` when there are any assertions in the fixture, even if `has_usable_assertion` is false. The variable check is now: if `fixture.assertions` is non-empty, bind the result; only use `_` discard when there are truly no assertions. Fixes Python e2e NameError on 3 tests: test_embed_texts_async_*, test_embed_texts_different_preset. (`crates/alef-e2e/src/codegen/python/test_function.rs`)
