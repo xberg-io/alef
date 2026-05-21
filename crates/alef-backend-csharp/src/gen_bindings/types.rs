@@ -16,6 +16,7 @@ use std::collections::{HashMap, HashSet};
 #[allow(clippy::too_many_arguments)]
 pub(super) fn gen_opaque_handle(
     typ: &TypeDef,
+    types: &[TypeDef],
     namespace: &str,
     exception_name: &str,
     enum_names: &HashSet<String>,
@@ -92,6 +93,7 @@ pub(super) fn gen_opaque_handle(
         out.push('\n');
         out.push_str(&gen_opaque_method(
             method,
+            types,
             &class_name,
             exception_name,
             enum_names,
@@ -274,6 +276,7 @@ fn gen_opaque_streaming_method(
 /// The method delegates to `NativeMethods.{TypeName}{MethodName}(this.Handle, ...)`.
 fn gen_opaque_method(
     method: &MethodDef,
+    types: &[TypeDef],
     class_name: &str,
     exception_name: &str,
     enum_names: &HashSet<String>,
@@ -354,7 +357,7 @@ fn gen_opaque_method(
     out.push_str(")\n    {\n");
 
     // Serialize Named params to JSON handles.
-    emit_named_param_setup(&mut out, &visible_params, "        ", true_opaque_types, exception_name);
+    emit_named_param_setup(&mut out, &visible_params, "        ", true_opaque_types, exception_name, types);
 
     // The native method name is {TypeName}{MethodName} (same as gen_wrapper_method).
     let cs_native_name = format!("{class_name}{method_cs_name}");
@@ -583,6 +586,7 @@ fn gen_opaque_method(
 #[allow(clippy::too_many_arguments)]
 pub(super) fn gen_record_type(
     typ: &TypeDef,
+    types: &[TypeDef],
     namespace: &str,
     prefix: &str,
     enum_names: &HashSet<String>,
@@ -982,7 +986,15 @@ pub(super) fn gen_record_type(
     // These supersede the IntPtr-leaking counterparts on the static wrapper class:
     //   - Static method (no receiver)  → `public static ClassName Method(params)`
     //   - Instance method (has receiver) → `public ClassName Method(params)` serialising `this`
-    emit_record_methods(&mut out, typ, &class_name, prefix, exception_class, true_opaque_types);
+    emit_record_methods(
+        &mut out,
+        typ,
+        types,
+        &class_name,
+        prefix,
+        exception_class,
+        true_opaque_types,
+    );
 
     out.push_str("}\n");
 
@@ -1000,6 +1012,7 @@ pub(super) fn gen_record_type(
 fn emit_record_methods(
     out: &mut String,
     typ: &TypeDef,
+    types: &[TypeDef],
     class_name: &str,
     _prefix: &str,
     exception_class: &str,
@@ -1070,7 +1083,7 @@ fn emit_record_methods(
                 ));
                 out.push_str("        try\n        {\n");
                 // Setup Named params inside try block
-                emit_named_param_setup(out, &method.params, "            ", true_opaque_types, exception_class);
+                emit_named_param_setup(out, &method.params, "            ", true_opaque_types, exception_class, types);
                 // Build call args using native_call_arg helper for proper marshalling
                 let mut call_args = vec!["selfHandle".to_string()];
                 call_args.extend(method.params.iter().map(|p| {
@@ -1105,7 +1118,7 @@ fn emit_record_methods(
                 });
 
                 if needs_handle_params {
-                    emit_named_param_setup(out, &method.params, "        ", true_opaque_types, exception_class);
+                    emit_named_param_setup(out, &method.params, "        ", true_opaque_types, exception_class, types);
                     out.push_str("        try\n        {\n");
                 }
 
@@ -1148,7 +1161,7 @@ fn emit_record_methods(
                 ));
                 out.push_str("        try\n        {\n");
                 // Setup Named params inside try block
-                emit_named_param_setup(out, &method.params, "            ", true_opaque_types, exception_class);
+                emit_named_param_setup(out, &method.params, "            ", true_opaque_types, exception_class, types);
                 // Build call args using native_call_arg helper for proper marshalling
                 let mut call_args = vec!["selfHandle".to_string()];
                 call_args.extend(method.params.iter().map(|p| {
@@ -1180,7 +1193,7 @@ fn emit_record_methods(
                 });
 
                 if needs_handle_params {
-                    emit_named_param_setup(out, &method.params, "        ", true_opaque_types, exception_class);
+                    emit_named_param_setup(out, &method.params, "        ", true_opaque_types, exception_class, types);
                     out.push_str("        try\n        {\n");
                 }
 
