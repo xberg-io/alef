@@ -169,6 +169,41 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str) {
                 },
             ));
         }
+
+        // Emit @JsonValue method for serialization
+        out.push_str("\n    @com.fasterxml.jackson.annotation.JsonValue\n");
+        out.push_str("    fun toWire(): String = when (this) {\n");
+        for (idx, name) in names.iter().enumerate() {
+            let discriminator = variant_discriminator(&en.variants[idx], en.serde_rename_all.as_deref());
+            out.push_str(&format!(
+                "        {} -> \"{}\"\n",
+                name,
+                escape_kotlin_string(&discriminator)
+            ));
+        }
+        out.push_str("    }\n");
+
+        // Emit @JsonCreator companion object method for deserialization
+        out.push_str("\n    companion object {\n");
+        out.push_str("        @com.fasterxml.jackson.annotation.JsonCreator\n");
+        out.push_str("        @JvmStatic\n");
+        out.push_str("        fun fromWire(value: String): ");
+        out.push_str(&en.name);
+        out.push_str(" = when (value) {\n");
+        for (idx, name) in names.iter().enumerate() {
+            let discriminator = variant_discriminator(&en.variants[idx], en.serde_rename_all.as_deref());
+            out.push_str(&format!(
+                "            \"{}\" -> {}\n",
+                escape_kotlin_string(&discriminator),
+                name
+            ));
+        }
+        out.push_str("            else -> throw IllegalArgumentException(\"Unknown ");
+        out.push_str(&en.name);
+        out.push_str(" value: $value\")\n");
+        out.push_str("        }\n");
+        out.push_str("    }\n");
+
         out.push_str("}\n");
     } else {
         // Sealed classes with data variants need a Jackson custom deserializer so that
@@ -239,10 +274,10 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str) {
                 // always emit the reset annotation than to only do so for
                 // named-field variants.
                 if needs_deserializer {
-                    out.push_str("    @com.fasterxml.jackson.databind.annotation.JsonDeserialize\n");
+                    out.push_str("    @com.fasterxml.jackson.databind.annotation.JsonDeserialize(using = com.fasterxml.jackson.databind.JsonDeserializer.None::class)\n");
                 }
                 if needs_serializer {
-                    out.push_str("    @com.fasterxml.jackson.databind.annotation.JsonSerialize\n");
+                    out.push_str("    @com.fasterxml.jackson.databind.annotation.JsonSerialize(using = com.fasterxml.jackson.databind.JsonSerializer.None::class)\n");
                 }
 
                 // Pre-build field strings for the ktfmt single-line heuristic.
@@ -630,10 +665,20 @@ fn emit_kotlin_untagged_deserializer(out: &mut String, en: &EnumDef) {
                         ),
                     )
                 }
-                TypeRef::Named(n) => (
-                    "node.isObject",
-                    format!("{name}.{}(ctx.readTreeAsValue(node, {n}::class.java))", variant.name),
-                ),
+                TypeRef::Named(n) => {
+                    // Named types can be either enums (stringify via @JsonValue + @JsonCreator)
+                    // or structs (objectify). Without enum type information in the backend,
+                    // we conservatively check node.isObject for struct variants and fall through
+                    // to a catch-all deserialization that handles both cases at the end.
+                    // For now, we'll check for both textual and object nodes to support both.
+                    (
+                        "true",  // Try all Named types; let deserialization determine success
+                        format!(
+                            "try {{ {name}.{}(ctx.readTreeAsValue(node, {n}::class.java)) }} catch (_: com.fasterxml.jackson.databind.exc.MismatchedInputException) {{ null as? {name} }} catch (_: com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException) {{ null as? {name} }}",
+                            variant.name
+                        ),
+                    )
+                },
                 _ => {
                     let class_name = kotlin_class_name_for_type(ty);
                     (
@@ -658,9 +703,20 @@ fn emit_kotlin_untagged_deserializer(out: &mut String, en: &EnumDef) {
 
         out.push_str("        if (");
         out.push_str(condition);
-        out.push_str(") return ");
-        out.push_str(&inner_expr);
-        out.push('\n');
+        out.push_str(") ");
+        if condition == "true" && inner_expr.contains("try {") {
+            // For try-catch branches, only return if result is not null
+            out.push_str("{\n");
+            out.push_str("            val result = ");
+            out.push_str(&inner_expr);
+            out.push_str("\n");
+            out.push_str("            if (result != null) return result\n");
+            out.push_str("        }\n");
+        } else {
+            out.push_str("return ");
+            out.push_str(&inner_expr);
+            out.push('\n');
+        }
     }
 
     out.push_str("        throw com.fasterxml.jackson.databind.exc.InvalidFormatException(\n");
