@@ -115,7 +115,7 @@ fn gen_adapter_wrapper(adapter: &AdapterConfig, _prefix: &str, _exception_name: 
     let cleanup_code = cleanup_lines.join("\n");
 
     // Build the iterator handle FFI protocol: CrawlEngineHandle{AdapterName}Start/Next/Free
-    let adapter_cs_name = csharp_type_name(adapter_name);
+    let adapter_cs_name = to_csharp_name(adapter_name);
     let start_method = format!("CrawlEngineHandle{}Start", adapter_cs_name);
     let next_method = format!("CrawlEngineHandle{}Next", adapter_cs_name);
     let free_method = format!("CrawlEngineHandle{}Free", adapter_cs_name);
@@ -266,14 +266,10 @@ pub(super) fn gen_wrapper_class(
         }
     }
 
-    // Emit adapter wrapper methods for streaming adapters that don't have an owner type.
-    // Adapters with owner_type (e.g. "CrawlEngineHandle") are emitted as instance methods
-    // on the opaque type's class instead.
+    // Emit adapter wrapper methods for streaming adapters
     for adapter in adapters {
         if matches!(adapter.pattern, alef_core::config::AdapterPattern::Streaming) {
-            if adapter.owner_type.is_none() {
-                out.push_str(&gen_adapter_wrapper(adapter, prefix, exception_name, api));
-            }
+            out.push_str(&gen_adapter_wrapper(adapter, prefix, exception_name, api));
         }
     }
 
