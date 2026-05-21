@@ -1035,8 +1035,17 @@ fn render_test_method(
         build_php_visitor(&mut setup_lines, visitor_spec);
         if !options_already_created {
             let options_type = call_options_type.unwrap_or("ConversionOptions");
-            setup_lines.push(format!("$builder = \\{namespace}\\{options_type}::builder();"));
-            setup_lines.push("$options = $builder->visitor($visitor)->build();".to_string());
+            if options_via == "from_json" {
+                // When options_via is "from_json", construct via fromJson() with a JSON object
+                // that includes the visitor property.
+                setup_lines.push(format!(
+                    "$options = \\{namespace}\\{options_type}::from_json(json_encode(['visitor' => $visitor]));"
+                ));
+            } else {
+                // Default builder pattern for other options_via modes
+                setup_lines.push(format!("$builder = \\{namespace}\\{options_type}::builder();"));
+                setup_lines.push("$options = $builder->visitor($visitor)->build();".to_string());
+            }
             options_already_created = true;
         }
     }
