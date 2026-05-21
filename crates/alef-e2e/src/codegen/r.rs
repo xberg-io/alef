@@ -171,6 +171,33 @@ fn render_setup_fixtures(test_documents_path: &str) -> String {
     let _ = writeln!(out, "    path");
     let _ = writeln!(out, "  }}");
     let _ = writeln!(out, "}}");
+    let _ = writeln!(out);
+    // FormatMetadata is an internally-tagged enum (serde tag = "format_type")
+    // so the JSON shape varies. `simplifyVector = FALSE` hands us a per-variant
+    // list — keyed by the snake_case variant name (`image`, `excel`, ...) — that
+    // points at the inner metadata struct, with all other variants set to NULL.
+    // Collapse both shapes here so terminal `metadata$format` assertions see
+    // the human-readable format string (e.g. "PNG") instead of the wrapper list.
+    let _ = writeln!(
+        out,
+        ".alef_format_value <- function(x) {{
+  if (is.list(x)) {{
+    for (variant in names(x)) {{
+      v <- x[[variant]]
+      if (is.list(v) && !is.null(v[[\"format\"]]) && is.character(v[[\"format\"]])) {{
+        return(v[[\"format\"]])
+      }}
+    }}
+    if (!is.null(x[[\"format\"]]) && is.character(x[[\"format\"]])) {{
+      return(x[[\"format\"]])
+    }}
+    if (!is.null(x[[\"format_type\"]])) {{
+      return(x[[\"format_type\"]])
+    }}
+  }}
+  x
+}}"
+    );
     out
 }
 
@@ -319,6 +346,23 @@ fn render_test_case(
     });
     let args_str = build_args_string(&fixture.input, &call_config.args, arg_name_map, options_type);
 
+    // Per-call R extra_args: positional trailing arguments appended verbatim.
+    // Used when the extendr wrapper has more parameters than the fixture
+    // declares (e.g. `render_pdf_page_to_png(pdf_bytes, page_index, dpi,
+    // password)` where `dpi`/`password` are optional in Rust but extendr
+    // surfaces them as required R parameters with no defaults).
+    let r_extra_args: Vec<String> = r_override.map(|o| o.extra_args.clone()).unwrap_or_default();
+    let args_with_extra = if r_extra_args.is_empty() {
+        args_str
+    } else {
+        let extra = r_extra_args.join(", ");
+        if args_str.is_empty() {
+            extra
+        } else {
+            format!("{args_str}, {extra}")
+        }
+    };
+
     // Build visitor setup and args if present
     let mut setup_lines = Vec::new();
     let final_args = if let Some(visitor_spec) = &fixture.visitor {
@@ -327,7 +371,7 @@ fn render_test_case(
         // strip any existing `options = ...` arg before appending the visitor-options list.
         // Handles `options = NULL` (when no default) and `options = ConversionOptions$default()`
         // (when build_args_string emits a default placeholder for an optional options arg).
-        let base = strip_options_arg(&args_str);
+        let base = strip_options_arg(&args_with_extra);
         let visitor_opts = "options = list(visitor = visitor)";
         let trimmed = base.trim_matches([' ', ',']);
         if trimmed.is_empty() {
@@ -336,7 +380,7 @@ fn render_test_case(
             format!("{trimmed}, {visitor_opts}")
         }
     } else {
-        args_str
+        args_with_extra
     };
 
     if expects_error {
@@ -375,8 +419,17 @@ fn render_test_case(
         );
     }
 
+    let result_is_bytes = call_config.result_is_bytes || r_override.is_some_and(|o| o.result_is_bytes);
     for assertion in &fixture.assertions {
-        render_assertion(out, assertion, result_var, field_resolver, result_is_simple, e2e_config);
+        render_assertion(
+            out,
+            assertion,
+            result_var,
+            field_resolver,
+            result_is_simple,
+            result_is_bytes,
+            e2e_config,
+        );
     }
 
     let _ = writeln!(out, "}})");
@@ -432,13 +485,11 @@ fn build_args_string(
     options_type: Option<&str>,
 ) -> String {
     if args.is_empty() {
-        // No declared args means the wrapper takes zero parameters; emitting
-        // `list()` here would trigger an `unused argument (list())` error in R.
-        // Likewise, fall through to nothing if the fixture's input is empty.
-        if matches!(input, serde_json::Value::Null) || input.as_object().is_some_and(|m| m.is_empty()) {
-            return String::new();
-        }
-        return json_to_r(input, true);
+        // No declared args means the wrapper takes zero parameters. Always
+        // emit an empty arg list — fixtures may carry harness metadata under
+        // `input` (e.g. `setup.lazy_init_required` for Go's eager-init shim)
+        // that must not leak into the R call site as a positional `list(...)`.
+        return String::new();
     }
 
     let parts: Vec<String> = args
@@ -513,7 +564,15 @@ fn build_args_string(
             // caller intended. Emit a plain `c("a","b")` literal instead.
             if arg.arg_type == "json_object" && val.is_array() {
                 if arg.element_type.as_deref() == Some("String") {
-                    let r_value = json_to_r(val, false);
+                    // `c()` is `NULL` in R, which extendr rejects with
+                    // `Expected Strings got Null` when the Rust signature is
+                    // `Vec<String>`. Emit a typed empty char vector for the
+                    // empty-input case so the binding sees `character(0)`.
+                    let r_value = if val.as_array().is_some_and(|arr| arr.is_empty()) {
+                        "character(0)".to_string()
+                    } else {
+                        json_to_r(val, false)
+                    };
                     return Some(format!("{arg_name} = {r_value}"));
                 }
                 let json_literal = serde_json::to_string(val).unwrap_or_else(|_| "[]".to_string());
@@ -609,6 +668,7 @@ fn render_assertion(
     result_var: &str,
     field_resolver: &FieldResolver,
     result_is_simple: bool,
+    result_is_bytes: bool,
     _e2e_config: &E2eConfig,
 ) {
     // Handle synthetic / derived fields before the is_valid_for_result check
@@ -827,6 +887,16 @@ fn render_assertion(
         }
     };
 
+    // FormatMetadata is serialized as an internally-tagged enum, so terminal
+    // accesses on `metadata.format` land on a list shaped like
+    // `{image: {format: "PNG", ...}, excel: NULL, ...}` under
+    // `simplifyVector = FALSE`. Wrap the accessor with `.alef_format_value`
+    // (from setup-fixtures.R) so the assertion sees the inner format string.
+    let field_expr = match &assertion.field {
+        Some(f) if f == "metadata.format" => format!(".alef_format_value({field_expr})"),
+        _ => field_expr,
+    };
+
     match assertion.assertion_type.as_str() {
         "equals" => {
             if let Some(expected) = &assertion.value {
@@ -925,14 +995,20 @@ fn render_assertion(
         "min_length" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(out, "  expect_true(nchar({field_expr}) >= {n})");
+                    // Raw byte returns (`result_is_bytes`) come back as an R
+                    // raw vector; `nchar()` element-wises and breaks the
+                    // expect_true scalar contract. Use `length()` to compare
+                    // the byte count instead.
+                    let size_fn = if result_is_bytes { "length" } else { "nchar" };
+                    let _ = writeln!(out, "  expect_true({size_fn}({field_expr}) >= {n})");
                 }
             }
         }
         "max_length" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(out, "  expect_true(nchar({field_expr}) <= {n})");
+                    let size_fn = if result_is_bytes { "length" } else { "nchar" };
+                    let _ = writeln!(out, "  expect_true({size_fn}({field_expr}) <= {n})");
                 }
             }
         }
