@@ -1230,6 +1230,153 @@ fn test_mixed_struct_skips_tuple_fields_only() {
     );
 }
 
+/// Regression: when two thiserror enums in the same crate declare variants with
+/// the same name (e.g. `GraphQLError::ValidationError` and
+/// `SchemaError::ValidationError` in spikard), the C# backend used to emit two
+/// `GeneratedFile` entries sharing the same path
+/// (`{VariantName}Exception.cs`). The downstream `write_files` step processes
+/// the file list with `rayon::par_iter`, so the two payloads racily overwrite
+/// each other — if one payload is longer than the other, the truncate-on-open
+/// of the second writer happens before the first writer has flushed all its
+/// bytes, leaving a tail of stale bytes past the file's logical closing brace.
+///
+/// The observable symptom is a corrupted file that contains valid content
+/// through the closing `}` followed by garbage like
+/// `tring message, Exception innerException) : base(message, innerException) { }\n}\n`
+/// — a partial suffix of a constructor line from the other variant's payload.
+///
+/// The fix dedups by class name: the first occurrence wins, subsequent
+/// same-named variants are dropped. This test asserts that:
+///   1. No two `GeneratedFile` entries share the same path.
+///   2. Each emitted exception file is well-formed: ends with a single closing
+///      `}` line and contains no constructor signatures without their full
+///      `public {ClassName}(` prefix.
+#[test]
+fn test_duplicate_variant_names_across_error_enums_do_not_corrupt_files() {
+    let backend = CsharpBackend;
+    let config = make_config("spikard", Some("Spikard"), true);
+
+    // Two error enums, each declaring a `ValidationError` variant — the exact
+    // pattern from spikard that produced the corruption.
+    let make_variant = |name: &str, doc: &str, is_unit: bool| ErrorVariant {
+        name: name.to_string(),
+        message_template: Some(format!("{}: {{0}}", name.to_lowercase())),
+        fields: vec![],
+        has_source: false,
+        has_from: false,
+        is_unit,
+        doc: doc.to_string(),
+    };
+
+    let api = ApiSurface {
+        crate_name: "spikard".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![
+            ErrorDef {
+                name: "GraphQLError".to_string(),
+                rust_path: "spikard::GraphQLError".to_string(),
+                original_rust_path: String::new(),
+                // Longer doc on GraphQL side — produces a longer payload than
+                // the SchemaError side, exposing the truncate-race.
+                variants: vec![
+                    make_variant(
+                        "ValidationError",
+                        "GraphQL validation error\n\nOccurs when a GraphQL query fails schema validation.",
+                        false,
+                    ),
+                    make_variant(
+                        "DepthLimitExceeded",
+                        "Query depth limit exceeded\n\nOccurs when a GraphQL query exceeds the configured depth limit.",
+                        true,
+                    ),
+                ],
+                doc: String::new(),
+                methods: vec![],
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+            ErrorDef {
+                name: "SchemaError".to_string(),
+                rust_path: "spikard::SchemaError".to_string(),
+                original_rust_path: String::new(),
+                // Shorter doc on SchemaError side — would corrupt the longer
+                // GraphQL-side file if both were written to the same path.
+                variants: vec![
+                    make_variant("ValidationError", "Configuration validation error", false),
+                    make_variant("DepthLimitExceeded", "Depth limit exceeded", false),
+                ],
+                doc: String::new(),
+                methods: vec![],
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+        ],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let files = backend.generate_bindings(&api, &config).expect("generate ok");
+
+    // (1) No two GeneratedFile entries may share the same path. Without this
+    // invariant, write_files' par_iter can leave tails of bytes from the
+    // longer payload past the shorter payload's end-of-file.
+    let mut seen_paths: std::collections::HashSet<std::path::PathBuf> = std::collections::HashSet::new();
+    for file in &files {
+        assert!(
+            seen_paths.insert(file.path.clone()),
+            "duplicate output path `{}` — two GeneratedFile entries write to the same path and will race in write_files",
+            file.path.display()
+        );
+    }
+
+    // (2) Each variant exception file must be well-formed. A pure state-machine
+    // walk: the last non-empty line is exactly `}`, and every line that
+    // contains the constructor body marker `: base(` is preceded by the full
+    // `public {ClassName}(` token on the same line. A truncated leftover line
+    // like `tring message, Exception innerException) : base(...) { }` would
+    // satisfy the `: base(` check but fail the `public ` prefix check.
+    for variant_class in ["ValidationErrorException", "DepthLimitExceededException"] {
+        let file_name = format!("{variant_class}.cs");
+        let file = files
+            .iter()
+            .find(|f| f.path.file_name().is_some_and(|n| n == file_name.as_str()))
+            .unwrap_or_else(|| panic!("must emit {file_name}"));
+        let content = &file.content;
+        let non_empty_lines: Vec<&str> = content
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .collect();
+        let last = non_empty_lines.last().copied().unwrap_or("");
+        assert_eq!(
+            last.trim(),
+            "}",
+            "{file_name} must end with a single `}}` after closing brace — found `{last}`\nfull content:\n{content}"
+        );
+        // Count balanced braces — exactly one open class brace, one close.
+        let opens = content.matches('{').count();
+        let closes = content.matches('}').count();
+        assert_eq!(
+            opens, closes,
+            "{file_name} must have balanced braces (opens={opens}, closes={closes})\ncontent:\n{content}"
+        );
+        // Every `: base(` line must carry the full `public ` prefix on the same
+        // line — guards against truncated constructor leftovers.
+        for (idx, line) in content.lines().enumerate() {
+            if line.contains(": base(") {
+                assert!(
+                    line.contains("public "),
+                    "{file_name} line {idx} contains `: base(` without the `public ` keyword — \
+                     this is the signature of a truncated leftover from a racy write_files pass.\n\
+                     line: `{line}`\nfull content:\n{content}"
+                );
+            }
+        }
+    }
+}
+
 /// Helper: build a ResolvedCrateConfig for C# binding tests.
 ///
 /// - `crate_name`: the crate name (e.g. `"test"`, `"kreuzberg"`)

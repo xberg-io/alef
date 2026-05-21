@@ -220,12 +220,33 @@ impl Backend for CsharpBackend {
             generated_header: true,
         });
 
-        // 2. Generate error types from thiserror enums (if any), otherwise generic exception
+        // 2. Generate error types from thiserror enums (if any), otherwise generic exception.
+        //
+        // Two thiserror enums in the same crate can declare variants with identical
+        // names (e.g. `GraphQLError::ValidationError` and `SchemaError::ValidationError`
+        // in spikard). Each variant emits `{VariantName}Exception.cs`, so without
+        // deduplication two `GeneratedFile` entries share the same `path` and the
+        // parallel `write_files` step racily overwrites the file — leaving a tail of
+        // bytes from whichever payload was longer past the file's logical end
+        // (because the second writer's truncate-on-open happens at file open time,
+        // before the first writer's pending bytes have all reached disk).
+        //
+        // Keep the first emission per class name; subsequent same-named variants
+        // are dropped. The base error class (`{ErrorEnum}Exception`) naturally
+        // varies by error name and does not collide.
         if !api.errors.is_empty() {
+            let mut seen_exception_files: HashSet<String> = HashSet::new();
             for error in &api.errors {
                 let error_files =
                     alef_codegen::error_gen::gen_csharp_error_types(error, &namespace, Some(&exception_class_name));
                 for (class_name, content) in error_files {
+                    if !seen_exception_files.insert(class_name.clone()) {
+                        // Duplicate variant name across error enums — earlier
+                        // emission wins. Without this skip, two `GeneratedFile`
+                        // entries share the same path and racily overwrite each
+                        // other in `write_files`.
+                        continue;
+                    }
                     files.push(GeneratedFile {
                         path: base_path.join(format!("{}.cs", class_name)),
                         content: strip_trailing_whitespace(&content),
