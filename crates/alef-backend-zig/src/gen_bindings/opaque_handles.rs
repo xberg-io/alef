@@ -298,9 +298,10 @@ fn emit_opaque_streaming_method(
     );
 
     // Accumulate all chunks into a JSON array — the Zig caller parses elements lazily.
-    let _ = writeln!(out, "        var _buf = std.ArrayList(u8).init(std.heap.c_allocator);");
-    let _ = writeln!(out, "        defer _buf.deinit();");
-    let _ = writeln!(out, "        try _buf.append('[');");
+    // Zig 0.16+ changed ArrayList API: allocator is passed at each operation, not at init.
+    let _ = writeln!(out, "        var _buf = try std.ArrayList(u8).initCapacity(std.heap.c_allocator, 0);");
+    let _ = writeln!(out, "        defer _buf.deinit(std.heap.c_allocator);");
+    let _ = writeln!(out, "        try _buf.append(std.heap.c_allocator, '[');");
     let _ = writeln!(out, "        var _first = true;");
     let _ = writeln!(out, "        while (true) {{");
     let _ = writeln!(
@@ -314,14 +315,20 @@ fn emit_opaque_streaming_method(
     );
     let _ = writeln!(out, "            c.{prefix}_{item_snake}_free(_chunk);");
     let _ = writeln!(out, "            if (_chunk_json_ptr == null) continue;");
-    let _ = writeln!(out, "            if (!_first) try _buf.append(',');");
+    let _ = writeln!(
+        out,
+        "            if (!_first) try _buf.append(std.heap.c_allocator, ',');"
+    );
     let _ = writeln!(out, "            _first = false;");
     let _ = writeln!(out, "            const _chunk_slice = std.mem.span(_chunk_json_ptr);");
-    let _ = writeln!(out, "            try _buf.appendSlice(_chunk_slice);");
+    let _ = writeln!(
+        out,
+        "            try _buf.appendSlice(std.heap.c_allocator, _chunk_slice);"
+    );
     let _ = writeln!(out, "            c.{prefix}_free_string(_chunk_json_ptr);");
     let _ = writeln!(out, "        }}");
-    let _ = writeln!(out, "        try _buf.append(']');");
-    let _ = writeln!(out, "        return _buf.toOwnedSlice();");
+    let _ = writeln!(out, "        try _buf.append(std.heap.c_allocator, ']');");
+    let _ = writeln!(out, "        return _buf.toOwnedSlice(std.heap.c_allocator);");
     let _ = writeln!(out, "    }}");
 }
 
