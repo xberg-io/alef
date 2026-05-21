@@ -132,6 +132,13 @@ impl E2eCodegen for JavaCodegen {
             });
         }
 
+        // Always generate FormatMetadataDisplay helper for assertions on FormatMetadata fields.
+        files.push(GeneratedFile {
+            path: test_base.join("FormatMetadataDisplay.java"),
+            content: render_format_metadata_display(&java_group_id),
+            generated_header: true,
+        });
+
         // Resolve options_type from override.
         let options_type = overrides.and_then(|o| o.options_type.clone());
 
@@ -407,6 +414,55 @@ fn render_mock_server_listener(java_group_id: &str) -> String {
     out.push_str("            char[] buf = new char[1024];\n");
     out.push_str("            while (reader.read(buf) >= 0) { /* drain */ }\n");
     out.push_str("        } catch (IOException ignored) {}\n");
+    out.push_str("    }\n");
+    out.push_str("}\n");
+    out
+}
+
+fn render_format_metadata_display(java_group_id: &str) -> String {
+    let header = hash::header(CommentStyle::DoubleSlash);
+    let mut out = header;
+    out.push_str(&format!("package {java_group_id}.e2e;\n\n"));
+    out.push_str("import dev.kreuzberg.FormatMetadata;\n");
+    out.push('\n');
+    out.push_str("/**\n");
+    out.push_str(" * Helper class for extracting display strings from FormatMetadata sealed interface.\n");
+    out.push_str(" *\n");
+    out.push_str(" * FormatMetadata is a sealed interface with variants representing different document formats.\n");
+    out.push_str(" * This utility provides pattern matching to extract the display string for assertions:\n");
+    out.push_str(" * - For Image variant: returns the format field (e.g., \"PNG\", \"JPEG\")\n");
+    out.push_str(" * - For other variants: returns the lowercase variant name (e.g., \"pdf\", \"docx\")\n");
+    out.push_str(" */\n");
+    out.push_str("class FormatMetadataDisplay {\n");
+    out.push_str("    /**\n");
+    out.push_str("     * Converts a FormatMetadata sealed interface to its display string representation.\n");
+    out.push_str("     * @param meta the FormatMetadata instance\n");
+    out.push_str("     * @return display string (image format or lowercase variant name)\n");
+    out.push_str("     */\n");
+    out.push_str("    static String toDisplayString(FormatMetadata meta) {\n");
+    out.push_str("        return switch (meta) {\n");
+    out.push_str("            case FormatMetadata.Image i -> i.value().format();\n");
+    out.push_str("            case FormatMetadata.Pdf _ -> \"pdf\";\n");
+    out.push_str("            case FormatMetadata.Docx _ -> \"docx\";\n");
+    out.push_str("            case FormatMetadata.Excel _ -> \"excel\";\n");
+    out.push_str("            case FormatMetadata.Email _ -> \"email\";\n");
+    out.push_str("            case FormatMetadata.Pptx _ -> \"pptx\";\n");
+    out.push_str("            case FormatMetadata.Archive _ -> \"archive\";\n");
+    out.push_str("            case FormatMetadata.Xml _ -> \"xml\";\n");
+    out.push_str("            case FormatMetadata.Text _ -> \"text\";\n");
+    out.push_str("            case FormatMetadata.Html _ -> \"html\";\n");
+    out.push_str("            case FormatMetadata.Ocr _ -> \"ocr\";\n");
+    out.push_str("            case FormatMetadata.Csv _ -> \"csv\";\n");
+    out.push_str("            case FormatMetadata.Bibtex _ -> \"bibtex\";\n");
+    out.push_str("            case FormatMetadata.Citation _ -> \"citation\";\n");
+    out.push_str("            case FormatMetadata.FictionBook _ -> \"fictionbook\";\n");
+    out.push_str("            case FormatMetadata.Dbf _ -> \"dbf\";\n");
+    out.push_str("            case FormatMetadata.Jats _ -> \"jats\";\n");
+    out.push_str("            case FormatMetadata.Epub _ -> \"epub\";\n");
+    out.push_str("            case FormatMetadata.Pst _ -> \"pst\";\n");
+    out.push_str("            case FormatMetadata.Code _ -> \"code\";\n");
+    out.push_str("            default -> \"unknown\";\n");
+    out.push_str("        };\n");
     out.push_str("    }\n");
     out.push_str("}\n");
     out
@@ -1937,8 +1993,10 @@ fn render_assertion(
             .or_else(|| enum_fields.get(field_resolver.resolve(f)))
             .is_some_and(|t| t == "FormatMetadata")
     }) {
-        // FormatMetadata is a sealed interface, not a Java enum. Convert to string via toString().
-        format!("{field_expr}.toString()")
+        // FormatMetadata is a sealed interface, not a Java enum. Convert to string via
+        // a pattern-match helper that extracts the display string (image.format() for Image,
+        // lowercase variant name for others).
+        format!("FormatMetadataDisplay.toDisplayString({field_expr})")
     } else {
         field_expr.clone()
     };
