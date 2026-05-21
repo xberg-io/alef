@@ -795,13 +795,19 @@ fn render_test_case(
     // Streaming detection (call-level `streaming` opt-out is honored).
     let is_streaming = crate::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming);
 
-    // Streaming-error detection: a fixture that calls a streaming function (function
-    // name contains "stream") with an error assertion but no stream chunks in the mock
-    // — the server rejects before streaming begins (e.g. 401, 400 content-policy).
-    // The NAPI binding returns the stream handle lazily; errors only surface when
-    // iterating.  Generate a `for await` drain loop inside the rejects.toThrow()
-    // block so the error propagates before the expect wrapper exits.
-    let is_streaming_error_call = expects_error && !is_streaming && function_name.to_lowercase().contains("stream");
+    // Streaming-error detection: a fixture that calls a streaming function with an
+    // error assertion (e.g. 401, 400 content-policy) — the upstream rejects before
+    // any chunks arrive, but the NAPI / wasm binding returns the stream handle
+    // synchronously. The HTTP error only surfaces when iterating, so we generate a
+    // drain loop inside the `rejects.toThrow()` block so the error propagates
+    // before the expect wrapper exits.
+    //
+    // Triggers in two cases:
+    // - Declared streaming call (`call_config.streaming = true`) + error fixture.
+    // - Heuristic name-based detection (function name contains "stream") for
+    //   fixtures that pre-date the explicit `streaming` flag.
+    let is_streaming_error_call =
+        expects_error && (is_streaming || function_name.to_lowercase().contains("stream"));
 
     // Build assertions body
     let mut assertions_body = String::new();
