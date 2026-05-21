@@ -23,6 +23,14 @@ fn is_numeric_type_hint(ty: &str) -> bool {
     matches!(ty, "f32" | "f64" | "float" | "double" | "Float" | "Double")
 }
 
+/// Check if a type name is a Java built-in type that doesn't need an import.
+fn is_java_builtin_type(ty: &str) -> bool {
+    matches!(
+        ty,
+        "String" | "Boolean" | "Integer" | "Long" | "Double" | "Float" | "Byte" | "Short" | "Character" | "Void"
+    )
+}
+
 /// Java e2e code generator.
 pub struct JavaCodegen;
 
@@ -484,8 +492,12 @@ fn render_test_file(
             if let Some(elem_type) = &arg.element_type {
                 if elem_type == "BatchBytesItem" || elem_type == "BatchFileItem" {
                     all_options_types.insert(elem_type.clone());
-                } else if arg.arg_type == "json_object" && !is_numeric_type_hint(elem_type) {
+                } else if arg.arg_type == "json_object"
+                    && !is_numeric_type_hint(elem_type)
+                    && !is_java_builtin_type(elem_type)
+                {
                     // Complex types in json_object arrays need JsonUtil.
+                    // Skip Java built-in types (String, Boolean, Integer, etc.).
                     all_options_types.insert(elem_type.clone());
                 }
             }
@@ -1592,7 +1604,7 @@ fn render_assertion(
             }
             "chunks_have_heading_context" => {
                 let pred = format!(
-                    "java.util.Optional.ofNullable({result_var}.chunks()).orElse(java.util.List.of()).stream().allMatch(c -> c.metadata().headingContext().isPresent())"
+                    "java.util.Optional.ofNullable({result_var}.chunks()).orElse(java.util.List.of()).stream().allMatch(c -> c.metadata().headingContext() != null)"
                 );
                 out.push_str(&crate::template_env::render(
                     "java/synthetic_assertion.jinja",
@@ -1622,7 +1634,7 @@ fn render_assertion(
             }
             "first_chunk_starts_with_heading" => {
                 let pred = format!(
-                    "java.util.Optional.ofNullable({result_var}.chunks()).orElse(java.util.List.of()).stream().findFirst().map(c -> c.metadata().headingContext().isPresent()).orElse(false)"
+                    "java.util.Optional.ofNullable({result_var}.chunks()).orElse(java.util.List.of()).stream().findFirst().map(c -> c.metadata().headingContext() != null).orElse(false)"
                 );
                 out.push_str(&crate::template_env::render(
                     "java/synthetic_assertion.jinja",
@@ -1820,10 +1832,13 @@ fn render_assertion(
     // Check both the raw fixture field path and the resolved (aliased) path so that
     // `fields_enum` entries can use either form (e.g., `"assets[].category"` or the
     // resolved `"assets[].asset_category"`).
-    let field_is_enum = assertion
-        .field
-        .as_deref()
-        .is_some_and(|f| enum_fields.contains(f) || enum_fields.contains(field_resolver.resolve(f)));
+    // NOTE: FormatMetadata is a sealed interface, not a Java enum, so exclude it from
+    // enum field treatment (it doesn't have .getValue()).
+    let field_is_enum = assertion.field.as_deref().is_some_and(|f| {
+        let resolved = field_resolver.resolve(f);
+        let enum_type = enum_fields.get(f).or_else(|| enum_fields.get(resolved));
+        enum_type.is_some_and(|t| t != "FormatMetadata")
+    });
 
     // Determine if this field is an array (List<T>) — needed to choose .toString() for
     // contains assertions, since List.contains(Object) uses equals() which won't match
@@ -1916,6 +1931,14 @@ fn render_assertion(
     // call .getValue() again. Detect by looking for `.map(v -> v.getValue())` in the expr.
     let string_expr = if field_is_enum && !field_expr.contains(".map(v -> v.getValue())") {
         format!("{field_expr}.getValue()")
+    } else if assertion.field.as_deref().is_some_and(|f| {
+        enum_fields
+            .get(f)
+            .or_else(|| enum_fields.get(field_resolver.resolve(f)))
+            .is_some_and(|t| t == "FormatMetadata")
+    }) {
+        // FormatMetadata is a sealed interface, not a Java enum. Convert to string via toString().
+        format!("{field_expr}.toString()")
     } else {
         field_expr.clone()
     };
