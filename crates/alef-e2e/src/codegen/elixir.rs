@@ -970,10 +970,12 @@ fn render_test_case(
             }
         }
         if !emitted_error_assertion {
-            let _ = writeln!(
-                out,
-                "      assert {{:error, _}} = {module_path}.{function_name}({effective_args})"
-            );
+            let call_invocation = if effective_args.is_empty() {
+                format!("{module_path}.{function_name}()")
+            } else {
+                format!("{module_path}.{function_name}({effective_args})")
+            };
+            let _ = writeln!(out, "      assert {{:error, _}} = {call_invocation}");
         }
         if needs_api_key_skip {
             let _ = writeln!(out, "      end");
@@ -1008,10 +1010,12 @@ fn render_test_case(
                 "      {{:ok, client}} = {module_path}.{factory}(\"test-key\", base_url: {base_url_expr})"
             );
         }
-        let _ = writeln!(
-            out,
-            "      assert {{:error, _}} = {module_path}.{function_name}({effective_args})"
-        );
+        let call_invocation = if effective_args.is_empty() {
+            format!("{module_path}.{function_name}()")
+        } else {
+            format!("{module_path}.{function_name}({effective_args})")
+        };
+        let _ = writeln!(out, "      assert {{:error, _}} = {call_invocation}");
         if needs_api_key_skip {
             let _ = writeln!(out, "      end");
         }
@@ -1100,17 +1104,19 @@ fn render_test_case(
         result_var.to_string()
     };
 
+    // Render function call: omit args entirely if effective_args is empty (no-arg functions).
+    // This prevents emitting `func(nil)` which causes FunctionClauseError on nil-free function signatures.
+    let call_invocation = if effective_args.is_empty() {
+        format!("{module_path}.{function_name}()")
+    } else {
+        format!("{module_path}.{function_name}({effective_args})")
+    };
+
     if returns_result {
-        let _ = writeln!(
-            out,
-            "      {{:ok, {actual_result_var}}} = {module_path}.{function_name}({effective_args})"
-        );
+        let _ = writeln!(out, "      {{:ok, {actual_result_var}}} = {call_invocation}");
     } else {
         // Non-Result function returns value directly (e.g., bool, String).
-        let _ = writeln!(
-            out,
-            "      {actual_result_var} = {module_path}.{function_name}({effective_args})"
-        );
+        let _ = writeln!(out, "      {actual_result_var} = {call_invocation}");
     }
 
     // For streaming fixtures, drain the stream into a list before asserting.
