@@ -5,6 +5,7 @@
 
 mod helpers;
 pub mod jni_emitter;
+mod literal_normalizer;
 mod object_wrapper;
 mod shared;
 pub mod trait_bridge;
@@ -663,18 +664,24 @@ impl Backend for KotlinBackend {
         }
         // "kmp" mode forces Multiplatform emission.
         if mode == Some("kmp") {
-            return crate::gen_mpp::emit(api, config);
+            let mut files = crate::gen_mpp::emit(api, config)?;
+            post_process_kotlin_files(&mut files);
+            return Ok(files);
         }
         // Dispatch by FFI style first; JNI mode is independent of target.
         if config.kotlin_ffi_style() == KotlinFfiStyle::Jni {
-            return generate_jni(api, config);
+            let mut files = generate_jni(api, config)?;
+            post_process_kotlin_files(&mut files);
+            return Ok(files);
         }
         // Default: dispatch by `target` (preserves existing behaviour).
-        match kotlin_target(config) {
-            KotlinTarget::Jvm => generate_jvm(api, config),
-            KotlinTarget::Native => crate::gen_native::emit(api, config),
-            KotlinTarget::Multiplatform => crate::gen_mpp::emit(api, config),
-        }
+        let mut files = match kotlin_target(config) {
+            KotlinTarget::Jvm => generate_jvm(api, config)?,
+            KotlinTarget::Native => crate::gen_native::emit(api, config)?,
+            KotlinTarget::Multiplatform => crate::gen_mpp::emit(api, config)?,
+        };
+        post_process_kotlin_files(&mut files);
+        Ok(files)
     }
 
     fn build_config(&self) -> Option<BuildConfig> {
@@ -862,4 +869,17 @@ fn generate_jni(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
         files.push(client_file);
     }
     Ok(files)
+}
+
+// ---------------------------------------------------------------------------
+// Post-processing
+// ---------------------------------------------------------------------------
+
+/// Apply post-processing fixes to generated Kotlin files.
+fn post_process_kotlin_files(files: &mut [GeneratedFile]) {
+    for file in files {
+        if file.path.ends_with(".kt") {
+            file.content = literal_normalizer::fix_float_literals(&file.content);
+        }
+    }
 }

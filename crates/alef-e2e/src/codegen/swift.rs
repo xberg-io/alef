@@ -1123,7 +1123,7 @@ fn build_args_and_setup(
                 }
                 None | Some(serde_json::Value::Null) => {
                     let var_name = format!("{}Vec", arg.name.to_lower_camel_case());
-                    setup_lines.push(format!("let {var_name} = RustVec<UInt8>()"));
+                    setup_lines.push(format!("let {var_name} = RustBridge.RustVec<UInt8>()"));
                     parts.push((idx, var_name));
                 }
                 Some(serde_json::Value::String(s)) => {
@@ -1133,13 +1133,13 @@ fn build_args_and_setup(
                     setup_lines.push(format!(
                         "let {data_var} = try Data(contentsOf: URL(fileURLWithPath: \"{escaped}\"))"
                     ));
-                    setup_lines.push(format!("let {var_name} = RustVec<UInt8>()"));
+                    setup_lines.push(format!("let {var_name} = RustBridge.RustVec<UInt8>()"));
                     setup_lines.push(format!("for _byte in {data_var} {{ {var_name}.push(value: _byte) }}"));
                     parts.push((idx, var_name));
                 }
                 Some(serde_json::Value::Array(arr)) => {
                     let var_name = format!("{}Vec", arg.name.to_lower_camel_case());
-                    setup_lines.push(format!("let {var_name} = RustVec<UInt8>()"));
+                    setup_lines.push(format!("let {var_name} = RustBridge.RustVec<UInt8>()"));
                     for v in arr {
                         if let Some(n) = v.as_u64() {
                             setup_lines.push(format!("{var_name}.push(value: UInt8({n}))"));
@@ -1152,7 +1152,7 @@ fn build_args_and_setup(
                     let json_str = serde_json::to_string(other).unwrap_or_default();
                     let escaped = escape_swift(&json_str);
                     let var_name = format!("{}Vec", arg.name.to_lower_camel_case());
-                    setup_lines.push(format!("let {var_name} = RustVec<UInt8>()"));
+                    setup_lines.push(format!("let {var_name} = RustBridge.RustVec<UInt8>()"));
                     setup_lines.push(format!(
                         "for _byte in Array(\"{escaped}\".utf8) {{ {var_name}.push(value: _byte) }}"
                     ));
@@ -1256,13 +1256,15 @@ fn build_args_and_setup(
     // Method calls on the DefaultClient handle (e.g. `_client.chat(req)`) use
     // anonymous Swift argument labels (`func chat(_ req:)`), so omit `name:` prefixes.
     // Free-function calls (e.g. `process(source:, config:)`) keep labelled args.
+    // Swift argument labels must be camelCase, so convert from snake_case.
     let args_str = parts
         .into_iter()
         .map(|(idx, val)| {
             if is_method_call {
                 val
             } else {
-                format!("{}: {}", args[idx].name, val)
+                let label = args[idx].name.to_lower_camel_case();
+                format!("{label}: {val}")
             }
         })
         .collect::<Vec<_>>()

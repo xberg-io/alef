@@ -12,6 +12,7 @@ homepage.workspace = true
 alef-backend-kotlin = { workspace = true }
 alef-core = { workspace = true }
 anyhow = { workspace = true }
+regex = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }

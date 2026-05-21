@@ -195,6 +195,7 @@ impl Backend for KotlinAndroidBackend {
         files.extend(gen_jni_skeleton::emit(config, &layout.package_root));
         files.extend(gen_bindings::emit(api, config, &layout.kotlin_source_dir));
 
+        post_process_kotlin_files(&mut files);
         Ok(files)
     }
 
@@ -307,6 +308,24 @@ fn strip_kotlin_source_suffix(configured: &Path, pkg_path: &str) -> Option<PathB
         root.push(comp);
     }
     Some(root)
+}
+
+/// Apply post-processing fixes to generated Kotlin files.
+/// Fixes integer-like float literals that lack decimal points (e.g., "32" -> "32.0").
+fn post_process_kotlin_files(files: &mut [GeneratedFile]) {
+    use regex::Regex;
+
+    // Match `: Double = <digits>` (no decimal point) and add `.0`
+    let double_pattern = Regex::new(r"(: Double = )(\d+)([^.\d])").expect("invalid regex");
+    // Match `: Float = <digits>f` (no decimal point) and add `.0`
+    let float_pattern = Regex::new(r"(: Float = )(\d+)(f)").expect("invalid regex");
+
+    for file in files {
+        if file.path.ends_with(".kt") {
+            let content = double_pattern.replace_all(&file.content, "${1}${2}.0${3}").into_owned();
+            file.content = float_pattern.replace_all(&content, "${1}${2}.0${3}").into_owned();
+        }
+    }
 }
 
 #[cfg(test)]

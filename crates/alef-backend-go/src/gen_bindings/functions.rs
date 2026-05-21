@@ -647,9 +647,7 @@ pub(super) fn gen_adapter_wrapper(
 
     // Decompose request struct into primitives for ergonomic wrapper.
     // E.g. CrawlStreamRequest { url: String } → accept (url string), construct req, call method.
-    let (param_parts, request_construction) = if adapter.request_type.is_some()
-        && adapter.params.len() == 1
-    {
+    let (param_parts, request_construction) = if adapter.request_type.is_some() && adapter.params.len() == 1 {
         // Single request param: decompose by inspecting the request type's first field in IR.
         let param = &adapter.params[0];
         let param_ty_name = &param.ty;
@@ -733,11 +731,11 @@ pub(super) fn gen_adapter_wrapper(
     // Return type: (channel of items, error)
     let return_type = format!("<-chan {item_type_simple}, error");
 
-    // Build method call: engine.CrawlStream(req) or engine.CrawlStream(...params)
+    // Build method call: engine.CrawlStream(*req) or engine.CrawlStream(...params)
     let method_call_name = to_go_name(adapter_name);
     let method_call = if request_construction.is_some() {
-        // If we constructed a request, use it as the sole argument
-        format!("engine.{}(req)", method_call_name)
+        // If we constructed a request, dereference the pointer for the method call
+        format!("engine.{}(*req)", method_call_name)
     } else {
         // Otherwise, pass the original parameters
         let param_args = adapter
@@ -763,7 +761,12 @@ pub(super) fn gen_adapter_wrapper(
         out,
         "// exposing it as a module-level function for test and consumer convenience."
     );
-    let _ = writeln!(out, "func {go_func_name}({}) ({}) {{", param_parts.join(", "), return_type);
+    let _ = writeln!(
+        out,
+        "func {go_func_name}({}) ({}) {{",
+        param_parts.join(", "),
+        return_type
+    );
     if let Some(construction) = request_construction {
         let _ = write!(out, "\t{}", construction);
     }

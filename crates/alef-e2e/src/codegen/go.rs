@@ -2818,10 +2818,7 @@ fn render_assertion(
                 if let Some(ref guard) = nil_guard_expr {
                     let _ = writeln!(out_ref, "\tif {guard} != nil {{");
                     let _ = writeln!(out_ref, "\t\tif {field_expr} >= {go_val} {{");
-                    let _ = writeln!(
-                        out_ref,
-                        "\t\t\tt.Errorf(\"expected < {go_val}, got %v\", {field_expr})"
-                    );
+                    let _ = writeln!(out_ref, "\t\t\tt.Errorf(\"expected < {go_val}, got %v\", {field_expr})");
                     let _ = writeln!(out_ref, "\t\t}}");
                     let _ = writeln!(out_ref, "\t}}");
                 } else if is_optional && !field_expr.starts_with("len(") {
