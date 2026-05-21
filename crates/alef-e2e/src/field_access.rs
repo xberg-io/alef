@@ -742,9 +742,12 @@ impl FieldResolver {
         } else if is_array {
             format!("let {local_var} = {accessor}.as_deref().unwrap_or(&[]);")
         } else {
-            // Use Debug format instead of Display to handle types like FormatMetadata that don't impl to_string().
-            // This allows optional enum types to be converted to strings for comparison.
-            format!("let {local_var} = {accessor}.as_ref().map(|v| format!(\"{{:?}}\", v)).unwrap_or_default();")
+            // Use Display (via `.to_string()`) so types that intentionally implement Display
+            // with a serde-style representation (e.g. `FinishReason` rendering as
+            // `"content_filter"`) match the wire-format strings asserted in fixtures.
+            // Types without Display would need to be excluded from string-equals assertions
+            // or have a Display impl added to the core library.
+            format!("let {local_var} = {accessor}.as_ref().map(|v| v.to_string()).unwrap_or_default();")
         };
         Some((binding, local_var))
     }
@@ -2416,9 +2419,9 @@ mod tests {
         let r = make_resolver();
         let (binding, var) = r.rust_unwrap_binding("title", "result").unwrap();
         assert_eq!(var, "metadata_document_title");
-        // Optional scalar fields are unwrapped via `Debug` format so types that don't
-        // implement `Display` (e.g. enum metadata) still convert to strings for comparison.
-        assert!(binding.contains("as_ref().map(|v| format!(\"{:?}\", v)).unwrap_or_default()"));
+        // Optional scalar fields are unwrapped via Display (`to_string()`) so enum
+        // types like `FinishReason` render their serde-style string form.
+        assert!(binding.contains("as_ref().map(|v| v.to_string()).unwrap_or_default()"));
     }
 
     #[test]

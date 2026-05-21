@@ -434,8 +434,11 @@ fn gen_visitor_method_async(
         .iter()
         .map(|p| {
             let json_expr = build_json_arg(p, bridge_cfg);
+            // Strip leading underscore from param names for visitor arg keys
+            // (e.g., _text becomes text for template variable interpolation)
+            let key = p.name.strip_prefix('_').unwrap_or(&p.name).to_string();
             minijinja::context! {
-                key => p.name.clone(),
+                key => key,
                 expr => json_expr
             }
         })
