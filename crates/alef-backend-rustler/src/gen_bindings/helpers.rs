@@ -1768,6 +1768,15 @@ pub(super) fn collect_types_for_nif_derives(
         }
     }
 
+    // Seed with types from enum variants
+    for enum_def in &api.enums {
+        for variant in &enum_def.variants {
+            for field in &variant.fields {
+                collect_named_types_from_ref(&field.ty, &mut types);
+            }
+        }
+    }
+
     // Transitive closure: walk field types recursively
     let mut changed = true;
     while changed {

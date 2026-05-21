@@ -147,13 +147,14 @@ impl E2eCodegen for CSharpCodegen {
             &std::collections::HashSet::new(),
         );
 
-        // Resolve enum_fields, assert_enum_fields and nested_types from C# override config.
+        // Resolve enum_fields, assert_enum_fields and nested_types from C# override config,
+        // falling back to top-level call config.
         static EMPTY_ENUM_FIELDS: std::sync::LazyLock<HashMap<String, String>> = std::sync::LazyLock::new(HashMap::new);
         static EMPTY_ASSERT_ENUM_FIELDS: std::sync::LazyLock<HashMap<String, String>> =
             std::sync::LazyLock::new(HashMap::new);
         let enum_fields = overrides.map(|o| &o.enum_fields).unwrap_or(&EMPTY_ENUM_FIELDS);
         let assert_enum_fields = overrides
-            .map(|o| &o.assert_enum_fields)
+            .and_then(|o| if o.assert_enum_fields.is_empty() { None } else { Some(&o.assert_enum_fields) })
             .unwrap_or(&EMPTY_ASSERT_ENUM_FIELDS);
 
         // Build effective nested_types from configured overrides (empty by default).
@@ -3111,13 +3112,12 @@ fn csharp_object_initializer(
                 .get(key.as_str())
                 .or_else(|| nested_types.get(camel_key.as_str()))
             {
-                // Nested object: use the binding-emitted FromJson factory if available,
-                // otherwise fall back to JsonSerializer.Deserialize
+                // Nested type: deserialize via JsonSerializer using the binding's custom converters.
+                // This handles sealed records, custom JsonConverters, and sealed unions correctly.
                 let normalized = normalize_csharp_enum_values(val, enum_fields);
                 let json_str = serde_json::to_string(&normalized).unwrap_or_default();
                 let escaped = escape_csharp(&json_str);
-                // Use Type.FromJson(...) when the binding provides it (matches options_via = "from_json" pattern)
-                format!("{nested_type}.FromJson(\"{escaped}\")")
+                format!("JsonSerializer.Deserialize<{nested_type}>(\"{escaped}\", ConfigOptions)!")
             } else if let Some(arr) = val.as_array() {
                 // Array: List<string>
                 let items: Vec<String> = arr.iter().map(json_to_csharp).collect();

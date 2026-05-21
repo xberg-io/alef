@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-backend-rustler: collect types from internally-tagged enum variant fields.** The `collect_types_for_nif_derives` helper walks function/method/struct signatures to collect all types that need NifMap/NifStruct derives, then recursively walks their field types for the transitive closure. However, it did not walk enum variant fields, so types referenced only in enum variants (e.g., `TableGrid` in `NodeContent::Table { grid: TableGrid }`) were never included in `types_to_emit`. This caused 39+ `error[E0425]: cannot find type` errors when generating Elixir bindings with internally-tagged enums containing nested struct references. Fixed by seeding enum variant fields during initial type collection, before the transitive-closure loop. (`crates/alef-backend-rustler/src/gen_bindings/helpers.rs`)
+
 ## [0.17.25] - 2026-05-21
 
 ### Fixed
