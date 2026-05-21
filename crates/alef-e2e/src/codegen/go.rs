@@ -1407,6 +1407,28 @@ fn render_test_function(
                     // Only emit nil guard if the assertion will actually produce code
                     // (not just a skip comment), to avoid empty branches (SA9003).
                     if field_resolver.is_valid_for_result(f) {
+                        // For Go, avoid emitting nil checks on struct value types.
+                        // In Go, struct types that are not wrapped in Option<T> in Rust
+                        // remain value types in the Go binding, so they cannot be nil.
+                        // Skip the guard if the expression is a direct struct field access
+                        // (no array indexing, no map keys, no function calls).
+                        let is_struct_value = !guard.contains('[') && !guard.contains('(') && !guard.contains("map");
+                        if is_struct_value {
+                            // Guard refers to a struct value type — skip the nil check
+                            // and render the assertion directly.
+                            render_assertion(
+                                out,
+                                assertion,
+                                &effective_result_var,
+                                import_alias,
+                                field_resolver,
+                                &optional_locals,
+                                result_is_simple,
+                                result_is_array,
+                                is_streaming,
+                            );
+                            continue;
+                        }
                         let _ = writeln!(out, "\tif {guard} != nil {{");
                         // Render into a temporary buffer so we can re-indent by one
                         // tab level to sit inside the nil-guard block.
