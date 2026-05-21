@@ -48,6 +48,7 @@ pub(super) fn gen_native_methods(
     streaming_methods_meta: &HashMap<String, StreamingMethodMeta>,
     exclude_functions: &HashSet<String>,
     client_constructors: &HashMap<String, ClientConstructorConfig>,
+    adapters: &[alef_core::config::AdapterConfig],
 ) -> String {
     use crate::template_env::render;
     use minijinja::Value;
@@ -364,6 +365,71 @@ pub(super) fn gen_native_methods(
 
             let free_entry = format!("{}_{}_{}_free", prefix, type_snake, method.name.to_lowercase());
             let free_cs = format!("{cs_type}{cs_method}Free");
+            if emitted.insert(free_entry.clone()) {
+                out.push_str(&render(
+                    "dll_import_attr.jinja",
+                    minijinja::context! { entry_point => &free_entry },
+                ));
+                out.push_str(&render(
+                    "streaming_pinvoke_declaration.jinja",
+                    minijinja::context! {
+                        return_type => "void",
+                        cs_name => &free_cs,
+                        params => "IntPtr handle",
+                    },
+                ));
+                out.push('\n');
+            }
+        }
+    }
+
+    // Emit P/Invoke declarations for streaming adapter entry points:
+    //   {prefix}_crawl_engine_handle_{adapter_snake}_start(engine*, req*) -> stream handle (IntPtr)
+    //   {prefix}_crawl_engine_handle_{adapter_snake}_next(handle*)        -> chunk pointer or IntPtr.Zero
+    //   {prefix}_crawl_engine_handle_{adapter_snake}_free(handle*)        -> void
+    for adapter in adapters {
+        if matches!(adapter.pattern, alef_core::config::AdapterPattern::Streaming) {
+            let adapter_snake = adapter.name.to_snake_case();
+            let adapter_cs = csharp_type_name(&adapter.name);
+
+            let start_entry = format!("{}_crawl_engine_handle_{}_start", prefix, adapter_snake);
+            let start_cs = format!("CrawlEngineHandle{}Start", adapter_cs);
+            if emitted.insert(start_entry.clone()) {
+                out.push_str(&render(
+                    "dll_import_attr.jinja",
+                    minijinja::context! { entry_point => &start_entry },
+                ));
+                out.push_str(&render(
+                    "streaming_pinvoke_declaration.jinja",
+                    minijinja::context! {
+                        return_type => "IntPtr",
+                        cs_name => &start_cs,
+                        params => "IntPtr engine, IntPtr req",
+                    },
+                ));
+                out.push('\n');
+            }
+
+            let next_entry = format!("{}_crawl_engine_handle_{}_next", prefix, adapter_snake);
+            let next_cs = format!("CrawlEngineHandle{}Next", adapter_cs);
+            if emitted.insert(next_entry.clone()) {
+                out.push_str(&render(
+                    "dll_import_attr.jinja",
+                    minijinja::context! { entry_point => &next_entry },
+                ));
+                out.push_str(&render(
+                    "streaming_pinvoke_declaration.jinja",
+                    minijinja::context! {
+                        return_type => "IntPtr",
+                        cs_name => &next_cs,
+                        params => "IntPtr handle",
+                    },
+                ));
+                out.push('\n');
+            }
+
+            let free_entry = format!("{}_crawl_engine_handle_{}_free", prefix, adapter_snake);
+            let free_cs = format!("CrawlEngineHandle{}Free", adapter_cs);
             if emitted.insert(free_entry.clone()) {
                 out.push_str(&render(
                     "dll_import_attr.jinja",

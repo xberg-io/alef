@@ -57,12 +57,7 @@ fn sanitize_doc_for_csharp(doc: &str) -> String {
 
 /// Generate a wrapper method for a streaming adapter.
 /// Emits a public async method that returns IAsyncEnumerable<ItemType>.
-fn gen_adapter_wrapper(
-    adapter: &AdapterConfig,
-    _prefix: &str,
-    _exception_name: &str,
-    _api: &ApiSurface,
-) -> String {
+fn gen_adapter_wrapper(adapter: &AdapterConfig, _prefix: &str, _exception_name: &str, _api: &ApiSurface) -> String {
     let adapter_name = &adapter.name;
     let method_name = to_csharp_name(adapter_name);
     let item_type = adapter.item_type.as_deref().unwrap_or("object");
@@ -86,7 +81,7 @@ fn gen_adapter_wrapper(
     let mut setup_lines = Vec::new();
     for param in &adapter.params {
         let param_name = param.name.to_lower_camel_case();
-        let param_type_pascal = to_csharp_name(&param.ty.split("::").last().unwrap_or(&"").to_string());
+        let param_type_pascal = to_csharp_name(param.ty.split("::").last().unwrap_or(""));
         setup_lines.push(format!(
             "        var {param_name}Json = JsonSerializer.Serialize({param_name}, JsonSerializationOptions);"
         ));
@@ -112,7 +107,7 @@ fn gen_adapter_wrapper(
     let mut cleanup_lines = Vec::new();
     for param in &adapter.params {
         let param_name = param.name.to_lower_camel_case();
-        let param_type_pascal = to_csharp_name(&param.ty.split("::").last().unwrap_or(&"").to_string());
+        let param_type_pascal = to_csharp_name(param.ty.split("::").last().unwrap_or(""));
         cleanup_lines.push(format!(
             "            NativeMethods.{param_type_pascal}Free({param_name}Handle);"
         ));
@@ -271,10 +266,14 @@ pub(super) fn gen_wrapper_class(
         }
     }
 
-    // Emit adapter wrapper methods for streaming adapters
+    // Emit adapter wrapper methods for streaming adapters that don't have an owner type.
+    // Adapters with owner_type (e.g. "CrawlEngineHandle") are emitted as instance methods
+    // on the opaque type's class instead.
     for adapter in adapters {
         if matches!(adapter.pattern, alef_core::config::AdapterPattern::Streaming) {
-            out.push_str(&gen_adapter_wrapper(adapter, prefix, exception_name, api));
+            if adapter.owner_type.is_none() {
+                out.push_str(&gen_adapter_wrapper(adapter, prefix, exception_name, api));
+            }
         }
     }
 

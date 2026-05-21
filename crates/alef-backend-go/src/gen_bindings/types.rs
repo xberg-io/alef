@@ -1124,6 +1124,7 @@ pub(super) fn gen_struct_type(
     typ: &TypeDef,
     enum_names: &std::collections::HashSet<&str>,
     data_enum_names: &std::collections::HashSet<&str>,
+    struct_names: &std::collections::HashSet<&str>,
 ) -> String {
     let mut out = String::with_capacity(1024);
 
@@ -1188,9 +1189,9 @@ pub(super) fn gen_struct_type(
         // for both optional and non-optional positions.
         let is_sealed_interface = matches!(&field.ty, TypeRef::Named(n) if data_enum_names.contains(n.as_str()));
 
-        // Check if a Named type is unresolved (not in enum_names or data_enum_names).
+        // Check if a Named type is unresolved (not in enum_names, data_enum_names, or struct_names).
         // For unresolved external types, emit *json.RawMessage instead of a non-existent struct.
-        let is_unresolved_named = matches!(&field.ty, TypeRef::Named(n) if !enum_names.contains(n.as_str()) && !data_enum_names.contains(n.as_str()));
+        let is_unresolved_named = matches!(&field.ty, TypeRef::Named(n) if !enum_names.contains(n.as_str()) && !data_enum_names.contains(n.as_str()) && !struct_names.contains(n.as_str()));
 
         let field_type = if is_unresolved_named {
             // Unresolved external-crate Named types: use *json.RawMessage as fallback
@@ -2004,6 +2005,7 @@ mod tests {
             &typ,
             &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
         );
         assert!(out.contains("type MyConfig struct"));
         assert!(out.contains("json:\"timeout\""));
@@ -2099,6 +2101,7 @@ mod tests {
         };
         let out = gen_struct_type(
             &typ,
+            &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),
         );

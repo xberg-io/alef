@@ -587,6 +587,14 @@ fn gen_go_file(
         .map(|e| e.name.as_str())
         .collect();
 
+    // Collect non-opaque struct type names — these are real struct types that should NOT fall back to *json.RawMessage
+    let struct_names: std::collections::HashSet<&str> = api
+        .types
+        .iter()
+        .filter(|t| !t.is_opaque && !exclude_types.contains(&t.name))
+        .map(|t| t.name.as_str())
+        .collect();
+
     // Generate struct types
     for typ in api
         .types
@@ -610,7 +618,7 @@ fn gen_go_file(
                 out.push_str("\n\n");
             }
         } else {
-            out.push_str(&gen_struct_type(typ, &unit_enum_names, &data_enum_names));
+            out.push_str(&gen_struct_type(typ, &unit_enum_names, &data_enum_names, &struct_names));
             out.push_str("\n\n");
             // Generate functional options pattern only if type has defaults AND at least one
             // non-zero-value default. Types with all-zero-default fields use idiomatic struct

@@ -90,6 +90,7 @@ pub struct PhpGetterMap {
 ///   any owner. Used by swift_count_target to keep `.count` straight on
 ///   RustVec-typed method-call accessors (don't inject `.toString()`).
 /// * `root_type` — the IR type name backing the result variable.
+///
 /// Kind of a "stringy" field on an opaque DTO element type — used by the swift
 /// e2e `contains` assertion to aggregate every readable text accessor on a
 /// `Vec<T>` element instead of relying on a single primary accessor (which

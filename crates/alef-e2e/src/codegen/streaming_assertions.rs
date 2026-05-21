@@ -802,9 +802,7 @@ fn has_event_variant_accessor(
         )),
         // C#: abstract record CrawlEvent with nested sealed records.
         // The qualifier is the project's C# namespace (e.g. `Kreuzcrawl`).
-        "csharp" => module_qualifier.map(|ns| {
-            format!("{chunks_var}.Any(e => e is global::{ns}.CrawlEvent.{camel})")
-        }),
+        "csharp" => module_qualifier.map(|ns| format!("{chunks_var}.Any(e => e is global::{ns}.CrawlEvent.{camel})")),
         // Swift: enum CrawlEvent with associated values.  `if case .<tag> = e`
         // is a statement, not an expression — wrap in a `contains(where:)` call
         // with a switch-returning-bool closure.

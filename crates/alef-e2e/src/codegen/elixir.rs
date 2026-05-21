@@ -1279,10 +1279,7 @@ fn build_args_and_setup(
             }
             if let Some(req_type) = adapter_request_type {
                 let req_var = format!("{}_req", arg.name);
-                setup_lines.push(format!(
-                    "{req_var} = %{module_path}.{req_type}{{url: {}}}",
-                    arg.name,
-                ));
+                setup_lines.push(format!("{req_var} = %{module_path}.{req_type}{{url: {}}}", arg.name,));
                 parts.push(req_var);
             } else {
                 parts.push(arg.name.clone());

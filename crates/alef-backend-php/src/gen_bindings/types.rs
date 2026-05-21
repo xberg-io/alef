@@ -53,6 +53,7 @@ fn is_php_copy_type(ty: &TypeRef) -> bool {
 }
 
 /// Generate ext-php-rs methods for an opaque struct, excluding streaming methods.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn gen_opaque_struct_methods_with_exclude(
     typ: &TypeDef,
     mapper: &PhpMapper,

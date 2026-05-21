@@ -216,6 +216,7 @@ impl Backend for CsharpBackend {
                 &streaming_methods_meta,
                 &exclude_functions,
                 &config.client_constructors,
+                &config.adapters,
             )),
             generated_header: true,
         });

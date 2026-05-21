@@ -409,6 +409,7 @@ fn render_embedding_dimensions(out: &mut String, assertion: &Assertion, result_v
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_standard_assertion(
     out: &mut String,
     assertion: &Assertion,
