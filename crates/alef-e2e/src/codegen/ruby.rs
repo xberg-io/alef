@@ -1437,9 +1437,11 @@ fn build_args_and_setup(
                         if v.is_array() {
                             if elem_type == "BatchBytesItem" || elem_type == "BatchFileItem" {
                                 parts.push(emit_ruby_batch_item_array(v, elem_type, module_name));
-                            } else {
-                                // Tagged-enum array (e.g., [PageAction {...}, ...]): emit as array of hashes
-                                if let Some(arr) = v.as_array() {
+                                continue;
+                            } else if let Some(arr) = v.as_array() {
+                                // Only emit as tagged-enum array if all elements are objects.
+                                // Otherwise fall through to json_to_ruby for primitive arrays (e.g., String, Int).
+                                if !arr.is_empty() && arr.iter().all(|item| item.is_object()) {
                                     let items: Vec<String> = arr
                                         .iter()
                                         .filter_map(|item| {
@@ -1448,11 +1450,10 @@ fn build_args_and_setup(
                                         })
                                         .collect();
                                     parts.push(format!("[{}]", items.join(", ")));
-                                } else {
-                                    parts.push("[]".to_string());
+                                    continue;
                                 }
                             }
-                            continue;
+                            // Fall through if array is empty or contains non-objects (primitives)
                         }
                     }
                     // Otherwise handle regular options_type objects
