@@ -1165,10 +1165,9 @@ fn build_args_and_setup(
             continue;
         }
 
-        // json_object "config" args: the swift-bridge wrapper requires an opaque
-        // config instance (e.g., `ExtractionConfig`, `ProcessConfig`), not a JSON string.
-        // Derive the from-json helper name from options_type if available, else default
-        // to kreuzberg's `extractionConfigFromJson` for backward compatibility.
+        // json_object "config" args: behavior depends on whether this is an e2e wrapper or regular binding.
+        // E2e wrappers (all args in unnamed_arg_indices) take JSON strings and deserialize internally.
+        // Regular bindings (config arg not unnamed) expect deserialized objects (via options_via or default helper).
         // Batch functions (batchExtract*) hardcode config internally — skip it.
         let is_config_arg = arg.name == "config" && arg.arg_type == "json_object";
         let is_batch_fn = function_name.starts_with("batch") || function_name.starts_with("Batch");
@@ -1180,15 +1179,27 @@ fn build_args_and_setup(
                 Some(v) => serde_json::to_string(v).unwrap_or_else(|_| "{}".to_string()),
             };
             let escaped = escape_swift(&json_str);
-            let var_name = format!("{}Obj", arg.name.to_lower_camel_case());
-            // Derive the from-json helper name from options_type, or default to extractionConfigFromJson
-            let from_json_fn = if let Some(type_name) = options_type {
-                format!("{}FromJson", type_name.to_lower_camel_case())
+
+            // Detect if config arg is unnamed (index `idx` in unnamed_arg_indices).
+            // E2e wrappers keep config unnamed and receive JSON strings.
+            let config_is_unnamed = unnamed_arg_indices.contains(&idx);
+
+            if config_is_unnamed {
+                // E2e wrapper: pass JSON string directly (positional, no label).
+                parts.push((idx, format!("\"{}\"", escaped)));
             } else {
-                "extractionConfigFromJson".to_string()
-            };
-            setup_lines.push(format!("let {var_name} = try {from_json_fn}(\"{escaped}\")"));
-            parts.push((idx, var_name));
+                // Regular binding: deserialize to an opaque object.
+                let var_name = format!("{}Obj", arg.name.to_lower_camel_case());
+                // Derive the from-json helper name from options_type (set on the call config),
+                // or default to extractionConfigFromJson for backward compatibility.
+                let from_json_fn = if let Some(type_name) = options_type {
+                    format!("{}FromJson", type_name.to_lower_camel_case())
+                } else {
+                    "extractionConfigFromJson".to_string()
+                };
+                setup_lines.push(format!("let {var_name} = try {from_json_fn}(\"{escaped}\")"));
+                parts.push((idx, var_name));
+            }
             continue;
         }
 
