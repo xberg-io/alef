@@ -208,12 +208,18 @@ fn render_json_object_arg(
     }
 
     // Rust core uses snake_case serde — transform fixture keys to snake_case before
-    // building the json! literal so deserialization succeeds.
+    // serializing so deserialization through the typed `from_str` succeeds.
     let normalized = super::super::transform_json_keys_for_language(value, "snake_case");
-    // Build the json! macro invocation from the fixture object.
-    let json_literal = json_value_to_macro_literal(&normalized);
+    // Embed the fixture object as a raw JSON string literal and parse it at runtime.
+    // Using `serde_json::from_str` (over the previous `serde_json::json!` macro) avoids
+    // the macro's recursion limit, which is reached when a fixture's `json_object` arg
+    // contains more than ~100 array elements (e.g. `interact_max_actions_exceeded`).
+    let json_text = serde_json::to_string(&normalized).unwrap_or_else(|_| "null".to_string());
+    let json_literal = rust_raw_string(&json_text);
     let mut lines = Vec::new();
-    lines.push(format!("let {name}_json = serde_json::json!({json_literal});"));
+    lines.push(format!(
+        "let {name}_json: serde_json::Value = serde_json::from_str({json_literal}).unwrap();"
+    ));
 
     // When an explicit element type is given, annotate with Vec<T> so that
     // serde_json::from_value can infer the element type for &[T] parameters (A4 fix).
@@ -234,32 +240,6 @@ fn render_json_object_arg(
     (lines, expr)
 }
 
-/// Convert a `serde_json::Value` into a string suitable for the `serde_json::json!()` macro.
-pub fn json_value_to_macro_literal(value: &serde_json::Value) -> String {
-    match value {
-        serde_json::Value::Null => "null".to_string(),
-        serde_json::Value::Bool(b) => format!("{b}"),
-        serde_json::Value::Number(n) => n.to_string(),
-        serde_json::Value::String(s) => {
-            let escaped = s.replace('\\', "\\\\").replace('"', "\\\"");
-            format!("\"{escaped}\"")
-        }
-        serde_json::Value::Array(arr) => {
-            let items: Vec<String> = arr.iter().map(json_value_to_macro_literal).collect();
-            format!("[{}]", items.join(", "))
-        }
-        serde_json::Value::Object(obj) => {
-            let entries: Vec<String> = obj
-                .iter()
-                .map(|(k, v)| {
-                    let escaped_key = k.replace('\\', "\\\\").replace('"', "\\\"");
-                    format!("\"{escaped_key}\": {}", json_value_to_macro_literal(v))
-                })
-                .collect();
-            format!("{{{}}}", entries.join(", "))
-        }
-    }
-}
 
 pub fn json_to_rust_literal(value: &serde_json::Value, arg_type: &str) -> String {
     match value {
@@ -448,19 +428,6 @@ pub fn emit_rust_visitor_method(out: &mut String, method_name: &str, action: &cr
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn json_value_to_macro_literal_null() {
-        let v = serde_json::Value::Null;
-        assert_eq!(json_value_to_macro_literal(&v), "null");
-    }
-
-    #[test]
-    fn json_value_to_macro_literal_string_escapes_quotes() {
-        let v = serde_json::Value::String("hello \"world\"".to_string());
-        let out = json_value_to_macro_literal(&v);
-        assert!(out.contains("\\\""));
-    }
 
     #[test]
     fn json_to_rust_literal_null_returns_none() {
