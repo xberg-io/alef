@@ -268,7 +268,7 @@ fn render_build_zig_zon(pkg_name: &str, pkg_path: &str, dep_mode: crate::config:
 
 fn render_build_zig(
     test_filenames: &[String],
-    pkg_name: &str,
+    _pkg_name: &str,
     module_name: &str,
     ffi_lib_name: &str,
     ffi_crate_path: &str,
