@@ -314,6 +314,21 @@ pub(super) fn gen_function(
                         ));
                     }
                 }
+            } else if let TypeRef::Vec(inner) = &p.ty {
+                if let TypeRef::Named(name) = inner.as_ref() {
+                    if !opaque_types.contains(name.as_str()) {
+                        let core_inner_ty = format!("{core_import}::{name}");
+                        let vec_ty = format!("Vec<{core_inner_ty}>");
+                        deser_lines.push(crate::template_env::render(
+                            "function_named_vec_binding.rs.jinja",
+                            minijinja::context! {
+                                name => &p.name,
+                                vec_ty => &vec_ty,
+                                optional => p.optional,
+                            },
+                        ));
+                    }
+                }
             }
         }
     }
@@ -333,8 +348,17 @@ pub(super) fn gen_function(
         format!("{}\n    ", deser_lines.join("\n    "))
     };
 
+    // If any param is a Vec<Named> needing the `_core` rebinding (emitted via
+    // `function_named_vec_binding.rs.jinja`), the call must reference `{name}_core`
+    // rather than the raw wrapper Vec — switch to the let-binding-aware call_args
+    // generator even when the function is not serde-recoverable.
+    let needs_vec_named_let_binding = func.params.iter().any(|p| match &p.ty {
+        TypeRef::Vec(inner) => matches!(inner.as_ref(), TypeRef::Named(name) if !opaque_types.contains(name.as_str())),
+        _ => false,
+    });
+
     let body = if can_delegate || serde_recoverable {
-        let call_args = if serde_recoverable {
+        let call_args = if serde_recoverable || needs_vec_named_let_binding {
             generators::gen_call_args_with_let_bindings(&func.params, opaque_types)
         } else {
             generators::gen_call_args(&func.params, opaque_types)
@@ -699,6 +723,21 @@ pub(super) fn gen_async_function(
                                 binding_name => binding_ty,
                                 core_import => core_import,
                                 type_name => name,
+                            },
+                        ));
+                    }
+                }
+            } else if let TypeRef::Vec(inner) = &p.ty {
+                if let TypeRef::Named(name) = inner.as_ref() {
+                    if !opaque_types.contains(name.as_str()) {
+                        let core_inner_ty = format!("{core_import}::{name}");
+                        let vec_ty = format!("Vec<{core_inner_ty}>");
+                        deser_lines.push(crate::template_env::render(
+                            "function_named_vec_binding.rs.jinja",
+                            minijinja::context! {
+                                name => &p.name,
+                                vec_ty => &vec_ty,
+                                optional => p.optional,
                             },
                         ));
                     }

@@ -317,7 +317,10 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     let repository_git_url = if repository_url.starts_with("git+") {
         repository_url.clone()
     } else {
-        format!("git+{}.git", repository_url.trim_end_matches('/').trim_end_matches(".git"))
+        format!(
+            "git+{}.git",
+            repository_url.trim_end_matches('/').trim_end_matches(".git")
+        )
     };
 
     // Crate-level package.json required by `napi build`

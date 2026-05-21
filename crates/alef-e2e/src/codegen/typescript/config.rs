@@ -192,7 +192,10 @@ mod tests {
         let out = render_package_json("my-pkg", "", "1.0.0", DependencyMode::Local, false, Some(&extras));
         // Top-level "dependencies" block should now exist and contain lodash.
         let v: serde_json::Value = serde_json::from_str(&out).expect("valid JSON");
-        let lodash = v.get("dependencies").and_then(|d| d.get("lodash")).and_then(|s| s.as_str());
+        let lodash = v
+            .get("dependencies")
+            .and_then(|d| d.get("lodash"))
+            .and_then(|s| s.as_str());
         assert_eq!(lodash, Some("^4.0.0"));
     }
 
@@ -206,8 +209,14 @@ mod tests {
             alef_core::config::manifest_extras::ExtraDepSpec::Simple("^2.0.0".to_string()),
         );
         let out = render_package_json("my-pkg", "", "1.0.0", DependencyMode::Local, false, Some(&extras));
-        assert!(out.contains("\"vitest\": \"^2.0.0\""), "vitest pin not overridden. Got:\n{out}");
-        assert!(!out.contains("\"vitest\": \"^3.0.0\""), "default vitest leaked. Got:\n{out}");
+        assert!(
+            out.contains("\"vitest\": \"^2.0.0\""),
+            "vitest pin not overridden. Got:\n{out}"
+        );
+        assert!(
+            !out.contains("\"vitest\": \"^3.0.0\""),
+            "default vitest leaked. Got:\n{out}"
+        );
     }
 
     #[test]

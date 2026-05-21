@@ -45,9 +45,7 @@ pub fn render_rust_arg(
         // `MOCK_SERVER_URL/fixtures/<id>`.
         let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
         let paths: Vec<String> = if let Some(arr) = value.as_array() {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(rust_raw_string))
-                .collect()
+            arr.iter().filter_map(|v| v.as_str().map(rust_raw_string)).collect()
         } else {
             Vec::new()
         };

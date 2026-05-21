@@ -223,12 +223,14 @@ impl StreamingFieldResolver {
                     // the collect snippet. `.items` gives a `[]u8` slice of the content.
                     format!("{chunks_var}_content.items")
                 }
-                // Swift: chunks is [ChatCompletionChunk] (swift-bridge class objects).
-                // choices() → RustVec<StreamChoice> (Collection, so .first is available).
-                // delta() → StreamDelta (non-optional). content() → RustString? → .toString().
+                // Swift: chunks is [<Module>.ChatCompletionChunk] (first-class
+                // Codable struct emitted by alef-backend-swift). choices is
+                // `[StreamChoice]` (property), delta is `StreamDelta` (property),
+                // content is `String?` (property). No `.toString()` wrapping —
+                // first-class fields are already native Swift values.
                 "swift" => {
                     format!(
-                        "{chunks_var}.map {{ c in c.choices().first.flatMap {{ ch in ch.delta().content()?.toString() }} ?? \"\" }}.joined()"
+                        "{chunks_var}.map {{ c in c.choices.first.flatMap {{ ch in ch.delta.content }} ?? \"\" }}.joined()"
                     )
                 }
                 // node/wasm/typescript
@@ -282,11 +284,11 @@ impl StreamingFieldResolver {
                 "zig" => {
                     format!("{chunks_var}.items.len > 0")
                 }
-                // Swift: chunks is [ChatCompletionChunk] (swift-bridge class objects).
-                // choices() → RustVec<StreamChoice> (Collection), .first is Optional.
-                // finish_reason() → RustString? (non-nil when the stream completed).
+                // Swift: chunks is [<Module>.ChatCompletionChunk] first-class
+                // struct. `choices` is `[StreamChoice]` (property), `finishReason`
+                // is `FinishReason?` (property, camelCase).
                 "swift" => {
-                    format!("!{chunks_var}.isEmpty && {chunks_var}.last!.choices().first?.finish_reason() != nil")
+                    format!("!{chunks_var}.isEmpty && {chunks_var}.last!.choices.first?.finishReason != nil")
                 }
                 // node/wasm/typescript
                 _ => {
@@ -377,15 +379,12 @@ impl StreamingFieldResolver {
                 "zig" => {
                     format!("{chunks_var}.items")
                 }
-                // Swift: chunks is [ChatCompletionChunk] (swift-bridge class objects).
-                // choices() → RustVec<StreamChoice> (Collection). delta() → StreamDelta.
-                // tool_calls() → RustVec<StreamToolCall>?
-                // Use an explicit return type annotation on the outer closure so Swift's
-                // type checker doesn't pick the Optional overload of flatMap.  Guard-let
-                // unwrapping avoids ambiguous ?? operator precedence.
+                // Swift: chunks is [<Module>.ChatCompletionChunk] first-class
+                // Codable struct. choices is `[StreamChoice]`, delta is
+                // `StreamDelta`, toolCalls is `[StreamToolCall]?`.
                 "swift" => {
                     format!(
-                        "{chunks_var}.flatMap {{ c -> [StreamToolCallRef] in guard let ch = c.choices().first, let tcs = ch.delta().tool_calls() else {{ return [] }}; return Array(tcs) }}"
+                        "{chunks_var}.flatMap {{ c -> [StreamToolCall] in guard let ch = c.choices.first, let tcs = ch.delta.toolCalls else {{ return [] }}; return tcs }}"
                     )
                 }
                 _ => {
@@ -452,13 +451,12 @@ impl StreamingFieldResolver {
                         "(blk: {{ if ({chunks_var}.items.len == 0) break :blk \"\"; var _lcp = std.json.parseFromSlice(std.json.Value, std.heap.c_allocator, {chunks_var}.items[{chunks_var}.items.len - 1], .{{}}) catch break :blk \"\"; defer _lcp.deinit(); if (_lcp.value.object.get(\"choices\")) |_lchs| if (_lchs.array.items.len > 0) if (_lchs.array.items[0].object.get(\"finish_reason\")) |_fr| if (_fr == .string) break :blk _fr.string; break :blk \"\"; }})"
                     )
                 }
-                // Swift: FinishReason is a swift-bridge opaque class with .to_string() → RustString.
-                // finish_reason() on StreamChoiceRef returns RustString? (the raw wire string).
-                // Return nil when chunks is empty or the last choice has no finish_reason.
+                // Swift: first-class `StreamChoice.finishReason: FinishReason?`
+                // where FinishReason is a Codable Swift enum with `String` raw
+                // values matching serde wire strings. `.rawValue` yields e.g.
+                // "tool_calls" for cross-language fixture parity.
                 "swift" => {
-                    format!(
-                        "({chunks_var}.isEmpty ? nil : {chunks_var}.last!.choices().first?.finish_reason()?.toString())"
-                    )
+                    format!("({chunks_var}.isEmpty ? nil : {chunks_var}.last!.choices.first?.finishReason?.rawValue)")
                 }
                 _ => {
                     format!(
@@ -502,9 +500,10 @@ impl StreamingFieldResolver {
                 "elixir" => {
                     format!("(if length({chunks_var}) > 0, do: List.last({chunks_var}).usage, else: nil)")
                 }
-                // Swift: usage() on ChatCompletionChunkRef returns Usage? (swift-bridge class).
+                // Swift: first-class `ChatCompletionChunk.usage: Usage?`
+                // (Codable struct property — no method call).
                 "swift" => {
-                    format!("({chunks_var}.isEmpty ? nil : {chunks_var}.last!.usage())")
+                    format!("({chunks_var}.isEmpty ? nil : {chunks_var}.last!.usage)")
                 }
                 _ => {
                     format!("({chunks_var}.length > 0 ? {chunks_var}[{chunks_var}.length - 1].usage : undefined)")
@@ -830,29 +829,28 @@ fn render_swift_tool_calls_deep(root_expr: &str, tail: &str) -> String {
     use heck::ToLowerCamelCase;
     let segs = parse_tail(tail);
     let mut expr = root_expr.to_string();
-    let last_field_idx = segs.iter().rposition(|s| matches!(s, TailSeg::Field(_)));
-    // Track whether the previous segment was an index (non-optional element),
-    // which means the next field uses `.method()` not `?.method()`.
-    let mut prev_was_index = false;
-
-    for (i, seg) in segs.iter().enumerate() {
+    // First-class `StreamToolCall` struct: every field is a Codable Swift
+    // property (no parens). Index access on `[StreamToolCall]` returns the
+    // element directly (non-optional). Subsequent `Optional` properties chain
+    // with `?.`. Track whether the prior segment yielded a non-optional value:
+    // - after `Index`, the element is non-optional → next field uses `.`
+    // - after the first optional property access (`?.`), every subsequent
+    //   field also uses `?.` (chained optional)
+    let mut prev_is_optional = false;
+    for seg in &segs {
         match seg {
             TailSeg::Index(n) => {
                 expr = format!("({expr})[{n}]");
-                prev_was_index = true;
+                prev_is_optional = false;
             }
             TailSeg::Field(f) => {
-                let method = f.to_lower_camel_case();
-                let is_last = Some(i) == last_field_idx;
-                let chain = if prev_was_index { "." } else { "?." };
-                if is_last {
-                    // Leaf: string field — call + optional-chain .toString()
-                    expr = format!("{expr}{chain}{method}()?.toString()");
-                } else {
-                    // Intermediate object field
-                    expr = format!("{expr}{chain}{method}()");
-                }
-                prev_was_index = false;
+                let prop = f.to_lower_camel_case();
+                let sep = if prev_is_optional { "?." } else { "." };
+                expr = format!("{expr}{sep}{prop}");
+                // All `StreamToolCall` fields (function/id/arguments) are
+                // `Optional<...>` in the first-class binding, so chaining
+                // henceforth uses `?.`.
+                prev_is_optional = true;
             }
         }
     }
@@ -1524,22 +1522,23 @@ mod tests {
             !expr.contains("=>"),
             "swift stream_content must not contain JS arrow `=>`, got: {expr}"
         );
-        // Content is accessed via method call chains
+        // Fields are accessed as first-class Codable struct properties (no parens).
         assert!(
-            expr.contains("choices()"),
-            "swift stream_content must use .choices() method call, got: {expr}"
+            expr.contains("c.choices"),
+            "swift stream_content must use property access for choices, got: {expr}"
         );
         assert!(
-            expr.contains("delta()"),
-            "swift stream_content must use .delta() method call, got: {expr}"
+            expr.contains("ch.delta"),
+            "swift stream_content must use property access for delta, got: {expr}"
         );
         assert!(
-            expr.contains("content()"),
-            "swift stream_content must use .content() method call, got: {expr}"
+            expr.contains("ch.delta.content"),
+            "swift stream_content must use property access for content, got: {expr}"
         );
+        // First-class Codable struct fields are native Swift strings — no .toString() wrap.
         assert!(
-            expr.contains(".toString()"),
-            "swift stream_content must convert RustString via .toString(), got: {expr}"
+            !expr.contains(".toString()"),
+            "swift stream_content must NOT wrap first-class String fields with .toString(), got: {expr}"
         );
         assert!(
             expr.contains(".joined()"),
@@ -1568,13 +1567,14 @@ mod tests {
             expr.contains(".last!"),
             "swift stream_complete must use .last!, got: {expr}"
         );
+        // Property access for first-class fields (no parens, camelCase).
         assert!(
-            expr.contains("choices()"),
-            "swift stream_complete must use .choices() method call, got: {expr}"
+            expr.contains(".choices.first"),
+            "swift stream_complete must use property access on choices, got: {expr}"
         );
         assert!(
-            expr.contains("finish_reason()"),
-            "swift stream_complete must use .finish_reason(), got: {expr}"
+            expr.contains("finishReason"),
+            "swift stream_complete must reference lowerCamelCase finishReason, got: {expr}"
         );
         assert!(
             !expr.contains(".length"),
@@ -1598,37 +1598,36 @@ mod tests {
             expr.contains("flatMap"),
             "swift tool_calls must use flatMap, got: {expr}"
         );
+        // First-class struct property access (no parens, lowerCamelCase).
         assert!(
-            expr.contains("choices()"),
-            "swift tool_calls must use .choices() method call, got: {expr}"
+            expr.contains("c.choices.first"),
+            "swift tool_calls must use property access on choices, got: {expr}"
         );
         assert!(
-            expr.contains("delta()"),
-            "swift tool_calls must use .delta() method call, got: {expr}"
-        );
-        assert!(
-            expr.contains("tool_calls()"),
-            "swift tool_calls must use .tool_calls() method call, got: {expr}"
+            expr.contains("ch.delta.toolCalls"),
+            "swift tool_calls must use lowerCamelCase toolCalls property, got: {expr}"
         );
     }
 
     #[test]
     fn accessor_tool_calls_deep_path_swift_uses_method_calls_with_optional_chain() {
-        // `tool_calls[0].function.name` must resolve to Swift method calls with
-        // optional chaining because swift-bridge opaque refs expose fields as
-        // methods that return Optional.
+        // `tool_calls[0].function.name`: StreamToolCall is a first-class Codable
+        // struct, so deep fields use lowerCamelCase property access. The first
+        // field segment after `[N]` is non-optional (array index yields a value),
+        // so `.function` uses plain `.`; subsequent segments chain with `?.`
+        // because `function` itself is `Optional<StreamFunctionCall>`.
         let expr = StreamingFieldResolver::accessor("tool_calls[0].function.name", "swift", "chunks").unwrap();
         assert!(
-            expr.contains("function()"),
-            "swift deep tool_calls must use .function() method call, got: {expr}"
+            expr.contains("[0].function"),
+            "swift deep tool_calls must use plain `.function` directly after array index (non-optional), got: {expr}"
         );
         assert!(
-            expr.contains("name()"),
-            "swift deep tool_calls must use .name() method call, got: {expr}"
+            expr.contains("?.name"),
+            "swift deep tool_calls must use ?.name property access, got: {expr}"
         );
         assert!(
-            expr.contains(".toString()"),
-            "swift deep tool_calls must convert RustString via .toString(), got: {expr}"
+            !expr.contains(".toString()"),
+            "swift deep tool_calls must NOT wrap first-class String fields with .toString(), got: {expr}"
         );
         assert!(
             !expr.contains("=>"),
@@ -1649,12 +1648,13 @@ mod tests {
             "swift finish_reason must use .last!, got: {expr}"
         );
         assert!(
-            expr.contains("finish_reason()"),
-            "swift finish_reason must use .finish_reason() method call, got: {expr}"
+            expr.contains("finishReason"),
+            "swift finish_reason must use lowerCamelCase finishReason property, got: {expr}"
         );
+        // First-class Swift enum: use .rawValue for the serde wire string, not .toString().
         assert!(
-            expr.contains(".toString()"),
-            "swift finish_reason must convert RustString via .toString(), got: {expr}"
+            expr.contains(".rawValue"),
+            "swift finish_reason must read enum .rawValue, got: {expr}"
         );
         assert!(
             !expr.contains("undefined"),
@@ -1672,9 +1672,14 @@ mod tests {
         // Must use Swift isEmpty / last! syntax, not JS .length / undefined
         assert!(expr.contains("isEmpty"), "swift usage must use .isEmpty, got: {expr}");
         assert!(expr.contains(".last!"), "swift usage must use .last!, got: {expr}");
+        // First-class Codable property access (no parens).
         assert!(
-            expr.contains("usage()"),
-            "swift usage must use .usage() method call, got: {expr}"
+            expr.contains(".usage"),
+            "swift usage must reference .usage property, got: {expr}"
+        );
+        assert!(
+            !expr.contains("usage()"),
+            "swift usage must NOT use method-call syntax, got: {expr}"
         );
         assert!(
             !expr.contains("undefined"),

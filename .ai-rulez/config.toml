@@ -3,7 +3,7 @@
 
 version = '4.0'
 name = 'Alef'
-description = 'Polyglot binding generator that produces type-safe language bindings for Rust libraries (Python/TypeScript/Ruby/Java/Go/Elixir/C#/PHP/R/WASM)'
+description = 'Polyglot binding generator that produces type-safe language bindings for Rust libraries with generator backends for C#, Dart, R/extendr, C FFI, Gleam, Go, Java, JNI, Kotlin, Kotlin Android, Ruby/Magnus, Node/NAPI, PHP, Python/PyO3, Elixir/Rustler, Swift, WASM, and Zig'
 gitignore = true
 presets = ['claude', 'codex', 'copilot', 'cursor', 'antigravity']
 builtins = ['rust', 'default-commands']
@@ -12,6 +12,18 @@ builtins = ['rust', 'default-commands']
 name = 'kreuzberg-core'
 source = 'https://github.com/kreuzberg-dev/ai-rulez.git'
 path = 'modules/core'
+merge_strategy = 'local-override'
+
+[[includes]]
+name = 'kreuzberg-languages'
+source = 'https://github.com/kreuzberg-dev/ai-rulez.git'
+path = 'modules/languages'
+merge_strategy = 'local-override'
+
+[[includes]]
+name = 'kreuzberg-cicd'
+source = 'https://github.com/kreuzberg-dev/ai-rulez.git'
+path = 'modules/cicd'
 merge_strategy = 'local-override'
 
 [[skills]]

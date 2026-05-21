@@ -457,6 +457,7 @@ dependencies = [
  "anyhow",
  "heck",
  "minijinja",
+ "serde_json",
  "toml",
 ]
 

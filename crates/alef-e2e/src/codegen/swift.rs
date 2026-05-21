@@ -384,6 +384,7 @@ fn render_test_file(
                 result_is_simple,
                 client_factory,
                 swift_first_class_map,
+                module_name,
             );
         }
         let _ = writeln!(out);
@@ -627,6 +628,7 @@ fn render_test_method(
     result_is_simple: bool,
     global_client_factory: Option<&str>,
     swift_first_class_map: &SwiftFirstClassMap,
+    module_name: &str,
 ) {
     // Resolve per-fixture call config.
     let call_config = e2e_config.resolve_call_for_fixture(
@@ -713,6 +715,17 @@ fn render_test_method(
         return;
     }
     let collect_snippet = collect_snippet_opt.unwrap_or_default();
+    // The shared streaming snippet references the unqualified `ChatCompletionChunk`
+    // type, but Swift consumers import both `<Module>` (the alef-emitted first-class
+    // `public struct ChatCompletionChunk`) AND `RustBridge` (the swift-bridge
+    // generated `public class ChatCompletionChunk`). Without module qualification
+    // Swift fails the test target with "'ChatCompletionChunk' is ambiguous for
+    // type lookup". Qualify to the first-class type so `chunks` is `[<Module>.ChatCompletionChunk]`.
+    let collect_snippet = if collect_snippet.is_empty() {
+        collect_snippet
+    } else {
+        collect_snippet.replace("[ChatCompletionChunk]", &format!("[{module_name}.ChatCompletionChunk]"))
+    };
 
     // Detect whether this call has any json_object args that cannot be constructed
     // in Swift — swift-bridge opaque types do not provide a fromJson initialiser.
@@ -939,8 +952,9 @@ fn render_test_method(
     let fixture_resolver = field_resolver.with_swift_root_type(fixture_root_type);
 
     for assertion in &fixture.assertions {
+        let mut assertion_out = String::new();
         render_assertion(
-            out,
+            &mut assertion_out,
             assertion,
             result_var,
             &fixture_resolver,
@@ -950,6 +964,18 @@ fn render_test_method(
             &effective_enum_fields,
             is_streaming,
         );
+        // Module-qualify swift-bridge-ambiguous DTO type names that appear in
+        // streaming-virtual assertion expressions (e.g. `[StreamToolCall]`,
+        // `[ToolCall]`). Both `<Module>` (first-class Codable struct) and
+        // `RustBridge` (swift-bridge opaque class) export the same identifier,
+        // so unqualified usage fails Swift compilation with "X is ambiguous for
+        // type lookup". Mirrors the `[ChatCompletionChunk]` replacement in
+        // `render_test_method`.
+        for unqualified in ["StreamToolCall", "ToolCall"] {
+            assertion_out =
+                assertion_out.replace(&format!("[{unqualified}]"), &format!("[{module_name}.{unqualified}]"));
+        }
+        out.push_str(&assertion_out);
     }
 
     let _ = writeln!(out, "    }}");
@@ -1412,16 +1438,15 @@ fn render_assertion(
         // `String` (or `String?`/enum type) — never a `RustString` requiring
         // `.toString()`. For optional leaves, coalesce to "" so XCTAssert
         // receives a non-optional Swift `String`.
-        if field_is_optional || accessor_is_optional {
-            if field_is_enum {
-                // Optional enum (e.g. `FinishReason?`) — coalesce + map to raw value.
-                format!("(({field_expr}).map {{ String(describing: $0) }} ?? \"\")")
-            } else {
-                format!("({field_expr} ?? \"\")")
-            }
+        if field_is_enum && (field_is_optional || accessor_is_optional) {
+            // Optional first-class Codable enum (e.g. `FinishReason?` where
+            // `FinishReason: String, Codable`). `.rawValue` gives the serde
+            // wire value (e.g. "tool_calls") so assertions match fixture JSON.
+            format!("(({field_expr})?.rawValue ?? \"\")")
         } else if field_is_enum {
-            // Non-optional enum: use String(describing:) for the raw description.
-            format!("String(describing: {field_expr})")
+            format!("{field_expr}.rawValue")
+        } else if field_is_optional || accessor_is_optional {
+            format!("({field_expr} ?? \"\")")
         } else {
             field_expr.to_string()
         }
