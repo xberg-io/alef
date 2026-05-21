@@ -200,6 +200,14 @@ impl E2eCodegen for CCodegen {
             })
             .collect();
 
+        // Collect active visitor fixtures (flattened across all groups).
+        let visitor_fixtures: Vec<&Fixture> = groups
+            .iter()
+            .flat_map(|group| group.fixtures.iter())
+            .filter(|f| super::should_include_fixture(f, lang, e2e_config))
+            .filter(|f| f.visitor.is_some())
+            .collect();
+
         // Resolve FFI crate path for local repo builds.
         // Default to `../../crates/{name}-ffi` derived from the crate name so that
         // projects like `liter-llm` resolve to `../../crates/liter-llm-ffi/include/`
@@ -214,10 +222,13 @@ impl E2eCodegen for CCodegen {
             .unwrap_or_else(|| config.ffi_crate_path());
 
         // Generate Makefile.
-        let category_names: Vec<String> = active_groups
+        let mut category_names: Vec<String> = active_groups
             .iter()
             .map(|(g, _)| sanitize_filename(&g.category))
             .collect();
+        if !visitor_fixtures.is_empty() {
+            category_names.push("visitor".to_string());
+        }
         let needs_mock_server = active_groups
             .iter()
             .flat_map(|(_, fixtures)| fixtures.iter())
@@ -247,14 +258,14 @@ impl E2eCodegen for CCodegen {
         // Generate test_runner.h.
         files.push(GeneratedFile {
             path: output_base.join("test_runner.h"),
-            content: render_test_runner_header(&active_groups),
+            content: render_test_runner_header(&active_groups, &visitor_fixtures),
             generated_header: true,
         });
 
         // Generate main.c.
         files.push(GeneratedFile {
             path: output_base.join("main.c"),
-            content: render_main_c(&active_groups),
+            content: render_main_c(&active_groups, &visitor_fixtures),
             generated_header: true,
         });
 
@@ -284,6 +295,15 @@ impl E2eCodegen for CCodegen {
             files.push(GeneratedFile {
                 path: output_base.join(filename),
                 content,
+                generated_header: true,
+            });
+        }
+
+        // Generate test_visitor.c if there are visitor fixtures.
+        if !visitor_fixtures.is_empty() {
+            files.push(GeneratedFile {
+                path: output_base.join("test_visitor.c"),
+                content: render_visitor_test_file(&visitor_fixtures, &header, &prefix),
                 generated_header: true,
             });
         }
@@ -594,7 +614,10 @@ fn render_download_script(github_repo: &str, version: &str, ffi_pkg_name: &str) 
     out
 }
 
-fn render_test_runner_header(active_groups: &[(&FixtureGroup, Vec<&Fixture>)]) -> String {
+fn render_test_runner_header(
+    active_groups: &[(&FixtureGroup, Vec<&Fixture>)],
+    visitor_fixtures: &[&Fixture],
+) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::Block));
     let _ = writeln!(out, "#ifndef TEST_RUNNER_H");
@@ -918,11 +941,23 @@ fn render_test_runner_header(active_groups: &[(&FixtureGroup, Vec<&Fixture>)]) -
         let _ = writeln!(out);
     }
 
+    if !visitor_fixtures.is_empty() {
+        let _ = writeln!(out, "/* Tests for category: visitor */");
+        for fixture in visitor_fixtures {
+            let fn_name = sanitize_ident(&fixture.id);
+            let _ = writeln!(out, "void test_{fn_name}(void);");
+        }
+        let _ = writeln!(out);
+    }
+
     let _ = writeln!(out, "#endif /* TEST_RUNNER_H */");
     out
 }
 
-fn render_main_c(active_groups: &[(&FixtureGroup, Vec<&Fixture>)]) -> String {
+fn render_main_c(
+    active_groups: &[(&FixtureGroup, Vec<&Fixture>)],
+    visitor_fixtures: &[&Fixture],
+) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::Block));
     let _ = writeln!(out, "#include <stdio.h>");
@@ -935,6 +970,18 @@ fn render_main_c(active_groups: &[(&FixtureGroup, Vec<&Fixture>)]) -> String {
     for (group, fixtures) in active_groups {
         let _ = writeln!(out, "    /* Category: {} */", group.category);
         for fixture in fixtures {
+            let fn_name = sanitize_ident(&fixture.id);
+            let _ = writeln!(out, "    printf(\"  Running test_{fn_name}...\");");
+            let _ = writeln!(out, "    test_{fn_name}();");
+            let _ = writeln!(out, "    printf(\" PASSED\\n\");");
+            let _ = writeln!(out, "    passed++;");
+        }
+        let _ = writeln!(out);
+    }
+
+    if !visitor_fixtures.is_empty() {
+        let _ = writeln!(out, "    /* Category: visitor */");
+        for fixture in visitor_fixtures {
             let fn_name = sanitize_ident(&fixture.id);
             let _ = writeln!(out, "    printf(\"  Running test_{fn_name}...\");");
             let _ = writeln!(out, "    test_{fn_name}();");
@@ -3680,4 +3727,452 @@ fn json_to_c(value: &serde_json::Value) -> String {
         serde_json::Value::Null => "NULL".to_string(),
         other => format!("\"{}\"", escape_c(&other.to_string())),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Visitor test file generation for C FFI
+// ---------------------------------------------------------------------------
+
+/// Generate `test_visitor.c` — one test function per visitor-bearing fixture.
+///
+/// Each test:
+/// 1. Defines static C callback functions for each configured callback slot.
+/// 2. Zero-initialises a `HTMHtmVisitorCallbacks` struct and wires each slot.
+/// 3. Creates a visitor handle via `htm_visitor_create`.
+/// 4. Creates an options handle via `htm_conversion_options_from_json`.
+/// 5. Attaches the visitor via `htm_options_set_visitor_handle`.
+/// 6. Calls `htm_convert(html, options)` and serialises the result to JSON.
+/// 7. Extracts fields via `alef_json_get_string` and runs `contains`/`not_contains`
+///    assertions with `assert(…)`.
+/// 8. Frees all handles in reverse allocation order.
+fn render_visitor_test_file(fixtures: &[&Fixture], header: &str, prefix: &str) -> String {
+    use crate::fixture::CallbackAction;
+
+    let mut out = String::new();
+    out.push_str(&hash::header(CommentStyle::Block));
+    let _ = writeln!(out, "/* E2e tests for category: visitor */");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "#include <assert.h>");
+    let _ = writeln!(out, "#include <stdint.h>");
+    let _ = writeln!(out, "#include <string.h>");
+    let _ = writeln!(out, "#include <stdio.h>");
+    let _ = writeln!(out, "#include <stdlib.h>");
+    let _ = writeln!(out, "#include \"{header}\"");
+    let _ = writeln!(out, "#include \"test_runner.h\"");
+    let _ = writeln!(out);
+
+    let prefix_upper = prefix.to_uppercase();
+
+    for (i, fixture) in fixtures.iter().enumerate() {
+        let fn_name = sanitize_ident(&fixture.id);
+        let description = &fixture.description;
+
+        let visitor_spec = match &fixture.visitor {
+            Some(v) => v,
+            None => continue,
+        };
+
+        let html = fixture.input.get("html").and_then(|v| v.as_str()).unwrap_or("");
+        let html_escaped = escape_c(html);
+
+        let options_json = match fixture.input.get("options") {
+            Some(opts) => serde_json::to_string(opts).unwrap_or_else(|_| "{}".to_string()),
+            None => "{}".to_string(),
+        };
+        let options_escaped = escape_c(&options_json);
+
+        // Emit static callback functions for this fixture. Each callback is named
+        // `c_visitor_<fixture_id>_<method>` to avoid collisions across fixtures.
+        let mut sorted_callbacks: Vec<(&String, &CallbackAction)> = visitor_spec.callbacks.iter().collect();
+        sorted_callbacks.sort_by(|a, b| a.0.cmp(b.0));
+
+        for (method, action) in &sorted_callbacks {
+            let cb_name = format!("c_visitor_{fn_name}_{method}");
+            let params = c_visitor_callback_params(method);
+            let body = c_visitor_callback_body(method, action);
+            let _ = writeln!(out, "static int32_t {cb_name}({params}) {{");
+            out.push_str(&body);
+            let _ = writeln!(out, "}}");
+            let _ = writeln!(out);
+        }
+
+        // Emit the test function.
+        let _ = writeln!(out, "void test_{fn_name}(void) {{");
+        let _ = writeln!(out, "    /* {description} */");
+        let _ = writeln!(out);
+
+        // Build callbacks struct and wire each slot.
+        let _ = writeln!(out, "    {prefix_upper}HtmVisitorCallbacks _callbacks;");
+        let _ = writeln!(out, "    memset(&_callbacks, 0, sizeof(_callbacks));");
+        for (method, _) in &sorted_callbacks {
+            let cb_name = format!("c_visitor_{fn_name}_{method}");
+            let _ = writeln!(out, "    _callbacks.{method} = {cb_name};");
+        }
+        let _ = writeln!(out);
+
+        // Create visitor handle.
+        let _ = writeln!(
+            out,
+            "    {prefix_upper}HtmVisitor* _visitor = {prefix}_visitor_create(&_callbacks);"
+        );
+        let _ = writeln!(out, "    assert(_visitor != NULL && \"htm_visitor_create failed\");");
+        let _ = writeln!(out);
+
+        // Create options handle.
+        let _ = writeln!(
+            out,
+            "    {prefix_upper}ConversionOptions* _options = {prefix}_conversion_options_from_json(\"{options_escaped}\");"
+        );
+        let _ = writeln!(out, "    assert(_options != NULL && \"htm_conversion_options_from_json failed\");");
+        let _ = writeln!(out);
+
+        // Attach visitor to options.
+        let _ = writeln!(out, "    {prefix}_options_set_visitor_handle(_options, _visitor);");
+        let _ = writeln!(out);
+
+        // Call htm_convert.
+        let _ = writeln!(
+            out,
+            "    {prefix_upper}ConversionResult* _result = {prefix}_convert(\"{html_escaped}\", _options);"
+        );
+        let _ = writeln!(out, "    assert(_result != NULL && \"htm_convert failed\");");
+        let _ = writeln!(out);
+
+        // Serialise result to JSON and extract the content field.
+        let _ = writeln!(out, "    char* _json = {prefix}_conversion_result_to_json(_result);");
+        let _ = writeln!(out, "    assert(_json != NULL && \"result to_json failed\");");
+        let _ = writeln!(out, "    char* _content = alef_json_get_string(_json, \"content\");");
+        let _ = writeln!(out);
+
+        // Emit assertions (only contains/not_contains; visitor fixtures use only these).
+        for assertion in &fixture.assertions {
+            match assertion.assertion_type.as_str() {
+                "contains" => {
+                    if let Some(expected) = &assertion.value {
+                        let c_val = json_to_c(expected);
+                        let _ = writeln!(
+                            out,
+                            "    assert(_content != NULL && strstr(_content, {c_val}) != NULL && \"expected to contain substring\");"
+                        );
+                    }
+                }
+                "not_contains" => {
+                    if let Some(expected) = &assertion.value {
+                        let c_val = json_to_c(expected);
+                        let _ = writeln!(
+                            out,
+                            "    assert((_content == NULL || strstr(_content, {c_val}) == NULL) && \"expected NOT to contain substring\");"
+                        );
+                    }
+                }
+                other => {
+                    let _ = writeln!(out, "    /* assertion type '{other}' not supported in C visitor tests */");
+                }
+            }
+        }
+
+        let _ = writeln!(out);
+
+        // Free in reverse allocation order.
+        let _ = writeln!(out, "    free(_content);");
+        let _ = writeln!(out, "    {prefix}_free_string(_json);");
+        let _ = writeln!(out, "    {prefix}_conversion_result_free(_result);");
+        let _ = writeln!(out, "    {prefix}_conversion_options_free(_options);");
+        let _ = writeln!(out, "    {prefix}_visitor_free(_visitor);");
+        let _ = writeln!(out, "}}");
+
+        if i + 1 < fixtures.len() {
+            let _ = writeln!(out);
+        }
+    }
+
+    out
+}
+
+/// C function-pointer parameter list for a given visitor callback method.
+///
+/// Mirrors the cbindgen-emitted `HTMHtmVisitorCallbacks` slot signatures from
+/// `crates/html-to-markdown-ffi/include/html_to_markdown.h`.  Named parameters
+/// are prefixed with `_` so the C compiler does not warn about unused params when
+/// the callback body ignores them.
+fn c_visitor_callback_params(method: &str) -> &'static str {
+    match method {
+        "visit_text" => {
+            "const HTMHtmNodeContext* _ctx, void* _user_data, const char* _text, char** out_custom, size_t* out_len"
+        }
+        "visit_element_start" => {
+            "const HTMHtmNodeContext* _ctx, void* _user_data, char** out_custom, size_t* out_len"
+        }
+        "visit_element_end" => {
+            "const HTMHtmNodeContext* _ctx, void* _user_data, const char* _output, char** out_custom, size_t* out_len"
+        }
+        "visit_link" => {
+            "const HTMHtmNodeContext* _ctx, void* _user_data, const char* _href, const char* _text, const char* _title, char** out_custom, size_t* out_len"
+        }
+        "visit_image" => {
+            "const HTMHtmNodeContext* _ctx, void* _user_data, const char* _src, const char* _alt, const char* _title, char** out_custom, size_t* out_len"
+        }
+        "visit_heading" => {
+            "const HTMHtmNodeContext* _ctx, void* _user_data, uint32_t _level, const char* _text, const char* _id, char** out_custom, size_t* out_len"
+        }
+        "visit_code_block" => {
+            "const HTMHtmNodeContext* _ctx, void* _user_data, const char* _lang, const char* _code, char** out_custom, size_t* out_len"
+        }
+        "visit_code_inline" => {
+            "const HTMHtmNodeContext* _ctx, void* _user_data, const char* _code, char** out_custom, size_t* out_len"
+        }
+        "visit_list_item" => {
+            "const HTMHtmNodeContext* _ctx, void* _user_data, int32_t _ordered, const char* _marker, const char* _text, char** out_custom, size_t* out_len"
+        }
+        "visit_list_start" => {
+            "const HTMHtmNodeContext* _ctx, void* _user_data, int32_t _ordered, char** out_custom, size_t* out_len"
+        }
+        "visit_list_end" => {
+            "const HTMHtmNodeContext* _ctx, void* _user_data, int32_t _ordered, const char* _output, char** out_custom, size_t* out_len"
+        }
+        "visit_table_start" => {
+            "const HTMHtmNodeContext* _ctx, void* _user_data, char** out_custom, size_t* out_len"
+        }
+        "visit_table_row" => {
+            "const HTMHtmNodeContext* _ctx, void* _user_data, const char* const* _cells, size_t _cell_count, int32_t _is_header, char** out_custom, size_t* out_len"
+        }
+        "visit_table_end" => {
+            "const HTMHtmNodeContext* _ctx, void* _user_data, const char* _output, char** out_custom, size_t* out_len"
+        }
+        "visit_blockquote" => {
+            "const HTMHtmNodeContext* _ctx, void* _user_data, const char* _content, size_t _depth, char** out_custom, size_t* out_len"
+        }
+        "visit_line_break"
+        | "visit_horizontal_rule"
+        | "visit_definition_list_start"
+        | "visit_figure_start" => {
+            "const HTMHtmNodeContext* _ctx, void* _user_data, char** out_custom, size_t* out_len"
+        }
+        "visit_custom_element" => {
+            "const HTMHtmNodeContext* _ctx, void* _user_data, const char* _tag_name, const char* _html, char** out_custom, size_t* out_len"
+        }
+        "visit_form" => {
+            "const HTMHtmNodeContext* _ctx, void* _user_data, const char* _action, const char* _method, char** out_custom, size_t* out_len"
+        }
+        "visit_input" => {
+            "const HTMHtmNodeContext* _ctx, void* _user_data, const char* _input_type, const char* _name, const char* _value, char** out_custom, size_t* out_len"
+        }
+        "visit_audio" | "visit_video" | "visit_iframe" => {
+            "const HTMHtmNodeContext* _ctx, void* _user_data, const char* _src, char** out_custom, size_t* out_len"
+        }
+        "visit_details" => {
+            "const HTMHtmNodeContext* _ctx, void* _user_data, int32_t _open, char** out_custom, size_t* out_len"
+        }
+        "visit_figure_end" | "visit_definition_list_end" => {
+            "const HTMHtmNodeContext* _ctx, void* _user_data, const char* _output, char** out_custom, size_t* out_len"
+        }
+        // Default: single text payload (covers visit_strong, visit_emphasis,
+        // visit_strikethrough, visit_underline, visit_subscript, visit_superscript,
+        // visit_mark, visit_button, visit_summary, visit_figcaption,
+        // visit_definition_term, visit_definition_description).
+        _ => {
+            "const HTMHtmNodeContext* _ctx, void* _user_data, const char* _text, char** out_custom, size_t* out_len"
+        }
+    }
+}
+
+/// Build the body of a C visitor callback function for a given action.
+///
+/// Return values mirror the Rust `HTMVisitResult` discriminants:
+///   0 = Continue, 1 = Skip, 2 = PreserveHtml, 3 = Custom.
+///
+/// For `Custom` and `CustomTemplate`, we heap-allocate a copy of the output string
+/// with `strdup` (or a sprintf-allocated buffer) and pass its pointer and length back
+/// via `out_custom`/`out_len`. The FFI runtime takes ownership and frees it.
+fn c_visitor_callback_body(method: &str, action: &crate::fixture::CallbackAction) -> String {
+    use crate::fixture::CallbackAction;
+
+    let mut out = String::new();
+    // Suppress unused-parameter warnings for context and user_data — always ignored
+    // in simple e2e test callbacks.
+    let _ = writeln!(out, "    (void)_ctx;");
+    let _ = writeln!(out, "    (void)_user_data;");
+
+    match action {
+        CallbackAction::Skip => {
+            let _ = writeln!(out, "    (void)out_custom;");
+            let _ = writeln!(out, "    (void)out_len;");
+            // Suppress method-specific params not used by Skip.
+            for param in c_visitor_unused_params(method) {
+                let _ = writeln!(out, "    (void){param};");
+            }
+            let _ = writeln!(out, "    return 1;");
+        }
+        CallbackAction::Continue => {
+            let _ = writeln!(out, "    (void)out_custom;");
+            let _ = writeln!(out, "    (void)out_len;");
+            for param in c_visitor_unused_params(method) {
+                let _ = writeln!(out, "    (void){param};");
+            }
+            let _ = writeln!(out, "    return 0;");
+        }
+        CallbackAction::PreserveHtml => {
+            let _ = writeln!(out, "    (void)out_custom;");
+            let _ = writeln!(out, "    (void)out_len;");
+            for param in c_visitor_unused_params(method) {
+                let _ = writeln!(out, "    (void){param};");
+            }
+            let _ = writeln!(out, "    return 2;");
+        }
+        CallbackAction::Custom { output } => {
+            let escaped = escape_c(output);
+            for param in c_visitor_unused_params(method) {
+                let _ = writeln!(out, "    (void){param};");
+            }
+            let _ = writeln!(out, "    char* _buf = strdup(\"{escaped}\");");
+            let _ = writeln!(out, "    if (out_custom) *out_custom = _buf;");
+            let _ = writeln!(out, "    if (out_len) *out_len = _buf ? strlen(_buf) : 0;");
+            let _ = writeln!(out, "    return 3;");
+        }
+        CallbackAction::CustomTemplate { template, .. } => {
+            // Build a sprintf format string and map fixture placeholders to C params.
+            let (c_fmt, placeholders) = c_visitor_template_to_sprintf(template);
+            let escaped_fmt = escape_c(&c_fmt);
+
+            // Determine which method-specific params are used by the template.
+            let used: std::collections::HashSet<&str> = placeholders.iter().map(|s| s.as_str()).collect();
+            for param in c_visitor_unused_params(method) {
+                let stripped = param.trim_start_matches('_');
+                if !used.contains(stripped) {
+                    let _ = writeln!(out, "    (void){param};");
+                }
+            }
+
+            if placeholders.is_empty() {
+                let _ = writeln!(out, "    char* _buf = strdup(\"{escaped_fmt}\");");
+            } else {
+                // Compute the max output length. We over-estimate by adding 256 per
+                // placeholder plus the template length.
+                let max_len = template.len() + placeholders.len() * 256 + 64;
+                let _ = writeln!(out, "    char* _buf = (char*)malloc({max_len});");
+                let _ = writeln!(out, "    if (!_buf) {{ (void)out_custom; (void)out_len; return 0; }}");
+                // Build the sprintf argument list.
+                let args: Vec<String> = placeholders
+                    .iter()
+                    .map(|name| c_visitor_placeholder_to_arg(method, name))
+                    .collect();
+                let args_str = args.join(", ");
+                let _ = writeln!(out, "    snprintf(_buf, {max_len}, \"{escaped_fmt}\", {args_str});");
+            }
+
+            let _ = writeln!(out, "    if (out_custom) *out_custom = _buf;");
+            let _ = writeln!(out, "    if (out_len) *out_len = _buf ? strlen(_buf) : 0;");
+            let _ = writeln!(out, "    return 3;");
+        }
+    }
+
+    out
+}
+
+/// List of method-specific typed C parameter names to suppress with `(void)` when
+/// the callback body does not reference them.  Mirrors `unused_params_for` in
+/// `zig_visitors.rs` but uses the C parameter names from `c_visitor_callback_params`.
+fn c_visitor_unused_params(method: &str) -> Vec<&'static str> {
+    match method {
+        "visit_text" => vec!["_text"],
+        "visit_element_start"
+        | "visit_table_start"
+        | "visit_line_break"
+        | "visit_horizontal_rule"
+        | "visit_definition_list_start"
+        | "visit_figure_start" => vec![],
+        "visit_element_end" | "visit_table_end" | "visit_figure_end" | "visit_definition_list_end" => {
+            vec!["_output"]
+        }
+        "visit_link" => vec!["_href", "_text", "_title"],
+        "visit_image" => vec!["_src", "_alt", "_title"],
+        "visit_heading" => vec!["_level", "_text", "_id"],
+        "visit_code_block" => vec!["_lang", "_code"],
+        "visit_code_inline" => vec!["_code"],
+        "visit_list_item" => vec!["_ordered", "_marker", "_text"],
+        "visit_list_start" => vec!["_ordered"],
+        "visit_list_end" => vec!["_ordered", "_output"],
+        "visit_table_row" => vec!["_cells", "_cell_count", "_is_header"],
+        "visit_blockquote" => vec!["_content", "_depth"],
+        "visit_custom_element" => vec!["_tag_name", "_html"],
+        "visit_form" => vec!["_action", "_method"],
+        "visit_input" => vec!["_input_type", "_name", "_value"],
+        "visit_audio" | "visit_video" | "visit_iframe" => vec!["_src"],
+        "visit_details" => vec!["_open"],
+        // Default: text-only methods.
+        _ => vec!["_text"],
+    }
+}
+
+/// Convert a fixture `{placeholder}` template into a `printf`/`snprintf` format string
+/// and an ordered list of placeholder names.  Integer placeholders use `%d` or `%u`;
+/// everything else uses `%s`.
+fn c_visitor_template_to_sprintf(template: &str) -> (String, Vec<String>) {
+    let mut out = String::with_capacity(template.len());
+    let mut placeholders: Vec<String> = Vec::new();
+    let mut chars = template.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '{' => {
+                if chars.peek() == Some(&'{') {
+                    chars.next();
+                    out.push('{');
+                    continue;
+                }
+                let mut name = String::new();
+                while let Some(&peek) = chars.peek() {
+                    if peek == '}' {
+                        chars.next();
+                        break;
+                    }
+                    name.push(peek);
+                    chars.next();
+                }
+                let is_int = matches!(
+                    name.as_str(),
+                    "level" | "depth" | "ordered" | "open" | "is_header"
+                );
+                if is_int {
+                    out.push_str("%d");
+                } else {
+                    out.push_str("%s");
+                }
+                placeholders.push(name);
+            }
+            '}' => {
+                if chars.peek() == Some(&'}') {
+                    chars.next();
+                }
+                out.push('}');
+            }
+            '%' => {
+                // Escape literal percent signs for printf.
+                out.push_str("%%");
+            }
+            other => out.push(other),
+        }
+    }
+    (out, placeholders)
+}
+
+/// Map a fixture placeholder name (e.g. `href`, `text`) to the C expression that
+/// yields the value for that parameter slot in the callback's sprintf call.
+fn c_visitor_placeholder_to_arg(method: &str, name: &str) -> String {
+    let int_placeholder = matches!(
+        (method, name),
+        ("visit_heading", "level")
+            | ("visit_blockquote", "depth")
+            | ("visit_list_item", "ordered")
+            | ("visit_list_start", "ordered")
+            | ("visit_list_end", "ordered")
+            | ("visit_details", "open")
+            | ("visit_table_row", "is_header")
+    );
+    if int_placeholder {
+        return format!("_{name}");
+    }
+    // String parameters — use the named `_<name>` C param directly.
+    // The C param is already a `const char*`; pass it directly to `%s`.
+    // Guard against NULL to avoid UB in printf (some implementations crash on NULL %s).
+    format!("(_{name} ? _{name} : \"\")")
 }
