@@ -161,10 +161,11 @@ pub(crate) fn gen_opaque_struct_methods_with_exclude(
                 // The bridge struct is named Php<TraitName>Bridge (e.g., PhpHtmlVisitorBridge)
                 let bridge_struct_name = format!("Php{}Bridge", bridge.trait_name.to_pascal_case().replace('-', ""));
                 // Use the full path to the trait from the core crate (e.g., html_to_markdown_rs::visitor::HtmlVisitor)
-                let trait_path = format!("{}::visitor::{}", core_import, bridge.trait_name
-                    .split("::")
-                    .last()
-                    .unwrap_or(&bridge.trait_name));
+                let _trait_path = format!(
+                    "{}::visitor::{}",
+                    core_import,
+                    bridge.trait_name.split("::").last().unwrap_or(&bridge.trait_name)
+                );
                 // The inner field wraps VisitorHandle (which is Arc<Mutex<dyn HtmlVisitor + Send>>)
                 // VisitorHandle is a type alias: Arc<Mutex<dyn HtmlVisitor + Send>>
                 // We need to create Arc<VisitorHandle>, so wrap Arc<Mutex<>> in Arc
@@ -176,8 +177,7 @@ pub(crate) fn gen_opaque_struct_methods_with_exclude(
                      let visitor_handle: {}::visitor::VisitorHandle = std::sync::Arc::new(std::sync::Mutex::new(bridge));\n    \
                      Ok(Self {{ inner: std::sync::Arc::new(visitor_handle) }})\n    \
                      }}\n",
-                    bridge_struct_name,
-                    core_import
+                    bridge_struct_name, core_import
                 );
                 impl_builder.add_method(&method_code);
             }
@@ -849,17 +849,19 @@ fn gen_struct_methods_impl(
         }
     }
 
-    // Generate wither methods for opaque-type fields (e.g., with_visitor for ConversionOptions.visitor)
-    // These allow setting a single field and returning a new instance of the struct.
-    // Check both IR-level opaque types and bridge type aliases (e.g., VisitorHandle).
+    // Generate wither methods for opaque-type / bridge-type fields (e.g., with_visitor for
+    // ConversionOptions.visitor). These let PHP callers set a single trait-bridge field on an
+    // existing struct instance — required because PHP can't construct opaque handles via the
+    // generated constructor (they're filtered out of constructor params).
+    //
+    // Walk raw `typ.fields` (not `binding_fields()`): trait-bridge fields are often marked
+    // binding_excluded so they don't appear in the constructor / from_json builder, but the
+    // struct still carries the field and the wither is the only way to set it from PHP.
     let all_opaque_types: AHashSet<String> = opaque_types.iter().chain(bridge_type_aliases.iter()).cloned().collect();
-    for field in binding_fields(&typ.fields) {
-        // Only generate withers for Optional opaque-type fields
+    for field in typ.fields.iter() {
         if let TypeRef::Optional(inner) = &field.ty {
             if let TypeRef::Named(type_name) = inner.as_ref() {
                 if all_opaque_types.contains(type_name.as_str()) {
-                    // Generate a wither method like `with_visitor(visitor: VisitorHandle) -> Self`
-                    // The wither accepts the inner type (not Option) and wraps it in Some()
                     let wither_name = format!("with_{}", field.name);
                     let param_name = alef_codegen::naming::to_php_name(&field.name);
                     let mapped_inner_type = mapper.map_type(inner.as_ref());
