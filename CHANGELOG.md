@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **alef-backend-wasm: env shim arms for `iswlower`, `iswupper`, `iswxdigit`, `towlower`, `memchr`, `strcmp` — required by tree-sitter external scanners under wasm32-unknown-unknown.** `gen_env_shims` previously only emitted Rust shims for `iswspace`, `iswalnum`, `towupper`, `iswalpha`; the other six C-stdlib symbols pulled in by tree-sitter parser scanners (e.g. C grammar's `iswxdigit`, Ruby/Python's `iswlower`/`iswupper`/`towlower`, several grammars' `memchr`/`strcmp`) were silently dropped, leaving the generated WASM module with unresolved `env.*` imports that wasm-pack `--target nodejs` translates to a runtime `require('env')` failure. Each new arm uses Rust's Unicode-aware `char` APIs (`is_lowercase`, `is_uppercase`, `is_ascii_hexdigit`, `to_lowercase`) for the wide-char predicates/conversions and minimal pointer-safe loops with `// SAFETY` comments for `memchr`/`strcmp`. (`crates/alef-backend-wasm/src/gen_bindings/functions.rs`)
+
 ### Fixed
 
 - **alef-e2e/go: fix unused `fmt` import in test files.** The import logic was incorrectly combining `needs_fmt` and `needs_strings` with an OR condition, causing `fmt` to be imported whenever `strings` was needed. Since the `contains` assertions on array results use `jsonString()` instead of `fmt.Sprint()`, the import was spurious for categories like `async` and `registry_operations`. Fixed by splitting the conditions so `fmt` is imported only when actually needed (when `needs_fmt` is true), while `strings` is imported based on its own condition. (`crates/alef-e2e/src/codegen/go.rs`)

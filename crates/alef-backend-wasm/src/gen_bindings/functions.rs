@@ -614,6 +614,60 @@ pub(super) fn gen_env_shims(shim_names: &[String]) -> String {
                 "    char::from_u32(c).map_or(0, |ch| ch.is_alphabetic() as i32)\n",
                 "}\n",
             ),
+            "iswlower" => concat!(
+                "#[unsafe(no_mangle)]\n",
+                "pub extern \"C\" fn iswlower(c: u32) -> i32 {\n",
+                "    char::from_u32(c).map_or(0, |ch| ch.is_lowercase() as i32)\n",
+                "}\n",
+            ),
+            "iswupper" => concat!(
+                "#[unsafe(no_mangle)]\n",
+                "pub extern \"C\" fn iswupper(c: u32) -> i32 {\n",
+                "    char::from_u32(c).map_or(0, |ch| ch.is_uppercase() as i32)\n",
+                "}\n",
+            ),
+            "iswxdigit" => concat!(
+                "#[unsafe(no_mangle)]\n",
+                "pub extern \"C\" fn iswxdigit(c: u32) -> i32 {\n",
+                "    char::from_u32(c).map_or(0, |ch| ch.is_ascii_hexdigit() as i32)\n",
+                "}\n",
+            ),
+            "towlower" => concat!(
+                "#[unsafe(no_mangle)]\n",
+                "pub extern \"C\" fn towlower(c: u32) -> u32 {\n",
+                "    char::from_u32(c).map_or(c, |ch| ch.to_lowercase().next().unwrap_or(ch) as u32)\n",
+                "}\n",
+            ),
+            "memchr" => concat!(
+                "/// # Safety\n",
+                "/// Caller must ensure `s` points to a buffer of at least `n` bytes.\n",
+                "#[unsafe(no_mangle)]\n",
+                "pub unsafe extern \"C\" fn memchr(s: *const u8, c: i32, n: usize) -> *const u8 {\n",
+                "    if s.is_null() { return core::ptr::null(); }\n",
+                "    let needle = c as u8;\n",
+                "    let slice = unsafe { core::slice::from_raw_parts(s, n) };\n",
+                "    match slice.iter().position(|&b| b == needle) {\n",
+                "        Some(idx) => unsafe { s.add(idx) },\n",
+                "        None => core::ptr::null(),\n",
+                "    }\n",
+                "}\n",
+            ),
+            "strcmp" => concat!(
+                "/// # Safety\n",
+                "/// Caller must ensure both pointers are valid null-terminated C strings.\n",
+                "#[unsafe(no_mangle)]\n",
+                "pub unsafe extern \"C\" fn strcmp(a: *const u8, b: *const u8) -> i32 {\n",
+                "    if a.is_null() || b.is_null() { return 0; }\n",
+                "    let mut i = 0isize;\n",
+                "    loop {\n",
+                "        let ca = unsafe { *a.offset(i) };\n",
+                "        let cb = unsafe { *b.offset(i) };\n",
+                "        if ca != cb { return (ca as i32) - (cb as i32); }\n",
+                "        if ca == 0 { return 0; }\n",
+                "        i += 1;\n",
+                "    }\n",
+                "}\n",
+            ),
             _ => continue,
         };
         out.push_str(shim);
@@ -986,6 +1040,59 @@ mod tests {
             binding_excluded: false,
             binding_exclusion_reason: None,
         }
+    }
+
+    #[test]
+    fn gen_env_shims_emits_expected_signatures_for_all_supported_names() {
+        let names: Vec<String> = [
+            "iswspace",
+            "iswalnum",
+            "towupper",
+            "iswalpha",
+            "iswlower",
+            "iswupper",
+            "iswxdigit",
+            "towlower",
+            "memchr",
+            "strcmp",
+        ]
+        .iter()
+        .map(|s| (*s).to_string())
+        .collect();
+
+        let out = gen_env_shims(&names);
+
+        // Each shim must carry the no_mangle attribute exactly once.
+        assert_eq!(out.matches("#[unsafe(no_mangle)]").count(), names.len(), "{out}");
+
+        // Wide-char predicates: c: u32 -> i32
+        for name in ["iswspace", "iswalnum", "iswalpha", "iswlower", "iswupper", "iswxdigit"] {
+            let sig = format!("pub extern \"C\" fn {name}(c: u32) -> i32");
+            assert!(out.contains(&sig), "missing signature `{sig}` in:\n{out}");
+        }
+
+        // Wide-char conversions: c: u32 -> u32
+        for name in ["towupper", "towlower"] {
+            let sig = format!("pub extern \"C\" fn {name}(c: u32) -> u32");
+            assert!(out.contains(&sig), "missing signature `{sig}` in:\n{out}");
+        }
+
+        // Unsafe C-string / memory ops.
+        assert!(
+            out.contains("pub unsafe extern \"C\" fn memchr(s: *const u8, c: i32, n: usize) -> *const u8"),
+            "{out}"
+        );
+        assert!(
+            out.contains("pub unsafe extern \"C\" fn strcmp(a: *const u8, b: *const u8) -> i32"),
+            "{out}"
+        );
+    }
+
+    #[test]
+    fn gen_env_shims_ignores_unknown_names() {
+        let names = vec!["not_a_real_shim".to_string()];
+        let out = gen_env_shims(&names);
+        assert!(!out.contains("#[unsafe(no_mangle)]"), "{out}");
     }
 
     #[test]
