@@ -3820,8 +3820,11 @@ mod tests {
         eprintln!("generated:\n{out}");
 
         // Must guard on the slice itself — not on the element.
+        // Accepts either `Segments != nil` or `len(Segments) > 0`; both are
+        // valid Go guards for the slice and avoid the invalid element nil
+        // check.
         assert!(
-            out.contains("result.Segments != nil"),
+            out.contains("result.Segments != nil") || out.contains("len(result.Segments) > 0"),
             "guard must be on Segments (the slice), not an element; got:\n{out}"
         );
         // Must NOT emit the invalid element nil check.
