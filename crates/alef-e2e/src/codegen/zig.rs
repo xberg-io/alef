@@ -255,7 +255,7 @@ pub fn build(b: *std.Build) void {
     content.push_str("    const test_step = b.step(\"test\", \"Run tests\");\n");
     let _ = writeln!(
         content,
-        "    const ffi_path = b.option([]const u8, \"ffi_path\", \"Path to directory containing lib{ffi_lib_name}\") orelse \"../../target/debug\";"
+        "    const ffi_path = b.option([]const u8, \"ffi_path\", \"Path to directory containing lib{ffi_lib_name}\") orelse \"../../target/release\";"
     );
     let _ = writeln!(
         content,
