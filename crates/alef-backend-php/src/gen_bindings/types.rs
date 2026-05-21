@@ -849,6 +849,30 @@ fn gen_struct_methods_impl(
         }
     }
 
+    // Generate wither methods for opaque-type fields (e.g., with_visitor for ConversionOptions.visitor)
+    // These allow setting a single field and returning a new instance of the struct.
+    for field in binding_fields(&typ.fields) {
+        // Only generate withers for Optional opaque-type fields
+        if let TypeRef::Optional(inner) = &field.ty {
+            if let TypeRef::Named(type_name) = inner.as_ref() {
+                if opaque_types.contains(type_name.as_str()) {
+                    // Generate a wither method like `with_visitor(visitor: VisitorHandle) -> Self`
+                    let wither_name = format!("with_{}", field.name);
+                    let param_name = alef_codegen::naming::to_php_name(&field.name);
+                    let mapped_type = mapper.map_type(&field.ty);
+                    let wither_method = format!(
+                        "pub fn {wither_name}(mut self, {param_name}: {mapped_type}) -> Self {{\n    \
+                         self.{field_name} = {param_name};\n    \
+                         self\n\
+                         }}",
+                        field_name = field.name,
+                    );
+                    impl_builder.add_method(&wither_method);
+                }
+            }
+        }
+    }
+
     impl_builder.build()
 }
 

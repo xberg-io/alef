@@ -142,6 +142,19 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str) {
             // Emit per-variant KDoc above the enum constant. Indent matches
             // the template's 4-space lead.
             emit_cleaned_kdoc(out, &en.variants[idx].doc, "    ");
+            // When the Rust serde discriminator differs from the Kotlin
+            // `SCREAMING_SNAKE_CASE` constant, emit a `@JsonProperty` so
+            // Jackson maps the wire value to the right constant on
+            // deserialize and back on serialize. This is the typical case
+            // when the Rust source uses `#[serde(rename_all = "snake_case")]`
+            // or per-variant `#[serde(rename = "...")]`.
+            let discriminator = variant_discriminator(&en.variants[idx], en.serde_rename_all.as_deref());
+            if discriminator != *name {
+                out.push_str(&format!(
+                    "    @com.fasterxml.jackson.annotation.JsonProperty(\"{}\")\n",
+                    escape_kotlin_string(&discriminator)
+                ));
+            }
             let comma = if idx + 1 == names.len() { ";" } else { "," };
             out.push_str(&crate::template_env::render(
                 "enum_variant.jinja",
@@ -1074,16 +1087,12 @@ fn render_kotlin_default(ty: &TypeRef, default: &alef_core::ir::DefaultValue) ->
             }
         }
         DefaultValue::StringLiteral(s) => {
-            // Char-typed Rust fields project to Kotlin `Char`; emit a single-quoted
-            // literal for the first scalar so `'*'` round-trips through the data
-            // class. Multi-char defaults on `String` fields use the regular
-            // double-quoted form.
-            if matches!(ty, TypeRef::Char) && s.chars().count() == 1 {
-                let c = s.chars().next().expect("len-1 string has a char");
-                Some(format!("'{}'", escape_kotlin_char(c)))
-            } else {
-                Some(format!("\"{}\"", escape_kotlin_string(s)))
-            }
+            // The Kotlin type for `TypeRef::Char` resolves to `String` in
+            // `KotlinMapper` (mirroring the JVM/Panama convention of
+            // representing a `char` as a one-character `String`), so emit a
+            // double-quoted Kotlin string literal regardless of the IR's
+            // distinction between `Char` and `String`.
+            Some(format!("\"{}\"", escape_kotlin_string(s)))
         }
         DefaultValue::EnumVariant(variant) => match ty {
             TypeRef::Named(name) => Some(format!("{name}.{}", to_screaming_snake(variant))),
@@ -1096,17 +1105,6 @@ fn render_kotlin_default(ty: &TypeRef, default: &alef_core::ir::DefaultValue) ->
             _ => None,
         },
         DefaultValue::None => Some("null".to_string()),
-    }
-}
-
-fn escape_kotlin_char(c: char) -> String {
-    match c {
-        '\\' => "\\\\".to_string(),
-        '\'' => "\\'".to_string(),
-        '\n' => "\\n".to_string(),
-        '\r' => "\\r".to_string(),
-        '\t' => "\\t".to_string(),
-        _ => c.to_string(),
     }
 }
 

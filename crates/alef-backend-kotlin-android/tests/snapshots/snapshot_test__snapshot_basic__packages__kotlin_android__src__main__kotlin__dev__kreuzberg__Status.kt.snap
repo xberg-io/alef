@@ -28,7 +28,9 @@ package dev.kreuzberg
 /** Processing status. */
 enum class Status {
     /** Active state. */
+    @com.fasterxml.jackson.annotation.JsonProperty("Active")
     ACTIVE,
     /** Inactive state. */
+    @com.fasterxml.jackson.annotation.JsonProperty("Inactive")
     INACTIVE;
 }
