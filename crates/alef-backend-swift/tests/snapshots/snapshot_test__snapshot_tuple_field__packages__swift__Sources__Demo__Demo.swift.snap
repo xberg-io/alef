@@ -21,6 +21,11 @@ public struct KeywordConfig: Codable, Sendable, Hashable {
         case maxKeywords = "max_keywords"
         case ngramRange = "ngram_range"
     }
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.maxKeywords = try container.decodeIfPresent(UInt.self, forKey: .maxKeywords) ?? 0
+        self.ngramRange = try container.decodeIfPresent([UInt].self, forKey: .ngramRange) ?? []
+    }
 }
 
 // MARK: - Internal FFI conversions for KeywordConfig
