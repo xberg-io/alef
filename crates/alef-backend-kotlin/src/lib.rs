@@ -27,3 +27,6 @@ pub use gen_bindings::{
 
 // JNI emission helpers re-exported for the kotlin-android backend.
 pub use gen_bindings::jni_emitter::{emit_jni_bridge_object, emit_jni_client_class, emit_streaming_jni_external_funs};
+
+// Literal normalizer re-exported for the kotlin-android backend.
+pub use gen_bindings::literal_normalizer;
