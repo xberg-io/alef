@@ -1628,21 +1628,35 @@ fn render_assertion(
                             .as_deref()
                             .is_some_and(|f| field_resolver.is_array(field_resolver.resolve(f)));
                         if field_is_array {
-                            let (contains_expr, is_optional) = swift_array_contains_expr(
-                                assertion.field.as_deref(),
-                                result_var,
-                                field_resolver,
-                                result_field_accessor,
-                            );
-                            let wrapped = if is_optional {
-                                format!("({contains_expr} ?? [])")
+                            // First try the "stringy aggregator" path: when the array element
+                            // is an opaque DTO with several text-bearing accessors (e.g.
+                            // ImportInfo with source/items/alias, or StructureItem with
+                            // kind/name/signature/...), emit a `contains(where: { ... })`
+                            // closure that walks every accessor and does substring matching,
+                            // mirroring python's `_alef_e2e_item_texts`. This avoids the
+                            // brittle "primary accessor" guess (e.g. ImportInfo → source
+                            // misses imports whose name lives in `items`).
+                            let aggregator =
+                                swift_stringy_aggregator_contains_assert(assertion.field.as_deref(), result_var, field_resolver, &swift_val);
+                            if let Some(line) = aggregator {
+                                let _ = writeln!(out, "{line}");
                             } else {
-                                contains_expr
-                            };
-                            let _ = writeln!(
-                                out,
-                                "        XCTAssertTrue({wrapped}.contains({swift_val}), \"expected to contain: \\({swift_val})\")"
-                            );
+                                let (contains_expr, is_optional) = swift_array_contains_expr(
+                                    assertion.field.as_deref(),
+                                    result_var,
+                                    field_resolver,
+                                    result_field_accessor,
+                                );
+                                let wrapped = if is_optional {
+                                    format!("({contains_expr} ?? [])")
+                                } else {
+                                    contains_expr
+                                };
+                                let _ = writeln!(
+                                    out,
+                                    "        XCTAssertTrue({wrapped}.contains({swift_val}), \"expected to contain: \\({swift_val})\")"
+                                );
+                            }
                         } else if field_is_enum {
                             // Enum fields: use `toString().toString()` (via string_expr) to get the
                             // serde variant name as a Swift String, then check substring containment.
@@ -2329,6 +2343,77 @@ fn swift_array_contains_expr(
     }
 }
 
+/// Emit a `XCTAssertTrue(array.contains(where: { ... }), msg)` line that
+/// aggregates every text-bearing accessor on the element type of a `Vec<T>`
+/// field, mirroring python's `_alef_e2e_item_texts` helper.
+///
+/// Returns `None` when:
+///   - `field` is missing
+///   - The field's root or leaf type cannot be resolved
+///   - The element type has fewer than 2 stringy fields (the existing
+///     single-accessor path is good enough and emits simpler code)
+///
+/// When matched, emits a closure that gathers `source().toString()`,
+/// `items().map { $0.asStr().toString() }`, `alias()?.toString()`, etc. into
+/// a flat `[String]` and substring-matches the expected value against every
+/// entry. The matcher is lenient so that fixtures asserting `"os"` against
+/// the `imports` field — where `ImportInfo.source` may be the bare module
+/// name (`"os"`), the entire import statement (`"import os"`), or the
+/// imported items (`from os import path` → items=["path"]) — succeed
+/// regardless of how the language extractor surfaces the value.
+fn swift_stringy_aggregator_contains_assert(
+    field: Option<&str>,
+    result_var: &str,
+    field_resolver: &FieldResolver,
+    swift_val: &str,
+) -> Option<String> {
+    use crate::field_access::StringyFieldKind;
+    let field = field?;
+    let resolved = field_resolver.resolve(field);
+    // Only handle simple top-level array fields (no nested chains) for now.
+    // Field path containing `.` or `[` is left to the existing traversal/array
+    // paths.
+    if resolved.contains('.') || resolved.contains('[') {
+        return None;
+    }
+    let root_type = field_resolver.swift_root_type()?.clone();
+    let elem_type = field_resolver.swift_advance(Some(&root_type), resolved)?;
+    let stringy = field_resolver.swift_stringy_fields(&elem_type)?;
+    if stringy.len() < 2 {
+        return None;
+    }
+    let array_accessor = field_resolver.accessor(field, "swift", result_var);
+    let mut texts_lines: Vec<String> = Vec::new();
+    for sf in stringy {
+        let call = swift_ident(&sf.name.to_lower_camel_case());
+        match sf.kind {
+            StringyFieldKind::Plain => {
+                texts_lines.push(format!("                texts.append(item.{call}().toString())"));
+            }
+            StringyFieldKind::Optional => {
+                texts_lines.push(format!(
+                    "                if let v = item.{call}() {{ texts.append(v.toString()) }}"
+                ));
+            }
+            StringyFieldKind::Vec => {
+                // `item.field()` returns `RustVec<RustString>`. Mapping its
+                // elements yields `RustStringRef` — a swift-bridge wrapper
+                // around the borrowed RustString — which has `as_str()`
+                // (snake_case, defined in `SwiftBridgeCore.swift`), NOT
+                // `toString()` (only `RustString` has the latter via the
+                // extension that calls `self.as_str().toString()`).
+                texts_lines.push(format!(
+                    "                texts.append(contentsOf: item.{call}().map {{ $0.as_str().toString() }})"
+                ));
+            }
+        }
+    }
+    let texts_block = texts_lines.join("\n");
+    Some(format!(
+        "        XCTAssertTrue({array_accessor}.contains(where: {{ item in\n            var texts = [String]()\n{texts_block}\n            return texts.contains(where: {{ $0.contains({swift_val}) }})\n        }}), \"expected to contain: \\({swift_val})\")"
+    ))
+}
+
 /// Generate a `.count` expression for an array field that may be nested inside optional parents.
 ///
 /// Swift-bridge exposes all Rust fields as methods with `()`. When ancestor segments are
@@ -2597,8 +2682,40 @@ fn build_swift_first_class_map(
         .map(|td| td.name.clone())
         .collect();
 
+    use crate::field_access::{StringyField, StringyFieldKind};
+    // Enums are bridged as `String` on the swift-bridge surface (the binding
+    // emits `fn kind(&self) -> String` for `kind: SomeEnum`), so they must
+    // also count as text-bearing accessors when aggregating contains-matchers.
+    let enum_names: HashSet<&str> = enum_defs.iter().map(|e| e.name.as_str()).collect();
+    let classify_stringy = |ty: &TypeRef, field_optional: bool| -> Option<StringyFieldKind> {
+        match ty {
+            TypeRef::String => Some(if field_optional {
+                StringyFieldKind::Optional
+            } else {
+                StringyFieldKind::Plain
+            }),
+            TypeRef::Named(name) if enum_names.contains(name.as_str()) => Some(if field_optional {
+                StringyFieldKind::Optional
+            } else {
+                StringyFieldKind::Plain
+            }),
+            TypeRef::Optional(inner) => match inner.as_ref() {
+                TypeRef::String => Some(StringyFieldKind::Optional),
+                TypeRef::Named(name) if enum_names.contains(name.as_str()) => Some(StringyFieldKind::Optional),
+                _ => None,
+            },
+            TypeRef::Vec(inner) => match inner.as_ref() {
+                TypeRef::String => Some(StringyFieldKind::Vec),
+                TypeRef::Named(name) if enum_names.contains(name.as_str()) => Some(StringyFieldKind::Vec),
+                _ => None,
+            },
+            _ => None,
+        }
+    };
+    let mut stringy_fields_by_type: HashMap<String, Vec<StringyField>> = HashMap::new();
     for td in type_defs {
         let mut td_field_types: HashMap<String, String> = HashMap::new();
+        let mut td_stringy: Vec<StringyField> = Vec::new();
         for f in &td.fields {
             if let Some(named) = inner_named(&f.ty) {
                 td_field_types.insert(f.name.clone(), named);
@@ -2606,9 +2723,21 @@ fn build_swift_first_class_map(
             if is_vec_ty(&f.ty) {
                 vec_field_names.insert(f.name.clone());
             }
+            if f.binding_excluded {
+                continue;
+            }
+            if let Some(kind) = classify_stringy(&f.ty, f.optional) {
+                td_stringy.push(StringyField {
+                    name: f.name.clone(),
+                    kind,
+                });
+            }
         }
         if !td_field_types.is_empty() {
             field_types.insert(td.name.clone(), td_field_types);
+        }
+        if !td_stringy.is_empty() {
+            stringy_fields_by_type.insert(td.name.clone(), td_stringy);
         }
     }
     // Best-effort root-type detection: pick a unique TypeDef that contains all
@@ -2635,6 +2764,7 @@ fn build_swift_first_class_map(
         field_types,
         vec_field_names,
         root_type,
+        stringy_fields_by_type,
     }
 }
 
@@ -2686,6 +2816,133 @@ mod tests {
         assert!(
             accessor.contains("[0].function"),
             "expected `.function` (non-optional) after subscript: {accessor}"
+        );
+    }
+
+    /// `contains` against an array of opaque DTOs must aggregate every
+    /// text-bearing accessor of the element type and substring-match the
+    /// expected value, mirroring python's `_alef_e2e_item_texts`. This
+    /// avoids the brittle "primary accessor" guess (e.g. ImportInfo →
+    /// source) that misses values surfaced through sibling fields like
+    /// `items` or `alias`.
+    #[test]
+    fn contains_against_vec_dto_aggregates_stringy_accessors() {
+        use crate::field_access::{StringyField, StringyFieldKind, SwiftFirstClassMap};
+        // Simulate the ImportInfo element type with its three text-bearing
+        // accessors: source (plain), items (vec), alias (optional).
+        let mut stringy_fields_by_type: HashMap<String, Vec<StringyField>> = HashMap::new();
+        stringy_fields_by_type.insert(
+            "ImportInfo".to_string(),
+            vec![
+                StringyField {
+                    name: "source".to_string(),
+                    kind: StringyFieldKind::Plain,
+                },
+                StringyField {
+                    name: "items".to_string(),
+                    kind: StringyFieldKind::Vec,
+                },
+                StringyField {
+                    name: "alias".to_string(),
+                    kind: StringyFieldKind::Optional,
+                },
+            ],
+        );
+        let mut field_types: HashMap<String, HashMap<String, String>> = HashMap::new();
+        let mut process_fields = HashMap::new();
+        process_fields.insert("imports".to_string(), "ImportInfo".to_string());
+        field_types.insert("ProcessResult".to_string(), process_fields);
+
+        let mut arrays = HashSet::new();
+        arrays.insert("imports".to_string());
+
+        let map = SwiftFirstClassMap {
+            first_class_types: HashSet::new(),
+            field_types,
+            vec_field_names: HashSet::new(),
+            root_type: None,
+            stringy_fields_by_type,
+        };
+        let resolver = FieldResolver::new_with_swift_first_class(
+            &HashMap::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &arrays,
+            &HashSet::new(),
+            &HashMap::new(),
+            map,
+        )
+        .with_swift_root_type(Some("ProcessResult".to_string()));
+
+        let line = swift_stringy_aggregator_contains_assert(Some("imports"), "result", &resolver, "\"os\"")
+            .expect("aggregator should fire for Vec<ImportInfo> contains");
+        assert!(
+            line.contains("result.imports().contains(where: { item in"),
+            "expected contains(where:) over result.imports(): {line}"
+        );
+        assert!(
+            line.contains("texts.append(item.source().toString())"),
+            "expected plain source() accessor: {line}"
+        );
+        assert!(
+            line.contains("texts.append(contentsOf: item.items().map { $0.as_str().toString() })"),
+            "expected vec items() flattened via .map as_str(): {line}"
+        );
+        assert!(
+            line.contains("if let v = item.alias()"),
+            "expected optional alias() unwrap: {line}"
+        );
+        // Substring match — NOT exact equality.
+        assert!(
+            line.contains("$0.contains(\"os\")"),
+            "expected substring contains over expected value: {line}"
+        );
+        assert!(
+            !line.contains("$0 == \"os\""),
+            "must not use exact equality: {line}"
+        );
+    }
+
+    /// When the element type has fewer than 2 stringy accessors, the
+    /// aggregator should bow out and let the simpler single-accessor path
+    /// emit code — keeping diff churn minimal on fixtures that already pass.
+    #[test]
+    fn contains_aggregator_skips_when_only_one_stringy_field() {
+        use crate::field_access::{StringyField, StringyFieldKind, SwiftFirstClassMap};
+        let mut stringy_fields_by_type: HashMap<String, Vec<StringyField>> = HashMap::new();
+        stringy_fields_by_type.insert(
+            "TagInfo".to_string(),
+            vec![StringyField {
+                name: "name".to_string(),
+                kind: StringyFieldKind::Plain,
+            }],
+        );
+        let mut field_types: HashMap<String, HashMap<String, String>> = HashMap::new();
+        let mut root_fields = HashMap::new();
+        root_fields.insert("tags".to_string(), "TagInfo".to_string());
+        field_types.insert("Root".to_string(), root_fields);
+        let mut arrays = HashSet::new();
+        arrays.insert("tags".to_string());
+        let map = SwiftFirstClassMap {
+            first_class_types: HashSet::new(),
+            field_types,
+            vec_field_names: HashSet::new(),
+            root_type: None,
+            stringy_fields_by_type,
+        };
+        let resolver = FieldResolver::new_with_swift_first_class(
+            &HashMap::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &arrays,
+            &HashSet::new(),
+            &HashMap::new(),
+            map,
+        )
+        .with_swift_root_type(Some("Root".to_string()));
+        assert!(
+            swift_stringy_aggregator_contains_assert(Some("tags"), "result", &resolver, "\"x\"").is_none(),
+            "single-stringy-field types must not trigger the aggregator"
         );
     }
 }

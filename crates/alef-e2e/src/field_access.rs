@@ -90,12 +90,43 @@ pub struct PhpGetterMap {
 ///   any owner. Used by swift_count_target to keep `.count` straight on
 ///   RustVec-typed method-call accessors (don't inject `.toString()`).
 /// * `root_type` — the IR type name backing the result variable.
+/// Kind of a "stringy" field on an opaque DTO element type — used by the swift
+/// e2e `contains` assertion to aggregate every readable text accessor on a
+/// `Vec<T>` element instead of relying on a single primary accessor (which
+/// often guesses wrong: e.g. `ImportInfo.source` is the module path but
+/// `ImportInfo.items` carries the imported names).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StringyFieldKind {
+    /// `field_name() -> RustString` (or `String`). Convert via `.toString()`.
+    Plain,
+    /// `field_name() -> Optional<RustString>`. Convert via `?.toString() ?? ""`.
+    Optional,
+    /// `field_name() -> RustVec<RustString>`. Iterate elements (RustStringRef
+    /// → `.asStr().toString()` on each).
+    Vec,
+}
+
+/// A single readable text accessor on an opaque DTO. The `name` is the Rust
+/// field name (snake_case), used to derive the swift-bridge lowerCamelCase
+/// method call.
+#[derive(Debug, Clone)]
+pub struct StringyField {
+    pub name: String,
+    pub kind: StringyFieldKind,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct SwiftFirstClassMap {
     pub first_class_types: HashSet<String>,
     pub field_types: HashMap<String, HashMap<String, String>>,
     pub vec_field_names: HashSet<String>,
     pub root_type: Option<String>,
+    /// Per-type readable text accessors. Keyed by IR TypeDef name. Used by the
+    /// swift e2e `contains` assertion to aggregate every stringy field on a
+    /// `Vec<T>` element type into a `contains(where: { ... })` closure that
+    /// does substring matching against every text-bearing accessor. Mirrors
+    /// python's `_alef_e2e_item_texts` helper.
+    pub stringy_fields_by_type: HashMap<String, Vec<StringyField>>,
 }
 
 impl SwiftFirstClassMap {
@@ -129,6 +160,12 @@ impl SwiftFirstClassMap {
     /// True when no per-type information is recorded.
     pub fn is_empty(&self) -> bool {
         self.first_class_types.is_empty() && self.field_types.is_empty()
+    }
+
+    /// Returns the list of stringy accessors recorded for `type_name`, or
+    /// `None` if the type has no recorded stringy fields.
+    pub fn stringy_fields(&self, type_name: &str) -> Option<&[StringyField]> {
+        self.stringy_fields_by_type.get(type_name).map(Vec::as_slice)
     }
 }
 
@@ -347,6 +384,13 @@ impl FieldResolver {
     /// `SwiftFirstClassMap::advance`.
     pub fn swift_advance(&self, owner_type: Option<&str>, field_name: &str) -> Option<String> {
         self.swift_first_class_map.advance(owner_type, field_name)
+    }
+
+    /// Stringy field accessors recorded for `type_name` in the Swift
+    /// first-class map (used by `contains` assertions on `Vec<T>` element
+    /// types).
+    pub fn swift_stringy_fields(&self, type_name: &str) -> Option<&[StringyField]> {
+        self.swift_first_class_map.stringy_fields(type_name)
     }
 
     /// Check if a resolved field path is optional.
