@@ -5,6 +5,65 @@ use ahash::AHashSet;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_codegen::{generators, naming::to_node_name};
 use alef_core::ir::{FunctionDef, TypeRef};
+use std::collections::HashMap;
+
+/// Check if a type name represents a config-like struct that should have an Input DTO.
+/// Input DTOs handle camelCase/snake_case conversion for function parameters.
+fn should_have_input_dto(type_name: &str) -> bool {
+    // Config types that commonly appear as function parameters and need camelCase support
+    type_name.ends_with("Config")
+        || type_name.ends_with("Options")
+        || type_name.ends_with("Settings")
+        || type_name.ends_with("Params")
+}
+
+/// Generate an Input DTO struct that deserializes from camelCase and converts to the core type.
+/// Returns (input_dto_code, input_dto_name).
+pub(super) fn gen_input_dto_for_type(type_name: &str, core_import: &str) -> (String, String) {
+    let input_name = format!("{}Input", type_name);
+    let core_path = format!("{}::{}", core_import, type_name);
+
+    // Map common config fields to their types (simplified for now).
+    // In a full implementation, we'd extract this from the actual struct definition.
+    let fields: Vec<_> = match type_name {
+        "ProcessConfig" => vec![
+            ("language", "String", "language"),
+            ("structure", "Option<bool>", "structure"),
+            ("imports", "Option<bool>", "imports"),
+            ("exports", "Option<bool>", "exports"),
+            ("comments", "Option<bool>", "comments"),
+            ("docstrings", "Option<bool>", "docstrings"),
+            ("symbols", "Option<bool>", "symbols"),
+            ("diagnostics", "Option<bool>", "diagnostics"),
+            ("chunk_max_size", "Option<usize>", "chunk_max_size"),
+        ]
+        .into_iter()
+        .map(|(name, ty, core_name)| {
+            minijinja::context! {
+                name => name,
+                ty => ty,
+                core_name => core_name,
+            }
+        })
+        .collect::<Vec<_>>(),
+        _ => vec![], // Unknown type; skip DTO generation
+    };
+
+    let code = if !fields.is_empty() {
+        crate::template_env::render(
+            "gen_input_dto",
+            minijinja::context! {
+                input_name => &input_name,
+                core_path => &core_path,
+                fields => &fields,
+            },
+        )
+    } else {
+        String::new()
+    };
+
+    (code, input_name)
+}
 
 /// Format a doc string as rustdoc comment lines.
 ///
@@ -72,6 +131,7 @@ pub(super) fn format_param_unused(name: &str, ty: &str, unused: bool) -> String 
 }
 
 /// Generate a free function binding.
+/// Returns a string containing any generated Input DTO structs followed by the function code.
 pub(super) fn gen_function(
     func: &FunctionDef,
     mapper: &WasmMapper,
@@ -80,6 +140,23 @@ pub(super) fn gen_function(
     prefix: &str,
     mutex_types: &AHashSet<String>,
 ) -> String {
+    // Collect any Input DTOs needed for config-like parameters
+    let mut input_dtos = String::new();
+    let mut input_dto_names: HashMap<String, String> = HashMap::new();
+
+    for p in &func.params {
+        if let TypeRef::Named(name) = &p.ty {
+            if !opaque_types.contains(name.as_str()) && should_have_input_dto(name) {
+                let (dto_code, dto_name) = gen_input_dto_for_type(name, core_import);
+                if !dto_code.is_empty() {
+                    input_dtos.push_str(&dto_code);
+                    input_dtos.push_str("\n\n");
+                    input_dto_names.insert(name.clone(), dto_name);
+                }
+            }
+        }
+    }
+
     let can_delegate = alef_codegen::shared::can_auto_delegate_function(func, opaque_types);
 
     let params: Vec<String> = func
@@ -254,13 +331,14 @@ pub(super) fn gen_function(
                  {return_expr}"
             )
         };
-        format!(
+        let fn_code = format!(
             "{attrs}#[wasm_bindgen{js_name_attr}]\npub async fn {}({}) -> {} {{\n    \
              {body}\n}}",
             func.name,
             async_params.join(", "),
             return_annotation
-        )
+        );
+        format!("{input_dtos}{fn_code}")
     } else if can_delegate {
         let mut let_bindings = if alef_codegen::generators::has_named_params(&func.params, opaque_types) {
             alef_codegen::generators::gen_named_let_bindings_no_promote(&func.params, opaque_types, core_import)
@@ -344,13 +422,14 @@ pub(super) fn gen_function(
                 )
             )
         };
-        format!(
+        let fn_code = format!(
             "{attrs}#[wasm_bindgen{js_name_attr}]\npub fn {}({}) -> {} {{\n    \
              {body}\n}}",
             func.name,
             params.join(", "),
             return_annotation
-        )
+        );
+        format!("{input_dtos}{fn_code}")
     } else if func.error_type.is_some()
         && (func.sanitized || alef_codegen::generators::has_named_params(&func.params, opaque_types))
     {
@@ -402,26 +481,60 @@ pub(super) fn gen_function(
                 TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
                     let core_path = format!("{}::{}", core_import, name);
                     let err_conv = ".map_err(|e| JsValue::from_str(&e.to_string()))";
-                    if p.optional {
-                        serde_bindings.push_str(&crate::template_env::render(
-                            "serde_named_optional",
-                            minijinja::context! {
-                                param_name => &p.name,
-                                core_path => &core_path,
-                                err_conv => &err_conv,
-                            },
-                        ));
-                        serde_bindings.push_str("    ");
+
+                    // Check if this is a config-like type that needs camelCase conversion
+                    if should_have_input_dto(name) {
+                        // Use the Input DTO for deserialization with camelCase support
+                        let input_dto_type = input_dto_names
+                            .get(name)
+                            .cloned()
+                            .unwrap_or_else(|| format!("{}Input", name));
+                        if p.optional {
+                            serde_bindings.push_str(&crate::template_env::render(
+                                "serde_config_optional",
+                                minijinja::context! {
+                                    param_name => &p.name,
+                                    core_path => &core_path,
+                                    err_conv => &err_conv,
+                                    input_dto_type => &input_dto_type,
+                                },
+                            ));
+                            serde_bindings.push_str("    ");
+                        } else {
+                            serde_bindings.push_str(&crate::template_env::render(
+                                "serde_config_required",
+                                minijinja::context! {
+                                    param_name => &p.name,
+                                    core_path => &core_path,
+                                    err_conv => &err_conv,
+                                    input_dto_type => &input_dto_type,
+                                },
+                            ));
+                            serde_bindings.push_str("    ");
+                        }
                     } else {
-                        serde_bindings.push_str(&crate::template_env::render(
-                            "serde_named_required",
-                            minijinja::context! {
-                                param_name => &p.name,
-                                core_path => &core_path,
-                                err_conv => &err_conv,
-                            },
-                        ));
-                        serde_bindings.push_str("    ");
+                        // Regular named type deserialization
+                        if p.optional {
+                            serde_bindings.push_str(&crate::template_env::render(
+                                "serde_named_optional",
+                                minijinja::context! {
+                                    param_name => &p.name,
+                                    core_path => &core_path,
+                                    err_conv => &err_conv,
+                                },
+                            ));
+                            serde_bindings.push_str("    ");
+                        } else {
+                            serde_bindings.push_str(&crate::template_env::render(
+                                "serde_named_required",
+                                minijinja::context! {
+                                    param_name => &p.name,
+                                    core_path => &core_path,
+                                    err_conv => &err_conv,
+                                },
+                            ));
+                            serde_bindings.push_str("    ");
+                        }
                     }
                 }
                 TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => {
@@ -559,22 +672,24 @@ pub(super) fn gen_function(
                 "{serde_bindings}let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})"
             )
         };
-        format!(
+        let fn_code = format!(
             "{attrs}#[wasm_bindgen{js_name_attr}]\npub fn {}({}) -> {} {{\n    \
              {body}\n}}",
             func.name,
             serde_params.join(", "),
             return_annotation
-        )
+        );
+        format!("{input_dtos}{fn_code}")
     } else {
         let body = gen_wasm_unimplemented_body(&func.return_type, &func.name, func.error_type.is_some());
-        format!(
+        let fn_code = format!(
             "{attrs}#[wasm_bindgen{js_name_attr}]\npub fn {}({}) -> {} {{\n    \
              {body}\n}}",
             func.name,
             params.join(", "),
             return_annotation
-        )
+        );
+        format!("{input_dtos}{fn_code}")
     }
 }
 

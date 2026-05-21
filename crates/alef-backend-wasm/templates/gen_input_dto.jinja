@@ -1,0 +1,17 @@
+#[derive(serde::Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+pub struct {{ input_name }} {
+{%- for field in fields %}
+    pub {{ field.name }}: {{ field.ty }},
+{%- endfor %}
+}
+
+impl From<{{ input_name }}> for {{ core_path }} {
+    fn from(val: {{ input_name }}) -> Self {
+        Self {
+{%- for field in fields %}
+            {{ field.core_name }}: val.{{ field.name }},
+{%- endfor %}
+        }
+    }
+}

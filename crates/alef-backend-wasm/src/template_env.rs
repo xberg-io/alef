@@ -89,6 +89,15 @@ static TEMPLATES: &[(&str, &str)] = &[
         "serde_vec_unit_enum_required",
         include_str!("../templates/serde_vec_unit_enum_required.jinja"),
     ),
+    ("gen_input_dto", include_str!("../templates/gen_input_dto.jinja")),
+    (
+        "serde_config_required",
+        include_str!("../templates/serde_config_required.jinja"),
+    ),
+    (
+        "serde_config_optional",
+        include_str!("../templates/serde_config_optional.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {

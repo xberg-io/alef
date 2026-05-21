@@ -1,0 +1,6 @@
+let {{ param_name }}_input: Option<{{ input_dto_type }}> = if {{ param_name }}.is_undefined() {
+        None
+    } else {
+        Some(serde_wasm_bindgen::from_value::<{{ input_dto_type }}>({{ param_name }}){{ err_conv }}?)
+    };
+    let {{ param_name }}_core: Option<{{ core_path }}> = {{ param_name }}_input.map(Into::into);

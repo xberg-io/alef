@@ -1,0 +1,6 @@
+let {{ param_name }}_input: {{ input_dto_type }} = if {{ param_name }}.is_undefined() {
+        {{ input_dto_type }}::default()
+    } else {
+        serde_wasm_bindgen::from_value::<{{ input_dto_type }}>({{ param_name }}){{ err_conv }}?
+    };
+    let {{ param_name }}_core: {{ core_path }} = {{ param_name }}_input.into();
