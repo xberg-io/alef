@@ -36,6 +36,7 @@ pub mod naming;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+use alef_backend_kotlin::literal_normalizer;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{KotlinFfiStyle, Language, ResolvedCrateConfig};
 use alef_core::ir::{ApiSurface, TypeRef};
@@ -195,7 +196,7 @@ impl Backend for KotlinAndroidBackend {
         files.extend(gen_jni_skeleton::emit(config, &layout.package_root));
         files.extend(gen_bindings::emit(api, config, &layout.kotlin_source_dir));
 
-        post_process_kotlin_files(&mut files);
+        apply_kotlin_post_processing(&mut files);
         Ok(files)
     }
 
@@ -310,20 +311,12 @@ fn strip_kotlin_source_suffix(configured: &Path, pkg_path: &str) -> Option<PathB
     Some(root)
 }
 
-/// Apply post-processing fixes to generated Kotlin files.
+/// Apply post-processing fixes to generated Kotlin files using the shared normalizer.
 /// Fixes integer-like float literals that lack decimal points (e.g., "32" -> "32.0").
-fn post_process_kotlin_files(files: &mut [GeneratedFile]) {
-    use regex::Regex;
-
-    // Match `: Double = <digits>` (no decimal point) and add `.0`
-    let double_pattern = Regex::new(r"(: Double = )(\d+)([^.\d])").expect("invalid regex");
-    // Match `: Float = <digits>f` (no decimal point) and add `.0`
-    let float_pattern = Regex::new(r"(: Float = )(\d+)(f)").expect("invalid regex");
-
+fn apply_kotlin_post_processing(files: &mut [GeneratedFile]) {
     for file in files {
         if file.path.ends_with(".kt") {
-            let content = double_pattern.replace_all(&file.content, "${1}${2}.0${3}").into_owned();
-            file.content = float_pattern.replace_all(&content, "${1}${2}.0${3}").into_owned();
+            file.content = literal_normalizer::fix_float_literals(&file.content);
         }
     }
 }

@@ -5,7 +5,7 @@
 
 mod helpers;
 pub mod jni_emitter;
-mod literal_normalizer;
+pub mod literal_normalizer;
 mod object_wrapper;
 mod shared;
 pub mod trait_bridge;
