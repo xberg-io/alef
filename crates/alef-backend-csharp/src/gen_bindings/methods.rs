@@ -331,7 +331,7 @@ fn gen_wrapper_function(
     if is_bytes_result_func(func) {
         let cs_native_name = to_csharp_name(&func.name);
         // Emit setup for Named and Bytes parameters before calling the native method
-        emit_named_param_setup(&mut out, &visible_params, "        ", true_opaque_types, exception_name);
+        emit_named_param_setup(&mut out, &visible_params, "        ", true_opaque_types, exception_name, types);
         // Build the args block for the template: each arg on its own indented line with trailing comma.
         let mut args_block = String::new();
         for param in visible_params.iter() {
@@ -426,7 +426,7 @@ fn gen_wrapper_function(
     }
 
     // Serialize Named (opaque handle) params to JSON and obtain native handles.
-    emit_named_param_setup(&mut out, &visible_params, "        ", true_opaque_types, exception_name);
+    emit_named_param_setup(&mut out, &visible_params, "        ", true_opaque_types, exception_name, types);
 
     // Method body - delegation to native method with proper marshalling
     let cs_native_name = to_csharp_name(&func.name);
@@ -809,6 +809,7 @@ fn gen_wrapper_method(
     handle_returned_types: &HashSet<String>,
     bridge_param_names: &HashSet<String>,
     bridge_type_aliases: &HashSet<String>,
+    types: &[alef_core::ir::TypeDef],
 ) -> String {
     use crate::template_env::render;
 
@@ -926,7 +927,7 @@ fn gen_wrapper_method(
     // Result<Vec<u8>> uses the out-param convention — emit specialized body and return early.
     if is_bytes_result_method(method) {
         // Emit setup for Named and Bytes parameters before calling the native method
-        emit_named_param_setup(&mut out, &visible_params, "        ", true_opaque_types, exception_name);
+        emit_named_param_setup(&mut out, &visible_params, "        ", true_opaque_types, exception_name, types);
         // Build the args block: receiver (if any) then visible params, each with trailing comma.
         let mut args_block = String::new();
         if has_receiver {
@@ -966,7 +967,7 @@ fn gen_wrapper_method(
     }
 
     // Serialize Named (opaque handle) params to JSON and obtain native handles.
-    emit_named_param_setup(&mut out, &visible_params, "        ", true_opaque_types, exception_name);
+    emit_named_param_setup(&mut out, &visible_params, "        ", true_opaque_types, exception_name, types);
 
     // Method body - delegation to native method with proper marshalling.
     // Use the type-prefixed name to match the P/Invoke declaration, which includes the type

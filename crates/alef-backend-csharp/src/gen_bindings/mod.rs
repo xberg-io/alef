@@ -418,6 +418,7 @@ impl Backend for CsharpBackend {
                     path: base_path.join(format!("{}.cs", type_filename)),
                     content: strip_trailing_whitespace(&types::gen_opaque_handle(
                         typ,
+                        &api.types,
                         &namespace,
                         &exception_class_name,
                         &enum_names,
@@ -511,6 +512,7 @@ impl Backend for CsharpBackend {
                     path: base_path.join(format!("{}.cs", type_filename)),
                     content: strip_trailing_whitespace(&types::gen_record_type(
                         typ,
+                        &api.types,
                         &namespace,
                         &prefix,
                         &enum_names,
