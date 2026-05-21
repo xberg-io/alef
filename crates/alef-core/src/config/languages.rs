@@ -437,6 +437,14 @@ pub struct WasmConfig {
     /// `pub use mylib_core::*`).
     #[serde(default)]
     pub source_crate_remaps: Vec<String>,
+    /// List of static-compiled languages supported by WASM.
+    /// When set, e2e smoke tests will auto-skip for languages not in this list,
+    /// emitting `.skip("not in WASM's static language set")` for each unsupported language.
+    /// This bridges the gap between the full 305-language pack and the 8-language
+    /// WASM build compiled with `TSLP_LANGUAGES=python,rust,javascript,typescript,go,html,css,json`.
+    /// Defaults to empty (all languages assumed supported).
+    #[serde(default)]
+    pub languages: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

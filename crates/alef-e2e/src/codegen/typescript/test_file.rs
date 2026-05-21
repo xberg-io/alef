@@ -848,6 +848,18 @@ fn render_test_case(
         (result_var.to_string(), String::new())
     };
 
+    // Extract skip reason if the fixture has a skip directive for this language
+    let skip_reason = fixture
+        .skip
+        .as_ref()
+        .and_then(|skip| {
+            if skip.should_skip(lang) {
+                skip.reason.clone()
+            } else {
+                None
+            }
+        });
+
     let ctx = minijinja::context! {
         test_name => test_name,
         description => description,
@@ -863,6 +875,7 @@ fn render_test_case(
         expects_error => expects_error,
         is_streaming_error_call => is_streaming_error_call,
         lang => lang,
+        skip_reason => skip_reason,
     };
     let rendered = crate::template_env::render("typescript/test_function.jinja", ctx);
     out.push_str(&rendered);

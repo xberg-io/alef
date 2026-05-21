@@ -92,41 +92,83 @@ impl E2eCodegen for WasmCodegen {
         // Determine which auxiliary scaffolding files we need based on the active
         // fixture set. Doing this once up front lets us emit a self-contained vitest
         // config that wires only the setup files we'll actually generate.
-        let active_per_group: Vec<Vec<&Fixture>> = groups
+        //
+        // WASM language filtering: when `[crates.wasm].languages` is set, auto-skip
+        // fixtures for languages not in that static-compiled list. This bridges the gap
+        // between the full language pack and WASM's 8-language static build.
+        let wasm_languages = config.wasm.as_ref().and_then(|w| {
+            if w.languages.is_empty() {
+                None
+            } else {
+                Some(w.languages.clone())
+            }
+        });
+
+        // Build active fixtures per group. For WASM, when the backend declares a static
+        // language set via `[crates.wasm].languages`, include fixtures for languages
+        // not in that set but mark them with auto-skip directives so they render as
+        // `it.skip()` tests instead of being omitted entirely.
+        let active_per_group: Vec<Vec<Fixture>> = groups
             .iter()
             .map(|group| {
-                group
-                    .fixtures
-                    .iter()
-                    .filter(|f| super::should_include_fixture(f, lang, e2e_config))
-                    // Honor per-call `skip_languages`: when the resolved call's
-                    // `skip_languages` contains `wasm`, the wasm binding doesn't
-                    // export that function and any test file referencing it
-                    // would fail TS resolution. Drop the fixture entirely.
-                    .filter(|f| {
-                        let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
-                        !cc.skip_languages.iter().any(|l| l == lang)
-                    })
-                    .filter(|f| {
-                        // Node fetch (undici) rejects pre-set Content-Length that
-                        // doesn't match the real body length — skip fixtures that
-                        // intentionally send a mismatched header.
-                        f.http.as_ref().is_none_or(|h| {
-                            !h.request
+                let mut result = Vec::new();
+                for fixture in &group.fixtures {
+                    // Determine if this fixture should be included.
+                    // Start with the base should_include_fixture check.
+                    let base_include = super::should_include_fixture(fixture, lang, e2e_config);
+
+                    // Check per-call skip_languages (fixture is completely unsupported)
+                    let cc = e2e_config.resolve_call_for_fixture(
+                        fixture.call.as_deref(),
+                        &fixture.id,
+                        &fixture.resolved_category(),
+                        &fixture.tags,
+                        &fixture.input,
+                    );
+                    if cc.skip_languages.iter().any(|l| l == lang) {
+                        // Per-call skip — drop entirely, never include
+                        continue;
+                    }
+
+                    if base_include {
+                        // Check node fetch compatibility
+                        if let Some(http) = &fixture.http {
+                            if http.request
                                 .headers
                                 .iter()
                                 .any(|(k, _)| k.eq_ignore_ascii_case("content-length"))
-                        })
-                    })
-                    .filter(|f| {
-                        // Node fetch only supports a fixed set of HTTP methods;
-                        // TRACE and CONNECT throw before reaching the server.
-                        f.http.as_ref().is_none_or(|h| {
-                            let m = h.request.method.to_ascii_uppercase();
-                            m != "TRACE" && m != "CONNECT"
-                        })
-                    })
-                    .collect()
+                            {
+                                // Node fetch rejects mismatched Content-Length — skip fixture
+                                continue;
+                            }
+                            let m = http.request.method.to_ascii_uppercase();
+                            if m == "TRACE" || m == "CONNECT" {
+                                // Node fetch doesn't support these methods — skip fixture
+                                continue;
+                            }
+                        }
+
+                        // Include the fixture normally
+                        result.push(fixture.clone());
+                    } else if let Some(ref wasm_langs) = wasm_languages {
+                        // Fixture failed should_include_fixture. If WASM has a static
+                        // language set, auto-add a skip directive so it renders as it.skip()
+                        // instead of being omitted entirely.
+                        let mut auto_skipped = fixture.clone();
+                        if auto_skipped.skip.is_none() {
+                            // Only auto-skip if the fixture doesn't already have a skip directive
+                            auto_skipped.skip = Some(crate::fixture::SkipDirective {
+                                languages: vec!["wasm".to_string()],
+                                reason: Some(format!(
+                                    "language not in WASM's static-compiled set: [{}]",
+                                    wasm_langs.join(", ")
+                                )),
+                            });
+                            result.push(auto_skipped);
+                        }
+                    }
+                }
+                result
             })
             .collect();
 
@@ -239,10 +281,12 @@ impl E2eCodegen for WasmCodegen {
                 continue;
             }
             let filename = format!("{}.test.ts", sanitize_filename(&group.category));
+            // Convert Vec<Fixture> to Vec<&Fixture> for render_test_file
+            let active_refs: Vec<&Fixture> = active.iter().collect();
             let content = super::typescript::render_test_file(
                 lang,
                 &group.category,
-                active,
+                &active_refs,
                 &module_path,
                 &pkg_name,
                 &function_name,
