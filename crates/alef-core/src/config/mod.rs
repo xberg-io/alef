@@ -9,6 +9,7 @@ pub mod extras;
 pub mod languages;
 pub mod legacy;
 pub mod lint_defaults;
+pub mod manifest_extras;
 pub mod new_config;
 pub mod output;
 pub mod publish;

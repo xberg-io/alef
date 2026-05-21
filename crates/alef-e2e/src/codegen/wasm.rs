@@ -207,6 +207,7 @@ impl E2eCodegen for WasmCodegen {
                 pkg_path_is_explicit,
                 &pkg_version,
                 e2e_config.dep_mode,
+                e2e_config.harness_extras.get("wasm"),
             ),
             generated_header: false,
         });
@@ -346,6 +347,7 @@ fn render_package_json(
     pkg_path_is_explicit: bool,
     pkg_version: &str,
     dep_mode: crate::config::DependencyMode,
+    extras: Option<&alef_core::config::manifest_extras::ManifestExtras>,
 ) -> String {
     let dep_value = match dep_mode {
         crate::config::DependencyMode::Registry => pkg_version.to_string(),
@@ -365,7 +367,7 @@ fn render_package_json(
             }
         }
     };
-    crate::template_env::render(
+    let rendered = crate::template_env::render(
         "wasm/package.json.jinja",
         minijinja::context! {
             pkg_name => pkg_name,
@@ -373,7 +375,11 @@ fn render_package_json(
             rollup => tv::npm::ROLLUP,
             vitest => tv::npm::VITEST,
         },
-    )
+    );
+    match extras {
+        Some(e) if !e.is_empty() => crate::codegen::typescript::config::inject_package_json_extras(&rendered, e),
+        _ => rendered,
+    }
 }
 
 fn render_vitest_config(with_global_setup: bool, with_file_setup: bool) -> String {
