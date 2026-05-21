@@ -13,19 +13,19 @@ enum ServerCall<'a> {
     AxumMethod(&'a str),
 }
 
-/// How to register a route on a spikard App in generated code.
+/// How to register a route on the configured HTTP framework's App in generated code.
 enum RouteRegistration<'a> {
-    /// Emit `spikard::get(path)` / `spikard::post(path)` etc.
+    /// Emit `<dep>::get(path)` / `<dep>::post(path)` etc.
     Shorthand(&'a str),
-    /// Emit `spikard::RouteBuilder::new(spikard::Method::Options, path)` etc.
+    /// Emit `<dep>::RouteBuilder::new(<dep>::Method::Options, path)` etc.
     Explicit(&'a str),
 }
 
 /// Generate a complete integration test function for an http fixture.
 ///
-/// Builds a real spikard `App` with a handler that returns the expected
-/// response, then uses `axum_test::TestServer` to send the request and
-/// assert the status code.
+/// Builds a real `App` from the configured HTTP framework crate with a handler
+/// that returns the expected response, then uses `axum_test::TestServer` to send
+/// the request and assert the status code.
 pub fn render_http_test_function(out: &mut String, fixture: &Fixture, dep_name: &str) {
     let http = match &fixture.http {
         Some(h) => h,
@@ -37,8 +37,9 @@ pub fn render_http_test_function(out: &mut String, fixture: &Fixture, dep_name: 
 
     let route = &http.handler.route;
 
-    // spikard provides convenience functions for GET/POST/PUT/PATCH/DELETE.
-    // All other methods (HEAD, OPTIONS, TRACE, etc.) must use RouteBuilder::new directly.
+    // The configured HTTP framework crate is expected to expose convenience functions
+    // for GET/POST/PUT/PATCH/DELETE. All other methods (HEAD, OPTIONS, TRACE, etc.) must
+    // use RouteBuilder::new directly.
     let route_reg = match http.handler.method.to_lowercase().as_str() {
         "get" => RouteRegistration::Shorthand("get"),
         "post" => RouteRegistration::Shorthand("post"),
@@ -278,7 +279,7 @@ pub fn render_cors_layer(out: &mut String, cors: &CorsConfig) {
 /// Emit lines for a static-files integration test.
 ///
 /// Writes fixture files to a temporary directory and serves them via
-/// `tower_http::services::ServeDir`, bypassing the spikard App entirely.
+/// `tower_http::services::ServeDir`, bypassing the framework App entirely.
 fn render_static_files_test(
     out: &mut String,
     fixture: &Fixture,

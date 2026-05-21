@@ -149,7 +149,25 @@ impl StreamingFieldResolver {
     ///
     /// Returns `None` when the field name is not a known streaming-virtual
     /// field or the language has no streaming support.
+    ///
+    /// `module_qualifier` carries the per-project module/crate name used by the
+    /// Rust and C# `stream.has_*_event` branches to construct the `CrawlEvent`
+    /// type path. Pass the cargo crate name (snake_case) for Rust callers and
+    /// the C# namespace (PascalCase) for C# callers. When `None` is supplied
+    /// for those branches, the accessor returns `None` so the call site can
+    /// skip the assertion rather than emit code referencing an unknown type.
     pub fn accessor(field: &str, lang: &str, chunks_var: &str) -> Option<String> {
+        Self::accessor_with_module_qualifier(field, lang, chunks_var, None)
+    }
+
+    /// Same as [`Self::accessor`] but accepts a per-project module qualifier
+    /// for the `stream.has_*_event` branches that emit a `CrawlEvent` type path.
+    pub fn accessor_with_module_qualifier(
+        field: &str,
+        lang: &str,
+        chunks_var: &str,
+        module_qualifier: Option<&str>,
+    ) -> Option<String> {
         match field {
             "chunks" => Some(match lang {
                 // Zig ArrayList does not expose .len directly; must use .items
@@ -318,9 +336,15 @@ impl StreamingFieldResolver {
             // PHP and WASM intentionally return `None`: PHP's crawl-stream is
             // exposed as eager JSON (see `chunks_var` collect_snippet) and WASM
             // does not support streaming on `wasm32` targets.
-            "stream.has_page_event" => has_event_variant_accessor(lang, chunks_var, EventVariant::Page),
-            "stream.has_error_event" => has_event_variant_accessor(lang, chunks_var, EventVariant::Error),
-            "stream.has_complete_event" => has_event_variant_accessor(lang, chunks_var, EventVariant::Complete),
+            "stream.has_page_event" => {
+                has_event_variant_accessor(lang, chunks_var, EventVariant::Page, module_qualifier)
+            }
+            "stream.has_error_event" => {
+                has_event_variant_accessor(lang, chunks_var, EventVariant::Error, module_qualifier)
+            }
+            "stream.has_complete_event" => {
+                has_event_variant_accessor(lang, chunks_var, EventVariant::Complete, module_qualifier)
+            }
 
             // event_count_min is the collected chunks count — used with
             // `greater_than_or_equal` assertions on the chunk count.  Mirrors
@@ -750,7 +774,12 @@ impl EventVariant {
 ///
 /// Returns `None` for languages where streaming `CrawlEvent` matching is not
 /// expressible (PHP — eager-JSON, WASM — no streaming on wasm32).
-fn has_event_variant_accessor(lang: &str, chunks_var: &str, variant: EventVariant) -> Option<String> {
+fn has_event_variant_accessor(
+    lang: &str,
+    chunks_var: &str,
+    variant: EventVariant,
+    module_qualifier: Option<&str>,
+) -> Option<String> {
     let tag = variant.tag();
     let camel = variant.upper_camel();
     match lang {
@@ -772,9 +801,10 @@ fn has_event_variant_accessor(lang: &str, chunks_var: &str, variant: EventVarian
             "{chunks_var}.stream().anyMatch(e -> e instanceof CrawlEvent.{camel})"
         )),
         // C#: abstract record CrawlEvent with nested sealed records.
-        "csharp" => Some(format!(
-            "{chunks_var}.Any(e => e is global::Kreuzcrawl.CrawlEvent.{camel})"
-        )),
+        // The qualifier is the project's C# namespace (e.g. `Kreuzcrawl`).
+        "csharp" => module_qualifier.map(|ns| {
+            format!("{chunks_var}.Any(e => e is global::{ns}.CrawlEvent.{camel})")
+        }),
         // Swift: enum CrawlEvent with associated values.  `if case .<tag> = e`
         // is a statement, not an expression — wrap in a `contains(where:)` call
         // with a switch-returning-bool closure.
@@ -803,11 +833,13 @@ fn has_event_variant_accessor(lang: &str, chunks_var: &str, variant: EventVarian
         // struct-style variants `Page { result }`, `Error { url, error }`,
         // `Complete { pages_crawled }`.  Use `matches!` for the predicate so
         // we don't bind the variant payload.
-        "rust" => Some(format!(
-            "{chunks_var}.iter().any(|e| matches!(e, kreuzcrawl::CrawlEvent::{camel} {{ .. }}))"
-        )),
+        // The qualifier is the project's cargo crate name (snake_case,
+        // e.g. `kreuzcrawl`).
+        "rust" => module_qualifier.map(|crate_name| {
+            format!("{chunks_var}.iter().any(|e| matches!(e, {crate_name}::CrawlEvent::{camel} {{ .. }}))")
+        }),
         // PHP: crawl-stream is delivered as eager JSON (see PHP collect_snippet)
-        // and the kreuzcrawl PHP binding does not expose typed CrawlEvent objects.
+        // and the PHP binding does not expose typed CrawlEvent objects.
         // WASM: streaming is unavailable on wasm32 targets.
         "php" | "wasm" => None,
         _ => None,
