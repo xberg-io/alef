@@ -316,7 +316,7 @@ pub fn build(b: *std.Build) void {
     );
     let _ = writeln!(
         content,
-        "        .root_source_file = b.path(\"../../packages/zig/src/{pkg_name}.zig\"),"
+        "        .root_source_file = b.path(\"../../packages/zig/src/{module_name}.zig\"),"
     );
     content.push_str("        .target = target,\n");
     content.push_str("        .optimize = optimize,\n");
