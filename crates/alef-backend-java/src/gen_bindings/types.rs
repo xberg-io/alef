@@ -2178,9 +2178,16 @@ fn gen_sealed_union_deserializer(out: &mut String, _package: &str, enum_def: &En
             out.push_str(&enum_def.name);
             out.push('.');
             out.push_str(&variant.name);
-            out.push_str("(ctx.readTreeAsValue(node, ");
-            out.push_str(inner_type.as_ref());
-            out.push_str(".class));\n");
+            out.push_str("(");
+            // For String inner types, convert the entire node to JSON string
+            if inner_type.as_ref() == "String" {
+                out.push_str("node.toString()");
+            } else {
+                out.push_str("ctx.readTreeAsValue(node, ");
+                out.push_str(inner_type.as_ref());
+                out.push_str(".class)");
+            }
+            out.push_str(");\n");
         } else {
             // Named field variant - deserialize using Jackson's normal deserialization
             out.push_str("ctx.readTreeAsValue(node, ");
