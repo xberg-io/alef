@@ -1473,16 +1473,27 @@ fn build_args_and_setup(
                 if arg.arg_type == "json_object" && !v.is_null() {
                     // Check for batch item arrays first
                     if let Some(elem_type) = &arg.element_type {
-                        if (elem_type == "BatchBytesItem" || elem_type == "BatchFileItem") && v.is_array() {
-                            parts.push(emit_php_batch_item_array(v, elem_type));
-                            continue;
-                        }
-                        // When element_type is a scalar/primitive and value is an array,
-                        // pass it directly as a PHP array (e.g. ["python"]) rather than
-                        // wrapping in a typed config constructor.
-                        if v.is_array() && is_php_reserved_type(elem_type) {
-                            parts.push(json_to_php(v));
-                            continue;
+                        if v.is_array() {
+                            if elem_type == "BatchBytesItem" || elem_type == "BatchFileItem" {
+                                parts.push(emit_php_batch_item_array(v, elem_type));
+                                continue;
+                            }
+                            // When element_type is a scalar/primitive and value is an array,
+                            // pass it directly as a PHP array (e.g. ["python"]) rather than
+                            // wrapping in a typed config constructor.
+                            if is_php_reserved_type(elem_type) {
+                                parts.push(json_to_php(v));
+                                continue;
+                            }
+                            // Tagged-enum array (e.g., [["type" => "click", "selector" => "#id"], ...]): emit as array of assoc arrays
+                            if let Some(arr) = v.as_array() {
+                                let items: Vec<String> = arr
+                                    .iter()
+                                    .filter_map(|item| item.as_object().map(|obj| json_to_php(&serde_json::Value::Object(obj.clone()))))
+                                    .collect();
+                                parts.push(format!("[{}]", items.join(", ")));
+                                continue;
+                            }
                         }
                     }
                     match options_via {

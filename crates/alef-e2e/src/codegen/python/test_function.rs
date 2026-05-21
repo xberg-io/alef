@@ -767,21 +767,19 @@ fn emit_json_object_arg(
 ) -> bool {
     match options_via {
         "dict" => {
-            // When we have an array of objects and an element_type, construct typed instances.
-            if let (Some(elem_type), Some(arr)) = (element_type, value.as_array()) {
+            // When we have an array of objects and an element_type, emit dict literals (not constructor calls).
+            // The bindings expect [{"type": "click", "selector": "#id"}, ...], not [PageAction(...), ...]
+            if let (Some(_elem_type), Some(arr)) = (element_type, value.as_array()) {
                 if !arr.is_empty() && arr.iter().all(|v| v.is_object()) {
                     let items: Vec<String> = arr
                         .iter()
                         .filter_map(|v| v.as_object())
                         .map(|obj| {
-                            let kwargs: Vec<String> = obj
+                            let dict_items: Vec<String> = obj
                                 .iter()
-                                .map(|(k, v)| {
-                                    let snake_key = k.to_snake_case();
-                                    format!("{snake_key}={}", json_to_python_literal(v))
-                                })
+                                .map(|(k, v)| format!("{}: {}", json_to_python_literal(&serde_json::Value::String(k.clone())), json_to_python_literal(v)))
                                 .collect();
-                            format!("{elem_type}({})", kwargs.join(", "))
+                            format!("{{{}}}", dict_items.join(", "))
                         })
                         .collect();
                     arg_bindings.push(format!("    {var_name} = [{}]", items.join(", ")));

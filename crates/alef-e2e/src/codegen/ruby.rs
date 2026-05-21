@@ -1432,10 +1432,23 @@ fn build_args_and_setup(
                 // For json_object args with options_type, construct a typed options object.
                 // When result_is_simple, the binding accepts a plain Hash (no wrapper class).
                 if arg.arg_type == "json_object" && !v.is_null() {
-                    // Check for batch item arrays (element_type set to BatchBytesItem/BatchFileItem)
+                    // Check for batch item arrays or tagged-enum arrays (element_type set)
                     if let Some(elem_type) = &arg.element_type {
-                        if (elem_type == "BatchBytesItem" || elem_type == "BatchFileItem") && v.is_array() {
-                            parts.push(emit_ruby_batch_item_array(v, elem_type, module_name));
+                        if v.is_array() {
+                            if elem_type == "BatchBytesItem" || elem_type == "BatchFileItem" {
+                                parts.push(emit_ruby_batch_item_array(v, elem_type, module_name));
+                            } else {
+                                // Tagged-enum array (e.g., [PageAction {...}, ...]): emit as array of hashes
+                                if let Some(arr) = v.as_array() {
+                                    let items: Vec<String> = arr
+                                        .iter()
+                                        .filter_map(|item| item.as_object().map(|obj| json_to_ruby(&serde_json::Value::Object(obj.clone()))))
+                                        .collect();
+                                    parts.push(format!("[{}]", items.join(", ")));
+                                } else {
+                                    parts.push("[]".to_string());
+                                }
+                            }
                             continue;
                         }
                     }
