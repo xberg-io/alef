@@ -102,7 +102,8 @@ fn swift_emits_labelled_arguments_on_free_function_calls() {
     // for the bug where no labels were emitted at all).
     // The old incorrect pattern would be: try TreeSitterLanguagePack.process("..."
     // The correct pattern should be: try TreeSitterLanguagePack.process(source: "..."
-    let has_qualified_source_label = content.contains("source:") && !content.contains("try TreeSitterLanguagePack.process(\"");
+    let has_qualified_source_label =
+        content.contains("source:") && !content.contains("try TreeSitterLanguagePack.process(\"");
     assert!(
         has_qualified_source_label,
         "Swift call must qualify free-function with module name and use argument labels"

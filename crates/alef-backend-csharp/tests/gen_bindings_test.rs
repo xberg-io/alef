@@ -1345,10 +1345,7 @@ fn test_duplicate_variant_names_across_error_enums_do_not_corrupt_files() {
             .find(|f| f.path.file_name().is_some_and(|n| n == file_name.as_str()))
             .unwrap_or_else(|| panic!("must emit {file_name}"));
         let content = &file.content;
-        let non_empty_lines: Vec<&str> = content
-            .lines()
-            .filter(|l| !l.trim().is_empty())
-            .collect();
+        let non_empty_lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
         let last = non_empty_lines.last().copied().unwrap_or("");
         assert_eq!(
             last.trim(),
