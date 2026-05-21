@@ -905,7 +905,7 @@ pub(super) fn emit_named_param_setup(
 
                 // Check if the config type has any required fields
                 let type_def = types.iter().find(|t| &t.name == type_name);
-                let has_required = type_def.map_or(false, type_has_required_fields);
+                let has_required = type_def.is_some_and(type_has_required_fields);
 
                 let param_to_serialize = if is_config_param {
                     if has_required {

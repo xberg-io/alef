@@ -357,7 +357,14 @@ fn gen_opaque_method(
     out.push_str(")\n    {\n");
 
     // Serialize Named params to JSON handles.
-    emit_named_param_setup(&mut out, &visible_params, "        ", true_opaque_types, exception_name, types);
+    emit_named_param_setup(
+        &mut out,
+        &visible_params,
+        "        ",
+        true_opaque_types,
+        exception_name,
+        types,
+    );
 
     // The native method name is {TypeName}{MethodName} (same as gen_wrapper_method).
     let cs_native_name = format!("{class_name}{method_cs_name}");
@@ -1083,7 +1090,14 @@ fn emit_record_methods(
                 ));
                 out.push_str("        try\n        {\n");
                 // Setup Named params inside try block
-                emit_named_param_setup(out, &method.params, "            ", true_opaque_types, exception_class, types);
+                emit_named_param_setup(
+                    out,
+                    &method.params,
+                    "            ",
+                    true_opaque_types,
+                    exception_class,
+                    types,
+                );
                 // Build call args using native_call_arg helper for proper marshalling
                 let mut call_args = vec!["selfHandle".to_string()];
                 call_args.extend(method.params.iter().map(|p| {
@@ -1118,7 +1132,14 @@ fn emit_record_methods(
                 });
 
                 if needs_handle_params {
-                    emit_named_param_setup(out, &method.params, "        ", true_opaque_types, exception_class, types);
+                    emit_named_param_setup(
+                        out,
+                        &method.params,
+                        "        ",
+                        true_opaque_types,
+                        exception_class,
+                        types,
+                    );
                     out.push_str("        try\n        {\n");
                 }
 
@@ -1161,7 +1182,14 @@ fn emit_record_methods(
                 ));
                 out.push_str("        try\n        {\n");
                 // Setup Named params inside try block
-                emit_named_param_setup(out, &method.params, "            ", true_opaque_types, exception_class, types);
+                emit_named_param_setup(
+                    out,
+                    &method.params,
+                    "            ",
+                    true_opaque_types,
+                    exception_class,
+                    types,
+                );
                 // Build call args using native_call_arg helper for proper marshalling
                 let mut call_args = vec!["selfHandle".to_string()];
                 call_args.extend(method.params.iter().map(|p| {
@@ -1193,7 +1221,14 @@ fn emit_record_methods(
                 });
 
                 if needs_handle_params {
-                    emit_named_param_setup(out, &method.params, "        ", true_opaque_types, exception_class, types);
+                    emit_named_param_setup(
+                        out,
+                        &method.params,
+                        "        ",
+                        true_opaque_types,
+                        exception_class,
+                        types,
+                    );
                     out.push_str("        try\n        {\n");
                 }
 
