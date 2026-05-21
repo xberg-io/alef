@@ -57,13 +57,23 @@ pub struct SystemMessage(pub demo::SystemMessage);
 impl SystemMessage {
     pub fn new(content: String, name: Option<String>) -> SystemMessage {
         let mut __target: demo::SystemMessage = ::std::default::Default::default();
-        if let Ok(v) = ::serde_json::from_str::<::serde_json::Value>(&content) {
-            if let Ok(t) = ::serde_json::from_value(v) { __target.content = t; }
+        {
+            // Try JSON parse first (handles enum/object values); on parse failure
+            // treat the raw input as a JSON string scalar so plain `String` /
+            // string-like enum fields don't end up empty for inputs that aren't
+            // valid JSON tokens (e.g. `tts-1`).
+            let __v = ::serde_json::from_str::<::serde_json::Value>(&content)
+                .unwrap_or_else(|_| ::serde_json::Value::String(content.clone()));
+            if let Ok(t) = ::serde_json::from_value(__v) { __target.content = t; }
         }
         if let Some(s) = name {
-            if let Ok(v) = ::serde_json::from_str::<::serde_json::Value>(&s) {
-                if let Ok(t) = ::serde_json::from_value(v) { __target.name = Some(t); }
-            }
+            // Try JSON parse first (handles enum/object values); on parse failure
+            // treat the raw input as a JSON string scalar so plain `String` /
+            // string-like enum fields don't end up empty for inputs that aren't
+            // valid JSON tokens (e.g. `tts-1`).
+            let __v = ::serde_json::from_str::<::serde_json::Value>(&s)
+                .unwrap_or_else(|_| ::serde_json::Value::String(s));
+            if let Ok(t) = ::serde_json::from_value(__v) { __target.name = Some(t); }
         }
         SystemMessage(__target)
     }

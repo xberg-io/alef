@@ -92,8 +92,14 @@ pub struct OcrConfig(pub demo::OcrConfig);
 impl OcrConfig {
     pub fn new(language: String) -> OcrConfig {
         let mut __target: demo::OcrConfig = ::std::default::Default::default();
-        if let Ok(v) = ::serde_json::from_str::<::serde_json::Value>(&language) {
-            if let Ok(t) = ::serde_json::from_value(v) { __target.language = t; }
+        {
+            // Try JSON parse first (handles enum/object values); on parse failure
+            // treat the raw input as a JSON string scalar so plain `String` /
+            // string-like enum fields don't end up empty for inputs that aren't
+            // valid JSON tokens (e.g. `tts-1`).
+            let __v = ::serde_json::from_str::<::serde_json::Value>(&language)
+                .unwrap_or_else(|_| ::serde_json::Value::String(language.clone()));
+            if let Ok(t) = ::serde_json::from_value(__v) { __target.language = t; }
         }
         OcrConfig(__target)
     }
@@ -106,8 +112,14 @@ pub struct ExtractionResult(pub demo::ExtractionResult);
 impl ExtractionResult {
     pub fn new(text: String) -> ExtractionResult {
         let mut __target: demo::ExtractionResult = ::std::default::Default::default();
-        if let Ok(v) = ::serde_json::from_str::<::serde_json::Value>(&text) {
-            if let Ok(t) = ::serde_json::from_value(v) { __target.text = t; }
+        {
+            // Try JSON parse first (handles enum/object values); on parse failure
+            // treat the raw input as a JSON string scalar so plain `String` /
+            // string-like enum fields don't end up empty for inputs that aren't
+            // valid JSON tokens (e.g. `tts-1`).
+            let __v = ::serde_json::from_str::<::serde_json::Value>(&text)
+                .unwrap_or_else(|_| ::serde_json::Value::String(text.clone()));
+            if let Ok(t) = ::serde_json::from_value(__v) { __target.text = t; }
         }
         ExtractionResult(__target)
     }

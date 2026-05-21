@@ -299,7 +299,10 @@ fn emit_opaque_streaming_method(
 
     // Accumulate all chunks into a JSON array — the Zig caller parses elements lazily.
     // Zig 0.16+ changed ArrayList API: allocator is passed at each operation, not at init.
-    let _ = writeln!(out, "        var _buf = try std.ArrayList(u8).initCapacity(std.heap.c_allocator, 0);");
+    let _ = writeln!(
+        out,
+        "        var _buf = try std.ArrayList(u8).initCapacity(std.heap.c_allocator, 0);"
+    );
     let _ = writeln!(out, "        defer _buf.deinit(std.heap.c_allocator);");
     let _ = writeln!(out, "        try _buf.append(std.heap.c_allocator, '[');");
     let _ = writeln!(out, "        var _first = true;");

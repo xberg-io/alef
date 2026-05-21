@@ -66,8 +66,14 @@ pub struct Chunk(pub demo::Chunk);
 impl Chunk {
     pub fn new(text: String) -> Chunk {
         let mut __target: demo::Chunk = ::std::default::Default::default();
-        if let Ok(v) = ::serde_json::from_str::<::serde_json::Value>(&text) {
-            if let Ok(t) = ::serde_json::from_value(v) { __target.text = t; }
+        {
+            // Try JSON parse first (handles enum/object values); on parse failure
+            // treat the raw input as a JSON string scalar so plain `String` /
+            // string-like enum fields don't end up empty for inputs that aren't
+            // valid JSON tokens (e.g. `tts-1`).
+            let __v = ::serde_json::from_str::<::serde_json::Value>(&text)
+                .unwrap_or_else(|_| ::serde_json::Value::String(text.clone()));
+            if let Ok(t) = ::serde_json::from_value(__v) { __target.text = t; }
         }
         Chunk(__target)
     }

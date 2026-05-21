@@ -2176,6 +2176,7 @@ fn swift_build_accessor(field: &str, result_var: &str, field_resolver: &FieldRes
 /// `?? []` against a non-optional value compiles with a Swift warning but is
 /// surfaced as an error in strict CI configurations, so we only emit `?.map`
 /// + `?? []` when the accessor is genuinely optional.
+///
 /// Generate a `XCTAssert{True|False}(array.contains(where: { elem_str.contains(val) }), msg)` line
 /// for field paths that traverse a collection with `[].` notation (e.g. `links[].url`).
 ///
