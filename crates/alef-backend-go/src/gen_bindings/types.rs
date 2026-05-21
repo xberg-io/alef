@@ -4,6 +4,7 @@ use alef_codegen::shared::binding_fields;
 use alef_core::ir::{DefaultValue, EnumDef, FieldDef, TypeDef, TypeRef};
 use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use minijinja::context;
+use std::borrow::Cow;
 
 /// Returns true if a field is a tuple struct positional field (e.g., `_0`, `_1`, `0`, `1`).
 /// Go structs require named fields, so these must be skipped.
@@ -1187,7 +1188,14 @@ pub(super) fn gen_struct_type(
         // for both optional and non-optional positions.
         let is_sealed_interface = matches!(&field.ty, TypeRef::Named(n) if data_enum_names.contains(n.as_str()));
 
-        let field_type = if is_sealed_interface {
+        // Check if a Named type is unresolved (not in enum_names or data_enum_names).
+        // For unresolved external types, emit *json.RawMessage instead of a non-existent struct.
+        let is_unresolved_named = matches!(&field.ty, TypeRef::Named(n) if !enum_names.contains(n.as_str()) && !data_enum_names.contains(n.as_str()));
+
+        let field_type = if is_unresolved_named {
+            // Unresolved external-crate Named types: use *json.RawMessage as fallback
+            Cow::Borrowed("*json.RawMessage")
+        } else if is_sealed_interface {
             go_type(&field.ty)
         } else if field.optional {
             go_optional_type(&field.ty)
@@ -1210,7 +1218,8 @@ pub(super) fn gen_struct_type(
             .clone()
             .unwrap_or_else(|| apply_serde_rename(&field.name, typ.serde_rename_all.as_deref()));
         let is_collection = matches!(&field.ty, TypeRef::Vec(_) | TypeRef::Map(_, _));
-        let json_tag = if field.optional || is_collection || use_default_pointer || is_named_enum {
+        let json_tag = if field.optional || is_collection || use_default_pointer || is_named_enum || is_unresolved_named
+        {
             format!("json:\"{},omitempty\"", json_name)
         } else {
             format!("json:\"{}\"", json_name)
