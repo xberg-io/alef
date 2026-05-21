@@ -2815,9 +2815,30 @@ fn render_assertion(
         "less_than" => {
             if let Some(val) = &assertion.value {
                 let go_val = json_to_go(val);
-                let _ = writeln!(out_ref, "\tif {field_expr} >= {go_val} {{");
-                let _ = writeln!(out_ref, "\t\tt.Errorf(\"expected < {go_val}, got %v\", {field_expr})");
-                let _ = writeln!(out_ref, "\t}}");
+                if let Some(ref guard) = nil_guard_expr {
+                    let _ = writeln!(out_ref, "\tif {guard} != nil {{");
+                    let _ = writeln!(out_ref, "\t\tif {field_expr} >= {go_val} {{");
+                    let _ = writeln!(
+                        out_ref,
+                        "\t\t\tt.Errorf(\"expected < {go_val}, got %v\", {field_expr})"
+                    );
+                    let _ = writeln!(out_ref, "\t\t}}");
+                    let _ = writeln!(out_ref, "\t}}");
+                } else if is_optional && !field_expr.starts_with("len(") {
+                    // Optional pointer field: nil-guard and dereference before comparison.
+                    let _ = writeln!(out_ref, "\tif {field_expr} != nil {{");
+                    let _ = writeln!(out_ref, "\t\tif {deref_field_expr} >= {go_val} {{");
+                    let _ = writeln!(
+                        out_ref,
+                        "\t\t\tt.Errorf(\"expected < {go_val}, got %v\", {deref_field_expr})"
+                    );
+                    let _ = writeln!(out_ref, "\t\t}}");
+                    let _ = writeln!(out_ref, "\t}}");
+                } else {
+                    let _ = writeln!(out_ref, "\tif {field_expr} >= {go_val} {{");
+                    let _ = writeln!(out_ref, "\t\tt.Errorf(\"expected < {go_val}, got %v\", {field_expr})");
+                    let _ = writeln!(out_ref, "\t}}");
+                }
             }
         }
         "greater_than_or_equal" => {

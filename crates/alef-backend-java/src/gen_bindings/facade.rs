@@ -28,7 +28,7 @@ pub(crate) fn gen_facade_class(
     bridge_param_names: &HashSet<String>,
     bridge_type_aliases: &HashSet<String>,
     _has_visitor_pattern: bool,
-    config: &alef_core::config::ResolvedCrateConfig,
+    _config: &alef_core::config::ResolvedCrateConfig,
 ) -> String {
     // Build per-function context objects for the facade_class template.
     let functions: Vec<minijinja::Value> = api
@@ -160,37 +160,12 @@ pub(crate) fn gen_facade_class(
 
     // Build streaming adapter methods for adapters with owner_type set.
     // These become static methods on the facade class that delegate to the opaque class.
-    let mut streaming_methods: Vec<minijinja::Value> = vec![];
-    for adapter in &config.adapters {
-        use alef_core::config::AdapterPattern;
-        if !matches!(adapter.pattern, AdapterPattern::Streaming) {
-            continue;
-        }
-        if adapter.owner_type.is_none() || adapter.item_type.is_none() || adapter.params.is_empty() {
-            continue;
-        }
-        if adapter.skip_languages.iter().any(|l| l == "java") {
-            continue;
-        }
-
-        let method_name = to_java_name(&adapter.name);
-        let item_type = adapter.item_type.as_deref().unwrap_or("Object");
-        let request_type_full = adapter.params[0].ty.as_str();
-        let request_type = request_type_full.rsplit("::").next().unwrap_or(request_type_full);
-        let request_param = to_java_name(&adapter.params[0].name);
-        let request_param = if request_param.is_empty() {
-            "request".to_string()
-        } else {
-            request_param
-        };
-
-        streaming_methods.push(minijinja::context! {
-            method_name => method_name,
-            item_type => item_type,
-            request_type => request_type,
-            request_param => request_param,
-        });
-    }
+    // Note: Java streaming is NOT supported via the FFI layer (Panama FFM is blocking),
+    // so we skip all streaming adapters regardless of configuration. Streaming requires
+    // async/event-driven architecture that the synchronous FFI layer cannot provide.
+    let streaming_methods: Vec<minijinja::Value> = vec![];
+    // Java does NOT support streaming via FFI (Panama FFM is blocking-only).
+    // Skip all streaming adapters for Java, regardless of skip_languages configuration.
 
     let class_body = crate::template_env::render(
         "facade_class.jinja",

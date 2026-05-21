@@ -629,7 +629,12 @@ pub(super) fn gen_convert_with_visitor_wrapper(
 
 /// Emit a module-level wrapper function for a streaming adapter.
 /// This allows tests/consumers to call pkg.CrawlStream(engine, url) instead of engine.CrawlStream(url).
-pub(super) fn gen_adapter_wrapper(adapter: &alef_core::config::AdapterConfig, _pkg_name: &str) -> String {
+/// For adapters with a request_type, decompose the first field into primitive parameters for ergonomics.
+pub(super) fn gen_adapter_wrapper(
+    adapter: &alef_core::config::AdapterConfig,
+    _pkg_name: &str,
+    types: &[alef_core::ir::TypeDef],
+) -> String {
     let adapter_name = &adapter.name;
     let go_func_name = to_go_name(adapter_name);
     let owner_type = adapter.owner_type.as_deref().unwrap_or("EngineHandle");
@@ -638,38 +643,114 @@ pub(super) fn gen_adapter_wrapper(adapter: &alef_core::config::AdapterConfig, _p
 
     // Extract request type and simplify (remove Rust path prefix)
     let request_type = adapter.request_type.as_deref().unwrap_or("Request");
-    let _request_type_simple = request_type.rsplit("::").next().unwrap_or(request_type);
+    let request_type_simple = request_type.rsplit("::").next().unwrap_or(request_type);
 
-    // Build function signature params: engine + request params
-    let mut params = vec![format!("engine *{owner_type}")];
-    for param in &adapter.params {
-        // Map Rust types to Go equivalents (mimicking the type_map conversions)
-        let go_param_type = match param.ty.as_str() {
-            "String" => "string".to_string(),
-            ty => {
-                // Strip Rust path prefix (e.g., "crate::requests::CrawlStreamRequest" → "CrawlStreamRequest")
-                ty.rsplit("::").next().unwrap_or(ty).to_string()
+    // Decompose request struct into primitives for ergonomic wrapper.
+    // E.g. CrawlStreamRequest { url: String } → accept (url string), construct req, call method.
+    let (param_parts, request_construction) = if adapter.request_type.is_some()
+        && adapter.params.len() == 1
+    {
+        // Single request param: decompose by inspecting the request type's first field in IR.
+        let param = &adapter.params[0];
+        let param_ty_name = &param.ty;
+        let ir_type = types.iter().find(|t| &t.name == param_ty_name);
+
+        if let Some(ty_def) = ir_type {
+            if let Some(first_field) = ty_def.fields.first() {
+                let field_name = &first_field.name;
+                let field_name_go = to_go_name(field_name);
+
+                // Determine Go parameter type based on field type
+                let go_field_type = match &first_field.ty {
+                    TypeRef::String => "string".to_string(),
+                    TypeRef::Vec(inner) if matches!(**inner, TypeRef::String) => "[]string".to_string(),
+                    TypeRef::Vec(_) => "[]interface{}".to_string(),
+                    other => {
+                        // Fallback to type mapping
+                        crate::type_map::go_type(other).into_owned()
+                    }
+                };
+
+                let wrapper_params = vec![
+                    format!("engine *{owner_type}"),
+                    format!("{field_name_go} {go_field_type}"),
+                ];
+
+                // Construct request struct: req := &CrawlStreamRequest{Url: url}
+                let struct_field_name = to_go_name(field_name);
+                let construction = format!("req := &{request_type_simple}{{{struct_field_name}: {field_name_go}}}\n\t");
+
+                (wrapper_params, Some(construction))
+            } else {
+                // Type has no fields; fall back to original behavior
+                let mut params = vec![format!("engine *{owner_type}")];
+                for p in &adapter.params {
+                    let go_param_type = match p.ty.as_str() {
+                        "String" => "string".to_string(),
+                        ty => {
+                            // Strip Rust path prefix (e.g., "crate::requests::CrawlStreamRequest" → "CrawlStreamRequest")
+                            ty.rsplit("::").next().unwrap_or(ty).to_string()
+                        }
+                    };
+                    let param_name = go_param_name(&p.name);
+                    params.push(format!("{param_name} {go_param_type}"));
+                }
+                (params, None)
             }
-        };
-        let param_name = go_param_name(&param.name);
-        params.push(format!("{param_name} {go_param_type}"));
-    }
+        } else {
+            // Type not found in IR; fall back to original behavior
+            let mut params = vec![format!("engine *{owner_type}")];
+            for p in &adapter.params {
+                let go_param_type = match p.ty.as_str() {
+                    "String" => "string".to_string(),
+                    ty => {
+                        // Strip Rust path prefix (e.g., "crate::requests::CrawlStreamRequest" → "CrawlStreamRequest")
+                        ty.rsplit("::").next().unwrap_or(ty).to_string()
+                    }
+                };
+                let param_name = go_param_name(&p.name);
+                params.push(format!("{param_name} {go_param_type}"));
+            }
+            (params, None)
+        }
+    } else {
+        // Multi-param or no request_type: use original behavior
+        let mut params = vec![format!("engine *{owner_type}")];
+        for p in &adapter.params {
+            let go_param_type = match p.ty.as_str() {
+                "String" => "string".to_string(),
+                ty => {
+                    // Strip Rust path prefix (e.g., "crate::requests::CrawlStreamRequest" → "CrawlStreamRequest")
+                    ty.rsplit("::").next().unwrap_or(ty).to_string()
+                }
+            };
+            let param_name = go_param_name(&p.name);
+            params.push(format!("{param_name} {go_param_type}"));
+        }
+        (params, None)
+    };
 
     // Return type: (channel of items, error)
     let return_type = format!("<-chan {item_type_simple}, error");
 
-    // Build method call: engine.CrawlStream(...params)
+    // Build method call: engine.CrawlStream(req) or engine.CrawlStream(...params)
     let method_call_name = to_go_name(adapter_name);
-    let param_args = adapter
-        .params
-        .iter()
-        .map(|p| go_param_name(&p.name))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let method_call = if param_args.is_empty() {
-        format!("engine.{}()", method_call_name)
+    let method_call = if request_construction.is_some() {
+        // If we constructed a request, use it as the sole argument
+        format!("engine.{}(req)", method_call_name)
     } else {
-        format!("engine.{}({})", method_call_name, param_args)
+        // Otherwise, pass the original parameters
+        let param_args = adapter
+            .params
+            .iter()
+            .map(|p| go_param_name(&p.name))
+            .collect::<Vec<_>>()
+            .join(", ");
+        if param_args.is_empty() {
+            format!("engine.{}()", method_call_name)
+        } else {
+            format!("engine.{}({})", method_call_name, param_args)
+        }
     };
 
     // Emit the wrapper function
@@ -682,8 +763,11 @@ pub(super) fn gen_adapter_wrapper(adapter: &alef_core::config::AdapterConfig, _p
         out,
         "// exposing it as a module-level function for test and consumer convenience."
     );
-    let _ = writeln!(out, "func {go_func_name}({}) ({}) {{", params.join(", "), return_type);
-    let _ = writeln!(out, "\treturn {}", method_call);
+    let _ = writeln!(out, "func {go_func_name}({}) ({}) {{", param_parts.join(", "), return_type);
+    if let Some(construction) = request_construction {
+        let _ = write!(out, "\t{}", construction);
+    }
+    let _ = writeln!(out, "return {}", method_call);
     let _ = writeln!(out, "}}");
 
     out

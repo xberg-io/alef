@@ -681,7 +681,7 @@ fn gen_go_file(
         if adapter.owner_type.is_none() || adapter.item_type.is_none() {
             continue;
         }
-        out.push_str(&gen_adapter_wrapper(adapter, pkg_name));
+        out.push_str(&gen_adapter_wrapper(adapter, pkg_name, &api.types));
         out.push_str("\n\n");
     }
 

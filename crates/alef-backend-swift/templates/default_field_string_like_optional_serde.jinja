@@ -4,6 +4,6 @@
             // string-like enum fields don't end up empty for inputs that aren't
             // valid JSON tokens (e.g. `tts-1`).
             let __v = ::serde_json::from_str::<::serde_json::Value>(&s)
-                .unwrap_or_else(|_| ::serde_json::Value::String(s));
+                .unwrap_or(::serde_json::Value::String(s));
             if let Ok(t) = ::serde_json::from_value(__v) { __target.{{ name }} = Some(t); }
         }
