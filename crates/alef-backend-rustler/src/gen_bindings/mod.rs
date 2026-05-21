@@ -446,15 +446,9 @@ impl Backend for RustlerBackend {
             .collect();
 
         // From/Into conversions — only for types that have NIF wrapper structs (types_to_emit).
-        for typ in api
-            .types
-            .iter()
-            .filter(|typ| {
-                !typ.is_trait
-                    && !exclude_types.contains(typ.name.as_str())
-                    && types_to_emit.contains(&typ.name)
-            })
-        {
+        for typ in api.types.iter().filter(|typ| {
+            !typ.is_trait && !exclude_types.contains(typ.name.as_str()) && types_to_emit.contains(&typ.name)
+        }) {
             let rustler_struct_cfg = alef_codegen::conversions::ConversionConfig {
                 map_as_string: false,
                 exclude_types: &bridge_conv_exclude_types,

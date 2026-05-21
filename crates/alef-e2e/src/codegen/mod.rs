@@ -225,7 +225,7 @@ pub(crate) fn select_best_matching_call<'a>(
     }
 
     // Initial call has unsatisfied required args. Search named calls for a better match.
-    for (_name, alt_call) in &e2e_config.calls {
+    for alt_call in e2e_config.calls.values() {
         let all_satisfied = alt_call.args.iter().all(|arg| {
             if arg.optional {
                 return true;

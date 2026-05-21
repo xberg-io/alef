@@ -167,7 +167,12 @@ fn render_pubspec(
     let dep_block = match dep_mode {
         crate::config::DependencyMode::Registry => {
             // Only add ^ prefix if version doesn't already start with a constraint operator
-            let constraint = if pkg_version.starts_with('^') || pkg_version.starts_with('~') || pkg_version.starts_with('>') || pkg_version.starts_with('<') || pkg_version.starts_with('=') {
+            let constraint = if pkg_version.starts_with('^')
+                || pkg_version.starts_with('~')
+                || pkg_version.starts_with('>')
+                || pkg_version.starts_with('<')
+                || pkg_version.starts_with('=')
+            {
                 pkg_version.to_string()
             } else {
                 format!("^{pkg_version}")

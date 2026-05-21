@@ -154,11 +154,17 @@ impl E2eCodegen for CSharpCodegen {
             std::sync::LazyLock::new(HashMap::new);
         let enum_fields = overrides.map(|o| &o.enum_fields).unwrap_or(&EMPTY_ENUM_FIELDS);
         let assert_enum_fields = overrides
-            .and_then(|o| if o.assert_enum_fields.is_empty() { None } else { Some(&o.assert_enum_fields) })
+            .and_then(|o| {
+                if o.assert_enum_fields.is_empty() {
+                    None
+                } else {
+                    Some(&o.assert_enum_fields)
+                }
+            })
             .unwrap_or(&EMPTY_ASSERT_ENUM_FIELDS);
 
-        // Build effective nested_types from configured overrides (empty by default).
-        let mut effective_nested_types: HashMap<String, String> = HashMap::new();
+        // Build effective nested_types from both top-level and C# override configs.
+        let mut effective_nested_types: HashMap<String, String> = e2e_config.call.nested_types.clone();
         if let Some(overrides_map) = overrides.map(|o| &o.nested_types) {
             effective_nested_types.extend(overrides_map.clone());
         }
@@ -927,6 +933,15 @@ fn render_test_method(
         .find(|a| a.name == call_config.function.as_str())
         .and_then(|a| a.request_type.as_deref())
         .map(|rt| rt.rsplit("::").next().unwrap_or(rt).to_string());
+
+    // Build effective nested_types for this call, merging top-level with per-call C# overrides
+    let mut effective_call_nested_types: std::collections::HashMap<String, String> = nested_types.clone();
+    if let Some(o) = cs_overrides {
+        for (k, v) in &o.nested_types {
+            effective_call_nested_types.insert(k.clone(), v.clone());
+        }
+    }
+
     let (mut setup_lines, mut args_str) = build_args_and_setup(
         &fixture.input,
         args,
@@ -934,7 +949,7 @@ fn render_test_method(
         effective_options_type,
         effective_options_via,
         enum_fields,
-        nested_types,
+        &effective_call_nested_types,
         fixture,
         adapter_request_type_owned.as_deref(),
     );
