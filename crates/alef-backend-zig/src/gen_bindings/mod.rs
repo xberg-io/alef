@@ -271,6 +271,16 @@ impl Backend for ZigBackend {
             .filter_map(|a| a.item_type.as_ref().map(|item| (a.name.clone(), item.clone())))
             .collect();
 
+        // Collect trait-bridge `type_alias` names — these are emitted as
+        // `pub const <Alias> = *anyopaque;` above and must not be re-emitted as
+        // struct wrappers, since the bridge contract is a raw opaque pointer.
+        let trait_bridge_type_aliases: std::collections::HashSet<String> = config
+            .trait_bridges
+            .iter()
+            .filter(|b| !b.exclude_languages.iter().any(|lang| lang == "zig"))
+            .filter_map(|b| b.type_alias.clone())
+            .collect();
+
         // Emit Zig struct wrappers for all opaque handle types, including those
         // with no instance methods (e.g. a bare Language handle returned by
         // get_language()). Every opaque type that appears in a function signature
@@ -281,6 +291,7 @@ impl Backend for ZigBackend {
             .iter()
             .filter(|t| !t.is_trait && (t.is_opaque || !t.has_serde))
             .filter(|t| !exclude_types.contains(&t.name))
+            .filter(|t| !trait_bridge_type_aliases.contains(&t.name))
         {
             emit_opaque_handle(
                 ty,
