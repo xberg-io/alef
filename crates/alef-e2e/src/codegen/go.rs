@@ -1833,7 +1833,7 @@ fn build_args_and_setup(
 
             let paths: Vec<String> = if let Some(arr) = val.as_array() {
                 arr.iter()
-                    .filter_map(|v| v.as_str().map(|s| go_string_literal(s)))
+                    .filter_map(|v| v.as_str().map(go_string_literal))
                     .collect()
             } else {
                 Vec::new()
@@ -1846,7 +1846,7 @@ fn build_args_and_setup(
                 "{var_name}Base := os.Getenv(\"{env_key}\")\n\tif {var_name}Base == \"\" {{\n\t\t{var_name}Base = os.Getenv(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\"\n\t}}"
             ));
             setup_lines.push(format!(
-                "var {var_name} []string\n\tfor _, p := range []{{}}{paths_literal} {{\n\t\tif strings.HasPrefix(p, \"http\") {{\n\t\t\t{var_name} = append({var_name}, p)\n\t\t}} else {{\n\t\t\t{var_name} = append({var_name}, {var_name}Base + p)\n\t\t}}\n\t}}"
+                "var {var_name} []string\n\tfor _, p := range []string{{{paths_literal}}} {{\n\t\tif strings.HasPrefix(p, \"http\") {{\n\t\t\t{var_name} = append({var_name}, p)\n\t\t}} else {{\n\t\t\t{var_name} = append({var_name}, {var_name}Base + p)\n\t\t}}\n\t}}"
             ));
             parts.push(var_name.to_string());
             continue;
