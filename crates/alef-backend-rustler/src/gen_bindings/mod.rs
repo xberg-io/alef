@@ -165,7 +165,15 @@ impl Backend for RustlerBackend {
         // Collect all types that need NifMap/NifStruct derives: both top-level and recursively
         // referenced (e.g., CrawlResult has field pages: Vec<CrawlPageResult>, so CrawlPageResult
         // must also derive NifMap). Walk the full type closure reachable from function signatures.
-        let types_to_emit = collect_types_for_nif_derives(api, &exclude_types);
+        let mut types_to_emit = collect_types_for_nif_derives(api, &exclude_types);
+
+        // Add opaque types (they were filtered out by collect_types_for_nif_derives but need to be emitted
+        // as rustler::Resource wrappers). Opaques must be handled separately from non-opaque types.
+        for typ in &api.types {
+            if typ.is_opaque && !exclude_types.contains(typ.name.as_str()) {
+                types_to_emit.insert(typ.name.clone());
+            }
+        }
 
         let empty_set: AHashSet<String> = AHashSet::new();
         for typ in api

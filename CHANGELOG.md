@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-backend-rustler: add opaque types to NIF resource wrapper emission set.** The `collect_types_for_nif_derives` helper deliberately filters out opaque types (since they don't need NifMap/NifStruct derives), but the type-iteration loop that emits rustler::Resource wrappers expected them to be present in `types_to_emit`. This caused opaque structs like `CrawlEngineHandle` to never generate their `pub struct CrawlEngineHandle { inner: Arc<...> }` wrapper and `impl rustler::Resource for CrawlEngineHandle {}` impl block, resulting in `error[E0422]: cannot find struct "CrawlEngineHandle"` across all NIF functions that use them. Fixed by re-inserting opaque types into `types_to_emit` after the initial collection, before the type-iteration loop, so Resource wrappers are generated. (`crates/alef-backend-rustler/src/gen_bindings/mod.rs`)
+
 ## [0.17.24] - 2026-05-21
 
 ### Fixed
