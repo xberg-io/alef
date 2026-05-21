@@ -830,6 +830,26 @@ fn render_test_file(
         }
     });
 
+    // Render the file body (visitor structs + test functions) into a separate buffer
+    // first so we can scan the actual emitted code for `assert.` usage. This avoids
+    // false positives in the heuristic-based needs_assert detection: imports are emitted
+    // only when the rendered code actually uses them.
+    let mut body = String::new();
+    for fixture in fixtures.iter() {
+        if let Some(visitor_spec) = &fixture.visitor {
+            let struct_name = visitor_struct_name(&fixture.id);
+            emit_go_visitor_struct(&mut body, &struct_name, visitor_spec, import_alias);
+            let _ = writeln!(body);
+        }
+    }
+    for (i, fixture) in fixtures.iter().enumerate() {
+        render_test_function(&mut body, fixture, import_alias, e2e_config, adapters);
+        if i + 1 < fixtures.len() {
+            let _ = writeln!(body);
+        }
+    }
+    let needs_assert = needs_assert || body.contains("assert.");
+
     let _ = writeln!(out, "// E2e tests for category: {category}");
     let _ = writeln!(out, "package e2e_test");
     let _ = writeln!(out);
@@ -872,21 +892,8 @@ fn render_test_file(
     let _ = writeln!(out, ")");
     let _ = writeln!(out);
 
-    // Emit package-level visitor structs (must be outside any function in Go).
-    for fixture in fixtures.iter() {
-        if let Some(visitor_spec) = &fixture.visitor {
-            let struct_name = visitor_struct_name(&fixture.id);
-            emit_go_visitor_struct(&mut out, &struct_name, visitor_spec, import_alias);
-            let _ = writeln!(out);
-        }
-    }
-
-    for (i, fixture) in fixtures.iter().enumerate() {
-        render_test_function(&mut out, fixture, import_alias, e2e_config, adapters);
-        if i + 1 < fixtures.len() {
-            let _ = writeln!(out);
-        }
-    }
+    // Append the pre-rendered body (visitor structs + test functions).
+    out.push_str(&body);
 
     // Clean up trailing newlines.
     while out.ends_with("\n\n") {
