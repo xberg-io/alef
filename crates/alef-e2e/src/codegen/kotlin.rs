@@ -1802,7 +1802,15 @@ fn render_assertion(
             || assertion.field.as_deref().filter(|f| !f.is_empty()).is_some_and(|f| {
                 let resolved = field_resolver.resolve(f);
                 if field_resolver.has_map_access(f) {
-                    return false;
+                    // Kotlin's `Map<K, V>.get(key)` always returns `V?`. In the
+                    // kotlin_android target, DTOs are pure Kotlin data classes so
+                    // the nullable propagates through and string operations on
+                    // the result must coalesce or safe-call. In the kotlin/JVM
+                    // target the same map field flows through Java records and
+                    // appears as a platform type, so adding `.orEmpty()` is
+                    // unnecessary but harmless — keep the legacy behaviour for
+                    // JVM to avoid churning unrelated snapshots.
+                    return kotlin_android_style;
                 }
                 // Check the leaf field itself.
                 if field_resolver.is_optional(resolved) {

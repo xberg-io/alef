@@ -36,6 +36,43 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, kotlin_source_dir: &
     let package = kotlin_package(config);
     let mut files = Vec::new();
 
+    // Collect type aliases that should be treated as excluded.
+    //
+    // Two sources contribute:
+    //   1. `kotlin_android.exclude_types` (explicit user override).
+    //   2. Trait-bridge `type_alias` values whose `param_name` is listed in
+    //      `kotlin_android.exclude_functions`. When the user opts out of the
+    //      bridge function (e.g. because the JNI bridge has no trait-handle
+    //      implementation yet), the bridge's type alias is still unresolvable
+    //      in Kotlin code — its corresponding `options_field` on the bridge's
+    //      `options_type` would emit a dangling reference like
+    //      `val visitor: VisitorHandle?`. Treat the alias as excluded so the
+    //      field is dropped along with the function.
+    let kotlin_android_excluded_function_names: std::collections::HashSet<&str> = config
+        .kotlin_android
+        .as_ref()
+        .map(|c| c.exclude_functions.iter().map(String::as_str).collect())
+        .unwrap_or_default();
+    let mut effective_excluded_types: std::collections::HashSet<String> = config
+        .kotlin_android
+        .as_ref()
+        .map(|c| c.exclude_types.iter().cloned().collect())
+        .unwrap_or_default();
+    for bridge in &config.trait_bridges {
+        if bridge.exclude_languages.iter().any(|l| l == "kotlin_android") {
+            if let Some(alias) = &bridge.type_alias {
+                effective_excluded_types.insert(alias.clone());
+            }
+        }
+        if let Some(name) = bridge.param_name.as_deref() {
+            if kotlin_android_excluded_function_names.contains(name) {
+                if let Some(alias) = &bridge.type_alias {
+                    effective_excluded_types.insert(alias.clone());
+                }
+            }
+        }
+    }
+
     // Bridge object: external fun declarations + System.loadLibrary init block.
     let mut bridge_file = emit_jni_bridge_object(api, config);
     bridge_file.path = kotlin_source_dir.join(bridge_file.path.file_name().expect("bridge file must have a filename"));
@@ -72,9 +109,32 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, kotlin_source_dir: &
         if ty.is_opaque || ty.is_trait || ty.binding_excluded {
             continue;
         }
+        // Skip whole types whose name is in the effective exclude set
+        // (e.g. trait-bridge `VisitorHandle` when the bridge function is
+        // excluded — the alias has no Kotlin representation).
+        if effective_excluded_types.contains(&ty.name) {
+            continue;
+        }
         let mut imports: BTreeSet<String> = BTreeSet::new();
         let mut body = String::new();
-        emit_type_pub(ty, &mut body, &mut imports);
+        // Drop fields whose type references an excluded alias so the data
+        // class definition does not emit a dangling reference. The bridge
+        // function is already filtered out of the module facade, so its
+        // companion field cannot be set by callers — defaulting it to
+        // `Default::default()` Rust-side preserves runtime correctness.
+        let needs_field_filter = ty
+            .fields
+            .iter()
+            .any(|f| effective_excluded_types.iter().any(|name| f.ty.references_named(name)));
+        if needs_field_filter {
+            let mut filtered = ty.clone();
+            filtered
+                .fields
+                .retain(|f| !effective_excluded_types.iter().any(|name| f.ty.references_named(name)));
+            emit_type_pub(&filtered, &mut body, &mut imports);
+        } else {
+            emit_type_pub(ty, &mut body, &mut imports);
+        }
         if body.trim().is_empty() {
             continue;
         }

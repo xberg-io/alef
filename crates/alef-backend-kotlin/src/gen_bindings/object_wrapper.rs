@@ -1022,6 +1022,21 @@ fn render_type_ref_disambiguated(
     variant_names: &std::collections::HashSet<&str>,
     package: &str,
 ) -> String {
+    // Built-in Kotlin collection types share simple names (`List`, `Map`, `Set`)
+    // with potential sealed-class variants. Inside the sealed body those simple
+    // names resolve to the nested variant data class, shadowing the stdlib type.
+    // When a generic collection's simple name clashes with a sibling variant the
+    // renderer must fully-qualify the stdlib path.
+    let list_name = if variant_names.contains("List") {
+        "kotlin.collections.List"
+    } else {
+        "List"
+    };
+    let map_name = if variant_names.contains("Map") {
+        "kotlin.collections.Map"
+    } else {
+        "Map"
+    };
     match ty {
         TypeRef::Named(n) if !package.is_empty() && variant_names.contains(n.as_str()) => {
             format!("{package}.{n}")
@@ -1030,11 +1045,14 @@ fn render_type_ref_disambiguated(
             format!("{}?", render_type_ref_disambiguated(inner, variant_names, package))
         }
         TypeRef::Vec(inner) => {
-            format!("List<{}>", render_type_ref_disambiguated(inner, variant_names, package))
+            format!(
+                "{list_name}<{}>",
+                render_type_ref_disambiguated(inner, variant_names, package),
+            )
         }
         TypeRef::Map(k, v) => {
             format!(
-                "Map<{}, {}>",
+                "{map_name}<{}, {}>",
                 render_type_ref_disambiguated(k, variant_names, package),
                 render_type_ref_disambiguated(v, variant_names, package),
             )
