@@ -1278,7 +1278,12 @@ fn render_assertion(
     if let Some(f) = &assertion.field {
         let is_streaming_usage_path =
             is_streaming && (f == "usage" || (f.starts_with("usage.") || f.starts_with("usage[")));
-        if !f.is_empty()
+        // Only route through the streaming-virtual `chunks` accessor when this is
+        // actually a streaming fixture. Non-streaming fixtures (e.g. `process()`
+        // with `chunkMaxSize`) expose `chunks` as a real `ProcessResult` field, so
+        // emit `result.chunks()` via the regular field-accessor path below.
+        if is_streaming
+            && !f.is_empty()
             && (crate::codegen::streaming_assertions::is_streaming_virtual_field(f) || is_streaming_usage_path)
         {
             if let Some(expr) =
