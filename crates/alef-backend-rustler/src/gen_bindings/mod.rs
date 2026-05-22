@@ -987,13 +987,20 @@ impl Backend for RustlerBackend {
                 // For arity variants with positional defaults, append `\\ nil` to params
                 // that have "| nil" in their typespec OR are trailing optional.
                 // This allows fixtures to call functions with any intermediate arity.
+                //
+                // Defaults are only safe when this function emits a SINGLE clause. When
+                // multiple arity variants are emitted, each shorter arity is already an
+                // explicit clause; a `\\ nil` default on a longer clause would generate
+                // an implicit lower-arity head that collides with it, producing a
+                // "this clause cannot match" warning (fatal under --warnings-as-errors).
                 let required_count = all_params.len() - trailing_optional_count;
+                let single_clause = arity_variants.len() == 1;
                 let arity_params: Vec<String> = arity_params_slice
                     .iter()
                     .enumerate()
                     .map(|(i, p)| {
                         let has_nil_option = param_types.get(i).map(|t| t.contains("| nil")).unwrap_or(false);
-                        if (i >= required_count && i < *arity) || has_nil_option {
+                        if single_clause && ((i >= required_count && i < *arity) || has_nil_option) {
                             // Trailing optional param or param with | nil typespec: add default
                             format!("{p} \\\\ nil")
                         } else {

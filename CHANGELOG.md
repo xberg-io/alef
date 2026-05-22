@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-backend-rustler: stop emitting unreachable duplicate clauses for functions with a trailing optional parameter.** A function with N required parameters plus one trailing optional parameter is emitted as two explicit arity clauses (`f(a)` and `f(a, b)`). The longer clause additionally carried a `\\ nil` positional default on the optional parameter, which makes Elixir generate an *implicit* lower-arity head that collides with the explicitly-emitted shorter clause — `this clause cannot match because a previous clause always matches`, fatal under `mix compile --warnings-as-errors`. Positional defaults are now applied only when the function emits a single clause. (`crates/alef-backend-rustler/src/gen_bindings/mod.rs`)
+
 ## [0.17.30] - 2026-05-22
 
 ### Fixed
