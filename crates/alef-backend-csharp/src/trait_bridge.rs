@@ -815,6 +815,32 @@ mod tests {
     }
 
     #[test]
+    fn test_registry_emits_clear_when_configured() {
+        // When clear_fn is set, the registry class should contain a Clear method.
+        let trait_def = make_trait_def("OcrBackend");
+        let mut bridge_cfg = make_bridge_cfg("OcrBackend", None);
+        bridge_cfg.clear_fn = Some("clear_ocr_backends".to_string());
+        let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
+        let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
+        let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges, &visible_types);
+
+        assert!(content.contains("public static void Clear()"));
+        assert!(content.contains("NativeMethods.ClearOcrBackend(out var outError)"));
+    }
+
+    #[test]
+    fn test_registry_omits_clear_when_not_configured() {
+        // When clear_fn is None, the registry class must not emit a Clear method.
+        let trait_def = make_trait_def("OcrBackend");
+        let bridge_cfg = make_bridge_cfg("OcrBackend", None);
+        let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
+        let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
+        let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges, &visible_types);
+
+        assert!(!content.contains("NativeMethods.ClearOcrBackend("));
+    }
+
+    #[test]
     fn test_registry_emits_unregister_when_configured() {
         // When unregister_fn is set, the registry class should contain an Unregister method.
         let trait_def = make_trait_def("OcrBackend");

@@ -277,6 +277,30 @@ pub(super) fn gen_wrapper_class(
         }
     }
 
+    // Emit Clear* facade methods for trait bridges with clear_fn configured.
+    // These are static methods on KreuzbergLib that forward to the {Trait}Registry.Clear() methods.
+    for bridge_cfg in trait_bridges {
+        if bridge_cfg.clear_fn.is_some() {
+            let trait_pascal = csharp_type_name(&bridge_cfg.trait_name);
+            let clear_method_name = format!("Clear{}", trait_pascal);
+
+            out.push_str(&format!(
+                "    /// <summary>Clear all registered {} implementations</summary>\n",
+                trait_pascal
+            ));
+            out.push_str(&format!(
+                "    public static void {}()\n",
+                clear_method_name
+            ));
+            out.push_str("    {\n");
+            out.push_str(&format!(
+                "        {}Registry.Clear();\n",
+                trait_pascal
+            ));
+            out.push_str("    }\n\n");
+        }
+    }
+
     // Add error handling helper — dispatches typed exceptions by error code
     let has_base_error = !api.errors.is_empty();
     let (base_exception_class, has_invalid_input_variant, variant_dispatch_lines) = if has_base_error {
