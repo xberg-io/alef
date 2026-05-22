@@ -71,6 +71,7 @@ pub(super) fn gen_field_accessor(
     path_map: &AHashMap<String, String>,
     enum_names: &AHashSet<String>,
     clone_names: &AHashSet<String>,
+    fields_c_types: &std::collections::HashMap<String, String>,
 ) -> String {
     let type_snake = typ.name.to_snake_case();
     let type_name = &typ.name;
