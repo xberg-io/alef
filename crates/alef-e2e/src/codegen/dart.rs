@@ -577,6 +577,21 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
         };
     }
 
+    // Resolve client_factory early so the per-arg builders below can pick the
+    // calling convention. When `client_factory` is set the test calls methods on
+    // an FRB-generated client instance (e.g. liter-llm's `retrieveFile`), and FRB
+    // emits every non-`config` parameter as a Dart named-required parameter. When
+    // unset the call routes through a hand-written facade whose required args are
+    // positional. See the `"string"` arg handler below.
+    let client_factory_for_args: Option<&str> =
+        call_overrides.and_then(|o| o.client_factory.as_deref()).or_else(|| {
+            e2e_config
+                .call
+                .overrides
+                .get(lang)
+                .and_then(|o| o.client_factory.as_deref())
+        });
+
     // setup_lines holds per-test statements that must precede the main call:
     // engine construction (handle args) and URL building (mock_url args).
     let mut setup_lines: Vec<String> = Vec::new();
@@ -667,7 +682,12 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
                 match arg_value {
                     serde_json::Value::String(s) => {
                         let literal = format!("'{}'", escape_dart(s));
-                        if arg_def.optional {
+                        // FRB-generated client methods (the `client_factory` path, e.g.
+                        // liter-llm's `retrieveFile({required String fileId})`) declare
+                        // every non-`config` parameter as named-required, so required
+                        // string args must be passed with a `name:` label too. Facade
+                        // methods (no `client_factory`) keep required args positional.
+                        if arg_def.optional || client_factory_for_args.is_some() {
                             args.push(format!("{dart_param_name}: {literal}"));
                         } else {
                             args.push(literal);

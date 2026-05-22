@@ -2524,10 +2524,13 @@ fn render_chat_stream_test_function(
     }
     let _ = writeln!(out, "    assert(client != NULL && \"failed to create client\");");
 
+    // The streaming opaque handle is a Rust type named `{Prefix}DefaultClientChatStreamStreamHandle`;
+    // cbindgen additionally prepends the configured uppercase type-name `prefix` (e.g. `LITERLLM`),
+    // exactly as it does for ordinary opaque handle types like `{prefix_upper}DefaultClient`.
     let pascal_prefix = prefix.to_pascal_case();
     let _ = writeln!(
         out,
-        "    {pascal_prefix}DefaultClientChatStreamStreamHandle* stream_handle = \
+        "    {prefix_upper}{pascal_prefix}DefaultClientChatStreamStreamHandle* stream_handle = \
          {prefix}_default_client_chat_stream_start(client, {req_handle});"
     );
 

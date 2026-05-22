@@ -1118,11 +1118,13 @@ pub(super) fn gen_opaque_type_free_only(typ: &TypeDef, _ffi_prefix: &str) -> Str
 }
 
 /// Generate a Go struct type definition with json tags for marshaling.
-/// Accepts enum_names (unit enums) and data_enum_names (sealed-interface enums).
+/// Accepts enum_names (unit enums), passthrough_enum_names (untagged enums emitted
+/// as `json.RawMessage`-backed named types) and data_enum_names (sealed-interface enums).
 /// If any field has a data_enum type, emits custom UnmarshalJSON to dispatch to UnmarshalX().
 pub(super) fn gen_struct_type(
     typ: &TypeDef,
     enum_names: &std::collections::HashSet<&str>,
+    passthrough_enum_names: &std::collections::HashSet<&str>,
     data_enum_names: &std::collections::HashSet<&str>,
     struct_names: &std::collections::HashSet<&str>,
 ) -> String {
@@ -1189,9 +1191,17 @@ pub(super) fn gen_struct_type(
         // for both optional and non-optional positions.
         let is_sealed_interface = matches!(&field.ty, TypeRef::Named(n) if data_enum_names.contains(n.as_str()));
 
-        // Check if a Named type is unresolved (not in enum_names, data_enum_names, or struct_names).
-        // For unresolved external types, emit *json.RawMessage instead of a non-existent struct.
-        let is_unresolved_named = matches!(&field.ty, TypeRef::Named(n) if !enum_names.contains(n.as_str()) && !data_enum_names.contains(n.as_str()) && !struct_names.contains(n.as_str()));
+        // Check if a Named type is unresolved (not in enum_names, passthrough_enum_names,
+        // data_enum_names, or struct_names). For unresolved external types, emit
+        // *json.RawMessage instead of a non-existent struct. Passthrough enums DO have a
+        // generated Go named type (a `json.RawMessage`-backed wrapper), so they are
+        // resolved — emitting the raw type here would diverge from the UnmarshalJSON
+        // raw-mirror struct, which always uses the resolved named type.
+        let is_unresolved_named = matches!(&field.ty, TypeRef::Named(n)
+            if !enum_names.contains(n.as_str())
+                && !passthrough_enum_names.contains(n.as_str())
+                && !data_enum_names.contains(n.as_str())
+                && !struct_names.contains(n.as_str()));
 
         let field_type = if is_unresolved_named {
             // Unresolved external-crate Named types: use *json.RawMessage as fallback
@@ -2006,6 +2016,7 @@ mod tests {
             &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
         );
         assert!(out.contains("type MyConfig struct"));
         assert!(out.contains("json:\"timeout\""));
@@ -2101,6 +2112,7 @@ mod tests {
         };
         let out = gen_struct_type(
             &typ,
+            &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),

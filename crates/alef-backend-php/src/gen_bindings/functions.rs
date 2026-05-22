@@ -7,7 +7,7 @@ use alef_codegen::shared;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{EnumDef, FunctionDef, MethodDef, TypeDef, TypeRef};
-use heck::ToPascalCase;
+use heck::{ToLowerCamelCase, ToPascalCase};
 use minijinja::context;
 
 use super::helpers::{
@@ -605,6 +605,9 @@ pub(crate) fn gen_static_method(
         ""
     };
     let ret_sig = return_type_sig(&return_annotation);
+    // The Rust fn ident stays snake_case; the PHP-facing name is camelCase so callers
+    // (userland facade, stubs) can invoke it via PSR-12 camelCase method names.
+    let php_name = method.name.to_lower_camel_case();
     out.push_str("    ");
     out.push_str(trait_allow);
     if params.is_empty() {
@@ -612,6 +615,7 @@ pub(crate) fn gen_static_method(
             "php_static_method_definition_no_params.jinja",
             context! {
                 name => &method.name,
+                php_name => &php_name,
                 ret_sig => &ret_sig,
                 body => &body,
             },
@@ -621,6 +625,7 @@ pub(crate) fn gen_static_method(
             "php_static_method_definition_with_params.jinja",
             context! {
                 name => &method.name,
+                php_name => &php_name,
                 params => &params,
                 ret_sig => &ret_sig,
                 body => &body,
@@ -669,11 +674,15 @@ pub(crate) fn gen_function_as_static_method(
     let exception_class = format!("{}Exception", core_import.to_pascal_case());
     doc_emission::emit_phpdoc(&mut out, &func.doc, "    ", &exception_class);
     let ret_sig = return_type_sig(&return_annotation);
+    // The Rust fn ident stays snake_case; the PHP-facing name is camelCase so callers
+    // (userland facade, stubs) can invoke it via PSR-12 camelCase method names.
+    let php_name = func.name.to_lower_camel_case();
     if params.is_empty() {
         out.push_str(&crate::template_env::render(
             "php_static_method_definition_no_params.jinja",
             context! {
                 name => &func.name,
+                php_name => &php_name,
                 ret_sig => &ret_sig,
                 body => &body,
             },
@@ -683,6 +692,7 @@ pub(crate) fn gen_function_as_static_method(
             "php_static_method_definition_with_params.jinja",
             context! {
                 name => &func.name,
+                php_name => &php_name,
                 params => &params,
                 ret_sig => &ret_sig,
                 body => &body,
@@ -881,11 +891,15 @@ pub(crate) fn gen_async_function_as_static_method(
     let exception_class = format!("{}Exception", core_import.to_pascal_case());
     doc_emission::emit_phpdoc(&mut out, &func.doc, "    ", &exception_class);
     let ret_sig = return_type_sig(&return_annotation);
+    // The Rust fn ident stays snake_case; the PHP-facing name is camelCase so callers
+    // (userland facade, stubs) can invoke it via PSR-12 camelCase method names.
+    let php_name = func.name.to_lower_camel_case();
     if params.is_empty() {
         out.push_str(&crate::template_env::render(
             "php_async_static_method_definition_no_params.jinja",
             context! {
                 name => &func.name,
+                php_name => &php_name,
                 ret_sig => &ret_sig,
                 body => &body,
             },
@@ -895,6 +909,7 @@ pub(crate) fn gen_async_function_as_static_method(
             "php_async_static_method_definition_with_params.jinja",
             context! {
                 name => &func.name,
+                php_name => &php_name,
                 params => &params,
                 ret_sig => &ret_sig,
                 body => &body,

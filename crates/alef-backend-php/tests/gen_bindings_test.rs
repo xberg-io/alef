@@ -675,6 +675,17 @@ fn test_async_function() {
         content.contains("Api") && content.contains("#[php_impl]"),
         "Should contain Api class with #[php_impl] for async function"
     );
+
+    // The PHP-facing method name must be camelCase so the userland facade and stubs
+    // (which call `fetchData`) resolve correctly; the Rust fn ident stays snake_case.
+    assert!(
+        content.contains("#[php(name = \"fetchData\")]"),
+        "Extension binding should expose the PHP method as camelCase `fetchData`; content:\n{content}"
+    );
+    assert!(
+        content.contains("pub fn fetch_data("),
+        "Rust fn ident should remain snake_case `fetch_data`; content:\n{content}"
+    );
 }
 
 #[test]
