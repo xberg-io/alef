@@ -288,15 +288,9 @@ pub(super) fn gen_wrapper_class(
                 "    /// <summary>Clear all registered {} implementations</summary>\n",
                 trait_pascal
             ));
-            out.push_str(&format!(
-                "    public static void {}()\n",
-                clear_method_name
-            ));
+            out.push_str(&format!("    public static void {}()\n", clear_method_name));
             out.push_str("    {\n");
-            out.push_str(&format!(
-                "        {}Registry.Clear();\n",
-                trait_pascal
-            ));
+            out.push_str(&format!("        {}Registry.Clear();\n", trait_pascal));
             out.push_str("    }\n\n");
         }
     }
