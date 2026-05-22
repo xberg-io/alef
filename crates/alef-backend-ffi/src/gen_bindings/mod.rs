@@ -162,6 +162,16 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
         .chain(api.enums.iter().filter(|e| !e.is_copy).map(|e| e.name.clone()))
         .collect();
 
+    // Extract fields_c_types from e2e config if present.
+    // This allows field accessors to override their return types when e2e explicitly
+    // maps a field to an opaque handle type (e.g. "markdown_result.citations" = "CitationResult").
+    let empty_fields_c_types = std::collections::HashMap::new();
+    let fields_c_types = config
+        .e2e
+        .as_ref()
+        .map(|e2e| &e2e.fields_c_types)
+        .unwrap_or(&empty_fields_c_types);
+
     // Import traits needed for trait method dispatch
     for trait_path in generators::collect_trait_imports(api) {
         builder.add_import(&trait_path);
@@ -335,6 +345,7 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
                     &path_map,
                     &enum_names,
                     &clone_names,
+                    fields_c_types,
                 ));
             }
         }
@@ -554,6 +565,11 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
     // Free functions (async functions are wrapped with block_on via the runtime helper)
     for func in &api.functions {
         if ffi_exclude_functions.contains(&func.name) {
+            continue;
+        }
+        // clear_fn functions are emitted by the trait bridge layer; emitting them here
+        // too would produce duplicate C symbols in the generated FFI header.
+        if alef_codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&func.name, &config.trait_bridges) {
             continue;
         }
         // For the legacy FunctionParam visitor path: skip the sanitized convert stub;

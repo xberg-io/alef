@@ -3180,7 +3180,11 @@ fn emit_free_function_forwarders(
             );
             emitted_any = true;
         }
-        emit_single_free_function_forwarder(func, &swift_name, known_dto_names, client_class_names, out);
+        if func.is_async {
+            emit_async_free_function_forwarder(func, &swift_name, known_dto_names, client_class_names, out);
+        } else {
+            emit_single_free_function_forwarder(func, &swift_name, known_dto_names, client_class_names, out);
+        }
     }
 }
 
@@ -3320,6 +3324,102 @@ fn emit_single_free_function_forwarder(
         ));
     }
     out.push_str("}\n\n");
+}
+
+/// Emit an async `public func` forwarder for an async function.
+fn emit_async_free_function_forwarder(
+    func: &FunctionDef,
+    swift_name: &str,
+    known_dto_names: &std::collections::HashSet<String>,
+    client_class_names: &std::collections::HashSet<String>,
+    out: &mut String,
+) {
+    let return_conversion_throws = return_value_conversion_throws(&func.return_type, known_dto_names);
+    let any_param_throws = func
+        .params
+        .iter()
+        .any(|p| param_conversion_throws(&p.ty, known_dto_names));
+    let throws_clause = if func.error_type.is_some() || return_conversion_throws || any_param_throws {
+        " throws"
+    } else {
+        ""
+    };
+    let return_ty = forwarder_return_type(&func.return_type);
+    let return_clause = if matches!(&func.return_type, TypeRef::Unit) {
+        String::new()
+    } else {
+        format!(" -> {return_ty}")
+    };
+
+    // Signature: collect each param as `name: SwiftType`.
+    let mut sig_params: Vec<String> = Vec::with_capacity(func.params.len());
+    let mut conversion_lines: Vec<String> = Vec::new();
+    let mut call_args: Vec<String> = Vec::with_capacity(func.params.len());
+
+    for param in &func.params {
+        let swift_param_name = swift_ident(&param.name.to_lower_camel_case());
+        let (swift_ty, local_expr) =
+            forwarder_param_signature(&param.ty, &swift_param_name, param.optional, known_dto_names);
+        sig_params.push(format!("{swift_param_name}: {swift_ty}"));
+        if let Some(line) = local_expr.setup_line.clone() {
+            conversion_lines.push(line);
+        }
+        call_args.push(local_expr.arg_expr);
+    }
+    let sig = sig_params.join(", ");
+    let args = call_args.join(", ");
+
+    if !func.doc.is_empty() {
+        emit_doc_comment(&func.doc, "", out);
+    }
+    out.push_str(&format!(
+        "public func {swift_name}({sig}){throws_clause}{return_clause} async {{\n"
+    ));
+    for line in &conversion_lines {
+        out.push_str(&format!("    {line}\n"));
+    }
+
+    let effective_try = if func.error_type.is_some() || return_conversion_throws {
+        "try "
+    } else {
+        ""
+    };
+
+    // Call the synchronous bridge function in a Task.detached to avoid blocking the async context.
+    out.push_str("    let _result = try await Task.detached(priority: .userInitiated) {\n");
+    out.push_str(&format!("        try RustBridge.{swift_name}({args}).toString()\n"));
+    out.push_str("    }.value\n");
+
+    // Decode the JSON result into the expected Swift type.
+    if matches!(&func.return_type, TypeRef::Unit) {
+        // Unit return type — nothing to decode
+        out.push_str("}\n\n");
+    } else if matches!(&func.return_type, TypeRef::Named(n) if client_class_names.contains(n)) {
+        // Named return that is a Swift client class — convert RustString JSON to high-level type
+        let class_name = swift_type_name(&func.return_type);
+        out.push_str("    let _data = _result.data(using: .utf8) ?? Data()\n");
+        out.push_str(&format!(
+            "    let _rb = try JSONDecoder().decode(RustBridge.{class_name}.self, from: _data)\n"
+        ));
+        out.push_str(&format!("    return {class_name}(_rb)\n"));
+        out.push_str("}\n\n");
+    } else if bare_named_dto_return(&func.return_type, known_dto_names) {
+        // Named DTO return — decode JSON and initialize wrapper
+        let dto_name = swift_type_name(&func.return_type);
+        out.push_str("    let _data = _result.data(using: .utf8) ?? Data()\n");
+        out.push_str(&format!(
+            "    let _rb = try JSONDecoder().decode(RustBridge.{dto_name}.self, from: _data)\n"
+        ));
+        out.push_str(&format!("    return try {dto_name}(_rb)\n"));
+        out.push_str("}\n\n");
+    } else {
+        // Primitive or container return — decode directly
+        out.push_str("    let _data = _result.data(using: .utf8) ?? Data()\n");
+        out.push_str(&format!(
+            "    return {effective_try}JSONDecoder().decode({return_ty}.self, from: _data)\n"
+        ));
+        out.push_str("}\n\n");
+    }
 }
 
 /// Returns `true` when `ty` is a bare `Named(name)` reference whose Swift mirror

@@ -455,6 +455,12 @@ impl Backend for WasmBackend {
 
         for func in &api.functions {
             if !exclude_functions.contains(&func.name) {
+                // clear_fn functions are emitted inside the bridge module and glob-re-exported;
+                // emitting them again here would produce duplicate wasm-bindgen symbol names.
+                if alef_codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&func.name, &config.trait_bridges)
+                {
+                    continue;
+                }
                 // Skip functions whose signature references excluded types
                 let refs_excluded = func
                     .params

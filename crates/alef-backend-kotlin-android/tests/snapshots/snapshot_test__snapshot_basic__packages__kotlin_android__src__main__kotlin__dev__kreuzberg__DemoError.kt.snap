@@ -21,6 +21,7 @@ expression: "&file.content"
     "FunctionParameterNaming",
     "LongParameterList",
     "CyclomaticComplexMethod",
+    "LongMethod",
 )
 
 package dev.kreuzberg

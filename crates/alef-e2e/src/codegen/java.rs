@@ -698,46 +698,45 @@ fn render_test_file(
         }
     }
 
-    // Import ChatCompletionChunk when any fixture is streaming (uses chat_stream
+    // Import streaming DTOs when any fixture is streaming (uses chat_stream
     // or references streaming-virtual fields like `chunks`/`stream_content`).
-    // The collect_snippet emits `new ArrayList<ChatCompletionChunk>()` so the
+    // The collect_snippet emits `new ArrayList<ItemType>()` so the item type
     // class must be importable for type inference and method resolution.
     //
     // Use `resolve_is_streaming` so per-call `streaming = false` opt-outs are
     // honoured: consumers like tree-sitter-language-pack ship a real `chunks`
     // result field on their non-streaming process result, and would otherwise
-    // get a spurious `import …ChatCompletionChunk` plus virtual-aggregator
-    // accessor expansion on `chunks`-shaped assertions.
+    // get a spurious import plus virtual-aggregator accessor expansion on
+    // `chunks`-shaped assertions.
     let has_streaming_fixture = fixtures.iter().any(|f| {
         let call_cfg =
             e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
         crate::codegen::streaming_assertions::resolve_is_streaming(f, call_cfg.streaming)
     });
     if has_streaming_fixture && !binding_pkg_for_imports.is_empty() {
-        imports.push(format!("import {binding_pkg_for_imports}.ChatCompletionChunk;"));
         // Derive streaming DTO imports from declared adapters so each project pulls
-        // in only the types it actually exposes — e.g. kreuzcrawl gets
-        // CrawlEvent/CrawlStreamRequest/BatchCrawlStreamRequest, liter-llm gets nothing
-        // beyond ChatCompletionChunk above (ChatCompletionRequest is imported elsewhere).
-        let mut extra_streaming_imports: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        // in only the types it actually exposes (e.g., kreuzcrawl gets
+        // CrawlEvent/CrawlStreamRequest/BatchCrawlStreamRequest, liter-llm gets
+        // ChatCompletionChunk/ChatCompletionRequest).
+        let mut streaming_imports: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
         for adapter in adapters {
             if !matches!(adapter.pattern, alef_core::config::extras::AdapterPattern::Streaming) {
                 continue;
             }
             if let Some(item) = adapter.item_type.as_deref() {
                 let simple = item.rsplit("::").next().unwrap_or(item);
-                if simple != "ChatCompletionChunk" && !simple.is_empty() {
-                    extra_streaming_imports.insert(simple.to_string());
+                if !simple.is_empty() {
+                    streaming_imports.insert(simple.to_string());
                 }
             }
             if let Some(req) = adapter.request_type.as_deref() {
                 let simple = req.rsplit("::").next().unwrap_or(req);
                 if !simple.is_empty() {
-                    extra_streaming_imports.insert(simple.to_string());
+                    streaming_imports.insert(simple.to_string());
                 }
             }
         }
-        for ty in extra_streaming_imports {
+        for ty in streaming_imports {
             imports.push(format!("import {binding_pkg_for_imports}.{ty};"));
         }
     }

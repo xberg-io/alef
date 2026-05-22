@@ -1020,9 +1020,33 @@ fn render_test_fn(
                 );
                 let _ = writeln!(out, "    defer std.heap.c_allocator.free(_result_json);");
                 if any_emits_code {
+                    // For certain functions like `interact()`, the result is a struct that
+                    // the fixture expects to access via a wrapper field (e.g. "interaction.action_results").
+                    // Since the Zig binding returns the serialized struct directly (without wrapping),
+                    // we wrap it in a JSON object with the appropriate key before parsing.
+                    let wrap_field = match function_name.as_str() {
+                        "interact" => Some("interaction"),
+                        _ => None,
+                    };
+
+                    let parse_json_var = if let Some(field) = wrap_field {
+                        // Build the Zig format string for wrapping: {"field":{s}}
+                        // In Zig: `std.fmt.allocPrint(..., "{\"field\":{s}}", .{value})`
+                        // In Rust string literal: "{{\\\"field\\\":{s}}}" (double-escape { and \)
+                        let _ = writeln!(
+                            out,
+                            "    const _wrapped_json = try std.fmt.allocPrint(allocator, \"{{\\\"{}\\\":{{s}}}}\", .{{_result_json}});",
+                            field
+                        );
+                        let _ = writeln!(out, "    defer allocator.free(_wrapped_json);");
+                        "_wrapped_json".to_string()
+                    } else {
+                        "_result_json".to_string()
+                    };
+
                     let _ = writeln!(
                         out,
-                        "    var _parsed = try std.json.parseFromSlice(std.json.Value, allocator, _result_json, .{{}});"
+                        "    var _parsed = try std.json.parseFromSlice(std.json.Value, allocator, {parse_json_var}, .{{}});"
                     );
                     let _ = writeln!(out, "    defer _parsed.deinit();");
                     let _ = writeln!(out, "    const {result_var} = &_parsed.value;");

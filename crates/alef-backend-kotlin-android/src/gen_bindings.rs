@@ -18,11 +18,11 @@ use std::path::Path;
 
 use alef_backend_kotlin::{
     emit_enum_pub, emit_error_type_pub, emit_jni_bridge_object, emit_jni_client_class, emit_kdoc_pub,
-    emit_type_pub_with_defaults_sealed_and_constructible, to_pascal_case,
+    emit_type_pub_with_defaults_sealed_and_constructible, kotlin_type_str_pub, to_lower_camel, to_pascal_case,
 };
 use alef_core::backend::GeneratedFile;
 use alef_core::config::ResolvedCrateConfig;
-use alef_core::ir::ApiSurface;
+use alef_core::ir::{ApiSurface, TypeDef};
 use alef_core::jni::bridge_class_name;
 
 use crate::naming::kotlin_package;
@@ -253,16 +253,87 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, kotlin_source_dir: &
         });
     }
 
-    // NOTE: trait interfaces are NOT emitted for Android AAR.
-    // The Android AAR is a self-contained JNI library without a Java facade,
-    // so trait bridge interfaces are not needed. Plugin implementations would be
-    // handled by a higher-level Java/Kotlin layer, not the AAR itself.
-    // Kotlin trait interfaces are emitted by alef-backend-kotlin (JVM target) only.
+    emit_trait_interfaces(api, config, kotlin_source_dir, &package, &mut files);
 
     // Emit the free-function facade object (Module.kt) when visible functions exist.
     emit_module_kt(api, config, kotlin_source_dir, &package, &mut files);
 
     files
+}
+
+fn emit_trait_interfaces(
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+    kotlin_source_dir: &Path,
+    package: &str,
+    files: &mut Vec<GeneratedFile>,
+) {
+    for bridge in &config.trait_bridges {
+        if bridge
+            .exclude_languages
+            .iter()
+            .any(|language| language == "kotlin_android")
+        {
+            continue;
+        }
+        let Some(trait_def) = api
+            .types
+            .iter()
+            .find(|typ| typ.is_trait && typ.name == bridge.trait_name && !typ.binding_excluded)
+        else {
+            continue;
+        };
+
+        let interface_name = format!("I{}", trait_def.name);
+        let mut imports = BTreeSet::new();
+        let mut body = String::new();
+        emit_kdoc_pub(&mut body, &trait_def.doc, "");
+        body.push_str(&format!("interface {interface_name} {{\n"));
+        if bridge.super_trait.is_some() {
+            body.push_str("    fun name(): String\n");
+            body.push_str("    fun version(): String\n");
+            body.push_str("    fun initialize() {}\n");
+            body.push_str("    fun shutdown() {}\n");
+        }
+        emit_trait_methods(trait_def, &mut imports, &mut body);
+        body.push_str("}\n");
+
+        let content = assemble_kt_content(package, &imports, &body);
+        files.push(GeneratedFile {
+            path: kotlin_source_dir.join(format!("{interface_name}.kt")),
+            content,
+            generated_header: false,
+        });
+    }
+}
+
+fn emit_trait_methods(trait_def: &TypeDef, imports: &mut BTreeSet<String>, body: &mut String) {
+    for method in &trait_def.methods {
+        if method.sanitized || method.is_static {
+            continue;
+        }
+        emit_kdoc_pub(body, &method.doc, "    ");
+        let suspend_keyword = if method.is_async { "suspend " } else { "" };
+        let method_name = to_lower_camel(&method.name);
+        let params = method
+            .params
+            .iter()
+            .map(|param| {
+                let name = to_lower_camel(&param.name);
+                let ty = kotlin_type_str_pub(&param.ty, param.optional, imports);
+                format!("{name}: {ty}")
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let return_type = kotlin_type_str_pub(&method.return_type, false, imports);
+        if return_type == "Unit" {
+            body.push_str(&format!("    {suspend_keyword}fun {method_name}({params})\n"));
+        } else {
+            body.push_str(&format!(
+                "    {suspend_keyword}fun {method_name}({params}): {return_type}\n"
+            ));
+        }
+    }
 }
 
 /// Emit `<Module>.kt` — a Kotlin `object` that re-exposes every free function

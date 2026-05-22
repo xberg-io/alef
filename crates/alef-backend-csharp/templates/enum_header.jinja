@@ -12,11 +12,11 @@ namespace {{ namespace }};
 /// {{ line }}
 {% endfor %}
 /// </summary>
-{% endif -%}
+{% endif %}
 [JsonConverter(typeof({{ enum_pascal }}JsonConverter))]
 public enum {{ enum_pascal }}
 {
-{%- for variant in variants %}
+{% for variant in variants %}
 {% if variant.doc %}
     /// <summary>
 {% for line in variant.doc_lines %}
@@ -26,5 +26,5 @@ public enum {{ enum_pascal }}
 {% endif %}
     [JsonPropertyName("{{ variant.json_name }}")]
     {{ variant.pascal_name }},
-{%- endfor %}
+{% endfor %}
 }

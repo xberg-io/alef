@@ -3514,3 +3514,133 @@ fn test_sanitized_tuple_vec_field_uses_js_value_in_tagged_enum() {
         "core→binding must encode entries via serde_wasm_bindgen::to_value;\n{content}"
     );
 }
+
+/// Regression: when a `clear_fn` is configured on a trait bridge, the function must appear
+/// exactly once in the generated output.  Before the fix, the wasm backend emitted it as both
+/// a top-level `#[wasm_bindgen]` export and inside the bridge module (which is glob-re-exported),
+/// producing a duplicate-symbol compile error in wasm-bindgen.
+#[test]
+fn test_wasm_plugin_bridge_clear_fn_not_duplicated() {
+    use alef_core::config::TraitBridgeConfig;
+
+    let backend = WasmBackend;
+
+    let trait_def = TypeDef {
+        name: "OcrBackend".to_string(),
+        rust_path: "test_lib::OcrBackend".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![MethodDef {
+            name: "run_ocr".to_string(),
+            params: vec![],
+            return_type: TypeRef::String,
+            is_async: false,
+            is_static: false,
+            receiver: Some(ReceiverKind::Ref),
+            error_type: None,
+            doc: String::new(),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        is_opaque: false,
+        is_clone: false,
+        is_copy: false,
+        is_trait: true,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+
+    // The clear_fn is a zero-parameter function in the public API surface.
+    let clear_fn = FunctionDef {
+        name: "clear_ocr_backends".to_string(),
+        rust_path: "test_lib::clear_ocr_backends".to_string(),
+        original_rust_path: String::new(),
+        params: vec![],
+        return_type: TypeRef::Unit,
+        is_async: false,
+        error_type: None,
+        doc: String::new(),
+        cfg: None,
+        sanitized: false,
+        return_sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![trait_def],
+        functions: vec![clear_fn],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: std::collections::HashMap::new(),
+        excluded_trait_names: std::collections::HashSet::new(),
+    };
+
+    let mut config = make_config();
+    config.trait_bridges = vec![TraitBridgeConfig {
+        trait_name: "OcrBackend".to_string(),
+        super_trait: Some("Plugin".to_string()),
+        registry_getter: Some("test_lib::get_ocr_registry".to_string()),
+        register_fn: Some("register_ocr_backend".to_string()),
+        unregister_fn: Some("unregister_ocr_backend".to_string()),
+        clear_fn: Some("clear_ocr_backends".to_string()),
+        type_alias: None,
+        param_name: None,
+        register_extra_args: None,
+        exclude_languages: vec![],
+        ffi_skip_methods: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
+        context_type: None,
+        result_type: None,
+    }];
+
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generate_bindings with clear_fn bridge should succeed");
+
+    let lib_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("lib.rs"))
+        .expect("generate_bindings must emit lib.rs");
+
+    let content = &lib_file.content;
+
+    // Not duplicated — exactly one wasm-bindgen export with this JS name.
+    let occurrences = content.matches("clearOcrBackends").count();
+    assert_eq!(
+        occurrences, 1,
+        "clearOcrBackends must appear exactly once in lib.rs (not duplicated by top-level + bridge glob re-export);\nfound {occurrences} occurrence(s)"
+    );
+
+    // Emitted via the bridge module, not silently dropped — the bridge module and its
+    // glob re-export must both be present so callers can reach clearOcrBackends.
+    assert!(
+        content.contains("mod __alef_wasm_bridge_ocrbackend"),
+        "bridge module __alef_wasm_bridge_ocrbackend must be present in lib.rs"
+    );
+    assert!(
+        content.contains("pub use __alef_wasm_bridge_ocrbackend::*"),
+        "bridge module must be glob-re-exported so its symbols are reachable"
+    );
+}

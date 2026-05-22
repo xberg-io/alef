@@ -803,6 +803,8 @@ pub(super) fn gen_record_type(
             // emit as nullable with null default so WhenWritingNull strips unset fields
             // and Rust applies its own defaults.
             if typ.has_default
+                && field.typed_default.is_none()
+                && field.default.is_none()
                 && !field.optional
                 && matches!(
                     &field.ty,

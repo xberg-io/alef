@@ -21,6 +21,7 @@ expression: "&file.content"
     "FunctionParameterNaming",
     "LongParameterList",
     "CyclomaticComplexMethod",
+    "LongMethod",
 )
 
 package dev.kreuzberg
@@ -33,4 +34,20 @@ enum class Status {
     /** Inactive state. */
     @com.fasterxml.jackson.annotation.JsonProperty("Inactive")
     INACTIVE;
+
+    @com.fasterxml.jackson.annotation.JsonValue
+    fun toWire(): String = when (this) {
+        ACTIVE -> "Active"
+        INACTIVE -> "Inactive"
+    }
+
+    companion object {
+        @com.fasterxml.jackson.annotation.JsonCreator
+        @JvmStatic
+        fun fromWire(value: String): Status = when (value) {
+            "Active" -> ACTIVE
+            "Inactive" -> INACTIVE
+            else -> throw IllegalArgumentException("Unknown Status value: $value")
+        }
+    }
 }

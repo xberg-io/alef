@@ -389,7 +389,7 @@ fn render_spec_file(
             let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
             let has_not_error = fixture.assertions.iter().any(|a| a.assertion_type == "not_error");
             let has_usable = has_usable_assertion(fixture, field_resolver, result_is_simple);
-            let is_streaming = raw_function_name == "chat_stream";
+            let is_streaming = super::streaming_assertions::resolve_is_streaming(fixture, fixture_call.streaming);
 
             // Ruby has FFI access to the Rust core, so it can execute non-HTTP
             // fixtures. Render tests for all fixtures that have error assertions,

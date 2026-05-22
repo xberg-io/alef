@@ -1877,19 +1877,19 @@ fn gen_builder_nested_class(typ: &TypeDef, has_visitor_pattern: bool) -> String 
             }
         };
 
-        // Emit `@JsonProperty(<wire-name>)` so Jackson's BuilderBasedDeserializer matches
-        // the wire key to this builder field. Always emit it — relying on Jackson's
-        // SNAKE_CASE naming strategy alone breaks for fields whose camelCase form starts
-        // with a single lowercase letter followed by an uppercase (e.g. `xRobotsTag`
-        // → `xrobots_tag`, not `x_robots_tag`). The wire name is the field's
-        // `#[serde(rename = "...")]` override if set, otherwise the Rust field name
-        // (already snake_case per project convention).
+        // Emit `@JsonProperty(<wire-name>)` only when the Java field name differs from
+        // the wire name or serde explicitly renamed the field.
         let wire_name: Option<String> = if is_flattened_json {
             // Flatten fields have no single wire name — the matching
             // `@JsonAnySetter` setter intercepts every unknown sibling field.
             None
         } else {
-            Some(field.serde_rename.clone().unwrap_or_else(|| field.name.clone()))
+            let wire = field.serde_rename.clone().unwrap_or_else(|| field.name.clone());
+            if field.serde_rename.is_some() || field_name != wire {
+                Some(wire)
+            } else {
+                None
+            }
         };
         if let Some(wire) = wire_name {
             body.push_str("        @JsonProperty(\"");
@@ -1943,7 +1943,12 @@ fn gen_builder_nested_class(typ: &TypeDef, has_visitor_pattern: bool) -> String 
         let setter_wire_name: Option<String> = if is_flattened_json {
             None
         } else {
-            Some(field.serde_rename.clone().unwrap_or_else(|| field.name.clone()))
+            let wire = field.serde_rename.clone().unwrap_or_else(|| field.name.clone());
+            if field.serde_rename.is_some() || field_name != wire {
+                Some(wire)
+            } else {
+                None
+            }
         };
         if is_flattened_json {
             // The regular `with<Field>(Map)` setter must not bind to a wire
