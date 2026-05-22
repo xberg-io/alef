@@ -1,7 +1,8 @@
 #[derive(serde::Deserialize, Default)]
-#[serde(default, rename_all = "camelCase")]
+#[serde(default)]
 pub struct {{ input_name }} {
 {%- for field in fields %}
+    #[serde(rename = "{{ field.serde_rename }}")]
     pub {{ field.name }}: {{ field.ty }},
 {%- endfor %}
 }
