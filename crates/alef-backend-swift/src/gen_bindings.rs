@@ -164,12 +164,26 @@ impl Backend for SwiftBackend {
             body.push('\n');
         }
 
+        // Collect result enum names from trait bridges — these are emitted as first-class
+        // Swift enums that JSON-decode locally, so they don't call a Rust-side from_json fn.
+        let result_type_enums: std::collections::HashSet<String> = config
+            .trait_bridges
+            .iter()
+            .filter_map(|b| b.result_type.as_deref().map(|s| s.to_string()))
+            .collect();
+
         // Enums are emitted as native Swift enums with unit variants only.
         // They are NOT typealiased to RustBridge since swift-bridge's automatic generation
         // is unreliable (not all enum types are exposed). Instead, we emit them directly
         // as Swift enums that mirror the unit variants from the Rust bridge enum wrapper.
         for en in api.enums.iter().filter(|e| !exclude_types.contains(&e.name)) {
-            emit_enum(en, &mut body, &mapper, &known_dto_names);
+            if result_type_enums.contains(&en.name) {
+                // Result-type enums are emitted without intoRust() because Swift decodes them
+                // locally via JSONDecoder, not via a Rust-side from_json function.
+                emit_enum_without_into_rust(en, &mut body, &mapper, &known_dto_names);
+            } else {
+                emit_enum(en, &mut body, &mapper, &known_dto_names);
+            }
             body.push('\n');
         }
 
@@ -1241,6 +1255,79 @@ fn all_variants_codable_safe(en: &EnumDef, known_dto_names: &std::collections::H
         .iter()
         .flat_map(|v| v.fields.iter())
         .all(|f| supported(&f.ty, known_dto_names))
+}
+
+/// Emits a Swift enum for a trait-bridge result type without an intoRust() extension.
+/// Result-type enums are first-class enums that JSON-decode locally in Swift and do NOT
+/// call a Rust-side from_json function, so they don't need the FFI round-trip mechanism.
+fn emit_enum_without_into_rust(
+    en: &EnumDef,
+    out: &mut String,
+    mapper: &SwiftMapper,
+    known_dto_names: &std::collections::HashSet<String>,
+) {
+    emit_doc_comment(&en.doc, "", out);
+
+    if !en.has_serde {
+        out.push_str(&crate::template_env::render(
+            "typealias.jinja",
+            minijinja::context! {
+                name => &en.name,
+            },
+        ));
+        return;
+    }
+
+    let all_unit = en.variants.iter().all(|v| v.fields.is_empty());
+
+    if all_unit {
+        // Emit all-unit enum without intoRust() extension (unlike emit_enum).
+        let _ = mapper;
+        out.push_str(&format!(
+            "public enum {}: String, Codable, Sendable, Hashable {{\n",
+            en.name
+        ));
+        for variant in &en.variants {
+            emit_doc_comment(&variant.doc, "    ", out);
+            let case_name = swift_case_ident(&variant.name.to_lower_camel_case());
+            let raw_value = unit_enum_raw_value(variant, en.serde_rename_all.as_deref());
+            if raw_value == case_name.trim_matches('`') {
+                out.push_str(&crate::template_env::render(
+                    "enum_case_unit.jinja",
+                    minijinja::context! {
+                        case_name => &case_name,
+                    },
+                ));
+            } else {
+                out.push_str(&format!("    case {case_name} = \"{raw_value}\"\n"));
+            }
+        }
+        out.push_str("}\n");
+        // Do NOT call emit_enum_into_rust_extension — that's the key difference.
+        return;
+    }
+
+    // For data-variant enums, check if all variants are Codable-safe.
+    if all_variants_codable_safe(en, known_dto_names) {
+        // Emit as a native Swift enum with associated values, without intoRust().
+        out.push_str(&format!(
+            "public enum {}: Codable, Sendable, Hashable {{\n",
+            en.name
+        ));
+        for variant in &en.variants {
+            emit_variant_with_data(variant, out, mapper);
+        }
+        out.push_str("}\n");
+        // Do NOT call emit_enum_into_rust_extension — that's the key difference.
+    } else {
+        // Fall back to typealias (same as emit_enum) if not all variants are Codable-safe.
+        out.push_str(&crate::template_env::render(
+            "typealias.jinja",
+            minijinja::context! {
+                name => &en.name,
+            },
+        ));
+    }
 }
 
 /// Emits an `extension {EnumName} { func intoRust() throws -> RustBridge.{EnumName} { ... } }`

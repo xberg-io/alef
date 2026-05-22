@@ -324,11 +324,10 @@ fn emit_lib_rs(
         })
         .collect();
 
-    // Collect result enum names from trait bridges — these should NOT be declared as
-    // opaque extern types because they're first-class Swift enums emitted separately
-    // and declaring them as extern types causes swift-bridge to generate a conflicting
-    // opaque `class` with the same name (e.g. `class VisitResult`), causing ambiguity.
-    let result_type_enums: HashSet<String> = active_bridges
+    // Collect result enum names from trait bridges — result-type enums must have
+    // a private swift_name to avoid collision with the first-class Swift enums
+    // emitted in gen_bindings.rs (e.g. `VisitResult` enum).
+    let result_type_enums: std::collections::HashSet<String> = active_bridges
         .iter()
         .filter_map(|(bridge_cfg, _)| bridge_cfg.result_type.as_deref().map(|s| s.to_string()))
         .collect();
@@ -367,8 +366,8 @@ fn emit_lib_rs(
         }
     }
     for en in &visible_enums {
-        // Skip enums that are result types in trait bridges — they're emitted as
-        // first-class Swift enums and should not have opaque swift-bridge wrappers.
+        // Skip result-type enums from the bridge — they're first-class Swift enums
+        // and don't need opaque swift-bridge types. Swift calls JSON decoders locally.
         if !result_type_enums.contains(&en.name) {
             extern_blocks.push(extern_block::emit_extern_block_for_enum(en));
         }
@@ -572,9 +571,20 @@ fn emit_lib_rs(
     // Swift `extension Enum.intoRust()` JSON path links cleanly. The wrapper enum
     // is the swift-bridge newtype (`pub struct Foo(pub source::Foo)`), so the
     // shim wraps the deserialised source enum in the wrapper.
-    if !json_fallback_enums.is_empty() {
+    // HOWEVER: result-type enums (trait bridge result types) are first-class Swift
+    // enums that JSON-decode locally in Swift — they do NOT call the Rust-side
+    // `*_from_json` function, so we skip emitting the extern declaration for them.
+    // This avoids the undeclared-type error while keeping the type declaration itself
+    // (emitted above in emit_extern_block_for_enum) so swift-bridge knows about it
+    // when it appears in other function signatures.
+    let json_fallback_enums_filtered: Vec<&EnumDef> = json_fallback_enums
+        .iter()
+        .filter(|en| !result_type_enums.contains(&en.name))
+        .copied()
+        .collect();
+    if !json_fallback_enums_filtered.is_empty() {
         out.push_str("    extern \"Rust\" {\n\n");
-        for en in &json_fallback_enums {
+        for en in &json_fallback_enums_filtered {
             let enum_snake = AsSnakeCase(en.name.as_str()).to_string();
             let enum_name = &en.name;
             emit_from_json_extern_decl(&mut out, &enum_snake, enum_name);
@@ -760,7 +770,8 @@ fn emit_lib_rs(
 
     // Enum from_json bodies — deserialise the source enum and wrap in the
     // swift-bridge wrapper newtype. Mirrors the struct path above.
-    for en in &json_fallback_enums {
+    // Skip result-type enums: their extern declarations were filtered above.
+    for en in &json_fallback_enums_filtered {
         let enum_snake = AsSnakeCase(en.name.as_str()).to_string();
         let enum_name = &en.name;
         let source_path =

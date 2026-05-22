@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **alef-core: `CallConfig.options_type`.** The binding-agnostic config parameter type for an e2e call can now be declared once at call level (`[e2e.calls.<name>].options_type`) instead of being duplicated across every per-language override. The field was already present in `kreuzberg`'s `alef.toml` but silently discarded because the model lacked it. (`crates/alef-core/src/config/e2e.rs`)
 
+## [0.17.32] - 2026-05-22
+
+### Fixed
+
+- **alef-backend-swift: trait-bridge result enums are emitted as first-class Swift enums without FFI from_json functions.** Trait-bridge result types (e.g. `VisitResult`) are first-class Swift enums that JSON-decode locally and never cross the FFI boundary. Previously, the Rust-crate emitter declared them in the swift-bridge `extern` block, causing swift-bridge to auto-generate a second opaque `class VisitResult` that collided with the enum. The fix skips both the `extern` type declaration and the `from_json` function declaration for result-type enums, while the Swift-side emitter now emits them as native Swift enums without the `intoRust()` extension (since they decode locally, not via a Rust-side function). This resolves "ambiguous type lookup" errors in consumer Swift code. (`crates/alef-backend-swift/src/gen_rust_crate/mod.rs`, `crates/alef-backend-swift/src/gen_bindings.rs`)
+
 ### Fixed
 
 - **alef-e2e: bind `result_is_simple`/`result_is_tree` calls to the result variable, and emit Go `fmt`/`strings` imports, when an assertion's field is not a real struct member of the plain result type.** For calls returning a plain type (e.g. `embed_texts`, `detect_mime_type_from_bytes`), `count_equals`/`contains` assertions naming a non-member field (e.g. `embeddings` on a `Vec`) render against the result variable directly — but the binding/import predicates gated solely on `is_valid_for_result(field)`, so the call was bound to `_` (Rust) or the imports were omitted (Go), leaving `result.len()` / `fmt.Sprint(result)` referencing undefined names. (`crates/alef-e2e/src/codegen/rust/test_file.rs`, `crates/alef-e2e/src/codegen/go.rs`)
