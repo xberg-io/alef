@@ -23,12 +23,18 @@ const DEFAULT_EXTRACTION_CONFIG: &str = "ExtractionConfig(\
     maxArchiveDepth: 3\
 )";
 
-/// Returns `true` if the parameter is the extraction config type.
+/// Returns `true` if the parameter is a config type that should be made optional in Dart.
 ///
-/// Parameters named `config` with type `ExtractionConfig` are made optional in the
-/// dart wrapper so callers can omit the config and get sensible defaults.
-fn is_extraction_config_param(p: &alef_core::ir::ParamDef) -> bool {
-    p.name == "config" && matches!(&p.ty, TypeRef::Named(n) if n == "ExtractionConfig")
+/// Parameters named `config` with types like `ExtractionConfig` or `PackConfig` are
+/// made optional in the dart wrapper so callers can omit the config and get sensible
+/// defaults. This applies to config structs that have `Default` implementations in Rust
+/// and are conventionally used with optional semantics at binding boundaries.
+fn is_optional_config_param(p: &alef_core::ir::ParamDef) -> bool {
+    p.name == "config"
+        && matches!(
+            &p.ty,
+            TypeRef::Named(n) if n == "ExtractionConfig" || n == "PackConfig"
+        )
 }
 
 pub(super) fn emit_function(f: &FunctionDef, out: &mut String, imports: &mut BTreeSet<String>) {
@@ -53,27 +59,33 @@ pub(super) fn emit_function(f: &FunctionDef, out: &mut String, imports: &mut BTr
 
     let fn_name = dart_safe_ident(&f.name.to_lower_camel_case());
 
-    // Determine if any param is an optional ExtractionConfig.
-    let has_config_param = f.params.iter().any(is_extraction_config_param);
+    // Find the optional config param if present, and determine its type.
+    let config_param = f.params.iter().find(|p| is_optional_config_param(p));
+    let config_type = config_param.and_then(|p| match &p.ty {
+        TypeRef::Named(n) => Some(n.as_str()),
+        _ => None,
+    });
 
-    // Build the dart wrapper parameter list. If the function has an ExtractionConfig param,
-    // split into required params and then `[ExtractionConfig? config]` optional positional.
+    // Build the dart wrapper parameter list. If the function has an optional config param
+    // (e.g., ExtractionConfig or PackConfig), split into required params and then
+    // `[ConfigType? config]` optional positional.
     //
     // For all other functions, emit required (non-optional) params as positional and
     // optional params inside a `{...}` named-parameter block. This matches the natural
     // Dart calling convention `createClient('key', baseUrl: ...)` and mirrors the
     // underlying FRB binding which is itself named-only.
-    let params_str = if has_config_param {
+    let params_str = if let Some(cfg_type) = config_type {
         let required_params: Vec<String> = f
             .params
             .iter()
-            .filter(|p| !is_extraction_config_param(p))
+            .filter(|p| !is_optional_config_param(p))
             .map(|p| format_param(p, imports))
             .collect();
+        let optional_sig = format!("[{cfg_type}? config]");
         if required_params.is_empty() {
-            "[ExtractionConfig? config]".to_string()
+            optional_sig
         } else {
-            format!("{}, [ExtractionConfig? config]", required_params.join(", "))
+            format!("{}, {optional_sig}", required_params.join(", "))
         }
     } else {
         let required: Vec<String> = f
@@ -99,17 +111,24 @@ pub(super) fn emit_function(f: &FunctionDef, out: &mut String, imports: &mut BTr
     // FRB bridge functions use Dart named parameters (required keyword).
     // Call them with `name: value` named-argument syntax.
     // When config is optional, pass the default when the caller omits it.
-    let call_args_str = if has_config_param {
+    let call_args_str = if let Some(cfg_type) = config_type {
         let non_config: Vec<String> = f
             .params
             .iter()
-            .filter(|p| !is_extraction_config_param(p))
+            .filter(|p| !is_optional_config_param(p))
             .map(|p| {
                 let ident = dart_safe_ident(&p.name.to_lower_camel_case());
                 format!("{ident}: {ident}")
             })
             .collect();
-        let config_arg = format!("config: config ?? {DEFAULT_EXTRACTION_CONFIG}");
+        // For ExtractionConfig, use the hardcoded DEFAULT_EXTRACTION_CONFIG constant.
+        // For other config types (e.g., PackConfig), use the default constructor.
+        let config_default = if cfg_type == "ExtractionConfig" {
+            format!("config ?? {DEFAULT_EXTRACTION_CONFIG}")
+        } else {
+            format!("config ?? {cfg_type}()")
+        };
+        let config_arg = format!("config: {config_default}");
         if non_config.is_empty() {
             config_arg
         } else {

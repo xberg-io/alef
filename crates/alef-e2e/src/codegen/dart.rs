@@ -792,6 +792,18 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
                                 // {force_ocr:true, disable_ocr:true} that toggle error paths.
                                 args.push(emit_extraction_config_dart(map));
                             }
+                        } else {
+                            // Empty config object: construct a default instance via FRB's
+                            // `create<Type>FromJson(json: '{}')` helper (supports all
+                            // config types, not just ExtractionConfig). This ensures the
+                            // call signature matches the binding, which expects a required
+                            // config parameter even when all fields use their defaults.
+                            if let Some(opts_type) = options_type {
+                                let var_name = format!("_{}", arg_def.name);
+                                let dart_fn = type_name_to_create_from_json_dart(opts_type);
+                                setup_lines.push(format!("final {var_name} = await {dart_fn}(json: '{{}}');"));
+                                args.push(var_name);
+                            }
                         }
                     }
                     // If config is null/absent, the wrapper supplies the default ExtractionConfig.
