@@ -330,9 +330,7 @@ fn emit_lib_rs(
     // opaque `class` with the same name (e.g. `class VisitResult`), causing ambiguity.
     let result_type_enums: HashSet<String> = active_bridges
         .iter()
-        .filter_map(|(bridge_cfg, _)| {
-            bridge_cfg.result_type.as_deref().map(|s| s.to_string())
-        })
+        .filter_map(|(bridge_cfg, _)| bridge_cfg.result_type.as_deref().map(|s| s.to_string()))
         .collect();
 
     // Collect extern "Rust" blocks for the ffi module
