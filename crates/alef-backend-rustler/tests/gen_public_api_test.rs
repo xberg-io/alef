@@ -894,9 +894,9 @@ fn test_native_ex_emits_force_build_guard() {
         .expect("native.ex should be generated");
 
     assert!(
-        native.content.contains(
-            r#"force_build: System.get_env("MY_LIB_BUILD") in ["1", "true"] or System.get_env("MIX_ENV") in ["test", "dev"]"#
-        ),
+        native
+            .content
+            .contains(r#"force_build: System.get_env("MY_LIB_BUILD") in ["1", "true"] or Mix.env() in [:dev, :test]"#),
         "force_build guard should be present in native.ex; content:\n{}",
         &native.content
     );
