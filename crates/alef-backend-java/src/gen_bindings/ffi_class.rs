@@ -1,7 +1,7 @@
 use crate::type_map::{java_boxed_type, java_return_type, java_type};
 use ahash::AHashSet;
 use alef_codegen::naming::to_java_name;
-use alef_core::config::{AdapterConfig, AdapterPattern, ResolvedCrateConfig};
+use alef_core::config::ResolvedCrateConfig;
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{ApiSurface, FunctionDef, TypeRef};
 use heck::ToSnakeCase;
@@ -16,7 +16,7 @@ use super::marshal::{
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn gen_main_class(
     api: &ApiSurface,
-    config: &ResolvedCrateConfig,
+    _config: &ResolvedCrateConfig,
     package: &str,
     class_name: &str,
     prefix: &str,
@@ -64,21 +64,10 @@ pub(crate) fn gen_main_class(
         }
     }
 
-    // Generate static streaming adapter methods for each streaming adapter with an owner_type
-    for adapter in &config.adapters {
-        if !matches!(adapter.pattern, AdapterPattern::Streaming) {
-            continue;
-        }
-        if adapter.owner_type.is_none() || adapter.item_type.is_none() || adapter.params.is_empty() {
-            continue;
-        }
-        if adapter.skip_languages.iter().any(|l| l == "java") {
-            continue;
-        }
-
-        gen_streaming_adapter_method(&mut body, adapter, prefix, class_name);
-        body.push('\n');
-    }
+    // Streaming adapters with an `owner_type` are emitted as instance methods on
+    // the owner's opaque-handle class (see `types.rs::gen_streaming_method`), which
+    // is the only context that has the `handle` field and streaming helpers in
+    // scope. The FFI class is a static-only surface, so it emits nothing here.
 
     // Add internal convertWithVisitor helper when visitor bridge is configured
     if has_visitor_bridge {
@@ -634,68 +623,6 @@ pub(crate) fn gen_async_wrapper_method(
     out.push_str("            }\n");
     out.push_str("        });\n");
     out.push_str("    }\n");
-}
-
-/// Generate a static streaming adapter method on the main FFI class.
-///
-/// For adapters with an owner_type, this emits a static method that takes the
-/// owner instance pointer as the first parameter (in addition to the request).
-/// The method calls the FFI iterator-handle functions (_start, _next, _free)
-/// to implement an Iterator over the stream chunks.
-fn gen_streaming_adapter_method(out: &mut String, adapter: &AdapterConfig, prefix: &str, class_name: &str) {
-    use alef_codegen::naming::to_java_name;
-    use heck::ToSnakeCase;
-
-    let method_name = to_java_name(&adapter.name);
-    let item_type = adapter.item_type.as_deref().unwrap_or("Object");
-    let owner_type = adapter.owner_type.as_deref().unwrap_or("Object");
-    let request_type_full = adapter.params[0].ty.as_str();
-    // Strip any leading module path (e.g. `kreuzcrawl::CrawlStreamRequest` → `CrawlStreamRequest`)
-    let request_type = request_type_full.rsplit("::").next().unwrap_or(request_type_full);
-    let request_param = to_java_name(&adapter.params[0].name);
-    let request_param = if request_param.is_empty() {
-        "request".to_string()
-    } else {
-        request_param
-    };
-
-    let owner_snake = owner_type.to_snake_case();
-    let adapter_snake = adapter.name.to_snake_case();
-    let prefix_upper = prefix.to_uppercase();
-    let owner_upper = owner_snake.to_uppercase();
-    let adapter_upper = adapter_snake.to_uppercase();
-    let request_snake = request_type.to_snake_case();
-    let request_upper = request_snake.to_uppercase();
-    let item_snake = item_type.to_snake_case();
-    let item_upper = item_snake.to_uppercase();
-
-    let start_handle = format!("{prefix_upper}_{owner_upper}_{adapter_upper}_START");
-    let next_handle = format!("{prefix_upper}_{owner_upper}_{adapter_upper}_NEXT");
-    let free_handle = format!("{prefix_upper}_{owner_upper}_{adapter_upper}_FREE");
-    let req_from_json = format!("{prefix_upper}_{request_upper}_FROM_JSON");
-    let req_free = format!("{prefix_upper}_{request_upper}_FREE");
-    let item_to_json = format!("{prefix_upper}_{item_upper}_TO_JSON");
-    let item_free = format!("{prefix_upper}_{item_upper}_FREE");
-    let exception_class = format!("{class_name}Exception");
-
-    out.push_str(&crate::template_env::render(
-        "streaming_iterator_method.jinja",
-        minijinja::context! {
-            item_type => item_type,
-            method_name => method_name,
-            request_type => request_type,
-            request_param => request_param,
-            exception_class => exception_class,
-            req_from_json => req_from_json,
-            start_handle => start_handle,
-            req_free => req_free,
-            next_handle => next_handle,
-            prefix_upper => prefix_upper,
-            item_to_json => item_to_json,
-            item_free => item_free,
-            free_handle => free_handle,
-        },
-    ));
 }
 
 /// Generate the internal convertWithVisitor method to delegate visitor handling.
