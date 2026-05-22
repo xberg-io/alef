@@ -1278,8 +1278,8 @@ fn render_test_method(
         .map(|rt| rt.rsplit("::").next().unwrap_or(rt).to_string());
 
     // Determine if this is a streaming adapter.
-    let is_streaming_adapter = adapter
-        .is_some_and(|a| matches!(a.pattern, alef_core::config::extras::AdapterPattern::Streaming));
+    let is_streaming_adapter =
+        adapter.is_some_and(|a| matches!(a.pattern, alef_core::config::extras::AdapterPattern::Streaming));
 
     // When a non-streaming adapter with owner_type is present, filter out handle-type args
     // since the facade method doesn't take them separately (the handle is

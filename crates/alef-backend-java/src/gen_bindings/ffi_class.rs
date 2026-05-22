@@ -1161,10 +1161,7 @@ mod tests {
         let func = create_test_function("clear_ocr_backends", TypeRef::Unit);
 
         let mut clear_fn_handles = AHashMap::new();
-        clear_fn_handles.insert(
-            "clear_ocr_backends".to_string(),
-            "KRZ_CLEAR_OCR_BACKEND".to_string(),
-        );
+        clear_fn_handles.insert("clear_ocr_backends".to_string(), "KRZ_CLEAR_OCR_BACKEND".to_string());
 
         let mut out = String::new();
         let opaque_types = create_test_opaque_types();
@@ -1199,10 +1196,7 @@ mod tests {
         let func = create_test_function("list_ocr_backends", TypeRef::Vec(Box::new(TypeRef::String)));
 
         let mut clear_fn_handles = AHashMap::new();
-        clear_fn_handles.insert(
-            "clear_ocr_backends".to_string(),
-            "KRZ_CLEAR_OCR_BACKEND".to_string(),
-        );
+        clear_fn_handles.insert("clear_ocr_backends".to_string(), "KRZ_CLEAR_OCR_BACKEND".to_string());
 
         let mut out = String::new();
         let opaque_types = create_test_opaque_types();

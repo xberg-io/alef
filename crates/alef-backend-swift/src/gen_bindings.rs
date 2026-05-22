@@ -262,9 +262,7 @@ impl Backend for SwiftBackend {
                         "// MARK: - Sendable conformance for {inner_ty} (streaming client inner)\n"
                     ));
                     body.push_str("// swift-bridge opaque types are not automatically Sendable.\n");
-                    body.push_str(
-                        "// Captured by Task.detached in streaming methods — Rust type is Send + Sync.\n",
-                    );
+                    body.push_str("// Captured by Task.detached in streaming methods — Rust type is Send + Sync.\n");
                     body.push_str(&format!("extension RustBridge.{inner_ty}: @unchecked Sendable {{}}\n"));
                 }
             }
@@ -365,9 +363,7 @@ impl Backend for SwiftBackend {
         {
             let handle_returned = crate::gen_rust_crate::type_bridge::compute_handle_returned_types(api);
             for ty in api.types.iter().filter(|t| {
-                !t.is_trait
-                    && !exclude_types.contains(&t.name)
-                    && (t.is_opaque || handle_returned.contains(&t.name))
+                !t.is_trait && !exclude_types.contains(&t.name) && (t.is_opaque || handle_returned.contains(&t.name))
             }) {
                 if sendable_emitted.insert(ty.name.clone()) {
                     body.push_str("// swift-bridge opaque type used across Task.detached boundaries — Rust type is Send + Sync.\n");
@@ -1310,10 +1306,7 @@ fn emit_enum_without_into_rust(
     // For data-variant enums, check if all variants are Codable-safe.
     if all_variants_codable_safe(en, known_dto_names) {
         // Emit as a native Swift enum with associated values, without intoRust().
-        out.push_str(&format!(
-            "public enum {}: Codable, Sendable, Hashable {{\n",
-            en.name
-        ));
+        out.push_str(&format!("public enum {}: Codable, Sendable, Hashable {{\n", en.name));
         for variant in &en.variants {
             emit_variant_with_data(variant, out, mapper);
         }
