@@ -203,6 +203,11 @@ impl Backend for SwiftBackend {
             .filter(|t| can_emit_first_class_struct(t, &mapper, &exclude_fields, &known_dto_names))
             .map(|t| t.name.clone())
             .collect();
+        // Tracks every type that has already received an `extension RustBridge.X:
+        // @unchecked Sendable {}` so the streaming-specific emissions and the
+        // catch-all block below never declare the conformance twice (Swift warns
+        // on a redundant conformance).
+        let mut sendable_emitted: std::collections::HashSet<String> = std::collections::HashSet::new();
         for ty in api.types.iter().filter(|t| {
             !t.is_trait
                 && !exclude_types.contains(&t.name)
@@ -238,12 +243,16 @@ impl Backend for SwiftBackend {
                 // captured value to be `Sendable`.  The Rust type is `Send + Sync`, so
                 // `@unchecked` is correct.
                 let inner_ty = ty.name.as_str();
-                body.push_str(&format!(
-                    "// MARK: - Sendable conformance for {inner_ty} (streaming client inner)\n"
-                ));
-                body.push_str("// swift-bridge opaque types are not automatically Sendable.\n");
-                body.push_str("// Captured by Task.detached in streaming methods — Rust type is Send + Sync.\n");
-                body.push_str(&format!("extension RustBridge.{inner_ty}: @unchecked Sendable {{}}\n"));
+                if sendable_emitted.insert(inner_ty.to_string()) {
+                    body.push_str(&format!(
+                        "// MARK: - Sendable conformance for {inner_ty} (streaming client inner)\n"
+                    ));
+                    body.push_str("// swift-bridge opaque types are not automatically Sendable.\n");
+                    body.push_str(
+                        "// Captured by Task.detached in streaming methods — Rust type is Send + Sync.\n",
+                    );
+                    body.push_str(&format!("extension RustBridge.{inner_ty}: @unchecked Sendable {{}}\n"));
+                }
             }
             for adapter in &streaming_adapters {
                 emit_stream_handle_sendable(adapter, ty.name.as_str(), &mut body);
@@ -254,11 +263,10 @@ impl Backend for SwiftBackend {
             // to be `Sendable`.  They are swift-bridge opaque classes backed by
             // Rust types that are `Send + Sync`, so `@unchecked` is correct.
             {
-                let mut emitted: std::collections::HashSet<String> = std::collections::HashSet::new();
                 for adapter in &streaming_adapters {
                     for param in &adapter.params {
                         let simple_ty = param.ty.rsplit("::").next().unwrap_or(&param.ty).to_string();
-                        if emitted.insert(simple_ty.clone()) {
+                        if sendable_emitted.insert(simple_ty.clone()) {
                             body.push_str(&format!(
                                 "// MARK: - Sendable conformance for {simple_ty} (streaming request param)\n"
                             ));
@@ -333,18 +341,21 @@ impl Backend for SwiftBackend {
         // that wrap blocking Rust calls. All swift-bridge opaque types wrap Rust
         // pointers to Send + Sync types, so `@unchecked` is correct for all of them.
         //
-        // Note: this emits extensions for ALL opaque types, including those in streaming
-        // adapters already covered above. Duplicate extensions are valid Swift (they are
-        // combined during compilation), and the redundancy is acceptable here to ensure
-        // comprehensive coverage of all opaque return types from async forwarders.
+        // The set covers both genuinely-opaque IR types and types returned across the
+        // bridge as opaque handles (`compute_handle_returned_types`). The latter is
+        // essential: a result struct such as `ScrapeResult` may also be emitted as a
+        // first-class Swift struct, but it is still bridged as an opaque
+        // `RustBridge.ScrapeResult` class that an async forwarder returns out of a
+        // `Task.detached`. `sendable_emitted` prevents re-declaring a conformance the
+        // streaming emissions above already produced.
         {
-            let mut emitted: std::collections::HashSet<String> = std::collections::HashSet::new();
-            for ty in api
-                .types
-                .iter()
-                .filter(|t| t.is_opaque && !t.is_trait && !exclude_types.contains(&t.name))
-            {
-                if emitted.insert(ty.name.clone()) {
+            let handle_returned = crate::gen_rust_crate::type_bridge::compute_handle_returned_types(api);
+            for ty in api.types.iter().filter(|t| {
+                !t.is_trait
+                    && !exclude_types.contains(&t.name)
+                    && (t.is_opaque || handle_returned.contains(&t.name))
+            }) {
+                if sendable_emitted.insert(ty.name.clone()) {
                     body.push_str("// swift-bridge opaque type used across Task.detached boundaries — Rust type is Send + Sync.\n");
                     body.push_str(&format!("extension RustBridge.{}: @unchecked Sendable {{}}\n", ty.name));
                 }
@@ -3110,6 +3121,11 @@ fn already_emitted_top_level_names(api: &ApiSurface) -> std::collections::HashSe
             "batchExtractFilesSync",
             "batchExtractFiles",
             "detectMimeTypeFromBytes",
+            // `emit_e2e_wrappers` unconditionally emits an async `embedTextsAsync`
+            // wrapper. Without this entry the free-function forwarder pass would
+            // emit a second `embedTextsAsync(texts:config:)` with an identical
+            // signature, causing an invalid-redeclaration compile error.
+            "embedTextsAsync",
         ] {
             names.insert(name.to_string());
         }

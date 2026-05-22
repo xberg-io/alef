@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.32] - 2026-05-22
+
+### Fixed
+
+- **alef-backend-kotlin: import `kotlin.time.Duration.Companion.milliseconds` when a Duration default is emitted.** A `Duration`-typed field with an integer default is rendered as `<n>.milliseconds` to match the declared `kotlin.time.Duration` type, but the generated file only imported `kotlin.time.Duration` — so `.milliseconds` was an unresolved reference and the binding failed to compile. The data-class emitter now adds `import kotlin.time.Duration.Companion.milliseconds` whenever a rendered field default uses the `.milliseconds` extension. Applies to the `kotlin-android` backend too (shared `object_wrapper.rs`). (`crates/alef-backend-kotlin/src/gen_bindings/object_wrapper.rs`)
+
+- **alef-backend-swift: emit `@unchecked Sendable` for opaque result types returned across the bridge.** The catch-all `@unchecked Sendable` emission filtered `api.types` by the IR `is_opaque` flag, which is false for a result struct like `ScrapeResult` even though swift-bridge still bridges it as an opaque `RustBridge.ScrapeResult` class — and async forwarders return that class out of a `Task.detached`, so Swift 6 strict-concurrency rejected the binding with `type 'ScrapeResult' does not conform to the 'Sendable' protocol`. The emission now also covers `compute_handle_returned_types` (every type returned across the bridge as an opaque handle), and a shared `sendable_emitted` set prevents the streaming-specific emissions and the catch-all block from declaring the same conformance twice (Swift warns on a redundant conformance). (`crates/alef-backend-swift/src/gen_bindings.rs`)
+
 ## [0.17.31] - 2026-05-22
 
 ### Fixed

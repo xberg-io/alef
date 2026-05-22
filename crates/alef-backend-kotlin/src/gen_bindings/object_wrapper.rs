@@ -157,16 +157,19 @@ pub(crate) fn emit_type_with_imports(
             };
             (nullable_ty, " = null".to_string())
         } else {
-            (
-                ty_str,
-                kotlin_field_default(
-                    &field.ty,
-                    field.optional,
-                    field.typed_default.as_ref(),
-                    enum_defaults,
-                    default_constructible_types,
-                ),
-            )
+            let default_suffix = kotlin_field_default(
+                &field.ty,
+                field.optional,
+                field.typed_default.as_ref(),
+                enum_defaults,
+                default_constructible_types,
+            );
+            // A `Duration` default is rendered with the `.milliseconds` extension
+            // property, which is not in scope without an explicit import.
+            if default_suffix.contains(".milliseconds") {
+                imports.insert("import kotlin.time.Duration.Companion.milliseconds".to_string());
+            }
+            (ty_str, default_suffix)
         };
         field_strings.push(format!("val {name}: {effective_ty_str}{default_suffix}"));
     }
