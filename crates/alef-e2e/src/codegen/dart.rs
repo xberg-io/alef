@@ -464,7 +464,14 @@ fn render_test_file(
     out
 }
 
-fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig, lang: &str, bridge_class: &str, dart_first_class_map: &crate::field_access::DartFirstClassMap) {
+fn render_test_case(
+    out: &mut String,
+    fixture: &Fixture,
+    e2e_config: &E2eConfig,
+    lang: &str,
+    bridge_class: &str,
+    dart_first_class_map: &crate::field_access::DartFirstClassMap,
+) {
     // HTTP fixtures: hit the mock server.
     if let Some(http) = &fixture.http {
         render_http_test_case(out, fixture, http);
@@ -488,7 +495,10 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
         e2e_config.effective_fields_method_calls(call_config),
         &HashMap::new(),
         dart_first_class_map.clone(),
-    ).with_dart_root_type(dart_first_class_map.root_type.clone());
+    )
+    .with_dart_root_type(
+        dart_call_result_type(call_config).or_else(|| dart_first_class_map.root_type.clone()),
+    );
     let field_resolver = &call_field_resolver;
     let enum_fields_base = e2e_config.effective_fields_enum(call_config);
 
@@ -2127,52 +2137,68 @@ fn dart_stringy_aggregator_contains_assert(
             // Only emit the aggregator if the element type has 2+ stringy fields.
             // Single-field types are better served by the simpler single-accessor path.
             if stringy.len() >= 2 {
+                // flutter_rust_bridge renders struct DTOs as plain Dart classes
+                // with `final` fields, so accessors are property reads (no
+                // parens). Dart is statically typed — calling `item.field()` on
+                // a non-callable field, or naming a field the type lacks, is a
+                // compile error, not a runtime miss.
                 let mut texts_lines: Vec<String> = Vec::new();
                 for sf in stringy {
                     let call = sf.name.to_lower_camel_case();
                     match sf.kind {
                         StringyFieldKind::Plain => {
-                            texts_lines.push(format!("            texts.add(item.{call}().toString());"));
+                            texts_lines.push(format!("            texts.add(item.{call}.toString());"));
                         }
                         StringyFieldKind::Optional => {
                             texts_lines.push(format!(
-                                "            final v_{call} = item.{call}();\n            if (v_{call} != null) texts.add(v_{call}.toString());"
+                                "            final v_{call} = item.{call};\n            if (v_{call} != null) texts.add(v_{call}.toString());"
                             ));
                         }
                         StringyFieldKind::Vec => {
                             texts_lines.push(format!(
-                                "            texts.addAll(item.{call}().map((e) => e.toString()));"
+                                "            texts.addAll(item.{call}.map((e) => e.toString()));"
                             ));
                         }
                     }
                 }
                 let texts_block = texts_lines.join("\n");
+                // Case-insensitive substring match: enum/sealed-class fields
+                // stringify to `EnumName.variant()` (lowerCamelCase variant),
+                // while fixture node-type values are PascalCase (`Function`).
                 return Some(format!(
-                    "    expect({array_accessor}.where((item) {{\n            final texts = <String>[];\n{texts_block}\n            return texts.any((t) => t.contains({dart_val}));\n          }}).isEmpty, isFalse);"
+                    "    expect({array_accessor}.where((item) {{\n            final texts = <String>[];\n{texts_block}\n            return texts.any((t) => t.toLowerCase().contains(({dart_val}).toString().toLowerCase()));\n          }}).isEmpty, isFalse);"
                 ));
             }
         }
     }
 
-    // Fallback: emit a catch-all aggregator that tries multiple common text-bearing
-    // accessor names. This is for cases where stringy field tracking didn't apply.
-    let accessor_names = vec![
-        "kind", "name", "source", "items", "alias", "type", "category", "title", "content", "path", "url", "text",
-        "message", "reason", "value", "key", "id",
-    ];
-
-    let mut accessor_calls: Vec<String> = Vec::new();
-    for accessor_name in accessor_names {
-        accessor_calls.push(format!(
-            "          try {{ final v = item.{accessor_name}(); if (v != null) texts.add(v.toString()); }} on NoSuchMethodError {{}}"
-        ));
-    }
-
-    let accessors_block = accessor_calls.join("\n");
-
+    // Fallback: the element type's fields could not be resolved from the IR
+    // (unknown root type, or fewer than two recorded stringy fields). Dart is
+    // statically typed, so probing arbitrary accessor names cannot compile —
+    // emit a lenient whole-object stringification match that always compiles.
     Some(format!(
-        "    expect({array_accessor}.where((item) {{\n            final texts = <String>[];\n{accessors_block}\n            return texts.any((t) => t.contains({dart_val}));\n          }}).isEmpty, isFalse);"
+        "    expect({array_accessor}.where((item) => item.toString().toLowerCase().contains(({dart_val}).toString().toLowerCase())).isEmpty, isFalse);"
     ))
+}
+
+/// Resolve the IR type name backing this call's result, mirroring
+/// `swift_call_result_type`. Any of `c, csharp, java, kotlin, go, php`
+/// overrides may carry a `result_type` field; the first non-empty value wins.
+/// These are language-agnostic IR type names shared across every binding.
+///
+/// Returns `None` when no override sets `result_type`; the renderer then falls
+/// back to the workspace-default root-type heuristic in `DartFirstClassMap`.
+fn dart_call_result_type(call_config: &alef_core::config::e2e::CallConfig) -> Option<String> {
+    const LOOKUP_LANGS: &[&str] = &["c", "csharp", "java", "kotlin", "go", "php"];
+    for lang in LOOKUP_LANGS {
+        if let Some(o) = call_config.overrides.get(*lang)
+            && let Some(rt) = o.result_type.as_deref()
+            && !rt.is_empty()
+        {
+            return Some(rt.to_string());
+        }
+    }
+    None
 }
 
 /// Escape a string for embedding in a Dart single-quoted string literal.
@@ -2236,8 +2262,8 @@ fn build_dart_first_class_map(
     enum_defs: &[alef_core::ir::EnumDef],
     e2e_config: &crate::config::E2eConfig,
 ) -> crate::field_access::DartFirstClassMap {
-    use alef_core::ir::TypeRef;
     use crate::field_access::{StringyField, StringyFieldKind};
+    use alef_core::ir::TypeRef;
 
     let mut field_types: std::collections::HashMap<String, std::collections::HashMap<String, String>> =
         std::collections::HashMap::new();
@@ -2277,7 +2303,8 @@ fn build_dart_first_class_map(
         }
     };
 
-    let mut stringy_fields_by_type: std::collections::HashMap<String, Vec<StringyField>> = std::collections::HashMap::new();
+    let mut stringy_fields_by_type: std::collections::HashMap<String, Vec<StringyField>> =
+        std::collections::HashMap::new();
     for td in type_defs {
         let mut td_field_types: std::collections::HashMap<String, String> = std::collections::HashMap::new();
         let mut td_stringy: Vec<StringyField> = Vec::new();
