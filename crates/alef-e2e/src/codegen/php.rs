@@ -1580,7 +1580,7 @@ fn build_args_and_setup(
                                 if let serde_json::Value::Object(obj) = &filtered_v {
                                     if obj.is_empty() {
                                         let arg_var = format!("${}", arg.name);
-                                        setup_lines.push(format!("{arg_var} = {type_name}::from_json('{{}}');"));
+                                        setup_lines.push(format!("{arg_var} = \\{namespace}\\{type_name}::from_json('{{}}');"));
                                         parts.push(arg_var);
                                         continue;
                                     }
@@ -1591,7 +1591,7 @@ fn build_args_and_setup(
                                 // wire-case registry (`ResolvedCrateConfig::serde_rename_all_for_language`),
                                 // which is camelCase for PHP — emit camelCase keys to match.
                                 setup_lines.push(format!(
-                                    "{arg_var} = {type_name}::from_json(json_encode({}));",
+                                    "{arg_var} = \\{namespace}\\{type_name}::from_json(json_encode({}));",
                                     json_to_php_camel_keys(&filtered_v)
                                 ));
                                 parts.push(arg_var);
