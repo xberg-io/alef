@@ -16,6 +16,7 @@ pub(super) fn gen_streaming_method_wrapper(
     method: &MethodDef,
     ffi_prefix: &str,
     item_type: &str,
+    data_enum_names: &std::collections::HashSet<&str>,
     opaque_names: &std::collections::HashSet<&str>,
     _value_only_types: &std::collections::HashSet<String>,
 ) -> String {
@@ -28,6 +29,12 @@ pub(super) fn gen_streaming_method_wrapper(
     let receiver_name = if typ.is_opaque { "h" } else { "r" };
     let go_receiver_type = go_type_name(&typ.name);
     let item_go_type = go_type_name(item_type);
+
+    // A data-enum item type is emitted as a Go sealed interface. A bare
+    // `json.Unmarshal` into a named-interface variable fails at runtime
+    // ("cannot unmarshal object into Go value of type <Interface>"), so the
+    // generated `Unmarshal<Type>` discriminator function must be used instead.
+    let item_is_sum_type = data_enum_names.contains(item_type);
 
     // Build the parameter list mirroring gen_method_wrapper. We do not honour
     // bridge stripping here because streaming adapters never use trait bridges.
@@ -123,6 +130,7 @@ pub(super) fn gen_streaming_method_wrapper(
             method_snake => &method_snake,
             item_snake => &item_snake,
             item_type => &item_go_type,
+            item_is_sum_type => item_is_sum_type,
         },
     ));
 
