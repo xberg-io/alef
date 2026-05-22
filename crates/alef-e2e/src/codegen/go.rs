@@ -27,12 +27,24 @@ impl E2eCodegen for GoCodegen {
         e2e_config: &E2eConfig,
         config: &ResolvedCrateConfig,
         _type_defs: &[alef_core::ir::TypeDef],
-        _enums: &[alef_core::ir::EnumDef],
+        enums: &[alef_core::ir::EnumDef],
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
         let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
 
         let mut files = Vec::new();
+
+        // Identify data-enum (sum-type) names: enums where at least one variant has named fields.
+        // These require special unmarshaling in Go (via Unmarshal<Type> discriminator).
+        let data_enum_names: std::collections::HashSet<&str> = enums
+            .iter()
+            .filter(|e| {
+                e.variants
+                    .iter()
+                    .any(|v| !v.fields.is_empty() && v.fields.iter().any(|f| !f.name.is_empty()))
+            })
+            .map(|e| e.name.as_str())
+            .collect();
 
         // Resolve call config with overrides (for module path and import alias).
         let call = &e2e_config.call;
@@ -200,6 +212,7 @@ impl E2eCodegen for GoCodegen {
                 &import_alias,
                 e2e_config,
                 &config.adapters,
+                &data_enum_names,
             );
             files.push(GeneratedFile {
                 path: output_base.join(filename),
@@ -420,6 +433,7 @@ fn render_test_file(
     import_alias: &str,
     e2e_config: &crate::config::E2eConfig,
     adapters: &[alef_core::config::AdapterConfig],
+    data_enum_names: &std::collections::HashSet<&str>,
 ) -> String {
     let mut out = String::new();
     let emits_executable_test =
@@ -794,7 +808,7 @@ fn render_test_file(
         }
     }
     for (i, fixture) in fixtures.iter().enumerate() {
-        render_test_function(&mut body, fixture, import_alias, e2e_config, adapters);
+        render_test_function(&mut body, fixture, import_alias, e2e_config, adapters, data_enum_names);
         if i + 1 < fixtures.len() {
             let _ = writeln!(body);
         }
@@ -906,6 +920,7 @@ fn render_test_function(
     import_alias: &str,
     e2e_config: &crate::config::E2eConfig,
     adapters: &[alef_core::config::AdapterConfig],
+    data_enum_names: &std::collections::HashSet<&str>,
 ) {
     let fn_name = fixture.id.to_upper_camel_case();
     let description = &fixture.description;
@@ -1034,6 +1049,7 @@ fn render_test_function(
         fixture,
         call_options_ptr,
         validation_creation_failure,
+        data_enum_names,
     );
 
     // Build visitor if present — integrate into options instead of separate parameter.
@@ -1824,6 +1840,7 @@ impl client::TestClientRenderer for GoTestClientRenderer {
 /// `options_ptr` — when `true`, `json_object` args with an `options_type` are
 /// passed as a Go pointer (`*OptionsType`): absent/empty → `nil`, present →
 /// `&varName` after JSON unmarshal.
+#[allow(clippy::too_many_arguments)]
 fn build_args_and_setup(
     input: &serde_json::Value,
     args: &[crate::config::ArgMapping],
@@ -1832,6 +1849,7 @@ fn build_args_and_setup(
     fixture: &crate::fixture::Fixture,
     options_ptr: bool,
     expects_error: bool,
+    data_enum_names: &std::collections::HashSet<&str>,
 ) -> (Vec<String>, String) {
     let fixture_id = &fixture.id;
     use heck::ToUpperCamelCase;
@@ -2050,14 +2068,46 @@ fn build_args_and_setup(
                             } else {
                                 element_type_to_go_slice(arg.element_type.as_deref(), import_alias)
                             };
+
+                            // Extract the element type (unqualified) from go_type or element_type to check if it's a sum-type.
+                            let element_type_name = if let Some(go_t) = arg.go_type.as_deref() {
+                                // go_type is the element type — extract the unqualified name.
+                                if go_t.starts_with('[') {
+                                    None // Full slice type specified; can't extract element
+                                } else if let Some(idx) = go_t.rfind('.') {
+                                    Some(&go_t[idx + 1..]) // Strip package prefix
+                                } else {
+                                    Some(go_t)
+                                }
+                            } else {
+                                arg.element_type.as_deref()
+                            };
+
+                            let is_sum_type = element_type_name.is_some_and(|et| data_enum_names.contains(et));
+
                             // Convert JSON for Go compatibility (e.g., byte arrays → base64 strings)
                             let converted_v = convert_json_for_go(v.clone());
-                            let json_str = serde_json::to_string(&converted_v).unwrap_or_default();
-                            let go_literal = go_string_literal(&json_str);
                             let var_name = &arg.name;
-                            setup_lines.push(format!(
-                                "var {var_name} {go_slice_type}\n\tif err := json.Unmarshal([]byte({go_literal}), &{var_name}); err != nil {{\n\t\tt.Fatalf(\"config parse failed: %v\", err)\n\t}}"
-                            ));
+
+                            if is_sum_type {
+                                // For sum-types, unmarshal each element via Unmarshal<Type> discriminator.
+                                let element_type = element_type_name.unwrap();
+                                let json_str = serde_json::to_string(&converted_v).unwrap_or_default();
+                                let go_literal = go_string_literal(&json_str);
+                                setup_lines.push(format!(
+                                    "var {var_name}Raw []json.RawMessage\n\tif err := json.Unmarshal([]byte({go_literal}), &{var_name}Raw); err != nil {{\n\t\tt.Fatalf(\"config parse failed: %v\", err)\n\t}}"
+                                ));
+                                setup_lines.push(format!(
+                                    "var {var_name} {go_slice_type}\n\tfor _, raw := range {var_name}Raw {{\n\t\telem, err := Unmarshal{element_type}(raw)\n\t\tif err != nil {{\n\t\t\tt.Fatalf(\"unmarshal {element_type} failed: %v\", err)\n\t\t}}\n\t\t{var_name} = append({var_name}, elem)\n\t}}"
+                                ));
+                            } else {
+                                // For non-sum-type arrays, use standard json.Unmarshal.
+                                let json_str = serde_json::to_string(&converted_v).unwrap_or_default();
+                                let go_literal = go_string_literal(&json_str);
+                                setup_lines.push(format!(
+                                    "var {var_name} {go_slice_type}\n\tif err := json.Unmarshal([]byte({go_literal}), &{var_name}); err != nil {{\n\t\tt.Fatalf(\"config parse failed: %v\", err)\n\t}}"
+                                ));
+                            }
                             parts.push(var_name.to_string());
                         } else if let Some(opts_type) = options_type {
                             // Object with known type — unmarshal into typed struct.
@@ -3665,7 +3715,7 @@ mod tests {
 
         let fixture = make_fixture("basic_text");
         let mut out = String::new();
-        render_test_function(&mut out, &fixture, "kreuzberg", &e2e_config, &[]);
+        render_test_function(&mut out, &fixture, "kreuzberg", &e2e_config, &[], &std::collections::HashSet::new());
 
         assert!(
             out.contains("kreuzberg.CleanExtractedText("),
@@ -3709,7 +3759,7 @@ mod tests {
         };
 
         let mut out = String::new();
-        render_test_function(&mut out, &fixture, "pkg", &e2e_config, &[]);
+        render_test_function(&mut out, &fixture, "pkg", &e2e_config, &[], &std::collections::HashSet::new());
 
         assert!(out.contains("stream, err :="), "should use stream binding, got:\n{out}");
         assert!(
@@ -3771,7 +3821,7 @@ mod tests {
         };
 
         let mut out = String::new();
-        render_test_function(&mut out, &fixture, "pkg", &e2e_config, &[]);
+        render_test_function(&mut out, &fixture, "pkg", &e2e_config, &[], &std::collections::HashSet::new());
 
         eprintln!("generated:\n{out}");
         assert!(out.contains("stream, err :="), "should use stream binding, got:\n{out}");
@@ -3837,7 +3887,7 @@ mod tests {
         };
 
         let mut out = String::new();
-        render_test_function(&mut out, &fixture, "pkg", &e2e_config, &[]);
+        render_test_function(&mut out, &fixture, "pkg", &e2e_config, &[], &std::collections::HashSet::new());
 
         eprintln!("generated:\n{out}");
 
@@ -3914,6 +3964,7 @@ mod tests {
             "kreuzberg",
             &e2e_config,
             &[],
+            &std::collections::HashSet::new(),
         );
 
         assert!(
