@@ -712,6 +712,51 @@ fn render_test_case(
                     args.push(format!("File('{}').readAsBytesSync()", file_path));
                 }
             }
+            "int" | "integer" | "i64" => {
+                // Scalar integer argument: emit the numeric value as-is (positional required).
+                match arg_value {
+                    serde_json::Value::Number(n) => {
+                        args.push(n.to_string());
+                    }
+                    serde_json::Value::Null if arg_def.optional => {
+                        // Optional int absent: omit it.
+                    }
+                    _ => {
+                        // Required int with no fixture value: emit 0 as default.
+                        args.push("0".to_string());
+                    }
+                }
+            }
+            "float" | "number" => {
+                // Scalar float/number argument: emit the numeric value as-is (positional required).
+                match arg_value {
+                    serde_json::Value::Number(n) => {
+                        args.push(n.to_string());
+                    }
+                    serde_json::Value::Null if arg_def.optional => {
+                        // Optional float absent: omit it.
+                    }
+                    _ => {
+                        // Required float with no fixture value: emit 0.0 as default.
+                        args.push("0.0".to_string());
+                    }
+                }
+            }
+            "bool" | "boolean" => {
+                // Scalar boolean argument: emit the boolean value as-is (positional required).
+                match arg_value {
+                    serde_json::Value::Bool(b) => {
+                        args.push(if *b { "true" } else { "false" }.to_string());
+                    }
+                    serde_json::Value::Null if arg_def.optional => {
+                        // Optional bool absent: omit it.
+                    }
+                    _ => {
+                        // Required bool with no fixture value: emit false as default.
+                        args.push("false".to_string());
+                    }
+                }
+            }
             "string" => {
                 // Polyglot repos expose their Dart surface through a hand-written facade
                 // (e.g. `H2mBridge.convert(String html, {ConversionOptions? options})`,
