@@ -121,12 +121,11 @@ jobs:
 
   build-cli:
     name: Build CLI (${{ matrix.label }})
-    needs: [prepare, validate-versions, check-github-release, publish-crates]
+    needs: [prepare, validate-versions, check-github-release]
     if: |
       always() &&
       needs.prepare.outputs.release_cli == 'true' &&
       needs.validate-versions.result == 'success' &&
-      (needs.publish-crates.result == 'success' || needs.publish-crates.result == 'skipped') &&
       (needs.check-github-release.outputs.exists != 'true' || needs.prepare.outputs.force_republish == 'true')
     strategy:
       fail-fast: false
@@ -141,12 +140,6 @@ jobs:
           - label: macos-arm64
             runner: macos-latest
             target: aarch64-apple-darwin
-          - label: macos-x86_64
-            runner: macos-15-intel
-            target: x86_64-apple-darwin
-          - label: windows-x86_64
-            runner: windows-latest
-            target: x86_64-pc-windows-gnu
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v6.0.2
