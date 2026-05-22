@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-e2e/typescript: pin the e2e `vitest` devDependency to the shared `template_versions` constant.** The TypeScript e2e `package.json` template hardcoded `vitest ^3.0.0` while the WASM e2e template already used `template_versions::npm::VITEST` (`^4.1.5`). A regen therefore downgraded `e2e/<consumer>/package.json` out of sync with the WASM suite and with any committed `pnpm-lock.yaml` resolved against vitest 4, breaking `pnpm install --frozen-lockfile` in CI. Both e2e templates now source the same constant. (`crates/alef-e2e/templates/typescript/package.json.jinja`, `crates/alef-e2e/src/codegen/typescript/config.rs`)
+
 - **alef-backend-rustler: stop emitting unreachable duplicate clauses for functions with a trailing optional parameter.** A function with N required parameters plus one trailing optional parameter is emitted as two explicit arity clauses (`f(a)` and `f(a, b)`). The longer clause additionally carried a `\\ nil` positional default on the optional parameter, which makes Elixir generate an *implicit* lower-arity head that collides with the explicitly-emitted shorter clause — `this clause cannot match because a previous clause always matches`, fatal under `mix compile --warnings-as-errors`. Positional defaults are now applied only when the function emits a single clause. (`crates/alef-backend-rustler/src/gen_bindings/mod.rs`)
 
 ## [0.17.30] - 2026-05-22
