@@ -20,6 +20,14 @@ pub(crate) fn run_command(cmd: &str) -> anyhow::Result<()> {
 /// via `Command::env` alone is unreliable. Inlining the export into the shell
 /// command itself keeps the values in the shell's own environment, which then
 /// propagates to its children normally.
+///
+/// The value is *prepended* to any existing value of the variable rather than
+/// replacing it: these vars are search paths (`PATH`, `LD_LIBRARY_PATH`,
+/// `DYLD_LIBRARY_PATH`). On Windows the library search path is `PATH` itself —
+/// replacing it wholesale would wipe out `uv`, `python`, and every other tool
+/// on the path. The `${KEY:+:$KEY}` guard appends the original value with a
+/// `:` separator only when it is non-empty, so there is no stray leading or
+/// trailing `:` when the variable was previously unset.
 fn inline_env_in_shell_cmd(cmd: &str, env_vars: &[(&str, String)]) -> String {
     if env_vars.is_empty() {
         return cmd.to_string();
@@ -27,7 +35,7 @@ fn inline_env_in_shell_cmd(cmd: &str, env_vars: &[(&str, String)]) -> String {
     let mut prefix = String::new();
     for (key, value) in env_vars {
         let escaped = value.replace('\'', "'\\''");
-        prefix.push_str(&format!("export {key}='{escaped}'; "));
+        prefix.push_str(&format!("export {key}='{escaped}'\"${{{key}:+:${key}}}\"; "));
     }
     format!("{prefix}{cmd}")
 }
@@ -658,5 +666,88 @@ mod tests {
         assert!(result.is_ok(), "Command without timeout should succeed");
         let (stdout, _) = result.unwrap();
         assert!(stdout.contains("test"), "Command output should be captured");
+    }
+
+    #[test]
+    fn inline_env_in_shell_cmd_with_no_env_returns_cmd_unchanged() {
+        let result = inline_env_in_shell_cmd("echo hi", &[]);
+        assert_eq!(result, "echo hi", "Empty env_vars should leave the command untouched");
+    }
+
+    #[test]
+    fn inline_env_in_shell_cmd_prepends_to_existing_var_value() {
+        // The value must be prepended to the existing variable, not replace it.
+        // On Windows the library search path is PATH itself, so replacing it
+        // would wipe out uv, python, and every other tool on the path.
+        let env = vec![("PATH", "/abs/target/release".to_string())];
+        let result = inline_env_in_shell_cmd("uv run pytest", &env);
+        assert_eq!(
+            result, "export PATH='/abs/target/release'\"${PATH:+:$PATH}\"; uv run pytest",
+            "PATH must be prepended via the ${{PATH:+:$PATH}} guard, not replaced"
+        );
+    }
+
+    #[test]
+    fn inline_env_in_shell_cmd_uses_prepend_guard_for_each_var() {
+        let env = vec![
+            ("DYLD_FALLBACK_LIBRARY_PATH", "/lib/dir".to_string()),
+            ("DYLD_LIBRARY_PATH", "/lib/dir".to_string()),
+        ];
+        let result = inline_env_in_shell_cmd("cargo test", &env);
+        assert_eq!(
+            result,
+            "export DYLD_FALLBACK_LIBRARY_PATH='/lib/dir'\"${DYLD_FALLBACK_LIBRARY_PATH:+:$DYLD_FALLBACK_LIBRARY_PATH}\"; \
+             export DYLD_LIBRARY_PATH='/lib/dir'\"${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}\"; cargo test",
+            "Every var must use the prepend guard so a pre-existing value is preserved"
+        );
+    }
+
+    #[test]
+    fn inline_env_in_shell_cmd_escapes_single_quotes_in_value() {
+        let env = vec![("PATH", "/weird'dir".to_string())];
+        let result = inline_env_in_shell_cmd("run", &env);
+        assert_eq!(
+            result, "export PATH='/weird'\\''dir'\"${PATH:+:$PATH}\"; run",
+            "Single quotes in the value must be escaped for the shell"
+        );
+    }
+
+    #[test]
+    fn inline_env_in_shell_cmd_prepend_guard_evaluates_correctly_in_shell() {
+        // Verify the generated string behaves correctly when executed by sh:
+        // the new dir is first and the original PATH is preserved after a `:`.
+        // PATH must keep the inherited directories so the OS can still locate
+        // `sh` itself — the whole point of the prepend fix.
+        let original_path = std::env::var("PATH").expect("PATH should be set in the test environment");
+        let env = vec![("PATH", "/new/dir".to_string())];
+        let cmd = inline_env_in_shell_cmd("printf '%s' \"$PATH\"", &env);
+        let output = std::process::Command::new("sh")
+            .args(["-c", &cmd])
+            .output()
+            .expect("sh should run the generated command");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout,
+            format!("/new/dir:{original_path}"),
+            "Generated command must prepend the new dir and keep the original PATH intact"
+        );
+    }
+
+    #[test]
+    fn inline_env_in_shell_cmd_prepend_guard_has_no_stray_colon_when_var_empty() {
+        // When the variable is unset/empty, the ${VAR:+:$VAR} guard expands to
+        // nothing, so there is no leading or trailing `:`.
+        let env = vec![("LD_LIBRARY_PATH", "/lib/dir".to_string())];
+        let cmd = inline_env_in_shell_cmd("printf '%s' \"$LD_LIBRARY_PATH\"", &env);
+        let output = std::process::Command::new("sh")
+            .args(["-c", &cmd])
+            .env_remove("LD_LIBRARY_PATH")
+            .output()
+            .expect("sh should run the generated command");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout, "/lib/dir",
+            "An unset variable must yield just the new dir with no stray colon"
+        );
     }
 }
