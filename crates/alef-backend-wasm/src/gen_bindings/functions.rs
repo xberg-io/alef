@@ -9,13 +9,33 @@ use std::collections::HashMap;
 
 /// Check if a type name represents a config-like struct that should have an Input DTO.
 ///
-/// Input DTOs give JS callers a camelCase config object. Returns true for types
-/// whose names end with "Config", "Options", "Settings", or "Params".
-fn should_have_input_dto(type_name: &str) -> bool {
-    type_name.ends_with("Config")
-        || type_name.ends_with("Options")
-        || type_name.ends_with("Settings")
-        || type_name.ends_with("Params")
+/// Input DTOs were intended to give JS callers a camelCase config object. The
+/// current data-driven implementation produces uncompilable code because
+/// `type_ref_to_dto_type` returns unqualified type names (e.g. `HeadingStyle`)
+/// for `TypeRef::Named` fields, but the generated struct has no imports for them.
+/// Config-like parameters deserialize directly into the core type via
+/// `serde_wasm_bindgen` — the behavior that worked before Input DTOs were added.
+fn should_have_input_dto(_type_name: &str) -> bool {
+    false
+}
+
+/// Convert snake_case field name to camelCase.
+fn to_camel_case(snake: &str) -> String {
+    let mut result = String::new();
+    let mut capitalize_next = false;
+
+    for ch in snake.chars() {
+        if ch == '_' {
+            capitalize_next = true;
+        } else if capitalize_next {
+            result.push(ch.to_uppercase().next().unwrap());
+            capitalize_next = false;
+        } else {
+            result.push(ch);
+        }
+    }
+
+    result
 }
 
 /// Generate an Input DTO struct that deserializes from camelCase and converts to the core type.
@@ -38,11 +58,13 @@ pub(super) fn gen_input_dto_for_type(
         .iter()
         .map(|f| {
             let dto_ty = format!("Option<{}>", type_ref_to_dto_type(&f.ty));
+            let camel_case_name = to_camel_case(&f.name);
 
             minijinja::context! {
                 name => &f.name,
                 ty => &dto_ty,
                 core_name => &f.name,
+                serde_rename => &camel_case_name,
             }
         })
         .collect::<Vec<_>>();
