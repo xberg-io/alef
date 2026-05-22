@@ -16,6 +16,7 @@ use alef_core::template_versions::pub_dev;
 use anyhow::Result;
 use heck::ToLowerCamelCase;
 use std::cell::Cell;
+use std::collections::HashMap;
 use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
 
@@ -31,8 +32,8 @@ impl E2eCodegen for DartE2eCodegen {
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
         config: &ResolvedCrateConfig,
-        _type_defs: &[alef_core::ir::TypeDef],
-        _enums: &[alef_core::ir::EnumDef],
+        type_defs: &[alef_core::ir::TypeDef],
+        enums: &[alef_core::ir::EnumDef],
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
         let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
@@ -99,6 +100,10 @@ impl E2eCodegen for DartE2eCodegen {
             .map(|d| d.stub_methods.iter().cloned().collect())
             .unwrap_or_default();
 
+        // Build the Dart stringy field classification map for aggregating text
+        // accessors in Vec<T> contains assertions.
+        let dart_first_class_map = build_dart_first_class_map(type_defs, enums, e2e_config);
+
         for group in groups {
             let active: Vec<&Fixture> = group
                 .fixtures
@@ -135,6 +140,7 @@ impl E2eCodegen for DartE2eCodegen {
                 &pkg_name,
                 &frb_module_name,
                 &bridge_class,
+                &dart_first_class_map,
             );
             files.push(GeneratedFile {
                 path: test_base.join(filename),
@@ -211,6 +217,7 @@ fn render_test_file(
     pkg_name: &str,
     frb_module_name: &str,
     bridge_class: &str,
+    dart_first_class_map: &crate::field_access::DartFirstClassMap,
 ) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
@@ -450,14 +457,14 @@ fn render_test_file(
     }
 
     for fixture in fixtures {
-        render_test_case(&mut out, fixture, e2e_config, lang, bridge_class);
+        render_test_case(&mut out, fixture, e2e_config, lang, bridge_class, dart_first_class_map);
     }
 
     let _ = writeln!(out, "}}");
     out
 }
 
-fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig, lang: &str, bridge_class: &str) {
+fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig, lang: &str, bridge_class: &str, dart_first_class_map: &crate::field_access::DartFirstClassMap) {
     // HTTP fixtures: hit the mock server.
     if let Some(http) = &fixture.http {
         render_http_test_case(out, fixture, http);
@@ -473,13 +480,15 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
         &fixture.input,
     );
     // Build per-call field resolver using the effective field sets for this call.
-    let call_field_resolver = FieldResolver::new(
+    let call_field_resolver = FieldResolver::new_with_dart_first_class(
         e2e_config.effective_fields(call_config),
         e2e_config.effective_fields_optional(call_config),
         e2e_config.effective_result_fields(call_config),
         e2e_config.effective_fields_array(call_config),
         e2e_config.effective_fields_method_calls(call_config),
-    );
+        &HashMap::new(),
+        dart_first_class_map.clone(),
+    ).with_dart_root_type(dart_first_class_map.root_type.clone());
     let field_resolver = &call_field_resolver;
     let enum_fields_base = e2e_config.effective_fields_enum(call_config);
 
@@ -2082,12 +2091,18 @@ fn emit_dart_batch_item_array(arr: &serde_json::Value, elem_type: &str) -> Strin
 /// against every entry. The matcher is lenient so that fixtures asserting `"os"`
 /// against the `imports` field succeed regardless of which accessor surfaces
 /// the value (`ImportInfo.source`, `ImportInfo.items`, etc.).
+///
+/// First tries the "stringy aggregator" path: when the array element is an
+/// opaque DTO with several text-bearing accessors, emit a `where(...)`
+/// closure that walks every accessor and does substring matching. Falls back
+/// to the catch-all path if no stringy fields are recorded for the element type.
 fn dart_stringy_aggregator_contains_assert(
     field: Option<&str>,
     result_var: &str,
     field_resolver: &crate::field_access::FieldResolver,
     dart_val: &str,
 ) -> Option<String> {
+    use crate::field_access::StringyFieldKind;
     let field = field?;
     let resolved = field_resolver.resolve(field);
 
@@ -2104,14 +2119,46 @@ fn dart_stringy_aggregator_contains_assert(
 
     let array_accessor = field_resolver.accessor(field, "dart", result_var);
 
-    // Emit a catch-all aggregator that tries multiple common text-bearing accessor
-    // names: `kind`, `name`, `source`, `items`, `alias`, etc. The FRB-bridged
-    // opaque types have these as camelCase methods (e.g. `kind()`, `name()`).
-    // We try each one and silently ignore NotImplemented errors.
+    // Try the stringy aggregator path: if the element type has multiple
+    // text-bearing accessors, emit a proper aggregator instead of a catch-all.
+    let root_type = field_resolver.dart_root_type().cloned();
+    if let Some(elem_type) = field_resolver.dart_advance(root_type.as_deref(), resolved) {
+        if let Some(stringy) = field_resolver.dart_stringy_fields(&elem_type) {
+            // Only emit the aggregator if the element type has 2+ stringy fields.
+            // Single-field types are better served by the simpler single-accessor path.
+            if stringy.len() >= 2 {
+                let mut texts_lines: Vec<String> = Vec::new();
+                for sf in stringy {
+                    let call = sf.name.to_lower_camel_case();
+                    match sf.kind {
+                        StringyFieldKind::Plain => {
+                            texts_lines.push(format!("            texts.add(item.{call}().toString());"));
+                        }
+                        StringyFieldKind::Optional => {
+                            texts_lines.push(format!(
+                                "            final v_{call} = item.{call}();\n            if (v_{call} != null) texts.add(v_{call}.toString());"
+                            ));
+                        }
+                        StringyFieldKind::Vec => {
+                            texts_lines.push(format!(
+                                "            texts.addAll(item.{call}().map((e) => e.toString()));"
+                            ));
+                        }
+                    }
+                }
+                let texts_block = texts_lines.join("\n");
+                return Some(format!(
+                    "    expect({array_accessor}.where((item) {{\n            final texts = <String>[];\n{texts_block}\n            return texts.any((t) => t.contains({dart_val}));\n          }}).isEmpty, isFalse);"
+                ));
+            }
+        }
+    }
+
+    // Fallback: emit a catch-all aggregator that tries multiple common text-bearing
+    // accessor names. This is for cases where stringy field tracking didn't apply.
     let accessor_names = vec![
-        "kind", "name", "source", "items", "alias", "type", "category",
-        "title", "content", "path", "url", "text", "message", "reason",
-        "value", "key", "id"
+        "kind", "name", "source", "items", "alias", "type", "category", "title", "content", "path", "url", "text",
+        "message", "reason", "value", "key", "id",
     ];
 
     let mut accessor_calls: Vec<String> = Vec::new();
@@ -2178,4 +2225,106 @@ fn type_name_to_create_from_json_dart(type_name: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join("")
+}
+
+/// Build the Dart stringy field classification map for aggregating text accessors
+/// in `Vec<T>` contains assertions. Similar to Swift's `build_swift_first_class_map`,
+/// but Dart doesn't distinguish first-class vs opaque types — we just track stringy
+/// fields per type for the `contains(where:)` closure aggregator.
+fn build_dart_first_class_map(
+    type_defs: &[alef_core::ir::TypeDef],
+    enum_defs: &[alef_core::ir::EnumDef],
+    e2e_config: &crate::config::E2eConfig,
+) -> crate::field_access::DartFirstClassMap {
+    use alef_core::ir::TypeRef;
+    use crate::field_access::{StringyField, StringyFieldKind};
+
+    let mut field_types: std::collections::HashMap<String, std::collections::HashMap<String, String>> =
+        std::collections::HashMap::new();
+
+    fn inner_named(ty: &TypeRef) -> Option<String> {
+        match ty {
+            TypeRef::Named(n) => Some(n.clone()),
+            TypeRef::Optional(inner) | TypeRef::Vec(inner) => inner_named(inner),
+            _ => None,
+        }
+    }
+
+    let enum_names: std::collections::HashSet<&str> = enum_defs.iter().map(|e| e.name.as_str()).collect();
+    let classify_stringy = |ty: &TypeRef, field_optional: bool| -> Option<StringyFieldKind> {
+        match ty {
+            TypeRef::String => Some(if field_optional {
+                StringyFieldKind::Optional
+            } else {
+                StringyFieldKind::Plain
+            }),
+            TypeRef::Named(name) if enum_names.contains(name.as_str()) => Some(if field_optional {
+                StringyFieldKind::Optional
+            } else {
+                StringyFieldKind::Plain
+            }),
+            TypeRef::Optional(inner) => match inner.as_ref() {
+                TypeRef::String => Some(StringyFieldKind::Optional),
+                TypeRef::Named(name) if enum_names.contains(name.as_str()) => Some(StringyFieldKind::Optional),
+                _ => None,
+            },
+            TypeRef::Vec(inner) => match inner.as_ref() {
+                TypeRef::String => Some(StringyFieldKind::Vec),
+                TypeRef::Named(name) if enum_names.contains(name.as_str()) => Some(StringyFieldKind::Vec),
+                _ => None,
+            },
+            _ => None,
+        }
+    };
+
+    let mut stringy_fields_by_type: std::collections::HashMap<String, Vec<StringyField>> = std::collections::HashMap::new();
+    for td in type_defs {
+        let mut td_field_types: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        let mut td_stringy: Vec<StringyField> = Vec::new();
+        for f in &td.fields {
+            if let Some(named) = inner_named(&f.ty) {
+                td_field_types.insert(f.name.clone(), named);
+            }
+            if f.binding_excluded {
+                continue;
+            }
+            if let Some(kind) = classify_stringy(&f.ty, f.optional) {
+                td_stringy.push(StringyField {
+                    name: f.name.clone(),
+                    kind,
+                });
+            }
+        }
+        if !td_field_types.is_empty() {
+            field_types.insert(td.name.clone(), td_field_types);
+        }
+        if !td_stringy.is_empty() {
+            stringy_fields_by_type.insert(td.name.clone(), td_stringy);
+        }
+    }
+
+    // Best-effort root-type detection: pick a unique TypeDef that contains all
+    // `result_fields`.
+    let root_type = if e2e_config.result_fields.is_empty() {
+        None
+    } else {
+        let matches: Vec<&alef_core::ir::TypeDef> = type_defs
+            .iter()
+            .filter(|td| {
+                let names: std::collections::HashSet<&str> = td.fields.iter().map(|f| f.name.as_str()).collect();
+                e2e_config.result_fields.iter().all(|rf| names.contains(rf.as_str()))
+            })
+            .collect();
+        if matches.len() == 1 {
+            Some(matches[0].name.clone())
+        } else {
+            None
+        }
+    };
+
+    crate::field_access::DartFirstClassMap {
+        field_types,
+        root_type,
+        stringy_fields_by_type,
+    }
 }
