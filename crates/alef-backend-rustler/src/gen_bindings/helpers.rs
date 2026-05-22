@@ -122,11 +122,13 @@ pub(super) fn gen_native_ex(
     let build_env_var = format!("{}_BUILD", app_name.to_uppercase());
 
     out.push_str(&hash::header(CommentStyle::Hash));
+    let skip_base_url = true;  // Always skip base_url to prefer local build when artifacts not yet published
     let ctx = minijinja::context! {
         app_module => app_module,
         app_name => app_name,
         repo_url => repo_url,
         build_env_var => build_env_var,
+        skip_base_url => skip_base_url,
     };
     out.push_str(&template_env::render("native_module_header.jinja", ctx));
 
