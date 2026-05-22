@@ -63,6 +63,146 @@ impl Pyo3Backend {
     }
 }
 
+/// Replace the constructor in an impl block with one that honors serde_rename.
+/// For has_default types, the constructor parameters should use serde_rename names
+/// (the JSON wire names) to match other language bindings' public APIs.
+/// This function finds the existing constructor and replaces it with a custom one.
+fn replace_constructor_with_serde_rename(
+    impl_block: &str,
+    typ: &alef_core::ir::TypeDef,
+    mapper: &dyn alef_codegen::type_mapper::TypeMapper,
+    config_renames: Option<&std::collections::HashMap<String, String>>,
+) -> String {
+    use alef_codegen::shared::binding_fields;
+
+    // Build parameter list with serde_rename and config-based renames
+    let mut sorted_fields: Vec<_> = binding_fields(&typ.fields)
+        .filter(|f| !f.binding_excluded && f.cfg.is_none())
+        .collect();
+    sorted_fields.sort_by_key(|f| f.optional as u8);
+
+    let params: Vec<String> = sorted_fields
+        .iter()
+        .map(|f| {
+            // Use serde_rename if available, otherwise use config rename or bare field name
+            let param_name = f.serde_rename
+                .as_ref()
+                .or(config_renames.and_then(|r| r.get(&f.name)))
+                .map_or_else(|| f.name.as_str(), |s| s.as_str());
+
+            let ty = if f.optional {
+                match &f.ty {
+                    alef_core::ir::TypeRef::Optional(_) => mapper.map_type(&f.ty),
+                    _ => format!("Option<{}>", mapper.map_type(&f.ty)),
+                }
+            } else {
+                mapper.map_type(&f.ty)
+            };
+            format!("{}: {}", param_name, ty)
+        })
+        .collect();
+
+    let defaults: Vec<String> = sorted_fields
+        .iter()
+        .map(|f| {
+            let param_name = f.serde_rename
+                .as_ref()
+                .or(config_renames.and_then(|r| r.get(&f.name)))
+                .map_or_else(|| f.name.as_str(), |s| s.as_str());
+
+            if f.optional {
+                format!("{}=None", param_name)
+            } else {
+                param_name.to_string()
+            }
+        })
+        .collect();
+
+    // Struct literal uses bare Rust field names (never renamed)
+    let assignments: Vec<String> = typ.fields
+        .iter()
+        .filter(|f| !f.binding_excluded)
+        .map(|f| {
+            // Apply config-based rename if present (keyword escaping)
+            let binding_name = config_renames
+                .and_then(|r| r.get(&f.name))
+                .map_or_else(|| f.name.as_str(), |s| s.as_str());
+
+            // Get the parameter name (serde_rename or config rename or bare name)
+            let param_name = f.serde_rename
+                .as_ref()
+                .or(config_renames.and_then(|r| r.get(&f.name)))
+                .map_or_else(|| f.name.as_str(), |s| s.as_str());
+
+            if binding_name != param_name {
+                // Binding field was renamed (keyword escape), but param name is different
+                format!("{}: {}", binding_name, param_name)
+            } else if binding_name != f.name {
+                // Just a config-based rename
+                format!("{}: {}", binding_name, param_name)
+            } else {
+                // No rename needed
+                f.name.clone()
+            }
+        })
+        .collect();
+
+    let param_list = if params.join(", ").len() > 100 {
+        format!("\n        {},\n    ", params.join(",\n        "))
+    } else {
+        params.join(", ")
+    };
+
+    // Build the new constructor method (without impl wrapper — we'll inject it into existing impl)
+    let new_constructor = format!(
+        "    #[allow(clippy::too_many_arguments)]\n    \
+         #[must_use]\n    \
+         #[pyo3(signature = ({}))]#[new]\n    \
+         pub fn new({}) -> Self {{\n        \
+         Self {{ {} }}\n    \
+         }}",
+        defaults.join(", "),
+        param_list,
+        assignments.join(", ")
+    );
+
+    // Find and replace the old constructor in the impl block
+    // Look for the pattern that includes the signature and fn new
+    if let Some(start) = impl_block.find("#[pyo3(signature = (") {
+        if let Some(new_start) = impl_block[..start].rfind("\n") {
+            // Find the end of the constructor (closing brace of the function)
+            if let Some(fn_new_pos) = impl_block.find("pub fn new(") {
+                // Find the closing brace of this constructor
+                let mut brace_count = 0;
+                let mut in_fn = false;
+                let mut end_pos = None;
+
+                for (i, c) in impl_block[fn_new_pos..].chars().enumerate() {
+                    if c == '{' {
+                        in_fn = true;
+                        brace_count += 1;
+                    } else if c == '}' && in_fn {
+                        brace_count -= 1;
+                        if brace_count == 0 {
+                            end_pos = Some(fn_new_pos + i + 1);
+                            break;
+                        }
+                    }
+                }
+
+                if let Some(end) = end_pos {
+                    let before = &impl_block[..new_start + 1];
+                    let after = &impl_block[end..];
+                    return format!("{}{}{}", before, new_constructor, after);
+                }
+            }
+        }
+    }
+
+    // Fallback: if we can't find the constructor to replace, return the original
+    impl_block.to_string()
+}
+
 impl Backend for Pyo3Backend {
     fn name(&self) -> &str {
         "pyo3"
@@ -624,7 +764,9 @@ mod alef_json_str_opt {
                     },
                     |field| config_ref.resolve_field_name(alef_core::config::Language::Python, &type_name, &field.name),
                 ));
-                // Build per-type field renames for the constructor
+                // Build per-type field renames for the constructor.
+                // Only includes config-based renames (keyword escaping like class → class_).
+                // serde_rename is handled separately via custom constructor generation.
                 let py_field_renames: std::collections::HashMap<String, String> = typ
                     .fields
                     .iter()
@@ -639,6 +781,8 @@ mod alef_json_str_opt {
                 } else {
                     Some(&py_field_renames)
                 };
+
+                // Generate impl block with config-based renames (not serde_rename — that's handled below)
                 let mut impl_block = generators::gen_impl_block_with_renames(
                     typ,
                     &mapper,
@@ -647,6 +791,11 @@ mod alef_json_str_opt {
                     &opaque_types,
                     renames_ref,
                 );
+
+                // For has_default types, replace the constructor with one that honors serde_rename
+                if typ.has_default {
+                    impl_block = replace_constructor_with_serde_rename(&impl_block, typ, &mapper, renames_ref);
+                }
                 // Inject from_json staticmethod into the existing #[pymethods] block when serde
                 // is available and a core→binding conversion exists. Injecting into the same block
                 // avoids requiring the `multiple-pymethods` pyo3 feature.

@@ -856,10 +856,15 @@ fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, c
     }
 
     // Skip assertions on fields that don't exist on the result type.
+    // Exception: for result_is_simple, "result" is valid because it refers to the
+    // result variable directly (which holds the plain string/array value).
     if let Some(f) = &assertion.field {
         if !f.is_empty() && !context.field_resolver.is_valid_for_result(f) {
-            let _ = writeln!(out, "  # skipped: field '{f}' not available on result type");
-            return;
+            // Allow "result" field on simple-type returns
+            if !(context.result_is_simple && f == "result") {
+                let _ = writeln!(out, "  # skipped: field '{f}' not available on result type");
+                return;
+            }
         }
     }
 

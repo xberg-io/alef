@@ -1125,7 +1125,21 @@ fn render_test_method(
                 if is_streaming && crate::codegen::streaming_assertions::is_streaming_virtual_field(f) {
                     return true;
                 }
-                field_resolver.is_valid_for_result(f)
+                // Account for synthetic assertion fields that render_assertion handles
+                let is_synthetic_field = matches!(
+                    f.as_str(),
+                    "chunks_have_content"
+                        | "chunks_have_embeddings"
+                        | "chunks_have_heading_context"
+                        | "first_chunk_starts_with_heading"
+                        | "embeddings"
+                        | "embedding_dimensions"
+                        | "embeddings_valid"
+                        | "embeddings_finite"
+                        | "embeddings_non_zero"
+                        | "embeddings_normalized"
+                );
+                is_synthetic_field || field_resolver.is_valid_for_result(f)
             }
             _ => true,
         }
@@ -1870,7 +1884,13 @@ fn render_assertion(
             if let Some((var_name, _)) = fields_array_bindings.get(f) {
                 format!("${}", var_name)
             } else {
-                field_resolver.accessor(f, "php", &format!("${result_var}"))
+                let accessor = field_resolver.accessor(f, "php", &format!("${result_var}"));
+                // For optional fields, wrap with ?? null to handle null-safe access
+                if field_resolver.is_optional(f) {
+                    format!("({accessor} ?? null)")
+                } else {
+                    accessor
+                }
             }
         }
         _ => format!("${result_var}"),

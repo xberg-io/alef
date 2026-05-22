@@ -4608,3 +4608,90 @@ fn test_async_method_adapter_wrapper() {
         api_py.content
     );
 }
+
+#[test]
+fn test_serde_rename_in_constructor_and_properties() {
+    let backend = Pyo3Backend;
+
+    // Create a struct with a field that has serde_rename
+    let mut field_with_rename = make_field("max_characters", TypeRef::Primitive(PrimitiveType::Usize), true);
+    field_with_rename.serde_rename = Some("max_chars".to_string());
+    field_with_rename.typed_default = Some(alef_core::ir::DefaultValue::IntLiteral(1000));
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "ChunkingConfig".to_string(),
+            rust_path: "test_lib::ChunkingConfig".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                field_with_rename,
+                {
+                    let mut f = make_field("overlap", TypeRef::Primitive(PrimitiveType::Usize), true);
+                    f.typed_default = Some(alef_core::ir::DefaultValue::IntLiteral(200));
+                    f
+                },
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+            doc: "Chunking configuration with serde renames".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let config = make_config();
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generate_bindings failed");
+
+    // Find the generated lib.rs
+    let lib_rs = files
+        .iter()
+        .find(|f| f.path.ends_with("lib.rs"))
+        .expect("lib.rs not generated");
+
+    // The PyO3 signature should use max_chars (the serde_rename name)
+    assert!(
+        lib_rs.content.contains("max_chars=None"),
+        "PyO3 signature should use serde_rename 'max_chars=None'; content:\n{}",
+        lib_rs.content
+    );
+
+    // The constructor parameter should be max_chars
+    assert!(
+        lib_rs.content.contains("pub fn new(max_chars:"),
+        "Constructor parameter should use serde_rename 'max_chars'; content:\n{}",
+        lib_rs.content
+    );
+
+    // The struct literal should use max_characters (bare Rust field name)
+    assert!(
+        lib_rs.content.contains("Self { max_characters: max_chars"),
+        "Struct literal should use bare field name 'max_characters'; content:\n{}",
+        lib_rs.content
+    );
+
+    // The serde rename attribute should be present on the field
+    assert!(
+        lib_rs.content.contains("#[serde(rename = \"max_chars\")]"),
+        "Field should have serde(rename = \"max_chars\"); content:\n{}",
+        lib_rs.content
+    );
+}
