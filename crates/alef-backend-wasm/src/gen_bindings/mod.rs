@@ -869,7 +869,7 @@ description = "{description}"
 repository = "{repository}"
 {keywords_toml}
 [package.metadata.cargo-machete]
-ignored = ["futures", "futures-util", "js-sys", "wasm-bindgen-futures", "serde_json"]
+ignored = ["futures", "futures-util", "js-sys", "wasm-bindgen-futures", "serde", "serde_json"]
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false
