@@ -174,6 +174,7 @@ AllCops:
     - 'vendor/**/*'
     - 'tmp/**/*'
     - 'lib/**/*.bundle'
+    - 'lib/**/*.rb'
     - 'ext/**/*'
 
 Style/FrozenStringLiteralComment:
