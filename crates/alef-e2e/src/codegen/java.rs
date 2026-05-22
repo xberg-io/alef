@@ -1564,7 +1564,14 @@ fn build_args_and_setup(
             setup_lines.push(format!(
                 "java.util.List<String> {name} = java.util.Arrays.stream(new String[]{{{paths_literal}}}).map(p -> p.startsWith(\"http\") ? p : {name}Base + p).collect(java.util.stream.Collectors.toList());"
             ));
-            parts.push(name.clone());
+            // Wrap in adapter request type if present (e.g., BatchCrawlStreamRequest).
+            if let Some(req_type) = adapter_request_type {
+                let req_var = format!("{}Req", arg.name);
+                setup_lines.push(format!("var {req_var} = new {req_type}({});", arg.name));
+                parts.push(req_var);
+            } else {
+                parts.push(name.clone());
+            }
             continue;
         }
 

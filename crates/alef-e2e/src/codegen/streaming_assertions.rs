@@ -379,9 +379,23 @@ impl StreamingFieldResolver {
             }),
 
             // event_count_min is the collected chunks count — used with
-            // `greater_than_or_equal` assertions on the chunk count.  Mirrors
-            // `chunks.length` per-language.
-            "stream.event_count_min" => Self::accessor("chunks.length", lang, chunks_var),
+            // `greater_than_or_equal` assertions on the chunk count.  Render the
+            // language-appropriate length/size accessor.
+            "stream.event_count_min" => Some(match lang {
+                "java" => format!("{chunks_var}.size()"),
+                "go" => format!("len({chunks_var})"),
+                "php" => format!("count(${chunks_var})"),
+                "kotlin" | "kotlin_android" => format!("{chunks_var}.size"),
+                "python" => format!("len({chunks_var})"),
+                "rust" => format!("{chunks_var}.len()"),
+                "node" | "typescript" | "wasm" => format!("{chunks_var}.length"),
+                "swift" => format!("{chunks_var}.count"),
+                "zig" => format!("{chunks_var}.items.len"),
+                "ruby" => format!("{chunks_var}.length"),
+                "elixir" => format!("length({chunks_var})"),
+                "c" => format!("vlen({chunks_var})"),
+                _ => format!("{chunks_var}.length"),
+            }),
 
             "tool_calls" => Some(match lang {
                 "rust" => {
