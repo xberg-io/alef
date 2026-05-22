@@ -217,7 +217,14 @@ pub(crate) fn select_best_matching_call<'a>(
         if arg.optional {
             return true;
         }
-        resolve_field(&fixture.input, &arg.field).as_null().is_none()
+        // For mock_url_list args, use resolve_urls_field which handles aliasing
+        // (e.g., batch_urls ↔ urls). For other arg types, use regular resolve_field.
+        let field_value = if arg.arg_type == "mock_url_list" {
+            resolve_urls_field(&fixture.input, &arg.field)
+        } else {
+            resolve_field(&fixture.input, &arg.field)
+        };
+        field_value.as_null().is_none()
     });
 
     if initial_satisfied {
@@ -230,7 +237,14 @@ pub(crate) fn select_best_matching_call<'a>(
             if arg.optional {
                 return true;
             }
-            resolve_field(&fixture.input, &arg.field).as_null().is_none()
+            // For mock_url_list args, use resolve_urls_field which handles aliasing
+            // (e.g., batch_urls ↔ urls). For other arg types, use regular resolve_field.
+            let field_value = if arg.arg_type == "mock_url_list" {
+                resolve_urls_field(&fixture.input, &arg.field)
+            } else {
+                resolve_field(&fixture.input, &arg.field)
+            };
+            field_value.as_null().is_none()
         });
 
         if all_satisfied {

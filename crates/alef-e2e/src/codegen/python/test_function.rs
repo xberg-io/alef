@@ -414,6 +414,9 @@ fn emit_result_and_assertions(
         }
     });
 
+    let fields_enum = e2e_config.effective_fields_enum(call_config);
+    let assert_enum_fields = resolve_assert_enum_fields(call_config);
+
     // For streaming fixtures: bind the raw iterator, then drain it into a list.
     // The Python ChatStreamIterator exposes __aiter__/__anext__ (async iterator),
     // so the test function must be `async def` and we use `async for` to drain.
@@ -427,47 +430,61 @@ fn emit_result_and_assertions(
         ) {
             let _ = writeln!(out, "    {collect}");
         }
-    } else {
-        // Always bind result_var if there are assertions to process, even if
-        // has_usable_assertion is false (edge case: upstream miscomputed assertion usability).
-        // Use "_" only when there are truly no assertions to avoid NameError.
-        let has_assertions = !fixture.assertions.is_empty();
-        let py_result_var = if has_assertions {
-            result_var.to_string()
-        } else {
-            "_".to_string()
-        };
-        let _ = writeln!(out, "    {py_result_var} = {call_expr}");
-    }
-
-    let fields_enum = e2e_config.effective_fields_enum(call_config);
-    let assert_enum_fields = resolve_assert_enum_fields(call_config);
-    for assertion in &fixture.assertions {
-        if assertion.assertion_type == "not_error" {
-            if !call_config.returns_result {
+        // Render streaming assertions using the collected chunks
+        for assertion in &fixture.assertions {
+            if assertion.assertion_type == "not_error" || assertion.assertion_type == "error" {
                 continue;
             }
-            continue;
-        }
-        // Streaming virtual fields are rendered directly here using the
-        // collected `chunks` list, bypassing the regular field resolver.
-        if is_streaming {
             if let Some(f) = &assertion.field {
                 if crate::codegen::streaming_assertions::is_streaming_virtual_field(f) {
                     emit_streaming_virtual_assertion(out, assertion, f, chunks_var);
                     continue;
                 }
             }
+            // Non-streaming-virtual assertions on streaming fixtures are skipped
+            // (the result type doesn't have these fields during iteration).
         }
-        render_assertion(
-            out,
-            assertion,
-            result_var,
-            field_resolver,
-            fields_enum,
-            assert_enum_fields,
-            result_is_simple,
-        );
+    } else {
+        // For non-streaming: render assertions to a temporary buffer first,
+        // then check if result_var is referenced. Only emit the assignment if it is.
+        let mut temp_assertions = String::new();
+
+        for assertion in &fixture.assertions {
+            if assertion.assertion_type == "not_error" {
+                if !call_config.returns_result {
+                    continue;
+                }
+                continue;
+            }
+            render_assertion(
+                &mut temp_assertions,
+                assertion,
+                result_var,
+                field_resolver,
+                fields_enum,
+                assert_enum_fields,
+                result_is_simple,
+            );
+        }
+
+        // Check if result_var appears in actual code (not in comments).
+        // Only count lines that start with "assert" or contain actual code tokens.
+        // Comments (lines starting with #) are skipped to avoid false positives
+        // from strings like "field 'result' not available" in comment text.
+        let result_var_used = temp_assertions
+            .lines()
+            .any(|line| {
+                let trimmed = line.trim();
+                !trimmed.starts_with('#') && trimmed.contains(result_var)
+            });
+
+        let py_result_var = if result_var_used {
+            result_var.to_string()
+        } else {
+            "_".to_string()
+        };
+        let _ = writeln!(out, "    {py_result_var} = {call_expr}");
+        out.push_str(&temp_assertions);
     }
 }
 
