@@ -9,14 +9,12 @@ use std::collections::HashMap;
 
 /// Check if a type name represents a config-like struct that should have an Input DTO.
 ///
-/// Input DTOs were intended to give JS callers a camelCase config object. The
-/// current data-driven implementation produces uncompilable code because
-/// `type_ref_to_dto_type` returns unqualified type names (e.g. `HeadingStyle`)
-/// for `TypeRef::Named` fields, but the generated struct has no imports for them.
-/// Config-like parameters deserialize directly into the core type via
-/// `serde_wasm_bindgen` — the behavior that worked before Input DTOs were added.
-fn should_have_input_dto(_type_name: &str) -> bool {
-    false
+/// Input DTOs are needed to properly handle camelCase field name mapping via per-field
+/// #[serde(rename)] attributes. This is necessary because serde_wasm_bindgen does not
+/// honor container-level `rename_all` directives when deserializing from JsValue objects.
+/// The alef WASM backend now emits DTOs with per-field serde(rename) for all config types.
+fn should_have_input_dto(type_name: &str) -> bool {
+    type_name.ends_with("Config")
 }
 
 /// Convert snake_case field name to camelCase.
