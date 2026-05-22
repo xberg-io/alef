@@ -38,6 +38,10 @@ pub struct FieldResolver {
     /// types (property access) into opaque typealias types (method-call access)
     /// pick the correct syntax at each segment.
     swift_first_class_map: SwiftFirstClassMap,
+    /// Per-type Dart stringy field classification, populated by the Dart e2e
+    /// codegen. Used to aggregate every readable text accessor on a `Vec<T>`
+    /// element type for `contains` assertions.
+    dart_first_class_map: DartFirstClassMap,
 }
 
 /// Per-type PHP getter classification + chain-resolution metadata.
@@ -170,6 +174,39 @@ impl SwiftFirstClassMap {
     }
 }
 
+/// Dart opaque type classification + chain-resolution metadata, mirroring
+/// Swift's needs to track stringy field accessors on element types for
+/// `Vec<T>` contains assertions. Unlike Swift, Dart doesn't distinguish
+/// first-class vs opaque; we just track stringy fields per type.
+#[derive(Debug, Clone, Default)]
+pub struct DartFirstClassMap {
+    pub field_types: HashMap<String, HashMap<String, String>>,
+    pub root_type: Option<String>,
+    /// Per-type readable text accessors. Used by the dart e2e `contains`
+    /// assertion to aggregate every stringy field on a `Vec<T>` element type.
+    pub stringy_fields_by_type: HashMap<String, Vec<StringyField>>,
+}
+
+impl DartFirstClassMap {
+    /// Returns the IR `Named` type that `field_name` traverses into for the
+    /// next chain segment, or `None` if the field is terminal/scalar/unknown.
+    pub fn advance(&self, owner_type: Option<&str>, field_name: &str) -> Option<String> {
+        let owner = owner_type?;
+        self.field_types.get(owner).and_then(|m| m.get(field_name).cloned())
+    }
+
+    /// Returns the list of stringy accessors recorded for `type_name`, or
+    /// `None` if the type has no recorded stringy fields.
+    pub fn stringy_fields(&self, type_name: &str) -> Option<&[StringyField]> {
+        self.stringy_fields_by_type.get(type_name).map(Vec::as_slice)
+    }
+
+    /// True when no per-type information is recorded.
+    pub fn is_empty(&self) -> bool {
+        self.field_types.is_empty() && self.stringy_fields_by_type.is_empty()
+    }
+}
+
 impl PhpGetterMap {
     /// Returns true if `(owner_type, field_name)` requires getter-method syntax.
     ///
@@ -243,6 +280,7 @@ impl FieldResolver {
             error_field_aliases: HashMap::new(),
             php_getter_map: PhpGetterMap::default(),
             swift_first_class_map: SwiftFirstClassMap::default(),
+            dart_first_class_map: DartFirstClassMap::default(),
         }
     }
 
@@ -268,6 +306,7 @@ impl FieldResolver {
             error_field_aliases: error_field_aliases.clone(),
             php_getter_map: PhpGetterMap::default(),
             swift_first_class_map: SwiftFirstClassMap::default(),
+            dart_first_class_map: DartFirstClassMap::default(),
         }
     }
 
@@ -303,6 +342,7 @@ impl FieldResolver {
             error_field_aliases: error_field_aliases.clone(),
             php_getter_map,
             swift_first_class_map: SwiftFirstClassMap::default(),
+            dart_first_class_map: DartFirstClassMap::default(),
         }
     }
 
@@ -344,7 +384,42 @@ impl FieldResolver {
             error_field_aliases: error_field_aliases.clone(),
             php_getter_map: PhpGetterMap::default(),
             swift_first_class_map,
+            dart_first_class_map: DartFirstClassMap::default(),
         }
+    }
+
+    /// Create a new resolver that also knows the Dart stringy field
+    /// classification per IR type (for aggregating text accessors in contains
+    /// assertions on Vec<T> fields).
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_dart_first_class(
+        fields: &HashMap<String, String>,
+        optional: &HashSet<String>,
+        result_fields: &HashSet<String>,
+        array_fields: &HashSet<String>,
+        method_calls: &HashSet<String>,
+        error_field_aliases: &HashMap<String, String>,
+        dart_first_class_map: DartFirstClassMap,
+    ) -> Self {
+        Self {
+            aliases: fields.clone(),
+            optional_fields: optional.clone(),
+            result_fields: result_fields.clone(),
+            array_fields: array_fields.clone(),
+            method_calls: method_calls.clone(),
+            error_field_aliases: error_field_aliases.clone(),
+            php_getter_map: PhpGetterMap::default(),
+            swift_first_class_map: SwiftFirstClassMap::default(),
+            dart_first_class_map,
+        }
+    }
+
+    /// Return a clone of this resolver with the Dart first-class map's
+    /// `root_type` replaced.
+    pub fn with_dart_root_type(&self, root_type: Option<String>) -> Self {
+        let mut clone = self.clone();
+        clone.dart_first_class_map.root_type = root_type;
+        clone
     }
 
     /// Resolve a fixture field path to the actual struct path.
@@ -392,6 +467,23 @@ impl FieldResolver {
     /// types).
     pub fn swift_stringy_fields(&self, type_name: &str) -> Option<&[StringyField]> {
         self.swift_first_class_map.stringy_fields(type_name)
+    }
+
+    /// IR type backing the Dart result variable, if known.
+    pub fn dart_root_type(&self) -> Option<&String> {
+        self.dart_first_class_map.root_type.as_ref()
+    }
+
+    /// Advance the Dart type cursor through a field, returning the target type name.
+    pub fn dart_advance(&self, owner_type: Option<&str>, field_name: &str) -> Option<String> {
+        self.dart_first_class_map.advance(owner_type, field_name)
+    }
+
+    /// Stringy field accessors recorded for `type_name` in the Dart
+    /// first-class map (used by `contains` assertions on `Vec<T>` element
+    /// types).
+    pub fn dart_stringy_fields(&self, type_name: &str) -> Option<&[StringyField]> {
+        self.dart_first_class_map.stringy_fields(type_name)
     }
 
     /// Check if a resolved field path is optional.
