@@ -138,25 +138,32 @@ pub(super) fn gen_field_accessor(
     };
 
     let lookup_key = format!("{}.{}", type_snake, field.name);
-    let (mut ret_type, override_is_opaque_handle) = if let Some(override_type) = fields_c_types.get(&lookup_key) {
-        if !is_primitive_c_type_override(override_type) && override_type != "char*" {
-            (format!("*mut {core_import}::{override_type}"), true)
+    let (mut ret_type, override_is_opaque_handle, override_type_name) =
+        if let Some(override_type) = fields_c_types.get(&lookup_key) {
+            if !is_primitive_c_type_override(override_type) && override_type != "char*" {
+                (
+                    format!("*mut {core_import}::{override_type}"),
+                    true,
+                    Some(override_type.clone()),
+                )
+            } else {
+                (
+                    c_return_type_with_paths(&effective_ty, &field_core_import, path_map).into_owned(),
+                    false,
+                    None,
+                )
+            }
         } else {
+            // Use path_map for Named types — it knows where the type actually lives
+            // (e.g. mylib_http::ContactInfo) even when field.type_rust_path is None.
+            // For non-Named types path_map is irrelevant and the call falls through to
+            // the standard c_return_type behaviour.
             (
                 c_return_type_with_paths(&effective_ty, &field_core_import, path_map).into_owned(),
                 false,
+                None,
             )
-        }
-    } else {
-        // Use path_map for Named types — it knows where the type actually lives
-        // (e.g. mylib_http::ContactInfo) even when field.type_rust_path is None.
-        // For non-Named types path_map is irrelevant and the call falls through to
-        // the standard c_return_type behaviour.
-        (
-            c_return_type_with_paths(&effective_ty, &field_core_import, path_map).into_owned(),
-            false,
-        )
-    };
+        };
     // Replace "Self" with the actual qualified type name in FFI signatures
     if ret_type.contains("Self") {
         ret_type = ret_type.replace("Self", &qualified);
@@ -171,8 +178,15 @@ pub(super) fn gen_field_accessor(
     // Determine if we need an extra out-param for byte-length
     let needs_len_out = matches!(field.ty, TypeRef::Bytes) && !field.optional;
 
-    // Generate the accessor body based on field type
-    let body = gen_field_access_body(field, needs_len_out, enum_names, clone_names);
+    // Generate the accessor body based on field type and any override
+    let body = gen_field_access_body(
+        field,
+        needs_len_out,
+        enum_names,
+        clone_names,
+        override_is_opaque_handle,
+        override_type_name.as_deref(),
+    );
 
     crate::template_env::render(
         "field_accessor_header.jinja",
@@ -196,9 +210,21 @@ fn gen_field_access_body(
     needs_len_out: bool,
     enum_names: &AHashSet<String>,
     clone_names: &AHashSet<String>,
+    override_is_opaque_handle: bool,
+    override_type_name: Option<&str>,
 ) -> String {
     let field_name = &field.name;
     let mut out = String::with_capacity(2048);
+
+    // When field is overridden to return an opaque handle (e.g., bool → CitationResult*),
+    // the field itself is a primitive but alef codegen maps it to a struct type.
+    // Since we can't reliably convert a primitive to a struct, return null as a safe default.
+    // The binding surface should either (a) use a method call instead of a field accessor,
+    // or (b) be skipped in languages where it can't be meaningfully bound.
+    if override_is_opaque_handle && override_type_name.is_some() {
+        out.push_str("    std::ptr::null_mut()");
+        return out;
+    }
 
     if field.optional {
         // Wrap in match on Option — val is a reference from &Option<T> destructure

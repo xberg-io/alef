@@ -1438,7 +1438,7 @@ fn async_bytes_function_emits_async_forwarder() {
     let content = &files[0].content;
 
     assert!(
-        content.contains("public func fetchBytes(content: [UInt8], config: FetchConfig) -> FetchResult async"),
+        content.contains("public func fetchBytes(content: [UInt8], config: FetchConfig) async -> FetchResult"),
         "async bytes function should generate an async forwarder: {content}"
     );
     assert!(
@@ -2556,5 +2556,52 @@ fn forwarder_optional_named_dto_param_uses_optional_chained_into_rust() {
     assert!(
         content.contains("RustBridge.run(_rb_opts)"),
         "forwarder must forward the converted `_rb_opts` to the bridge call:\n{content}"
+    );
+}
+
+#[test]
+fn async_function_with_result_and_opaque_param_emits_forwarder() {
+    // Simulate kreuzcrawl's scrape(engine: CrawlEngineHandle, url: String) -> Result<ScrapeResult>
+    let api = ApiSurface {
+        crate_name: "kreuzcrawl".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "scrape".into(),
+            rust_path: "kreuzcrawl::scrape".into(),
+            original_rust_path: String::new(),
+            params: vec![
+                make_param("engine", TypeRef::Named("CrawlEngineHandle".into())),
+                make_param("url", TypeRef::String),
+            ],
+            return_type: TypeRef::Named("ScrapeResult".into()),
+            is_async: true,
+            error_type: Some("CrawlError".into()),
+            doc: "Scrape a URL".into(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+
+    assert!(
+        content.contains("public func scrape"),
+        "async function with opaque param and Result return must emit a forwarder:\n{content}"
+    );
+    assert!(
+        content.contains("async throws"),
+        "async function with error_type must have both async and throws qualifiers:\n{content}"
     );
 }

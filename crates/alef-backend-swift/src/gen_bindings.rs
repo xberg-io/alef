@@ -3363,7 +3363,7 @@ fn emit_async_free_function_forwarder(
         emit_doc_comment(&func.doc, "", out);
     }
     out.push_str(&format!(
-        "public func {swift_name}({sig}){throws_clause}{return_clause} async {{\n"
+        "public func {swift_name}({sig}) async{throws_clause}{return_clause} {{\n"
     ));
     for line in &conversion_lines {
         out.push_str(&format!("    {line}\n"));

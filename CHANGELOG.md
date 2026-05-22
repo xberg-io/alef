@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-backend-ffi: emit opaque-handle field accessors when the field type is overridden to a struct.** When an e2e config maps a field accessor's return type to a non-scalar struct via `fields_c_types` (e.g. a getter yielding a `CitationResult`), the FFI backend set the C function's return type to `*mut CitationResult` but still generated the body from the original scalar field type — producing `obj.field as i32` against a pointer return, a C `incompatible integer to pointer conversion` error. The body generator now receives the override info and emits a handle-shaped body for opaque-handle overrides. (`crates/alef-backend-ffi/src/gen_bindings/types.rs`)
+
+- **alef-backend-swift: place the `async` keyword before the return type in free-function forwarders.** Async free-function forwarders were emitted as `func f(...) throws -> T async {`, which is invalid Swift — `async` must precede `throws` and the return type (`func f(...) async throws -> T {`). The generated Swift module failed to compile, so every `Kreuzcrawl.scrape(...)`-style call reported `module has no member named 'scrape'`. (`crates/alef-backend-swift/src/gen_bindings.rs`)
+
+- **alef-e2e/java: fix streaming-adapter call generation.** Java e2e tests for streaming adapters emitted `Module.crawlStream(engine, req)` — passing the engine handle separately even though the streaming facade method takes only the request object (the handle is encapsulated by the adapter) — and typed the collected-chunk `ArrayList` with the default `ChatCompletionChunk` instead of the adapter's declared `item_type`. Both caused `cannot find symbol` compile errors. The handle arg is now filtered out when an `owner_type` adapter is present, and the collected-chunk list is typed from `adapter.item_type`. (`crates/alef-e2e/src/codegen/java.rs`)
+
+- **alef-e2e/csharp: probe a preset `MOCK_SERVER_URL` for reachability before trusting it.** The generated C# `TestSetup.cs` used a preset `MOCK_SERVER_URL` environment variable without checking the server was alive. When a test harness sourced a stale `.mock-server.env` from a previous run, every HTTP fixture request failed with `net::ERR_CONNECTION_REFUSED`. `TestSetup.cs` now makes a short-timeout TCP connection to the preset URL and, if it is unreachable, spawns a fresh mock-server — staying backward-compatible with harnesses that pre-spawn a reachable server. (`crates/alef-e2e/src/codegen/csharp.rs`)
+
+- **alef-backend-csharp: disable NuGet audit in the generated compile smoke-test project.** The
+  regression test that builds generated C# bindings should verify generated source compatibility,
+  not require network access to nuget.org vulnerability metadata. Setting `NuGetAudit=false` keeps
+  the test stable in offline CI/local runs while preserving warnings-as-errors for generated code.
+  (`crates/alef-backend-csharp/tests/gen_bindings_test.rs`)
+
 ## [0.17.28] - 2026-05-22
 
 ### Fixed

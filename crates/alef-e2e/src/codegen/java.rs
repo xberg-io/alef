@@ -1272,14 +1272,23 @@ fn render_test_method(
         }
     }
 
-    let adapter_request_type: Option<String> = adapters
-        .iter()
-        .find(|a| a.name == call_config.function.as_str())
+    let adapter = adapters.iter().find(|a| a.name == call_config.function.as_str());
+    let adapter_request_type: Option<String> = adapter
         .and_then(|a| a.request_type.as_deref())
         .map(|rt| rt.rsplit("::").next().unwrap_or(rt).to_string());
+
+    // When an adapter with owner_type is present, filter out handle-type args
+    // since the facade method doesn't take them separately (the handle is
+    // encapsulated in the adapter).
+    let filtered_args: Vec<_> = if adapter.is_some_and(|a| a.owner_type.is_some()) {
+        args.iter().filter(|arg| arg.arg_type != "handle").cloned().collect()
+    } else {
+        args.to_vec()
+    };
+
     let (mut setup_lines, args_str) = build_args_and_setup(
         &fixture.input,
-        args,
+        &filtered_args,
         class_name,
         effective_options_type,
         fixture,
@@ -1450,8 +1459,17 @@ fn render_test_method(
 
     // `is_streaming` was computed earlier (before the assertion render loop).
     let collect_snippet = if is_streaming && !expects_error {
-        crate::codegen::streaming_assertions::StreamingFieldResolver::collect_snippet("java", result_var, "chunks")
-            .unwrap_or_default()
+        // Derive the item_type from the adapter if present; otherwise use the default.
+        let item_type_for_streaming = adapter
+            .and_then(|a| a.item_type.as_deref())
+            .map(|it| it.rsplit("::").next().unwrap_or(it));
+        crate::codegen::streaming_assertions::StreamingFieldResolver::collect_snippet_typed(
+            "java",
+            result_var,
+            "chunks",
+            item_type_for_streaming,
+        )
+        .unwrap_or_default()
     } else {
         String::new()
     };
