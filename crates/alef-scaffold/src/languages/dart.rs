@@ -50,11 +50,19 @@ pub(crate) fn scaffold_dart(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         DartStyle::Ffi => String::new(),
     };
 
+    // Only emit `homepage:` when it is non-empty to keep pubspec.yaml clean.
+    let homepage_line = if meta.homepage.is_empty() {
+        String::new()
+    } else {
+        format!("homepage: {}\n", meta.homepage)
+    };
+
     let pubspec_yaml = format!(
         r#"name: {name}
 description: {description}
 version: {version}
-environment:
+repository: {repository}
+{homepage_line}environment:
   sdk: '{dart_sdk}'
 dependencies:
 {dependency_block}dev_dependencies:
@@ -64,6 +72,8 @@ dependencies:
         name = pubspec_name,
         description = meta.description,
         version = version,
+        repository = meta.repository,
+        homepage_line = homepage_line,
     );
 
     let generated_dir = format!("lib/src/{module_name}_bridge_generated/**");
@@ -169,6 +179,14 @@ From the repository root:
 
     let editorconfig = "[*]\ncharset = utf-8\nend_of_line = lf\ninsert_final_newline = true\n\n[*.dart]\nindent_style = space\nindent_size = 2\n";
 
+    // pub.dev requires a CHANGELOG.md in the package root. Emit a minimal seed
+    // entry keyed to the current version. This file has generated_header: false
+    // so it is a create-once seed — users update it before publishing.
+    let changelog = format!(
+        "# Changelog\n\nAll notable changes to this package will be documented in this file.\n\n## {version}\n\n- Initial release.\n",
+        version = version,
+    );
+
     let example_dart = format!(
         r#"import 'package:{pubspec_name}' as {module_name};
 
@@ -215,6 +233,11 @@ void main() {{
         GeneratedFile {
             path: PathBuf::from(format!("packages/dart/example/{module_name}_example.dart")),
             content: example_dart,
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from("packages/dart/CHANGELOG.md"),
+            content: changelog,
             generated_header: false,
         },
     ])

@@ -1213,8 +1213,8 @@ fn test_scaffold_dart() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Dart]).unwrap();
     let files = language_files(&all_files);
-    // pubspec.yaml + analysis_options.yaml + .gitignore + test + .editorconfig + README.md + example
-    assert_eq!(files.len(), 7, "Expected 7 files for Dart scaffold");
+    // pubspec.yaml + analysis_options.yaml + .gitignore + test + .editorconfig + README.md + example + CHANGELOG.md
+    assert_eq!(files.len(), 8, "Expected 8 files for Dart scaffold");
     assert!(
         files.iter().all(|f| !f.path.ends_with("BUILDING.md")),
         "Dart scaffold must not emit BUILDING.md"
@@ -1246,6 +1246,16 @@ fn test_scaffold_dart() {
     );
     assert!(pubspec.content.contains("test:"), "got: {}", pubspec.content);
     assert!(pubspec.content.contains("lints:"), "got: {}", pubspec.content);
+    assert!(
+        pubspec.content.contains("repository:"),
+        "pubspec.yaml must include a repository field for pub.dev; got: {}",
+        pubspec.content
+    );
+    assert!(
+        pubspec.content.contains("github.com/test/my-lib"),
+        "pubspec.yaml repository must contain the configured URL; got: {}",
+        pubspec.content
+    );
 
     let analysis_options = &files[1];
     assert_eq!(
@@ -1325,6 +1335,15 @@ fn test_scaffold_dart() {
         PathBuf::from("packages/dart/example/my_lib_example.dart")
     );
     assert!(files[6].content.contains("void main"));
+
+    let changelog = &files[7];
+    assert_eq!(changelog.path, PathBuf::from("packages/dart/CHANGELOG.md"));
+    assert!(
+        changelog.content.contains("## 0.1.0"),
+        "CHANGELOG.md must contain the current version; got: {}",
+        changelog.content
+    );
+
     assert!(
         files.iter().all(|f| !f.path.starts_with(".github/workflows")),
         "Dart scaffold must not emit GitHub workflows"
@@ -2533,5 +2552,113 @@ fn test_scaffold_elixir_cargo_section_order_is_cargo_sort_canonical() {
     assert!(
         lib_pos < deps_pos,
         "[lib] must come before [dependencies] (cargo-sort canonical); headers: {headers:?}"
+    );
+}
+
+// ---- LICENSE sync tests -----------------------------------------------
+
+/// When a LICENSE file exists at the workspace root, alef must copy it into
+/// every per-language package directory so ecosystems like pub.dev that require
+/// a LICENSE can publish successfully.
+#[test]
+fn test_scaffold_license_files_emitted_when_license_exists() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let workspace_root = dir.path().to_path_buf();
+    std::fs::write(workspace_root.join("LICENSE"), "MIT License\n").expect("write LICENSE");
+
+    let mut config = test_config();
+    config.workspace_root = Some(workspace_root);
+    let api = test_api();
+
+    let all_files = scaffold(&api, &config, &[Language::Python, Language::Dart]).unwrap();
+    let license_files: Vec<_> = all_files.iter().filter(|f| f.path.ends_with("LICENSE")).collect();
+
+    // One LICENSE per unique package dir (packages/python and packages/dart)
+    assert_eq!(license_files.len(), 2, "should emit one LICENSE per unique package dir");
+
+    let paths: Vec<_> = license_files.iter().map(|f| f.path.as_path()).collect();
+    assert!(
+        paths.iter().any(|p| *p == Path::new("packages/python/LICENSE")),
+        "should emit packages/python/LICENSE; got: {paths:?}"
+    );
+    assert!(
+        paths.iter().any(|p| *p == Path::new("packages/dart/LICENSE")),
+        "should emit packages/dart/LICENSE; got: {paths:?}"
+    );
+
+    // Content must match the workspace-root LICENSE verbatim.
+    for f in &license_files {
+        assert_eq!(
+            f.content, "MIT License\n",
+            "LICENSE content must match workspace-root file; got: {:?}",
+            f.content
+        );
+    }
+}
+
+/// When no LICENSE file exists at the workspace root, scaffold must succeed
+/// without error — just skip the LICENSE sync.
+#[test]
+fn test_scaffold_license_files_skips_gracefully_when_absent() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let workspace_root = dir.path().to_path_buf();
+    // Intentionally do NOT write a LICENSE file.
+
+    let mut config = test_config();
+    config.workspace_root = Some(workspace_root);
+    let api = test_api();
+
+    let all_files = scaffold(&api, &config, &[Language::Python]).unwrap();
+    let license_files: Vec<_> = all_files.iter().filter(|f| f.path.ends_with("LICENSE")).collect();
+
+    assert!(
+        license_files.is_empty(),
+        "no LICENSE file must be emitted when workspace root has no LICENSE; got: {:?}",
+        license_files.iter().map(|f| &f.path).collect::<Vec<_>>()
+    );
+}
+
+/// FFI, JNI, Rust, and C languages must not get a LICENSE copy — they do not
+/// produce a standalone publishable package directory.
+#[test]
+fn test_scaffold_license_files_skips_internal_languages() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let workspace_root = dir.path().to_path_buf();
+    std::fs::write(workspace_root.join("LICENSE"), "Apache-2.0\n").expect("write LICENSE");
+
+    let mut config = test_config();
+    config.workspace_root = Some(workspace_root);
+    let api = test_api();
+
+    let all_files = scaffold(&api, &config, &[Language::Ffi]).unwrap();
+    let license_files: Vec<_> = all_files.iter().filter(|f| f.path.ends_with("LICENSE")).collect();
+
+    assert!(
+        license_files.is_empty(),
+        "FFI language must not produce a LICENSE copy; got: {license_files:?}"
+    );
+}
+
+/// When multiple languages share the same package directory, only one LICENSE
+/// must be emitted (no duplicates).
+#[test]
+fn test_scaffold_license_files_deduplicates_same_package_dir() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let workspace_root = dir.path().to_path_buf();
+    std::fs::write(workspace_root.join("LICENSE"), "MIT\n").expect("write LICENSE");
+
+    let mut config = test_config();
+    config.workspace_root = Some(workspace_root);
+    let api = test_api();
+
+    // Dart uses packages/dart — single language, single dir.
+    let all_files = scaffold(&api, &config, &[Language::Dart]).unwrap();
+    let license_files: Vec<_> = all_files.iter().filter(|f| f.path.ends_with("LICENSE")).collect();
+
+    assert_eq!(license_files.len(), 1, "one language → one LICENSE, no duplicates");
+    assert_eq!(
+        license_files[0].path,
+        PathBuf::from("packages/dart/LICENSE"),
+        "Dart LICENSE must live in packages/dart/"
     );
 }

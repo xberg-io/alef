@@ -183,6 +183,12 @@ pub fn scaffold(
     // Project-level files that depend on the full set of configured languages
     files.extend(scaffold_pre_commit_config(config, languages));
 
+    // LICENSE sync — copy the workspace-root LICENSE into every per-language
+    // package directory so ecosystems like pub.dev (Dart) that require a LICENSE
+    // in the package root can publish successfully. Skips gracefully when no
+    // LICENSE file is present at the workspace root.
+    files.extend(scaffold_license_files(config, languages));
+
     // rust-toolchain.toml — pin Rust version, include wasm32 target when wasm is configured
     if !std::path::Path::new("rust-toolchain.toml").exists() {
         let targets = if languages.contains(&Language::Wasm) {
@@ -378,6 +384,63 @@ pub(crate) fn capitalize_first(s: &str) -> String {
         None => String::new(),
         Some(c) => c.to_uppercase().to_string() + chars.as_str(),
     }
+}
+
+/// Copy the workspace-root `LICENSE` file into each per-language package directory.
+///
+/// Reads `<workspace_root>/LICENSE` (falling back to `./LICENSE` when no workspace root is
+/// configured). When the file is absent, this function warns and returns an empty list so
+/// the caller can continue without error.
+///
+/// Emits one `GeneratedFile` per unique package directory that the languages list would
+/// populate. Files with `generated_header: false` so they are create-once seeds —
+/// `write_scaffold_files` skips them if they already exist, which keeps the copy
+/// idempotent and `alef verify` happy (the file carries no `alef:hash:` marker).
+///
+/// Languages that do not produce a publishable package directory (Rust, C, FFI, JNI)
+/// are skipped.
+fn scaffold_license_files(config: &ResolvedCrateConfig, languages: &[Language]) -> Vec<GeneratedFile> {
+    // Determine the path of the root LICENSE file.
+    let license_path = config
+        .workspace_root
+        .as_deref()
+        .map(|r| r.join("LICENSE"))
+        .unwrap_or_else(|| std::path::PathBuf::from("LICENSE"));
+
+    let license_content = match std::fs::read_to_string(&license_path) {
+        Ok(content) => content,
+        Err(_) => {
+            tracing::warn!(
+                "No LICENSE file found at {} — skipping LICENSE sync into package directories",
+                license_path.display()
+            );
+            return vec![];
+        }
+    };
+
+    // Collect unique package directories from publishable languages.
+    // Languages without a real package output (Rust, C, FFI, JNI) are excluded.
+    let mut seen = std::collections::BTreeSet::new();
+    let mut files = vec![];
+
+    for &lang in languages {
+        match lang {
+            // These languages do not produce a standalone publishable package directory.
+            Language::Rust | Language::C | Language::Ffi | Language::Jni => continue,
+            _ => {}
+        }
+
+        let pkg_dir = config.package_dir(lang);
+        if seen.insert(pkg_dir.clone()) {
+            files.push(GeneratedFile {
+                path: std::path::PathBuf::from(format!("{pkg_dir}/LICENSE")),
+                content: license_content.clone(),
+                generated_header: false,
+            });
+        }
+    }
+
+    files
 }
 
 use languages::{

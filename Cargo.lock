@@ -459,7 +459,9 @@ dependencies = [
  "heck",
  "minijinja",
  "serde_json",
+ "tempfile",
  "toml",
+ "tracing",
 ]
 
 [[package]]
