@@ -1982,6 +1982,8 @@ fn gen_streaming_adapter_facade_method(
     ));
 
     // Body: call the instance method on the engine handle
+    // Note: adapter.name is already snake_case, so use it directly for the Rust method call
+    let rust_method_name = &adapter.name;
     let call_args = adapter
         .params
         .iter()
@@ -1991,7 +1993,7 @@ fn gen_streaming_adapter_facade_method(
 
     method_code.push_str(&format!(
         "        engine.{}({})\n",
-        method_name, call_args
+        rust_method_name, call_args
     ));
 
     method_code.push_str("    }\n");
