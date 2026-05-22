@@ -40,7 +40,7 @@
       await {{ call_expr }};
 {%- endif %}
     }).rejects.toThrow();
-  });
+  }, {{ timeout_ms }});
 {%- else %}
   it('{{ test_name }}: {{ description }}', {{ async_kw }}() => {
 {%- if client_setup %}
@@ -58,5 +58,5 @@
     {{ collect_snippet }}
 {%- endif %}
 {{ assertions_body }}
-  });
+  }, {{ timeout_ms }});
 {%- endif %}

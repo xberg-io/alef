@@ -2373,6 +2373,17 @@ fn test_dts_dto_fields_are_readonly() {
         !content.contains("JsConfig"),
         ".d.ts must not contain JsConfig; content:\n{content}"
     );
+    // CRITICAL REGRESSION TEST: interface members must NOT have trailing semicolons.
+    // napi build produces .d.ts files without semicolons on interface members.
+    // alef must emit the same format to avoid churn when napi regenerates.
+    assert!(
+        !content.contains("readonly timeout: number;"),
+        "interface field must NOT have trailing semicolon; alef format must match napi output; content:\n{content}"
+    );
+    assert!(
+        !content.contains("readonly name?: string;"),
+        "interface field must NOT have trailing semicolon; alef format must match napi output; content:\n{content}"
+    );
 }
 
 #[test]

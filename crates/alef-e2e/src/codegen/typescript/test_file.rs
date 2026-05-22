@@ -838,7 +838,9 @@ fn render_test_case(
                 if is_streaming && crate::codegen::streaming_assertions::is_streaming_virtual_field(f) {
                     return true;
                 }
-                field_resolver.is_valid_for_result(f)
+                // For plain-result calls, accept assertions on synthetic fields that act on the result itself.
+                let is_synthetic_plain_result_field = matches!(f.as_str(), "embeddings" | "embedding_dimensions" | "embeddings_valid" | "embeddings_finite" | "embeddings_non_zero" | "embeddings_normalized");
+                field_resolver.is_valid_for_result(f) || (result_is_simple && is_synthetic_plain_result_field)
             }
             _ => true,
         }
@@ -865,6 +867,15 @@ fn render_test_case(
         }
     });
 
+    // Embedding calls require extended timeout due to model downloads
+    let timeout_ms = if fixture.tags.contains(&"embeddings".to_string()) ||
+                        fixture.call.as_deref().is_some_and(|c| c.contains("embed")) ||
+                        function_name.contains("embed") {
+        "600000"
+    } else {
+        "30000"
+    };
+
     let ctx = minijinja::context! {
         test_name => test_name,
         description => description,
@@ -881,6 +892,7 @@ fn render_test_case(
         is_streaming_error_call => is_streaming_error_call,
         lang => lang,
         skip_reason => skip_reason,
+        timeout_ms => timeout_ms,
     };
     let rendered = crate::template_env::render("typescript/test_function.jinja", ctx);
     out.push_str(&rendered);

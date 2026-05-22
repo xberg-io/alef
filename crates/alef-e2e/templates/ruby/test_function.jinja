@@ -45,7 +45,7 @@
       {{ line }}
 {% endfor %}
       {{ call_expr }}
-    }.to raise_error
+    }.to raise_error(RuntimeError)
 {% else %}
 {% for line in setup_lines %}
     {{ line }}
