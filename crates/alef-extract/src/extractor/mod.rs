@@ -615,7 +615,10 @@ fn extract_items(
                     surface.enums.push(ed);
                 }
             }
-            syn::Item::Fn(item_fn) if is_pub(&item_fn.vis) => {
+            syn::Item::Fn(item_fn) if is_pub(&item_fn.vis) && !item_fn.sig.ident.to_string().starts_with('_') => {
+                // Underscore-prefixed `pub fn`s are the Rust convention for
+                // "public but not part of the supported API surface"; never
+                // emit bindings or docs for them.
                 if let Some(fd) = extract_function(item_fn, crate_name, module_path) {
                     surface.functions.push(fd);
                 }

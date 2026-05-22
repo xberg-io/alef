@@ -8,13 +8,17 @@ use alef_core::ir::{FunctionDef, TypeRef};
 use std::collections::HashMap;
 
 /// Check if a type name represents a config-like struct that should have an Input DTO.
-/// Input DTOs handle camelCase/snake_case conversion for function parameters.
-fn should_have_input_dto(type_name: &str) -> bool {
-    // Config types that commonly appear as function parameters and need camelCase support
-    type_name.ends_with("Config")
-        || type_name.ends_with("Options")
-        || type_name.ends_with("Settings")
-        || type_name.ends_with("Params")
+///
+/// Input DTOs were intended to give JS callers a camelCase config object. The
+/// previous implementation ([`gen_input_dto_for_type`]) hard-coded field lists
+/// per type rather than reading the real struct definition, which produced
+/// uncompilable code (wrong field types, missing `serde` dependency, struct
+/// literals that ignore core defaults). Until a data-driven Input DTO that
+/// reads fields from the `ApiSurface` lands, config-like parameters are
+/// deserialized directly into the core type via `serde_wasm_bindgen` — the
+/// behavior that shipped before the stub was added.
+fn should_have_input_dto(_type_name: &str) -> bool {
+    false
 }
 
 /// Generate an Input DTO struct that deserializes from camelCase and converts to the core type.

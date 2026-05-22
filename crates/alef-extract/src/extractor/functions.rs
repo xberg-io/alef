@@ -165,8 +165,15 @@ pub(crate) fn extract_impl_block(
                     if !method.sig.generics.params.is_empty() {
                         return None;
                     }
-                    // Skip methods named "new" that return Self — constructor already generated from fields
                     let method_name = method.sig.ident.to_string();
+                    // Skip underscore-prefixed methods — the Rust convention for
+                    // "public but not part of the supported API surface" (e.g.
+                    // `_testing_*` helpers gated behind test-only cfg features).
+                    // These must never reach generated bindings or docs.
+                    if method_name.starts_with('_') {
+                        return None;
+                    }
+                    // Skip methods named "new" that return Self — constructor already generated from fields
                     if method_name == "new" {
                         if let syn::ReturnType::Type(_, ty) = &method.sig.output {
                             if matches!(&**ty, syn::Type::Path(p) if p.path.is_ident("Self")) {
