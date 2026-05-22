@@ -1215,7 +1215,9 @@ fn build_args_and_setup(
                     "extractionConfigFromJson".to_string()
                 };
                 // Qualify with module name to avoid ambiguity when both Kreuzberg and RustBridge are imported.
-                setup_lines.push(format!("let {var_name} = try {module_name}.{from_json_fn}(\"{escaped}\")"));
+                setup_lines.push(format!(
+                    "let {var_name} = try {module_name}.{from_json_fn}(\"{escaped}\")"
+                ));
                 parts.push((idx, var_name));
             }
             continue;

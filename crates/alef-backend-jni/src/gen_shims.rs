@@ -532,7 +532,7 @@ fn emit_function_shim(
                 // None so the Rust callee receives the correct Option<_>.
                 if p.optional {
                     call_args.push_str(&format!(
-                        "(if {rust_name}.is_empty() {{ None }} else {{ Some({rust_name}) }})"
+                        "if {rust_name}.is_empty() {{ None }} else {{ Some({rust_name}) }}"
                     ));
                 } else if p.is_ref {
                     call_args.push_str(&format!("&{rust_name}"));
@@ -559,7 +559,7 @@ fn emit_function_shim(
                     let zero_lit = primitive_zero_literal(prim);
                     if let Some(zero) = zero_lit {
                         call_args.push_str(&format!(
-                            "(if {rust_name} != {zero} {{ Some({cast_expr}) }} else {{ None }})"
+                            "if {rust_name} != {zero} {{ Some({cast_expr}) }} else {{ None }}"
                         ));
                     } else {
                         call_args.push_str(&format!("Some({cast_expr})"));

@@ -837,7 +837,8 @@ fn assemble_kt_content(package: &str, imports: &BTreeSet<String>, body: &str) ->
          \"TooManyFunctions\",\n    \
          \"FunctionParameterNaming\",\n    \
          \"LongParameterList\",\n    \
-         \"CyclomaticComplexMethod\",\n\
+         \"CyclomaticComplexMethod\",\n    \
+         \"LongMethod\",\n\
          )\n\n",
     );
     content.push_str(&format!("package {package}\n\n"));

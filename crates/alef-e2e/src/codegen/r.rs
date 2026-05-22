@@ -429,16 +429,13 @@ fn render_test_case(
         .map(|o| &o.assert_enum_fields)
         .unwrap_or(&EMPTY_ASSERT_ENUM_FIELDS);
     for assertion in &fixture.assertions {
-        render_assertion(
-            out,
-            assertion,
-            result_var,
+        let context = RAssertionContext {
             field_resolver,
             result_is_simple,
             result_is_bytes,
             assert_enum_fields,
-            e2e_config,
-        );
+        };
+        render_assertion(out, assertion, result_var, &context);
     }
 
     let _ = writeln!(out, "}})");
@@ -671,16 +668,14 @@ fn r_default_for_config_arg(arg_name: &str, options_type: Option<&str>) -> Strin
     }
 }
 
-fn render_assertion(
-    out: &mut String,
-    assertion: &Assertion,
-    result_var: &str,
-    field_resolver: &FieldResolver,
+struct RAssertionContext<'a> {
+    field_resolver: &'a FieldResolver,
     result_is_simple: bool,
     result_is_bytes: bool,
-    assert_enum_fields: &std::collections::HashMap<String, String>,
-    _e2e_config: &E2eConfig,
-) {
+    assert_enum_fields: &'a std::collections::HashMap<String, String>,
+}
+
+fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, context: &RAssertionContext<'_>) {
     // Handle synthetic / derived fields before the is_valid_for_result check
     // so they are never treated as struct attribute accesses on the result.
     if let Some(f) = &assertion.field {
@@ -862,7 +857,7 @@ fn render_assertion(
 
     // Skip assertions on fields that don't exist on the result type.
     if let Some(f) = &assertion.field {
-        if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
+        if !f.is_empty() && !context.field_resolver.is_valid_for_result(f) {
             let _ = writeln!(out, "  # skipped: field '{f}' not available on result type");
             return;
         }
@@ -870,7 +865,7 @@ fn render_assertion(
 
     // When result_is_simple, skip assertions that reference non-content fields
     // (e.g., metadata, document, structure) since the binding returns a plain value.
-    if result_is_simple {
+    if context.result_is_simple {
         if let Some(f) = &assertion.field {
             let f_lower = f.to_lowercase();
             if !f.is_empty()
@@ -888,11 +883,11 @@ fn render_assertion(
         }
     }
 
-    let field_expr = if result_is_simple {
+    let field_expr = if context.result_is_simple {
         result_var.to_string()
     } else {
         match &assertion.field {
-            Some(f) if !f.is_empty() => field_resolver.accessor(f, "r", result_var),
+            Some(f) if !f.is_empty() => context.field_resolver.accessor(f, "r", result_var),
             _ => result_var.to_string(),
         }
     };
@@ -903,7 +898,7 @@ fn render_assertion(
     // (defined in setup-fixtures.R) so the assertion sees the display string rather
     // than the raw list structure.
     let field_expr = match &assertion.field {
-        Some(f) if assert_enum_fields.contains_key(f.as_str()) => {
+        Some(f) if context.assert_enum_fields.contains_key(f.as_str()) => {
             format!(".alef_format_value({field_expr})")
         }
         _ => field_expr,
@@ -1011,7 +1006,7 @@ fn render_assertion(
                     // raw vector; `nchar()` element-wises and breaks the
                     // expect_true scalar contract. Use `length()` to compare
                     // the byte count instead.
-                    let size_fn = if result_is_bytes { "length" } else { "nchar" };
+                    let size_fn = if context.result_is_bytes { "length" } else { "nchar" };
                     let _ = writeln!(out, "  expect_true({size_fn}({field_expr}) >= {n})");
                 }
             }
@@ -1019,7 +1014,7 @@ fn render_assertion(
         "max_length" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let size_fn = if result_is_bytes { "length" } else { "nchar" };
+                    let size_fn = if context.result_is_bytes { "length" } else { "nchar" };
                     let _ = writeln!(out, "  expect_true({size_fn}({field_expr}) <= {n})");
                 }
             }

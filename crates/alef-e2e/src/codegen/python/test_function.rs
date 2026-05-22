@@ -471,12 +471,10 @@ fn emit_result_and_assertions(
         // Only count lines that start with "assert" or contain actual code tokens.
         // Comments (lines starting with #) are skipped to avoid false positives
         // from strings like "field 'result' not available" in comment text.
-        let result_var_used = temp_assertions
-            .lines()
-            .any(|line| {
-                let trimmed = line.trim();
-                !trimmed.starts_with('#') && trimmed.contains(result_var)
-            });
+        let result_var_used = temp_assertions.lines().any(|line| {
+            let trimmed = line.trim();
+            !trimmed.starts_with('#') && trimmed.contains(result_var)
+        });
 
         let py_result_var = if result_var_used {
             result_var.to_string()

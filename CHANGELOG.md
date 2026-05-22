@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.27] - 2026-05-22
+
 ### Fixed
+
+- **alef-backend-jni: drop redundant parentheses around optional-param call expressions.** The JNI shim emitter wrapped optional `String` and primitive call-site expressions in parentheses (`(if x.is_empty() { None } else { Some(x) })`). As a complete function argument these parentheses are unnecessary and trip rustc's `unused_parens` lint, which fails the `-D warnings` clippy gate in consumer crates' generated `*-jni` bindings. Emit the bare `if/else` expression instead. (`crates/alef-backend-jni/src/gen_shims.rs`)
+
+- **alef workspace: restore clean clippy and pre-commit verification.** Removed an unused Kotlin Android backend dependency and adjusted the R e2e assertion renderer to avoid clippy's argument-count warning while preserving generated assertion behavior. This keeps `cargo clippy --workspace --all-targets --all-features -- -D warnings` and `prek run --all-files` clean before release. (`crates/alef-backend-kotlin-android/Cargo.toml`, `crates/alef-e2e/src/codegen/r.rs`)
 
 - **alef-e2e/python: fix F841 unused variable when all assertions are skipped.** Python e2e codegen was assigning the result variable even when every assertion was skipped (because the field didn't exist on the result type), causing ruff F841 "local variable assigned but never used" errors. The bug occurred because the detection of result variable usage was a naive substring search on the rendered assertion buffer, which would match the variable name inside skipped comment text like "# skipped: field 'result' not available on result type". Fixed by checking only non-comment lines when detecting if the result variable is actually used in code: `temp_assertions.lines().any(|line| !line.trim().starts_with('#') && line.contains(result_var))`. When no assertions actually use the variable, it is now assigned to `_` (underscore), which correctly indicates intentional discard. Fixes 8 Python e2e F841 linting errors across test_engine.py, test_filter.py, and test_redirect.py. (`crates/alef-e2e/src/codegen/python/test_function.rs`)
 
