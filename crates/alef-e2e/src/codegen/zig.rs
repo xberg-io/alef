@@ -1032,10 +1032,10 @@ fn render_test_fn(
                     let parse_json_var = if let Some(field) = wrap_field {
                         // Build the Zig format string for wrapping: {"field":{s}}
                         // In Zig: `std.fmt.allocPrint(..., "{\"field\":{s}}", .{value})`
-                        // In Rust string literal: "{{\\\"field\\\":{s}}}" (double-escape { and \)
+                        // In Rust string literal: "{{{{\\\"field\\\"{{s}}}}}}" (each { → {{, each \ → \\)
                         let _ = writeln!(
                             out,
-                            "    const _wrapped_json = try std.fmt.allocPrint(allocator, \"{{\\\"{}\\\":{{s}}}}\", .{{_result_json}});",
+                            "    const _wrapped_json = try std.fmt.allocPrint(allocator, \"{{{{\\\"{}\\\"{{s}}}}}}\", .{{_result_json}});",
                             field
                         );
                         let _ = writeln!(out, "    defer allocator.free(_wrapped_json);");

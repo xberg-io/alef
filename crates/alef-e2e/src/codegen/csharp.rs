@@ -2576,23 +2576,29 @@ fn render_assertion(
             }
         }
         "not_empty" => {
+            // Detect non-nullable: if expression has ! operator or is a method call
+            let field_is_nullable = !field_expr.contains('!') && !field_expr.contains(")");
             let rendered = crate::template_env::render(
                 "csharp/assertion.jinja",
                 minijinja::context! {
                     assertion_type => "not_empty",
                     field_expr => field_expr.clone(),
                     field_needs_json_serialize => field_needs_json_serialize,
+                    field_is_nullable => field_is_nullable,
                 },
             );
             out.push_str(&rendered);
         }
         "is_empty" => {
+            // Detect non-nullable: if expression has ! operator or is a method call
+            let field_is_nullable = !field_expr.contains('!') && !field_expr.contains(")");
             let rendered = crate::template_env::render(
                 "csharp/assertion.jinja",
                 minijinja::context! {
                     assertion_type => "is_empty",
                     field_expr => field_expr.clone(),
                     field_needs_json_serialize => field_needs_json_serialize,
+                    field_is_nullable => field_is_nullable,
                 },
             );
             out.push_str(&rendered);

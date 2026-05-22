@@ -1801,7 +1801,7 @@ fn render_test_function(
                 let has_map_access = resolved.contains('[');
 
                 if resolved.contains('.') {
-                    let leaf_primitive = emit_nested_accessor(
+                    let leaf_result = emit_nested_accessor(
                         out,
                         prefix,
                         resolved,
@@ -1813,8 +1813,14 @@ fn render_test_function(
                         result_type_name,
                         f,
                     );
-                    if let Some(prim) = leaf_primitive {
-                        primitive_locals.insert(local_var.clone(), prim);
+                    if let Some(returned_type) = leaf_result {
+                        // Could be a primitive type (primitive_locals) or opaque handle type
+                        if is_primitive_c_type(&returned_type) {
+                            primitive_locals.insert(local_var.clone(), returned_type);
+                        } else {
+                            // Opaque handle returned — register for cleanup
+                            opaque_handle_locals.insert(local_var.clone(), returned_type);
+                        }
                     }
                 } else {
                     let result_type_snake = result_type_name.to_snake_case();
@@ -2112,7 +2118,7 @@ fn render_engine_factory_test_function(
                 let local_var = f.replace(['.', '['], "_").replace(']', "");
                 let has_map_access = resolved.contains('[');
                 if resolved.contains('.') {
-                    let leaf_primitive = emit_nested_accessor(
+                    let leaf_result = emit_nested_accessor(
                         out,
                         prefix,
                         resolved,
@@ -2124,8 +2130,14 @@ fn render_engine_factory_test_function(
                         result_type_name,
                         f,
                     );
-                    if let Some(prim) = leaf_primitive {
-                        primitive_locals.insert(local_var.clone(), prim);
+                    if let Some(returned_type) = leaf_result {
+                        // Could be a primitive type (primitive_locals) or opaque handle type
+                        if is_primitive_c_type(&returned_type) {
+                            primitive_locals.insert(local_var.clone(), returned_type);
+                        } else {
+                            // Opaque handle returned — register for cleanup
+                            opaque_handle_locals.insert(local_var.clone(), returned_type);
+                        }
                     }
                 } else {
                     let result_type_snake = result_type_name.to_snake_case();
@@ -3040,14 +3052,14 @@ fn emit_nested_accessor(
                         out,
                         "    {prefix_upper}{opaque_type}* {handle_var} = {accessor_fn}({current_handle});"
                     );
-                    intermediate_handles.push((handle_var.clone(), opaque_snake));
+                    intermediate_handles.push((handle_var.clone(), opaque_snake.clone()));
                 }
                 // Treat the handle itself as the local_var for downstream assertions.
                 // Map local_var → handle_var so render_assertion uses the handle name.
                 if local_var != handle_var {
                     let _ = writeln!(out, "    {prefix_upper}{opaque_type}* {local_var} = {handle_var};");
                 }
-                return None; // opaque handle — no primitive return value
+                return Some(opaque_snake); // return type name so caller can register opaque handle cleanup
             }
             // Enum leaf: opaque enum pointer that needs `_to_string` conversion.
             if try_emit_enum_accessor(

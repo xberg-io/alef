@@ -51,13 +51,21 @@
 {% if field_needs_json_serialize -%}
         Assert.NotEmpty({{ field_expr }});
 {% else -%}
+{% if field_is_nullable -%}
         Assert.False(string.IsNullOrEmpty({{ field_expr }}?.ToString()));
+{% else -%}
+        Assert.False(string.IsNullOrEmpty({{ field_expr }}.ToString()));
+{% endif %}
 {% endif %}
 {% elif assertion_type == "is_empty" -%}
 {% if field_needs_json_serialize -%}
         Assert.Empty({{ field_expr }});
 {% else -%}
+{% if field_is_nullable -%}
         Assert.True(string.IsNullOrEmpty({{ field_expr }}?.ToString()));
+{% else -%}
+        Assert.True(string.IsNullOrEmpty({{ field_expr }}.ToString()));
+{% endif %}
 {% endif %}
 {% elif assertion_type == "contains_any" -%}
         Assert.True({{ contains_any_expr }}, "expected to contain at least one of the specified values");
