@@ -735,78 +735,12 @@ fn render_test_file(
         })
     });
 
-    // Determine if we need the testify assert import.
-    let needs_assert = fixtures.iter().any(|f| {
-        if !emits_executable_test(f) {
-            return false;
-        }
-        // Validation-category fixtures with an `error` assertion emit
-        // `assert.Error(t, createErr)` in their setup block, requiring testify.
-        // Other categories (e.g. `error`) use t.Errorf/t.Fatalf and do NOT need testify.
-        if f.resolved_category() == "validation" && f.assertions.iter().any(|a| a.assertion_type == "error") {
-            return true;
-        }
-        // Streaming fixtures emit `assert.X` calls against the collected `chunks`
-        // list — the field path resolves against the streaming virtual-field
-        // accessor table, not the result type. Treat any streaming-virtual field
-        // reference as `field_valid`.
-        let is_streaming_fixture = f.is_streaming_mock();
-        let cc =
-            e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
-        let per_call_resolver = FieldResolver::new(
-            e2e_config.effective_fields(cc),
-            e2e_config.effective_fields_optional(cc),
-            e2e_config.effective_result_fields(cc),
-            e2e_config.effective_fields_array(cc),
-            &std::collections::HashSet::new(),
-        );
-        f.assertions.iter().any(|a| {
-            let field_is_streaming_virtual = a
-                .field
-                .as_deref()
-                .is_some_and(|s| !s.is_empty() && crate::codegen::streaming_assertions::is_streaming_virtual_field(s));
-            let field_valid = a
-                .field
-                .as_ref()
-                .map(|f| f.is_empty() || per_call_resolver.is_valid_for_result(f))
-                .unwrap_or(true)
-                || (is_streaming_fixture && field_is_streaming_virtual);
-            let synthetic_field_needs_assert = match a.field.as_deref() {
-                Some(
-                    "chunks_have_content"
-                    | "chunks_have_embeddings"
-                    | "chunks_have_heading_context"
-                    | "first_chunk_starts_with_heading",
-                ) => {
-                    matches!(a.assertion_type.as_str(), "is_true" | "is_false")
-                }
-                Some("embeddings") => {
-                    matches!(
-                        a.assertion_type.as_str(),
-                        "count_equals" | "count_min" | "not_empty" | "is_empty"
-                    )
-                }
-                _ => false,
-            };
-            let type_needs_assert = matches!(
-                a.assertion_type.as_str(),
-                "count_equals"
-                    | "count_min"
-                    | "count_max"
-                    | "is_true"
-                    | "is_false"
-                    | "method_result"
-                    | "min_length"
-                    | "max_length"
-                    | "matches_regex"
-                    | "greater_than"
-                    | "greater_than_or_equal"
-                    | "less_than"
-                    | "less_than_or_equal"
-            );
-            synthetic_field_needs_assert || (type_needs_assert && (field_valid || field_is_streaming_virtual))
-        })
-    });
+    // The testify `assert` import is decided purely empirically below: after the
+    // file body is rendered into a buffer, we emit the import only if the body
+    // actually contains an `assert.` reference. A predictive heuristic over
+    // assertion shapes/categories produced false positives (importing testify in
+    // files whose tests only use `t.Errorf`/`t.Fatalf`), which fails the Go
+    // `imported and not used` compile check.
 
     // Determine if we need "net/http" and "io" (HTTP server tests via HTTP client).
     let has_http_fixtures = fixtures.iter().any(|f| f.is_http_test());
@@ -848,7 +782,7 @@ fn render_test_file(
             let _ = writeln!(body);
         }
     }
-    let needs_assert = needs_assert || body.contains("assert.");
+    let needs_assert = body.contains("assert.");
 
     let _ = writeln!(out, "// E2e tests for category: {category}");
     let _ = writeln!(out, "package e2e_test");

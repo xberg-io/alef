@@ -1364,7 +1364,11 @@ impl Backend for RustlerBackend {
             let owner_lc = owner.to_lowercase();
             let start_fn = format!("{owner_lc}_{}_start", adapter.name);
             let next_fn = format!("{owner_lc}_{}_next", adapter.name);
-            let stream_fn = format!("{owner_lc}_{}", adapter.name);
+            // The high-level Stream.unfold wrapper is the public streaming entry
+            // point — it must be named after the adapter (`crawl_stream`), not the
+            // owner-prefixed internal form (`crawlenginehandle_crawl_stream`), so
+            // callers reach it as `Module.crawl_stream/2` like every other binding.
+            let stream_fn = adapter.name.to_snake_case();
 
             // Build the wrapper-arg list: receiver + adapter params (binding type
             // gets JSON-encoded via Jason for the NIF boundary).

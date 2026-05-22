@@ -1527,13 +1527,19 @@ fn emit_chat_stream_assertion(out: &mut String, assertion: &Assertion) {
             }
         }
         ("not_empty", Kind::Str) => {
-            let _ = writeln!(out, "        Assert.False(string.IsNullOrEmpty({expr}));");
+            let _ = writeln!(
+                out,
+                "        Assert.False(string.IsNullOrEmpty({expr} ?? string.Empty));"
+            );
         }
         ("not_empty", Kind::Json) => {
             let _ = writeln!(out, "        Assert.NotNull({expr});");
         }
         ("is_empty", Kind::Str) => {
-            let _ = writeln!(out, "        Assert.True(string.IsNullOrEmpty({expr}));");
+            let _ = writeln!(
+                out,
+                "        Assert.True(string.IsNullOrEmpty({expr} ?? string.Empty));"
+            );
         }
         ("is_true", Kind::Bool) => {
             let _ = writeln!(out, "        Assert.True({expr});");
