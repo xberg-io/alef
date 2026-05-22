@@ -1,5 +1,5 @@
 use crate::type_map::{java_boxed_type, java_return_type, java_type};
-use ahash::AHashSet;
+use ahash::{AHashMap, AHashSet};
 use alef_codegen::naming::to_java_name;
 use alef_core::config::ResolvedCrateConfig;
 use alef_core::hash::{self, CommentStyle};
@@ -16,7 +16,7 @@ use super::marshal::{
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn gen_main_class(
     api: &ApiSurface,
-    _config: &ResolvedCrateConfig,
+    config: &ResolvedCrateConfig,
     package: &str,
     class_name: &str,
     prefix: &str,
@@ -30,6 +30,25 @@ pub(crate) fn gen_main_class(
         .iter()
         .filter(|t| t.is_opaque)
         .map(|t| t.name.clone())
+        .collect();
+
+    // Map a trait bridge's `clear_fn` (the core Rust function name, e.g.
+    // `clear_ocr_backends`) to the `NativeLib` handle constant emitted for it.
+    // The FFI layer exports the clear function as `{prefix}_clear_{trait_snake}`
+    // (singular, derived from the trait name) and `NativeLib.java` declares the
+    // matching handle constant as `{PREFIX}_CLEAR_{TRAIT_SNAKE}`. The free-function
+    // facade body must reference that same constant rather than deriving the name
+    // from `func.name` (which is the plural core Rust function name).
+    let clear_fn_handles: AHashMap<String, String> = config
+        .trait_bridges
+        .iter()
+        .filter_map(|b| {
+            b.clear_fn.as_ref().map(|clear_fn| {
+                let trait_snake_upper = b.trait_name.to_snake_case().to_uppercase();
+                let handle = format!("{}_CLEAR_{}", prefix.to_uppercase(), trait_snake_upper);
+                (clear_fn.clone(), handle)
+            })
+        })
         .collect();
 
     // Generate the class body first, then scan it to determine which imports are needed.
@@ -54,6 +73,7 @@ pub(crate) fn gen_main_class(
             bridge_param_names,
             bridge_type_aliases,
             has_visitor_bridge,
+            &clear_fn_handles,
         );
         body.push('\n');
 
@@ -120,6 +140,7 @@ pub(crate) fn gen_sync_function_method(
     bridge_param_names: &HashSet<String>,
     bridge_type_aliases: &HashSet<String>,
     has_visitor_bridge: bool,
+    clear_fn_handles: &AHashMap<String, String>,
 ) {
     // Exclude bridge params from the public Java signature. Optional params
     // take the boxed Java type (Integer/Long/Boolean/...) so callers can pass
@@ -223,8 +244,18 @@ pub(crate) fn gen_sync_function_method(
         marshal_param_to_ffi(out, &to_java_name(&param.name), &effective_ty, opaque_types, prefix);
     }
 
-    // Call FFI
-    let ffi_handle = format!("NativeLib.{}_{}", prefix.to_uppercase(), func.name.to_uppercase());
+    // Call FFI.
+    //
+    // Most free functions map 1:1 onto an FFI export named `{prefix}_{func.name}`,
+    // so the handle constant is `{PREFIX}_{FUNC_NAME}`. Trait-bridge `clear_fn`
+    // functions are the exception: the core Rust function is plural
+    // (`clear_ocr_backends`) but the FFI export — and therefore the `NativeLib`
+    // handle constant — is the singular trait-derived `{PREFIX}_CLEAR_{TRAIT_SNAKE}`.
+    // Use the pre-computed mapping so this body agrees with `NativeLib.java`.
+    let ffi_handle = match clear_fn_handles.get(&func.name) {
+        Some(handle) => format!("NativeLib.{}", handle),
+        None => format!("NativeLib.{}_{}", prefix.to_uppercase(), func.name.to_uppercase()),
+    };
 
     // Build call args: bridge params get MemorySegment.NULL, others are marshalled normally.
     // Important: Bytes parameters expand to (pointer, length) pairs, so each FFI param
@@ -828,6 +859,7 @@ mod tests {
             &bridge_param_names,
             &bridge_type_aliases,
             false,
+            &AHashMap::new(),
         );
 
         assert!(out.contains("return Optional.empty();"));
@@ -854,6 +886,7 @@ mod tests {
             &bridge_param_names,
             &bridge_type_aliases,
             false,
+            &AHashMap::new(),
         );
 
         assert!(out.contains("return Optional.empty();"));
@@ -880,6 +913,7 @@ mod tests {
             &bridge_param_names,
             &bridge_type_aliases,
             false,
+            &AHashMap::new(),
         );
 
         // Vec returns now go through the readJsonList helper to deduplicate
@@ -925,6 +959,7 @@ mod tests {
             &bridge_param_names,
             &bridge_type_aliases,
             false,
+            &AHashMap::new(),
         );
 
         assert!(out.contains("outPtrHolder"), "should allocate outPtrHolder");
@@ -971,6 +1006,7 @@ mod tests {
             &bridge_param_names,
             &bridge_type_aliases,
             false,
+            &AHashMap::new(),
         );
 
         assert!(out.contains("outPtrHolder"), "should allocate outPtrHolder");
@@ -997,6 +1033,7 @@ mod tests {
             &bridge_param_names,
             &bridge_type_aliases,
             false,
+            &AHashMap::new(),
         );
 
         assert!(out.contains("return null;"));
@@ -1022,6 +1059,7 @@ mod tests {
             &bridge_param_names,
             &bridge_type_aliases,
             false,
+            &AHashMap::new(),
         );
 
         assert!(out.contains("return java.nio.file.Path.of(str);"));
@@ -1045,6 +1083,7 @@ mod tests {
             &bridge_param_names,
             &bridge_type_aliases,
             false,
+            &AHashMap::new(),
         );
 
         assert!(out.contains("return Optional.of(java.nio.file.Path.of(str));"));
@@ -1067,6 +1106,7 @@ mod tests {
             &bridge_param_names,
             &bridge_type_aliases,
             false,
+            &AHashMap::new(),
         );
 
         // The Vec dispatch path now delegates to the readJsonList helper.
@@ -1100,6 +1140,7 @@ mod tests {
             &bridge_param_names,
             &bridge_type_aliases,
             false,
+            &AHashMap::new(),
         );
 
         // The previously-duplicated JSON-deserialize line must NOT appear at
@@ -1108,5 +1149,80 @@ mod tests {
         assert!(!out.contains(
             "createObjectMapper().readValue(json, new com.fasterxml.jackson.core.type.TypeReference<java.util.List<"
         ));
+    }
+
+    #[test]
+    fn clear_fn_body_references_singular_native_lib_handle() {
+        // Regression: a trait-bridge `clear_fn` is the plural core Rust function
+        // name (`clear_ocr_backends`), but the FFI export and the `NativeLib`
+        // handle constant are the singular trait-derived form
+        // (`KRZ_CLEAR_OCR_BACKEND`). The facade body must reference that exact
+        // constant, otherwise the generated Java fails to compile.
+        let func = create_test_function("clear_ocr_backends", TypeRef::Unit);
+
+        let mut clear_fn_handles = AHashMap::new();
+        clear_fn_handles.insert(
+            "clear_ocr_backends".to_string(),
+            "KRZ_CLEAR_OCR_BACKEND".to_string(),
+        );
+
+        let mut out = String::new();
+        let opaque_types = create_test_opaque_types();
+        let (bridge_param_names, bridge_type_aliases) = create_test_bridge_sets();
+
+        gen_sync_function_method(
+            &mut out,
+            &func,
+            "krz",
+            "TestClass",
+            &opaque_types,
+            &bridge_param_names,
+            &bridge_type_aliases,
+            false,
+            &clear_fn_handles,
+        );
+
+        assert!(
+            out.contains("NativeLib.KRZ_CLEAR_OCR_BACKEND.invoke()"),
+            "clear_fn body must reference the singular trait-derived handle, got:\n{out}"
+        );
+        assert!(
+            !out.contains("KRZ_CLEAR_OCR_BACKENDS"),
+            "clear_fn body must not reference the plural core-function-derived handle, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn non_clear_fn_body_derives_handle_from_function_name() {
+        // Functions not registered as trait-bridge `clear_fn`s keep deriving the
+        // handle constant from `func.name` (1:1 with their FFI export).
+        let func = create_test_function("list_ocr_backends", TypeRef::Vec(Box::new(TypeRef::String)));
+
+        let mut clear_fn_handles = AHashMap::new();
+        clear_fn_handles.insert(
+            "clear_ocr_backends".to_string(),
+            "KRZ_CLEAR_OCR_BACKEND".to_string(),
+        );
+
+        let mut out = String::new();
+        let opaque_types = create_test_opaque_types();
+        let (bridge_param_names, bridge_type_aliases) = create_test_bridge_sets();
+
+        gen_sync_function_method(
+            &mut out,
+            &func,
+            "krz",
+            "TestClass",
+            &opaque_types,
+            &bridge_param_names,
+            &bridge_type_aliases,
+            false,
+            &clear_fn_handles,
+        );
+
+        assert!(
+            out.contains("NativeLib.KRZ_LIST_OCR_BACKENDS"),
+            "non-clear_fn body must derive the handle from func.name, got:\n{out}"
+        );
     }
 }
