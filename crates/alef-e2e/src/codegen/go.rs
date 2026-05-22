@@ -2098,7 +2098,7 @@ fn build_args_and_setup(
                                     "var {var_name}Raw []json.RawMessage\n\tif err := json.Unmarshal([]byte({go_literal}), &{var_name}Raw); err != nil {{\n\t\tt.Fatalf(\"config parse failed: %v\", err)\n\t}}"
                                 ));
                                 setup_lines.push(format!(
-                                    "var {var_name} {go_slice_type}\n\tfor _, raw := range {var_name}Raw {{\n\t\telem, err := Unmarshal{element_type}(raw)\n\t\tif err != nil {{\n\t\t\tt.Fatalf(\"unmarshal {element_type} failed: %v\", err)\n\t\t}}\n\t\t{var_name} = append({var_name}, elem)\n\t}}"
+                                    "var {var_name} {go_slice_type}\n\tfor _, raw := range {var_name}Raw {{\n\t\telem, err := {import_alias}.Unmarshal{element_type}(raw)\n\t\tif err != nil {{\n\t\t\tt.Fatalf(\"unmarshal {element_type} failed: %v\", err)\n\t\t}}\n\t\t{var_name} = append({var_name}, elem)\n\t}}"
                                 ));
                             } else {
                                 // For non-sum-type arrays, use standard json.Unmarshal.
@@ -3715,7 +3715,14 @@ mod tests {
 
         let fixture = make_fixture("basic_text");
         let mut out = String::new();
-        render_test_function(&mut out, &fixture, "kreuzberg", &e2e_config, &[], &std::collections::HashSet::new());
+        render_test_function(
+            &mut out,
+            &fixture,
+            "kreuzberg",
+            &e2e_config,
+            &[],
+            &std::collections::HashSet::new(),
+        );
 
         assert!(
             out.contains("kreuzberg.CleanExtractedText("),
@@ -3759,7 +3766,14 @@ mod tests {
         };
 
         let mut out = String::new();
-        render_test_function(&mut out, &fixture, "pkg", &e2e_config, &[], &std::collections::HashSet::new());
+        render_test_function(
+            &mut out,
+            &fixture,
+            "pkg",
+            &e2e_config,
+            &[],
+            &std::collections::HashSet::new(),
+        );
 
         assert!(out.contains("stream, err :="), "should use stream binding, got:\n{out}");
         assert!(
@@ -3821,7 +3835,14 @@ mod tests {
         };
 
         let mut out = String::new();
-        render_test_function(&mut out, &fixture, "pkg", &e2e_config, &[], &std::collections::HashSet::new());
+        render_test_function(
+            &mut out,
+            &fixture,
+            "pkg",
+            &e2e_config,
+            &[],
+            &std::collections::HashSet::new(),
+        );
 
         eprintln!("generated:\n{out}");
         assert!(out.contains("stream, err :="), "should use stream binding, got:\n{out}");
@@ -3887,7 +3908,14 @@ mod tests {
         };
 
         let mut out = String::new();
-        render_test_function(&mut out, &fixture, "pkg", &e2e_config, &[], &std::collections::HashSet::new());
+        render_test_function(
+            &mut out,
+            &fixture,
+            "pkg",
+            &e2e_config,
+            &[],
+            &std::collections::HashSet::new(),
+        );
 
         eprintln!("generated:\n{out}");
 
