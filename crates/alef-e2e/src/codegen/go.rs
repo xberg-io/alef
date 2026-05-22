@@ -603,6 +603,17 @@ fn render_test_file(
     // call, which doesn't require the `encoding/base64` import in the test file.
     let needs_base64 = false;
 
+    // Effective `result_is_simple` for a resolved call config — mirrors the per-test
+    // body logic (Go override OR call-level OR rust override). When set, the assertion
+    // renderer ignores assertion fields and operates on the result variable directly
+    // (e.g. `fmt.Sprint(result)`), so import detection must treat such field-bearing
+    // assertions as usable regardless of whether the field is valid on the result type.
+    let call_result_is_simple = |cc: &alef_core::config::e2e::CallConfig| -> bool {
+        cc.overrides.get("go").is_some_and(|o| o.result_is_simple)
+            || cc.result_is_simple
+            || cc.overrides.get("rust").map(|o| o.result_is_simple).unwrap_or(false)
+    };
+
     // Determine if we need the "fmt" import (CustomTemplate visitor actions
     // with placeholders, string assertions rendered through fmt.Sprint, or
     // optional field variable bindings using fmt.Sprintf).
@@ -656,7 +667,10 @@ fn render_test_file(
                         &std::collections::HashSet::new(),
                     );
                     let resolved_name = per_call_resolver.resolve(field);
-                    !per_call_resolver.is_array(resolved_name) && per_call_resolver.is_valid_for_result(field)
+                    // For result_is_simple calls the renderer emits `fmt.Sprint(result)`
+                    // ignoring the field, so the field need not be valid on the result type.
+                    !per_call_resolver.is_array(resolved_name)
+                        && (call_result_is_simple(cc) || per_call_resolver.is_valid_for_result(field))
                 }
             }
         }) {
@@ -726,10 +740,13 @@ fn render_test_file(
                     "contains" | "contains_all" | "contains_any" | "not_contains" | "starts_with" | "ends_with"
                 )
             };
+            // For result_is_simple calls the renderer emits `strings.Contains(...)`
+            // against the result variable directly, ignoring the assertion field.
+            let simple_result = call_result_is_simple(cc);
             let field_valid = a
                 .field
                 .as_ref()
-                .map(|f| f.is_empty() || per_call_resolver.is_valid_for_result(f))
+                .map(|f| f.is_empty() || simple_result || per_call_resolver.is_valid_for_result(f))
                 .unwrap_or(true);
             type_needs_strings && field_valid
         })
@@ -1190,6 +1207,14 @@ fn render_test_function(
         match &a.field {
             Some(f) if !f.is_empty() => {
                 if is_streaming && crate::codegen::streaming_assertions::is_streaming_virtual_field(f) {
+                    return true;
+                }
+                // When the call returns a plain scalar (result_is_simple), `render_assertion`
+                // ignores the field entirely and operates on the result variable directly
+                // (e.g. `fmt.Sprint(result)`). In that case the assertion always uses the
+                // result variable regardless of whether `f` is a real field on the type, so
+                // the call must bind to `result` and not `_`.
+                if result_is_simple {
                     return true;
                 }
                 field_resolver.is_valid_for_result(f)
@@ -3823,6 +3848,74 @@ mod tests {
         assert!(
             !out.contains("result.Segments[0] != nil"),
             "must not emit Segments[0] != nil for a value-type element; got:\n{out}"
+        );
+    }
+
+    /// Regression test: a `result_is_simple` call with a `contains` assertion whose
+    /// `field` ("result") is not a struct field must still bind the call to the result
+    /// variable AND emit the `fmt`/`strings` imports.  The assertion renderer ignores
+    /// the field for `result_is_simple` calls and emits `strings.Contains(fmt.Sprint(result), …)`,
+    /// so binding to `_` (or omitting the imports) produces uncompilable Go.
+    #[test]
+    fn test_result_is_simple_contains_binds_result_and_emits_imports() {
+        use alef_core::config::e2e::ArgMapping;
+
+        let e2e_config = E2eConfig {
+            call: CallConfig {
+                function: "detect_mime_type_from_bytes".to_string(),
+                module: "github.com/example/mylib".to_string(),
+                result_var: "result".to_string(),
+                returns_result: true,
+                result_is_simple: true,
+                args: vec![ArgMapping {
+                    name: "content".to_string(),
+                    field: "input.data".to_string(),
+                    arg_type: "bytes".to_string(),
+                    optional: false,
+                    owned: false,
+                    element_type: None,
+                    go_type: None,
+                }],
+                ..CallConfig::default()
+            },
+            ..E2eConfig::default()
+        };
+
+        let fixture = Fixture {
+            id: "mime_detect_bytes".to_string(),
+            category: None,
+            description: "Detect MIME type from file bytes".to_string(),
+            tags: vec![],
+            skip: None,
+            env: None,
+            call: None,
+            input: serde_json::json!({"data": "pdf/fake_memo.pdf"}),
+            mock_response: None,
+            source: String::new(),
+            http: None,
+            assertions: vec![Assertion {
+                assertion_type: "contains".to_string(),
+                field: Some("result".to_string()),
+                value: Some(serde_json::Value::String("pdf".to_string())),
+                ..Default::default()
+            }],
+            visitor: None,
+        };
+
+        let out = render_test_file("mime_utilities", &[&fixture], "github.com/example/mylib", "kreuzberg", &e2e_config, &[]);
+
+        assert!(
+            out.contains("result, err := kreuzberg.DetectMimeTypeFromBytes("),
+            "expected the call to bind to `result`, not `_`; got:\n{out}"
+        );
+        assert!(
+            out.contains("strings.Contains(") && out.contains("fmt.Sprint("),
+            "expected `strings.Contains(fmt.Sprint(...))` rendering; got:\n{out}"
+        );
+        assert!(out.contains("\t\"fmt\""), "expected the `fmt` import to be emitted; got:\n{out}");
+        assert!(
+            out.contains("\t\"strings\""),
+            "expected the `strings` import to be emitted; got:\n{out}"
         );
     }
 }

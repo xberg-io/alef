@@ -552,13 +552,16 @@ fn render_test_file(
                 &f.input,
             );
             let php_override = call.overrides.get(lang);
-            let opt_type = php_override.and_then(|o| o.options_type.as_deref()).or_else(|| {
-                e2e_config
-                    .call
-                    .overrides
-                    .get(lang)
-                    .and_then(|o| o.options_type.as_deref())
-            });
+            let opt_type = php_override
+                .and_then(|o| o.options_type.as_deref())
+                .or_else(|| {
+                    e2e_config
+                        .call
+                        .overrides
+                        .get(lang)
+                        .and_then(|o| o.options_type.as_deref())
+                })
+                .or(call.options_type.as_deref());
             let element_types: Vec<String> = call
                 .args
                 .iter()
@@ -985,14 +988,19 @@ fn render_test_method(
     let description = &fixture.description;
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
-    // Resolve options_type for this call's PHP override, with fallback to the top-level call override.
-    let call_options_type = call_overrides.and_then(|o| o.options_type.as_deref()).or_else(|| {
-        e2e_config
-            .call
-            .overrides
-            .get(lang)
-            .and_then(|o| o.options_type.as_deref())
-    });
+    // Resolve options_type for this call. Precedence: per-language call override,
+    // then the global per-language call override, then the call-level `options_type`
+    // (the binding-agnostic config parameter type, e.g. `EmbeddingConfig`).
+    let call_options_type = call_overrides
+        .and_then(|o| o.options_type.as_deref())
+        .or_else(|| {
+            e2e_config
+                .call
+                .overrides
+                .get(lang)
+                .and_then(|o| o.options_type.as_deref())
+        })
+        .or(call_config.options_type.as_deref());
 
     let adapter_request_type: Option<String> = adapters
         .iter()
@@ -1305,7 +1313,17 @@ fn build_args_and_setup(
             input.get(field)
         };
         match val {
-            None | Some(serde_json::Value::Null) => !arg.optional,
+            None | Some(serde_json::Value::Null) => {
+                // A `json_object` arg named `config` always emits a value (a default
+                // `Type::from_json('{}')`) regardless of `optional`, mirroring the
+                // unconditional special case in the per-arg loop below. Treating it as
+                // "no emission" would let an earlier optional arg (e.g. `mime_type`) be
+                // dropped, shifting `config` into the wrong positional slot.
+                if arg.arg_type == "json_object" && arg.name == "config" {
+                    return true;
+                }
+                !arg.optional
+            }
             Some(_) => true,
         }
     };

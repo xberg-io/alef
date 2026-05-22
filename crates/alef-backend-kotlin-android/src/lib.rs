@@ -313,9 +313,13 @@ fn strip_kotlin_source_suffix(configured: &Path, pkg_path: &str) -> Option<PathB
 
 /// Apply post-processing fixes to generated Kotlin files using the shared normalizer.
 /// Fixes integer-like float literals that lack decimal points (e.g., "32" -> "32.0").
+///
+/// Uses `Path::extension` rather than `Path::ends_with`: the latter performs
+/// component-wise matching, so `ends_with(".kt")` is always `false` for a file
+/// named `Foo.kt` (the final component is `Foo.kt`, not `.kt`).
 fn apply_kotlin_post_processing(files: &mut [GeneratedFile]) {
     for file in files {
-        if file.path.ends_with(".kt") {
+        if file.path.extension().is_some_and(|ext| ext == "kt") {
             file.content = literal_normalizer::fix_float_literals(&file.content);
         }
     }
@@ -355,5 +359,27 @@ mod tests {
             layout.kotlin_source_dir,
             PathBuf::from("packages/kotlin-android/src/main/kotlin/dev/kreuzberg")
         );
+    }
+
+    #[test]
+    fn apply_kotlin_post_processing_fixes_double_literals_in_named_kt_files() {
+        let mut files = vec![GeneratedFile {
+            path: PathBuf::from("src/main/kotlin/dev/kreuzberg/OcrQualityThresholds.kt"),
+            content: "    val minNonWhitespacePerPage: Double = 32,\n".to_string(),
+            generated_header: true,
+        }];
+        apply_kotlin_post_processing(&mut files);
+        assert_eq!(files[0].content, "    val minNonWhitespacePerPage: Double = 32.0,\n");
+    }
+
+    #[test]
+    fn apply_kotlin_post_processing_skips_non_kotlin_files() {
+        let mut files = vec![GeneratedFile {
+            path: PathBuf::from("build.gradle.kts"),
+            content: "ext = 32".to_string(),
+            generated_header: false,
+        }];
+        apply_kotlin_post_processing(&mut files);
+        assert_eq!(files[0].content, "ext = 32");
     }
 }

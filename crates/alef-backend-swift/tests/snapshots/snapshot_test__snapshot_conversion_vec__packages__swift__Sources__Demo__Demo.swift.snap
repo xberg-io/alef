@@ -21,3 +21,6 @@ public typealias Item = RustBridge.Item
 public func getItems() -> [Item] {
     return RustBridge.getItems()
 }
+
+// swift-bridge opaque type used across Task.detached boundaries — Rust type is Send + Sync.
+extension RustBridge.Item: @unchecked Sendable {}

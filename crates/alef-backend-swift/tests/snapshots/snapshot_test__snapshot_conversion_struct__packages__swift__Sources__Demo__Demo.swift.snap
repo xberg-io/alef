@@ -24,3 +24,6 @@ public typealias Wrapper = RustBridge.Wrapper
 public func processAndWrap(input: String) -> Wrapper {
     return RustBridge.processAndWrap(input)
 }
+
+// swift-bridge opaque type used across Task.detached boundaries — Rust type is Send + Sync.
+extension RustBridge.Wrapper: @unchecked Sendable {}

@@ -202,12 +202,16 @@ pub(super) fn gen_wrapper_class(
     // Types returned as opaque handles (Named return type from any public function/method).
     let handle_returned_types = super::errors::compute_handle_returned_types(api);
 
-    // Generate wrapper methods for functions
-    for func in api
-        .functions
-        .iter()
-        .filter(|f| !exclude_functions.contains(&f.name) && !should_skip_ffi_method(f))
-    {
+    // Generate wrapper methods for functions.
+    // Skip trait-bridge `clear_fn` functions: their registry-clearing API is exposed via the
+    // generated `{Trait}Registry.Clear()` helper in TraitBridges.cs, and the FFI layer exports
+    // no regular `{prefix}_{clear_fn}` symbol for them. Emitting a wrapper here would call a
+    // non-existent NativeMethods entry point.
+    for func in api.functions.iter().filter(|f| {
+        !exclude_functions.contains(&f.name)
+            && !should_skip_ffi_method(f)
+            && !alef_codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&f.name, trait_bridges)
+    }) {
         // Check if this function has a bridge_field binding (e.g., visitor field on options)
         let bridge_field = find_bridge_field(func, &api.types, trait_bridges);
         if let Some(bm) = bridge_field {

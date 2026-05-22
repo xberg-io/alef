@@ -83,15 +83,18 @@ pub fn gen_native_methods_trait_bridges(
         .iter()
         .map(|(trait_name, config, _trait_def)| {
             let trait_snake = trait_name.to_snake_case();
-            let register_fn = config
-                .register_fn
-                .as_deref()
-                .map(|f| f.to_string())
-                .unwrap_or_else(|| format!("{prefix}_register_{trait_snake}"));
+            // The FFI layer always exports the register/unregister/clear functions as
+            // `{prefix}_register_{trait_snake}` / `{prefix}_unregister_{trait_snake}` /
+            // `{prefix}_clear_{trait_snake}` (see alef-backend-ffi trait_bridge::registration),
+            // deliberately ignoring the alef.toml `register_fn` / `unregister_fn` / `clear_fn`
+            // aliases (which only name the host-language wrappers, and may be plural or
+            // unprefixed, e.g. `clear_ocr_backends`). The P/Invoke EntryPoint must match the
+            // actual FFI symbol, not the alias. go/java derive these identically.
+            let register_fn = format!("{prefix}_register_{trait_snake}");
             let has_unregister = config.unregister_fn.is_some();
-            let unregister_fn = config.unregister_fn.as_deref().unwrap_or("").to_string();
+            let unregister_fn = format!("{prefix}_unregister_{trait_snake}");
             let has_clear = config.clear_fn.is_some();
-            let clear_fn = config.clear_fn.as_deref().unwrap_or("").to_string();
+            let clear_fn = format!("{prefix}_clear_{trait_snake}");
             Value::from_serialize(serde_json::json!({
                 "trait_name": trait_name,
                 "register_fn": register_fn,
@@ -738,8 +741,9 @@ mod tests {
 
     #[test]
     fn test_native_methods_declarations_with_configured_unregister() {
-        // When unregister_fn is set, both register and unregister P/Invokes are emitted
-        // using the configured function names.
+        // When unregister_fn is set, both register and unregister P/Invokes are emitted.
+        // The EntryPoints are derived from `{prefix}_{register,unregister}_{trait_snake}`,
+        // not from the alias values.
         let trait_def = make_trait_def("OcrBackend");
         let mut bridge_cfg = make_bridge_cfg("OcrBackend", None);
         bridge_cfg.register_fn = Some("kreuzberg_register_ocr_backend".to_string());
@@ -753,6 +757,61 @@ mod tests {
         assert!(content.contains("[DllImport"));
         assert!(content.contains("kreuzberg_register_ocr_backend"));
         assert!(content.contains("kreuzberg_unregister_ocr_backend"));
+    }
+
+    #[test]
+    fn test_native_methods_register_unregister_use_derived_ffi_symbol_not_alias() {
+        // The alef.toml `register_fn` / `unregister_fn` aliases name the host-language
+        // wrappers and are typically unprefixed (e.g. `register_renderer`). The P/Invoke
+        // EntryPoint must match the actual FFI symbol `{prefix}_register_{trait_snake}`,
+        // never the bare alias.
+        let trait_def = make_trait_def("Renderer");
+        let mut bridge_cfg = make_bridge_cfg("Renderer", None);
+        bridge_cfg.register_fn = Some("register_renderer".to_string());
+        bridge_cfg.unregister_fn = Some("unregister_renderer".to_string());
+        bridge_cfg.clear_fn = Some("clear_renderers".to_string());
+        let bridges = vec![("Renderer".to_string(), &bridge_cfg, &trait_def)];
+        let visible_types: HashSet<&str> = vec!["Renderer"].into_iter().collect();
+        let content = gen_native_methods_trait_bridges("Kreuzberg", "kreuzberg", &bridges, &visible_types);
+
+        assert!(content.contains("EntryPoint = \"kreuzberg_register_renderer\""));
+        assert!(content.contains("EntryPoint = \"kreuzberg_unregister_renderer\""));
+        assert!(content.contains("EntryPoint = \"kreuzberg_clear_renderer\""));
+        assert!(!content.contains("EntryPoint = \"register_renderer\""));
+        assert!(!content.contains("EntryPoint = \"unregister_renderer\""));
+        assert!(!content.contains("EntryPoint = \"clear_renderers\""));
+        assert!(!content.contains("kreuzberg_clear_renderers"));
+    }
+
+    #[test]
+    fn test_native_methods_clear_uses_derived_ffi_symbol_not_alias() {
+        // The FFI layer exports the clear function as `{prefix}_clear_{trait_snake}`,
+        // ignoring the alef.toml `clear_fn` alias (which may be plural, e.g.
+        // `clear_ocr_backends`). The P/Invoke EntryPoint must match the actual FFI
+        // symbol `kreuzberg_clear_ocr_backend`, not the alias.
+        let trait_def = make_trait_def("OcrBackend");
+        let mut bridge_cfg = make_bridge_cfg("OcrBackend", None);
+        bridge_cfg.clear_fn = Some("clear_ocr_backends".to_string());
+        let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
+        let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
+        let content = gen_native_methods_trait_bridges("Kreuzberg", "kreuzberg", &bridges, &visible_types);
+
+        assert!(content.contains("EntryPoint = \"kreuzberg_clear_ocr_backend\""));
+        assert!(!content.contains("kreuzberg_clear_ocr_backends"));
+        assert!(!content.contains("EntryPoint = \"clear_ocr_backends\""));
+        assert!(content.contains("ClearOcrBackend("));
+    }
+
+    #[test]
+    fn test_native_methods_omits_clear_when_not_configured() {
+        let trait_def = make_trait_def("OcrBackend");
+        let bridge_cfg = make_bridge_cfg("OcrBackend", None);
+        let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
+        let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
+        let content = gen_native_methods_trait_bridges("Kreuzberg", "kreuzberg", &bridges, &visible_types);
+
+        assert!(!content.contains("kreuzberg_clear_ocr_backend"));
+        assert!(!content.contains("ClearOcrBackend("));
     }
 
     #[test]

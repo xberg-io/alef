@@ -281,8 +281,15 @@ pub(super) fn gen_native_methods(
         }
     }
 
-    // Generate P/Invoke declarations for functions
-    for func in api.functions.iter().filter(|f| !exclude_functions.contains(&f.name)) {
+    // Generate P/Invoke declarations for functions.
+    // Skip trait-bridge `clear_fn` functions: the FFI layer does not export a regular
+    // `{prefix}_{clear_fn}` symbol for these — it exports `{prefix}_clear_{trait_snake}`
+    // via the trait bridge layer (declared separately in TraitBridges.cs). Emitting a
+    // regular P/Invoke here would reference a non-existent entry point.
+    for func in api.functions.iter().filter(|f| {
+        !exclude_functions.contains(&f.name)
+            && !alef_codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&f.name, trait_bridges)
+    }) {
         let c_func_name = format!("{}_{}", prefix, func.name.to_lowercase());
         if emitted.insert(c_func_name.clone()) {
             out.push_str(&gen_pinvoke_for_func(

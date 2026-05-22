@@ -704,6 +704,16 @@ pub fn render_test_function(
                 if is_streaming && crate::codegen::streaming_assertions::is_streaming_virtual_field(f) {
                     return true;
                 }
+                // When the call returns a plain type (result_is_simple) or a Tree, the
+                // assertion renderer resolves field-bearing assertions against the result
+                // variable itself (`render_count_equals_assertion` emits `result.len()`,
+                // tree pseudo-fields map to `result.root_node()`, …) rather than treating
+                // the field as a struct member. In that case the assertion always uses the
+                // result variable regardless of whether `f` is a real field on the type, so
+                // the call must bind to `result` and not `_`.
+                if result_is_simple || result_is_tree {
+                    return true;
+                }
                 field_resolver.is_valid_for_result(f)
             }
             _ => true,
@@ -979,6 +989,85 @@ mod tests {
         assert!(
             binding_pos < assert_pos,
             "binding must appear before assertion; got:\n{out}"
+        );
+    }
+
+    /// Regression test: a `result_is_simple` call with a `count_equals` assertion whose
+    /// `field` is NOT a real field on the (plain Vec) result type must still bind the
+    /// call to the result variable.  The assertion renderer emits `result.len()` for
+    /// `result_is_simple` calls regardless of the field, so binding to `_` would leave
+    /// `result` undefined.
+    #[test]
+    fn result_is_simple_count_assertion_binds_to_result_variable() {
+        use crate::config::CallConfig;
+        use crate::fixture::{Assertion, Fixture};
+
+        let call = CallConfig {
+            function: "embed_texts".to_string(),
+            module: "my_crate".to_string(),
+            result_var: "result".to_string(),
+            result_is_simple: true,
+            returns_result: true,
+            streaming: Some(false),
+            ..Default::default()
+        };
+
+        let e2e_config = crate::config::E2eConfig {
+            call,
+            ..Default::default()
+        };
+
+        let fixture = Fixture {
+            id: "embed_empty".to_string(),
+            description: "embed_texts: empty input".to_string(),
+            tags: Vec::new(),
+            skip: None,
+            env: None,
+            call: None,
+            input: serde_json::Value::Null,
+            mock_response: None,
+            visitor: None,
+            assertions: vec![
+                Assertion {
+                    assertion_type: "not_error".to_string(),
+                    field: None,
+                    value: None,
+                    values: None,
+                    method: None,
+                    check: None,
+                    args: None,
+                    return_type: None,
+                },
+                Assertion {
+                    assertion_type: "count_equals".to_string(),
+                    field: Some("embeddings".to_string()),
+                    value: Some(serde_json::Value::Number(serde_json::Number::from(0u64))),
+                    values: None,
+                    method: None,
+                    check: None,
+                    args: None,
+                    return_type: None,
+                },
+            ],
+            source: String::new(),
+            http: None,
+            category: None,
+        };
+
+        let mut out = String::new();
+        render_test_function(&mut out, &fixture, &e2e_config, "my_crate", None);
+
+        assert!(
+            out.contains("let result = embed_texts"),
+            "expected the call to bind to `result`, not `_`; got:\n{out}"
+        );
+        assert!(
+            out.contains("assert_eq!(result.len(), 0"),
+            "expected `count_equals` assertion to render `result.len()`; got:\n{out}"
+        );
+        assert!(
+            !out.contains("let _ = embed_texts"),
+            "call must not bind to `_` when an assertion references the result; got:\n{out}"
         );
     }
 }

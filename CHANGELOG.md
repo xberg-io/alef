@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **alef-core: `CallConfig.options_type`.** The binding-agnostic config parameter type for an e2e call can now be declared once at call level (`[e2e.calls.<name>].options_type`) instead of being duplicated across every per-language override. The field was already present in `kreuzberg`'s `alef.toml` but silently discarded because the model lacked it. (`crates/alef-core/src/config/e2e.rs`)
+
+### Fixed
+
+- **alef-e2e: bind `result_is_simple`/`result_is_tree` calls to the result variable, and emit Go `fmt`/`strings` imports, when an assertion's field is not a real struct member of the plain result type.** For calls returning a plain type (e.g. `embed_texts`, `detect_mime_type_from_bytes`), `count_equals`/`contains` assertions naming a non-member field (e.g. `embeddings` on a `Vec`) render against the result variable directly — but the binding/import predicates gated solely on `is_valid_for_result(field)`, so the call was bound to `_` (Rust) or the imports were omitted (Go), leaving `result.len()` / `fmt.Sprint(result)` referencing undefined names. (`crates/alef-e2e/src/codegen/rust/test_file.rs`, `crates/alef-e2e/src/codegen/go.rs`)
+
+- **alef-e2e/php: keep an explicit `null` for an omitted optional middle argument, and honor the call-level `options_type`.** When a fixture omitted an optional positional arg (e.g. `extractFile`'s `mime_type`) followed by a `json_object` config arg that always emits a default, the config object was shifted into the wrong positional slot, causing a PHP `TypeError`. Separately, embed calls now resolve the config type from the call-level `options_type` (`EmbeddingConfig`) instead of falling back to the `ExtractionConfig` heuristic. (`crates/alef-e2e/src/codegen/php.rs`)
+
+- **alef-e2e/dart: emit `mime_type` positionally for facade extract methods.** `extractBytes`/`extractBytesSync`/`extractFile`/`extractFileSync` declare `mime_type` as a positional parameter, but the e2e generator emitted it as a `mimeType:` named argument, producing "too few positional arguments" errors and invalid named-then-positional calls. (`crates/alef-e2e/src/codegen/dart.rs`)
+
+- **alef-backend-csharp: trait-bridge P/Invoke `EntryPoint` names now match the FFI exports.** `register`/`unregister`/`clear` entry points are derived as `{prefix}_{verb}_{trait_snake}` (matching the go and java backends) instead of using the unprefixed/plural `alef.toml` aliases, which name only the host-language wrappers — fixing `EntryPointNotFoundException` for `kreuzberg_clear_renderers` and similar. (`crates/alef-backend-csharp/src/trait_bridge.rs`, `crates/alef-backend-csharp/src/gen_bindings/functions.rs`, `crates/alef-backend-csharp/src/gen_bindings/methods.rs`)
+
+- **alef-backend-kotlin-android: apply float-literal post-processing in the JNI-mode emitter.** The `kotlin-android` backend emits via its own `gen_bindings::emit` path and never ran the `fix_float_literals` post-processor, so a `Double` field default like `32.0` rendered as `32` — invalid Kotlin (`Initializer type mismatch: expected 'Double', actual 'Int'`). (`crates/alef-backend-kotlin-android/src/lib.rs`)
+
 ## [0.17.32] - 2026-05-22
 
 ### Fixed

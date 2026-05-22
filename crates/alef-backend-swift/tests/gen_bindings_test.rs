@@ -2605,3 +2605,67 @@ fn async_function_with_result_and_opaque_param_emits_forwarder() {
         "async function with error_type must have both async and throws qualifiers:\n{content}"
     );
 }
+
+/// Build a serde-enabled, non-opaque DTO type for e2e-helper detection.
+fn make_serde_type(name: &str) -> TypeDef {
+    let mut ty = make_type(
+        name,
+        vec![make_field("value", TypeRef::Primitive(PrimitiveType::I32), false)],
+    );
+    ty.has_serde = true;
+    ty.has_default = true;
+    ty
+}
+
+#[test]
+fn embed_texts_async_emitted_once_when_e2e_helper_types_present() {
+    // When the API exposes the e2e helper types (ExtractionConfig,
+    // BatchBytesItem, BatchFileItem) AND at least one bytes/path function (so
+    // the convenience-wrapper section is reached), `emit_e2e_wrappers`
+    // unconditionally emits an async `embedTextsAsync` wrapper. The
+    // free-function forwarder pass must skip its own `embedTextsAsync`
+    // forwarder for the `embed_texts_async` API function, or Swift rejects the
+    // file with `invalid redeclaration of 'embedTextsAsync(texts:config:)'`.
+    let mut embed_fn = make_sync_fn(
+        "embed_texts_async",
+        vec![
+            make_param("texts", TypeRef::Vec(Box::new(TypeRef::String))),
+            make_param("config", TypeRef::Named("EmbeddingConfig".into())),
+        ],
+        TypeRef::Vec(Box::new(TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::F32))))),
+    );
+    embed_fn.is_async = true;
+
+    // A bytes-first function so `emit_convenience_wrappers` reaches the
+    // `emit_e2e_wrappers` call instead of early-returning.
+    let bytes_fn = make_sync_fn(
+        "analyze_bytes_sync",
+        vec![make_param("content", TypeRef::Bytes)],
+        TypeRef::String,
+    );
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![
+            make_serde_type("ExtractionConfig"),
+            make_serde_type("BatchBytesItem"),
+            make_serde_type("BatchFileItem"),
+            make_serde_type("EmbeddingConfig"),
+        ],
+        functions: vec![embed_fn, bytes_fn],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+
+    assert_eq!(
+        content.matches("func embedTextsAsync(").count(),
+        1,
+        "embedTextsAsync must be declared exactly once (e2e wrapper only):\n{content}"
+    );
+}

@@ -555,6 +555,15 @@ pub struct CallConfig {
     /// ```
     #[serde(default)]
     pub select_when: Option<SelectWhen>,
+    /// Call-level constructor type for `json_object` config args.
+    ///
+    /// This is the type of the function's config parameter (e.g. `EmbeddingConfig`
+    /// vs `ExtractionConfig`) and is therefore identical across every binding — set
+    /// it on the call, not in per-language overrides. Per-language overrides
+    /// (`[e2e.calls.<name>.overrides.<lang>].options_type`) still take precedence
+    /// when a binding exposes a language-specific wrapper type (e.g. `JsExtractionConfig`).
+    #[serde(default)]
+    pub options_type: Option<String>,
 }
 
 fn default_result_var() -> String {

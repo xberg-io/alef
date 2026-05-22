@@ -697,6 +697,17 @@ fn render_test_case(
                 // always emits `req:` named) and the `client_factory` path (which
                 // hardcodes its own arg shape).
                 let dart_param_name = snake_to_camel(&arg_def.name);
+                // The `mime_type` parameter is a *positional* parameter in every facade
+                // extract method — both `extractBytes`/`extractBytesSync` (where it is a
+                // required `String mimeType`) and `extractFile`/`extractFileSync` (where
+                // it is a required-but-nullable `String? mimeType`). It always precedes
+                // the trailing optional `[ExtractionConfig? config]`, so it can never be
+                // a Dart named parameter. The `optional` flag on the call config marks it
+                // optional only because `extract_file`'s Rust signature takes
+                // `Option<&str>`; it does not change the Dart facade's positional shape.
+                // Only the `client_factory` FRB path declares non-`config` params named.
+                let mime_type_is_positional =
+                    arg_def.name == "mime_type" && client_factory_for_args.is_none();
                 match arg_value {
                     serde_json::Value::String(s) => {
                         let literal = format!("'{}'", escape_dart(s));
@@ -705,7 +716,9 @@ fn render_test_case(
                         // every non-`config` parameter as named-required, so required
                         // string args must be passed with a `name:` label too. Facade
                         // methods (no `client_factory`) keep required args positional.
-                        if arg_def.optional || client_factory_for_args.is_some() {
+                        if (arg_def.optional || client_factory_for_args.is_some())
+                            && !mime_type_is_positional
+                        {
                             args.push(format!("{dart_param_name}: {literal}"));
                         } else {
                             args.push(literal);
@@ -720,7 +733,13 @@ fn render_test_case(
                         let inferred = file_path_for_mime
                             .and_then(mime_from_extension)
                             .unwrap_or("application/octet-stream");
-                        args.push(format!("{dart_param_name}: '{inferred}'"));
+                        // Emit positionally for the facade path (see above); only the
+                        // `client_factory` FRB path uses the `mimeType:` named label.
+                        if mime_type_is_positional {
+                            args.push(format!("'{inferred}'"));
+                        } else {
+                            args.push(format!("{dart_param_name}: '{inferred}'"));
+                        }
                     }
                     // Other optional strings with null value are omitted.
                     _ => {}
