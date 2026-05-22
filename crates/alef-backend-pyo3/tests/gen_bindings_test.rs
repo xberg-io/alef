@@ -4780,3 +4780,86 @@ fn test_cfg_gated_fields_excluded_from_constructor() {
         lib_rs.content
     );
 }
+
+/// Regression test: a struct field with `serde(rename = "type")` must generate compilable Rust.
+/// Before this fix alef emitted `pub fn new(type: String, ...)` and `Self { item_type: type }` —
+/// both invalid because `type` is a Rust keyword.  The fix escapes all Rust keywords in
+/// constructor parameters and struct-literal RHS values using raw-identifier syntax (`r#type`).
+/// PyO3 strips the `r#` prefix so the Python-facing kwarg name stays `type`.
+#[test]
+fn test_serde_rename_rust_keyword_emitted_as_raw_ident() {
+    let backend = Pyo3Backend;
+
+    // `item_type` field carries serde(rename = "type") — the wire name is a Rust keyword.
+    let mut item_type_field = make_field("item_type", TypeRef::String, false);
+    item_type_field.serde_rename = Some("type".to_string());
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "ResponseOutputItem".to_string(),
+            rust_path: "test_lib::ResponseOutputItem".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![item_type_field, make_field("content", TypeRef::String, false)],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+            doc: "A response output item".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let config = make_config();
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generate_bindings failed");
+
+    let lib_rs = files
+        .iter()
+        .find(|f| f.path.ends_with("lib.rs"))
+        .expect("lib.rs not generated");
+
+    // The constructor parameter must use raw-identifier syntax, not the bare keyword `type`.
+    assert!(
+        lib_rs.content.contains("pub fn new(r#type:"),
+        "Constructor parameter for serde-renamed 'type' field must be 'r#type'; content:\n{}",
+        lib_rs.content
+    );
+
+    // The PyO3 signature attribute must also use the raw identifier (PyO3 strips `r#` → Python sees `type`).
+    assert!(
+        lib_rs.content.contains("r#type") && !lib_rs.content.contains("(type,") && !lib_rs.content.contains("(type)"),
+        "pyo3 signature must not contain bare 'type' token; content:\n{}",
+        lib_rs.content
+    );
+
+    // The struct literal must assign via raw identifier: `item_type: r#type`.
+    assert!(
+        lib_rs.content.contains("item_type: r#type"),
+        "Struct literal must use 'item_type: r#type' for the renamed field; content:\n{}",
+        lib_rs.content
+    );
+
+    // Sanity: the field definition should still carry the serde rename attribute.
+    assert!(
+        lib_rs.content.contains("#[serde(rename = \"type\")]"),
+        "Field must retain #[serde(rename = \"type\")] attribute; content:\n{}",
+        lib_rs.content
+    );
+}

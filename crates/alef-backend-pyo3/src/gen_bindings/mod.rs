@@ -75,6 +75,35 @@ fn replace_constructor_with_serde_rename(
     config_renames: Option<&std::collections::HashMap<String, String>>,
 ) -> String {
     use alef_codegen::shared::binding_fields;
+    use alef_core::keywords::{is_valid_rust_ident_chars, rust_raw_ident};
+
+    /// Resolve the constructor parameter identifier for a field.
+    ///
+    /// Prefers the serde rename (or config rename) over the bare Rust field name, but only
+    /// when the resolved name is a syntactically valid Rust identifier (i.e. contains only
+    /// `[A-Za-z0-9_]` and does not start with a digit).  Names like `"self-harm"` or
+    /// `"self-harm/intent"` (containing hyphens or slashes) are not valid Rust identifiers
+    /// even with `r#` escaping, so the function falls back to the Rust field name in those
+    /// cases.  When the resolved name is valid but happens to be a Rust keyword (e.g. `"type"`),
+    /// it is escaped as a raw identifier (`r#type`).
+    fn resolve_param_ident<'a>(
+        field_name: &'a str,
+        serde_rename: Option<&'a String>,
+        config_renames: Option<&std::collections::HashMap<String, String>>,
+    ) -> String {
+        let wire_name = serde_rename
+            .map(|s| s.as_str())
+            .or_else(|| config_renames.and_then(|r| r.get(field_name)).map(|s| s.as_str()))
+            .unwrap_or(field_name);
+        if is_valid_rust_ident_chars(wire_name) {
+            rust_raw_ident(wire_name)
+        } else {
+            // Wire name contains characters that are not valid in a Rust identifier (e.g. hyphens,
+            // slashes in serde renames like "self-harm" or "self-harm/intent").  Fall back to the
+            // Rust field name, which is guaranteed to be a valid identifier.
+            field_name.to_string()
+        }
+    }
 
     // Build parameter list with serde_rename and config-based renames
     let mut sorted_fields: Vec<_> = binding_fields(&typ.fields)
@@ -85,12 +114,9 @@ fn replace_constructor_with_serde_rename(
     let params: Vec<String> = sorted_fields
         .iter()
         .map(|f| {
-            // Use serde_rename if available, otherwise use config rename or bare field name
-            let param_name = f
-                .serde_rename
-                .as_ref()
-                .or(config_renames.and_then(|r| r.get(&f.name)))
-                .map_or_else(|| f.name.as_str(), |s| s.as_str());
+            // Use serde_rename if available (and valid), otherwise the Rust field name.
+            // Keywords are escaped as raw identifiers (e.g. "type" → "r#type").
+            let param_ident = resolve_param_ident(&f.name, f.serde_rename.as_ref(), config_renames);
 
             // Determine if this field should be optional in the constructor.
             // This matches the logic in gen_struct_with_per_field_attrs (structs.rs lines 128-131).
@@ -107,18 +133,16 @@ fn replace_constructor_with_serde_rename(
             } else {
                 mapper.map_type(&f.ty)
             };
-            format!("{}: {}", param_name, ty)
+            format!("{}: {}", param_ident, ty)
         })
         .collect();
 
     let defaults: Vec<String> = sorted_fields
         .iter()
         .map(|f| {
-            let param_name = f
-                .serde_rename
-                .as_ref()
-                .or(config_renames.and_then(|r| r.get(&f.name)))
-                .map_or_else(|| f.name.as_str(), |s| s.as_str());
+            // PyO3 strips the `r#` prefix when deriving the Python-facing keyword argument
+            // name, so `r#type` in the signature → Python `type`.
+            let param_ident = resolve_param_ident(&f.name, f.serde_rename.as_ref(), config_renames);
 
             // Same force_optional logic as above.
             let force_optional = config.option_duration_on_defaults
@@ -127,9 +151,14 @@ fn replace_constructor_with_serde_rename(
                 && matches!(f.ty, alef_core::ir::TypeRef::Duration);
 
             if f.optional || force_optional {
-                format!("{}=None", param_name)
+                format!("{}=None", param_ident)
             } else {
-                param_name.to_string()
+                // Non-optional fields still need a signature default so the
+                // generated `__new__` is callable with keyword args omitted.
+                // These constructors are only generated for `has_default`
+                // types, whose pyclass struct derives `Default`, so the
+                // field's default is `Self::default().<field>`.
+                format!("{}=Self::default().{}", param_ident, f.name)
             }
         })
         .collect();
@@ -150,18 +179,16 @@ fn replace_constructor_with_serde_rename(
                     format!("{}: Default::default()", f.name)
                 }
             } else {
-                // Non-cfg field: use constructor parameter
-                let param_name = f
-                    .serde_rename
-                    .as_ref()
-                    .or(config_renames.and_then(|r| r.get(&f.name)))
-                    .map_or_else(|| f.name.as_str(), |s| s.as_str());
+                // Non-cfg field: use constructor parameter.
+                // Use the same resolve_param_ident logic so the struct literal references
+                // exactly the same variable as the parameter declaration.
+                let param_ident = resolve_param_ident(&f.name, f.serde_rename.as_ref(), config_renames);
 
                 // Use the bare Rust field name for struct literal (never renamed in Rust)
-                if param_name != f.name {
+                if param_ident != f.name {
                     // Parameter name differs from Rust field name (serde_rename or config rename):
                     // use explicit form to match the parameter variable
-                    format!("{}: {}", f.name, param_name)
+                    format!("{}: {}", f.name, param_ident)
                 } else {
                     // No rename: use shorthand
                     f.name.clone()
@@ -817,7 +844,8 @@ mod alef_json_str_opt {
 
                 // For has_default types, replace the constructor with one that honors serde_rename
                 if typ.has_default {
-                    impl_block = replace_constructor_with_serde_rename(&impl_block, typ, &mapper, type_cfg, renames_ref);
+                    impl_block =
+                        replace_constructor_with_serde_rename(&impl_block, typ, &mapper, type_cfg, renames_ref);
                 }
                 // Inject from_json staticmethod into the existing #[pymethods] block when serde
                 // is available and a core→binding conversion exists. Injecting into the same block

@@ -679,6 +679,65 @@ pub const ZIG_KEYWORDS: &[&str] = &[
     "while",
 ];
 
+/// Rust reserved keywords (strict, reserved, and weak keywords from all editions).
+///
+/// This list covers every identifier that cannot be used as a bare identifier in Rust
+/// source code.  When a serde-renamed field name (e.g. `"type"`) is used as a Rust
+/// function parameter or struct-literal field, it must be written as a raw identifier
+/// (`r#type`) to avoid a compile error.
+pub const RUST_KEYWORDS: &[&str] = &[
+    // Strict keywords
+    "as", "break", "const", "continue", "crate", "else", "enum", "extern", "false", "fn", "for", "if", "impl", "in",
+    "let", "loop", "match", "mod", "move", "mut", "pub", "ref", "return", "self", "Self", "static", "struct", "super",
+    "trait", "true", "type", "unsafe", "use", "where", "while", // Edition-2018+ keywords
+    "async", "await", "dyn",
+    // Reserved keywords (may not be valid today but are reserved for future use)
+    "abstract", "become", "box", "do", "final", "macro", "override", "priv", "typeof", "unsized", "virtual", "yield",
+    "try",
+];
+
+/// Escape a name that is a Rust keyword by prepending the raw-identifier prefix (`r#`).
+///
+/// Returns `Some("r#<name>")` when `name` is a Rust keyword, `None` otherwise.
+/// Use this when emitting a Rust identifier (function parameter, struct-literal field,
+/// local variable) whose text comes from an external source (e.g. a serde rename) and
+/// may coincide with a reserved word.
+///
+/// Note: PyO3 strips the `r#` prefix when deriving the Python-facing name, so a parameter
+/// declared as `r#type` is still exposed to Python as `type`.
+pub fn rust_raw_ident_safe(name: &str) -> Option<String> {
+    if RUST_KEYWORDS.contains(&name) {
+        Some(format!("r#{name}"))
+    } else {
+        None
+    }
+}
+
+/// Convenience: always returns a usable Rust identifier, escaping reserved keywords with
+/// the raw-identifier prefix (`r#`).
+pub fn rust_raw_ident(name: &str) -> String {
+    rust_raw_ident_safe(name).unwrap_or_else(|| name.to_string())
+}
+
+/// Returns `true` if `name` is a syntactically valid Rust identifier (ignoring whether
+/// it is a reserved keyword — use `rust_raw_ident` to handle keywords separately).
+///
+/// Valid identifiers start with a letter or `_` and contain only alphanumeric characters
+/// and `_`.  Names like `"self-harm"` or `"self-harm/intent"` (serde renames containing
+/// hyphens or slashes) are NOT valid identifiers and should fall back to the Rust field
+/// name instead of being used directly as parameter names.
+pub fn is_valid_rust_ident_chars(name: &str) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    let mut chars = name.chars();
+    let first = chars.next().expect("non-empty string has a first char");
+    if !first.is_alphabetic() && first != '_' {
+        return false;
+    }
+    chars.all(|c| c.is_alphanumeric() || c == '_')
+}
+
 /// Return the escaped field name for use in the generated binding of the given language,
 /// or `None` if the name is not reserved and no escaping is needed.
 ///
@@ -973,5 +1032,54 @@ mod tests {
     fn python_str_enum_safe_name_returns_none_for_ordinary() {
         assert_eq!(python_str_enum_safe_name("body"), None);
         assert_eq!(python_str_enum_safe_name("content"), None);
+    }
+
+    #[test]
+    fn rust_raw_ident_escapes_rust_keywords() {
+        assert_eq!(rust_raw_ident("type"), "r#type");
+        assert_eq!(rust_raw_ident("match"), "r#match");
+        assert_eq!(rust_raw_ident("fn"), "r#fn");
+        assert_eq!(rust_raw_ident("loop"), "r#loop");
+        assert_eq!(rust_raw_ident("struct"), "r#struct");
+        assert_eq!(rust_raw_ident("move"), "r#move");
+        assert_eq!(rust_raw_ident("ref"), "r#ref");
+        assert_eq!(rust_raw_ident("async"), "r#async");
+    }
+
+    #[test]
+    fn rust_raw_ident_passes_through_ordinary_names() {
+        assert_eq!(rust_raw_ident("content"), "content");
+        assert_eq!(rust_raw_ident("item_type"), "item_type");
+        assert_eq!(rust_raw_ident("model"), "model");
+    }
+
+    #[test]
+    fn rust_raw_ident_safe_returns_some_for_keywords() {
+        assert_eq!(rust_raw_ident_safe("type"), Some("r#type".to_string()));
+        assert_eq!(rust_raw_ident_safe("fn"), Some("r#fn".to_string()));
+    }
+
+    #[test]
+    fn rust_raw_ident_safe_returns_none_for_ordinary() {
+        assert_eq!(rust_raw_ident_safe("content"), None);
+        assert_eq!(rust_raw_ident_safe("model"), None);
+    }
+
+    #[test]
+    fn is_valid_rust_ident_chars_accepts_valid_identifiers() {
+        assert!(is_valid_rust_ident_chars("content"));
+        assert!(is_valid_rust_ident_chars("self_harm"));
+        assert!(is_valid_rust_ident_chars("_private"));
+        assert!(is_valid_rust_ident_chars("type")); // keyword, but char-valid
+        assert!(is_valid_rust_ident_chars("CamelCase"));
+    }
+
+    #[test]
+    fn is_valid_rust_ident_chars_rejects_invalid_identifiers() {
+        assert!(!is_valid_rust_ident_chars("self-harm")); // hyphen
+        assert!(!is_valid_rust_ident_chars("self-harm/intent")); // hyphen and slash
+        assert!(!is_valid_rust_ident_chars("sexual/minors")); // slash
+        assert!(!is_valid_rust_ident_chars("")); // empty
+        assert!(!is_valid_rust_ident_chars("123abc")); // starts with digit
     }
 }
