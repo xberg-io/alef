@@ -733,6 +733,7 @@ fn gen_go_file(
                     method,
                     ffi_prefix,
                     item_type,
+                    &data_enum_names,
                     &opaque_names,
                     value_only_types,
                 ));

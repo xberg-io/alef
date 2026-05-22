@@ -21,8 +21,12 @@
 				C.{{ ffi_prefix }}_{{ item_snake }}_free(chunkPtr)
 				return
 			}
+{% if item_is_sum_type %}
+			chunk, unmarshalErr := Unmarshal{{ item_type }}([]byte(C.GoString(jsonPtr)))
+{% else %}
 			var chunk {{ item_type }}
 			unmarshalErr := json.Unmarshal([]byte(C.GoString(jsonPtr)), &chunk)
+{% endif %}
 			C.{{ ffi_prefix }}_free_string(jsonPtr)
 			C.{{ ffi_prefix }}_{{ item_snake }}_free(chunkPtr)
 			if unmarshalErr != nil {
