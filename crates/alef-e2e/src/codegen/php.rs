@@ -1005,11 +1005,23 @@ fn render_test_method(
                 .and_then(|o| o.options_type.as_deref())
         });
 
-    let adapter_request_type: Option<String> = adapters
-        .iter()
-        .find(|a| a.name == call_config.function.as_str())
+    let call_adapter = adapters.iter().find(|a| a.name == call_config.function.as_str());
+    let adapter_request_type: Option<String> = call_adapter
         .and_then(|a| a.request_type.as_deref())
         .map(|rt| rt.rsplit("::").next().unwrap_or(rt).to_string());
+
+    // Streaming owner_type adapters are facade-exposed as INSTANCE methods on the
+    // owner handle (`$engine->crawlStream($req)`), not as static facade methods.
+    // Capture the owner handle variable so the call is rendered as an
+    // instance-method invocation and the handle is omitted from the argument list.
+    let streaming_owner_handle: Option<String> = if call_adapter.is_some_and(|a| {
+        matches!(a.pattern, alef_core::config::extras::AdapterPattern::Streaming) && a.owner_type.is_some()
+    }) {
+        args.iter().find(|a| a.arg_type == "handle").map(|a| a.name.clone())
+    } else {
+        None
+    };
+
     let (mut setup_lines, args_str) = build_args_and_setup(
         &fixture.input,
         args,
@@ -1020,6 +1032,7 @@ fn render_test_method(
         call_options_type,
         adapter_request_type.as_deref(),
         namespace,
+        streaming_owner_handle.is_some(),
     );
 
     // Check for skip_languages early
@@ -1081,6 +1094,9 @@ fn render_test_method(
 
     let call_expr = if php_client_factory.is_some() {
         format!("$client->{function_name}({final_args})")
+    } else if let Some(ref handle_var) = streaming_owner_handle {
+        // Instance-method invocation on the owner handle.
+        format!("${handle_var}->{function_name}({final_args})")
     } else {
         format!("{class_name}::{function_name}({final_args})")
     };
@@ -1301,6 +1317,7 @@ fn build_args_and_setup(
     options_type: Option<&str>,
     adapter_request_type: Option<&str>,
     namespace: &str,
+    owner_handle_is_receiver: bool,
 ) -> (Vec<String>, String) {
     let fixture_id = &fixture.id;
     if args.is_empty() {
@@ -1400,7 +1417,13 @@ fn build_args_and_setup(
             setup_lines.push(format!(
                 "${name} = array_map(fn($p) => str_starts_with($p, 'http') ? $p : ${name}_base . $p, [{paths_literal}]);"
             ));
-            parts.push(format!("${name}"));
+            if let Some(req_type) = adapter_request_type {
+                let req_var = format!("${name}_req");
+                setup_lines.push(format!("{req_var} = new {req_type}(${name});"));
+                parts.push(req_var);
+            } else {
+                parts.push(format!("${name}"));
+            }
             continue;
         }
 
@@ -1432,6 +1455,12 @@ fn build_args_and_setup(
                     "${} = {class_name}::{constructor_name}(${name}_config);",
                     arg.name,
                 ));
+            }
+            // For streaming owner_type adapters the handle is the instance-method
+            // receiver, not a positional argument — emit its construction but omit
+            // it from the call's argument list.
+            if owner_handle_is_receiver {
+                continue;
             }
             parts.push(format!("${}", arg.name));
             continue;
