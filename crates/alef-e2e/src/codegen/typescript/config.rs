@@ -2,6 +2,7 @@
 
 use alef_core::config::manifest_extras::ManifestExtras;
 use alef_core::hash::{self, CommentStyle};
+use alef_core::template_versions as tv;
 use minijinja::context;
 
 pub(crate) fn render_package_json(
@@ -23,6 +24,7 @@ pub(crate) fn render_package_json(
         context! {
             pkg_name => pkg_name,
             dep_value => dep_value,
+            vitest => tv::npm::VITEST,
         },
     );
 
@@ -214,7 +216,7 @@ mod tests {
             "vitest pin not overridden. Got:\n{out}"
         );
         assert!(
-            !out.contains("\"vitest\": \"^3.0.0\""),
+            !out.contains(&format!("\"vitest\": \"{}\"", tv::npm::VITEST)),
             "default vitest leaked. Got:\n{out}"
         );
     }
