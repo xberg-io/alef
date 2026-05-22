@@ -9,49 +9,43 @@ use std::collections::HashMap;
 
 /// Check if a type name represents a config-like struct that should have an Input DTO.
 ///
-/// Input DTOs were intended to give JS callers a camelCase config object. The
-/// previous implementation ([`gen_input_dto_for_type`]) hard-coded field lists
-/// per type rather than reading the real struct definition, which produced
-/// uncompilable code (wrong field types, missing `serde` dependency, struct
-/// literals that ignore core defaults). Until a data-driven Input DTO that
-/// reads fields from the `ApiSurface` lands, config-like parameters are
-/// deserialized directly into the core type via `serde_wasm_bindgen` — the
-/// behavior that shipped before the stub was added.
-fn should_have_input_dto(_type_name: &str) -> bool {
-    false
+/// Input DTOs give JS callers a camelCase config object. Returns true for types
+/// whose names end with "Config", "Options", "Settings", or "Params".
+fn should_have_input_dto(type_name: &str) -> bool {
+    type_name.ends_with("Config")
+        || type_name.ends_with("Options")
+        || type_name.ends_with("Settings")
+        || type_name.ends_with("Params")
 }
 
 /// Generate an Input DTO struct that deserializes from camelCase and converts to the core type.
 /// Returns (input_dto_code, input_dto_name).
-pub(super) fn gen_input_dto_for_type(type_name: &str, core_import: &str) -> (String, String) {
+/// Reads actual struct fields from the `ApiSurface` TypeDef.
+pub(super) fn gen_input_dto_for_type(
+    type_name: &str,
+    core_import: &str,
+    type_def: &alef_core::ir::TypeDef,
+) -> (String, String) {
     let input_name = format!("{}Input", type_name);
     let core_path = format!("{}::{}", core_import, type_name);
 
-    // Map common config fields to their types (simplified for now).
-    // In a full implementation, we'd extract this from the actual struct definition.
-    let fields: Vec<_> = match type_name {
-        "ProcessConfig" => vec![
-            ("language", "String", "language"),
-            ("structure", "Option<bool>", "structure"),
-            ("imports", "Option<bool>", "imports"),
-            ("exports", "Option<bool>", "exports"),
-            ("comments", "Option<bool>", "comments"),
-            ("docstrings", "Option<bool>", "docstrings"),
-            ("symbols", "Option<bool>", "symbols"),
-            ("diagnostics", "Option<bool>", "diagnostics"),
-            ("chunk_max_size", "Option<usize>", "chunk_max_size"),
-        ]
-        .into_iter()
-        .map(|(name, ty, core_name)| {
+    // Map fields from the real struct definition.
+    // All DTO fields are Option<T> so JS may omit them. The template uses
+    // `if let Some(v) = val.field { out.field = v.into(); }` to assign only
+    // when present, respecting core type's Default for omitted fields.
+    let fields: Vec<_> = type_def
+        .fields
+        .iter()
+        .map(|f| {
+            let dto_ty = format!("Option<{}>", type_ref_to_dto_type(&f.ty));
+
             minijinja::context! {
-                name => name,
-                ty => ty,
-                core_name => core_name,
+                name => &f.name,
+                ty => &dto_ty,
+                core_name => &f.name,
             }
         })
-        .collect::<Vec<_>>(),
-        _ => vec![], // Unknown type; skip DTO generation
-    };
+        .collect::<Vec<_>>();
 
     let code = if !fields.is_empty() {
         crate::template_env::render(
@@ -67,6 +61,43 @@ pub(super) fn gen_input_dto_for_type(type_name: &str, core_import: &str) -> (Str
     };
 
     (code, input_name)
+}
+
+/// Convert a TypeRef to a DTO type string (always camelCase-compatible, no Option wrappers here).
+fn type_ref_to_dto_type(ty: &alef_core::ir::TypeRef) -> String {
+    use alef_core::ir::TypeRef;
+
+    match ty {
+        TypeRef::String | TypeRef::Char => "String".to_string(),
+        TypeRef::Primitive(p) => match p {
+            alef_core::ir::PrimitiveType::Bool => "bool".to_string(),
+            alef_core::ir::PrimitiveType::U8 => "u8".to_string(),
+            alef_core::ir::PrimitiveType::U16 => "u16".to_string(),
+            alef_core::ir::PrimitiveType::U32 => "u32".to_string(),
+            alef_core::ir::PrimitiveType::U64 => "u64".to_string(),
+            alef_core::ir::PrimitiveType::I8 => "i8".to_string(),
+            alef_core::ir::PrimitiveType::I16 => "i16".to_string(),
+            alef_core::ir::PrimitiveType::I32 => "i32".to_string(),
+            alef_core::ir::PrimitiveType::I64 => "i64".to_string(),
+            alef_core::ir::PrimitiveType::F32 => "f32".to_string(),
+            alef_core::ir::PrimitiveType::F64 => "f64".to_string(),
+            alef_core::ir::PrimitiveType::Usize => "usize".to_string(),
+            alef_core::ir::PrimitiveType::Isize => "isize".to_string(),
+        },
+        TypeRef::Vec(inner) => format!("Vec<{}>", type_ref_to_dto_type(inner)),
+        TypeRef::Optional(inner) => format!("Option<{}>", type_ref_to_dto_type(inner)),
+        TypeRef::Map(k, v) => format!(
+            "std::collections::HashMap<{}, {}>",
+            type_ref_to_dto_type(k),
+            type_ref_to_dto_type(v)
+        ),
+        TypeRef::Json => "serde_json::Value".to_string(),
+        TypeRef::Bytes => "Vec<u8>".to_string(),
+        TypeRef::Path => "String".to_string(),
+        TypeRef::Duration => "u64".to_string(),
+        TypeRef::Named(n) => n.clone(),
+        TypeRef::Unit => "()".to_string(),
+    }
 }
 
 /// Format a doc string as rustdoc comment lines.
@@ -143,6 +174,7 @@ pub(super) fn gen_function(
     opaque_types: &AHashSet<String>,
     prefix: &str,
     mutex_types: &AHashSet<String>,
+    api: &alef_core::ir::ApiSurface,
 ) -> String {
     // Collect any Input DTOs needed for config-like parameters
     let mut input_dtos = String::new();
@@ -151,11 +183,14 @@ pub(super) fn gen_function(
     for p in &func.params {
         if let TypeRef::Named(name) = &p.ty {
             if !opaque_types.contains(name.as_str()) && should_have_input_dto(name) {
-                let (dto_code, dto_name) = gen_input_dto_for_type(name, core_import);
-                if !dto_code.is_empty() {
-                    input_dtos.push_str(&dto_code);
-                    input_dtos.push_str("\n\n");
-                    input_dto_names.insert(name.clone(), dto_name);
+                // Find the TypeDef for this named type
+                if let Some(type_def) = api.types.iter().find(|t| t.name == *name) {
+                    let (dto_code, dto_name) = gen_input_dto_for_type(name, core_import, type_def);
+                    if !dto_code.is_empty() {
+                        input_dtos.push_str(&dto_code);
+                        input_dtos.push_str("\n\n");
+                        input_dto_names.insert(name.clone(), dto_name);
+                    }
                 }
             }
         }
@@ -1221,8 +1256,18 @@ mod tests {
             "actions",
             TypeRef::Vec(Box::new(TypeRef::Named("PageAction".to_string()))),
         )]);
+        let api = alef_core::ir::ApiSurface {
+            crate_name: "kreuzcrawl".to_string(),
+            version: "0.1.0".to_string(),
+            types: vec![],
+            functions: vec![],
+            enums: vec![],
+            errors: vec![],
+            excluded_type_paths: HashMap::new(),
+            excluded_trait_names: AHashSet::new(),
+        };
 
-        let out = gen_function(&func, &mapper, "kreuzcrawl", &AHashSet::new(), "Wasm", &AHashSet::new());
+        let out = gen_function(&func, &mapper, "kreuzcrawl", &AHashSet::new(), "Wasm", &AHashSet::new(), &api);
 
         assert!(out.contains("actions: Vec<WasmPageAction>"));
         assert!(

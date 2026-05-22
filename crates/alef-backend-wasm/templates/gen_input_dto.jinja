@@ -8,10 +8,12 @@ pub struct {{ input_name }} {
 
 impl From<{{ input_name }}> for {{ core_path }} {
     fn from(val: {{ input_name }}) -> Self {
-        Self {
+        let mut out = Self::default();
 {%- for field in fields %}
-            {{ field.core_name }}: val.{{ field.name }},
-{%- endfor %}
+        if let Some(v) = val.{{ field.name }} {
+            out.{{ field.core_name }} = v.into();
         }
+{%- endfor %}
+        out
     }
 }
