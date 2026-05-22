@@ -992,18 +992,18 @@ fn render_test_method(
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
     // Resolve options_type for this call. Precedence: per-language call override,
-    // then the global per-language call override, then the call-level `options_type`
-    // (the binding-agnostic config parameter type, e.g. `EmbeddingConfig`).
+    // then the call-level `options_type` (the binding-agnostic config parameter type,
+    // e.g. `EmbeddingConfig`), then the global per-language call override (fallback default).
     let call_options_type = call_overrides
         .and_then(|o| o.options_type.as_deref())
+        .or(call_config.options_type.as_deref())
         .or_else(|| {
             e2e_config
                 .call
                 .overrides
                 .get(lang)
                 .and_then(|o| o.options_type.as_deref())
-        })
-        .or(call_config.options_type.as_deref());
+        });
 
     let adapter_request_type: Option<String> = adapters
         .iter()

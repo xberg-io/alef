@@ -1381,6 +1381,11 @@ fn render_test_function(
     for assertion in &fixture.assertions {
         if let Some(f) = &assertion.field {
             if !f.is_empty() {
+                // Only emit local vars for fields that are actually valid for the result type.
+                // Skip fields that will be marked "skipped" later in render_assertion.
+                if !result_is_simple && !field_resolver.is_valid_for_result(f) {
+                    continue;
+                }
                 let resolved = field_resolver.resolve(f);
                 if field_resolver.is_optional(resolved) && !optional_locals.contains_key(f.as_str()) {
                     // Only create deref locals for string-valued fields that are NOT arrays.

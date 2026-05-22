@@ -298,7 +298,14 @@ pub(crate) fn gen_sync_function_method(
         other => (false, other.clone()),
     };
 
-    if matches!(dispatch_return_type, TypeRef::Unit) {
+    // Trait-bridge clear_fn functions are special: they return Result<()> in Rust
+    // (so return_type == Unit in the IR) but are exported as
+    // `kreuzberg_clear_X(char **out_error) -> i32` in the FFI.
+    // We detect them via the clear_fn_handles map and treat them as i32 returns
+    // with error handling (allocate out-error, invoke, check result code).
+    let is_clear_fn = clear_fn_handles.contains_key(&func.name);
+
+    if matches!(dispatch_return_type, TypeRef::Unit) && !is_clear_fn {
         out.push_str(&crate::template_env::render(
             "ffi_invoke_void.jinja",
             minijinja::context! {
@@ -312,6 +319,39 @@ pub(crate) fn gen_sync_function_method(
             // the FFI sets last_error and the Java caller must check it.
             out.push_str("            checkLastError();\n");
         }
+        out.push_str("        } catch (Throwable e) {\n");
+        out.push_str(&crate::template_env::render(
+            "ffi_throw_exception.jinja",
+            minijinja::context! {
+                exception_class => format!("{}Exception", class_name),
+            },
+        ));
+        out.push_str("        }\n");
+    } else if is_clear_fn {
+        // Trait-bridge clear_fn: allocate out-error, invoke with error pointer, check result.
+        // The FFI function signature is: int kreuzberg_clear_X(char **out_error)
+        // Pattern: allocate MemorySegment for address, pass to FFI, check return code.
+        out.push_str("            var outErr = arena.allocate(ValueLayout.ADDRESS);\n");
+        out.push_str(&crate::template_env::render(
+            "ffi_invoke_primitive_result.jinja",
+            minijinja::context! {
+                cast_type => "int",
+                ffi_handle => &ffi_handle,
+                call_args => {
+                    let mut args = call_args.clone();
+                    args.push("outErr".to_string());
+                    args.join(", ")
+                },
+            },
+        ));
+        emit_ffi_ptr_cleanup(out);
+        out.push_str("            if (primitiveResult != 0) {\n");
+        out.push_str("                MemorySegment errPtr = outErr.get(ValueLayout.ADDRESS, 0);\n");
+        out.push_str("                String msg = errPtr.equals(MemorySegment.NULL) ? \"clear failed (rc=\" + primitiveResult + \")\" : errPtr.reinterpret(Long.MAX_VALUE).getString(0);\n");
+        out.push_str("                throw new ");
+        out.push_str(&exception_class_name);
+        out.push_str("(\"FFI call failed: \" + msg);\n");
+        out.push_str("            }\n");
         out.push_str("        } catch (Throwable e) {\n");
         out.push_str(&crate::template_env::render(
             "ffi_throw_exception.jinja",
@@ -1157,7 +1197,8 @@ mod tests {
         // name (`clear_ocr_backends`), but the FFI export and the `NativeLib`
         // handle constant are the singular trait-derived form
         // (`KRZ_CLEAR_OCR_BACKEND`). The facade body must reference that exact
-        // constant, otherwise the generated Java fails to compile.
+        // constant and invoke it with an out-error parameter and check the result
+        // code, just like other fallible FFI functions.
         let func = create_test_function("clear_ocr_backends", TypeRef::Unit);
 
         let mut clear_fn_handles = AHashMap::new();
@@ -1179,13 +1220,29 @@ mod tests {
             &clear_fn_handles,
         );
 
+        // Must use the singular trait-derived handle constant
         assert!(
-            out.contains("NativeLib.KRZ_CLEAR_OCR_BACKEND.invoke()"),
+            out.contains("NativeLib.KRZ_CLEAR_OCR_BACKEND.invoke"),
             "clear_fn body must reference the singular trait-derived handle, got:\n{out}"
         );
         assert!(
             !out.contains("KRZ_CLEAR_OCR_BACKENDS"),
             "clear_fn body must not reference the plural core-function-derived handle, got:\n{out}"
+        );
+        // Must allocate out-error buffer
+        assert!(
+            out.contains("var outErr = arena.allocate(ValueLayout.ADDRESS)"),
+            "clear_fn body must allocate outErr, got:\n{out}"
+        );
+        // Must pass outErr to the FFI invocation
+        assert!(
+            out.contains("outErr)"),
+            "clear_fn body must pass outErr to FFI invocation, got:\n{out}"
+        );
+        // Must check the return code for error
+        assert!(
+            out.contains("if (primitiveResult != 0)"),
+            "clear_fn body must check primitiveResult != 0, got:\n{out}"
         );
     }
 

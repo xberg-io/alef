@@ -2807,3 +2807,112 @@ Related: `ConversionOptions::output_format` and `Result::unwrap_or()`."#
         "Rust Result::unwrap_or() must become Result.orElse(), got:\n{content}"
     );
 }
+
+#[test]
+fn test_trait_bridge_clear_fn_generates_correct_error_handling() {
+    let backend = JavaBackend;
+
+    // Create a simple API with a unit-return function that should be handled as a clear_fn
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "clear_validators".to_string(),
+            rust_path: "test_lib::clear_validators".to_string(),
+            original_rust_path: String::new(),
+            params: vec![],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            error_type: Some("Error".to_string()),
+            doc: "Clear all validators".to_string(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let config = resolved_one(
+        r#"
+[workspace]
+languages = ["java", "ffi"]
+
+[[crates]]
+name = "test_lib"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "test"
+
+# Configure trait bridge for test
+[[crates.trait_bridges]]
+trait_name = "Validator"
+clear_fn = "clear_validators"
+
+[crates.java]
+package = "com.example"
+"#,
+    );
+
+    let result = backend.generate_bindings(&api, &config);
+    assert!(result.is_ok(), "generation failed: {:?}", result);
+    let files = result.unwrap();
+
+    // Check main class generates clear_validators method
+    let main_class = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("TestLibRs.java"))
+        .expect("TestLibRs.java must be emitted");
+    let content = &main_class.content;
+
+    // Verify the method exists
+    assert!(
+        content.contains("public static void clearValidators()"),
+        "clearValidators method must exist, got:\n{content}"
+    );
+
+    // Verify error handling: should allocate outErr, invoke with it, check result code
+    assert!(
+        content.contains("var outErr = arena.allocate(ValueLayout.ADDRESS)"),
+        "Should allocate outErr buffer, got:\n{content}"
+    );
+
+    // Verify the invocation passes outErr as an argument
+    assert!(
+        content.contains("outErr)"),
+        "Should pass outErr to FFI invocation, got:\n{content}"
+    );
+
+    // Verify error code checking
+    assert!(
+        content.contains("if (primitiveResult != 0)"),
+        "Should check primitiveResult != 0 for error, got:\n{content}"
+    );
+
+    // Verify error message extraction from the out-error pointer
+    assert!(
+        content.contains("outErr.get(ValueLayout.ADDRESS, 0)"),
+        "Should read error pointer from outErr, got:\n{content}"
+    );
+
+    // Verify exception throwing on error
+    assert!(
+        content.contains("throw new TestLibRsException"),
+        "Should throw exception on error, got:\n{content}"
+    );
+
+    // Verify it uses the correct handle constant (singular)
+    assert!(
+        content.contains("TEST_CLEAR_VALIDATOR"),
+        "Should use singular TEST_CLEAR_VALIDATOR handle, got:\n{content}"
+    );
+}
