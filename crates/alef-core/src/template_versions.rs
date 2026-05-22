@@ -422,10 +422,10 @@ pub mod precommit {
     pub const CARGO_MACHETE_REV: &str = "v0.9.2";
 
     // renovate: datasource=github-tags packageName=EmbarkStudios/cargo-deny
-    pub const CARGO_DENY_REV: &str = "0.19.6";
+    pub const CARGO_DENY_REV: &str = "0.19.7";
 
     // renovate: datasource=github-tags packageName=rvben/rumdl-pre-commit
-    pub const RUMDL_REV: &str = "v0.1.96";
+    pub const RUMDL_REV: &str = "v0.2.0";
 
     // renovate: datasource=github-tags packageName=crate-ci/typos
     pub const TYPOS_REV: &str = "v1.46.2";
