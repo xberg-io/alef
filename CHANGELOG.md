@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.31] - 2026-05-22
+
 ### Fixed
 
 - **alef-backend-swift: don't emit a swift-bridge opaque `extern` class for trait-bridge result enums.** A trait-bridge result type like `VisitResult` is a first-class Swift `enum` used only inside the visitor trait protocol — it never crosses the FFI boundary as an opaque handle. It was nonetheless declared as `type VisitResult;` in the swift-bridge `extern` block, so swift-bridge generated a second opaque `class VisitResult: VisitResultRefMut` that collided with the enum, making every `VisitResult` reference ambiguous and breaking compilation of consumer Swift code (e.g. html-to-markdown's Swift e2e suite). The Rust-crate emitter now collects trait-bridge result-enum names and skips their `extern`-block declaration. (`crates/alef-backend-swift/src/gen_rust_crate/mod.rs`)
