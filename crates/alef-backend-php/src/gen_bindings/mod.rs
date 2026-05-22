@@ -423,6 +423,22 @@ impl Backend for PhpBackend {
                 }
             }
 
+            // Emit streaming adapter facade methods as static methods
+            for adapter in &config.adapters {
+                if !matches!(adapter.pattern, alef_core::config::AdapterPattern::Streaming) {
+                    continue;
+                }
+                if adapter.owner_type.is_none() {
+                    continue;
+                }
+                method_items.push(gen_streaming_adapter_facade_method(
+                    adapter,
+                    &mapper,
+                    &opaque_types,
+                    &core_import,
+                ));
+            }
+
             // Emit trait-bridge registration functions as static methods
             for bridge_cfg in &config.trait_bridges {
                 if let Some(register_fn) = bridge_cfg.register_fn.as_deref() {
@@ -1911,6 +1927,76 @@ fn php_type(ty: &TypeRef) -> String {
         TypeRef::Unit => "void".to_string(),
         TypeRef::Duration => "float".to_string(),
     }
+}
+
+/// Generate a static facade method for a streaming adapter.
+///
+/// For streaming adapters with an `owner_type`, generates a static method that:
+/// 1. Takes the owner handle + request type
+/// 2. Calls the instance method on the owner handle
+/// 3. Returns the streaming result (Vec<String> of JSON chunks)
+fn gen_streaming_adapter_facade_method(
+    adapter: &alef_core::config::AdapterConfig,
+    _mapper: &crate::type_map::PhpMapper,
+    _opaque_types: &ahash::AHashSet<String>,
+    _core_import: &str,
+) -> String {
+    use heck::ToLowerCamelCase;
+
+    let method_name = adapter.name.to_lower_camel_case();
+    let owner_type = adapter.owner_type.as_deref().unwrap_or("EngineHandle");
+
+    // Build Rust function signature
+    let mut params: Vec<String> = vec![format!("engine: &{owner_type}")];
+
+    // Add request type parameter(s)
+    for p in &adapter.params {
+        let param_type = p.ty.rsplit("::").next().unwrap_or(&p.ty);
+        let ref_indicator = if matches!(param_type, "String" | "Vec<String>") {
+            "" // Already reference via .into()
+        } else {
+            "&"
+        };
+        let nullable = if p.optional { "Option<" } else { "" };
+        let close_nullable = if p.optional { ">" } else { "" };
+        params.push(format!(
+            "{}: {}{}{}{}",
+            p.name, ref_indicator, nullable, param_type, close_nullable
+        ));
+    }
+
+    let return_type = "std::result::Result<Vec<String>, ext_php_rs::exception::PhpException>";
+
+    let mut method_code = String::new();
+
+    // Rust function with #[php(name = "...")] attribute
+    method_code.push_str(&format!(
+        "    #[php(name = \"{}\")]\n",
+        method_name
+    ));
+    method_code.push_str(&format!(
+        "    pub fn {}({}) -> {} {{\n",
+        method_name,
+        params.join(", "),
+        return_type
+    ));
+
+    // Body: call the instance method on the engine handle
+    let call_args = adapter
+        .params
+        .iter()
+        .map(|p| format!("&{}", p.name))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    method_code.push_str(&format!(
+        "        engine.{}({})\n",
+        method_name, call_args
+    ));
+
+    method_code.push_str("    }\n");
+
+    method_code
 }
 
 /// Build an inline PHPDoc block for a class property or constructor-promoted parameter.
