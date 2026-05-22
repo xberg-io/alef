@@ -1578,14 +1578,11 @@ fn build_args_and_setup(
                     parts.push(arg.name.clone());
                     continue;
                 }
-                // bytes args carry a relative file path (e.g. "docx/fake.docx") that the
-                // e2e harness resolves against test_documents/. Read the file at runtime
-                // instead of converting the path string to its UTF-8 bytes.
+                // bytes args in Kotlin binding carry a relative file path (e.g. "docx/fake.docx")
+                // that the Kotlin API resolves and reads internally. Pass the path string directly.
                 if arg.arg_type == "bytes" {
                     let val = json_to_kotlin(v);
-                    parts.push(format!(
-                        "java.nio.file.Files.readAllBytes(java.nio.file.Path.of({val}))"
-                    ));
+                    parts.push(val);
                     continue;
                 }
                 // file_path args must be wrapped in java.nio.file.Path.of(),
