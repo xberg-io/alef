@@ -21,11 +21,11 @@ static TEMPLATES: &[(&str, &str)] = &[
   use RustlerPrecompiled,
     otp_app: :{{ app_name }},
     crate: "{{ app_name }}_nif",
-    base_url: if(Mix.env() in [:test, :dev], do: nil, else: "{{ repo_url }}/releases/download/v#{{ '{' }}Mix.Project.config()[:version]{{ '}' }}"),
+    base_url: "{{ repo_url }}/releases/download/v#{{ '{' }}Mix.Project.config()[:version]{{ '}' }}",
     version: Mix.Project.config()[:version],
     targets: ~w(aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-pc-windows-gnu),
     nif_versions: ["2.16", "2.17"],
-    force_build: System.get_env("{{ build_env_var }}") in ["1", "true"] or Mix.env() in [:test, :dev]
+    force_build: System.get_env("{{ build_env_var }}") in ["1", "true"] or System.get_env("MIX_ENV") in ["test", "dev"]
 
 "#,
     ),
