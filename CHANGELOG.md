@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.17.32] - 2026-05-22
+### Fixed
+
+- **alef-e2e/php: keep the system php.ini when re-execing the PHPUnit harness.** The generated `run_tests.php` re-execs PHP with `-n` (no ini) plus `-d extension=<local build>` so the freshly-built extension is loaded without a stale system copy. But `-n` also drops every *shared* PHP module, so on distributions that ship `dom`/`mbstring`/`tokenizer`/`xml`/`xmlwriter` as shared extensions (Debian/Ubuntu, hence CI) PHPUnit 13 aborts at startup with "PHPUnit requires the dom, json, libxml, mbstring, tokenizer, xml, xmlwriter extensions … not available". It only passed where those modules are compiled statically (macOS Homebrew). The harness now re-execs without `-n`, keeping the system ini, and still loads the local build via `-d extension=`. (`crates/alef-e2e/src/codegen/php.rs`)
 
 ### Added
 
