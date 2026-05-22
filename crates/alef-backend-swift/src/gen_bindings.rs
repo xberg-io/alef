@@ -2418,6 +2418,18 @@ fn emit_e2e_wrappers(out: &mut String) {
     out.push_str("    let url = resolveFixturePath(filePath)\n");
     out.push_str("    let data = try Data(contentsOf: url)\n");
     out.push_str("    return try detectMimeTypeFromBytes(makeByteVec(data.map { $0 })).toString()\n");
+    out.push_str("}\n\n");
+
+    // embedTextsAsync(texts:config:) - async wrapper
+    out.push_str("/// E2e wrapper (async): embed multiple texts with an EmbeddingConfig.\n");
+    out.push_str("public func embedTextsAsync(\n");
+    out.push_str("    texts: [String],\n");
+    out.push_str("    config: EmbeddingConfig\n");
+    out.push_str(") async throws -> [[Float]] {\n");
+    out.push_str("    let _rb_texts: RustVec<RustString> = { let v = RustVec<RustString>(); for s in texts { v.push(value: RustString(s)) }; return v }()\n");
+    out.push_str("    let _rb_json = try await RustBridge.embedTextsAsync(_rb_texts, config).toString()\n");
+    out.push_str("    let _rb_data = _rb_json.data(using: .utf8) ?? Data()\n");
+    out.push_str("    return try JSONDecoder().decode([[Float]].self, from: _rb_data)\n");
     out.push_str("}\n");
 }
 
