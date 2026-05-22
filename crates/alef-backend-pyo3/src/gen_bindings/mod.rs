@@ -121,27 +121,37 @@ fn replace_constructor_with_serde_rename(
         .collect();
 
     // Struct literal uses bare Rust field names (never renamed).
-    // CRITICAL: Skip cfg-gated fields (f.cfg.is_some()) because they have no constructor parameter.
+    // For non-cfg fields: use constructor parameters (with explicit form if renamed).
+    // For cfg-gated fields: initialize with default (None for Option types, Default::default() otherwise).
     let assignments: Vec<String> = typ
         .fields
         .iter()
-        .filter(|f| !f.binding_excluded && f.cfg.is_none())
+        .filter(|f| !f.binding_excluded)
         .map(|f| {
-            // Get the parameter name (serde_rename or config rename or bare name)
-            let param_name = f
-                .serde_rename
-                .as_ref()
-                .or(config_renames.and_then(|r| r.get(&f.name)))
-                .map_or_else(|| f.name.as_str(), |s| s.as_str());
-
-            // Use the bare Rust field name for struct literal (never renamed in Rust)
-            if param_name != f.name {
-                // Parameter name differs from Rust field name (serde_rename or config rename):
-                // use explicit form to match the parameter variable
-                format!("{}: {}", f.name, param_name)
+            if f.cfg.is_some() {
+                // Cfg-gated field: not a constructor parameter, use default
+                if f.optional {
+                    format!("{}: None", f.name)
+                } else {
+                    format!("{}: Default::default()", f.name)
+                }
             } else {
-                // No rename: use shorthand
-                f.name.clone()
+                // Non-cfg field: use constructor parameter
+                let param_name = f
+                    .serde_rename
+                    .as_ref()
+                    .or(config_renames.and_then(|r| r.get(&f.name)))
+                    .map_or_else(|| f.name.as_str(), |s| s.as_str());
+
+                // Use the bare Rust field name for struct literal (never renamed in Rust)
+                if param_name != f.name {
+                    // Parameter name differs from Rust field name (serde_rename or config rename):
+                    // use explicit form to match the parameter variable
+                    format!("{}: {}", f.name, param_name)
+                } else {
+                    // No rename: use shorthand
+                    f.name.clone()
+                }
             }
         })
         .collect();

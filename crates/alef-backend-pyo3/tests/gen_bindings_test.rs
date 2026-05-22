@@ -4765,11 +4765,10 @@ fn test_cfg_gated_fields_excluded_from_constructor() {
         lib_rs.content
     );
 
-    // The struct literal should only include use_cache, not pdf_options
-    // It should use bare shorthand for use_cache since there's no rename
+    // The struct literal should include use_cache (shorthand) and pdf_options (explicitly set to None)
     assert!(
-        lib_rs.content.contains("Self { use_cache }"),
-        "Struct literal should use shorthand for non-cfg field; content:\n{}",
+        lib_rs.content.contains("Self { use_cache, pdf_options: None }"),
+        "Struct literal should use shorthand for non-cfg field and explicit None for cfg-gated optional field; content:\n{}",
         lib_rs.content
     );
 

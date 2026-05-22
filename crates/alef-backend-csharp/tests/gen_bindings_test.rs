@@ -3133,12 +3133,16 @@ fn test_trait_bridge_clear_method_uses_clear_fn_name_not_trait_name() {
         .iter()
         .find(|f| {
             let path_str = f.path.to_string_lossy();
-            path_str.ends_with("KreuzbergLib.cs") || (path_str.ends_with(".cs") && f.content.contains("public static void Clear"))
+            path_str.ends_with("KreuzbergLib.cs")
+                || (path_str.ends_with(".cs") && f.content.contains("public static void Clear"))
         })
         .unwrap_or_else(|| {
             panic!(
                 "No wrapper file with Clear* methods found. Generated files: {:?}",
-                files.iter().map(|f| f.path.to_string_lossy().into_owned()).collect::<Vec<_>>()
+                files
+                    .iter()
+                    .map(|f| f.path.to_string_lossy().into_owned())
+                    .collect::<Vec<_>>()
             )
         });
 

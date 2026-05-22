@@ -1580,7 +1580,9 @@ fn build_args_and_setup(
                                 if let serde_json::Value::Object(obj) = &filtered_v {
                                     if obj.is_empty() {
                                         let arg_var = format!("${}", arg.name);
-                                        setup_lines.push(format!("{arg_var} = \\{namespace}\\{type_name}::from_json('{{}}');"));
+                                        setup_lines.push(format!(
+                                            "{arg_var} = \\{namespace}\\{type_name}::from_json('{{}}');"
+                                        ));
                                         parts.push(arg_var);
                                         continue;
                                     }
