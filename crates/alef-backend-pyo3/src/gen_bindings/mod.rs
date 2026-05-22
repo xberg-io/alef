@@ -71,6 +71,7 @@ fn replace_constructor_with_serde_rename(
     impl_block: &str,
     typ: &alef_core::ir::TypeDef,
     mapper: &dyn alef_codegen::type_mapper::TypeMapper,
+    config: &alef_codegen::generators::RustBindingConfig,
     config_renames: Option<&std::collections::HashMap<String, String>>,
 ) -> String {
     use alef_codegen::shared::binding_fields;
@@ -91,7 +92,14 @@ fn replace_constructor_with_serde_rename(
                 .or(config_renames.and_then(|r| r.get(&f.name)))
                 .map_or_else(|| f.name.as_str(), |s| s.as_str());
 
-            let ty = if f.optional {
+            // Determine if this field should be optional in the constructor.
+            // This matches the logic in gen_struct_with_per_field_attrs (structs.rs lines 128-131).
+            let force_optional = config.option_duration_on_defaults
+                && typ.has_default
+                && !f.optional
+                && matches!(f.ty, alef_core::ir::TypeRef::Duration);
+
+            let ty = if f.optional || force_optional {
                 match &f.ty {
                     alef_core::ir::TypeRef::Optional(_) => mapper.map_type(&f.ty),
                     _ => format!("Option<{}>", mapper.map_type(&f.ty)),
@@ -112,7 +120,13 @@ fn replace_constructor_with_serde_rename(
                 .or(config_renames.and_then(|r| r.get(&f.name)))
                 .map_or_else(|| f.name.as_str(), |s| s.as_str());
 
-            if f.optional {
+            // Same force_optional logic as above.
+            let force_optional = config.option_duration_on_defaults
+                && typ.has_default
+                && !f.optional
+                && matches!(f.ty, alef_core::ir::TypeRef::Duration);
+
+            if f.optional || force_optional {
                 format!("{}=None", param_name)
             } else {
                 param_name.to_string()
@@ -803,7 +817,7 @@ mod alef_json_str_opt {
 
                 // For has_default types, replace the constructor with one that honors serde_rename
                 if typ.has_default {
-                    impl_block = replace_constructor_with_serde_rename(&impl_block, typ, &mapper, renames_ref);
+                    impl_block = replace_constructor_with_serde_rename(&impl_block, typ, &mapper, type_cfg, renames_ref);
                 }
                 // Inject from_json staticmethod into the existing #[pymethods] block when serde
                 // is available and a core→binding conversion exists. Injecting into the same block

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-backend-pyo3: emit non-optional Duration struct fields as u64 in constructor parameters.** PyO3 binding constructors for `has_default` config types were wrapping non-optional `Duration` fields in `Option<u64>` in the struct definition (to allow unset fields to fall back to the core type's `Default`) but emitting them as `u64` in the constructor parameter list. This mismatch caused `error[E0308]: mismatched types` compilation errors when the constructor tried to assign the parameter value to the `Option<u64>` struct field. The struct field emitter correctly applies `option_duration_on_defaults` logic to wrap the Duration type in `Option`, but the constructor parameter emitter was not applying the same logic. The fix updates `replace_constructor_with_serde_rename` to accept the `RustBindingConfig` and check the same `force_optional` condition used by the struct field generator: when `option_duration_on_defaults` is true, `has_default` is true, the field is not already optional, and the field type is `Duration`, the constructor parameter is wrapped in `Option<...>` with a default value of `None`. This ensures the constructor parameter type matches the struct field type exactly. Affected types: `BrowserConfig`, `RequestConfig`, `DomConfig`, etc. (`crates/alef-backend-pyo3/src/gen_bindings/mod.rs`)
+
 ### Added
 
 - **alef-scaffold: copy workspace-root LICENSE into every per-language package directory.** Ecosystems like pub.dev (Dart) require a `LICENSE` file in the package root and reject uploads without one. The scaffold step now reads `<workspace_root>/LICENSE` and emits it into each per-language package directory (e.g. `packages/dart/LICENSE`, `packages/python/LICENSE`). When no LICENSE file is present the step warns and continues without error. Internal-only languages (Rust, C, FFI, JNI) are excluded. The copy is idempotent — `generated_header: false` means the file is created once and not overwritten on subsequent `alef scaffold` runs, keeping `alef verify` happy. (`crates/alef-scaffold/src/lib.rs`)
