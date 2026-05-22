@@ -3902,7 +3902,14 @@ mod tests {
             visitor: None,
         };
 
-        let out = render_test_file("mime_utilities", &[&fixture], "github.com/example/mylib", "kreuzberg", &e2e_config, &[]);
+        let out = render_test_file(
+            "mime_utilities",
+            &[&fixture],
+            "github.com/example/mylib",
+            "kreuzberg",
+            &e2e_config,
+            &[],
+        );
 
         assert!(
             out.contains("result, err := kreuzberg.DetectMimeTypeFromBytes("),
@@ -3912,7 +3919,10 @@ mod tests {
             out.contains("strings.Contains(") && out.contains("fmt.Sprint("),
             "expected `strings.Contains(fmt.Sprint(...))` rendering; got:\n{out}"
         );
-        assert!(out.contains("\t\"fmt\""), "expected the `fmt` import to be emitted; got:\n{out}");
+        assert!(
+            out.contains("\t\"fmt\""),
+            "expected the `fmt` import to be emitted; got:\n{out}"
+        );
         assert!(
             out.contains("\t\"strings\""),
             "expected the `strings` import to be emitted; got:\n{out}"

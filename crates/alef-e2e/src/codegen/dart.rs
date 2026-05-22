@@ -706,8 +706,7 @@ fn render_test_case(
                 // optional only because `extract_file`'s Rust signature takes
                 // `Option<&str>`; it does not change the Dart facade's positional shape.
                 // Only the `client_factory` FRB path declares non-`config` params named.
-                let mime_type_is_positional =
-                    arg_def.name == "mime_type" && client_factory_for_args.is_none();
+                let mime_type_is_positional = arg_def.name == "mime_type" && client_factory_for_args.is_none();
                 match arg_value {
                     serde_json::Value::String(s) => {
                         let literal = format!("'{}'", escape_dart(s));
@@ -716,9 +715,7 @@ fn render_test_case(
                         // every non-`config` parameter as named-required, so required
                         // string args must be passed with a `name:` label too. Facade
                         // methods (no `client_factory`) keep required args positional.
-                        if (arg_def.optional || client_factory_for_args.is_some())
-                            && !mime_type_is_positional
-                        {
+                        if (arg_def.optional || client_factory_for_args.is_some()) && !mime_type_is_positional {
                             args.push(format!("{dart_param_name}: {literal}"));
                         } else {
                             args.push(literal);

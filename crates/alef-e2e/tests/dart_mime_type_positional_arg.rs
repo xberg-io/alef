@@ -123,10 +123,7 @@ fn mime_type_string_arg_emitted_positionally_for_facade_extract() {
 /// emitted positionally for the facade extract method.
 #[test]
 fn inferred_mime_type_emitted_positionally_for_facade_extract() {
-    let rendered = render(
-        "code_no_mime",
-        serde_json::json!({ "path": "code/script.sh" }),
-    );
+    let rendered = render("code_no_mime", serde_json::json!({ "path": "code/script.sh" }));
 
     assert!(
         !rendered.contains("mimeType:"),
