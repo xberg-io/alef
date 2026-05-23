@@ -240,7 +240,6 @@ pub(crate) fn gen_facade_class(
     let has_map = class_body.contains("Map<");
     let has_optional = class_body.contains("Optional<");
     let has_nullable = class_body.contains("@Nullable");
-    let has_iterable = class_body.contains("Iterable<");
 
     crate::backends::java::template_env::render(
         "facade_file.jinja",
@@ -251,7 +250,6 @@ pub(crate) fn gen_facade_class(
             has_map => has_map,
             has_optional => has_optional,
             has_nullable => has_nullable,
-            has_iterable => has_iterable,
             body => class_body,
         },
     )

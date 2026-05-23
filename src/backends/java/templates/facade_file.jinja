@@ -1,10 +1,9 @@
 {{ header }}package {{ package }};
-{% if has_list or has_map or has_optional or has_nullable or has_iterable %}
+{% if has_list or has_map or has_optional or has_nullable %}
 
 {% if has_list %}import java.util.List;
 {% endif %}{% if has_map %}import java.util.Map;
 {% endif %}{% if has_optional %}import java.util.Optional;
 {% endif %}{% if has_nullable %}import org.jspecify.annotations.Nullable;
-{% endif %}{% if has_iterable %}import java.lang.Iterable;
 {% endif %}{% endif %}
 {{ body }}

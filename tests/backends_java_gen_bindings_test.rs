@@ -2916,3 +2916,96 @@ package = "com.example"
         "Should use singular TEST_CLEAR_VALIDATOR handle, got:\n{content}"
     );
 }
+
+#[test]
+fn test_facade_no_java_lang_imports() {
+    // BLK-12: Regression test that verifies no `java.lang.*` types are explicitly imported
+    // in generated Java facades. These types are auto-imported by the JLS, and checkstyle's
+    // UnusedImports rule will reject any explicit import.
+    let backend = JavaBackend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Config".to_string(),
+            rust_path: "test_lib::Config".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![FieldDef {
+                name: "value".to_string(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                doc: "Test value".to_string(),
+                sanitized: false,
+                is_boxed: false,
+                type_rust_path: None,
+                cfg: None,
+                typed_default: None,
+                core_wrapper: alef::core::ir::CoreWrapper::None,
+                vec_inner_core_wrapper: alef::core::ir::CoreWrapper::None,
+                newtype_wrapper: None,
+                serde_rename: None,
+                serde_flatten: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                original_type: None,
+            }],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: "Test config".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let config = make_test_config("com.example");
+    let result = backend.generate_bindings(&api, &config);
+    assert!(result.is_ok(), "generation failed: {:?}", result);
+    let files = result.unwrap();
+
+    // Find the main facade class
+    let facade_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("TestLibRs.java"))
+        .expect("TestLibRs.java (facade) must be emitted");
+    let content = &facade_file.content;
+
+    // BLK-12: Verify that there is NO explicit `import java.lang.X;` statements
+    // Iterable, String, Object, etc. are auto-imported by the JLS and must never
+    // be explicitly imported, or checkstyle's UnusedImports rule will reject them.
+    assert!(
+        !content.contains("import java.lang."),
+        "Facade must NOT contain any 'import java.lang.*' (auto-imported by JLS), got:\n{content}"
+    );
+
+    // Sanity checks: verify other non-auto-imported types ARE imported correctly
+    // If the facade uses List or Optional, those should still be imported (from java.util)
+    if content.contains("List<") {
+        assert!(
+            content.contains("import java.util.List;"),
+            "Facade must import List from java.util, got:\n{content}"
+        );
+    }
+    if content.contains("Optional<") {
+        assert!(
+            content.contains("import java.util.Optional;"),
+            "Facade must import Optional from java.util, got:\n{content}"
+        );
+    }
+}

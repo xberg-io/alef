@@ -18,6 +18,36 @@ const JAVA_OBJECT_METHOD_NAMES: &[&str] = &[
     "finalize",
 ];
 
+/// Types automatically imported by the Java Language Specification as members
+/// of `java.lang.*`. These types must never be emitted as explicit import statements,
+/// as checkstyle's `UnusedImports` rule will flag them as redundant.
+/// This allowlist is provided for future use by code generation functions that
+/// emit imports; all generated facades should consult it before emitting imports.
+#[allow(dead_code)]
+pub(crate) const JAVA_LANG_AUTO_IMPORTED: &[&str] = &[
+    "Iterable",
+    "Object",
+    "String",
+    "Throwable",
+    "Number",
+    "Boolean",
+    "Integer",
+    "Long",
+    "Double",
+    "Float",
+    "Character",
+    "Byte",
+    "Short",
+    "Math",
+    "Runnable",
+    "Thread",
+    "Exception",
+    "RuntimeException",
+    "Error",
+    "Class",
+    "Comparable",
+];
+
 /// Returns true if `name` is a tuple/unnamed field index such as `"0"`, `"1"`, `"_0"`, `"_1"`.
 /// Serde represents tuple and newtype variant fields with these numeric names. They are not
 /// real JSON keys and must not be used as Java identifiers.
