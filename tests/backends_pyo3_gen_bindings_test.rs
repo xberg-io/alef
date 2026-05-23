@@ -4697,9 +4697,13 @@ fn test_serde_rename_in_constructor_and_properties() {
 fn test_cfg_gated_fields_excluded_from_constructor() {
     let backend = Pyo3Backend;
 
-    // Create fields: one cfg-gated, one not
+    // Create fields: one cfg-gated by a predicate `cfg_present_for_pyo3` cannot prove
+    // (a non-feature, non-wasm gate — here a contrived `any(unix, windows)` form),
+    // and one ungated. Feature gates (`feature = "pdf"`) are now treated as present
+    // because the pyo3 Cargo.toml controls which features compile in; only predicates
+    // that may genuinely strip the field at build time are excluded.
     let mut cfg_field = make_field("pdf_options", TypeRef::String, true);
-    cfg_field.cfg = Some("feature = \"pdf\"".to_string());
+    cfg_field.cfg = Some("any(unix, windows)".to_string());
     cfg_field.typed_default = Some(alef::core::ir::DefaultValue::None);
 
     let api = ApiSurface {

@@ -1878,9 +1878,7 @@ fn rewrite_to_tokio_mutex_impl(impl_code: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        Pyo3Backend, cfg_present_for_pyo3, rewrite_to_tokio_mutex_impl, rewrite_to_tokio_mutex_struct,
-    };
+    use super::{Pyo3Backend, cfg_present_for_pyo3, rewrite_to_tokio_mutex_impl, rewrite_to_tokio_mutex_struct};
     use crate::core::backend::Backend;
     use crate::core::config::Language;
 
@@ -1953,7 +1951,9 @@ mod tests {
         assert!(cfg_present_for_pyo3("feature = \"pdf\""));
         assert!(cfg_present_for_pyo3("feature = \"html\""));
         assert!(cfg_present_for_pyo3("feature=\"tree-sitter\""));
-        assert!(cfg_present_for_pyo3("any(feature=\"keywords-yake\", feature=\"keywords-rake\")"));
+        assert!(cfg_present_for_pyo3(
+            "any(feature=\"keywords-yake\", feature=\"keywords-rake\")"
+        ));
     }
 
     /// `cfg_present_for_pyo3` rejects unsupported gates.
