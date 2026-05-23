@@ -67,12 +67,14 @@ impl Pyo3Backend {
 /// For has_default types, the constructor parameters should use serde_rename names
 /// (the JSON wire names) to match other language bindings' public APIs.
 /// This function finds the existing constructor and replaces it with a custom one.
+/// Also adds extra parameters for any options-field bridges (e.g., visitor).
 fn replace_constructor_with_serde_rename(
     impl_block: &str,
     typ: &alef_core::ir::TypeDef,
     mapper: &dyn alef_codegen::type_mapper::TypeMapper,
     config: &alef_codegen::generators::RustBindingConfig,
     config_renames: Option<&std::collections::HashMap<String, String>>,
+    trait_bridges: &[alef_core::config::TraitBridgeConfig],
 ) -> String {
     use alef_codegen::shared::binding_fields;
     use alef_core::keywords::{is_valid_rust_ident_chars, rust_raw_ident};
@@ -197,11 +199,46 @@ fn replace_constructor_with_serde_rename(
         })
         .collect();
 
-    let param_list = if params.join(", ").len() > 100 {
-        format!("\n        {},\n    ", params.join(",\n        "))
+    // Check if this type has an options-field bridge (e.g., ConversionOptions.visitor)
+    let bridge_param = trait_bridges
+        .iter()
+        .find(|b| {
+            b.bind_via == alef_core::config::BridgeBinding::OptionsField
+                && b.options_type.as_deref() == Some(&typ.name)
+        })
+        .and_then(|b| {
+            let param_name = b.param_name.as_deref()?;
+            Some((param_name, b.type_alias.as_deref().unwrap_or("object")))
+        });
+
+    // Add bridge parameter to defaults and params if present
+    let mut all_defaults = defaults.clone();
+    let mut all_params = params.clone();
+    if let Some((param_name, type_alias)) = bridge_param {
+        all_params.push(format!("{}: Option<{}>", param_name, type_alias));
+        all_defaults.push(format!("{}=None", param_name));
+    }
+
+    let param_list = if all_params.join(", ").len() > 100 {
+        format!("\n        {},\n    ", all_params.join(",\n        "))
     } else {
-        params.join(", ")
+        all_params.join(", ")
     };
+
+    // Build the assignment for the bridge field
+    let mut all_assignments = assignments.clone();
+    if let Some((param_name, _)) = bridge_param {
+        if let Some(field_name) = trait_bridges
+            .iter()
+            .find(|b| {
+                b.bind_via == alef_core::config::BridgeBinding::OptionsField
+                    && b.options_type.as_deref() == Some(&typ.name)
+            })
+            .and_then(|b| b.resolved_options_field())
+        {
+            all_assignments.push(format!("{}: {}", field_name, param_name));
+        }
+    }
 
     // Build the new constructor method (without impl wrapper — we'll inject it into existing impl)
     let new_constructor = format!(
@@ -211,9 +248,9 @@ fn replace_constructor_with_serde_rename(
          pub fn new({}) -> Self {{\n        \
          Self {{ {} }}\n    \
          }}",
-        defaults.join(", "),
+        all_defaults.join(", "),
         param_list,
-        assignments.join(", ")
+        all_assignments.join(", ")
     );
 
     // Find and replace the old constructor in the impl block
@@ -844,8 +881,14 @@ mod alef_json_str_opt {
 
                 // For has_default types, replace the constructor with one that honors serde_rename
                 if typ.has_default {
-                    impl_block =
-                        replace_constructor_with_serde_rename(&impl_block, typ, &mapper, type_cfg, renames_ref);
+                    impl_block = replace_constructor_with_serde_rename(
+                        &impl_block,
+                        typ,
+                        &mapper,
+                        type_cfg,
+                        renames_ref,
+                        &config.trait_bridges,
+                    );
                 }
                 // Inject from_json staticmethod into the existing #[pymethods] block when serde
                 // is available and a core→binding conversion exists. Injecting into the same block

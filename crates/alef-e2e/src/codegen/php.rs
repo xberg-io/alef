@@ -1449,7 +1449,7 @@ fn build_args_and_setup(
                 let filtered_config = filter_empty_enum_strings(config_value);
                 setup_lines.push(format!(
                     "${name}_config = CrawlConfig::from_json(json_encode({}));",
-                    json_to_php(&filtered_config)
+                    json_to_php_camel_keys(&filtered_config)
                 ));
                 setup_lines.push(format!(
                     "${} = {class_name}::{constructor_name}(${name}_config);",
@@ -1593,7 +1593,7 @@ fn build_args_and_setup(
                                 }
                             }
 
-                            parts.push(format!("json_encode({})", json_to_php(&filtered_v)));
+                            parts.push(format!("json_encode({})", json_to_php_camel_keys(&filtered_v)));
                             continue;
                         }
                         _ => {
@@ -1618,12 +1618,12 @@ fn build_args_and_setup(
                                 }
 
                                 let arg_var = format!("${}", arg.name);
-                                // Fixtures are the source of truth and are in Rust wire format (snake_case).
-                                // Pass the fixture's original keys to from_json() — the binding's serde
-                                // will handle the conversion if needed.
+                                // PHP binding's serde wrapper applies `rename_all` per the per-language
+                                // wire-case registry (`ResolvedCrateConfig::serde_rename_all_for_language`),
+                                // which is camelCase for PHP — emit camelCase keys to match.
                                 setup_lines.push(format!(
                                     "{arg_var} = \\{namespace}\\{type_name}::from_json(json_encode({}));",
-                                    json_to_php(&filtered_v)
+                                    json_to_php_camel_keys(&filtered_v)
                                 ));
                                 parts.push(arg_var);
                                 continue;
@@ -2113,6 +2113,30 @@ fn json_to_php(value: &serde_json::Value) -> String {
                 .collect();
             format!("[{}]", items.join(", "))
         }
+    }
+}
+
+/// Like `json_to_php` but recursively converts all object keys to lowerCamelCase.
+/// Used when generating PHP option arrays passed to `from_json()` — the PHP binding
+/// structs use `#[serde(rename_all = "camelCase")]` so snake_case fixture keys
+/// (e.g. `remove_forms`) must become `removeForms` in the generated test code.
+fn json_to_php_camel_keys(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::Object(map) => {
+            let items: Vec<String> = map
+                .iter()
+                .map(|(k, v)| {
+                    let camel_key = k.to_lower_camel_case();
+                    format!("\"{}\" => {}", escape_php(&camel_key), json_to_php_camel_keys(v))
+                })
+                .collect();
+            format!("[{}]", items.join(", "))
+        }
+        serde_json::Value::Array(arr) => {
+            let items: Vec<String> = arr.iter().map(json_to_php_camel_keys).collect();
+            format!("[{}]", items.join(", "))
+        }
+        _ => json_to_php(value),
     }
 }
 

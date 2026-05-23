@@ -141,6 +141,7 @@ impl E2eCodegen for DartE2eCodegen {
                 &frb_module_name,
                 &bridge_class,
                 &dart_first_class_map,
+                &config.adapters,
             );
             files.push(GeneratedFile {
                 path: test_base.join(filename),
@@ -219,6 +220,7 @@ fn render_test_file(
     frb_module_name: &str,
     bridge_class: &str,
     dart_first_class_map: &crate::field_access::DartFirstClassMap,
+    adapters: &[alef_core::config::extras::AdapterConfig],
 ) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
@@ -272,9 +274,9 @@ fn render_test_file(
     });
 
     // Non-HTTP fixtures that build a mock-server URL still reference `Platform.environment`
-    // (from `dart:io`). This applies to `mock_url` args and to fixtures routed through a
-    // `client_factory` (per-call override or per-language override) that derives `_mockUrl`
-    // inline. Without this, the generated tests fail to compile with
+    // (from `dart:io`). This applies to `mock_url` and `mock_url_list` args and to fixtures
+    // routed through a `client_factory` (per-call override or per-language override) that
+    // derives `_mockUrl` inline. Without this, the generated tests fail to compile with
     // `Error: Undefined name 'Platform'`.
     let lang_client_factory = e2e_config
         .call
@@ -294,7 +296,11 @@ fn render_test_file(
                 &f.tags,
                 &f.input,
             );
-            if call_config.args.iter().any(|a| a.arg_type == "mock_url") {
+            if call_config
+                .args
+                .iter()
+                .any(|a| a.arg_type == "mock_url" || a.arg_type == "mock_url_list")
+            {
                 return true;
             }
             call_config
@@ -429,6 +435,55 @@ fn render_test_file(
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
 
+    let _ = writeln!(out, "PageAction _parsePageAction(Map<String, dynamic> json) {{");
+    let _ = writeln!(out, "  final actionType = json['type'] as String?;");
+    let _ = writeln!(out, "  switch (actionType) {{");
+    let _ = writeln!(out, "    case 'click':");
+    let _ = writeln!(
+        out,
+        "      return PageAction.click(selector: json['selector'] as String);"
+    );
+    let _ = writeln!(out, "    case 'type_text':");
+    let _ = writeln!(out, "      return PageAction.typeText(");
+    let _ = writeln!(out, "        selector: json['selector'] as String,");
+    let _ = writeln!(out, "        text: json['text'] as String,");
+    let _ = writeln!(out, "      );");
+    let _ = writeln!(out, "    case 'press_key':");
+    let _ = writeln!(out, "      return PageAction.press(");
+    let _ = writeln!(out, "        key: json['key'] as String,");
+    let _ = writeln!(out, "      );");
+    let _ = writeln!(out, "    case 'scroll_down':");
+    let _ = writeln!(out, "      return PageAction.scroll(");
+    let _ = writeln!(out, "        direction: ScrollDirection.down,");
+    let _ = writeln!(out, "        selector: json['selector'] as String? ?? '',");
+    let _ = writeln!(out, "        amount: json['amount'] as int? ?? 0,");
+    let _ = writeln!(out, "      );");
+    let _ = writeln!(out, "    case 'wait_selector':");
+    let _ = writeln!(out, "      return PageAction.wait(");
+    let _ = writeln!(out, "        milliseconds: json['timeout_ms'] as int? ?? 0,");
+    let _ = writeln!(out, "        selector: json['selector'] as String,");
+    let _ = writeln!(out, "      );");
+    let _ = writeln!(out, "    case 'screenshot':");
+    let _ = writeln!(
+        out,
+        "      return PageAction.screenshot(fullPage: json['full_page'] as bool? ?? false);"
+    );
+    let _ = writeln!(out, "    case 'execute_js':");
+    let _ = writeln!(
+        out,
+        "      return PageAction.executeJs(script: json['script'] as String);"
+    );
+    let _ = writeln!(out, "    case 'scrape':");
+    let _ = writeln!(out, "      return const PageAction.scrape();");
+    let _ = writeln!(out, "    default:");
+    let _ = writeln!(
+        out,
+        "      throw UnsupportedError('Unknown PageAction type: $actionType');"
+    );
+    let _ = writeln!(out, "  }}");
+    let _ = writeln!(out, "}}");
+    let _ = writeln!(out);
+
     let _ = writeln!(out, "void main() {{");
 
     // Emit setUpAll to initialize the flutter_rust_bridge before any test runs and,
@@ -458,7 +513,15 @@ fn render_test_file(
     }
 
     for fixture in fixtures {
-        render_test_case(&mut out, fixture, e2e_config, lang, bridge_class, dart_first_class_map);
+        render_test_case(
+            &mut out,
+            fixture,
+            e2e_config,
+            lang,
+            bridge_class,
+            dart_first_class_map,
+            adapters,
+        );
     }
 
     let _ = writeln!(out, "}}");
@@ -472,6 +535,7 @@ fn render_test_case(
     lang: &str,
     bridge_class: &str,
     dart_first_class_map: &crate::field_access::DartFirstClassMap,
+    adapters: &[alef_core::config::extras::AdapterConfig],
 ) {
     // HTTP fixtures: hit the mock server.
     if let Some(http) = &fixture.http {
@@ -610,6 +674,12 @@ fn render_test_case(
                 .and_then(|o| o.client_factory.as_deref())
         });
 
+    // Resolve adapter request type for streaming methods.
+    let adapter = adapters.iter().find(|a| a.name == call_config.function.as_str());
+    let adapter_request_type: Option<String> = adapter
+        .and_then(|a| a.request_type.as_deref())
+        .map(|rt| rt.rsplit("::").next().unwrap_or(rt).to_string());
+
     // setup_lines holds per-test statements that must precede the main call:
     // engine construction (handle args) and URL building (mock_url args).
     let mut setup_lines: Vec<String> = Vec::new();
@@ -629,7 +699,16 @@ fn render_test_case(
                         r#"final {name} = "${{Platform.environment["MOCK_SERVER_URL"] ?? "http://localhost:8080"}}/fixtures/{fixture_id}";"#
                     ));
                 }
-                args.push(name);
+                // For streaming adapters with a request_type, wrap the URL in the request constructor.
+                if let Some(ref req_type) = adapter_request_type {
+                    let req_var = format!("{}Req", name);
+                    // Extract just the type name (last segment after ::).
+                    let req_type_name = req_type.rsplit("::").next().unwrap_or(req_type.as_str());
+                    setup_lines.push(format!("final {req_var} = {req_type_name}(url: {name});"));
+                    args.push(req_var);
+                } else {
+                    args.push(name);
+                }
                 continue;
             }
             "handle" => {
@@ -695,7 +774,16 @@ fn render_test_case(
                     r#"final {var_name} = <String>[{paths_literal}].map((p) => p.startsWith('http') ? p : {var_name}Base + p).toList();"#
                 ));
 
-                args.push(var_name.to_string());
+                // For streaming adapters with a request_type, wrap the URL list in the request constructor.
+                if let Some(ref req_type) = adapter_request_type {
+                    let req_var = format!("{}Req", var_name);
+                    // Extract just the type name (last segment after ::).
+                    let req_type_name = req_type.rsplit("::").next().unwrap_or(req_type.as_str());
+                    setup_lines.push(format!("final {req_var} = {req_type_name}(urls: {var_name});"));
+                    args.push(req_var);
+                } else {
+                    args.push(var_name.to_string());
+                }
                 continue;
             }
             _ => {}
@@ -839,6 +927,21 @@ fn render_test_case(
                             .map(|s| format!("'{}'", escape_dart(s)))
                             .collect();
                         args.push(format!("<String>[{}]", items.join(", ")));
+                    } else if arg_value.is_array() {
+                        // Generic typed array (e.g. `actions: [PageAction]` for interact).
+                        // Decode via jsonDecode at test-run time and convert to typed instances.
+                        let json_str = serde_json::to_string(&arg_value).unwrap_or_default();
+                        let var_name = arg_def.name.clone();
+                        if elem_type == "PageAction" {
+                            setup_lines.push(format!(
+                                "final {var_name} = (jsonDecode(r'{json_str}') as List<dynamic>).map((e) => _parsePageAction(e as Map<String, dynamic>)).toList();"
+                            ));
+                        } else {
+                            setup_lines.push(format!(
+                                "final {var_name} = (jsonDecode(r'{json_str}') as List<dynamic>).cast<Map<String, dynamic>>();"
+                            ));
+                        }
+                        args.push(var_name);
                     }
                 } else if options_via == "from_json" {
                     // `from_json` path: construct a typed mirror-struct via the generated

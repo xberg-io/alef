@@ -1294,16 +1294,15 @@ fn render_test_method(
     // owner handle (`engine.crawlStream(req)`), not as static facade methods — the
     // Java facade deliberately emits no static streaming methods. Capture the owner
     // handle variable so the call is rendered as an instance-method invocation.
-    let streaming_owner_handle: Option<String> = if is_streaming_adapter
-        && adapter.is_some_and(|a| a.owner_type.is_some())
-    {
-        filtered_args
-            .iter()
-            .find(|a| a.arg_type == "handle")
-            .map(|a| a.name.clone())
-    } else {
-        None
-    };
+    let streaming_owner_handle: Option<String> =
+        if is_streaming_adapter && adapter.is_some_and(|a| a.owner_type.is_some()) {
+            filtered_args
+                .iter()
+                .find(|a| a.arg_type == "handle")
+                .map(|a| a.name.clone())
+        } else {
+            None
+        };
 
     let (mut setup_lines, args_str) = build_args_and_setup(
         &fixture.input,

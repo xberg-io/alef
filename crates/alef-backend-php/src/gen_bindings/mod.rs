@@ -1970,10 +1970,7 @@ fn gen_streaming_adapter_facade_method(
     let mut method_code = String::new();
 
     // Rust function with #[php(name = "...")] attribute
-    method_code.push_str(&format!(
-        "    #[php(name = \"{}\")]\n",
-        method_name
-    ));
+    method_code.push_str(&format!("    #[php(name = \"{}\")]\n", method_name));
     method_code.push_str(&format!(
         "    pub fn {}({}) -> {} {{\n",
         method_name,
@@ -1991,10 +1988,7 @@ fn gen_streaming_adapter_facade_method(
         .collect::<Vec<_>>()
         .join(", ");
 
-    method_code.push_str(&format!(
-        "        engine.{}({})\n",
-        rust_method_name, call_args
-    ));
+    method_code.push_str(&format!("        engine.{}({})\n", rust_method_name, call_args));
 
     method_code.push_str("    }\n");
 
