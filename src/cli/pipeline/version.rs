@@ -3,7 +3,7 @@ use anyhow::Context as _;
 use std::sync::LazyLock;
 use tracing::{debug, info, warn};
 
-use super::helpers::run_command;
+use super::helpers::{run_command, run_optional};
 use super::{extract, readme};
 
 /// Regex for matching version field in Cargo.toml format files.
@@ -423,6 +423,12 @@ pub fn sync_versions(
     info!("Syncing version {version}");
 
     let mut updated = vec![];
+    // Track which ecosystems had manifests rewritten, so we can refresh
+    // their lockfiles after all updates complete (BLK-11).
+    let mut any_node_pkg_modified = false;
+    let mut any_cargo_toml_modified = false;
+    let mut any_composer_json_modified = false;
+    let mut any_mix_exs_modified = false;
     // All paths matched by [[workspace.sync.text_replacements]] globs, whether
     // or not the version substitution actually changed their content.  Used to
     // ensure finalize_hashes is called on every sync target so that stale
@@ -497,6 +503,7 @@ pub fn sync_versions(
                 // Skip crates that use workspace version inheritance or have no version.
                 if write_version_to_cargo_toml(path_str, &version).is_ok() && !updated.contains(path_str) {
                     updated.push(path_str.clone());
+                    any_cargo_toml_modified = true;
                 }
                 // Also patch intra-workspace dep version pins in all dep tables.
                 if !workspace_member_names.is_empty() {
@@ -504,6 +511,7 @@ pub fn sync_versions(
                         Ok(true) => {
                             if !updated.contains(path_str) {
                                 updated.push(path_str.clone());
+                                any_cargo_toml_modified = true;
                             }
                         }
                         Ok(false) => {}
@@ -520,6 +528,7 @@ pub fn sync_versions(
                     Ok(true) => {
                         if !updated.contains(&"Cargo.toml".to_string()) {
                             updated.push("Cargo.toml".to_string());
+                            any_cargo_toml_modified = true;
                         }
                     }
                     Ok(false) => {}
@@ -555,6 +564,7 @@ pub fn sync_versions(
             if let Some(new_content) = replace_version_pattern(&content, r#""version": "[^"]*""#, &version) {
                 std::fs::write(&node_path, &new_content).with_context(|| format!("failed to write {node_path}"))?;
                 updated.push(node_path);
+                any_node_pkg_modified = true;
             }
         }
     }
@@ -617,6 +627,7 @@ pub fn sync_versions(
         if let Some(new_content) = replace_version_pattern(&content, r#""version": "[^"]*""#, &version) {
             std::fs::write("packages/php/composer.json", &new_content)?;
             updated.push("packages/php/composer.json".to_string());
+            any_composer_json_modified = true;
         }
     }
 
@@ -625,9 +636,11 @@ pub fn sync_versions(
         if let Some(new_content) = replace_version_pattern(&content, r#"version: "[^"]*""#, &version) {
             std::fs::write("packages/elixir/mix.exs", &new_content)?;
             updated.push("packages/elixir/mix.exs".to_string());
+            any_mix_exs_modified = true;
         } else if let Some(new_content) = replace_version_pattern(&content, r#"@version "[^"]*""#, &version) {
             std::fs::write("packages/elixir/mix.exs", &new_content)?;
             updated.push("packages/elixir/mix.exs".to_string());
+            any_mix_exs_modified = true;
         }
     }
 
@@ -674,6 +687,7 @@ pub fn sync_versions(
             if let Some(new_content) = replace_version_pattern(&content, r#""version":\s*"[^"]*""#, &version) {
                 std::fs::write(&node_pkg, &new_content)?;
                 updated.push(node_pkg.to_string_lossy().to_string());
+                any_node_pkg_modified = true;
             }
         }
     }
@@ -686,6 +700,7 @@ pub fn sync_versions(
         if let Some(new_content) = replace_version_pattern(&content, r#""version":\s*"[^"]*""#, &version) {
             std::fs::write("package.json", &new_content)?;
             updated.push("package.json".to_string());
+            any_node_pkg_modified = true;
         }
     }
 
@@ -694,6 +709,7 @@ pub fn sync_versions(
         if let Some(new_content) = replace_version_pattern(&content, r#""version":\s*"[^"]*""#, &version) {
             std::fs::write("composer.json", &new_content)?;
             updated.push("composer.json".to_string());
+            any_composer_json_modified = true;
         }
     }
 
@@ -943,6 +959,23 @@ pub fn sync_versions(
                 }
             }
         }
+    }
+
+    // Refresh lockfiles for any ecosystem whose manifests were rewritten.
+    // This ensures CI's frozen-lockfile mode won't reject mismatched lockfiles.
+    // Each command is idempotent and run_optional gracefully handles absent binaries.
+    // See BLK-11 for context.
+    if any_node_pkg_modified {
+        run_optional("pnpm", &["install", "--no-frozen-lockfile", "--ignore-scripts", "-w"]);
+    }
+    if any_cargo_toml_modified {
+        run_optional("cargo", &["update", "--workspace", "--offline"]);
+    }
+    if any_composer_json_modified {
+        run_optional("composer", &["update", "--lock", "--no-interaction"]);
+    }
+    if any_mix_exs_modified {
+        run_optional("mix", &["deps.get"]);
     }
 
     // Finalize alef:hash lines in every file that carries the alef header and
@@ -2258,5 +2291,21 @@ tokio = { version = "1.0", features = ["full"] }
             beta_cargo.contains(r#"libc = "0.2""#),
             "libc must not be touched:\n{beta_cargo}"
         );
+    }
+
+    #[test]
+    fn run_optional_logs_but_does_not_fail_on_missing_binary() {
+        // Verify that run_optional gracefully handles a binary that doesn't exist.
+        // This test just invokes the function and verifies it doesn't panic.
+        // The actual command execution would fail, but run_optional logs and returns.
+        super::super::helpers::run_optional("nonexistent_binary_12345", &["arg1", "arg2"]);
+        // If we reach here without panicking, the test passes.
+    }
+
+    #[test]
+    fn run_optional_succeeds_for_simple_command() {
+        // Verify that run_optional can run a simple builtin command (echo) successfully.
+        super::super::helpers::run_optional("echo", &["test"]);
+        // If we reach here without panicking, the test passes.
     }
 }

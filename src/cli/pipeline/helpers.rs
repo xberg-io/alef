@@ -15,6 +15,28 @@ pub(crate) fn run_command(cmd: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Run a command with given arguments, logging but not failing if the binary is
+/// absent or the command fails. Used for optional ecosystem-specific lockfile
+/// refresh commands (pnpm, cargo, composer, mix) that may not be installed.
+///
+/// Logs a warning and returns gracefully if the binary cannot be found or the
+/// command exits with a non-zero status. This allows lockfile refresh to be
+/// best-effort in environments where not all language ecosystems are installed.
+pub(crate) fn run_optional(bin: &str, args: &[&str]) {
+    let cmd = format!("{} {}", bin, args.join(" "));
+    info!("Running (optional): {cmd}");
+    match std::process::Command::new(bin).args(args).status() {
+        Ok(status) => {
+            if !status.success() {
+                warn!("Optional command failed with exit code {:?}: {cmd}", status.code());
+            }
+        }
+        Err(e) => {
+            warn!("Optional command not found or failed to execute: {cmd} ({})", e);
+        }
+    }
+}
+
 /// Prepend `KEY=VALUE` exports inside the shell command string. macOS SIP
 /// strips `DYLD_*` env vars when re-execing through `/bin/sh`, so passing them
 /// via `Command::env` alone is unreliable. Inlining the export into the shell
