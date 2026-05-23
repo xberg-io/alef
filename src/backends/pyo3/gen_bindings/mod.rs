@@ -135,12 +135,25 @@ fn replace_constructor_with_serde_rename(
         }
     }
 
+    // Check if this type has an options-field bridge (e.g., ConversionOptions.visitor).
+    // The bridge field is appended later via `bridge_param`; filter it out of
+    // `sorted_fields` so we do not emit it twice when the field is force-restored
+    // through `never_skip_cfg_field_names`.
+    let bridge_field_name = trait_bridges
+        .iter()
+        .find(|b| {
+            b.bind_via == crate::core::config::BridgeBinding::OptionsField
+                && b.options_type.as_deref() == Some(&typ.name)
+        })
+        .and_then(|b| b.resolved_options_field());
+
     // Build parameter list with serde_rename and config-based renames.
     // Include cfg-gated fields that the consumer has force-restored via
     // `never_skip_cfg_field_names` (e.g. kreuzberg-py builds with all features so
     // pdf_options / keywords / html_* / layout / tree_sitter need to be kwargs).
     let mut sorted_fields: Vec<_> = binding_fields(&typ.fields)
         .filter(|f| !f.binding_excluded && (f.cfg.is_none() || never_skip_cfg_field_names.contains(&f.name)))
+        .filter(|f| bridge_field_name.is_none() || f.name != bridge_field_name.unwrap())
         .collect();
     sorted_fields.sort_by_key(|f| f.optional as u8);
 
@@ -179,15 +192,6 @@ fn replace_constructor_with_serde_rename(
             format!("{}: {}", param_ident, ty)
         })
         .collect();
-
-    // Check if this type has an options-field bridge (e.g., ConversionOptions.visitor)
-    let bridge_field_name = trait_bridges
-        .iter()
-        .find(|b| {
-            b.bind_via == crate::core::config::BridgeBinding::OptionsField
-                && b.options_type.as_deref() == Some(&typ.name)
-        })
-        .and_then(|b| b.resolved_options_field());
 
     let bridge_param = trait_bridges
         .iter()

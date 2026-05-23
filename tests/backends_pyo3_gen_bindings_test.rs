@@ -5202,3 +5202,122 @@ fn test_has_default_struct_with_nested_struct_field_accepts_none() {
         content
     );
 }
+
+#[test]
+fn test_options_field_bridge_field_not_duplicated_when_cfg_force_restored() {
+    // Regression test: when a trait-bridge `bind_via = OptionsField` field is also
+    // cfg-gated on a `has_default` type, the backend force-restores it into
+    // `never_skip_cfg_field_names`. The constructor rewriter must filter it out of
+    // `sorted_fields` (so it does not appear via the params iterator) and rely on
+    // the existing `bridge_param` append at the end of the param list — otherwise
+    // the field appears twice and rustc rejects with E0415
+    // ("identifier 'visitor' is bound more than once in this parameter list").
+    let backend = Pyo3Backend;
+
+    let mut visitor_field = make_field(
+        "visitor",
+        TypeRef::Optional(Box::new(TypeRef::Named("VisitorHandle".to_string()))),
+        true,
+    );
+    visitor_field.cfg = Some("feature = \"visitor\"".to_string());
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![
+            TypeDef {
+                name: "VisitorHandle".to_string(),
+                rust_path: "test_lib::VisitorHandle".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: true,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+            TypeDef {
+                name: "ConversionOptions".to_string(),
+                rust_path: "test_lib::ConversionOptions".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![
+                    make_field("format", TypeRef::String, false),
+                    visitor_field,
+                ],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: true,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+        ],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let mut config = make_config();
+    config.trait_bridges = vec![TraitBridgeConfig {
+        trait_name: "HtmlVisitor".to_string(),
+        super_trait: None,
+        registry_getter: None,
+        register_fn: None,
+        unregister_fn: None,
+        clear_fn: None,
+        type_alias: Some("VisitorHandle".to_string()),
+        param_name: Some("visitor".to_string()),
+        register_extra_args: None,
+        exclude_languages: vec![],
+        bind_via: alef::core::config::BridgeBinding::OptionsField,
+        options_type: Some("ConversionOptions".to_string()),
+        options_field: Some("visitor".to_string()),
+        context_type: None,
+        result_type: None,
+        ffi_skip_methods: Vec::new(),
+    }];
+
+    let result = backend.generate_bindings(&api, &config);
+    assert!(result.is_ok(), "Failed to generate bindings: {}", result.unwrap_err());
+
+    let files = result.unwrap();
+    let content = &files[0].content;
+
+    let conversion_options_block = content
+        .split("impl ConversionOptions")
+        .nth(1)
+        .expect("ConversionOptions impl block must exist");
+    let constructor_body = conversion_options_block
+        .split("pub fn new(")
+        .nth(1)
+        .and_then(|s| s.split(") -> Self").next())
+        .expect("ConversionOptions::new param list must exist");
+
+    let visitor_param_count = constructor_body.matches("visitor:").count();
+    assert_eq!(
+        visitor_param_count, 1,
+        "ConversionOptions::new must declare `visitor:` exactly once, found {} in:\n{}",
+        visitor_param_count, constructor_body
+    );
+}
