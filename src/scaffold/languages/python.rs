@@ -144,7 +144,7 @@ pub(crate) fn scaffold_python(api: &ApiSurface, config: &ResolvedCrateConfig) ->
         String::new()
     } else {
         let entries: Vec<String> = meta.authors.iter().map(|a| format!("{{ name = \"{}\" }}", a)).collect();
-        format!("authors = [ {} ]\n", entries.join(", "))
+        format!("authors = [{}]\n", entries.join(", "))
     };
 
     let keywords_toml = if meta.keywords.is_empty() {
@@ -153,7 +153,7 @@ pub(crate) fn scaffold_python(api: &ApiSurface, config: &ResolvedCrateConfig) ->
         let mut sorted_keywords = meta.keywords.clone();
         sorted_keywords.sort();
         let entries: Vec<String> = sorted_keywords.iter().map(|k| format!("\"{}\"", k)).collect();
-        format!("keywords = [ {} ]\n", entries.join(", "))
+        format!("keywords = [{}]\n", entries.join(", "))
     };
 
     let homepage_toml = if meta.homepage.is_empty() {
@@ -165,7 +165,7 @@ pub(crate) fn scaffold_python(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     let dependencies_toml = match config.python.as_ref().map(|p| &p.pip_dependencies) {
         Some(deps) if !deps.is_empty() => {
             let entries: Vec<String> = deps.iter().map(|d| format!("\"{}\"", d)).collect();
-            format!("dependencies = [ {} ]\n", entries.join(", "))
+            format!("dependencies = [{}]\n", entries.join(", "))
         }
         _ => String::new(),
     };
@@ -175,7 +175,7 @@ pub(crate) fn scaffold_python(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     let content = format!(
         r#"[build-system]
 build-backend = "maturin"
-requires = [ "{maturin_build_requires}" ]
+requires = ["{maturin_build_requires}"]
 
 [project]
 name = "{pip_name}"
@@ -192,22 +192,22 @@ classifiers = [
   "Programming Language :: Python :: 3.14",
 ]
 {urls_line}{homepage}{dependencies}[dependency-groups]
-dev = [ "mypy{mypy}", "ruff{ruff}" ]
+dev = ["mypy{mypy}", "ruff{ruff}"]
 
 [tool.maturin]
 module-name = "{python_package}.{module_name}"
 manifest-path = "../../crates/{crate_dir}-py/Cargo.toml"
 # abi3-py310 produces a single wheel per platform that loads on Python 3.10+,
 # avoiding a per-Python-version build matrix.
-features = [ "pyo3/extension-module", "pyo3/abi3-py310" ]
-python-packages = [ "{python_package}" ]
+features = ["pyo3/extension-module", "pyo3/abi3-py310"]
+python-packages = ["{python_package}"]
 
 [tool.ruff]
 target-version = "py310"
 line-length = 120
 format.docstring-code-format = true
 format.docstring-code-line-length = 120
-lint.select = [ "ALL" ]
+lint.select = ["ALL"]
 lint.ignore = [
   "ANN401", "ASYNC109", "ASYNC110", "BLE001", "COM812",
   "D100", "D104", "D107", "D205", "E501", "EM",
@@ -215,16 +215,16 @@ lint.ignore = [
   "PLW0603", "S104", "S110", "S603", "TD", "TRY",
 ]
 lint.mccabe.max-complexity = 15
-lint.per-file-ignores."tests/**" = [ "ANN", "D103", "PLR2004", "S101" ]
+lint.per-file-ignores."tests/**" = ["ANN", "D103", "PLR2004", "S101"]
 # The alef Python codegen still emits cosmetic warnings on the wrapper
 # modules: api.py keeps the legacy `from typing import AsyncIterator` and a
 # single-line import block, options.py carries # noqa: TC001 / F401 markers
 # that turn out unused on every regen, __init__.py star-imports re-sort with
 # a different convention. Silence these specific rules on the wrappers until
 # the codegen is updated to emit ruff-clean output.
-lint.per-file-ignores."{python_package}/api.py" = [ "F401", "I001", "UP035" ]
-lint.per-file-ignores."{python_package}/options.py" = [ "F401", "RUF100" ]
-lint.per-file-ignores."{python_package}/__init__.py" = [ "I001" ]
+lint.per-file-ignores."{python_package}/api.py" = ["F401", "I001", "UP035"]
+lint.per-file-ignores."{python_package}/options.py" = ["F401", "RUF100"]
+lint.per-file-ignores."{python_package}/__init__.py" = ["I001"]
 lint.pydocstyle.convention = "google"
 lint.pylint.max-args = 10
 lint.pylint.max-branches = 15
@@ -246,7 +246,7 @@ namespace_packages = true
 # casts the return values.
 [[tool.mypy.overrides]]
 module = "{python_package}.api"
-disable_error_code = [ "call-arg", "arg-type", "return-value", "attr-defined" ]
+disable_error_code = ["call-arg", "arg-type", "return-value", "attr-defined"]
 "#,
         pip_name = pip_name,
         version = version,
