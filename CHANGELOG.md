@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-backend-zig: parameterize `KreuzbergError` and `kreuzberg_last_error_code()` in trait-bridge templates.** The Zig trait-bridge code generation templates (`clear_fn_signature.jinja`, `clear_fn_body.jinja`, `unregister_fn_signature.jinja`, `unregister_fn_body.jinja`, `unregister_fn_configured_signature.jinja`) were hardcoded to reference `KreuzbergError` and `c.kreuzberg_last_error_code()`, making them specific to the Kreuzberg consumer. For other consumers like kreuzcrawl, the FFI prefix is different (`kreuzcrawl` → `kcrawl`) and the error type is different (`CrawlError` not `KreuzbergError`). The fix adds `error_type` and `ffi_prefix` template variables to all trait-bridge codegen, sourced from `config.error_type` (already specified in each consumer's `alef.toml`) and the FFI prefix respectively. This makes the Zig backend generic and allows kreuzcrawl and other consumers to generate correct trait-bridge code without consumer-specific hardcoding in alef. (`src/backends/zig/trait_bridge.rs`, `src/backends/zig/gen_bindings/mod.rs`, `src/backends/zig/templates/clear_fn_*.jinja`, `src/backends/zig/templates/unregister_fn_*.jinja`)
+
 ## [0.18.2] - 2026-05-23
 
 ### Fixed

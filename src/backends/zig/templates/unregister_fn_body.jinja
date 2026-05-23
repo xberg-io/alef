@@ -1,6 +1,6 @@
     var _out_error: [*c]u8 = null;
     const _rc = {{ c_unregister }}(name, &_out_error);
     if (_out_error != null) _free_string(_out_error);
-    if (_rc != 0 or c.kreuzberg_last_error_code() != 0) {
-        return _first_error(KreuzbergError);
+    if (_rc != 0 or c.{{ ffi_prefix }}_last_error_code() != 0) {
+        return _first_error({{ error_type }});
     }

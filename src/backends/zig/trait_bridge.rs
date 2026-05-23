@@ -322,11 +322,12 @@ pub fn emit_make_vtable(trait_name: &str, has_super_trait: bool, trait_def: &Typ
 
 /// Emit the vtable extern struct and registration shim for a single trait bridge.
 ///
-/// `prefix` is the C FFI prefix (e.g., `"kreuzberg"`).
+/// `prefix` is the C FFI prefix (e.g., `"kreuzberg"`, `"kreuzcrawl"`).
+/// `error_type` is the Zig error set type name (e.g., `"KreuzbergError"`, `"CrawlError"`).
 /// `bridge_cfg` is the trait bridge configuration entry.
 /// `trait_def` is the IR type definition for the trait (must have `is_trait = true`).
 /// `out` is the output buffer to append to.
-pub fn emit_trait_bridge(prefix: &str, bridge_cfg: &TraitBridgeConfig, trait_def: &TypeDef, out: &mut String) {
+pub fn emit_trait_bridge(prefix: &str, error_type: &str, bridge_cfg: &TraitBridgeConfig, trait_def: &TypeDef, out: &mut String) {
     let trait_name = &trait_def.name;
     let snake = trait_snake(trait_name);
     let has_super_trait = bridge_cfg.super_trait.is_some();
@@ -480,12 +481,15 @@ pub fn emit_trait_bridge(prefix: &str, bridge_cfg: &TraitBridgeConfig, trait_def
             "unregister_fn_signature.jinja",
             minijinja::context! {
                 snake => &snake,
+                error_type => error_type,
             },
         ));
         out.push_str(&crate::backends::zig::template_env::render(
             "unregister_fn_body.jinja",
             minijinja::context! {
                 c_unregister => &c_unregister,
+                ffi_prefix => prefix,
+                error_type => error_type,
             },
         ));
         out.push_str("}\n");
@@ -514,12 +518,15 @@ pub fn emit_trait_bridge(prefix: &str, bridge_cfg: &TraitBridgeConfig, trait_def
                 "clear_fn_signature.jinja",
                 minijinja::context! {
                     clear_fn => clear_fn,
+                    error_type => error_type,
                 },
             ));
             out.push_str(&crate::backends::zig::template_env::render(
                 "clear_fn_body.jinja",
                 minijinja::context! {
                     c_clear => &c_clear,
+                    ffi_prefix => prefix,
+                    error_type => error_type,
                 },
             ));
             out.push_str("}\n");
@@ -793,7 +800,7 @@ mod tests {
         let bridge_cfg = make_bridge_cfg("Validator", None);
 
         let mut out = String::new();
-        emit_trait_bridge("demo", &bridge_cfg, &trait_def, &mut out);
+        emit_trait_bridge("demo", "error", &bridge_cfg, &trait_def, &mut out);
 
         // Vtable struct
         assert!(
@@ -842,7 +849,7 @@ mod tests {
         bridge_cfg.clear_fn = Some("clear_ocr_backends".to_string());
 
         let mut out = String::new();
-        emit_trait_bridge("kreuzberg", &bridge_cfg, &trait_def, &mut out);
+        emit_trait_bridge("kreuzberg", "KreuzbergError", &bridge_cfg, &trait_def, &mut out);
 
         assert!(
             out.contains("pub fn clear_ocr_backends() KreuzbergError!void"),
@@ -875,7 +882,7 @@ mod tests {
         // clear_fn left as None.
 
         let mut out = String::new();
-        emit_trait_bridge("kreuzberg", &bridge_cfg, &trait_def, &mut out);
+        emit_trait_bridge("kreuzberg", "KreuzbergError", &bridge_cfg, &trait_def, &mut out);
 
         assert!(
             !out.contains("pub fn clear_"),
@@ -908,7 +915,7 @@ mod tests {
         let bridge_cfg = make_bridge_cfg("OcrBackend", Some("kreuzberg::plugins::Plugin"));
 
         let mut out = String::new();
-        emit_trait_bridge("kreuzberg", &bridge_cfg, &trait_def, &mut out);
+        emit_trait_bridge("kreuzberg", "KreuzbergError", &bridge_cfg, &trait_def, &mut out);
 
         // Struct name
         assert!(
@@ -968,7 +975,7 @@ mod tests {
         let bridge_cfg = make_bridge_cfg("Validator", None);
 
         let mut out = String::new();
-        emit_trait_bridge("demo", &bridge_cfg, &trait_def, &mut out);
+        emit_trait_bridge("demo", "error", &bridge_cfg, &trait_def, &mut out);
 
         // Helper function declaration
         assert!(
@@ -1001,7 +1008,7 @@ mod tests {
         let bridge_cfg = make_bridge_cfg("OcrBackend", Some("kreuzberg::Plugin"));
 
         let mut out = String::new();
-        emit_trait_bridge("kreuzberg", &bridge_cfg, &trait_def, &mut out);
+        emit_trait_bridge("kreuzberg", "KreuzbergError", &bridge_cfg, &trait_def, &mut out);
 
         assert!(
             out.contains("pub fn make_ocr_backend_vtable(comptime T: type, instance: *T)"),
@@ -1027,7 +1034,7 @@ mod tests {
         let bridge_cfg = make_bridge_cfg("Processor", None);
 
         let mut out = String::new();
-        emit_trait_bridge("demo", &bridge_cfg, &trait_def, &mut out);
+        emit_trait_bridge("demo", "error", &bridge_cfg, &trait_def, &mut out);
 
         // Thunk receives ptr+len params
         assert!(out.contains("data_ptr: [*c]const u8"), "missing data_ptr param: {out}");
@@ -1053,7 +1060,7 @@ mod tests {
         let bridge_cfg = make_bridge_cfg("Parser", None);
 
         let mut out = String::new();
-        emit_trait_bridge("demo", &bridge_cfg, &trait_def, &mut out);
+        emit_trait_bridge("demo", "error", &bridge_cfg, &trait_def, &mut out);
 
         // Thunk returns i32 (fallible → i32 return)
         assert!(
@@ -1082,7 +1089,7 @@ mod tests {
         let bridge_cfg = make_bridge_cfg("demo", None);
 
         let mut out = String::new();
-        emit_trait_bridge("demo", &bridge_cfg, &trait_def, &mut out);
+        emit_trait_bridge("demo", "error", &bridge_cfg, &trait_def, &mut out);
 
         // Infallible primitive method: thunk returns the value directly
         assert!(

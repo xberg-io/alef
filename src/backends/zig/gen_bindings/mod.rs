@@ -249,13 +249,17 @@ impl Backend for ZigBackend {
 
         // Emit C-vtable structs and registration shims for every configured trait bridge.
         // Zig has no inheritance; trait bridges use an `extern struct` of function pointers.
+        let error_type = config
+            .error_type
+            .as_deref()
+            .unwrap_or("error");
         for bridge_cfg in &config.trait_bridges {
             // Skip if "zig" is listed in exclude_languages for this bridge.
             if bridge_cfg.exclude_languages.iter().any(|lang| lang == "zig") {
                 continue;
             }
             if let Some(trait_def) = api.types.iter().find(|t| t.name == bridge_cfg.trait_name && t.is_trait) {
-                emit_trait_bridge(&prefix, bridge_cfg, trait_def, &mut content);
+                emit_trait_bridge(&prefix, error_type, bridge_cfg, trait_def, &mut content);
                 content.push('\n');
             }
         }
