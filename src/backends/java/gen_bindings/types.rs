@@ -55,6 +55,13 @@ pub(crate) fn gen_record_type(
         // the parent's named fields on write. Mirrors C#'s [JsonExtensionData].
         let is_flattened_json = f.serde_flatten && matches!(&f.ty, TypeRef::Json);
 
+        // Non-optional fields with #[serde(default)] must use boxed types in the record
+        // parameter so that null can represent "not set". With @JsonInclude(NON_ABSENT)
+        // at the class level, null values are omitted from JSON sent to Rust, letting
+        // serde apply its default. The Builder uses the same boxed type, and build()
+        // passes null values directly without unboxing (matching the record parameter).
+        let has_serde_default = f.default == Some("/* serde(default) */".to_string());
+
         let ftype = if is_visitor_field {
             "Visitor".to_string()
         } else if is_flattened_json {
@@ -63,6 +70,10 @@ pub(crate) fn gen_record_type(
             "Object".to_string()
         } else if f.optional {
             // Java best practice: use @Nullable fields, never Optional in records.
+            java_boxed_type(&f.ty).to_string()
+        } else if has_serde_default || matches!(f.ty, TypeRef::Duration) {
+            // Non-optional fields with #[serde(default)] or Duration use boxed types
+            // so null can represent "not set" for serde defaults.
             java_boxed_type(&f.ty).to_string()
         } else {
             java_type(&f.ty).to_string()
@@ -100,7 +111,9 @@ pub(crate) fn gen_record_type(
         // name (already snake_case per project convention).
         let json_property_name = f.serde_rename.clone().unwrap_or_else(|| f.name.clone());
         let has_json_property = f.serde_rename.is_some() || jname != json_property_name;
-        let has_nullable = f.optional;
+        // Emit @Nullable for optional fields and for non-optional fields with #[serde(default)]
+        // or Duration (which are boxed to allow null = "not set").
+        let has_nullable = f.optional || has_serde_default || matches!(f.ty, TypeRef::Duration);
 
         let mut decl = String::new();
 
@@ -276,6 +289,7 @@ pub(crate) fn gen_record_type(
         .filter(|f| !f.optional)
         .filter_map(|f| {
             let jname = safe_java_field_name(&f.name);
+            let has_serde_default = f.default == Some("/* serde(default) */".to_string());
             match &f.typed_default {
                 Some(DefaultValue::IntLiteral(n)) if *n != 0 => {
                     // Apply the Rust-side default when the Java primitive is at its zero value.
@@ -285,14 +299,16 @@ pub(crate) fn gen_record_type(
                     // Note: we do NOT apply defaults for bool fields — `false` is a valid
                     // explicit value that users may intentionally pass; we can't distinguish
                     // "user passed false" from "JSON omitted the field".
-                    // Duration fields map to boxed Long in Java; int literals don't auto-box
-                    // to Long, so we must use the L suffix to produce a long literal that Java
-                    // will auto-box correctly. Boxed types may arrive as null when JSON omits
-                    // the field (Jackson defaults boxed numerics to null, not 0), so we
-                    // null-check before setting the default. We do NOT coerce explicit 0 —
+                    // Boxed types (Duration, serde(default) numeric/boolean fields) may arrive
+                    // as null when JSON omits the field (Jackson defaults boxed types to null,
+                    // not 0), so we null-check before setting the default. Primitive types are
+                    // compared to their Java zero value. We do NOT coerce explicit 0 —
                     // that is a user-intentional value and the Rust core will validate it.
-                    let is_boxed = matches!(f.ty, TypeRef::Duration);
-                    let suffix = if is_boxed { "L" } else { "" };
+                    let is_boxed = matches!(f.ty, TypeRef::Duration) || has_serde_default;
+                    // Add "L" suffix only for Long (Duration or 64-bit numeric types with serde(default))
+                    let needs_long_suffix = matches!(f.ty, TypeRef::Duration)
+                        || (has_serde_default && matches!(f.ty, TypeRef::Primitive(PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize)));
+                    let suffix = if needs_long_suffix { "L" } else { "" };
                     let cond = if is_boxed {
                         format!("{jname} == null")
                     } else {
