@@ -28,8 +28,10 @@ pub(crate) fn gen_facade_class(
     bridge_param_names: &HashSet<String>,
     bridge_type_aliases: &HashSet<String>,
     _has_visitor_pattern: bool,
-    _config: &alef_core::config::ResolvedCrateConfig,
+    config: &alef_core::config::ResolvedCrateConfig,
 ) -> String {
+    use alef_core::config::extras::AdapterPattern;
+
     // Build per-function context objects for the facade_class template.
     let functions: Vec<minijinja::Value> = api
         .functions
@@ -158,10 +160,70 @@ pub(crate) fn gen_facade_class(
         })
         .collect();
 
-    // Streaming adapters with an `owner_type` are exposed as instance methods on
-    // the owner's opaque-handle class — a streaming iterator is bound to a live
-    // owner handle, so it cannot be a static facade method. The facade therefore
-    // emits no streaming methods.
+    // Emit static facade methods for streaming adapters with an owner_type.
+    // These wrap the instance methods on the owner handle, exposing a convenient
+    // module-level API (e.g., `Kreuzcrawl.crawlStream(engine, req)` instead of
+    // `engine.crawlStream(req)`). This matches the canonical surface exposed by
+    // other language backends (Go, Python, Ruby, etc.).
+    let mut streaming_wrappers = String::new();
+    for adapter in &config.adapters {
+        if !matches!(adapter.pattern, AdapterPattern::Streaming) {
+            continue;
+        }
+        if adapter.owner_type.is_none() || adapter.item_type.is_none() {
+            continue;
+        }
+
+        let adapter_name = &adapter.name;
+        let java_name = to_java_name(adapter_name);
+        let owner_type = adapter.owner_type.as_deref().unwrap();
+        let item_type = adapter.item_type.as_deref().unwrap();
+
+        // Extract short type name from fully-qualified path if needed
+        let short_item_type = item_type.rsplit("::").next().unwrap_or(item_type);
+
+        // Build parameter list from adapter params (excluding the owner handle which comes first)
+        let param_parts: Vec<String> = adapter
+            .params
+            .iter()
+            .map(|p| {
+                let java_type = match p.ty.as_str() {
+                    "String" | "&str" | "&'static str" => "String",
+                    "Vec<String>" => "List<String>",
+                    "()" => "Void",
+                    other => {
+                        // Strip Rust path prefix (e.g., "crate::requests::CrawlStreamRequest" → "CrawlStreamRequest")
+                        other.rsplit("::").next().unwrap_or(other)
+                    }
+                };
+                let annotation = if p.optional { "@Nullable " } else { "" };
+                format!("final {}{} {}", annotation, java_type, to_java_name(&p.name))
+            })
+            .collect();
+
+        // Build the wrapper method: call the streaming instance method on the owner handle
+        let method_call = if param_parts.is_empty() {
+            // No additional params besides the owner handle
+            format!(
+                "    public static Iterable<{short_item_type}> {java_name}(final {owner_type} engine) throws {raw_class}Exception {{\n        return engine.{java_name}();\n    }}\n"
+            )
+        } else {
+            let param_str = format!("final {owner_type} engine, {}", param_parts.join(", "));
+            let call_args = adapter
+                .params
+                .iter()
+                .map(|p| to_java_name(&p.name))
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            format!(
+                "    public static Iterable<{short_item_type}> {java_name}({param_str}) throws {raw_class}Exception {{\n        return engine.{java_name}({call_args});\n    }}\n"
+            )
+        };
+
+        streaming_wrappers.push_str(&method_call);
+        streaming_wrappers.push('\n');
+    }
 
     let class_body = crate::template_env::render(
         "facade_class.jinja",
@@ -169,6 +231,7 @@ pub(crate) fn gen_facade_class(
             class_name => public_class,
             raw_class => raw_class,
             functions => functions,
+            streaming_wrappers => streaming_wrappers,
         },
     );
 
@@ -177,6 +240,7 @@ pub(crate) fn gen_facade_class(
     let has_map = class_body.contains("Map<");
     let has_optional = class_body.contains("Optional<");
     let has_nullable = class_body.contains("@Nullable");
+    let has_iterable = class_body.contains("Iterable<");
 
     crate::template_env::render(
         "facade_file.jinja",
@@ -187,6 +251,7 @@ pub(crate) fn gen_facade_class(
             has_map => has_map,
             has_optional => has_optional,
             has_nullable => has_nullable,
+            has_iterable => has_iterable,
             body => class_body,
         },
     )
