@@ -233,6 +233,10 @@ impl Backend for JavaBackend {
             });
         }
 
+        // Build a map of enum names to their default variant names.
+        // This is used when a struct field has #[serde(default)] and the field type is an enum.
+        let enum_defaults = crate::extract::default_value_for_enum::enum_default_variants_map(api);
+
         // Untagged unions with data variants now emit as JsonNode-wrapper classes
         // (see gen_java_untagged_wrapper). The set is intentionally empty so that
         // record fields keep their wrapper type instead of being downcast to Object.
@@ -284,6 +288,7 @@ impl Backend for JavaBackend {
                         has_visitor_pattern,
                         &main_class,
                         builder_mode,
+                        &enum_defaults,
                     ),
                     generated_header: true,
                 });

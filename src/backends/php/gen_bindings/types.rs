@@ -1323,8 +1323,13 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
             }
         }
     }
-    // Fallback to first variant (with all fields defaulted) for unrecognised tags.
-    if let Some(first) = enum_def.variants.first() {
+    // Fallback to default variant (marked with #[default], or first if none) for unrecognised tags.
+    if let Some(first) = enum_def
+        .variants
+        .iter()
+        .find(|v| v.is_default)
+        .or_else(|| enum_def.variants.first())
+    {
         if first.fields.is_empty() {
             out.push_str(&crate::backends::php::template_env::render(
                 "php_flat_enum_fallback_variant_empty.jinja",

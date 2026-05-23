@@ -1,5 +1,6 @@
 //! Rust source extraction for alef -- parses pub API into IR.
 
+pub mod default_value_for_enum;
 pub mod extractor;
 mod type_resolver;
 
