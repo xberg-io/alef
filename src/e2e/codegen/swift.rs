@@ -235,6 +235,105 @@ import RustBridge
 extension RustString: @retroactive CustomStringConvertible {{
     public var description: String {{ self.toString() }}
 }}
+
+// Spawns the alef mock-server once per test process and exposes its base URL.
+// SwiftPM/XCTest has no global "before all tests" hook that can inject environment
+// variables (the JVM-style listener trick used by the Java/Kotlin backends), so the
+// server is started lazily on first access of `baseURL` and kept alive for the
+// lifetime of the process. A pre-set `MOCK_SERVER_URL` (e.g. exported by CI) wins.
+enum AlefE2EMockServer {{
+    static let baseURL: String = AlefE2EMockServer.start()
+
+    // Retain the child process so it is not reaped while tests run.
+    nonisolated(unsafe) private static var process: Process?
+
+    private static func start() -> String {{
+        if let preset = ProcessInfo.processInfo.environment["MOCK_SERVER_URL"], !preset.isEmpty {{
+            return preset
+        }}
+        let fileManager = FileManager.default
+        var dir = URL(fileURLWithPath: fileManager.currentDirectoryPath)
+        var fixturesDir: URL?
+        for _ in 0..<16 {{
+            let candidate = dir.appendingPathComponent("fixtures")
+            var isDir: ObjCBool = false
+            if fileManager.fileExists(atPath: candidate.path, isDirectory: &isDir), isDir.boolValue {{
+                fixturesDir = candidate
+                break
+            }}
+            let parent = dir.deletingLastPathComponent()
+            if parent.path == dir.path {{ break }}
+            dir = parent
+        }}
+        guard let fixtures = fixturesDir else {{
+            fatalError("AlefE2EMockServer: could not locate fixtures/ above \(fileManager.currentDirectoryPath)")
+        }}
+        let repoRoot = fixtures.deletingLastPathComponent()
+        let binary = repoRoot.appendingPathComponent("e2e/rust/target/release/mock-server")
+        guard fileManager.fileExists(atPath: binary.path) else {{
+            fatalError("AlefE2EMockServer: mock-server binary not found at \(binary.path) — run: cargo build --manifest-path e2e/rust/Cargo.toml --bin mock-server --release")
+        }}
+        let proc = Process()
+        proc.executableURL = binary
+        proc.arguments = [fixtures.path]
+        let stdoutPipe = Pipe()
+        proc.standardOutput = stdoutPipe
+        // Keep stdin open so the server does not see EOF and exit immediately.
+        proc.standardInput = Pipe()
+        do {{
+            try proc.run()
+        }} catch {{
+            fatalError("AlefE2EMockServer: failed to start mock-server: \(error)")
+        }}
+        process = proc
+        let handle = stdoutPipe.fileHandleForReading
+        var buffer = Data()
+        var resolved: String?
+        for _ in 0..<500 {{
+            let chunk = handle.availableData
+            if chunk.isEmpty {{ break }}
+            buffer.append(chunk)
+            if let text = String(data: buffer, encoding: .utf8) {{
+                for line in text.split(separator: "\n") {{
+                    if line.hasPrefix("MOCK_SERVER_URL=") {{
+                        resolved = String(line.dropFirst("MOCK_SERVER_URL=".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                        break
+                    }}
+                }}
+            }}
+            if resolved != nil {{ break }}
+        }}
+        guard let url = resolved else {{
+            proc.terminate()
+            fatalError("AlefE2EMockServer: mock-server did not emit MOCK_SERVER_URL")
+        }}
+        // Drain remaining stdout in the background so a full pipe never blocks the server.
+        DispatchQueue.global(qos: .background).async {{
+            while !handle.availableData.isEmpty {{}}
+        }}
+        return url
+    }}
+}}
+
+// URLSession that does not follow redirects, so tests can assert on 3xx status codes
+// and Location headers instead of transparently chasing them to the final response.
+final class AlefE2ENoRedirectDelegate: NSObject, URLSessionTaskDelegate {{
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {{
+        completionHandler(nil)
+    }}
+}}
+
+let alefE2ESession = URLSession(
+    configuration: .ephemeral,
+    delegate: AlefE2ENoRedirectDelegate(),
+    delegateQueue: nil
+)
 "#
     )
 }
@@ -457,7 +556,7 @@ impl client::TestClientRenderer for SwiftTestClientRenderer {
 
         let _ = writeln!(
             out,
-            "        let _baseURL = ProcessInfo.processInfo.environment[\"MOCK_SERVER_URL\"]!"
+            "        let _baseURL = AlefE2EMockServer.baseURL"
         );
         let _ = writeln!(
             out,
@@ -491,7 +590,7 @@ impl client::TestClientRenderer for SwiftTestClientRenderer {
         let _ = writeln!(out, "        let _sema = DispatchSemaphore(value: 0)");
         let _ = writeln!(
             out,
-            "        URLSession.shared.dataTask(with: _req) {{ data, resp, _ in"
+            "        alefE2ESession.dataTask(with: _req) {{ data, resp, _ in"
         );
         let _ = writeln!(out, "            {} = resp as? HTTPURLResponse", ctx.response_var);
         let _ = writeln!(out, "            _responseData = data");
@@ -873,12 +972,12 @@ fn render_test_method(
         let env_key = format!("MOCK_SERVER_{}", fixture.id.to_ascii_uppercase().replace('-', "_"));
         let mock_url = if fixture.has_host_root_route() {
             format!(
-                "ProcessInfo.processInfo.environment[\"{env_key}\"] ?? (ProcessInfo.processInfo.environment[\"MOCK_SERVER_URL\"]! + \"/fixtures/{}\")",
+                "ProcessInfo.processInfo.environment[\"{env_key}\"] ?? (AlefE2EMockServer.baseURL + \"/fixtures/{}\")",
                 fixture.id
             )
         } else {
             format!(
-                "ProcessInfo.processInfo.environment[\"MOCK_SERVER_URL\"]! + \"/fixtures/{}\"",
+                "AlefE2EMockServer.baseURL + \"/fixtures/{}\"",
                 fixture.id
             )
         };
@@ -1080,10 +1179,10 @@ fn build_args_and_setup(
             let env_key = format!("MOCK_SERVER_{}", fixture_id.to_ascii_uppercase().replace('-', "_"));
             let url_expr = if has_host_root_route {
                 format!(
-                    "ProcessInfo.processInfo.environment[\"{env_key}\"] ?? (ProcessInfo.processInfo.environment[\"MOCK_SERVER_URL\"]! + \"/fixtures/{fixture_id}\")"
+                    "ProcessInfo.processInfo.environment[\"{env_key}\"] ?? (AlefE2EMockServer.baseURL + \"/fixtures/{fixture_id}\")"
                 )
             } else {
-                format!("ProcessInfo.processInfo.environment[\"MOCK_SERVER_URL\"]! + \"/fixtures/{fixture_id}\"")
+                format!("AlefE2EMockServer.baseURL + \"/fixtures/{fixture_id}\"")
             };
             setup_lines.push(format!("let {} = {url_expr}", arg.name));
             parts.push((idx, arg.name.clone()));
