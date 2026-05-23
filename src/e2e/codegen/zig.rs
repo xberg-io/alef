@@ -513,7 +513,7 @@ impl client::TestClientRenderer for ZigTestClientRenderer {
         // so there is no keep-alive reuse benefit to preserve.
         let _ = writeln!(
             out,
-            "    const {rv} = try http_client.fetch(.{{ .location = .{{ .url = url }}, .method = {method_zig}, .extra_headers = {headers_arg}{payload_field}, .keep_alive = false, .response_writer = &response_body.writer }});",
+            "    const {rv} = try http_client.fetch(.{{ .location = .{{ .url = url }}, .method = {method_zig}, .extra_headers = {headers_arg}{payload_field}, .keep_alive = false, .redirect_behavior = .unhandled, .response_writer = &response_body.writer }});",
             rv = ctx.response_var,
         );
     }
