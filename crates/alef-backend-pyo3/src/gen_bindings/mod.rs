@@ -139,8 +139,27 @@ fn replace_constructor_with_serde_rename(
         })
         .collect();
 
+    // Check if this type has an options-field bridge (e.g., ConversionOptions.visitor)
+    let bridge_field_name = trait_bridges
+        .iter()
+        .find(|b| {
+            b.bind_via == alef_core::config::BridgeBinding::OptionsField && b.options_type.as_deref() == Some(&typ.name)
+        })
+        .and_then(|b| b.resolved_options_field());
+
+    let bridge_param = trait_bridges
+        .iter()
+        .find(|b| {
+            b.bind_via == alef_core::config::BridgeBinding::OptionsField && b.options_type.as_deref() == Some(&typ.name)
+        })
+        .and_then(|b| {
+            let param_name = b.param_name.as_deref()?;
+            Some((param_name, b.type_alias.as_deref().unwrap_or("object")))
+        });
+
     let defaults: Vec<String> = sorted_fields
         .iter()
+        .filter(|f| bridge_field_name.is_none() || f.name != bridge_field_name.unwrap())
         .map(|f| {
             // PyO3 strips the `r#` prefix when deriving the Python-facing keyword argument
             // name, so `r#type` in the signature → Python `type`.
@@ -168,10 +187,11 @@ fn replace_constructor_with_serde_rename(
     // Struct literal uses bare Rust field names (never renamed).
     // For non-cfg fields: use constructor parameters (with explicit form if renamed).
     // For cfg-gated fields: initialize with default (None for Option types, Default::default() otherwise).
+    // Bridge fields are handled separately below.
     let assignments: Vec<String> = typ
         .fields
         .iter()
-        .filter(|f| !f.binding_excluded)
+        .filter(|f| !f.binding_excluded && (bridge_field_name.is_none() || f.name != bridge_field_name.unwrap()))
         .map(|f| {
             if f.cfg.is_some() {
                 // Cfg-gated field: not a constructor parameter, use default
@@ -199,17 +219,6 @@ fn replace_constructor_with_serde_rename(
         })
         .collect();
 
-    // Check if this type has an options-field bridge (e.g., ConversionOptions.visitor)
-    let bridge_param = trait_bridges
-        .iter()
-        .find(|b| {
-            b.bind_via == alef_core::config::BridgeBinding::OptionsField && b.options_type.as_deref() == Some(&typ.name)
-        })
-        .and_then(|b| {
-            let param_name = b.param_name.as_deref()?;
-            Some((param_name, b.type_alias.as_deref().unwrap_or("object")))
-        });
-
     // Add bridge parameter to defaults and params if present
     let mut all_defaults = defaults.clone();
     let mut all_params = params.clone();
@@ -227,14 +236,7 @@ fn replace_constructor_with_serde_rename(
     // Build the assignment for the bridge field
     let mut all_assignments = assignments.clone();
     if let Some((param_name, _)) = bridge_param {
-        if let Some(field_name) = trait_bridges
-            .iter()
-            .find(|b| {
-                b.bind_via == alef_core::config::BridgeBinding::OptionsField
-                    && b.options_type.as_deref() == Some(&typ.name)
-            })
-            .and_then(|b| b.resolved_options_field())
-        {
+        if let Some(field_name) = bridge_field_name {
             all_assignments.push(format!("{}: {}", field_name, param_name));
         }
     }
