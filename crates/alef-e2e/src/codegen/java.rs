@@ -2150,16 +2150,23 @@ fn render_assertion(
                                     if expected.is_number() {
                                         format!("{optional_expr}.map(Number::longValue).orElse(0L)")
                                     } else {
-                                        format!("{optional_expr}.orElse(\"\")")
+                                        // `.map(Objects::toString)` collapses Optional<T> to
+                                        // Optional<String> before `.orElse("")`, so the result
+                                        // is unambiguously a String even when T is `Object`
+                                        // (which is the Java mapping for free-form JSON values
+                                        // like `Option<serde_json::Value>` — javac otherwise
+                                        // infers LUB(Object, String) = Object and breaks
+                                        // String-only method calls downstream like .contains()).
+                                        format!("{optional_expr}.map(java.util.Objects::toString).orElse(\"\")")
                                     }
                                 } else {
-                                    format!("{optional_expr}.orElse(\"\")")
+                                    format!("{optional_expr}.map(java.util.Objects::toString).orElse(\"\")")
                                 }
                             }
                             _ if field_resolver.is_array(resolved) => {
                                 format!("{optional_expr}.orElse(java.util.List.of())")
                             }
-                            _ => format!("{optional_expr}.orElse(\"\")"),
+                            _ => format!("{optional_expr}.map(java.util.Objects::toString).orElse(\"\")"),
                         }
                     }
                 } else {
