@@ -127,10 +127,14 @@ fn replace_constructor_with_serde_rename(
                 && !f.optional
                 && matches!(f.ty, alef_core::ir::TypeRef::Duration);
 
-            let ty = if f.optional || force_optional {
+            let ty = if (f.optional || force_optional) && !matches!(f.ty, alef_core::ir::TypeRef::Optional(_)) {
                 // All optional constructor parameters are emitted as Option<T>.
                 // The IR unwraps TypeRef::Optional to mark fields as optional,
                 // so we need to re-wrap the base type for the constructor signature.
+                // Skip re-wrapping when the IR field type is *already* Optional —
+                // that happens for Update structs where a source field of
+                // `Option<Option<T>>` peels to `f.optional = true, f.ty = Optional(T)`.
+                // Mirrors the same guard in `gen_struct_with_per_field_attrs`.
                 format!("Option<{}>", mapper.map_type(&f.ty))
             } else {
                 mapper.map_type(&f.ty)
@@ -221,11 +225,32 @@ fn replace_constructor_with_serde_rename(
         })
         .collect();
 
-    // Add bridge parameter to defaults and params if present
+    // Add bridge parameter to defaults and params if present.
+    //
+    // The bridge parameter's *type* must match the struct field it ultimately
+    // populates — the struct literal below emits a bare `visitor: visitor`,
+    // which would fail to compile if the parameter type and field type differ
+    // (e.g. user-facing `VisitorHandle` pyclass vs the binding's internal
+    // `PyVisitorRef` wrapper). Look up the matching field's actual mapped
+    // type and use it. Fall back to the bridge's `type_alias` only when the
+    // bridge field can't be located in the struct (which would be a bug, but
+    // preserves the prior behaviour).
     let mut all_defaults = defaults.clone();
     let mut all_params = params.clone();
     if let Some((param_name, type_alias)) = bridge_param {
-        all_params.push(format!("{}: Option<{}>", param_name, type_alias));
+        let field_type = bridge_field_name
+            .and_then(|fname| typ.fields.iter().find(|f| f.name == fname))
+            .map(|f| mapper.map_type(&f.ty))
+            .unwrap_or_else(|| type_alias.to_string());
+        // The field's mapped type may already include `Option<...>` (it
+        // typically does, since bridge fields are optional). Avoid double-
+        // wrapping by checking for the prefix.
+        let param_type = if field_type.starts_with("Option<") {
+            field_type
+        } else {
+            format!("Option<{}>", field_type)
+        };
+        all_params.push(format!("{}: {}", param_name, param_type));
         all_defaults.push(format!("{}=None", param_name));
     }
 
