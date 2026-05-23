@@ -687,31 +687,6 @@ mod tests {
     }
 
     #[test]
-    fn test_gen_optionalized_field_to_core_ir_optional_map_named_preserves_option() {
-        // Bug A3 regression: when field_is_ir_optional=true, gen_optionalized_field_to_core must
-        // preserve the Option layer via .map(|m| …) instead of dropping it with unwrap_or_default().
-        use super::binding_to_core::gen_optionalized_field_to_core;
-        let config = ConversionConfig::default();
-        let result = gen_optionalized_field_to_core(
-            "patterns",
-            &TypeRef::Map(
-                Box::new(TypeRef::String),
-                Box::new(TypeRef::Named("ExtractionPattern".into())),
-            ),
-            &config,
-            true,
-        );
-        assert!(
-            result.contains("m.into_iter().map(|(k, v)| (k, v.into())).collect()"),
-            "expected per-value v.into() in ir-optional Map<Named> conversion, got: {result}"
-        );
-        assert_eq!(
-            result,
-            "patterns: val.patterns.map(|m| m.into_iter().map(|(k, v)| (k, v.into())).collect())"
-        );
-    }
-
-    #[test]
     fn test_optionalized_defaultable_struct_uses_core_default_as_base() {
         let mut typ = simple_type();
         typ.has_default = true;

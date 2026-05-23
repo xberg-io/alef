@@ -48,6 +48,13 @@ impl NapiBackend {
             lossy_skip_types: &[],
             serializable_opaque_type_names: &[],
             never_skip_cfg_field_names: &[],
+            // NAPI bypasses the shared `gen_struct` and uses its own builder in
+            // `src/backends/napi/gen_bindings/types.rs`, so this flag is a
+            // no-op for NAPI — the napi-specific `From<JsT> for core::T` impl
+            // (in `binding_to_core.rs`) uses `unwrap_or_default()` to fill
+            // missing optional fields, which still emits primitive defaults.
+            // Keep the flag off until the napi gen_struct learns the same
+            // suppress-derive + delegate-impl pattern.
             emit_delegating_default_impl: false,
         }
     }

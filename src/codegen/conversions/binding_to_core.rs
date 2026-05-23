@@ -91,10 +91,14 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
                 ));
                 continue;
             }
-            let conversion = if optionalized && !field.optional {
+            let field_was_optionalized = optionalized && !field.optional;
+            let conversion = if field_was_optionalized {
                 // Field was Option-wrapped in the binding for ergonomics; core expects T.
-                // Use unwrap_or_default to peel the binding-side Option.
-                gen_optionalized_field_to_core(&field.name, &field.ty, config, false)
+                // Compute the conversion as if the binding field were the unwrapped T value —
+                // the if-let wrapping below extracts `__v` from the Option and substitutes it
+                // into the expression, so we keep core's Default for omitted fields rather
+                // than overwriting with the primitive zero of `unwrap_or_default()`.
+                field_conversion_to_core_cfg(&field.name, &field.ty, false, config)
             } else {
                 // Genuinely-optional IR field (binding: Option<T>, core: Option<T>) or required
                 // field (`!field.optional` with optionalize_defaults=false). Both cases are
@@ -111,7 +115,18 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
             };
             // Strip the "name: " prefix to get just the expression, then assign
             if let Some(expr) = conversion.strip_prefix(&format!("{}: ", field.name)) {
-                statements.push(format!("__result.{} = {};", field.name, expr));
+                if field_was_optionalized {
+                    // Emit `if let Some(__v) = val.field { __result.field = <expr with __v>; }`
+                    // so omitted fields preserve core's Default value rather than being
+                    // overwritten with the primitive zero from `.unwrap_or_default()`.
+                    statements.push(format!(
+                        "if let Some(__v) = val.{binding_name_field} {{ __result.{} = {}; }}",
+                        field.name,
+                        expr.replace(&format!("val.{binding_name_field}"), "__v")
+                    ));
+                } else {
+                    statements.push(format!("__result.{} = {};", field.name, expr));
+                }
             }
         }
 
@@ -327,145 +342,6 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
             fields => fields,
         },
     )
-}
-
-/// Generate field conversion for a field that was optionalized (wrapped in `Option<T>`) in the
-/// binding struct for JS ergonomics (`optionalize_defaults`). When `field_is_ir_optional` is
-/// `true`, the field is genuinely `Option<T>` in the IR and the `Option` layer must be preserved
-/// in the output expression (use `.map(|m| …)` rather than `unwrap_or_default()`).
-pub(super) fn gen_optionalized_field_to_core(
-    name: &str,
-    ty: &TypeRef,
-    config: &ConversionConfig,
-    field_is_ir_optional: bool,
-) -> String {
-    match ty {
-        TypeRef::Json if config.json_as_value => {
-            format!("{name}: val.{name}.unwrap_or_default()")
-        }
-        TypeRef::Json => {
-            format!("{name}: val.{name}.as_ref().and_then(|s| serde_json::from_str(s).ok()).unwrap_or_default()")
-        }
-        TypeRef::Named(_) => {
-            // Named type: unwrap Option, convert via .into(), or use Default
-            format!("{name}: val.{name}.map(Into::into).unwrap_or_default()")
-        }
-        TypeRef::Primitive(PrimitiveType::F32) if config.cast_f32_to_f64 => {
-            format!("{name}: val.{name}.map(|v| v as f32).unwrap_or(0.0)")
-        }
-        TypeRef::Primitive(PrimitiveType::F32 | PrimitiveType::F64) => {
-            format!("{name}: val.{name}.unwrap_or(0.0)")
-        }
-        TypeRef::Primitive(p) if config.cast_large_ints_to_i64 && needs_i64_cast(p) => {
-            let core_ty = core_prim_str(p);
-            format!("{name}: val.{name}.map(|v| v as {core_ty}).unwrap_or_default()")
-        }
-        TypeRef::Optional(inner)
-            if config.cast_large_ints_to_i64
-                && matches!(inner.as_ref(), TypeRef::Primitive(p) if needs_i64_cast(p)) =>
-        {
-            if let TypeRef::Primitive(p) = inner.as_ref() {
-                let core_ty = core_prim_str(p);
-                format!("{name}: val.{name}.map(|v| v as {core_ty})")
-            } else {
-                field_conversion_to_core(name, ty, false)
-            }
-        }
-        TypeRef::Duration if config.cast_large_ints_to_i64 => {
-            format!("{name}: val.{name}.map(|v| std::time::Duration::from_millis(v as u64)).unwrap_or_default()")
-        }
-        TypeRef::Duration => {
-            format!("{name}: val.{name}.map(std::time::Duration::from_millis).unwrap_or_default()")
-        }
-        TypeRef::Path => {
-            format!("{name}: val.{name}.map(Into::into).unwrap_or_default()")
-        }
-        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Path) => {
-            // Binding has Option<String>, core has Option<PathBuf>
-            format!("{name}: val.{name}.map(|s| std::path::PathBuf::from(s))")
-        }
-        TypeRef::Optional(_) => {
-            // Field was flattened from Option<Option<T>> to Option<T> in the binding struct.
-            // Core expects Option<Option<T>>, so wrap with .map(Some) to reconstruct.
-            format!("{name}: val.{name}.map(Some)")
-        }
-        // Char: binding uses Option<String>, core uses char
-        TypeRef::Char => {
-            format!("{name}: val.{name}.and_then(|s| s.chars().next()).unwrap_or('*')")
-        }
-        TypeRef::Vec(inner) => match inner.as_ref() {
-            TypeRef::Json => {
-                format!(
-                    "{name}: val.{name}.map(|v| v.into_iter().filter_map(|s| serde_json::from_str(&s).ok()).collect()).unwrap_or_default()"
-                )
-            }
-            TypeRef::Named(_) => {
-                format!("{name}: val.{name}.map(|v| v.into_iter().map(Into::into).collect()).unwrap_or_default()")
-            }
-            TypeRef::Primitive(p) if config.cast_large_ints_to_i64 && needs_i64_cast(p) => {
-                let core_ty = core_prim_str(p);
-                format!(
-                    "{name}: val.{name}.map(|v| v.into_iter().map(|x| x as {core_ty}).collect()).unwrap_or_default()"
-                )
-            }
-            _ => format!("{name}: val.{name}.unwrap_or_default()"),
-        },
-        TypeRef::Map(k, v) if matches!(v.as_ref(), TypeRef::Json) => {
-            // Map with Json values: binding uses HashMap<K, String>, core uses HashMap<K, serde_json::Value>.
-            // Use `k.into()` for non-Json keys so String→String is a no-op while still converting
-            // String→Cow<'_, str>/Box<str>/Arc<str> when the core type uses one of those wrappers.
-            let k_is_json = matches!(k.as_ref(), TypeRef::Json);
-            let k_expr = if k_is_json {
-                "serde_json::from_str(&k).unwrap_or_default()"
-            } else {
-                "k.into()"
-            };
-            format!(
-                "{name}: val.{name}.unwrap_or_default().into_iter().map(|(k, v)| ({k_expr}, serde_json::from_str(&v).unwrap_or(serde_json::json!(v)))).collect()"
-            )
-        }
-        TypeRef::Map(k, _v) if matches!(k.as_ref(), TypeRef::Json) => {
-            // Map with Json keys: binding uses HashMap<String, V>, core uses HashMap<serde_json::Value, V>
-            format!(
-                "{name}: val.{name}.unwrap_or_default().into_iter().map(|(k, v)| (serde_json::from_str(&k).unwrap_or_default(), v)).collect()"
-            )
-        }
-        TypeRef::Map(k, v) => {
-            // Map with Named values need .into() conversion on each value.
-            let has_named_val = matches!(v.as_ref(), TypeRef::Named(n) if !is_tuple_type_name(n));
-            let has_named_key = matches!(k.as_ref(), TypeRef::Named(n) if !is_tuple_type_name(n));
-            let val_is_string_enum = matches!(v.as_ref(), TypeRef::Named(n)
-                if config.enum_string_names.as_ref().is_some_and(|names| names.contains(n)));
-            if field_is_ir_optional {
-                // Genuinely optional field: preserve the Option layer using .map(|m| …).
-                if val_is_string_enum {
-                    format!(
-                        "{name}: val.{name}.map(|m| m.into_iter().map(|(k, v)| (k, serde_json::from_str(&v).unwrap_or_default())).collect())"
-                    )
-                } else if has_named_val {
-                    format!("{name}: val.{name}.map(|m| m.into_iter().map(|(k, v)| (k, v.into())).collect())")
-                } else if has_named_key {
-                    format!("{name}: val.{name}.map(|m| m.into_iter().map(|(k, v)| (k.into(), v)).collect())")
-                } else {
-                    format!("{name}: val.{name}.map(|m| m.into_iter().collect())")
-                }
-            } else if val_is_string_enum {
-                format!(
-                    "{name}: val.{name}.unwrap_or_default().into_iter().map(|(k, v)| (k, serde_json::from_str(&v).unwrap_or_default())).collect()"
-                )
-            } else if has_named_val {
-                format!("{name}: val.{name}.unwrap_or_default().into_iter().map(|(k, v)| (k, v.into())).collect()")
-            } else if has_named_key {
-                format!("{name}: val.{name}.unwrap_or_default().into_iter().map(|(k, v)| (k.into(), v)).collect()")
-            } else {
-                format!("{name}: val.{name}.unwrap_or_default().into_iter().collect()")
-            }
-        }
-        _ => {
-            // Simple types (primitives, String, etc): unwrap_or_default()
-            format!("{name}: val.{name}.unwrap_or_default()")
-        }
-    }
 }
 
 /// Determine the field conversion expression for binding -> core.
