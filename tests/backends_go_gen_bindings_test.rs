@@ -904,7 +904,27 @@ fn test_default_config() {
         excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
-    let config = make_config();
+    // Explicitly opt `Config` into the functional-options pattern: as of STY-9 the
+    // Go backend emits plain struct literals by default and only emits the
+    // `With<Field>` / `New<Struct>` helpers for struct names listed in
+    // `[crates.go] functional_options`.
+    let config = resolved_one(
+        r#"
+[workspace]
+languages = ["ffi", "go"]
+
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "test"
+
+[crates.go]
+module = "github.com/test/test-lib"
+functional_options = ["Config"]
+"#,
+    );
 
     let result = backend.generate_bindings(&api, &config);
     assert!(result.is_ok(), "Generation should succeed");
