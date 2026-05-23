@@ -76,9 +76,35 @@ fn replace_constructor_with_serde_rename(
     config_renames: Option<&std::collections::HashMap<String, String>>,
     trait_bridges: &[crate::core::config::TraitBridgeConfig],
     never_skip_cfg_field_names: &[String],
+    api: &crate::core::ir::ApiSurface,
 ) -> String {
     use crate::codegen::shared::binding_fields;
     use crate::core::keywords::{is_valid_rust_ident_chars, rust_raw_ident};
+
+    /// Check if a field should be emitted as Option<T> to accept None for BLK-5 fix.
+    /// This applies when:
+    /// - The parent type has_default=true
+    /// - The field is non-optional (!f.optional && not already Optional)
+    /// - The field type is a Named type
+    /// - The referenced type has has_default=true
+    fn should_option_for_nested_default(
+        typ: &crate::core::ir::TypeDef,
+        field: &crate::core::ir::FieldDef,
+        api: &crate::core::ir::ApiSurface,
+    ) -> bool {
+        if !typ.has_default || field.optional || matches!(&field.ty, crate::core::ir::TypeRef::Optional(_)) {
+            return false;
+        }
+        if let crate::core::ir::TypeRef::Named(ref type_name) = field.ty {
+            api.types
+                .iter()
+                .find(|t| t.name == *type_name)
+                .map(|t| t.has_default)
+                .unwrap_or(false)
+        } else {
+            false
+        }
+    }
 
     /// Resolve the constructor parameter identifier for a field.
     ///
@@ -131,7 +157,13 @@ fn replace_constructor_with_serde_rename(
                 && !f.optional
                 && matches!(f.ty, crate::core::ir::TypeRef::Duration);
 
-            let ty = if (f.optional || force_optional) && !matches!(f.ty, crate::core::ir::TypeRef::Optional(_)) {
+            // BLK-5 fix: for non-optional nested-struct fields on has_default types,
+            // if the nested struct also has_default, emit as Option<T> to accept None.
+            let nested_default_optional = should_option_for_nested_default(typ, f, api);
+
+            let ty = if (f.optional || force_optional || nested_default_optional)
+                && !matches!(f.ty, crate::core::ir::TypeRef::Optional(_))
+            {
                 // All optional constructor parameters are emitted as Option<T>.
                 // The IR unwraps TypeRef::Optional to mark fields as optional,
                 // so we need to re-wrap the base type for the constructor signature.
@@ -181,7 +213,11 @@ fn replace_constructor_with_serde_rename(
                 && !f.optional
                 && matches!(f.ty, crate::core::ir::TypeRef::Duration);
 
-            if f.optional || force_optional {
+            // BLK-5 fix: for non-optional nested-struct fields on has_default types,
+            // if the nested struct also has_default, emit default as None.
+            let nested_default_optional = should_option_for_nested_default(typ, f, api);
+
+            if f.optional || force_optional || nested_default_optional {
                 format!("{}=None", param_ident)
             } else if typ.has_default {
                 // For has_default types, non-optional fields get a default value in the signature
@@ -218,8 +254,18 @@ fn replace_constructor_with_serde_rename(
                 // exactly the same variable as the parameter declaration.
                 let param_ident = resolve_param_ident(&f.name, f.serde_rename.as_ref(), config_renames);
 
+                // BLK-5 fix: for nested-struct fields emitted as Option<T> due to has_default,
+                // use unwrap_or_else to fall back to the nested type's default.
+                let nested_default_optional = should_option_for_nested_default(typ, f, api);
+
                 // Use the bare Rust field name for struct literal (never renamed in Rust)
-                if param_ident != f.name {
+                if nested_default_optional {
+                    // Use unwrap_or_else for nested default optional fields
+                    format!(
+                        "{}: {}.unwrap_or_else(|| Self::default().{})",
+                        f.name, param_ident, f.name
+                    )
+                } else if param_ident != f.name {
                     // Parameter name differs from Rust field name (serde_rename or config rename):
                     // use explicit form to match the parameter variable
                     format!("{}: {}", f.name, param_ident)
@@ -934,6 +980,7 @@ mod alef_json_str_opt {
                     renames_ref,
                     &config.trait_bridges,
                     type_cfg.never_skip_cfg_field_names,
+                    api,
                 );
                 // Inject from_json staticmethod into the existing #[pymethods] block when serde
                 // is available and a core→binding conversion exists. Injecting into the same block

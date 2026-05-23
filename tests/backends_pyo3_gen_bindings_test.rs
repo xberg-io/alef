@@ -5100,3 +5100,103 @@ fn test_option_fields_with_serde_rename_on_has_default() {
         lib_rs.content
     );
 }
+
+#[test]
+fn test_has_default_struct_with_nested_struct_field_accepts_none() {
+    // This test verifies BLK-5 fix: a has_default struct with a non-optional
+    // nested-struct field whose type also has has_default=true should accept None
+    // in the constructor, with an unwrap_or_else falling back to the nested type's default.
+    let backend = Pyo3Backend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![
+            // Nested struct that derives Default
+            TypeDef {
+                name: "PreprocessingOptions".to_string(),
+                rust_path: "test_lib::PreprocessingOptions".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![
+                    make_field("normalize", TypeRef::Primitive(PrimitiveType::Bool), false),
+                ],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: true, // This type derives Default
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: "Preprocessing options".to_string(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+            // Parent struct with has_default=true owning non-optional PreprocessingOptions
+            TypeDef {
+                name: "ConversionOptions".to_string(),
+                rust_path: "test_lib::ConversionOptions".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![
+                    // This is the critical case: non-optional nested struct field on a has_default type
+                    // Should be emitted as Option<PreprocessingOptions> with default None
+                    make_field("preprocessing", TypeRef::Named("PreprocessingOptions".to_string()), false),
+                    make_field("format", TypeRef::String, false),
+                ],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: true, // Parent also derives Default
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: "Conversion options".to_string(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+        ],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let config = make_config();
+    let result = backend.generate_bindings(&api, &config);
+    assert!(result.is_ok(), "Failed to generate bindings: {}", result.unwrap_err());
+
+    let files = result.unwrap();
+    let content = &files[0].content;
+
+    // Verify that the ConversionOptions constructor parameter 'preprocessing' is Option<PreprocessingOptions>
+    // The parameter should be declared as Option<PreprocessingOptions>
+    assert!(
+        content.contains("preprocessing: Option<PreprocessingOptions>"),
+        "Parameter 'preprocessing' must be Option<PreprocessingOptions> to accept None; content:\n{}",
+        content
+    );
+
+    // Verify the default is None
+    assert!(
+        content.contains("preprocessing=None") || content.contains("preprocessing = None"),
+        "Parameter 'preprocessing' should default to None; content:\n{}",
+        content
+    );
+
+    // Verify the assignment uses unwrap_or_else to fall back to the nested type's default
+    assert!(
+        content.contains("preprocessing.unwrap_or_else(|| Self::default().preprocessing)"),
+        "Assignment must use unwrap_or_else fallback; content:\n{}",
+        content
+    );
+}
