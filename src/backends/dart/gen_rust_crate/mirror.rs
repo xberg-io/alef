@@ -325,10 +325,7 @@ fn emit_from_impl(out: &mut String, error: &ErrorDef, core_path: &str) {
                         field_from_expr(f, &format!("f_{fname}"))
                     })
                     .collect();
-                out.push_str(&format!(
-                    "                Self::{vname}({})\n",
-                    args.join(", "),
-                ));
+                out.push_str(&format!("                Self::{vname}({})\n", args.join(", "),));
             } else {
                 let mut real_fields: Vec<String> = Vec::new();
                 for (i, f) in variant.fields.iter().enumerate() {

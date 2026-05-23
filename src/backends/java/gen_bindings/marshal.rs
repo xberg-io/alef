@@ -84,11 +84,7 @@ pub(crate) fn gen_ffi_layout(ty: &TypeRef) -> String {
 /// writeValueAsString(list)` erases T at runtime, dropping `@JsonTypeInfo`
 /// discriminators on polymorphic element types like the tagged-enum DTO
 /// `PageAction`. The returned expression is a `ObjectWriter`.
-fn build_collection_writer_for(
-    inner: &TypeRef,
-    outer: &TypeRef,
-    _opaque_types: &AHashSet<String>,
-) -> String {
+fn build_collection_writer_for(inner: &TypeRef, outer: &TypeRef, _opaque_types: &AHashSet<String>) -> String {
     let elem_class = java_class_literal_for(inner);
     match outer {
         TypeRef::Vec(_) => format!(
