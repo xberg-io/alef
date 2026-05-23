@@ -106,6 +106,20 @@ pub struct RustBindingConfig<'a> {
     /// so the field must appear in the binding struct and From impl.
     /// Typically populated from trait bridge options field names.
     pub never_skip_cfg_field_names: &'a [String],
+    /// When true and the core type has a custom `Default` impl (`typ.has_default == true`),
+    /// the binding struct's auto-derived `Default` is suppressed and a delegating
+    /// `impl Default for BindingType` is emitted that delegates to
+    /// `<core::Type as Default>::default().into()`. This preserves the core type's custom
+    /// default values (e.g. `max_redirects: 10`) instead of falling back to primitive
+    /// Rust defaults (e.g. `max_redirects: 0`) when partial JSON missing the field is
+    /// deserialised via a struct-level `#[serde(default)]`.
+    ///
+    /// Requires that `From<core::Type> for BindingType` is emitted for the type, which is
+    /// the case for any non-opaque type that passes `can_generate_conversion(typ, &core_to_binding)`.
+    /// Backends that don't carry struct-level `#[serde(default)]` (e.g. PyO3, NAPI) usually
+    /// don't need this; the bug it fixes is specific to PHP's `#[serde(default)]` + partial
+    /// JSON deserialisation path.
+    pub emit_delegating_default_impl: bool,
 }
 
 /// Method names that conflict with standard trait methods.
@@ -133,6 +147,7 @@ pub use methods::{
     gen_opaque_constructor, gen_opaque_impl_block, gen_static_method, is_trait_method_name,
 };
 pub use structs::{
-    can_generate_default_impl, gen_opaque_struct, gen_opaque_struct_prefixed, gen_struct, gen_struct_default_impl,
-    gen_struct_with_per_field_attrs, gen_struct_with_rename, type_needs_mutex, type_needs_tokio_mutex,
+    can_generate_default_impl, gen_delegating_default_impl, gen_opaque_struct, gen_opaque_struct_prefixed, gen_struct,
+    gen_struct_default_impl, gen_struct_with_per_field_attrs, gen_struct_with_rename, type_needs_mutex,
+    type_needs_tokio_mutex,
 };

@@ -120,7 +120,17 @@ pub fn gen_struct_with_per_field_attrs(
     // Always derive Default/Serialize/Deserialize. Opaque fields get #[serde(skip)]
     // so they use Default::default() during deserialization. This is needed for the
     // serde recovery path where binding types round-trip through JSON.
-    sb.add_derive("Default");
+    //
+    // EXCEPTION: when `cfg.emit_delegating_default_impl` is enabled AND the core type has a
+    // custom `Default` impl (`typ.has_default`), skip the derived `Default`. The caller is
+    // responsible for emitting a delegating `impl Default for BindingType` that calls
+    // `<core::Type as Default>::default().into()`, which preserves the core type's
+    // semantic defaults (e.g. `max_redirects: 10`) instead of the primitive zeros the
+    // derive would produce.
+    let suppress_default_derive = cfg.emit_delegating_default_impl && typ.has_default;
+    if !suppress_default_derive {
+        sb.add_derive("Default");
+    }
     sb.add_derive("serde::Serialize");
     sb.add_derive("serde::Deserialize");
     let has_serde = true;
@@ -153,7 +163,11 @@ pub fn gen_struct_with_per_field_attrs(
         }
         sb.add_field_with_doc(&field.name, &ty, attrs, &field.doc);
     }
-    sb.build()
+    let mut result = sb.build();
+    if suppress_default_derive {
+        result.push_str(&gen_delegating_default_impl(typ, cfg.core_import, cfg.type_name_prefix));
+    }
+    result
 }
 
 /// Generate a struct definition using the builder, with per-field attribute and name override callbacks.
@@ -206,7 +220,12 @@ pub fn gen_struct_with_rename(
         })
         .map(|f| f.name.as_str())
         .collect();
-    sb.add_derive("Default");
+    // See `gen_struct_with_per_field_attrs` for the rationale on suppressing the derived
+    // `Default` when the caller intends to emit a custom delegating `impl Default`.
+    let suppress_default_derive = cfg.emit_delegating_default_impl && typ.has_default;
+    if !suppress_default_derive {
+        sb.add_derive("Default");
+    }
     sb.add_derive("serde::Serialize");
     sb.add_derive("serde::Deserialize");
     let has_serde = true;
@@ -258,7 +277,11 @@ pub fn gen_struct_with_rename(
         let emit_name = name_override.unwrap_or_else(|| field.name.clone());
         sb.add_field_with_doc(&emit_name, &ty, attrs, &field.doc);
     }
-    sb.build()
+    let mut result = sb.build();
+    if suppress_default_derive {
+        result.push_str(&gen_delegating_default_impl(typ, cfg.core_import, cfg.type_name_prefix));
+    }
+    result
 }
 
 /// Generate a struct definition using the builder.
@@ -291,7 +314,12 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
         })
         .map(|f| f.name.as_str())
         .collect();
-    sb.add_derive("Default");
+    // See `gen_struct_with_per_field_attrs` for the rationale on suppressing the derived
+    // `Default` when the caller intends to emit a custom delegating `impl Default`.
+    let suppress_default_derive = cfg.emit_delegating_default_impl && typ.has_default;
+    if !suppress_default_derive {
+        sb.add_derive("Default");
+    }
     sb.add_derive("serde::Serialize");
     sb.add_derive("serde::Deserialize");
     let _has_serde = true;
@@ -325,7 +353,38 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
         }
         sb.add_field_with_doc(&field.name, &ty, attrs, &field.doc);
     }
-    sb.build()
+    let mut result = sb.build();
+    if suppress_default_derive {
+        result.push_str(&gen_delegating_default_impl(typ, cfg.core_import, cfg.type_name_prefix));
+    }
+    result
+}
+
+/// Generate an `impl Default for BindingType` that delegates to the core type's `Default`.
+///
+/// Emitted when the core struct has a custom `impl Default` (`typ.has_default == true`) and
+/// the binding caller sets `cfg.emit_delegating_default_impl = true`. Without this delegation,
+/// the binding's derived `Default` would use Rust's primitive zeros (e.g. `0` for `i64`,
+/// `String::new()` for strings) and overwrite the core's semantic defaults when partial JSON
+/// is deserialised via a struct-level `#[serde(default)]`.
+///
+/// The generated impl requires that `From<core::Type> for {type_name_prefix}{Type}` exists.
+/// For PHP this is satisfied by `gen_from_core_to_binding_cfg`, which is emitted for every
+/// non-opaque convertible type in the binding crate.
+pub fn gen_delegating_default_impl(typ: &TypeDef, core_import: &str, type_name_prefix: &str) -> String {
+    let binding_name = format!("{type_name_prefix}{}", typ.name);
+    let core_path = typ.rust_path.replace('-', "_");
+    // If the type's rust_path resolved to a fully-qualified core path (contains `::`), use it
+    // directly. Otherwise compose `{core_import}::{TypeName}` as the fallback (covers test
+    // fixtures and minimal IR inputs that leave `rust_path` empty).
+    let core_qualified = if core_path.contains("::") {
+        core_path
+    } else {
+        format!("{core_import}::{}", typ.name)
+    };
+    format!(
+        "\n\nimpl Default for {binding_name} {{\n    fn default() -> Self {{\n        <{core_qualified} as Default>::default().into()\n    }}\n}}\n"
+    )
 }
 
 /// Generate a `Default` impl for a non-opaque binding struct with `has_default`.

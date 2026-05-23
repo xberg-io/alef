@@ -301,9 +301,20 @@ pub(crate) fn gen_php_struct(
         // Build a modified config that also derives Serialize + Deserialize, and adds
         // #[serde(default)] so from_json() works with partial JSON (missing fields use
         // their Default values instead of failing deserialization).
+        //
+        // When `cfg.emit_delegating_default_impl` is true AND `typ.has_default` is true,
+        // the shared struct generator suppresses the auto `#[derive(Default)]` and appends
+        // a delegating `impl Default { fn default() -> Self { <core::Type as Default>::default().into() } }`.
+        // This preserves the core type's custom defaults (e.g. `max_redirects: 10`) instead
+        // of falling back to primitive zeros that would later be propagated back to core via
+        // `From<BindingType>`, silently overwriting the semantic defaults.
         let mut extra_derives: Vec<&str> = cfg.struct_derives.to_vec();
         extra_derives.push("serde::Serialize");
         extra_derives.push("serde::Deserialize");
+        let has_custom_core_default = typ.has_default;
+        if !has_custom_core_default {
+            extra_derives.push("Default");
+        }
         let mut serde_struct_attrs: Vec<&str> = effective_struct_attrs.to_vec();
         // Wire-case is sourced from the per-language registry
         // (`ResolvedCrateConfig::serde_rename_all_for_language`) so all bindings agree
@@ -336,11 +347,17 @@ pub(crate) fn gen_php_struct(
             lossy_skip_types: cfg.lossy_skip_types,
             serializable_opaque_type_names: cfg.serializable_opaque_type_names,
             never_skip_cfg_field_names: cfg.never_skip_cfg_field_names,
+            emit_delegating_default_impl: has_custom_core_default,
         };
+        // The shared struct generator handles the delegating `impl Default` automatically
+        // when `emit_delegating_default_impl` is enabled and `typ.has_default` is true.
         generators::gen_struct_with_per_field_attrs(typ, mapper, &modified_cfg, field_attrs_fn)
     } else {
+        // Without serde, no `#[serde(default)]` is applied — the binding's `Default` impl
+        // is never invoked from a partial-JSON path so the delegating impl is unnecessary.
         let modified_cfg = RustBindingConfig {
             struct_attrs: effective_struct_attrs,
+            emit_delegating_default_impl: false,
             ..*cfg
         };
         generators::gen_struct_with_per_field_attrs(typ, mapper, &modified_cfg, field_attrs_fn)

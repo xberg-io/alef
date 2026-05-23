@@ -2887,3 +2887,211 @@ fn test_duration_field_on_default_struct_getter_returns_option() {
         "getter must not return bare i64 for a Duration-on-Default field; got:\n{content}"
     );
 }
+
+/// Regression test for the `has_default` + `#[serde(default)]` defaults bug.
+///
+/// When a core struct has a custom `impl Default` (e.g. `max_redirects: 10`), the binding's
+/// struct-level `#[serde(default)]` previously caused missing JSON fields to fall back to
+/// the derived `Default`, which uses Rust's primitive zeros. The zeros were then propagated
+/// to the core type via `From<BindingType>`, silently clobbering the core's semantic defaults.
+///
+/// The fix suppresses the auto `#[derive(Default)]` and emits a delegating
+/// `impl Default for BindingType { fn default() -> Self { <core::Type as Default>::default().into() } }`
+/// so that `serde(default)` and `unwrap_or_default()` honour the core's custom values.
+///
+/// This test exercises the shared struct generator directly with the same configuration
+/// shape PHP uses when serde is available, so it does not depend on filesystem-based
+/// Cargo.toml serde detection.
+#[test]
+fn has_default_struct_emits_delegating_impl_not_derived_default() {
+    use alef::codegen::generators::{AsyncPattern, RustBindingConfig, gen_struct_with_per_field_attrs};
+    use alef::core::ir::FieldDef;
+
+    let typ = TypeDef {
+        name: "CrawlConfig".to_string(),
+        rust_path: "test_lib::CrawlConfig".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![
+            // Mirrors the real-world bug: core sets `max_redirects: 10` in its custom
+            // Default, but the binding's derived Default uses `0` for i64, which then
+            // overrides the core's value on round-trip through `From<BindingType>`.
+            make_field("max_redirects", TypeRef::Primitive(PrimitiveType::I64), false),
+            make_field("respect_robots_txt", TypeRef::Primitive(PrimitiveType::Bool), false),
+        ],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        is_trait: false,
+        has_default: true,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: true,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+
+    struct StubMapper;
+    impl alef::codegen::type_mapper::TypeMapper for StubMapper {
+        fn error_wrapper(&self) -> &str {
+            "Result"
+        }
+    }
+    let mapper = StubMapper;
+
+    // PHP-shaped config with `emit_delegating_default_impl: true` and serde derives.
+    // Mirrors `gen_php_struct`'s `cfg.has_serde == true` branch but without depending on
+    // crate-private symbols.
+    let struct_attrs: &[&str] = &["php_class", "serde(default, rename_all = \"camelCase\")"];
+    let struct_derives: &[&str] = &["Clone", "serde::Serialize", "serde::Deserialize"];
+    let cfg = RustBindingConfig {
+        struct_attrs,
+        field_attrs: &[],
+        struct_derives,
+        method_block_attr: Some("php_impl"),
+        constructor_attr: "",
+        static_attr: None,
+        function_attr: "#[php_function]",
+        enum_attrs: &[],
+        enum_derives: &[],
+        needs_signature: false,
+        signature_prefix: "",
+        signature_suffix: "",
+        core_import: "test_lib",
+        async_pattern: AsyncPattern::TokioBlockOn,
+        has_serde: true,
+        type_name_prefix: "",
+        option_duration_on_defaults: true,
+        opaque_type_names: &[],
+        skip_impl_constructor: false,
+        cast_uints_to_i32: false,
+        cast_large_ints_to_f64: false,
+        named_non_opaque_params_by_ref: false,
+        lossy_skip_types: &[],
+        serializable_opaque_type_names: &[],
+        never_skip_cfg_field_names: &[],
+        emit_delegating_default_impl: true,
+    };
+
+    let content = gen_struct_with_per_field_attrs(&typ, &mapper, &cfg, |_: &FieldDef| vec![]);
+
+    // The struct must NOT derive Default — that would override the core's custom defaults.
+    let struct_start = content
+        .find("pub struct CrawlConfig")
+        .expect("CrawlConfig struct must be emitted");
+    let derive_window = &content[..struct_start];
+    assert!(
+        !derive_window.contains("Default"),
+        "CrawlConfig must NOT derive Default — that would emit zeros instead of \
+         delegating to the core's custom Default. Derive block:\n{derive_window}"
+    );
+
+    // The delegating `impl Default` must be emitted and delegate to the core type's Default.
+    assert!(
+        content.contains("impl Default for CrawlConfig"),
+        "delegating impl Default must be emitted for has_default types; got:\n{content}"
+    );
+    assert!(
+        content.contains("<test_lib::CrawlConfig as Default>::default().into()"),
+        "impl Default must delegate to the core type's Default via `.into()`; got:\n{content}"
+    );
+
+    // The struct should still carry struct-level `#[serde(default)]` for from_json to accept
+    // partial JSON — this is the path that previously surfaced the bug.
+    assert!(
+        content.contains("serde(default"),
+        "struct must still carry struct-level `#[serde(default)]`; got:\n{content}"
+    );
+
+    // Serde Serialize/Deserialize derives must remain — only Default is suppressed.
+    assert!(
+        content.contains("serde::Serialize"),
+        "struct must still derive serde::Serialize; got:\n{content}"
+    );
+    assert!(
+        content.contains("serde::Deserialize"),
+        "struct must still derive serde::Deserialize; got:\n{content}"
+    );
+}
+
+/// Companion test: when `emit_delegating_default_impl` is false (default for non-PHP backends),
+/// the auto `Default` derive is preserved and no delegating impl is emitted.
+#[test]
+fn has_default_struct_keeps_derived_default_when_delegation_disabled() {
+    use alef::codegen::generators::{AsyncPattern, RustBindingConfig, gen_struct_with_per_field_attrs};
+    use alef::core::ir::FieldDef;
+
+    let typ = TypeDef {
+        name: "PlainConfig".to_string(),
+        rust_path: "test_lib::PlainConfig".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![make_field("count", TypeRef::Primitive(PrimitiveType::I64), false)],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        is_trait: false,
+        has_default: true,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+
+    struct StubMapper;
+    impl alef::codegen::type_mapper::TypeMapper for StubMapper {
+        fn error_wrapper(&self) -> &str {
+            "Result"
+        }
+    }
+    let mapper = StubMapper;
+
+    let cfg = RustBindingConfig {
+        struct_attrs: &[],
+        field_attrs: &[],
+        struct_derives: &["Clone"],
+        method_block_attr: None,
+        constructor_attr: "",
+        static_attr: None,
+        function_attr: "",
+        enum_attrs: &[],
+        enum_derives: &[],
+        needs_signature: false,
+        signature_prefix: "",
+        signature_suffix: "",
+        core_import: "test_lib",
+        async_pattern: AsyncPattern::None,
+        has_serde: false,
+        type_name_prefix: "",
+        option_duration_on_defaults: false,
+        opaque_type_names: &[],
+        skip_impl_constructor: false,
+        cast_uints_to_i32: false,
+        cast_large_ints_to_f64: false,
+        named_non_opaque_params_by_ref: false,
+        lossy_skip_types: &[],
+        serializable_opaque_type_names: &[],
+        never_skip_cfg_field_names: &[],
+        emit_delegating_default_impl: false,
+    };
+
+    let content = gen_struct_with_per_field_attrs(&typ, &mapper, &cfg, |_: &FieldDef| vec![]);
+
+    assert!(
+        content.contains("Default"),
+        "Default must still be derived when emit_delegating_default_impl is false; got:\n{content}"
+    );
+    assert!(
+        !content.contains("impl Default for PlainConfig"),
+        "no delegating impl Default should be emitted when the flag is disabled; got:\n{content}"
+    );
+}
