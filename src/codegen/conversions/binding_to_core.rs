@@ -91,7 +91,14 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
                 ));
                 continue;
             }
-            let field_was_optionalized = optionalized && !field.optional;
+            // A field is considered optionalized if:
+            // 1. optionalize_defaults=true and the field is non-optional (all fields case), OR
+            // 2. option_duration_on_defaults=true and it's a non-optional Duration field (WASM case)
+            let field_is_optionalized_by_duration = config.option_duration_on_defaults
+                && typ.has_default
+                && !field.optional
+                && matches!(field.ty, TypeRef::Duration);
+            let field_was_optionalized = (optionalized && !field.optional) || field_is_optionalized_by_duration;
             let conversion = if field_was_optionalized {
                 // Field was Option-wrapped in the binding for ergonomics; core expects T.
                 // Compute the conversion as if the binding field were the unwrapped T value —

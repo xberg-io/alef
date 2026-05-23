@@ -506,9 +506,14 @@ impl client::TestClientRenderer for ZigTestClientRenderer {
         };
 
         let payload_field = if emit_payload { ", .payload = body_bytes" } else { "" };
+        // `.keep_alive = false` sends `Connection: close` so the server closes the socket after
+        // the response. Without it, the std.http.Client blocks reading a kept-alive connection
+        // waiting for data/EOF that never arrives — under the e2e load this deadlocks the test
+        // binaries (0% CPU, hundreds of lingering connections). Each test uses a fresh client,
+        // so there is no keep-alive reuse benefit to preserve.
         let _ = writeln!(
             out,
-            "    const {rv} = try http_client.fetch(.{{ .location = .{{ .url = url }}, .method = {method_zig}, .extra_headers = {headers_arg}{payload_field}, .response_writer = &response_body.writer }});",
+            "    const {rv} = try http_client.fetch(.{{ .location = .{{ .url = url }}, .method = {method_zig}, .extra_headers = {headers_arg}{payload_field}, .keep_alive = false, .response_writer = &response_body.writer }});",
             rv = ctx.response_var,
         );
     }
