@@ -69,6 +69,13 @@ impl PhpBackend {
             lossy_skip_types: &[],
             serializable_opaque_type_names: &[],
             never_skip_cfg_field_names: &[],
+            // PHP applies struct-level `#[serde(default)]` so that `from_json` accepts partial
+            // payloads. Without delegation, missing fields fall back to the derived `Default`,
+            // which uses Rust's primitive zeros and clobbers any custom values from the core
+            // type's `Default` impl when the binding is later converted back to core via
+            // `From<BindingType>`. Setting this to `true` emits a delegating `impl Default`
+            // that defers to `<core::Type as Default>::default().into()`.
+            emit_delegating_default_impl: true,
         }
     }
 }
@@ -334,8 +341,10 @@ impl Backend for PhpBackend {
                     builder.add_item(&ctor_impl);
                 }
             } else {
-                // gen_struct adds #[derive(Default)] when typ.has_default is true,
-                // so no separate Default impl is needed.
+                // gen_php_struct emits an explicit delegating `impl Default for BindingType`
+                // for has_default types (driven by `emit_delegating_default_impl: true` in
+                // the PHP binding config). The auto-derived `Default` is suppressed in the
+                // shared struct generator so the two do not collide.
                 builder.add_item(&gen_php_struct(
                     typ,
                     &mapper,

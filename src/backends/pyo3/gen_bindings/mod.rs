@@ -49,6 +49,7 @@ impl Pyo3Backend {
             lossy_skip_types: &[],
             serializable_opaque_type_names: &[],
             never_skip_cfg_field_names: &[],
+            emit_delegating_default_impl: false,
         }
     }
 
