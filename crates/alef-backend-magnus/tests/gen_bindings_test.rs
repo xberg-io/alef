@@ -2325,6 +2325,101 @@ fn tagged_enum_public_api_emits_sorbet_sig_blocks() {
     );
 }
 
+/// Regression: the tagged-enum `from_hash` dispatcher must emit single-quoted
+/// string literals (RuboCop's default `Style/StringLiterals`). Generated Ruby
+/// lives under `lib/**` which the gem's `.rubocop.yml` excludes, so alef's own
+/// `rubocop -A` pass never touches it — but a pre-commit `rubocop` hook that
+/// passes the file explicitly overrides that exclusion and rewrites
+/// double-quoted literals to single quotes, invalidating alef's file hash.
+/// Emitting single quotes up front keeps the file stable and `alef verify`-clean.
+#[test]
+fn tagged_enum_dispatcher_uses_single_quoted_string_literals() {
+    let backend = MagnusBackend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "Message".to_string(),
+            rust_path: "test_lib::Message".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![EnumVariant {
+                name: "System".to_string(),
+                fields: vec![FieldDef {
+                    name: "content".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    doc: String::new(),
+                    sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    typed_default: None,
+                    core_wrapper: CoreWrapper::None,
+                    vec_inner_core_wrapper: CoreWrapper::None,
+                    newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                    original_type: None,
+                }],
+                is_tuple: false,
+                doc: String::new(),
+                is_default: true,
+                serde_rename: None,
+            }],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: false,
+            serde_tag: Some("role".to_string()),
+            serde_untagged: false,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let config = make_config();
+    let files = backend.generate_public_api(&api, &config).unwrap();
+    let content = &files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("native.rb"))
+        .unwrap()
+        .content;
+
+    // Discriminator access, `when` arms, and per-variant field reads use single quotes.
+    assert!(
+        content.contains("hash[:role] || hash['role']"),
+        "discriminator read must use single quotes:\n{content}"
+    );
+    assert!(
+        content.contains("when 'system' then MessageSystem.from_hash(hash)"),
+        "dispatcher `when` arm must use single quotes:\n{content}"
+    );
+    assert!(
+        content.contains("hash[:content] || hash['content']"),
+        "variant field read must use single quotes:\n{content}"
+    );
+    // No double-quoted non-interpolated string literals leak into the dispatcher.
+    assert!(
+        !content.contains("hash[\"role\"]") && !content.contains("when \"system\""),
+        "no double-quoted literals expected in dispatcher:\n{content}"
+    );
+    // The interpolated raise message stays double-quoted (single quotes don't interpolate).
+    assert!(
+        content.contains("raise \"Unknown discriminator: #{discriminator}\""),
+        "interpolated raise must remain double-quoted:\n{content}"
+    );
+}
+
 /// Regression: tagged enum must emit a base class and per-variant subclasses.
 ///
 /// The base `Message` class provides predicate methods that return `false` by default.

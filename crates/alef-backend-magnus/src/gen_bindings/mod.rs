@@ -791,7 +791,7 @@ fn gen_tagged_enum_ruby_classes(enum_def: &alef_core::ir::EnumDef, module_name: 
     out.push_str("    sig { params(hash: T::Hash[T.untyped, T.untyped]).returns(T.untyped) }\n");
     out.push_str("    def self.from_hash(hash)\n");
     out.push_str(&format!(
-        "      discriminator = hash[:{tag_field}] || hash[\"{tag_field}\"]\n"
+        "      discriminator = hash[:{tag_field}] || hash['{tag_field}']\n"
     ));
     out.push_str("      case discriminator\n");
     for variant in &enum_def.variants {
@@ -799,11 +799,11 @@ fn gen_tagged_enum_ruby_classes(enum_def: &alef_core::ir::EnumDef, module_name: 
         let variant_const = format!("{}{}", class_name, &variant.name);
         if let Some(rename) = &variant.serde_rename {
             out.push_str(&format!(
-                "      when \"{rename}\" then {variant_const}.from_hash(hash)\n"
+                "      when '{rename}' then {variant_const}.from_hash(hash)\n"
             ));
         } else {
             out.push_str(&format!(
-                "      when \"{snake}\" then {variant_const}.from_hash(hash)\n"
+                "      when '{snake}' then {variant_const}.from_hash(hash)\n"
             ));
         }
     }
@@ -894,7 +894,7 @@ fn gen_tagged_enum_ruby_classes(enum_def: &alef_core::ir::EnumDef, module_name: 
                     f.name.clone()
                 };
                 let key_string = if f.name == "_0" { "_0" } else { f.name.as_str() };
-                let val_expr = format!("hash[{key_sym}] || hash[\"{key_string}\"]");
+                let val_expr = format!("hash[{key_sym}] || hash['{key_string}']");
                 format!("{param_name}: {val_expr}")
             })
             .collect();
