@@ -1033,6 +1033,7 @@ fn render_test_method(
         adapter_request_type.as_deref(),
         namespace,
         streaming_owner_handle.is_some(),
+        type_defs,
     );
 
     // Check for skip_languages early
@@ -1318,6 +1319,7 @@ fn build_args_and_setup(
     adapter_request_type: Option<&str>,
     namespace: &str,
     owner_handle_is_receiver: bool,
+    type_defs: &[crate::core::ir::TypeDef],
 ) -> (Vec<String>, String) {
     let fixture_id = &fixture.id;
     if args.is_empty() {
@@ -1447,9 +1449,12 @@ fn build_args_and_setup(
                 // so serialize the config to JSON and use from_json() to construct it.
                 // Filter out empty string enum values before passing to from_json().
                 let filtered_config = filter_empty_enum_strings(config_value);
+                // For handle-type args, the type name is hardcoded as "CrawlConfig" (kreuzberg-specific).
+                // Look up its serde_rename_all setting from the IR.
+                let config_rename_all = get_serde_rename_all("CrawlConfig", type_defs);
                 setup_lines.push(format!(
                     "${name}_config = CrawlConfig::from_json(json_encode({}));",
-                    json_to_php_camel_keys(&filtered_config)
+                    json_to_php_camel_keys(&filtered_config, config_rename_all.as_deref())
                 ));
                 setup_lines.push(format!(
                     "${} = {class_name}::{constructor_name}(${name}_config);",
@@ -1593,7 +1598,13 @@ fn build_args_and_setup(
                                 }
                             }
 
-                            parts.push(format!("json_encode({})", json_to_php_camel_keys(&filtered_v)));
+                            // Look up the serde_rename_all setting for the receiving type (if specified).
+                            // If options_type is set, use it; otherwise pass None (no key transformation).
+                            let rename_all = options_type.and_then(|tn| get_serde_rename_all(tn, type_defs));
+                            parts.push(format!(
+                                "json_encode({})",
+                                json_to_php_camel_keys(&filtered_v, rename_all.as_deref())
+                            ));
                             continue;
                         }
                         _ => {
@@ -1618,12 +1629,13 @@ fn build_args_and_setup(
                                 }
 
                                 let arg_var = format!("${}", arg.name);
-                                // PHP binding's serde wrapper applies `rename_all` per the per-language
-                                // wire-case registry (`ResolvedCrateConfig::serde_rename_all_for_language`),
-                                // which is camelCase for PHP — emit camelCase keys to match.
+                                // The serde_rename_all strategy comes from the Rust core struct's
+                                // `#[serde(rename_all = "...")]` attribute, not from what the PHP
+                                // binding wishes were true. Look up the actual setting from the IR.
+                                let type_rename_all = get_serde_rename_all(type_name, type_defs);
                                 setup_lines.push(format!(
                                     "{arg_var} = \\{namespace}\\{type_name}::from_json(json_encode({}));",
-                                    json_to_php_camel_keys(&filtered_v)
+                                    json_to_php_camel_keys(&filtered_v, type_rename_all.as_deref())
                                 ));
                                 parts.push(arg_var);
                                 continue;
@@ -2116,24 +2128,53 @@ fn json_to_php(value: &serde_json::Value) -> String {
     }
 }
 
-/// Like `json_to_php` but recursively converts all object keys to lowerCamelCase.
-/// Used when generating PHP option arrays passed to `from_json()` — the PHP binding
-/// structs use `#[serde(rename_all = "camelCase")]` so snake_case fixture keys
-/// (e.g. `remove_forms`) must become `removeForms` in the generated test code.
-fn json_to_php_camel_keys(value: &serde_json::Value) -> String {
+/// Look up the serde_rename_all setting for a type name from the IR type_defs.
+/// Returns the rename_all strategy (e.g., Some("camelCase")) or None if not found or not set.
+fn get_serde_rename_all(
+    type_name: &str,
+    type_defs: &[crate::core::ir::TypeDef],
+) -> Option<String> {
+    type_defs
+        .iter()
+        .find(|td| td.name == type_name)
+        .and_then(|td| td.serde_rename_all.clone())
+}
+
+/// Like `json_to_php` but optionally converts object keys to lowerCamelCase.
+/// When `serde_rename_all` is Some("camelCase"), recursively converts all object keys
+/// from snake_case to camelCase. Otherwise, passes keys through unchanged.
+///
+/// Used when generating PHP option arrays passed to `from_json()` — PHP binding
+/// structs respect the serde attributes of the underlying Rust core types, so we only
+/// apply camelCase transformation when the target type explicitly declares it.
+fn json_to_php_camel_keys(
+    value: &serde_json::Value,
+    serde_rename_all: Option<&str>,
+) -> String {
     match value {
         serde_json::Value::Object(map) => {
             let items: Vec<String> = map
                 .iter()
                 .map(|(k, v)| {
-                    let camel_key = k.to_lower_camel_case();
-                    format!("\"{}\" => {}", escape_php(&camel_key), json_to_php_camel_keys(v))
+                    let final_key = if serde_rename_all == Some("camelCase") {
+                        k.to_lower_camel_case()
+                    } else {
+                        k.to_string()
+                    };
+                    format!(
+                        "\"{}\" => {}",
+                        escape_php(&final_key),
+                        json_to_php_camel_keys(v, serde_rename_all)
+                    )
                 })
                 .collect();
             format!("[{}]", items.join(", "))
         }
         serde_json::Value::Array(arr) => {
-            let items: Vec<String> = arr.iter().map(json_to_php_camel_keys).collect();
+            let items: Vec<String> = arr
+                .iter()
+                .map(|item| json_to_php_camel_keys(item, serde_rename_all))
+                .collect();
             format!("[{}]", items.join(", "))
         }
         _ => json_to_php(value),
