@@ -379,14 +379,16 @@ fn buildscript_comes_after_imports_in_correct_order() {
     let content = &gradle_file.content;
 
     // Find positions of the three imports in the entire file
-    let pos_android_variant = content.find("import com.vanniktech.maven.publish.AndroidSingleVariantLibrary")
+    let pos_android_variant = content
+        .find("import com.vanniktech.maven.publish.AndroidSingleVariantLibrary")
         .expect("AndroidSingleVariantLibrary import not found");
-    let pos_sonatype = content.find("import com.vanniktech.maven.publish.SonatypeHost")
+    let pos_sonatype = content
+        .find("import com.vanniktech.maven.publish.SonatypeHost")
         .expect("SonatypeHost import not found");
-    let pos_jvm_target = content.find("import org.jetbrains.kotlin.gradle.dsl.JvmTarget")
+    let pos_jvm_target = content
+        .find("import org.jetbrains.kotlin.gradle.dsl.JvmTarget")
         .expect("JvmTarget import not found");
-    let pos_buildscript = content.find("buildscript {")
-        .expect("buildscript block not found");
+    let pos_buildscript = content.find("buildscript {").expect("buildscript block not found");
 
     // All imports must come before buildscript
     assert!(

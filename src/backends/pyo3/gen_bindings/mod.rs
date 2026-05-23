@@ -68,6 +68,7 @@ impl Pyo3Backend {
 /// (the JSON wire names) to match other language bindings' public APIs.
 /// This function finds the existing constructor and replaces it with a custom one.
 /// Also adds extra parameters for any options-field bridges (e.g., visitor).
+#[allow(clippy::too_many_arguments)]
 fn replace_constructor_with_serde_rename(
     impl_block: &str,
     typ: &crate::core::ir::TypeDef,

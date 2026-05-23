@@ -7,7 +7,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     ("class_open.jinja", include_str!("templates/class_open.jinja")),
     ("class_close.jinja", include_str!("templates/class_close.jinja")),
     // Freezed class headers
-    ("freezed_class_open.jinja", include_str!("templates/freezed_class_open.jinja")),
+    (
+        "freezed_class_open.jinja",
+        include_str!("templates/freezed_class_open.jinja"),
+    ),
     (
         "freezed_class_single_param.jinja",
         include_str!("templates/freezed_class_single_param.jinja"),

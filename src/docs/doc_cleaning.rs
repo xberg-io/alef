@@ -7,6 +7,7 @@ const RUST_ONLY_SECTIONS: &[&str] = &["example", "examples", "arguments", "field
 ///
 /// Returns `Ok(())` if all headings increment by at most 1 level, or an error message
 /// describing the first violation found.
+#[cfg(test)]
 pub(crate) fn check_monotonic_headings(doc: &str) -> Result<(), String> {
     let mut previous_level: Option<usize> = None;
     let mut in_code_block = false;

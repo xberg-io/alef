@@ -217,18 +217,16 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
                 std::fs::read_dir(elixir_out)
                     .ok()
                     .map(|entries| {
-                        entries
-                            .filter_map(|e| e.ok())
-                            .any(|entry| {
-                                if let Ok(meta) = entry.metadata() {
-                                    if meta.is_file() {
-                                        if let Some(name) = entry.file_name().to_str() {
-                                            return name.ends_with(".ex") || name.ends_with(".exs");
-                                        }
+                        entries.filter_map(|e| e.ok()).any(|entry| {
+                            if let Ok(meta) = entry.metadata() {
+                                if meta.is_file() {
+                                    if let Some(name) = entry.file_name().to_str() {
+                                        return name.ends_with(".ex") || name.ends_with(".exs");
                                     }
                                 }
-                                false
-                            })
+                            }
+                            false
+                        })
                     })
                     .unwrap_or(false)
             })

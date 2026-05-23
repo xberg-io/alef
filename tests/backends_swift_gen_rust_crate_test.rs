@@ -1911,19 +1911,22 @@ features = ["serde", "config", "download"]
 
     // Three features should be multi-line.
     assert!(
-        cargo.content.contains("features = [\n    \"serde\",\n    \"config\",\n    \"download\",\n]"),
+        cargo
+            .content
+            .contains("features = [\n    \"serde\",\n    \"config\",\n    \"download\",\n]"),
         "Three features should be multi-line; got:\n{}",
         cargo.content
     );
     // Must NOT be single-line.
     assert!(
-        !cargo.content.contains("features = [\"serde\", \"config\", \"download\"]"),
+        !cargo
+            .content
+            .contains("features = [\"serde\", \"config\", \"download\"]"),
         "Three features should not be single-line; got:\n{}",
         cargo.content
     );
     // The TOML must be parseable.
-    let parsed: toml::Value = toml::from_str(&cargo.content)
-        .expect("Generated Cargo.toml must be valid TOML");
+    let parsed: toml::Value = toml::from_str(&cargo.content).expect("Generated Cargo.toml must be valid TOML");
     assert!(
         parsed.get("dependencies").is_some(),
         "Generated Cargo.toml must have [dependencies]; got:\n{}",
@@ -1962,12 +1965,14 @@ features = ["serde", "config", "download"]
     let cargo = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
 
     // Parse the generated Cargo.toml to ensure it's valid TOML.
-    let _parsed: toml::Value = toml::from_str(&cargo.content)
-        .expect("Generated Cargo.toml must be valid TOML after multi-line features");
+    let _parsed: toml::Value =
+        toml::from_str(&cargo.content).expect("Generated Cargo.toml must be valid TOML after multi-line features");
 
     // Verify the multi-line format is present.
     assert!(
-        cargo.content.contains("features = [\n    \"serde\",\n    \"config\",\n    \"download\",\n]"),
+        cargo
+            .content
+            .contains("features = [\n    \"serde\",\n    \"config\",\n    \"download\",\n]"),
         "Multi-line features must be formatted correctly; got:\n{}",
         cargo.content
     );

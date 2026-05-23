@@ -9,10 +9,7 @@ static TEMPLATES: &[(&str, &str)] = &[
         "unmarshal_bytes_helper.jinja",
         include_str!("templates/unmarshal_bytes_helper.jinja"),
     ),
-    (
-        "ptr_helper.jinja",
-        include_str!("templates/ptr_helper.jinja"),
-    ),
+    ("ptr_helper.jinja", include_str!("templates/ptr_helper.jinja")),
     ("opaque_type.jinja", include_str!("templates/opaque_type.jinja")),
     ("go_file_header.jinja", include_str!("templates/go_file_header.jinja")),
     (

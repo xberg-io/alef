@@ -5117,9 +5117,7 @@ fn test_has_default_struct_with_nested_struct_field_accepts_none() {
                 name: "PreprocessingOptions".to_string(),
                 rust_path: "test_lib::PreprocessingOptions".to_string(),
                 original_rust_path: String::new(),
-                fields: vec![
-                    make_field("normalize", TypeRef::Primitive(PrimitiveType::Bool), false),
-                ],
+                fields: vec![make_field("normalize", TypeRef::Primitive(PrimitiveType::Bool), false)],
                 methods: vec![],
                 is_opaque: false,
                 is_clone: true,
@@ -5144,7 +5142,11 @@ fn test_has_default_struct_with_nested_struct_field_accepts_none() {
                 fields: vec![
                     // This is the critical case: non-optional nested struct field on a has_default type
                     // Should be emitted as Option<PreprocessingOptions> with default None
-                    make_field("preprocessing", TypeRef::Named("PreprocessingOptions".to_string()), false),
+                    make_field(
+                        "preprocessing",
+                        TypeRef::Named("PreprocessingOptions".to_string()),
+                        false,
+                    ),
                     make_field("format", TypeRef::String, false),
                 ],
                 methods: vec![],

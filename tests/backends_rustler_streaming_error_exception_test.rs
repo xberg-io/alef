@@ -74,13 +74,7 @@ fn find_module<'a>(files: &'a [alef::core::backend::GeneratedFile], app_name: &s
     let expected = format!("{app_name}.ex");
     files
         .iter()
-        .find(|f| {
-            f.path
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .as_deref()
-                == Some(expected.as_str())
-        })
+        .find(|f| f.path.file_name().map(|n| n.to_string_lossy().to_string()).as_deref() == Some(expected.as_str()))
         .map(|f| f.content.as_str())
         .unwrap_or_else(|| {
             let paths: Vec<_> = files.iter().map(|f| f.path.to_string_lossy().to_string()).collect();

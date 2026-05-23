@@ -10,17 +10,13 @@
 //! The fix checks the IR's `serde_rename_all` field for each type and only applies
 //! camelCase transformation when it equals `Some("camelCase")`.
 
-use alef::core::ir::TypeDef;
 use alef::core::config::NewAlefConfig;
+use alef::core::ir::TypeDef;
 use alef::e2e::codegen::E2eCodegen;
 use alef::e2e::codegen::php::PhpCodegen;
-use alef::e2e::fixture::{Fixture, FixtureGroup, Assertion};
+use alef::e2e::fixture::{Assertion, Fixture, FixtureGroup};
 
-fn render_with_type_defs(
-    toml_src: &str,
-    type_defs: Vec<TypeDef>,
-    fixture: Fixture,
-) -> String {
+fn render_with_type_defs(toml_src: &str, type_defs: Vec<TypeDef>, fixture: Fixture) -> String {
     let cfg: NewAlefConfig = toml::from_str(toml_src).expect("config parses");
     let e2e = cfg.crates[0].e2e.clone().expect("e2e config present");
     let resolved = cfg.resolve().expect("config resolves").remove(0);
@@ -112,14 +108,12 @@ args = [{ name = "config", field = "config", type = "json_object" }]
 options_type = "ConfigWithCamel"
 "#;
 
-    let fixture = test_fixture(
-        serde_json::json!({
-            "config": {
-                "extract_pages": true,
-                "insert_page_markers": false,
-            }
-        }),
-    );
+    let fixture = test_fixture(serde_json::json!({
+        "config": {
+            "extract_pages": true,
+            "insert_page_markers": false,
+        }
+    }));
 
     let output = render_with_type_defs(toml_src, vec![config_with_camel], fixture);
 
@@ -180,14 +174,12 @@ args = [{ name = "config", field = "config", type = "json_object" }]
 options_type = "ConfigWithoutCamel"
 "#;
 
-    let fixture = test_fixture(
-        serde_json::json!({
-            "config": {
-                "extract_pages": true,
-                "insert_page_markers": false,
-            }
-        }),
-    );
+    let fixture = test_fixture(serde_json::json!({
+        "config": {
+            "extract_pages": true,
+            "insert_page_markers": false,
+        }
+    }));
 
     let output = render_with_type_defs(toml_src, vec![config_without_camel], fixture);
 

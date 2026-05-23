@@ -1,8 +1,8 @@
 //! Test that Java's Builder uses the correct default variant for enum fields with #[serde(default)].
 //! This tests the fix for STY-6.
 
-use alef::extract::default_value_for_enum::enum_default_variants_map;
 use alef::core::ir::{ApiSurface, EnumDef, EnumVariant, FieldDef, TypeDef, TypeRef};
+use alef::extract::default_value_for_enum::enum_default_variants_map;
 
 #[test]
 fn java_builder_uses_correct_default_variant_for_serde_default_enum_field() {

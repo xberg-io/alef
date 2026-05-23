@@ -164,15 +164,7 @@ pub(crate) fn emit_opaque_handle(
     let type_snake = AsSnakeCase(&ty.name).to_string();
     for method in ty.methods.iter().filter(|m| !m.is_static) {
         if let Some(item_type) = streaming_item_types.get(&method.name) {
-            emit_streaming_struct(
-                method,
-                ty,
-                prefix,
-                &type_snake,
-                item_type,
-                declared_errors,
-                out,
-            );
+            emit_streaming_struct(method, ty, prefix, &type_snake, item_type, declared_errors, out);
             let _ = writeln!(out);
         }
     }
@@ -255,8 +247,14 @@ fn emit_streaming_struct(
     let _ = writeln!(out);
 
     // Emit next() method: returns `?ItemType` or error
-    let _ = writeln!(out, "    /// Fetch the next item from the stream, or null at end-of-stream.");
-    let _ = writeln!(out, "    /// Returns an error on mid-stream failure; null on clean EOS.");
+    let _ = writeln!(
+        out,
+        "    /// Fetch the next item from the stream, or null at end-of-stream."
+    );
+    let _ = writeln!(
+        out,
+        "    /// Returns an error on mid-stream failure; null on clean EOS."
+    );
     let _ = writeln!(
         out,
         "    pub fn next(self: *{struct_name}) ({zig_error_type}||error{{OutOfMemory}})!?{item_type} {{"
@@ -267,14 +265,14 @@ fn emit_streaming_struct(
     );
     let _ = writeln!(out, "        if (_chunk == null) {{");
     let _ = writeln!(out, "            // Check errno: 0 = clean EOS, != 0 = error");
-    let _ = writeln!(out, "            if (_has_error()) return _first_error({zig_error_type});");
+    let _ = writeln!(
+        out,
+        "            if (_has_error()) return _first_error({zig_error_type});"
+    );
     let _ = writeln!(out, "            return null;");
     let _ = writeln!(out, "        }}");
     let _ = writeln!(out, "        defer c.{prefix}_{item_snake}_free(_chunk);");
-    let _ = writeln!(
-        out,
-        "        const _json = c.{prefix}_{item_snake}_to_json(_chunk);"
-    );
+    let _ = writeln!(out, "        const _json = c.{prefix}_{item_snake}_to_json(_chunk);");
     let _ = writeln!(out, "        defer c.{prefix}_free_string(_json);");
     let _ = writeln!(out, "        const _json_slice = std.mem.span(_json);");
     let _ = writeln!(out, "        return try parse{item_type}FromJson(_json_slice);");
@@ -376,10 +374,7 @@ fn emit_opaque_streaming_method(
     );
 
     // Return the stream struct without defer-freeing yet — caller owns it via deinit()
-    let _ = writeln!(
-        out,
-        "        return {struct_name}{{ ._handle = _stream_handle }};"
-    );
+    let _ = writeln!(out, "        return {struct_name}{{ ._handle = _stream_handle }};");
     let _ = writeln!(out, "    }}");
 }
 

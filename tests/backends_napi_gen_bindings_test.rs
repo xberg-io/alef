@@ -1713,6 +1713,7 @@ package_name = "test-lib"
         rename_fields: Default::default(),
         run_wrapper: None,
         extra_lint_paths: vec![],
+        crate_dir: None,
     });
     resolved
 }

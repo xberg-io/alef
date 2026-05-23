@@ -31,9 +31,8 @@ fn render_core_dep(
     overrides: &[FfiTargetDepOverride],
 ) -> (String, String) {
     if overrides.is_empty() {
-        let line = format!(
-            "{crate_name} = {{ path = \"../{core_crate_dir}\", version = \"{version}\"{default_features} }}"
-        );
+        let line =
+            format!("{crate_name} = {{ path = \"../{core_crate_dir}\", version = \"{version}\"{default_features} }}");
         return (line, String::new());
     }
 
@@ -349,17 +348,13 @@ mod tests {
             cfg: "target_os = \"windows\"".to_string(),
             features: vec!["windows-feature".to_string()],
         }];
-        let (core_dep_line, target_blocks) =
-            render_core_dep("my-lib", "my-lib-core", "2.0.0", "", &overrides);
+        let (core_dep_line, target_blocks) = render_core_dep("my-lib", "my-lib-core", "2.0.0", "", &overrides);
 
         assert!(
             core_dep_line.is_empty(),
             "Expected empty core_dep_line when overrides present"
         );
-        assert!(
-            !target_blocks.is_empty(),
-            "Expected non-empty target_blocks"
-        );
+        assert!(!target_blocks.is_empty(), "Expected non-empty target_blocks");
         assert!(
             target_blocks.contains("version = \"2.0.0\""),
             "Expected 'version = \"2.0.0\"' in target_blocks: {}",

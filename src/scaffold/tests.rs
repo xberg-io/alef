@@ -1464,7 +1464,8 @@ style = "ffi"
     let files = language_files(&all_files);
     let pubspec = &files[0];
     assert!(pubspec.content.contains("ffi: '^2.2.0'"), "got: {}", pubspec.content);
-    for frb_only_dep in ["flutter_rust_bridge:"] {
+    {
+        let frb_only_dep = "flutter_rust_bridge:";
         assert!(
             !pubspec.content.contains(frb_only_dep),
             "FFI Dart scaffold must not include FRB-only dependency {frb_only_dep}; got:\n{}",
@@ -1474,7 +1475,13 @@ style = "ffi"
     // freezed_annotation/json_annotation/freezed/build_runner/json_serializable are now
     // emitted in both FFI and FRB scaffolds because product-type DTOs are generated via
     // @freezed regardless of the bridge mode (STY-10).
-    for product_dto_dep in ["freezed_annotation:", "json_annotation:", "freezed:", "build_runner:", "json_serializable:"] {
+    for product_dto_dep in [
+        "freezed_annotation:",
+        "json_annotation:",
+        "freezed:",
+        "build_runner:",
+        "json_serializable:",
+    ] {
         assert!(
             pubspec.content.contains(product_dto_dep),
             "FFI Dart scaffold must include product-type DTO dependency {product_dto_dep} (STY-10); got:\n{}",
@@ -2777,8 +2784,7 @@ fn test_scaffold_elixir_mix_exs_omits_ex_glob_for_rs_only_directory() {
     let rs_dir = tmp.path();
 
     // Create a Rust NIF directory with only .rs and .toml files (no .ex files).
-    std::fs::write(rs_dir.join("lib.rs"), "// Rust NIF source\n")
-        .expect("write lib.rs");
+    std::fs::write(rs_dir.join("lib.rs"), "// Rust NIF source\n").expect("write lib.rs");
     std::fs::write(rs_dir.join("Cargo.toml"), "[package]\n").expect("write Cargo.toml");
 
     // Build config pointing explicit_output.elixir at the .rs-only directory.
@@ -2810,10 +2816,7 @@ elixir = "{explicit_path}"
         mix_exs.content.contains(".formatter.exs"),
         "mix.exs should contain .formatter.exs"
     );
-    assert!(
-        mix_exs.content.contains("native"),
-        "mix.exs should contain native"
-    );
+    assert!(mix_exs.content.contains("native"), "mix.exs should contain native");
 }
 
 /// BLK-9 regression: When explicit_output.elixir points to a directory containing
@@ -2825,8 +2828,7 @@ fn test_scaffold_elixir_mix_exs_includes_ex_glob_for_elixir_sources() {
     let ex_dir = tmp.path();
 
     // Create a directory with Elixir source files.
-    std::fs::write(ex_dir.join("module.ex"), "defmodule Test do\nend\n")
-        .expect("write module.ex");
+    std::fs::write(ex_dir.join("module.ex"), "defmodule Test do\nend\n").expect("write module.ex");
     std::fs::write(ex_dir.join("helper.exs"), "# helper\n").expect("write helper.exs");
 
     // Build config pointing explicit_output.elixir at the .ex-containing directory.

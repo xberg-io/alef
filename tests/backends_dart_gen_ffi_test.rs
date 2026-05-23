@@ -1,7 +1,9 @@
 use alef::backends::dart::DartBackend;
 use alef::core::backend::Backend;
 use alef::core::config::{DartConfig, DartStyle, ResolvedCrateConfig, new_config::NewAlefConfig};
-use alef::core::ir::{ApiSurface, CoreWrapper, EnumDef, EnumVariant, FieldDef, FunctionDef, ParamDef, PrimitiveType, TypeDef, TypeRef};
+use alef::core::ir::{
+    ApiSurface, CoreWrapper, EnumDef, EnumVariant, FieldDef, FunctionDef, ParamDef, PrimitiveType, TypeDef, TypeRef,
+};
 
 fn make_param(name: &str, ty: TypeRef) -> ParamDef {
     ParamDef {
@@ -462,10 +464,7 @@ fn product_type_multi_field_emits_freezed_with_named_params() {
 #[test]
 fn ffi_file_includes_part_of_directives_for_freezed() {
     let api = ApiSurface {
-        types: vec![make_type(
-            "Data",
-            vec![make_field("value", TypeRef::String, false)],
-        )],
+        types: vec![make_type("Data", vec![make_field("value", TypeRef::String, false)])],
         ..make_empty_api()
     };
     let config = make_config_ffi();
@@ -499,7 +498,9 @@ fn ffi_file_imports_json_annotation() {
         .unwrap();
 
     assert!(
-        ffi_file.content.contains("import 'package:json_annotation/json_annotation.dart'"),
+        ffi_file
+            .content
+            .contains("import 'package:json_annotation/json_annotation.dart'"),
         "FFI file must import json_annotation for @freezed support"
     );
 }
@@ -507,8 +508,8 @@ fn ffi_file_imports_json_annotation() {
 /// Scaffold for FFI Dart style includes freezed dev-dependencies for code generation.
 #[test]
 fn ffi_dart_scaffold_includes_freezed_dev_dependencies() {
-    use alef::scaffold::scaffold;
     use alef::core::config::Language;
+    use alef::scaffold::scaffold;
 
     let api = make_empty_api();
     let config = make_config_ffi();

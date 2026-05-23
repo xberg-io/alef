@@ -2130,10 +2130,7 @@ fn json_to_php(value: &serde_json::Value) -> String {
 
 /// Look up the serde_rename_all setting for a type name from the IR type_defs.
 /// Returns the rename_all strategy (e.g., Some("camelCase")) or None if not found or not set.
-fn get_serde_rename_all(
-    type_name: &str,
-    type_defs: &[crate::core::ir::TypeDef],
-) -> Option<String> {
+fn get_serde_rename_all(type_name: &str, type_defs: &[crate::core::ir::TypeDef]) -> Option<String> {
     type_defs
         .iter()
         .find(|td| td.name == type_name)
@@ -2147,10 +2144,7 @@ fn get_serde_rename_all(
 /// Used when generating PHP option arrays passed to `from_json()` — PHP binding
 /// structs respect the serde attributes of the underlying Rust core types, so we only
 /// apply camelCase transformation when the target type explicitly declares it.
-fn json_to_php_camel_keys(
-    value: &serde_json::Value,
-    serde_rename_all: Option<&str>,
-) -> String {
+fn json_to_php_camel_keys(value: &serde_json::Value, serde_rename_all: Option<&str>) -> String {
     match value {
         serde_json::Value::Object(map) => {
             let items: Vec<String> = map

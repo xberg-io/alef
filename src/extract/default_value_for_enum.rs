@@ -4,8 +4,8 @@
 //! backends need to materialize the default enum variant. This module provides
 //! a shared function to extract the default variant name from the IR.
 
-use ahash::AHashMap;
 use crate::core::ir::{ApiSurface, EnumDef};
+use ahash::AHashMap;
 
 /// Find the default variant name for an enum.
 ///
@@ -40,8 +40,6 @@ pub fn default_variant_name(enum_def: &EnumDef) -> Option<String> {
 pub fn enum_default_variants_map(api: &ApiSurface) -> AHashMap<String, String> {
     api.enums
         .iter()
-        .filter_map(|enum_def| {
-            default_variant_name(enum_def).map(|variant_name| (enum_def.name.clone(), variant_name))
-        })
+        .filter_map(|enum_def| default_variant_name(enum_def).map(|variant_name| (enum_def.name.clone(), variant_name)))
         .collect()
 }

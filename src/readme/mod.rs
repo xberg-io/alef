@@ -1928,8 +1928,10 @@ languages:
                 }
             }
         }
-        assert_eq!(cold_content, warm_content,
-            "README generation must be deterministic: alef readme and alef all must produce identical output (STY-5 regression)");
+        assert_eq!(
+            cold_content, warm_content,
+            "README generation must be deterministic: alef readme and alef all must produce identical output (STY-5 regression)"
+        );
 
         let _ = fs::remove_dir_all(&tmp);
     }
