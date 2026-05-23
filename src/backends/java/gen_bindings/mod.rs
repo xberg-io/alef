@@ -233,9 +233,11 @@ impl Backend for JavaBackend {
             });
         }
 
-        // Build a map of enum names to their default variant names.
+        // Build a map of enum names to their default variant metadata.
         // This is used when a struct field has #[serde(default)] and the field type is an enum.
-        let enum_defaults = crate::extract::default_value_for_enum::enum_default_variants_map(api);
+        // The metadata includes whether the variant has zero fields, which Java needs to determine
+        // whether to emit `new EnumName.Variant()` (record/sealed interface) or `EnumName.Variant` (static).
+        let enum_defaults = crate::extract::default_value_for_enum::enum_default_variants_map_with_metadata(api);
 
         // Untagged unions with data variants now emit as JsonNode-wrapper classes
         // (see gen_java_untagged_wrapper). The set is intentionally empty so that
@@ -254,6 +256,17 @@ impl Backend for JavaBackend {
                         .iter()
                         .any(|v| v.fields.len() == 1 && helpers::is_tuple_field_name(&v.fields[0].name))
             })
+            .map(|e| e.name.clone())
+            .collect();
+
+        // Collect sealed interface names. These are enums with serde tagging (internally tagged)
+        // which generate as sealed interfaces with nested record variants in Java,
+        // requiring `new EnumName.Variant()` syntax for instantiation.
+        // Traditional enums (no serde tagging) use static references like `EnumName.Variant`.
+        let sealed_interface_names: AHashSet<String> = api
+            .enums
+            .iter()
+            .filter(|e| e.serde_tag.is_some())
             .map(|e| e.name.clone())
             .collect();
 
@@ -289,6 +302,7 @@ impl Backend for JavaBackend {
                         &main_class,
                         builder_mode,
                         &enum_defaults,
+                        &sealed_interface_names,
                     ),
                     generated_header: true,
                 });
